@@ -792,16 +792,16 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 },
                 ConfigField {
                     key: "verificationMethod".into(),
-                    label: "Runtime Verification Method".into(),
+                    label: "Runtime key DID URL (internal)".into(),
                     field_type: FieldType::Text,
                     placeholder: "did:web:agent.example#key-1".into(),
                     secret: false,
                     required: false,
-                    help: "DID URL for the local runtime key. Yougen authorizes this exact value in ck.agent.key.authorize.",
+                    help: "Internal DID URL for the local runtime key. Savfox derives this from the Yougen bootstrap.",
                 },
                 ConfigField {
                     key: "authorizedEventRef".into(),
-                    label: "Authorized Event Ref".into(),
+                    label: "Authorization event (internal)".into(),
                     field_type: FieldType::Text,
                     placeholder: "ck:event:...".into(),
                     secret: false,
@@ -810,12 +810,21 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 },
                 ConfigField {
                     key: "runtimeKeyRequest".into(),
-                    label: "Runtime Key Request JSON".into(),
+                    label: "Request Yougen Approval".into(),
                     field_type: FieldType::Textarea,
-                    placeholder: r#"{"pairing_request_id":"...","agent_principal_id":"did:...","verification_method":"did:...#runtime-1","public_key":{"kty":"OKP","kid":"did:...#runtime-1","alg":"Ed25519","key":"..."},"proof_of_possession":{"challenge":"...","audience":"did:...","request_canonical_digest":"sha256:...","expires_at":"...","signature":"..."}}"#.into(),
+                    placeholder: String::new(),
                     secret: false,
                     required: false,
-                    help: "Read-only status for the Yougen approval paste. The signed request is generated locally from keyRef; it is not saved as channel config.",
+                    help: "Savfox generates the local runtime key when needed and builds the internal approval payload for Yougen.",
+                },
+                ConfigField {
+                    key: "authorizationResult".into(),
+                    label: "Approval result (internal)".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: String::new(),
+                    secret: false,
+                    required: false,
+                    help: "Internal compatibility slot for an authorization event returned by Yougen after approval.",
                 },
                 ConfigField {
                     key: "grantEventPath".into(),
@@ -828,12 +837,12 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 },
                 ConfigField {
                     key: "keyRef".into(),
-                    label: "Runtime Key Ref JSON".into(),
+                    label: "Local Runtime Key".into(),
                     field_type: FieldType::Textarea,
                     placeholder: r#"{"kind":"env","var":"SAVFOX_COKRET_BOT_KEY"}"#.into(),
                     secret: true,
                     required: false,
-                    help: "Local runtime key reference. Savfox must own the private key; Yougen bootstrap never carries it.",
+                    help: "Advanced local runtime key reference. By default Savfox generates a local file key automatically.",
                 },
             ],
         },
@@ -2066,12 +2075,7 @@ fn field_display_required(
         if field.key == "serviceDid" {
             return mode == "applet";
         }
-        if mode != "applet"
-            && matches!(
-                field.key.as_str(),
-                "yougenBootstrap" | "keyRef" | "verificationMethod" | "authorizedEventRef"
-            )
-        {
+        if mode != "applet" && field.key == "yougenBootstrap" {
             return true;
         }
     }
@@ -2091,6 +2095,7 @@ fn is_cokret_account_only_field(field_key: &str) -> bool {
             | "send"
             | "requestedScope"
             | "authorizedEventRef"
+            | "authorizationResult"
             | "runtimeKeyRequest"
     )
 }
@@ -2110,6 +2115,9 @@ fn is_cokret_agent_hidden_field(field_key: &str) -> bool {
             | "listen"
             | "send"
             | "requestedScope"
+            | "verificationMethod"
+            | "authorizedEventRef"
+            | "keyRef"
             | "grantEventPath"
     )
 }
@@ -2145,6 +2153,7 @@ fn is_cokret_helper_field(field_key: &str) -> bool {
             | "namespaceActors"
             | "namespaceRealms"
             | "namespaceHandles"
+            | "authorizationResult"
             | "runtimeKeyRequest"
     )
 }
@@ -2173,7 +2182,14 @@ fn is_cokret_advanced_field(field_key: &str, mode: &str) -> bool {
 fn should_skip_hidden_cokret_field(field_key: &str) -> bool {
     matches!(
         field_key,
-        "deviceId" | "receiveEvents" | "receiveEphemeral" | "rateLimited" | "ghostDidPrefix"
+        "deviceId"
+            | "receiveEvents"
+            | "receiveEphemeral"
+            | "rateLimited"
+            | "ghostDidPrefix"
+            | "keyRef"
+            | "verificationMethod"
+            | "authorizedEventRef"
     )
 }
 
@@ -2203,6 +2219,9 @@ fn field_is_visible(
             return false;
         }
         if is_cokret_applet_only_field(&field.key) && cokret_mode != "applet" {
+            return false;
+        }
+        if field.key == "authorizationResult" && cokret_mode != "applet" {
             return false;
         }
         if is_cokret_advanced_field(&field.key, &cokret_mode) {
@@ -2288,9 +2307,9 @@ fn build_cokret_channel_patch(
 
         match field.key.as_str() {
             "keyRef" => {
-                let parsed = parse_json_config_field("Runtime Key Ref JSON", value)?;
+                let parsed = parse_json_config_field("Local Runtime Key", value)?;
                 if !parsed.is_object() {
-                    return Err("Runtime Key Ref JSON must be a JSON object.".to_string());
+                    return Err("Local Runtime Key must be a JSON object.".to_string());
                 }
                 patch[&field.key] = parsed;
             }
@@ -2351,11 +2370,54 @@ fn build_cokret_channel_patch(
     } else {
         patch["namespaces"] = Value::Null;
         clear_cokret_agent_obsolete_fields(&mut patch);
+        apply_cokret_hidden_agent_runtime_values(channel_id, values, &mut patch)?;
         apply_cokret_bootstrap_defaults(&mut patch);
         validate_cokret_agent_runtime_request_inputs(&patch)?;
     }
 
     Ok(patch)
+}
+
+fn apply_cokret_hidden_agent_runtime_values(
+    channel_id: &str,
+    values: &std::collections::HashMap<String, String>,
+    patch: &mut Value,
+) -> Result<(), String> {
+    if let Some(value) = values
+        .get(&field_value_key(channel_id, "keyRef"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        let parsed = parse_json_config_field("Local Runtime Key", value)?;
+        if !parsed.is_object() {
+            return Err("Local Runtime Key must be a JSON object.".to_string());
+        }
+        patch["keyRef"] = parsed;
+    }
+
+    if let Some(value) = values
+        .get(&field_value_key(channel_id, "verificationMethod"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        patch["verificationMethod"] = json!(value);
+    }
+
+    let authorized_event_ref = values
+        .get(&field_value_key(channel_id, "authorizedEventRef"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            values
+                .get(&field_value_key(channel_id, "authorizationResult"))
+                .and_then(|value| extract_cokret_authorized_event_ref(value))
+        });
+    if let Some(authorized_event_ref) = authorized_event_ref {
+        patch["authorizedEventRef"] = json!(authorized_event_ref);
+    }
+
+    Ok(())
 }
 
 fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), String> {
@@ -2375,7 +2437,7 @@ fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
         .is_none_or(|object| object.is_empty())
     {
         return Err(
-            "Cokret agent mode requires Runtime Key Ref JSON for the local runtime key."
+            "Cokret agent mode needs a generated local runtime key. Click Request Yougen Approval so Savfox can generate it automatically."
                 .to_string(),
         );
     }
@@ -2386,7 +2448,7 @@ fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
         .is_none_or(str::is_empty)
     {
         return Err(
-            "Cokret agent mode requires Runtime Verification Method before generating the approval request."
+            "Cokret agent mode needs a runtime verification method derived from the resolved Yougen bootstrap."
                 .to_string(),
         );
     }
@@ -2446,6 +2508,62 @@ fn patch_value_empty(value: Option<&Value>) -> bool {
         Some(Value::Object(map)) => map.is_empty(),
         Some(Value::Bool(_)) | Some(Value::Number(_)) => false,
     }
+}
+
+fn extract_cokret_authorized_event_ref(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed)
+        && let Some(event_ref) = find_cokret_authorized_event_ref_in_value(&value)
+    {
+        return Some(event_ref);
+    }
+    find_cokret_event_ref_in_text(trimmed)
+}
+
+fn find_cokret_authorized_event_ref_in_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => find_cokret_event_ref_in_text(text),
+        Value::Array(items) => items
+            .iter()
+            .find_map(find_cokret_authorized_event_ref_in_value),
+        Value::Object(map) => {
+            for key in [
+                "authorized_event_ref",
+                "authorizedEventRef",
+                "authorization_event_ref",
+                "authorizationEventRef",
+                "event_id",
+                "eventId",
+                "ref",
+            ] {
+                if let Some(value) = map.get(key)
+                    && let Some(event_ref) = find_cokret_authorized_event_ref_in_value(value)
+                {
+                    return Some(event_ref);
+                }
+            }
+            map.values()
+                .find_map(find_cokret_authorized_event_ref_in_value)
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => None,
+    }
+}
+
+fn find_cokret_event_ref_in_text(text: &str) -> Option<String> {
+    for (start, _) in text.match_indices("ck:event:") {
+        let rest = &text[start..];
+        let end = rest
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, ':' | '-' | '_')))
+            .unwrap_or(rest.len());
+        let candidate = rest[..end].trim();
+        if candidate.len() > "ck:event:".len() {
+            return Some(candidate.to_owned());
+        }
+    }
+    None
 }
 
 fn default_channel_values(
@@ -3856,6 +3974,7 @@ fn render_single_field(
     if ch_id == "cokret" && field.key == "yougenBootstrap" {
         let status_key = format!("{ch_id}.yougenBootstrap.__status");
         let status_text = value_map.get(&status_key).cloned().unwrap_or_default();
+        let pairing_code = cokret_pairing_code_from_bootstrap_text(&current_val);
         let ch_id_for_resolve = ch_id.to_owned();
         let key_for_resolve = key.clone();
         let key_for_input = key.clone();
@@ -3974,22 +4093,32 @@ fn render_single_field(
                 if !status_text.is_empty() {
                     div { class: "channels-field__hint", "{status_text}" }
                 }
+                if let Some(pairing_code) = pairing_code.as_ref() {
+                    div { class: "channels-field__hint",
+                        "Pairing code: "
+                        span { class: "mono", "{pairing_code}" }
+                    }
+                }
             }
         };
     }
     if ch_id == "cokret" && field.key == "runtimeKeyRequest" {
         let status_text = cokret_runtime_key_request_status(ch_id, &value_map);
         let current_result = current_val.trim().to_owned();
-        let display_text = if current_result.is_empty() {
-            status_text
+        let has_generated_request = current_result.trim_start().starts_with('{');
+        let display_status = if has_generated_request {
+            "Approval request prepared. Waiting for backend delivery to Yougen.".to_string()
+        } else if current_result.is_empty() {
+            status_text.clone()
         } else {
             current_result.clone()
         };
+        let can_request_approval = status_text.starts_with("Ready to request Yougen approval");
         let ch_id_for_generate = ch_id.to_owned();
         let fields_for_generate = fields.to_vec();
         let key_for_generate = key.clone();
+        let key_ref_key_for_generate = field_value_key(ch_id, "keyRef");
         let ws_generate = ws.clone();
-        let key_for_copy = key.clone();
         drop(value_map);
         return rsx! {
             div { class: "channels-cfg__field",
@@ -3999,34 +4128,72 @@ fn render_single_field(
                         HelpTip { text: help_text.clone() }
                     }
                 }
-                textarea {
-                    placeholder: "{display_placeholder}",
-                    value: "{display_text}",
-                    class: "channels-field__input channels-cfg__textarea channels-field__input--readonly",
-                    readonly: true,
-                    rows: "13",
-                }
+                div { class: "channels-field__hint", "{display_status}" }
                 div { class: "channels-cfg__row-actions",
                     button {
                         class: "channels-action-btn channels-action-btn--primary",
                         r#type: "button",
+                        disabled: !can_request_approval,
                         onclick: move |_| {
                             let ch_id = ch_id_for_generate.clone();
                             let fields = fields_for_generate.clone();
                             let key = key_for_generate.clone();
+                            let key_ref_key = key_ref_key_for_generate.clone();
                             let ws = ws_generate.clone();
-                            let snapshot = values.read().clone();
-                            let patch = match build_channel_patch(&ch_id, &fields, &snapshot) {
-                                Ok(patch) => patch,
-                                Err(err) => {
-                                    values.write().insert(
-                                        key,
-                                        format!("Runtime key request generation failed: {err}"),
-                                    );
-                                    return;
-                                }
-                            };
+                            let mut snapshot = values.read().clone();
                             spawn(async move {
+                                let key_ref_needs_generation = snapshot
+                                    .get(&key_ref_key)
+                                    .map(|value| {
+                                        serde_json::from_str::<Value>(value.trim())
+                                            .ok()
+                                            .and_then(|value| value.as_object().cloned())
+                                            .is_none()
+                                    })
+                                    .unwrap_or(true);
+                                if key_ref_needs_generation {
+                                    values.write().insert(
+                                        key.clone(),
+                                        "Generating local runtime key...".to_string(),
+                                    );
+                                    let params =
+                                        cokret_runtime_key_ref_generation_params(&ch_id, &snapshot);
+                                    let result = ws
+                                        .call::<serde_json::Value>(
+                                            "channels.cokret.generate_runtime_key_ref",
+                                            Some(params),
+                                        )
+                                        .await;
+                                    match result {
+                                        Ok(payload) => {
+                                            let key_ref = payload
+                                                .get("key_ref")
+                                                .cloned()
+                                                .unwrap_or(serde_json::Value::Null);
+                                            let text = serde_json::to_string_pretty(&key_ref)
+                                                .unwrap_or_else(|_| key_ref.to_string());
+                                            values.write().insert(key_ref_key.clone(), text.clone());
+                                            snapshot.insert(key_ref_key.clone(), text);
+                                        }
+                                        Err(err) => {
+                                            values.write().insert(
+                                                key,
+                                                format!("Local runtime key generation failed: {err}"),
+                                            );
+                                            return;
+                                        }
+                                    }
+                                }
+                                let patch = match build_channel_patch(&ch_id, &fields, &snapshot) {
+                                    Ok(patch) => patch,
+                                    Err(err) => {
+                                        values.write().insert(
+                                            key,
+                                            format!("Runtime key request generation failed: {err}"),
+                                        );
+                                        return;
+                                    }
+                                };
                                 let result = ws
                                     .call::<serde_json::Value>(
                                         "channels.cokret.runtime_key_request",
@@ -4044,7 +4211,6 @@ fn render_single_field(
                                             .unwrap_or(serde_json::Value::Null);
                                         let text = serde_json::to_string_pretty(&request)
                                             .unwrap_or_else(|_| request.to_string());
-                                        copy_text_to_clipboard(text.clone()).await;
                                         values.write().insert(key, text);
                                     }
                                     Err(err) => {
@@ -4056,25 +4222,47 @@ fn render_single_field(
                                 }
                             });
                         },
-                        "Generate"
+                        "Request approval"
                     }
-                    button {
-                        class: "channels-action-btn",
-                        r#type: "button",
-                        disabled: current_result.is_empty(),
-                        onclick: move |_| {
-                            let text = values
-                                .read()
-                                .get(&key_for_copy)
-                                .cloned()
-                                .unwrap_or_default();
-                            if !text.trim().is_empty() {
-                                spawn(async move {
-                                    copy_text_to_clipboard(text).await;
-                                });
-                            }
-                        },
-                        "Copy"
+                }
+            }
+        };
+    }
+    if ch_id == "cokret" && field.key == "authorizationResult" {
+        let event_ref_key = field_value_key(ch_id, "authorizedEventRef");
+        let authorized_event_ref = value_map.get(&event_ref_key).cloned().unwrap_or_default();
+        let key_for_input = key.clone();
+        let event_ref_key_for_input = event_ref_key.clone();
+        drop(value_map);
+        return rsx! {
+            div { class: "channels-cfg__field",
+                label { class: "channels-field__label",
+                    "{display_label}"
+                    if !help_text.is_empty() {
+                        HelpTip { text: help_text.clone() }
+                    }
+                }
+                textarea {
+                    placeholder: "{display_placeholder}",
+                    value: "{current_val}",
+                    oninput: move |e| {
+                        let raw = e.value();
+                        let event_ref = extract_cokret_authorized_event_ref(&raw);
+                        let mut values = values.write();
+                        values.insert(key_for_input.clone(), raw.clone());
+                        if let Some(event_ref) = event_ref {
+                            values.insert(event_ref_key_for_input.clone(), event_ref);
+                        } else if raw.trim().is_empty() {
+                            values.remove(&event_ref_key_for_input);
+                        }
+                    },
+                    class: "channels-field__input channels-cfg__textarea",
+                    rows: "4",
+                }
+                if !authorized_event_ref.trim().is_empty() {
+                    div { class: "channels-field__hint",
+                        "Authorization recorded: "
+                        span { class: "mono", "{authorized_event_ref}" }
                     }
                 }
             }
@@ -4360,88 +4548,80 @@ fn cokret_runtime_key_request_status(
     let verification_method = values
         .get(&field_value_key(channel_id, "verificationMethod"))
         .map(|value| value.trim())
-        .unwrap_or_default();
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
 
-    let mut missing = Vec::new();
-    let mut bootstrap = None;
+    let bootstrap;
     if bootstrap_raw.is_empty() {
-        missing.push("yougenBootstrap");
+        return "Paste a Yougen pairing link above, then click Resolve link.".to_string();
     } else if !bootstrap_raw.starts_with('{') {
-        missing.push("resolved Yougen bootstrap JSON (click Resolve link)");
+        return "Click Resolve link above before requesting Yougen approval.".to_string();
     } else {
-        match serde_json::from_str::<Value>(bootstrap_raw) {
-            Ok(value) => match parse_cokret_agent_pairing_bootstrap(value) {
-                Ok(parsed) => bootstrap = Some(parsed),
-                Err(_) => missing.push("spec AgentPairingBootstrap JSON"),
-            },
-            Err(_) => missing.push("valid yougenBootstrap JSON"),
-        }
+        let value = match serde_json::from_str::<Value>(bootstrap_raw) {
+            Ok(value) => value,
+            Err(_) => {
+                return "The resolved Yougen bootstrap is not valid JSON. Paste the pairing link again and resolve it."
+                    .to_string();
+            }
+        };
+        bootstrap = match parse_cokret_agent_pairing_bootstrap(value) {
+            Ok(parsed) => parsed,
+            Err(_) => {
+                return "The resolved Yougen bootstrap does not match the Cokret pairing format. Create a fresh pairing link in Yougen."
+                    .to_string();
+            }
+        };
     }
-    if key_ref_raw.is_empty() {
-        missing.push("keyRef");
+
+    if bootstrap.service_did.trim().is_empty() {
+        return "The resolved Yougen bootstrap is missing the Cokret service identity. Create a fresh pairing link in Yougen."
+            .to_string();
+    }
+
+    let verification_method = verification_method
+        .unwrap_or_else(|| format!("{}#runtime-1", bootstrap.agent_principal_id));
+    let key_ref_pending_auto = key_ref_raw.is_empty();
+    let key_note = if key_ref_pending_auto {
+        "Savfox will generate a local file key first."
     } else if serde_json::from_str::<Value>(key_ref_raw)
         .ok()
         .and_then(|value| value.as_object().cloned())
         .is_none()
     {
-        missing.push("valid keyRef JSON object");
-    }
-    if verification_method.is_empty() {
-        missing.push("verificationMethod");
-    }
-
-    let audience = bootstrap
-        .as_ref()
-        .map(|bootstrap| bootstrap.service_did.to_string())
-        .or_else(|| {
-            values
-                .get(&field_value_key(channel_id, "serviceDid"))
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty())
-        });
-
-    if audience.is_none() {
-        missing.push("serviceDid");
-    }
-
-    if !missing.is_empty() {
-        return format!(
-            "Runtime key request is not ready.\nMissing or invalid: {}.\n\nSavfox will not treat this Cokret agent as runnable without a local runtime key ref and controller authorization.",
-            missing.join(", ")
-        );
-    }
-
-    let agent_principal_id = bootstrap
-        .as_ref()
-        .map(|bootstrap| bootstrap.agent_principal_id.to_string())
-        .or_else(|| {
-            values
-                .get(&field_value_key(channel_id, "principalId"))
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or_default();
-    let pairing_request_id = bootstrap
-        .as_ref()
-        .map(|bootstrap| bootstrap.pairing_request_id.clone())
-        .unwrap_or_default();
+        "Savfox will replace the invalid local key reference automatically."
+    } else {
+        "Savfox will reuse the local runtime key already stored for this channel."
+    };
 
     format!(
-        "Ready for gateway-side runtime key request generation from keyRef.\n\nThe generated JSON for Yougen approval uses:\n{{\n  \"pairing_request_id\": \"{pairing_request_id}\",\n  \"agent_principal_id\": \"{agent_principal_id}\",\n  \"verification_method\": \"{verification_method}\",\n  \"public_key\": {{ \"kty\": \"OKP\", \"kid\": \"{verification_method}\", \"alg\": \"Ed25519\", \"key\": \"<base64url raw Ed25519 public key>\" }},\n  \"proof_of_possession\": {{ \"challenge\": \"{pairing_request_id}\", \"audience\": \"{}\", \"request_canonical_digest\": \"sha256:...\", \"expires_at\": \"...\", \"signature\": \"...\" }}\n}}\n\nThis browser form does not read or store the private key; only the gateway host can sign the request from keyRef.",
-        audience.unwrap_or_default()
+        "Ready to request Yougen approval for {verification_method}. {key_note} The local private key stays on this gateway; Yougen still has to approve the matching pairing code."
     )
+}
+
+fn cokret_pairing_code_from_bootstrap_text(input: &str) -> Option<String> {
+    let input = input.trim();
+    if input.is_empty() || !input.starts_with('{') {
+        return None;
+    }
+    serde_json::from_str::<Value>(input)
+        .ok()
+        .and_then(|value| parse_cokret_agent_pairing_bootstrap(value).ok())
+        .map(|bootstrap| bootstrap.pairing_code)
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn cokret_runtime_key_ref_generation_params(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
 ) -> Value {
-    let bootstrap_principal = values
+    let bootstrap = values
         .get(&field_value_key(channel_id, "yougenBootstrap"))
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .and_then(|value| serde_json::from_str::<Value>(value).ok())
-        .and_then(|value| parse_cokret_agent_pairing_bootstrap(value).ok())
+        .and_then(|value| parse_cokret_agent_pairing_bootstrap(value).ok());
+    let bootstrap_principal = bootstrap
+        .as_ref()
         .map(|bootstrap| bootstrap.agent_principal_id.to_string());
     let principal_id = bootstrap_principal.or_else(|| {
         values
@@ -4452,7 +4632,12 @@ fn cokret_runtime_key_ref_generation_params(
     let verification_method = values
         .get(&field_value_key(channel_id, "verificationMethod"))
         .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty());
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            bootstrap
+                .as_ref()
+                .map(|bootstrap| format!("{}#runtime-1", bootstrap.agent_principal_id))
+        });
 
     let mut params = serde_json::Map::new();
     params.insert("platform".to_owned(), json!("cokret"));
@@ -5034,6 +5219,12 @@ mod tests {
                 .any(|field| field.key == "runtimeKeyRequest")
         );
         assert!(
+            cokret
+                .config_fields
+                .iter()
+                .any(|field| field.key == "authorizationResult")
+        );
+        assert!(
             !cokret
                 .config_fields
                 .iter()
@@ -5064,10 +5255,11 @@ mod tests {
         };
 
         assert!(visible("yougenBootstrap"));
-        assert!(visible("keyRef"));
-        assert!(visible("verificationMethod"));
-        assert!(visible("authorizedEventRef"));
         assert!(visible("runtimeKeyRequest"));
+        assert!(!visible("authorizationResult"));
+        assert!(!visible("keyRef"));
+        assert!(!visible("verificationMethod"));
+        assert!(!visible("authorizedEventRef"));
         assert!(!visible("advanced"));
         assert!(!visible("baseUrl"));
         assert!(!visible("serviceDid"));
@@ -5106,10 +5298,29 @@ mod tests {
         assert!(!visible("agentId"));
         assert!(!visible("externalAiEndpointConfig"));
         assert!(!visible("requestedScope"));
-        assert!(visible("keyRef"));
-        assert!(visible("authorizedEventRef"));
+        assert!(!visible("keyRef"));
+        assert!(!visible("authorizedEventRef"));
         assert!(!visible("deviceId"));
         assert!(!visible("loginChallenge"));
+    }
+
+    #[test]
+    fn cokret_agent_hides_approval_result_internal_field() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        let field = fields
+            .iter()
+            .find(|field| field.key == "authorizationResult")
+            .expect("authorizationResult");
+
+        assert!(!field_is_visible("cokret", field, &values));
+
+        values.insert(
+            field_value_key("cokret", "runtimeKeyRequest"),
+            r#"{"pairing_request_id":"pair-123"}"#.to_owned(),
+        );
+
+        assert!(!field_is_visible("cokret", field, &values));
     }
 
     #[test]
@@ -5174,7 +5385,7 @@ mod tests {
     }
 
     #[test]
-    fn cokret_runtime_key_request_status_uses_spec_public_key_shape() {
+    fn cokret_runtime_key_request_status_hides_protocol_payload() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
         values.insert(
@@ -5185,19 +5396,13 @@ mod tests {
             field_value_key("cokret", "keyRef"),
             r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
         );
-        values.insert(
-            field_value_key("cokret", "verificationMethod"),
-            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
-        );
 
         let status = cokret_runtime_key_request_status("cokret", &values);
 
-        assert!(status.contains("\"public_key\""));
-        assert!(status.contains("\"kty\": \"OKP\""));
-        assert!(status.contains("\"kid\": \"did:webvh:example.org:agents:support#runtime-1\""));
-        assert!(status.contains("\"alg\": \"Ed25519\""));
-        assert!(status.contains("\"key\": \"<base64url raw Ed25519 public key>\""));
-        assert!(status.contains("\"proof_of_possession\""));
+        assert!(status.contains("Ready to request Yougen approval"));
+        assert!(status.contains("did:webvh:example.org:agents:support#runtime-1"));
+        assert!(!status.contains("\"public_key\""));
+        assert!(!status.contains("\"proof_of_possession\""));
         assert!(!status.contains("inline_seed_base64"));
     }
 
@@ -5214,15 +5419,12 @@ mod tests {
             field_value_key("cokret", "keyRef"),
             r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
         );
-        values.insert(
-            field_value_key("cokret", "verificationMethod"),
-            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
-        );
 
         let status = cokret_runtime_key_request_status("cokret", &values);
 
         assert!(status.contains("Resolve link"));
-        assert!(status.contains("resolved Yougen bootstrap JSON"));
+        assert!(!status.contains("yougenBootstrap"));
+        assert!(!status.contains("serviceDid"));
     }
 
     #[test]
@@ -5240,10 +5442,6 @@ mod tests {
         values.insert(
             field_value_key("cokret", "keyRef"),
             r#"{"kind":"inline_seed_base64","value":"secret"}"#.to_owned(),
-        );
-        values.insert(
-            field_value_key("cokret", "verificationMethod"),
-            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
         );
 
         let params = cokret_runtime_key_ref_generation_params("cokret", &values);
@@ -5269,14 +5467,10 @@ mod tests {
             field_value_key("cokret", "yougenBootstrap"),
             sdk_yougen_bootstrap_json(),
         );
-        values.insert(
-            field_value_key("cokret", "verificationMethod"),
-            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
-        );
 
         let err = build_channel_patch("cokret", &fields, &values).expect_err("missing keyRef");
 
-        assert!(err.contains("Runtime Key Ref JSON"));
+        assert!(err.contains("local runtime key"));
     }
 
     #[test]
@@ -5291,10 +5485,6 @@ mod tests {
         values.insert(
             field_value_key("cokret", "keyRef"),
             r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
-        );
-        values.insert(
-            field_value_key("cokret", "verificationMethod"),
-            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
         );
 
         let err = build_channel_patch("cokret", &fields, &values)
@@ -5328,12 +5518,9 @@ mod tests {
             r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "verificationMethod"),
-            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
-        );
-        values.insert(
-            field_value_key("cokret", "authorizedEventRef"),
-            "ck:event:01904100-0000-7000-8000-000000000099".to_owned(),
+            field_value_key("cokret", "authorizationResult"),
+            r#"{"authorized_event_ref":"ck:event:01904100-0000-7000-8000-000000000099"}"#
+                .to_owned(),
         );
         values.insert(
             field_value_key("cokret", "requestedScope"),
@@ -5378,6 +5565,10 @@ mod tests {
         );
         assert!(patch["externalAiEndpointConfig"].is_null());
         assert!(patch["runtimeKeyRequest"].is_null());
+        assert_eq!(
+            patch["authorizedEventRef"],
+            json!("ck:event:01904100-0000-7000-8000-000000000099")
+        );
         assert!(patch["principalId"].is_null());
         assert!(patch["baseUrl"].is_null());
         assert!(patch["serviceDid"].is_null());
@@ -5397,10 +5588,6 @@ mod tests {
         values.insert(
             field_value_key("cokret", "keyRef"),
             r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
-        );
-        values.insert(
-            field_value_key("cokret", "verificationMethod"),
-            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
         );
         values.insert(
             field_value_key("cokret", "externalAiEndpointConfig"),
