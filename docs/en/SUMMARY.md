@@ -90,4 +90,5 @@
 # Security
 
 - [Sandbox](security/sandbox.md)
+- [Unsafe and Sandbox Audit Checklist](security/unsafe-sandbox-audit.md)
 - [Threat Model](security/threat-model.md)
