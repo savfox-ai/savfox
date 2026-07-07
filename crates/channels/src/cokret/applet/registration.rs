@@ -11,8 +11,7 @@
 //! [`applet-schema.md`
 //! §1](../../../../../../cokret/cokret-spec/spec/v1/zh/extensions/applet-schema.md).
 
-use cokret::{AppletNamespaceEntry, AppletWireNamespaces, Hash, WireAppletRegistration};
-use cokret::Did;
+use cokret::{AppletNamespaceEntry, AppletWireNamespaces, Did, Hash, WireAppletRegistration};
 use serde_json::Value;
 
 use super::config::CokretAppletConfig;

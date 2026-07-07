@@ -5,10 +5,8 @@
 //! Production servers are expected to reject unsigned writes.
 
 use anyhow::Context;
-use cokret::Ed25519MoveSigner;
 use cokret::signatures::{SignEventOptions, sign_event};
-use cokret::{Event, EventRequirements};
-use cokret::{Did, Hlc, RealmId, new_prefixed_uuid7};
+use cokret::{Did, Ed25519MoveSigner, Event, EventRequirements, Hlc, RealmId, new_prefixed_uuid7};
 use serde_json::json;
 
 #[derive(Debug, Clone)]

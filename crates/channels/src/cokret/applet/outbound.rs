@@ -17,10 +17,8 @@
 //! reject with `event_proofs_empty`.
 
 use anyhow::Context;
-use cokret::Ed25519MoveSigner;
 use cokret::signatures::{SignEventOptions, sign_event};
-use cokret::Event;
-use cokret::{Did, Hlc, RealmId, new_prefixed_uuid7};
+use cokret::{Did, Ed25519MoveSigner, Event, Hlc, RealmId, new_prefixed_uuid7};
 use serde_json::{Value, json};
 
 /// Inputs for an applet-attributed `ck.message.create` event.

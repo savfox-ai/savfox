@@ -16,8 +16,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use cokret::EventsSubscribeFrameKind;
-use cokret::Did;
+use cokret::{Did, EventsSubscribeFrameKind};
 use savfox_channels::cokret::{
     CokretAccountConfig, CokretChannelConfig, CokretDecryptOutcome, CokretEncryptOutcome,
     CokretFrameStream, CokretHttpClient, CokretInboundEvent, CokretInboundParseResult,

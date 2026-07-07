@@ -5,9 +5,8 @@
 
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
-use cokret::{AuthManager, Ed25519MoveSigner};
 use cokret::http_client::Client;
-use cokret::{DeviceId, Did};
+use cokret::{AuthManager, DeviceId, Did, Ed25519MoveSigner};
 
 /// One-shot session state produced by [`login_with_signer`].
 #[derive(Debug, Clone)]

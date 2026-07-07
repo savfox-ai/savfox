@@ -15,9 +15,7 @@
 //!   `profile_fields.external_ref`, and `accountable_principal_ids`.
 
 use anyhow::Context as _;
-use cokret::ProfileCreateBuilder;
-use cokret::Event;
-use cokret::{AppletId, Did, Hlc, RealmId};
+use cokret::{AppletId, Did, Event, Hlc, ProfileCreateBuilder, RealmId};
 use serde_json::{Value, json};
 
 /// Mint a stable ghost DID for an external user.

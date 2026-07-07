@@ -13,13 +13,11 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use chrono::Utc;
-use cokret::Ed25519MoveSigner;
-use cokret::{
-    Event, EventsSubmitOutcome, EventsSubscribeFrame, ServerDescription,
-    SessionGrantDpopBindingProof,
-};
 use cokret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
-use cokret::{DeviceId, Did};
+use cokret::{
+    DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome, EventsSubscribeFrame,
+    ServerDescription, SessionGrantDpopBindingProof,
+};
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::{Stream, StreamExt};
 use serde_json::json;

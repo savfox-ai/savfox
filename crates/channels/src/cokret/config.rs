@@ -2,8 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use chrono::{DateTime, SecondsFormat, Utc};
-use cokret::AgentPairingBootstrap;
-use cokret::{DeviceId, Did};
+use cokret::{AgentPairingBootstrap, DeviceId, Did};
 use ed25519_dalek::Signer as _;
 use serde_json::Value;
 use sha2::{Digest, Sha256};

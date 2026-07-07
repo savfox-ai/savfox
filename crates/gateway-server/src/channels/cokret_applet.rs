@@ -34,10 +34,10 @@ use cokret::http_signature::{
     Component, HttpMessageVerificationError, SignaturePolicyError, SignatureVerificationPolicy,
     parse_signature_input, public_key_from_bytes, verify_signed_http_message,
 };
-use cokret::{IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow};
 use cokret::{
     AppletActorView, AppletDescription, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
-    AppletTransactionOutcome, AppletTransactionRequestBody, Did, Hash, canonical,
+    AppletTransactionOutcome, AppletTransactionRequestBody, Did, Hash, IdempotencyClaim,
+    IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow, canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -1505,8 +1505,9 @@ async fn emit_bridge_error(
     message: &str,
     external_ref: Option<Value>,
 ) -> anyhow::Result<()> {
-    use cokret::{AppletBridgeErrorBuilder, AppletBridgeErrorClass, AppletBridgeErrorVisibility};
-    use cokret::{Hlc, RealmId};
+    use cokret::{
+        AppletBridgeErrorBuilder, AppletBridgeErrorClass, AppletBridgeErrorVisibility, Hlc, RealmId,
+    };
 
     let cfg = &state.config;
     let realm = RealmId::new(realm_id.to_owned())
@@ -1586,16 +1587,15 @@ async fn construct_applet_client(
             .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
         // Applet configs keep the bot device optional for bearer-only mode.
         // DID-proof login still needs a protocol-valid runtime device id.
-        let device =
-            cokret::DeviceId::new(cfg.device_id.clone().unwrap_or_else(|| {
-                savfox_channels::cokret::derive_cokret_device_id(&[
-                    "applet",
-                    &cfg.id,
-                    &cfg.applet_id,
-                    &cfg.bot_actor_id,
-                ])
-            }))
-            .map_err(|err| anyhow::anyhow!("synth device_id: {err}"))?;
+        let device = cokret::DeviceId::new(cfg.device_id.clone().unwrap_or_else(|| {
+            savfox_channels::cokret::derive_cokret_device_id(&[
+                "applet",
+                &cfg.id,
+                &cfg.applet_id,
+                &cfg.bot_actor_id,
+            ])
+        }))
+        .map_err(|err| anyhow::anyhow!("synth device_id: {err}"))?;
         let (client, _session) = CokretHttpClient::login(
             &cfg.cokret_server_url,
             &signer,
