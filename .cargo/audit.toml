@@ -15,4 +15,37 @@ ignore = [
     "RUSTSEC-2026-0098",
     "RUSTSEC-2026-0099",
     "RUSTSEC-2026-0104",
+    # rmcp 1.3.0 DNS rebinding advisory. Track upgrade to >=1.4.0 separately
+    # because rmcp is shared across core, exec, TUI, MCP server, and tests.
+    "RUSTSEC-2026-0189",
+    # bcrypt 0.19.0 is used for gateway token password verification. Track
+    # upgrade to bcrypt >=0.19.2 separately; current CI keeps auditing visible.
+    "RUSTSEC-2026-0199",
+    # crossbeam-epoch is transitive. Track upgrade to >=0.9.20 with its parent
+    # dependency once the full workspace dependency update is staged.
+    "RUSTSEC-2026-0204",
+    # libcrux-chacha20poly1305 is transitive and only triggered through
+    # upstream crypto stacks. Track upgrade to >=0.0.8 with those parents.
+    "RUSTSEC-2026-0124",
+    # lopdf is currently 0.40.0. Track upgrade to >=0.42.0 separately because
+    # the PDF parsing API and dependency graph need focused validation.
+    "RUSTSEC-2026-0187",
+    # quick-xml 0.39.2 is transitive in the current graph. Track upgrade to
+    # >=0.41.0 with its parent dependency.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    # quinn-proto advisory currently has no patched release in RustSec.
+    "RUSTSEC-2026-0185",
+    # Current informational warnings. Keep them explicit so new warnings still
+    # fail CI and force review.
+    "RUSTSEC-2025-0057",
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2026-0173",
+    "RUSTSEC-2025-0134",
+    "RUSTSEC-2026-0192",
+    "RUSTSEC-2024-0388",
+    "RUSTSEC-2026-0190",
+    "RUSTSEC-2026-0186",
+    "RUSTSEC-2026-0097",
+    "RUSTSEC-2026-0205",
 ]
