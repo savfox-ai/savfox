@@ -14,7 +14,7 @@ serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 chrono = { workspace = true, features = ["wasmbind"] }
-cokret-core = { path = "../../../../cokret/cokret-rust-sdk/crates/core", default-features = false }
+cokret-core = { git = "https://github.com/cokret/cokret-rust-sdk.git", rev = "5bdb3fe0f88139c241b171b87b86f091fe46d4cb", package = "cokret-core", default-features = false }
 web-sys = { workspace = true, features = [
     "console",
     "Window",
@@ -73,4 +73,7 @@ savfox-utils = { workspace = true }
 toml = { workspace = true }
 uuid = { workspace = true, features = ["v4", "js"] }
 base64 = { workspace = true }
+hex = { workspace = true, features = ["alloc"] }
+hmac = { workspace = true }
 lucide-dioxus = { workspace = true }
+sha2 = { workspace = true }

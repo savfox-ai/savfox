@@ -4,12 +4,16 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use futures::channel::oneshot;
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::Value;
+use sha2::Sha256;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{MessageEvent, WebSocket};
 
 use super::types::{JsonRpcNotification, JsonRpcResponse};
+
+type HmacSha256 = Hmac<Sha256>;
 
 // ── localStorage helpers ────────────────────────────────────────────
 
@@ -58,9 +62,11 @@ impl PartialEq for WsRpc {
 
 /// Maximum number of consecutive reconnection attempts before giving up.
 const MAX_RECONNECT_ATTEMPTS: u32 = 20;
+const PROTOCOL_VERSION: u32 = 1;
 
 struct WsRpcInner {
     ws: RefCell<Option<WebSocket>>,
+    authenticated: Cell<bool>,
     next_id: Cell<u64>,
     pending: RefCell<HashMap<u64, oneshot::Sender<Result<Value, String>>>>,
     notification_handlers: RefCell<HashMap<String, Vec<NotificationHandler>>>,
@@ -76,6 +82,7 @@ impl WsRpc {
         Self {
             inner: Rc::new(WsRpcInner {
                 ws: RefCell::new(None),
+                authenticated: Cell::new(false),
                 next_id: Cell::new(1),
                 pending: RefCell::new(HashMap::new()),
                 notification_handlers: RefCell::new(HashMap::new()),
@@ -115,12 +122,14 @@ impl WsRpc {
     }
 
     pub fn connected(&self) -> bool {
-        self.inner
-            .ws
-            .borrow()
-            .as_ref()
-            .map(|ws| ws.ready_state() == WebSocket::OPEN)
-            .unwrap_or(false)
+        self.inner.authenticated.get()
+            && self
+                .inner
+                .ws
+                .borrow()
+                .as_ref()
+                .map(|ws| ws.ready_state() == WebSocket::OPEN)
+                .unwrap_or(false)
     }
 
     /// Wait for the WebSocket connection to be established, polling up to ~5 seconds.
@@ -183,6 +192,7 @@ impl WsRpc {
 
     pub fn connect(&self, mut connected_signal: Signal<bool>, mut reconnect_epoch: Signal<u64>) {
         self.inner.manual_disconnect.set(false);
+        self.inner.authenticated.set(false);
 
         // Don't reconnect if already open or connecting.
         if let Some(ws) = self.inner.ws.borrow().as_ref() {
@@ -203,8 +213,7 @@ impl WsRpc {
             "ws:"
         };
         let host = location.host().unwrap_or_default();
-        let token = get_token().unwrap_or_default();
-        let url = format!("{protocol}//{host}/ws?token={token}");
+        let url = format!("{protocol}//{host}/ws");
 
         let ws = match WebSocket::new(&url) {
             Ok(ws) => ws,
@@ -218,14 +227,8 @@ impl WsRpc {
 
         // onopen
         let inner = self.inner.clone();
-        let mut on_open_connected = connected_signal;
-        let mut on_open_epoch = reconnect_epoch;
         let on_open = Closure::wrap(Box::new(move || {
-            inner.reconnect_delay.set(1000);
-            inner.reconnect_attempts.set(0);
-            inner.reconnect_scheduled.set(false);
-            on_open_connected.set(true);
-            on_open_epoch += 1;
+            inner.authenticated.set(false);
         }) as Box<dyn FnMut()>);
         ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
         self.inner
@@ -235,9 +238,90 @@ impl WsRpc {
 
         // onmessage
         let inner = self.inner.clone();
+        let ws_auth = ws.clone();
+        let mut on_message_connected = connected_signal;
+        let mut on_message_epoch = reconnect_epoch;
         let on_message = Closure::wrap(Box::new(move |e: MessageEvent| {
             let data = e.data();
             if let Some(text) = data.as_string() {
+                if let Ok(frame) = serde_json::from_str::<Value>(&text)
+                    && let Some(frame_type) = frame.get("type").and_then(Value::as_str)
+                {
+                    match frame_type {
+                        "connectChallenge" => {
+                            let Some(nonce) = frame.get("nonce").and_then(Value::as_str) else {
+                                web_sys::console::warn_1(
+                                    &"WebSocket auth challenge did not include a nonce".into(),
+                                );
+                                ws_auth.close().ok();
+                                return;
+                            };
+                            let Some(token) = get_token() else {
+                                web_sys::console::warn_1(
+                                    &"WebSocket auth token is not available".into(),
+                                );
+                                ws_auth.close().ok();
+                                return;
+                            };
+                            match challenge_signature(&token, nonce) {
+                                Ok(signature) => {
+                                    let connect = serde_json::json!({
+                                        "type": "connect",
+                                        "token": signature,
+                                        "client_info": {
+                                            "name": "savfox-gateway-dioxus",
+                                            "version": env!("CARGO_PKG_VERSION"),
+                                            "platform": "web",
+                                        },
+                                        "min_protocol": PROTOCOL_VERSION,
+                                        "max_protocol": PROTOCOL_VERSION,
+                                        "role": "operator",
+                                    });
+                                    if let Err(err) = ws_auth.send_with_str(&connect.to_string()) {
+                                        web_sys::console::warn_1(
+                                            &format!(
+                                                "WebSocket auth connect frame failed: {err:?}"
+                                            )
+                                            .into(),
+                                        );
+                                        ws_auth.close().ok();
+                                    }
+                                }
+                                Err(err) => {
+                                    web_sys::console::warn_1(
+                                        &format!("WebSocket auth signing failed: {err}").into(),
+                                    );
+                                    ws_auth.close().ok();
+                                }
+                            }
+                            return;
+                        }
+                        "connected" => {
+                            inner.authenticated.set(true);
+                            inner.reconnect_delay.set(1000);
+                            inner.reconnect_attempts.set(0);
+                            inner.reconnect_scheduled.set(false);
+                            on_message_connected.set(true);
+                            on_message_epoch += 1;
+                            return;
+                        }
+                        "error" => {
+                            if frame.get("code").and_then(Value::as_i64) == Some(401) {
+                                clear_token();
+                                if let Some(w) = web_sys::window() {
+                                    w.location().reload().ok();
+                                }
+                            }
+                            web_sys::console::warn_1(
+                                &format!("WebSocket gateway error: {frame}").into(),
+                            );
+                            ws_auth.close().ok();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Try as JSON-RPC response (has `id` field) first.
                 if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&text) {
                     // We always allocate numeric ids on the client; ignore
@@ -288,6 +372,7 @@ impl WsRpc {
         let mut on_close_connected = connected_signal;
         let on_close_epoch = reconnect_epoch;
         let on_close = Closure::wrap(Box::new(move || {
+            self_clone.inner.authenticated.set(false);
             on_close_connected.set(false);
             // Reject all pending requests.
             for (_, tx) in self_clone.inner.pending.borrow_mut().drain() {
@@ -318,6 +403,7 @@ impl WsRpc {
     pub fn disconnect(&self) {
         self.inner.manual_disconnect.set(true);
         self.inner.reconnect_scheduled.set(false);
+        self.inner.authenticated.set(false);
         if let Some(ws) = self.inner.ws.borrow_mut().take() {
             ws.set_onopen(None);
             ws.set_onmessage(None);
@@ -392,4 +478,10 @@ impl WsRpc {
     pub fn off_notification(&self, method: &str) {
         self.inner.notification_handlers.borrow_mut().remove(method);
     }
+}
+
+fn challenge_signature(token: &str, nonce: &str) -> Result<String, String> {
+    let mut mac = HmacSha256::new_from_slice(token.as_bytes()).map_err(|e| e.to_string())?;
+    mac.update(nonce.as_bytes());
+    Ok(hex::encode(mac.finalize().into_bytes()))
 }

@@ -8,12 +8,6 @@ Complete reference for all gateway WebSocket JSON-RPC 2.0 methods. Connect to
 
 ## WebSocket Connection and Authentication
 
-### Quick connect (token in query string)
-
-```
-ws://localhost:18881/ws?token=YOUR_TOKEN
-```
-
 ### Challenge-response handshake
 
 1. Client opens a WebSocket to `/ws` (no query token).
@@ -25,14 +19,21 @@ ws://localhost:18881/ws?token=YOUR_TOKEN
    (backwards compatible) or `HMAC-SHA256(nonce, token)` hex for replay
    protection:
    ```json
-   { "type": "connect", "token": "raw-or-hmac-hex", "clientInfo": { "name": "my-app", "version": "1.0" } }
+   { "type": "connect", "token": "hmac-hex", "client_info": { "name": "my-app", "version": "1.0" } }
    ```
 4. Server validates and sends `Connected`:
    ```json
-   { "type": "connected", "sessionId": "uuid-v7", "serverVersion": "0.5.0", "protocol": 1 }
+   { "type": "connected", "session_id": "uuid-v7", "server_version": "0.5.0", "protocol": 1 }
    ```
 5. **Message loop** -- client sends JSON-RPC requests; server replies with
    JSON-RPC responses and pushes `Event` frames.
+
+### Legacy query-token connect
+
+Legacy clients may connect with `ws://localhost:18881/ws?token=YOUR_TOKEN`.
+This skips the challenge-response handshake and can expose bearer tokens in
+browser history, access logs, proxies, and telemetry. Prefer the handshake above
+for browser and remote clients.
 
 ### JSON-RPC request format
 

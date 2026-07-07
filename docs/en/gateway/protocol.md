@@ -26,11 +26,14 @@ Sent immediately after WebSocket upgrade. The client must authenticate before an
 ### Connect (Client to Server)
 
 Client authentication message. Must be the first message sent by the client.
+For production clients, set `token` to `HMAC-SHA256(nonce, token)` encoded as
+lowercase hex. Raw bearer tokens are still accepted for backwards
+compatibility, but they should be avoided by browser and remote clients.
 
 ```json
 {
   "type": "connect",
-  "token": "my-secret-token",
+  "token": "hmac-sha256-nonce-signature-hex",
   "client_info": { "name": "my-app", "version": "1.0.0" },
   "min_protocol": 1,
   "max_protocol": 1,
@@ -41,14 +44,18 @@ Client authentication message. Must be the first message sent by the client.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `token` | string | Yes | Authentication bearer token |
+| `token` | string | Yes | HMAC signature over the challenge nonce, or a legacy raw bearer token |
 | `client_info` | object | No | Client name and version |
 | `min_protocol` | number | No | Minimum protocol version supported |
 | `max_protocol` | number | No | Maximum protocol version supported |
 | `role` | string | No | `"operator"` or `"node"` |
 | `scopes` | array | No | Requested permission scopes |
 
-Alternatively, pass the token as a query parameter: `ws://localhost:18881/ws?token=my-secret-token`. This skips the `Connect` / `ConnectChallenge` handshake.
+Legacy clients may pass the token as a query parameter:
+`ws://localhost:18881/ws?token=my-secret-token`. This skips the
+`Connect` / `ConnectChallenge` handshake and can expose the token in browser
+history, access logs, proxies, and telemetry. Do not use query-string tokens for
+production browser or remote clients.
 
 ### Connected (Server to Client)
 
