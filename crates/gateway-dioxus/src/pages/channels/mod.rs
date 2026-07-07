@@ -810,7 +810,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 },
                 ConfigField {
                     key: "runtimeKeyRequest".into(),
-                    label: "Request Yougen Approval".into(),
+                    label: "Request approval".into(),
                     field_type: FieldType::Textarea,
                     placeholder: String::new(),
                     secret: false,
@@ -2437,7 +2437,7 @@ fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
         .is_none_or(|object| object.is_empty())
     {
         return Err(
-            "Cokret agent mode needs a generated local runtime key. Click Request Yougen Approval so Savfox can generate it automatically."
+            "Cokret agent mode needs a generated local runtime key. Click Request approval so Savfox can generate it automatically."
                 .to_string(),
         );
     }
@@ -4113,7 +4113,7 @@ fn render_single_field(
         } else {
             current_result.clone()
         };
-        let can_request_approval = status_text.starts_with("Ready to request Yougen approval");
+        let can_request_approval = status_text.starts_with("Ready to request approval");
         let ch_id_for_generate = ch_id.to_owned();
         let fields_for_generate = fields.to_vec();
         let key_for_generate = key.clone();
@@ -4122,13 +4122,6 @@ fn render_single_field(
         drop(value_map);
         return rsx! {
             div { class: "channels-cfg__field",
-                label { class: "channels-field__label",
-                    "{display_label}"
-                    if !help_text.is_empty() {
-                        HelpTip { text: help_text.clone() }
-                    }
-                }
-                div { class: "channels-field__hint", "{display_status}" }
                 div { class: "channels-cfg__row-actions",
                     button {
                         class: "channels-action-btn channels-action-btn--primary",
@@ -4197,21 +4190,22 @@ fn render_single_field(
                                 let result = ws
                                     .call::<serde_json::Value>(
                                         "channels.cokret.runtime_key_request",
-                                        Some(json!({
-                                            "platform": "cokret",
-                                            "config": patch,
-                                        })),
-                                    )
-                                    .await;
+                                    Some(json!({
+                                        "platform": "cokret",
+                                        "config": patch,
+                                    })),
+                                )
+                                .await;
                                 match result {
                                     Ok(payload) => {
-                                        let request = payload
-                                            .get("runtime_key_request")
-                                            .cloned()
-                                            .unwrap_or(serde_json::Value::Null);
-                                        let text = serde_json::to_string_pretty(&request)
-                                            .unwrap_or_else(|_| request.to_string());
-                                        values.write().insert(key, text);
+                                        let message = payload
+                                            .get("message")
+                                            .and_then(serde_json::Value::as_str)
+                                            .unwrap_or("Approval request sent to Yougen");
+                                        values.write().insert(
+                                            key,
+                                            format!("{message}. Waiting for Yougen approval."),
+                                        );
                                     }
                                     Err(err) => {
                                         values.write().insert(
@@ -4224,6 +4218,9 @@ fn render_single_field(
                         },
                         "Request approval"
                     }
+                }
+                if !display_status.is_empty() {
+                    div { class: "channels-field__hint", "{display_status}" }
                 }
             }
         };
@@ -4594,7 +4591,7 @@ fn cokret_runtime_key_request_status(
     };
 
     format!(
-        "Ready to request Yougen approval for {verification_method}. {key_note} The local private key stays on this gateway; Yougen still has to approve the matching pairing code."
+        "Ready to request approval for {verification_method}. {key_note} The local private key stays on this gateway; Yougen still has to approve the matching pairing code."
     )
 }
 
@@ -5399,7 +5396,7 @@ mod tests {
 
         let status = cokret_runtime_key_request_status("cokret", &values);
 
-        assert!(status.contains("Ready to request Yougen approval"));
+        assert!(status.contains("Ready to request approval"));
         assert!(status.contains("did:webvh:example.org:agents:support#runtime-1"));
         assert!(!status.contains("\"public_key\""));
         assert!(!status.contains("\"proof_of_possession\""));

@@ -2108,14 +2108,78 @@ pub(crate) async fn handle_channels_cokret_runtime_key_request(
     let request =
         savfox_channels::cokret::build_cokret_runtime_key_request_json(account, chrono::Utc::now())
             .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+    let approval =
+        submit_cokret_runtime_key_approval_request(channel.http_client(), account, request)
+            .await
+            .map_err(|err| (INVALID_REQUEST, err))?;
     Ok(json!({
         "platform": "cokret",
         "ok": true,
         "mode": "agent",
         "account_id": account.id.as_str(),
-        "runtime_key_request": request,
-        "message": "Cokret runtime key request generated",
+        "approval_request_id": approval
+            .get("approval_request_id")
+            .cloned()
+            .unwrap_or(Value::Null),
+        "status": approval.get("status").cloned().unwrap_or(Value::Null),
+        "message": "Cokret runtime key approval request sent to Yougen",
     }))
+}
+
+#[cfg(feature = "cokret")]
+async fn submit_cokret_runtime_key_approval_request(
+    client: &reqwest::Client,
+    account: &savfox_channels::cokret::CokretAccountConfig,
+    request: Value,
+) -> Result<Value, String> {
+    let bootstrap = account
+        .yougen_bootstrap
+        .as_ref()
+        .ok_or_else(|| "Cokret agent account has no resolved Yougen bootstrap".to_owned())?;
+    let mut body = request;
+    let object = body
+        .as_object_mut()
+        .ok_or_else(|| "Cokret runtime key request must be a JSON object".to_owned())?;
+    object.insert(
+        "pairing_code".to_owned(),
+        json!(bootstrap.pairing_code.clone()),
+    );
+    let typed: cokret::AgentRuntimeApprovalRequestBody = serde_json::from_value(body.clone())
+        .map_err(|err| {
+            format!("Cokret runtime approval request does not match the spec body: {err}")
+        })?;
+    let request_body = serde_json::to_vec(&typed)
+        .map_err(|err| format!("serialize Cokret runtime approval request: {err}"))?;
+    let endpoint = format!(
+        "{}/_cokret/open/agent-pairing/runtime-key-requests",
+        bootstrap.cokret_base_url.trim_end_matches('/')
+    );
+    let response = client
+        .post(&endpoint)
+        .header(CONTENT_TYPE, "application/json")
+        .body(request_body)
+        .send()
+        .await
+        .map_err(|err| format!("submit Cokret runtime approval request failed: {err}"))?;
+    let status = response.status();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|err| format!("read Cokret runtime approval response failed: {err}"))?;
+    if !status.is_success() {
+        let detail = String::from_utf8_lossy(&bytes);
+        let detail = detail.chars().take(300).collect::<String>();
+        return Err(format!(
+            "Cokret runtime approval endpoint returned HTTP {status}: {detail}"
+        ));
+    }
+    let value = serde_json::from_slice::<Value>(&bytes)
+        .map_err(|err| format!("Cokret runtime approval endpoint returned invalid JSON: {err}"))?;
+    let _typed: cokret::AgentRuntimeApprovalOutcome = serde_json::from_value(value.clone())
+        .map_err(|err| {
+            format!("Cokret runtime approval endpoint returned invalid outcome: {err}")
+        })?;
+    Ok(value)
 }
 
 #[cfg(not(feature = "cokret"))]
