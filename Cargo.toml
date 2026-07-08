@@ -344,6 +344,8 @@ cokret = { path = "../../cokret/cokret-rust-sdk/crates/sdk", default-features = 
     "mls",
     "signer",
 ] }
+cokret-core = { path = "../../cokret/cokret-rust-sdk/crates/core", default-features = false }
+cokret-client = { path = "../../cokret/cokret-rust-sdk/crates/client", default-features = false, features = ["native"] }
 cokret-bridge-runtime = { path = "../../cokret/bridges/crates/runtime", default-features = false, features = ["edge"] }
 
 # WASM dependencies for gateway-dioxus

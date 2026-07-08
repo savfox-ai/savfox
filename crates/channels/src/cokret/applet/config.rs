@@ -377,7 +377,11 @@ fn parse_pattern_list(value: Option<&Value>) -> Vec<NamespacePattern> {
                 .get("exclusive")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            Some(NamespacePattern::new(pattern.to_owned(), exclusive))
+            Some(if exclusive {
+                NamespacePattern::exclusive(pattern)
+            } else {
+                NamespacePattern::shared(pattern)
+            })
         })
         .collect()
 }

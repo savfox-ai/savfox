@@ -1449,6 +1449,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cokret-client"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "cokret",
+ "cokret-core",
+ "cokret-http-client",
+ "ed25519-dalek",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "cokret-core"
 version = "0.3.0"
 dependencies = [
@@ -9814,6 +9830,7 @@ dependencies = [
  "chrono",
  "cokret",
  "cokret-bridge-runtime",
+ "cokret-client",
  "dingtalk-sdk",
  "ed25519-dalek",
  "feishu-sdk",
@@ -10165,6 +10182,7 @@ version = "0.3.1"
 dependencies = [
  "base64",
  "chrono",
+ "cokret-core",
  "console_error_panic_hook",
  "dioxus",
  "futures",
@@ -10198,6 +10216,7 @@ dependencies = [
  "clap",
  "cokret",
  "cokret-bridge-runtime",
+ "cokret-client",
  "dirs",
  "dotenvy",
  "ed25519-dalek",

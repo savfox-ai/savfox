@@ -12,18 +12,25 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::Context;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use cokret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use cokret::{
     AccountSubscribeFrame, DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome,
-    EventsSubscribeFrame, ServerDescription, SessionGrantDpopBindingProof, SyncRequestBody,
+    EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
+    KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServerDescription,
+    SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
+};
+use cokret_client::{
+    AgentKeyProofLogin, CokretClient, LoginKind, MemorySecureKeyStore, MemoryStore, NativeExecutor,
+    SessionEngine,
 };
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::{Stream, StreamExt};
-use serde_json::json;
+use serde_json::{Value, json};
 use url::Url;
 use uuid::Uuid;
 
+use super::FileCokretAccountStore;
 use super::session::{CokretSession, login_with_signer};
 use super::signer::{CokretKeyRef, load_ed25519_signing_key};
 
@@ -49,10 +56,153 @@ pub type CokretFrameStream =
 pub type CokretAccountFrameStream =
     Pin<Box<dyn Stream<Item = Result<AccountSubscribeFrame, anyhow::Error>> + Send>>;
 
+pub type SavfoxCokretClientCore =
+    CokretClient<NativeExecutor, MemoryStore, MemoryStore, MemorySecureKeyStore>;
+
+pub type SavfoxDurableCokretClientCore = CokretClient<
+    NativeExecutor,
+    FileCokretAccountStore,
+    FileCokretAccountStore,
+    MemorySecureKeyStore,
+>;
+
+pub fn sign_key_operation_value(
+    key_ref: &CokretKeyRef,
+    verification_method: &str,
+    context: &str,
+    value: &Value,
+) -> anyhow::Result<KeyOperationSignature> {
+    let verification_method = verification_method.trim();
+    if verification_method.is_empty() {
+        anyhow::bail!("Cokret key operation signature missing verification method");
+    }
+    let context = context.trim();
+    if context.is_empty() {
+        anyhow::bail!("Cokret key operation signature missing context");
+    }
+    let signing_key = load_ed25519_signing_key(key_ref)?;
+    let canonical = cokret::canonical::canonical_json_bytes(value)
+        .map_err(|err| anyhow::anyhow!("Cokret key operation canonical JSON: {err}"))?;
+    let mut signing_input = Vec::with_capacity(context.len() + 1 + canonical.len());
+    signing_input.extend_from_slice(context.as_bytes());
+    signing_input.push(b'\n');
+    signing_input.extend_from_slice(&canonical);
+    let signature = signing_key.sign(&signing_input);
+    Ok(KeyOperationSignature {
+        kid: verification_method.to_owned(),
+        alg: Some("Ed25519".to_owned()),
+        sig: cokret::base64url_encode(signature.to_bytes()),
+    })
+}
+
+pub fn sign_mls_welcome_claim_envelope(
+    key_ref: &CokretKeyRef,
+    verification_method: &str,
+    envelope: &mut MlsWelcomeClaimEnvelope,
+) -> anyhow::Result<()> {
+    let verification_method = verification_method.trim();
+    if verification_method.is_empty() {
+        anyhow::bail!("Cokret MLS Welcome claim signature missing verification method");
+    }
+    let signing_key = load_ed25519_signing_key(key_ref)?;
+    let signing_input = envelope
+        .canonical_signing_bytes()
+        .map_err(|err| anyhow::anyhow!("MLS Welcome claim signing input: {err}"))?;
+    let signature = signing_key.sign(&signing_input);
+    envelope.signature = KeyOperationSignature {
+        kid: verification_method.to_owned(),
+        alg: Some("Ed25519".to_owned()),
+        sig: cokret::base64url_encode(signature.to_bytes()),
+    };
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn build_mls_key_packages_claim_request(
+    target_principal_id: &str,
+    intended_realm_id: &str,
+    requester: &str,
+    required_capabilities: &[String],
+    claim_nonce: String,
+    expires_at: DateTime<Utc>,
+    target_device_ids: &[String],
+    strand_id: Option<&str>,
+    mls_group_id: Option<&str>,
+    timeout_ms: Option<u64>,
+) -> anyhow::Result<KeyPackagesClaimRequestBody> {
+    if claim_nonce.trim().is_empty() {
+        anyhow::bail!("Cokret MLS KeyPackage claim nonce must not be empty");
+    }
+    let target_principal_id = Did::new(target_principal_id.to_owned())
+        .with_context(|| format!("invalid Cokret KeyPackage target DID '{target_principal_id}'"))?;
+    let intended_realm_id = RealmId::new(intended_realm_id.to_owned()).with_context(|| {
+        format!("invalid Cokret KeyPackage claim Realm id '{intended_realm_id}'")
+    })?;
+    let requester = Did::new(requester.to_owned())
+        .with_context(|| format!("invalid Cokret KeyPackage requester DID '{requester}'"))?;
+    let target_device_ids = target_device_ids
+        .iter()
+        .map(|device_id| {
+            DeviceId::new(device_id.to_owned()).with_context(|| {
+                format!("invalid Cokret KeyPackage target device id '{device_id}'")
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let strand_id = strand_id
+        .map(|value| {
+            StrandId::new(value.to_owned())
+                .with_context(|| format!("invalid Cokret KeyPackage claim Strand id '{value}'"))
+        })
+        .transpose()?;
+    let mls_group_id = mls_group_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    Ok(KeyPackagesClaimRequestBody {
+        target_principal_id,
+        intended_realm_id,
+        requester,
+        required_capabilities: required_capabilities.to_vec(),
+        claim_nonce,
+        expires_at,
+        target_device_ids,
+        minimal_metadata_allowed: None,
+        timeout_ms,
+        strand_id,
+        mls_group_id,
+        proofs: Vec::new(),
+    })
+}
+
 impl CokretHttpClient {
     #[must_use]
     pub fn inner(&self) -> &Client {
         &self.inner
+    }
+
+    #[must_use]
+    pub fn client_core(&self) -> SavfoxCokretClientCore {
+        CokretClient::new(
+            self.inner.clone(),
+            NativeExecutor,
+            MemoryStore::new(),
+            MemoryStore::new(),
+            MemorySecureKeyStore::new(),
+        )
+    }
+
+    #[must_use]
+    pub fn client_core_with_account_store(
+        &self,
+        store: FileCokretAccountStore,
+    ) -> SavfoxDurableCokretClientCore {
+        CokretClient::new(
+            self.inner.clone(),
+            NativeExecutor,
+            store.clone(),
+            store,
+            MemorySecureKeyStore::new(),
+        )
     }
 
     /// Build an applet HTTP client bound to `base_url`, authenticated via the
@@ -135,26 +285,29 @@ impl CokretHttpClient {
                 .map_err(|err| anyhow::anyhow!("agent_key_proof canonical bytes: {err}"))?,
         );
         let signature = cokret::base64url_encode(signature.to_bytes());
-        let request = cokret::agent::agent_key_proof_session_grant_request(
-            principal_did.clone(),
+        let login = AgentKeyProofLogin {
+            principal_id: principal_did.clone(),
             requested_scope,
-            agent_key_authorization_ref,
+            agent_key_authorization_ref: agent_key_authorization_ref.to_owned(),
             agent_scope_request,
             dpop_binding_proof,
-            verification_method.to_owned(),
+            verification_method: verification_method.to_owned(),
             challenge,
             nonce,
-            audience.to_owned(),
+            audience: audience.to_owned(),
             expires_at,
             signature,
-        )
-        .map_err(|err| anyhow::anyhow!("agent_key_proof session request: {err}"))?;
-        let outcome = bootstrap
-            .auth_issue_session_grant(&request)
+        };
+        let session_engine = SessionEngine::new(bootstrap);
+        let handle = session_engine
+            .login(LoginKind::AgentKeyProof(login), Utc::now())
             .await
             .map_err(|err| anyhow::anyhow!("agent_key_proof session grant exchange: {err}"))?;
+        let state = session_engine
+            .current_state()
+            .context("agent_key_proof session grant exchange did not yield state")?;
 
-        let session_grant = outcome.session_grant.clone();
+        let session_grant = handle.access_token;
         let inner = ClientBuilder::new(url)
             .auth(Auth::Dpop(DpopAuth::with_access_token(
                 session_grant.clone(),
@@ -176,9 +329,9 @@ impl CokretHttpClient {
             Self { inner },
             CokretSession {
                 session_grant,
-                expires_at: outcome.expires_at,
-                principal_did: outcome.principal_id,
-                device_id: outcome.device_id,
+                expires_at: state.expires_at,
+                principal_did: state.principal_id,
+                device_id: state.device_id,
             },
         ))
     }
@@ -274,6 +427,16 @@ impl CokretHttpClient {
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }
+
+    pub async fn keypackages_claim(
+        &self,
+        request: &KeyPackagesClaimRequestBody,
+    ) -> anyhow::Result<KeyPackagesClaimOutcome> {
+        self.inner
+            .keypackages_claim(request)
+            .await
+            .map_err(|err| anyhow::anyhow!(err.to_string()))
+    }
 }
 
 fn build_dpop_header(
@@ -349,12 +512,21 @@ fn ndjson_event_frame_stream(
 
 #[cfg(test)]
 mod tests {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD_NO_PAD;
+    use ed25519_dalek::Signature;
     use serde_json::Value;
 
     use super::*;
 
     fn signing_key() -> SigningKey {
         SigningKey::from_bytes(&[7_u8; 32])
+    }
+
+    fn key_ref() -> CokretKeyRef {
+        CokretKeyRef::InlineSeedBase64 {
+            value: STANDARD_NO_PAD.encode([7_u8; 32]),
+        }
     }
 
     #[test]
@@ -386,5 +558,84 @@ mod tests {
             payload["ath"],
             cokret::dpop::dpop_access_token_hash("other-token")
         );
+    }
+
+    #[test]
+    fn claim_request_builder_validates_typed_claim_fields() {
+        let request = build_mls_key_packages_claim_request(
+            "did:webvh:z6mkfixture:bob.example",
+            "ck:realm:01904100-0000-7000-8000-000000000001",
+            "did:webvh:z6mkfixture:alice.example",
+            &["mimi.content.v1".to_owned(), "ck.content.v1".to_owned()],
+            "claim-nonce-1".to_owned(),
+            Utc::now() + chrono::Duration::minutes(5),
+            &["ck:device:01904100-0000-7000-8000-00000000000e".to_owned()],
+            Some("ck:strand:01904100-0000-7000-8000-000000000002"),
+            Some("group-1"),
+            Some(1500),
+        )
+        .expect("claim request should build");
+
+        assert_eq!(
+            request.target_principal_id.as_str(),
+            "did:webvh:z6mkfixture:bob.example"
+        );
+        assert_eq!(request.required_capabilities.len(), 2);
+        assert_eq!(request.target_device_ids.len(), 1);
+        assert_eq!(
+            request.strand_id.as_ref().map(StrandId::as_str),
+            Some("ck:strand:01904100-0000-7000-8000-000000000002")
+        );
+        assert_eq!(request.mls_group_id.as_deref(), Some("group-1"));
+        assert!(request.proofs.is_empty());
+    }
+
+    #[test]
+    fn mls_welcome_claim_envelope_signing_uses_sdk_transcript() {
+        let mut envelope = MlsWelcomeClaimEnvelope {
+            keypackage_ref: "ck:mls:keypackage:test".to_owned(),
+            keypackage_digest: cokret::Hash::new(format!("sha256:{}", "aa".repeat(32))).unwrap(),
+            intended_realm_id: RealmId::new(
+                "ck:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+            )
+            .unwrap(),
+            claim_id: "ck:claim:test".to_owned(),
+            requester_did: Did::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap(),
+            ssk_generation: None,
+            requester_device_id: Some("ck:device:01904100-0000-7000-8000-000000000001".to_owned()),
+            nonce: "nonce-1".to_owned(),
+            welcome_digest: cokret::Hash::new(format!("sha256:{}", "bb".repeat(32))).unwrap(),
+            created_at: Utc::now(),
+            signature: KeyOperationSignature {
+                kid: String::new(),
+                alg: None,
+                sig: String::new(),
+            },
+        };
+        let before = envelope
+            .canonical_signing_bytes()
+            .expect("SDK transcript should serialize");
+
+        sign_mls_welcome_claim_envelope(
+            &key_ref(),
+            "did:webvh:z6mkfixture:alice.example#runtime-1",
+            &mut envelope,
+        )
+        .expect("signing should succeed");
+        let after = envelope
+            .canonical_signing_bytes()
+            .expect("SDK transcript should remain stable");
+        assert_eq!(before, after);
+        envelope
+            .validate_signature_shape()
+            .expect("signature shape should be valid");
+
+        let sig =
+            Signature::from_slice(&cokret::base64url_decode(&envelope.signature.sig).unwrap())
+                .expect("signature bytes");
+        signing_key()
+            .verifying_key()
+            .verify_strict(&after, &sig)
+            .expect("signature should verify over SDK transcript");
     }
 }

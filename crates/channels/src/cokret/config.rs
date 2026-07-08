@@ -13,6 +13,11 @@ const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ck.self.events.stream.subscribe",
     "ck.self.events.query.scan",
     "ck.self.events.command.submit",
+    "ck.self.keys.keypackages.upload.create",
+    "ck.self.keys.keypackages.command.claim",
+    "ck.self.keys.keypackages.command.consume",
+    "ck.self.device_messages.query.list",
+    "ck.self.device_messages.command.ack",
     "ck.event.read",
     "ck.message.create",
 ];
@@ -679,6 +684,31 @@ mod tests {
             account
                 .requested_scope
                 .contains(&"ck.event.read".to_owned())
+        );
+        assert!(
+            account
+                .requested_scope
+                .contains(&"ck.self.keys.keypackages.upload.create".to_owned())
+        );
+        assert!(
+            account
+                .requested_scope
+                .contains(&"ck.self.keys.keypackages.command.claim".to_owned())
+        );
+        assert!(
+            account
+                .requested_scope
+                .contains(&"ck.self.keys.keypackages.command.consume".to_owned())
+        );
+        assert!(
+            account
+                .requested_scope
+                .contains(&"ck.self.device_messages.query.list".to_owned())
+        );
+        assert!(
+            account
+                .requested_scope
+                .contains(&"ck.self.device_messages.command.ack".to_owned())
         );
         assert_eq!(
             account.yougen_bootstrap.as_ref().map(|bootstrap| bootstrap

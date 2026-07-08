@@ -10,6 +10,7 @@ use cokret::Event;
 
 use super::super::crypto_state::message_content_has_encrypted_carrier;
 use super::config::CokretAppletConfig;
+use super::namespace::AppletNamespacesExt;
 
 /// One dispatchable command extracted from an inbound applet transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +88,7 @@ pub fn classify_inbound_event(cfg: &CokretAppletConfig, event: &Event) -> Applet
         return AppletEventOutcome::Skip(AppletDispatchSkip::RealmNotInNamespace);
     }
 
-    let content = &event.content;
+    let content = &event.payload;
     if message_content_has_encrypted_carrier(content) {
         return AppletEventOutcome::Skip(AppletDispatchSkip::EncryptedContent);
     }
@@ -154,15 +155,14 @@ mod tests {
             login_challenge: None,
             cokret_bearer_token: None,
             namespaces: AppletNamespaces {
-                actors: vec![NamespacePattern::new(
+                actors: vec![NamespacePattern::exclusive(
                     "did:web:bridge.example:ghost:*",
-                    true,
                 )],
                 // In production Cokret, the Applet maps external aliases
                 // (e.g. `slack:team:T123:channel:C456`) to internal
                 // `ck:realm:<uuid>` ids and filters inbound on the internal id.
                 // For test setup we match a known uuid prefix family.
-                realms: vec![NamespacePattern::new("ck:realm:01904100-**", true)],
+                realms: vec![NamespacePattern::exclusive("ck:realm:01904100-**")],
                 handles: vec![],
             },
             protocols: vec!["slack".into()],

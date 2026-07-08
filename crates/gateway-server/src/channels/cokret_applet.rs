@@ -46,7 +46,7 @@ use savfox_channels::cokret::applet::{
     classify_inbound_event, load_cokret_applet_configs,
 };
 use savfox_channels::cokret::{
-    CokretDecryptOutcome, CokretEncryptOutcome, FileCokretCryptoStore,
+    AppletNamespacesExt, CokretDecryptOutcome, CokretEncryptOutcome, FileCokretCryptoStore,
     extract_encrypted_payload_from_message_content,
 };
 use serde_json::{Map, Value, json};
@@ -647,6 +647,9 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     let mut rejected: Vec<Value> = Vec::new();
     let mut dispatched_commands = Vec::new();
     for event in body.events.iter() {
+        if record_applet_mls_welcome_from_event(state.as_ref(), event) {
+            continue;
+        }
         match classify_inbound_event(&state.config, event) {
             AppletEventOutcome::Dispatch(cmd) => dispatched_commands.push(cmd),
             AppletEventOutcome::Skip(reason) => {
@@ -944,11 +947,66 @@ fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error 
     }
 }
 
+fn record_applet_mls_welcome_from_event(state: &AppletChannelState, event: &cokret::Event) -> bool {
+    record_applet_mls_welcome_from_value_tree(state, event, &event.payload, 6) > 0
+}
+
+fn record_applet_mls_welcome_from_value_tree(
+    state: &AppletChannelState,
+    event: &cokret::Event,
+    value: &Value,
+    remaining_depth: usize,
+) -> usize {
+    match state.crypto_store.record_mls_welcome_from_value(value) {
+        Ok(Some(welcome)) => {
+            debug!(
+                config_id = %state.config.id,
+                event_id = event.event_id.as_str(),
+                realm_id = event.realm_id.as_str(),
+                group_id = %welcome.group_id,
+                epoch = welcome.epoch,
+                recipient_principal_id = %welcome.recipient_principal_id.as_str(),
+                recipient_device_id = %welcome.recipient_device_id.as_str(),
+                "cokret applet: recorded MLS Welcome from inbound transaction event"
+            );
+            return 1;
+        }
+        Ok(None) => {}
+        Err(err) => {
+            warn!(
+                config_id = %state.config.id,
+                event_id = event.event_id.as_str(),
+                realm_id = event.realm_id.as_str(),
+                "cokret applet: failed to persist MLS Welcome from inbound transaction event: {err:#}"
+            );
+            return 1;
+        }
+    }
+    if remaining_depth == 0 {
+        return 0;
+    }
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .map(|item| {
+                record_applet_mls_welcome_from_value_tree(state, event, item, remaining_depth - 1)
+            })
+            .sum(),
+        Value::Object(object) => object
+            .values()
+            .map(|item| {
+                record_applet_mls_welcome_from_value_tree(state, event, item, remaining_depth - 1)
+            })
+            .sum(),
+        _ => 0,
+    }
+}
+
 fn try_decrypt_applet_event(
     state: &AppletChannelState,
     event: &cokret::Event,
 ) -> Option<AppletInboundCommand> {
-    let payload = extract_encrypted_payload_from_message_content(&event.content)?;
+    let payload = extract_encrypted_payload_from_message_content(&event.payload)?;
     if let Some(device_id) = state.config.device_id.as_deref() {
         match state.crypto_store.plan_bootstrap_for_payload(
             &state.config.bot_actor_id,
@@ -984,14 +1042,14 @@ fn try_decrypt_applet_event(
                 event_id: event.event_id.as_str().to_owned(),
                 realm_id: event.realm_id.as_str().to_owned(),
                 flow_id: event
-                    .content
+                    .payload
                     .get("flow_id")
                     .and_then(Value::as_str)
                     .map(str::to_owned),
                 sender_did: event.actor_id.as_str().to_owned(),
                 body,
                 thread_root_id: event
-                    .content
+                    .payload
                     .get("thread_root_id")
                     .and_then(Value::as_str)
                     .map(str::to_owned),
@@ -1471,14 +1529,14 @@ fn apply_applet_outbound_encryption(
     realm_id: &str,
     event: &mut cokret::Event,
 ) -> anyhow::Result<()> {
-    let Some(content_block) = event.content.get("content").cloned() else {
+    let Some(content_block) = event.payload.get("content").cloned() else {
         return Ok(());
     };
     match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
         CokretEncryptOutcome::PlaintextAllowed => Ok(()),
         CokretEncryptOutcome::Encrypted(encrypted_content) => {
             let object = event
-                .content
+                .payload
                 .as_object_mut()
                 .ok_or_else(|| anyhow::anyhow!("Cokret applet message content is not an object"))?;
             object.remove("content");
@@ -1914,6 +1972,23 @@ mod tests {
         (headers, public_key)
     }
 
+    fn mls_welcome_value(group_id: &str) -> Value {
+        serde_json::to_value(cokret::MlsWelcomeEnvelope {
+            group_id: group_id.to_owned(),
+            epoch: 7,
+            recipient_principal_id: Did::new("did:webvh:z6mkfixture:bob.example".to_owned())
+                .unwrap(),
+            recipient_device_id: cokret::DeviceId::new(
+                "ck:device:01904100-0000-7000-8000-00000000000e".to_owned(),
+            )
+            .unwrap(),
+            welcome: "AA".to_owned(),
+            welcome_hash: Hash::new(format!("sha256:{}", "cd".repeat(32))).unwrap(),
+            ratchet_tree: None,
+        })
+        .unwrap()
+    }
+
     #[tokio::test]
     async fn start_registers_applet_into_registry() {
         let cfg = valid_channel_config();
@@ -1936,6 +2011,37 @@ mod tests {
             .expect("lookup")
             .expect("registered");
         assert_eq!(resolved.config.applet_id, applet.applet_id);
+    }
+
+    #[test]
+    fn applet_transaction_event_records_nested_mls_welcome() {
+        let cfg = valid_channel_config();
+        let applet = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        applet.validate().expect("validate");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let state = AppletChannelState {
+            config: applet.clone(),
+            runtime: Mutex::new(AppletRuntimeState::default()),
+            crypto_store: FileCokretCryptoStore::for_applet(tmp.path(), &applet.id),
+            seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
+        };
+        let group_id = "group-applet-welcome";
+        let event = cokret::Event::new(
+            "ck.mls.welcome",
+            cokret::RealmId::new("ck:realm:01904100-0000-7000-8000-000000000123").unwrap(),
+            Did::new("did:webvh:acme:alice".to_owned()).unwrap(),
+            1,
+            cokret::Hlc::new("000000000000-0000-00000000").unwrap(),
+            json!({
+                "kind": "ck.mls.welcome",
+                "content": mls_welcome_value(group_id)
+            }),
+        )
+        .unwrap();
+
+        assert!(record_applet_mls_welcome_from_event(&state, &event));
+        let saved = state.crypto_store.load().expect("crypto state should load");
+        assert!(saved.bootstrap.contains_key(group_id));
     }
 
     #[test]

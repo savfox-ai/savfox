@@ -294,7 +294,7 @@ mod tests {
         req.thread_root_id = Some("ck:event:abc".into());
         let ev = build_applet_message_event(&req).expect("build");
         assert_eq!(
-            ev.content.get("thread_root_id").and_then(Value::as_str),
+            ev.payload.get("thread_root_id").and_then(Value::as_str),
             Some("ck:event:abc")
         );
     }

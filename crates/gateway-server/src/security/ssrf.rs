@@ -121,6 +121,14 @@ pub fn is_private_ip(ip: IpAddr) -> bool {
                 || v4.is_unspecified()
         }
         IpAddr::V6(v6) => {
+            if v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+                || v6.is_multicast()
+            {
+                return true;
+            }
             // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible (::a.b.c.d)
             // addresses must be evaluated against the IPv4 ruleset, otherwise
             // e.g. `::ffff:169.254.169.254` or `::ffff:127.0.0.1` would slip
@@ -132,11 +140,7 @@ pub fn is_private_ip(ip: IpAddr) -> bool {
             if let Some(v4) = v6.to_ipv4() {
                 return is_private_ip(IpAddr::V4(v4));
             }
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_unique_local()
-                || v6.is_unicast_link_local()
-                || v6.is_multicast()
+            false
         }
     }
 }

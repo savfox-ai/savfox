@@ -11,12 +11,10 @@
 //! [`applet-schema.md`
 //! §1](../../../../../../cokret/cokret-spec/spec/v1/zh/extensions/applet-schema.md).
 
-use cokret::{AppletNamespaceEntry, AppletWireNamespaces, Did, Hash, WireAppletRegistration};
+use cokret::{Did, Hash, WireAppletRegistration};
 use serde_json::Value;
 
 use super::config::CokretAppletConfig;
-use super::namespace::AppletNamespaces;
-
 /// Build the wire-format `ck.applet.registration` payload (unsigned).
 ///
 /// Returns a strongly-typed [`WireAppletRegistration`] from the SDK whose
@@ -56,7 +54,7 @@ pub fn build_registration_payload(
         cfg.base_url.clone(),
         bot_actor_id,
         cfg.protocols.clone(),
-        namespaces_to_wire(&cfg.namespaces),
+        cfg.namespaces.clone(),
         registration_epoch,
     );
     reg.receive_events = cfg.receive_events;
@@ -74,22 +72,6 @@ pub fn build_registration_payload(
 pub fn build_registration_json(cfg: &CokretAppletConfig) -> anyhow::Result<Value> {
     let reg = build_registration_payload(cfg)?;
     Ok(serde_json::to_value(&reg).expect("WireAppletRegistration always serializes"))
-}
-
-fn namespaces_to_wire(ns: &AppletNamespaces) -> AppletWireNamespaces {
-    let to_entries = |list: &[super::namespace::NamespacePattern]| -> Vec<AppletNamespaceEntry> {
-        list.iter()
-            .map(|p| AppletNamespaceEntry {
-                exclusive: p.exclusive,
-                pattern: p.pattern.clone(),
-            })
-            .collect()
-    };
-    AppletWireNamespaces {
-        actors: to_entries(&ns.actors),
-        realms: to_entries(&ns.realms),
-        handles: to_entries(&ns.handles),
-    }
 }
 
 /// Resolve the registration security-epoch hash. Uses the operator-supplied
@@ -114,8 +96,10 @@ fn resolve_registration_epoch(cfg: &CokretAppletConfig) -> anyhow::Result<Hash> 
 
 #[cfg(test)]
 mod tests {
+    use cokret::AppletNamespaceEntry;
+
     use super::*;
-    use crate::cokret::applet::namespace::NamespacePattern;
+    use crate::cokret::applet::namespace::{AppletNamespaces, NamespacePattern};
 
     fn cfg() -> CokretAppletConfig {
         CokretAppletConfig {
@@ -132,12 +116,11 @@ mod tests {
             login_challenge: None,
             cokret_bearer_token: None,
             namespaces: AppletNamespaces {
-                actors: vec![NamespacePattern::new(
+                actors: vec![NamespacePattern::exclusive(
                     "did:web:slack-bridge.example:ghost:*",
-                    true,
                 )],
-                realms: vec![NamespacePattern::new("slack:team:*:channel:*", true)],
-                handles: vec![NamespacePattern::new("slack.acme.example/*", false)],
+                realms: vec![NamespacePattern::exclusive("slack:team:*:channel:*")],
+                handles: vec![NamespacePattern::shared("slack.acme.example/*")],
             },
             protocols: vec!["slack".into()],
             ghost_did_prefix: "ghost:".into(),

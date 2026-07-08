@@ -24,6 +24,7 @@ pub mod webhook;
 pub mod whatsapp;
 pub mod zalo;
 
+use cokret_core::AgentPairingBootstrap;
 use dioxus::prelude::*;
 use savfox_utils::string::normalize_slug;
 use serde_json::{Value, json};
@@ -70,17 +71,6 @@ enum FieldType {
     Textarea,
     Toggle,
     Select(Vec<String>),
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AgentPairingBootstrap {
-    cokret_base_url: String,
-    service_did: String,
-    agent_principal_id: String,
-    pairing_request_id: String,
-    pairing_code: String,
-    pairing_expires_at: String,
 }
 
 /// Cached channel metadata. The full set of channel descriptors is fully
@@ -1456,7 +1446,6 @@ fn parse_cokret_agent_pairing_bootstrap(value: Value) -> Result<AgentPairingBoot
         ("agent_principal_id", bootstrap.agent_principal_id.as_str()),
         ("pairing_request_id", bootstrap.pairing_request_id.as_str()),
         ("pairing_code", bootstrap.pairing_code.as_str()),
-        ("pairing_expires_at", bootstrap.pairing_expires_at.as_str()),
     ] {
         if value.trim().is_empty() {
             return Err(format!(
@@ -4005,17 +3994,16 @@ fn render_single_field(
         };
     }
     if ch_id == "cokret" && field.key == "runtimeKeyRequest" {
-        let status_text = cokret_runtime_key_request_status(ch_id, &value_map);
         let current_result = current_val.trim().to_owned();
         let has_generated_request = current_result.trim_start().starts_with('{');
         let display_status = if has_generated_request {
             "Approval request prepared. Waiting for backend delivery to Yougen.".to_string()
         } else if current_result.is_empty() {
-            status_text.clone()
+            String::new()
         } else {
             current_result.clone()
         };
-        let can_request_approval = status_text.starts_with("Ready to request approval");
+        let can_request_approval = cokret_runtime_key_request_can_request(ch_id, &value_map);
         let ch_id_for_generate = ch_id.to_owned();
         let fields_for_generate = fields.to_vec();
         let key_for_generate = key.clone();
@@ -4050,8 +4038,7 @@ fn render_single_field(
                                 if bootstrap_input.trim().is_empty() {
                                     values.write().insert(
                                         key,
-                                        "Paste a Yougen pairing link or bootstrap JSON first."
-                                            .to_string(),
+                                        "Pairing input is required.".to_string(),
                                     );
                                     return;
                                 }
@@ -4513,81 +4500,14 @@ fn render_single_field(
     }
 }
 
-fn cokret_runtime_key_request_status(
+fn cokret_runtime_key_request_can_request(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
-) -> String {
-    let bootstrap_raw = values
+) -> bool {
+    values
         .get(&field_value_key(channel_id, "yougenBootstrap"))
         .map(|value| value.trim())
-        .unwrap_or_default();
-    let key_ref_raw = values
-        .get(&field_value_key(channel_id, "keyRef"))
-        .map(|value| value.trim())
-        .unwrap_or_default();
-    let verification_method = values
-        .get(&field_value_key(channel_id, "verificationMethod"))
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
-
-    let bootstrap;
-    if bootstrap_raw.is_empty() {
-        return "Paste a Yougen pairing link or bootstrap JSON.".to_string();
-    } else if !bootstrap_raw.starts_with('{') {
-        let key_ref_pending_auto = key_ref_raw.is_empty()
-            || serde_json::from_str::<Value>(key_ref_raw)
-                .ok()
-                .and_then(|value| value.as_object().cloned())
-                .is_none();
-        let key_note = if key_ref_pending_auto {
-            "Savfox will generate a local file key first."
-        } else {
-            "Savfox will reuse the local runtime key already stored for this channel."
-        };
-        return format!(
-            "Ready to request approval. Savfox will resolve the Yougen pairing link automatically. {key_note} The local private key stays on this gateway; Yougen still has to approve the matching pairing code."
-        );
-    } else {
-        let value = match serde_json::from_str::<Value>(bootstrap_raw) {
-            Ok(value) => value,
-            Err(_) => {
-                return "The resolved Yougen bootstrap is not valid JSON. Paste the pairing link again and resolve it."
-                    .to_string();
-            }
-        };
-        bootstrap = match parse_cokret_agent_pairing_bootstrap(value) {
-            Ok(parsed) => parsed,
-            Err(_) => {
-                return "The resolved Yougen bootstrap does not match the Cokret pairing format. Create a fresh pairing link in Yougen."
-                    .to_string();
-            }
-        };
-    }
-
-    if bootstrap.service_did.trim().is_empty() {
-        return "The resolved Yougen bootstrap is missing the Cokret service identity. Create a fresh pairing link in Yougen."
-            .to_string();
-    }
-
-    let verification_method = verification_method
-        .unwrap_or_else(|| format!("{}#runtime-1", bootstrap.agent_principal_id));
-    let key_ref_pending_auto = key_ref_raw.is_empty();
-    let key_note = if key_ref_pending_auto {
-        "Savfox will generate a local file key first."
-    } else if serde_json::from_str::<Value>(key_ref_raw)
-        .ok()
-        .and_then(|value| value.as_object().cloned())
-        .is_none()
-    {
-        "Savfox will replace the invalid local key reference automatically."
-    } else {
-        "Savfox will reuse the local runtime key already stored for this channel."
-    };
-
-    format!(
-        "Ready to request approval for {verification_method}. {key_note} The local private key stays on this gateway; Yougen still has to approve the matching pairing code."
-    )
+        .is_some_and(|value| !value.is_empty())
 }
 
 fn cokret_pairing_code_from_bootstrap_text(input: &str) -> Option<String> {
@@ -5377,7 +5297,7 @@ mod tests {
     }
 
     #[test]
-    fn cokret_runtime_key_request_status_hides_protocol_payload() {
+    fn cokret_runtime_key_request_can_start_from_bootstrap_without_protocol_payload() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
         values.insert(
@@ -5389,17 +5309,11 @@ mod tests {
             r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
         );
 
-        let status = cokret_runtime_key_request_status("cokret", &values);
-
-        assert!(status.contains("Ready to request approval"));
-        assert!(status.contains("did:webvh:example.org:agents:support#runtime-1"));
-        assert!(!status.contains("\"public_key\""));
-        assert!(!status.contains("\"proof_of_possession\""));
-        assert!(!status.contains("inline_seed_base64"));
+        assert!(cokret_runtime_key_request_can_request("cokret", &values));
     }
 
     #[test]
-    fn cokret_runtime_key_request_status_accepts_pairing_link_for_auto_resolve() {
+    fn cokret_runtime_key_request_can_start_from_pairing_link_for_auto_resolve() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
         values.insert(
@@ -5412,13 +5326,9 @@ mod tests {
             r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
         );
 
-        let status = cokret_runtime_key_request_status("cokret", &values);
-
-        assert!(status.contains("Ready to request approval"));
-        assert!(status.contains("resolve the Yougen pairing link automatically"));
-        assert!(!status.contains("manual resolve action"));
-        assert!(!status.contains("yougenBootstrap"));
-        assert!(!status.contains("serviceDid"));
+        assert!(cokret_runtime_key_request_can_request("cokret", &values));
+        values.insert(field_value_key("cokret", "yougenBootstrap"), String::new());
+        assert!(!cokret_runtime_key_request_can_request("cokret", &values));
     }
 
     #[test]

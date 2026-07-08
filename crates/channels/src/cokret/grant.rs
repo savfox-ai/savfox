@@ -11,7 +11,7 @@
 //! `grant_event_path` points). On startup we:
 //!
 //! 1. Deserialize the JSON into a [`cokret::Event`].
-//! 2. Deserialize `event.content` into a [`cokret::CapabilityGrant`].
+//! 2. Deserialize `event.payload` into a [`cokret::CapabilityGrant`].
 //! 3. Require production-shaped proofs and validate proof bindings (digest matches content).
 //! 4. Sanity-check subject / realm / expiry against expected values.
 //! 5. Return [`CokretGrant`] holding the event_id + the grant fields.
@@ -64,7 +64,7 @@ impl CokretGrant {
 /// Performs these checks:
 /// * Event JSON is parseable.
 /// * `event.kind == "ck.capability.grant"`.
-/// * Event content deserializes into [`CapabilityGrant`].
+/// * Event payload deserializes into [`CapabilityGrant`].
 /// * Event has at least one production-shaped proof.
 /// * `event.validate_proof_bindings()` passes (proof digest matches body).
 /// * `grant.subject == expected_subject` (caller's DID).
@@ -104,8 +104,8 @@ pub async fn load_and_verify_grant(
         .validate_proof_bindings()
         .map_err(|err| anyhow::anyhow!("grant proof binding invalid: {err}"))?;
 
-    let grant: CapabilityGrant = decode_capability_grant(event.content.clone())
-        .with_context(|| format!("decode CapabilityGrant content in {}", path.display()))?;
+    let grant: CapabilityGrant = decode_capability_grant(event.payload.clone())
+        .with_context(|| format!("decode CapabilityGrant payload in {}", path.display()))?;
 
     if event.actor_id.as_str() != grant.issuer.as_str() {
         anyhow::bail!(

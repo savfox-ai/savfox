@@ -804,7 +804,9 @@ mod tests {
         let tmp = tempdir().expect("tmpdir");
         let home = tmp.path().to_path_buf();
 
-        let bins_ret = bins(&home, None).await.expect("bins");
+        let bins_ret = bins(&home, Some(&json!({ "category": CATEGORY_INSTALLED })))
+            .await
+            .expect("bins");
         let bins_arr = bins_ret
             .get("bins")
             .and_then(|v| v.as_array())

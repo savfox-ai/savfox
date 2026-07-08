@@ -210,7 +210,7 @@ mod tests {
         .expect("build");
         assert_eq!(event.kind, "ck.profile.create");
         assert_eq!(event.actor_id.as_str(), "did:web:bridge.example:ghost:u1");
-        let object = &event.content["object"];
+        let object = &event.payload["object"];
         assert_eq!(object["actor_kind"], "integration");
         assert_eq!(
             object["profile_fields"]["managed_by_applet"],

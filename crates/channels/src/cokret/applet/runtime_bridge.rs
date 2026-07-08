@@ -25,7 +25,7 @@ use cokret_bridge_runtime::{
 use serde_json::json;
 
 use crate::cokret::applet::config::CokretAppletConfig;
-use crate::cokret::applet::namespace::AppletNamespaces;
+use crate::cokret::applet::namespace::{AppletNamespaces, AppletNamespacesExt};
 
 /// Default verification method fragment when the applet config leaves it unset.
 const DEFAULT_VERIFICATION_METHOD: &str = "#key-1";
@@ -193,11 +193,10 @@ mod tests {
             login_challenge: None,
             cokret_bearer_token: Some("applet-bearer-1".to_owned()),
             namespaces: AppletNamespaces {
-                actors: vec![NamespacePattern::new(
+                actors: vec![NamespacePattern::exclusive(
                     "did:web:slack-bridge.example:ghost:*",
-                    true,
                 )],
-                realms: vec![NamespacePattern::new("slack:team:*:channel:*", true)],
+                realms: vec![NamespacePattern::exclusive("slack:team:*:channel:*")],
                 handles: vec![],
             },
             protocols: vec!["slack".to_owned()],

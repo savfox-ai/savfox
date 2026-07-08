@@ -1,12 +1,13 @@
-//! Parse Cokret account-stream Events and Notifications into savfox internal
+//! Adapt Cokret account-stream Events and Notifications into savfox internal
 //! commands.
 //!
 //! Frame-level parsing (NDJSON `Delta` / `CatchupComplete` / etc.) is provided
 //! by the Cokret SDK
 //! (`cokret::AccountSubscribeFrame` / [`AccountSubscribeFrame::from_ndjson_line`]).
-//! This module owns the "given an Event or Notification payload, decide whether
-//! to dispatch and how" logic.
+//! This module owns the host-dispatch boundary: given an SDK Event or a
+//! Notification projection, decide whether Savfox should dispatch and how.
 
+use cokret_client::{DecodedInbound, InboundDecoder};
 use serde_json::Value;
 
 use super::config::CokretAccountConfig;
@@ -79,6 +80,132 @@ pub fn extract_message_event(event: &Value, account_id: &str) -> Option<CokretIn
 /// fail closed instead of treating them as generic unsupported content.
 #[must_use]
 pub fn classify_message_event(event: &Value, account_id: &str) -> CokretInboundEventOutcome {
+    let Ok(event_envelope) = sdk_event_from_value(event) else {
+        return classify_malformed_event(event, account_id);
+    };
+    let decoded = InboundDecoder::new().try_decode_event(event_envelope.clone());
+    match decoded {
+        Ok(DecodedInbound::Message(message)) => match message.payload {
+            cokret::MessageEventPayload::Create(payload) => {
+                classify_sdk_message_create(&message.event, &payload, account_id)
+            }
+            cokret::MessageEventPayload::Revise(_)
+            | cokret::MessageEventPayload::Redact(_)
+            | cokret::MessageEventPayload::ReactionAdd(_)
+            | cokret::MessageEventPayload::ReactionRemove(_) => skip_sdk_event(
+                &message.event,
+                account_id,
+                CokretInboundSkipReason::KindNotMessageCreate,
+            ),
+        },
+        Ok(DecodedInbound::Notification(notification)) => skip_sdk_event(
+            &notification.event,
+            account_id,
+            CokretInboundSkipReason::KindNotMessageCreate,
+        ),
+        Ok(DecodedInbound::Event(event_envelope)) => skip_sdk_event(
+            &event_envelope,
+            account_id,
+            CokretInboundSkipReason::KindNotMessageCreate,
+        ),
+        Err(_) if message_content_has_encrypted_carrier(&event_envelope.payload) => {
+            skip_encrypted_sdk_event(&event_envelope, account_id)
+        }
+        Err(_) => skip_sdk_event(
+            &event_envelope,
+            account_id,
+            CokretInboundSkipReason::MissingRequiredField("message payload"),
+        ),
+    }
+}
+
+fn sdk_event_from_value(event: &Value) -> Result<cokret::Event, serde_json::Error> {
+    match serde_json::from_value::<cokret::Event>(event.clone()) {
+        Ok(event) => Ok(event),
+        Err(err) => legacy_content_envelope_as_payload(event)
+            .map(serde_json::from_value)
+            .transpose()?
+            .ok_or(err),
+    }
+}
+
+fn legacy_content_envelope_as_payload(event: &Value) -> Option<Value> {
+    if event.get("payload").is_some() {
+        return None;
+    }
+    let mut candidate = event.clone();
+    let object = candidate.as_object_mut()?;
+    let content = object.remove("content")?;
+    object.insert("payload".to_owned(), content);
+    Some(candidate)
+}
+
+fn classify_sdk_message_create(
+    event: &cokret::Event,
+    payload: &cokret::MessageCreatePayload,
+    account_id: &str,
+) -> CokretInboundEventOutcome {
+    if payload.encrypted_content.is_some() || message_content_has_encrypted_carrier(&event.payload)
+    {
+        return skip_encrypted_sdk_event(event, account_id);
+    }
+    let Some(content) = payload.content.as_ref() else {
+        return skip_sdk_event(
+            event,
+            account_id,
+            CokretInboundSkipReason::MissingRequiredField("content"),
+        );
+    };
+    let Some(content_kind) = content.get("kind").and_then(Value::as_str) else {
+        return skip_sdk_event(
+            event,
+            account_id,
+            CokretInboundSkipReason::MissingRequiredField("content.kind"),
+        );
+    };
+    if content_kind == "ck.content.encrypted" {
+        return skip_encrypted_sdk_event(event, account_id);
+    }
+    if content_kind != "ck.content.text" {
+        return skip_sdk_event(
+            event,
+            account_id,
+            CokretInboundSkipReason::UnsupportedContentKind(content_kind.to_owned()),
+        );
+    }
+    let Some(body) = content.get("body").and_then(Value::as_str) else {
+        return skip_sdk_event(
+            event,
+            account_id,
+            CokretInboundSkipReason::MissingRequiredField("content.body"),
+        );
+    };
+    let flow_id = Some(payload.strand_id.as_str().to_owned());
+    let thread_root_id = payload
+        .reply_to
+        .clone()
+        .or_else(|| legacy_thread_root_id(&event.payload, content));
+
+    CokretInboundEventOutcome::Dispatchable(CokretInboundEvent {
+        account_id: account_id.to_owned(),
+        event_id: event.event_id.as_str().to_owned(),
+        realm_id: event.realm_id.as_str().to_owned(),
+        flow_id,
+        sender_did: event.actor_id.as_str().to_owned(),
+        body: body.to_owned(),
+        thread_root_id,
+    })
+}
+
+fn legacy_thread_root_id(payload: &Value, content: &Value) -> Option<String> {
+    content
+        .get("thread_root_id")
+        .and_then(Value::as_str)
+        .or_else(|| payload.get("thread_root_id").and_then(Value::as_str))
+        .map(str::to_owned)
+}
+
+fn classify_malformed_event(event: &Value, account_id: &str) -> CokretInboundEventOutcome {
     let Some(kind) = event.get("kind").and_then(Value::as_str) else {
         return skip_event(
             event,
@@ -93,84 +220,11 @@ pub fn classify_message_event(event: &Value, account_id: &str) -> CokretInboundE
             CokretInboundSkipReason::KindNotMessageCreate,
         );
     }
-    let Some(event_id) = event.get("event_id").and_then(Value::as_str) else {
-        return skip_event(
-            event,
-            account_id,
-            CokretInboundSkipReason::MissingRequiredField("event_id"),
-        );
-    };
-    let Some(realm_id) = event.get("realm_id").and_then(Value::as_str) else {
-        return skip_event(
-            event,
-            account_id,
-            CokretInboundSkipReason::MissingRequiredField("realm_id"),
-        );
-    };
-    let Some(sender_did) = event.get("actor_id").and_then(Value::as_str) else {
-        return skip_event(
-            event,
-            account_id,
-            CokretInboundSkipReason::MissingRequiredField("actor_id"),
-        );
-    };
-
-    let Some(content) = event.get("content") else {
-        return skip_event(
-            event,
-            account_id,
-            CokretInboundSkipReason::MissingRequiredField("content"),
-        );
-    };
-    // `content` is the operation payload; in v1 a `ck.message.create` payload
-    // wraps `{ message_id, flow_id, track, content: { kind, body, ... } }`.
-    let flow_id = content
-        .get("flow_id")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    if message_content_has_encrypted_carrier(content) {
-        return skip_encrypted_event(event, account_id, content);
-    }
-    let inner = content.get("content").unwrap_or(content);
-    let Some(content_kind) = inner.get("kind").and_then(Value::as_str) else {
-        return skip_event(
-            event,
-            account_id,
-            CokretInboundSkipReason::MissingRequiredField("content.kind"),
-        );
-    };
-    if content_kind == "ck.content.encrypted" {
-        return skip_encrypted_event(event, account_id, content);
-    }
-    if content_kind != "ck.content.text" {
-        return skip_event(
-            event,
-            account_id,
-            CokretInboundSkipReason::UnsupportedContentKind(content_kind.to_owned()),
-        );
-    }
-    let Some(body) = inner.get("body").and_then(Value::as_str) else {
-        return skip_event(
-            event,
-            account_id,
-            CokretInboundSkipReason::MissingRequiredField("content.body"),
-        );
-    };
-    let thread_root_id = inner
-        .get("thread_root_id")
-        .and_then(Value::as_str)
-        .or_else(|| content.get("thread_root_id").and_then(Value::as_str))
-        .map(str::to_owned);
-
-    CokretInboundEventOutcome::Dispatchable(CokretInboundEvent {
-        account_id: account_id.to_owned(),
-        event_id: event_id.to_owned(),
-        realm_id: realm_id.to_owned(),
-        flow_id,
-        sender_did: sender_did.to_owned(),
-        body: body.to_owned(),
-        thread_root_id,
-    })
+    skip_event(
+        event,
+        account_id,
+        CokretInboundSkipReason::MissingRequiredField("event envelope"),
+    )
 }
 
 /// Decide whether the parsed event should be dispatched to the agent pipeline.
@@ -480,6 +534,21 @@ fn skip_event(
     })
 }
 
+fn skip_sdk_event(
+    event: &cokret::Event,
+    account_id: &str,
+    reason: CokretInboundSkipReason,
+) -> CokretInboundEventOutcome {
+    CokretInboundEventOutcome::Skip(CokretInboundSkippedEvent {
+        account_id: account_id.to_owned(),
+        event_id: Some(event.event_id.as_str().to_owned()),
+        realm_id: Some(event.realm_id.as_str().to_owned()),
+        sender_did: Some(event.actor_id.as_str().to_owned()),
+        encrypted_payload: None,
+        reason,
+    })
+}
+
 fn skip_notification(
     notification: &Value,
     account_id: &str,
@@ -498,26 +567,13 @@ fn skip_notification(
     })
 }
 
-fn skip_encrypted_event(
-    event: &Value,
-    account_id: &str,
-    content: &Value,
-) -> CokretInboundEventOutcome {
+fn skip_encrypted_sdk_event(event: &cokret::Event, account_id: &str) -> CokretInboundEventOutcome {
     CokretInboundEventOutcome::Skip(CokretInboundSkippedEvent {
         account_id: account_id.to_owned(),
-        event_id: event
-            .get("event_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        realm_id: event
-            .get("realm_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        sender_did: event
-            .get("actor_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        encrypted_payload: extract_encrypted_payload_from_message_content(content),
+        event_id: Some(event.event_id.as_str().to_owned()),
+        realm_id: Some(event.realm_id.as_str().to_owned()),
+        sender_did: Some(event.actor_id.as_str().to_owned()),
+        encrypted_payload: extract_encrypted_payload_from_message_content(&event.payload),
         reason: CokretInboundSkipReason::EncryptedContent,
     })
 }
@@ -548,26 +604,46 @@ mod tests {
         }
     }
 
+    const REALM_1: &str = "ck:realm:01904100-0000-7000-8000-000000000001";
+    const REALM_2: &str = "ck:realm:01904100-0000-7000-8000-000000000002";
+    const STRAND_1: &str = "ck:strand:01904100-0000-7000-8000-000000000011";
+    const STRAND_2: &str = "ck:strand:01904100-0000-7000-8000-000000000012";
+
     fn message_event(actor: &str, body: &str) -> Value {
-        message_event_in_realm("ck:realm:r1", actor, body)
+        message_event_in_realm(REALM_1, actor, STRAND_1, body)
     }
 
-    fn message_event_in_realm(realm: &str, actor: &str, body: &str) -> Value {
-        json!({
-            "event_id": format!("ck:event:{}-{}", realm, actor),
-            "kind": "ck.message.create",
-            "realm_id": realm,
-            "actor_id": actor,
-            "content": {
-                "message_id": "ck:message:m1",
-                "flow_id": "ck:flow:f1",
-                "track": "discussion",
+    fn message_event_in_realm(realm: &str, actor: &str, strand: &str, body: &str) -> Value {
+        event_value(
+            "ck.message.create",
+            realm,
+            actor,
+            json!({
+                "strand_id": strand,
+                "track_name": "discussion",
                 "content": {
                     "kind": "ck.content.text",
                     "body": body
                 }
-            }
-        })
+            }),
+        )
+    }
+
+    fn sdk_message_event(actor: &str, body: &str) -> Value {
+        message_event_in_realm(REALM_1, actor, STRAND_1, body)
+    }
+
+    fn event_value(kind: &str, realm: &str, actor: &str, payload: Value) -> Value {
+        let event = cokret::Event::new(
+            kind,
+            cokret::RealmId::new(realm).unwrap(),
+            cokret::Did::new(actor.to_owned()).unwrap(),
+            1,
+            cokret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
+            payload,
+        )
+        .unwrap();
+        serde_json::to_value(event).unwrap()
     }
 
     #[test]
@@ -575,84 +651,112 @@ mod tests {
         let event = message_event("did:webvh:example.org:user-alice", "hello");
         let parsed = extract_message_event(&event, "support").expect("parse");
         assert_eq!(parsed.body, "hello");
-        assert_eq!(parsed.realm_id, "ck:realm:r1");
-        assert_eq!(parsed.flow_id.as_deref(), Some("ck:flow:f1"));
+        assert_eq!(parsed.realm_id, REALM_1);
+        assert_eq!(parsed.flow_id.as_deref(), Some(STRAND_1));
         assert_eq!(parsed.sender_did, "did:webvh:example.org:user-alice");
     }
 
     #[test]
+    fn extracts_sdk_standard_text_message() {
+        let event = sdk_message_event("did:webvh:z6mkfixture:alice.example", "hello sdk");
+        let parsed = extract_message_event(&event, "support").expect("parse");
+        assert_eq!(parsed.body, "hello sdk");
+        assert_eq!(parsed.flow_id.as_deref(), Some(STRAND_1));
+        assert_eq!(parsed.sender_did, "did:webvh:z6mkfixture:alice.example");
+    }
+
+    #[test]
+    fn accepts_legacy_content_envelope_adapter() {
+        let mut event = sdk_message_event("did:webvh:z6mkfixture:alice.example", "legacy shell");
+        let object = event.as_object_mut().unwrap();
+        let payload = object.remove("payload").unwrap();
+        object.insert("content".to_owned(), payload);
+
+        let parsed = extract_message_event(&event, "support").expect("parse");
+
+        assert_eq!(parsed.body, "legacy shell");
+        assert_eq!(parsed.flow_id.as_deref(), Some(STRAND_1));
+    }
+
+    #[test]
     fn ignores_non_message_kind() {
-        let event = json!({"kind":"ck.flow.update","event_id":"e","realm_id":"r","actor_id":"a","content":{}});
+        let event = event_value(
+            "ck.flow.update",
+            REALM_1,
+            "did:webvh:z6mkfixture:alice.example",
+            json!({}),
+        );
         assert!(extract_message_event(&event, "x").is_none());
     }
 
     #[test]
     fn ignores_non_text_content() {
-        let event = json!({
-            "kind":"ck.message.create","event_id":"e","realm_id":"r","actor_id":"a",
-            "content":{"flow_id":"f","content":{"kind":"ck.content.image","body":""}}
-        });
+        let actor = "did:webvh:z6mkfixture:alice.example";
+        let event = event_value(
+            "ck.message.create",
+            REALM_1,
+            actor,
+            json!({
+                "strand_id": STRAND_1,
+                "track_name": "discussion",
+                "content": {"kind":"ck.content.image","body":""}
+            }),
+        );
         assert!(extract_message_event(&event, "x").is_none());
+        let CokretInboundEventOutcome::Skip(skipped) = classify_message_event(&event, "x") else {
+            panic!("expected skip");
+        };
+        assert_eq!(skipped.account_id, "x");
+        assert_eq!(skipped.realm_id.as_deref(), Some(REALM_1));
+        assert_eq!(skipped.sender_did.as_deref(), Some(actor));
         assert_eq!(
-            classify_message_event(&event, "x"),
-            CokretInboundEventOutcome::Skip(CokretInboundSkippedEvent {
-                account_id: "x".into(),
-                event_id: Some("e".into()),
-                realm_id: Some("r".into()),
-                sender_did: Some("a".into()),
-                encrypted_payload: None,
-                reason: CokretInboundSkipReason::UnsupportedContentKind("ck.content.image".into()),
-            })
+            skipped.reason,
+            CokretInboundSkipReason::UnsupportedContentKind("ck.content.image".into())
         );
     }
 
     #[test]
     fn classifies_encrypted_content_block() {
-        let event = json!({
-            "kind":"ck.message.create","event_id":"e","realm_id":"r","actor_id":"a",
-            "content":{"flow_id":"f","content":{"kind":"ck.content.encrypted","body":""}}
-        });
-        assert_eq!(
-            classify_message_event(&event, "x"),
-            CokretInboundEventOutcome::Skip(CokretInboundSkippedEvent {
-                account_id: "x".into(),
-                event_id: Some("e".into()),
-                realm_id: Some("r".into()),
-                sender_did: Some("a".into()),
-                encrypted_payload: None,
-                reason: CokretInboundSkipReason::EncryptedContent,
-            })
+        let event = event_value(
+            "ck.message.create",
+            REALM_1,
+            "did:webvh:z6mkfixture:alice.example",
+            json!({
+                "strand_id": STRAND_1,
+                "track_name": "discussion",
+                "content": {"kind":"ck.content.encrypted","body":""}
+            }),
         );
+        let CokretInboundEventOutcome::Skip(skipped) = classify_message_event(&event, "x") else {
+            panic!("expected skip");
+        };
+        assert_eq!(skipped.reason, CokretInboundSkipReason::EncryptedContent);
     }
 
     #[test]
     fn classifies_spec_encrypted_content_carrier() {
-        let event = json!({
-            "kind":"ck.message.create","event_id":"e2","realm_id":"r","actor_id":"a",
-            "content":{
-                "flow_id":"f",
+        let event = event_value(
+            "ck.message.create",
+            REALM_1,
+            "did:webvh:z6mkfixture:alice.example",
+            json!({
+                "strand_id": STRAND_1,
+                "track_name": "discussion",
                 "encrypted_content":{
                     "scheme":"mls-rfc9420",
                     "ciphertext":"..."
                 }
-            }
-        });
-        assert_eq!(
-            classify_message_event(&event, "x"),
-            CokretInboundEventOutcome::Skip(CokretInboundSkippedEvent {
-                account_id: "x".into(),
-                event_id: Some("e2".into()),
-                realm_id: Some("r".into()),
-                sender_did: Some("a".into()),
-                encrypted_payload: None,
-                reason: CokretInboundSkipReason::EncryptedContent,
-            })
+            }),
         );
+        let CokretInboundEventOutcome::Skip(skipped) = classify_message_event(&event, "x") else {
+            panic!("expected skip");
+        };
+        assert_eq!(skipped.reason, CokretInboundSkipReason::EncryptedContent);
     }
 
     #[test]
     fn should_dispatch_filters_self_messages() {
-        let account = make_account(Some("ck:realm:r1"));
+        let account = make_account(Some(REALM_1));
         let event = message_event(&account.principal_id, "echo");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
@@ -661,8 +765,8 @@ mod tests {
 
     #[test]
     fn should_dispatch_accepts_any_realm_for_user_agent() {
-        let account = make_account(Some("ck:realm:other"));
-        let event = message_event("did:webvh:other", "hi");
+        let account = make_account(Some(REALM_2));
+        let event = message_event("did:webvh:z6mkfixture:bob.example", "hi");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
         assert!(should_dispatch_event(&parsed, &account));
@@ -671,7 +775,7 @@ mod tests {
     #[test]
     fn should_dispatch_filters_empty_body() {
         let account = make_account(None);
-        let event = message_event("did:webvh:other", "   ");
+        let event = message_event("did:webvh:z6mkfixture:bob.example", "   ");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
         assert!(!should_dispatch_event(&parsed, &account));
@@ -679,9 +783,9 @@ mod tests {
 
     #[test]
     fn should_dispatch_filters_missing_event_read_scope() {
-        let mut account = make_account(Some("ck:realm:r1"));
+        let mut account = make_account(Some(REALM_1));
         account.requested_scope = vec!["ck.self.events.stream.subscribe".into()];
-        let event = message_event("did:webvh:other", "secret");
+        let event = message_event("did:webvh:z6mkfixture:bob.example", "secret");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
 
@@ -690,33 +794,36 @@ mod tests {
 
     #[test]
     fn parse_delta_frame_walks_realms() {
-        let account = make_account(Some("ck:realm:r1"));
+        let account = make_account(Some(REALM_1));
         let realms = json!({
-            "ck:realm:r1": {
+            REALM_1: {
                 "timeline": {
                     "events": [
-                        message_event("did:webvh:bob", "hello bob"),
+                        message_event("did:webvh:z6mkfixture:bob.example", "hello bob"),
                         message_event(&account.principal_id, "self echo"),
-                        message_event("did:webvh:carol", "")
+                        message_event("did:webvh:z6mkfixture:carol.example", "")
                     ]
                 }
             },
-            "ck:realm:other": {
+            REALM_2: {
                 "timeline": {
-                    "events": [message_event_in_realm("ck:realm:other", "did:webvh:dan", "from other realm")]
+                    "events": [message_event_in_realm(
+                        REALM_2,
+                        "did:webvh:z6mkfixture:dan.example",
+                        STRAND_2,
+                        "from other realm"
+                    )]
                 }
             }
         });
         let result = parse_delta_frame_for_account(&realms, &account);
         assert_eq!(result.events.len(), 2);
-        assert!(
-            result
-                .events
-                .iter()
-                .any(|event| { event.sender_did == "did:webvh:bob" && event.body == "hello bob" })
-        );
         assert!(result.events.iter().any(|event| {
-            event.sender_did == "did:webvh:dan" && event.body == "from other realm"
+            event.sender_did == "did:webvh:z6mkfixture:bob.example" && event.body == "hello bob"
+        }));
+        assert!(result.events.iter().any(|event| {
+            event.sender_did == "did:webvh:z6mkfixture:dan.example"
+                && event.body == "from other realm"
         }));
         assert_eq!(result.skipped.len(), 2);
         assert!(
@@ -735,12 +842,12 @@ mod tests {
 
     #[test]
     fn parse_delta_without_event_read_does_not_dispatch_plaintext() {
-        let mut account = make_account(Some("ck:realm:r1"));
+        let mut account = make_account(Some(REALM_1));
         account.requested_scope = vec!["ck.self.events.stream.subscribe".into()];
         let realms = json!({
-            "ck:realm:r1": {
+            REALM_1: {
                 "timeline": {
-                    "events": [message_event("did:webvh:bob", "plain text")]
+                    "events": [message_event("did:webvh:z6mkfixture:bob.example", "plain text")]
                 }
             }
         });
@@ -758,19 +865,20 @@ mod tests {
     #[test]
     fn parse_delta_records_encrypted_skips() {
         let account = make_account(None);
+        let encrypted_event = event_value(
+            "ck.message.create",
+            REALM_1,
+            "did:webvh:z6mkfixture:bob.example",
+            json!({
+                "strand_id": STRAND_1,
+                "track_name": "discussion",
+                "encrypted_content":{"scheme":"mls-rfc9420","ciphertext":"..."}
+            }),
+        );
         let realms = json!({
-            "ck:realm:r1": {
+            REALM_1: {
                 "timeline": {
-                    "events": [{
-                        "kind":"ck.message.create",
-                        "event_id":"ck:event:encrypted",
-                        "realm_id":"ck:realm:r1",
-                        "actor_id":"did:webvh:bob",
-                        "content":{
-                            "flow_id":"ck:flow:f1",
-                            "encrypted_content":{"scheme":"mls-rfc9420","ciphertext":"..."}
-                        }
-                    }]
+                    "events": [encrypted_event]
                 }
             }
         });

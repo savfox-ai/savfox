@@ -6,8 +6,11 @@
 
 use anyhow::Context;
 use cokret::signatures::{SignEventOptions, sign_event};
-use cokret::{Did, Ed25519MoveSigner, Event, EventRequirements, Hlc, RealmId, new_prefixed_uuid7};
-use serde_json::json;
+use cokret::{
+    ContentBlock, Did, Ed25519MoveSigner, Event, Hlc, OperationEventConversion, RealmId, StrandId,
+};
+use cokret_client::{MessageCreateOptions, OutboundBuilder, OutboundCommandContext};
+use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct MessageCreateRequest {
@@ -41,37 +44,44 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
         .with_context(|| format!("invalid principal DID: {}", req.principal_id))?;
     let hlc = current_hlc();
 
-    let mut content = json!({
-        "message_id": new_prefixed_uuid7("ck:message:"),
-        "flow_id": req.flow_id,
-        "track": "discussion",
-        "content": {
-            "kind": "ck.content.text",
-            "body": req.body,
-        }
-    });
-    if let Some(thread_root) = &req.thread_root_id
-        && let Some(obj) = content.as_object_mut()
-    {
-        obj.insert(
-            "thread_root_id".into(),
-            serde_json::Value::String(thread_root.clone()),
-        );
+    let mut legacy_flow_id = None;
+    let mut options = MessageCreateOptions::default().with_track_name("discussion");
+    if let Ok(strand_id) = StrandId::new(req.flow_id.clone()) {
+        options = options.with_strand_id(strand_id);
+    } else {
+        legacy_flow_id = Some(req.flow_id.as_str());
+    }
+    if let Some(thread_root) = &req.thread_root_id {
+        options = options.with_reply_to(thread_root.clone());
     }
 
-    let mut event = Event::new(
-        "ck.message.create",
-        realm,
-        actor,
-        req.actor_seq,
-        hlc,
-        content,
-    )
-    .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))?;
+    let builder = OutboundBuilder::new();
+    let context = OutboundCommandContext::new(actor, req.actor_seq, hlc);
+    let envelope = builder
+        .message_create_envelope_with(
+            realm,
+            context,
+            options,
+            ContentBlock::text(req.body.clone())
+                .to_value()
+                .map_err(|err| anyhow::anyhow!("failed to build text content block: {err}"))?,
+        )
+        .map_err(|err| anyhow::anyhow!("failed to build message-create envelope: {err}"))?;
+    let mut event = builder
+        .event_from_envelope(envelope, OperationEventConversion::default())
+        .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))?;
 
-    // Phase 1: no proofs attached. See module docstring.
-    event.requirements = EventRequirements::default();
+    if let Some(flow_id) = legacy_flow_id {
+        apply_legacy_flow_id(&mut event.payload, flow_id);
+    }
     Ok(event)
+}
+
+fn apply_legacy_flow_id(payload: &mut Value, flow_id: &str) {
+    let Some(object) = payload.as_object_mut() else {
+        return;
+    };
+    object.insert("flow_id".to_owned(), Value::String(flow_id.to_owned()));
 }
 
 /// Phase 8 (T8.C): attach a detached-JWS [`Proof`] to an outbound event.
@@ -123,14 +133,35 @@ mod tests {
         assert_eq!(event.kind, "ck.message.create");
         assert_eq!(event.realm_id.as_str(), valid_request().realm_id);
         assert_eq!(event.actor_id.as_str(), valid_request().principal_id);
-        // content shape sanity
+        // payload shape sanity
         let body = event
-            .content
+            .payload
             .get("content")
             .and_then(|c| c.get("body"))
             .and_then(|b| b.as_str())
             .unwrap_or("");
         assert_eq!(body, "hello world");
+        assert_eq!(
+            event.payload.get("track_name").and_then(Value::as_str),
+            Some("discussion")
+        );
+        assert_eq!(
+            event.payload.get("flow_id").and_then(Value::as_str),
+            Some(valid_request().flow_id.as_str())
+        );
+        assert!(event.payload.get("track").is_none());
+    }
+
+    #[test]
+    fn uses_strand_flow_id_for_sdk_payload_when_supplied() {
+        let mut req = valid_request();
+        req.flow_id = "ck:strand:01904100-0000-7000-8000-000000000002".into();
+        let event = build_message_create_event(&req).expect("build");
+        assert_eq!(
+            event.payload.get("strand_id").and_then(Value::as_str),
+            Some("ck:strand:01904100-0000-7000-8000-000000000002")
+        );
+        assert!(event.payload.get("flow_id").is_none());
     }
 
     #[test]
@@ -162,11 +193,12 @@ mod tests {
     }
 
     #[test]
-    fn thread_root_id_appears_when_supplied() {
+    fn thread_root_id_maps_to_sdk_reply_to_when_supplied() {
         let mut req = valid_request();
         req.thread_root_id = Some("ck:event:01H...".into());
         let event = build_message_create_event(&req).expect("build");
-        let tr = event.content.get("thread_root_id").and_then(|v| v.as_str());
+        let tr = event.payload.get("reply_to").and_then(|v| v.as_str());
         assert_eq!(tr, Some("ck:event:01H..."));
+        assert!(event.payload.get("thread_root_id").is_none());
     }
 }
