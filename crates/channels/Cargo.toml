@@ -22,7 +22,7 @@ dingtalk = ["dep:dingtalk-sdk"]
 feishu = ["dep:feishu-sdk"]
 cokret = [
     "dep:cokret",
-    "dep:cokret-client",
+    "dep:garth",
     "dep:cokret-bridge-runtime",
 ]
 
@@ -55,5 +55,5 @@ tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 cokret = { workspace = true, optional = true }
-cokret-client = { workspace = true, optional = true }
+garth = { workspace = true, optional = true }
 cokret-bridge-runtime = { workspace = true, optional = true }

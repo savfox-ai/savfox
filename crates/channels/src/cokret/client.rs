@@ -20,12 +20,12 @@ use cokret::{
     KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServerDescription,
     SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
 };
-use cokret_client::{
+use ed25519_dalek::{Signer as _, SigningKey};
+use futures_util::{Stream, StreamExt};
+use garth::{
     AgentKeyProofLogin, CokretClient, LoginKind, MemorySecureKeyStore, MemoryStore, NativeExecutor,
     SessionEngine,
 };
-use ed25519_dalek::{Signer as _, SigningKey};
-use futures_util::{Stream, StreamExt};
 use serde_json::{Value, json};
 use url::Url;
 use uuid::Uuid;

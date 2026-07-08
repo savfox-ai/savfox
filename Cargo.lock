@@ -1449,22 +1449,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cokret-client"
-version = "0.3.0"
-dependencies = [
- "chrono",
- "cokret",
- "cokret-core",
- "cokret-http-client",
- "ed25519-dalek",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "zeroize",
-]
-
-[[package]]
 name = "cokret-core"
 version = "0.3.0"
 dependencies = [
@@ -3955,6 +3939,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
 dependencies = [
  "byteorder",
+]
+
+[[package]]
+name = "garth"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "cokret",
+ "cokret-core",
+ "cokret-http-client",
+ "ed25519-dalek",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -9830,12 +9830,12 @@ dependencies = [
  "chrono",
  "cokret",
  "cokret-bridge-runtime",
- "cokret-client",
  "dingtalk-sdk",
  "ed25519-dalek",
  "feishu-sdk",
  "form_urlencoded",
  "futures-util",
+ "garth",
  "hex",
  "hmac 0.13.0",
  "parking_lot",
@@ -10216,13 +10216,13 @@ dependencies = [
  "clap",
  "cokret",
  "cokret-bridge-runtime",
- "cokret-client",
  "dirs",
  "dotenvy",
  "ed25519-dalek",
  "feishu-sdk",
  "form_urlencoded",
  "futures-util",
+ "garth",
  "hex",
  "hmac 0.13.0",
  "image",

@@ -22,7 +22,7 @@ use cokret::{
     KeyPackagesConsumeRequestBody, KeyPackagesUploadRequestBody, MlsKeyPackageRecord, RealmId,
     StrandId,
 };
-use cokret_client::{ClientEvent, SubscriptionStopReason};
+use garth::{ClientEvent, SubscriptionStopReason};
 use savfox_channels::cokret::{
     CokretAccountConfig, CokretChannelConfig, CokretDecryptDetailedOutcome, CokretEncryptOutcome,
     CokretHttpClient, CokretInboundEvent, CokretInboundParseResult, CokretInboundSkipReason,

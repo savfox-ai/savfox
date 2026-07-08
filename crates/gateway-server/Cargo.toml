@@ -16,7 +16,7 @@ workspace = true
 default = []
 cokret = [
     "dep:cokret",
-    "dep:cokret-client",
+    "dep:garth",
     "dep:cokret-bridge-runtime",
     "savfox-channels/cokret",
 ]
@@ -84,7 +84,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v7"] }
 cokret = { workspace = true, optional = true }
-cokret-client = { workspace = true, optional = true }
+garth = { workspace = true, optional = true }
 cokret-bridge-runtime = { workspace = true, optional = true }
 
 [dev-dependencies]

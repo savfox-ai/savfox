@@ -1,7 +1,7 @@
 //! File-backed client-core cursor and event-cache store for Cokret account mode.
 //!
 //! Personal-agent listeners need restart-safe account subscribe cursors and
-//! event dedupe. This store implements `cokret-client`'s `CursorStore` and
+//! event dedupe. This store implements `garth`'s `CursorStore` and
 //! `EventCacheStore` traits over a small JSON file so the gateway can persist
 //! those positions without taking a database dependency.
 
@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use cokret::{DeviceId, Did, Error, EventId, Hash, RealmId, Result as CokretResult};
-use cokret_client::{CursorScope, CursorStore, EventCacheStore, OpaqueCursor};
+use garth::{CursorScope, CursorStore, EventCacheStore, OpaqueCursor};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;

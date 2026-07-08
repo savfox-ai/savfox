@@ -9,7 +9,7 @@ use cokret::signatures::{SignEventOptions, sign_event};
 use cokret::{
     ContentBlock, Did, Ed25519MoveSigner, Event, Hlc, OperationEventConversion, RealmId, StrandId,
 };
-use cokret_client::{MessageCreateOptions, OutboundBuilder, OutboundCommandContext};
+use garth::{MessageCreateOptions, OutboundBuilder, OutboundCommandContext};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
