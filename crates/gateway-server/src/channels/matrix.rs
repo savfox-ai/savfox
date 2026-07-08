@@ -2202,7 +2202,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         "Webhook request received"
     );
 
-    let gateway_channel = depot.obtain::<Arc<GatewayChannel>>().ok().cloned();
+    let gateway_channel = depot.get_typed::<Arc<GatewayChannel>>().ok().cloned();
     let self_user_id = if let Some(channel) = gateway_channel.as_ref() {
         match channel
             .resolve_matrix_user_id_for_room(extract_first_room_id(&body))
@@ -2225,7 +2225,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         .and_then(|command| command.dedupe_key.clone());
 
     if !parsed.rooms_to_auto_join.is_empty() {
-        if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() {
+        if let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() {
             let channel = channel.clone();
             for invite in &parsed.rooms_to_auto_join {
                 if let Err(err) = channel.auto_join_matrix_invited_room(invite).await {

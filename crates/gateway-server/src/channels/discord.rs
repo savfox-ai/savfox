@@ -337,7 +337,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     let public_key = depot
-        .obtain::<Arc<GatewayConfig>>()
+        .get_typed::<Arc<GatewayConfig>>()
         .ok()
         .and_then(|cfg| {
             cfg.channels

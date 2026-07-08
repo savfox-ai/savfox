@@ -213,7 +213,7 @@ impl Channel for ZaloChannel {
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     // Verify webhook signature if app_secret is configured.
     let config = depot
-        .obtain::<Arc<crate::config::GatewayConfig>>()
+        .get_typed::<Arc<crate::config::GatewayConfig>>()
         .ok()
         .and_then(|cfg| cfg.channels.zalo.as_ref().cloned());
 

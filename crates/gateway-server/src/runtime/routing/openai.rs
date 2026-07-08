@@ -308,7 +308,7 @@ struct ModelListResponse {
 #[handler]
 pub(crate) async fn models_list_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     // Auth
-    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() {
+    let auth = if let Ok(a) = depot.get_typed::<Arc<GatewayAuth>>() {
         a.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -334,7 +334,7 @@ pub(crate) async fn models_list_handler(req: &mut Request, depot: &mut Depot, re
         return;
     }
 
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -374,7 +374,7 @@ pub(crate) async fn chat_completions_handler(
     res: &mut Response,
 ) {
     // Auth
-    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() {
+    let auth = if let Ok(a) = depot.get_typed::<Arc<GatewayAuth>>() {
         a.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -412,13 +412,13 @@ pub(crate) async fn chat_completions_handler(
         }
     };
 
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+    let session_store = if let Ok(store) = depot.get_typed::<Arc<SessionStore>>() {
         store.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

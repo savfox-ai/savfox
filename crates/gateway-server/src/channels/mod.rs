@@ -43,7 +43,7 @@ pub(crate) fn obtain_channel_and_store(
     depot: &mut Depot,
     res: &mut Response,
 ) -> Option<(Arc<GatewayChannel>, Arc<SessionStore>)> {
-    let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
+    let gateway_channel = match depot.get_typed::<Arc<GatewayChannel>>() {
         Ok(ch) => ch.clone(),
         Err(err) => {
             warn!("webhook: missing gateway channel state: {err:?}");
@@ -56,7 +56,7 @@ pub(crate) fn obtain_channel_and_store(
             return None;
         }
     };
-    let session_store = match depot.obtain::<Arc<SessionStore>>() {
+    let session_store = match depot.get_typed::<Arc<SessionStore>>() {
         Ok(store) => store.clone(),
         Err(err) => {
             warn!("webhook: missing session store state: {err:?}");
@@ -155,7 +155,7 @@ pub(crate) async fn ensure_inbound_channel_enabled(
     res: &mut Response,
     platform: &str,
 ) -> bool {
-    let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
+    let gateway_channel = match depot.get_typed::<Arc<GatewayChannel>>() {
         Ok(ch) => ch.clone(),
         Err(err) => {
             warn!("webhook: missing gateway channel state for {platform}: {err:?}");

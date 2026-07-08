@@ -62,27 +62,27 @@ pub(crate) async fn ws_handler(
     depot: &mut Depot,
 ) -> Result<(), StatusError> {
     let auth = depot
-        .obtain::<Arc<GatewayAuth>>()
+        .get_typed::<Arc<GatewayAuth>>()
         .map_err(|_| StatusError::internal_server_error())?
         .clone();
 
     let session_mgr = depot
-        .obtain::<Arc<GatewaySessionManager>>()
+        .get_typed::<Arc<GatewaySessionManager>>()
         .map_err(|_| StatusError::internal_server_error())?
         .clone();
 
     let channel = depot
-        .obtain::<Arc<GatewayChannel>>()
+        .get_typed::<Arc<GatewayChannel>>()
         .map_err(|_| StatusError::internal_server_error())?
         .clone();
 
     let session_store = depot
-        .obtain::<Arc<SessionStore>>()
+        .get_typed::<Arc<SessionStore>>()
         .map_err(|_| StatusError::internal_server_error())?
         .clone();
 
     let cron_service = depot
-        .obtain::<Arc<CronService>>()
+        .get_typed::<Arc<CronService>>()
         .map_err(|_| StatusError::internal_server_error())?
         .clone();
 

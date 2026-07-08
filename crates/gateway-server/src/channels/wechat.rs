@@ -32,7 +32,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
     let verify_token = {
         let savfox_home = depot
-            .obtain::<std::sync::Arc<crate::channel::GatewayChannel>>()
+            .get_typed::<std::sync::Arc<crate::channel::GatewayChannel>>()
             .ok()
             .map(|channel| channel.config().savfox_home.clone());
         if let Some(savfox_home) = savfox_home {

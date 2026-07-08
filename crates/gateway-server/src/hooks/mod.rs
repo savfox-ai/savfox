@@ -38,7 +38,7 @@ pub(crate) async fn wake_handler(req: &mut Request, depot: &mut Depot, res: &mut
         return;
     }
 
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -84,7 +84,7 @@ pub(crate) async fn agent_hook_handler(req: &mut Request, depot: &mut Depot, res
         return;
     }
 
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -143,7 +143,7 @@ pub(crate) async fn custom_hook_handler(req: &mut Request, depot: &mut Depot, re
 
     let mapping_id = req.param::<String>("mapping_id").unwrap_or_default();
 
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -200,7 +200,7 @@ pub(crate) async fn custom_hook_handler(req: &mut Request, depot: &mut Depot, re
 /// Validate bearer token. Returns `true` if authenticated, `false` if rejected
 /// (and the response has already been set).
 async fn authenticate(req: &Request, depot: &mut Depot, res: &mut Response) -> bool {
-    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() {
+    let auth = if let Ok(a) = depot.get_typed::<Arc<GatewayAuth>>() {
         a.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

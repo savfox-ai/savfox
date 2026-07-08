@@ -387,7 +387,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     // For webhook-based bots, we verify using the app password as HMAC secret
     // if the `Authorization` header is present.
     let app_password = depot
-        .obtain::<Arc<GatewayConfig>>()
+        .get_typed::<Arc<GatewayConfig>>()
         .ok()
         .and_then(|cfg| {
             cfg.channels

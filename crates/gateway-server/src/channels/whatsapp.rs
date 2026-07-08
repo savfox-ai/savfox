@@ -47,7 +47,7 @@ pub(crate) async fn webhook_verification_handler(
 
     let verify_token = {
         let savfox_home = depot
-            .obtain::<Arc<crate::channel::GatewayChannel>>()
+            .get_typed::<Arc<crate::channel::GatewayChannel>>()
             .ok()
             .map(|channel| channel.config().savfox_home.clone());
         if let Some(savfox_home) = savfox_home {
@@ -94,7 +94,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
     let app_secret = {
         let savfox_home = depot
-            .obtain::<Arc<crate::channel::GatewayChannel>>()
+            .get_typed::<Arc<crate::channel::GatewayChannel>>()
             .ok()
             .map(|channel| channel.config().savfox_home.clone());
         if let Some(savfox_home) = savfox_home {

@@ -81,7 +81,7 @@ async fn plugin_route_within_limit(plugin_id: &str) -> bool {
 }
 
 async fn authenticate_plugin_route(req: &Request, depot: &mut Depot, res: &mut Response) -> bool {
-    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() {
+    let auth = if let Ok(a) = depot.get_typed::<Arc<GatewayAuth>>() {
         a.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -123,7 +123,7 @@ async fn authenticate_with_info(
     depot: &mut Depot,
     res: &mut Response,
 ) -> Option<TokenInfo> {
-    let auth = depot.obtain::<Arc<GatewayAuth>>().ok()?.clone();
+    let auth = depot.get_typed::<Arc<GatewayAuth>>().ok()?.clone();
 
     let token = req
         .headers()
@@ -266,7 +266,7 @@ pub(crate) fn global_rate_limiter(
 ) -> &'static crate::security::rate_limit::RateLimiter {
     rate_limiter_cell().get_or_init(|| {
         let cfg = depot
-            .obtain::<Arc<GatewayConfig>>()
+            .get_typed::<Arc<GatewayConfig>>()
             .ok()
             .map(|g| crate::security::rate_limit::RateLimitConfig {
                 max_requests: g.rate_limit.max_requests,
@@ -302,7 +302,7 @@ pub(crate) fn global_rate_limiter_uninitialised_default()
 /// be spoofed by a client setting `X-Forwarded-For: 8.8.8.8`.
 pub(crate) fn client_ip(req: &Request, depot: &Depot) -> Option<std::net::IpAddr> {
     let trust_xff = depot
-        .obtain::<Arc<GatewayConfig>>()
+        .get_typed::<Arc<GatewayConfig>>()
         .ok()
         .is_some_and(|g| g.trust_x_forwarded_for);
     if trust_xff
@@ -587,13 +587,13 @@ async fn health_handler(res: &mut Response) {
 /// `GET /api/status`  - Server status (connected clients, etc.).
 #[handler]
 async fn status_handler(depot: &mut Depot, res: &mut Response) {
-    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() {
+    let session_mgr = if let Ok(mgr) = depot.get_typed::<Arc<GatewaySessionManager>>() {
         mgr.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -637,7 +637,7 @@ async fn logs_handler(req: &mut Request, res: &mut Response) {
 /// `GET /api/config`  - Gateway configuration (sanitized, no secrets).
 #[handler]
 async fn config_handler(depot: &mut Depot, res: &mut Response) {
-    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() {
+    let session_mgr = if let Ok(mgr) = depot.get_typed::<Arc<GatewaySessionManager>>() {
         mgr.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -673,7 +673,7 @@ async fn config_handler(depot: &mut Depot, res: &mut Response) {
 /// `POST /api/token/validate`  - Validate a bearer token.
 #[handler]
 async fn token_validate_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() {
+    let auth = if let Ok(a) = depot.get_typed::<Arc<GatewayAuth>>() {
         a.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -719,7 +719,7 @@ async fn token_validate_handler(req: &mut Request, depot: &mut Depot, res: &mut 
 /// Accepts JSON body: `{"channel": "discord:12345", "text": "Hello!"}`
 #[handler]
 async fn message_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -767,7 +767,7 @@ async fn message_handler(req: &mut Request, depot: &mut Depot, res: &mut Respons
 /// `GET /api/sessions`  - List active sessions.
 #[handler]
 async fn sessions_handler(depot: &mut Depot, res: &mut Response) {
-    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() {
+    let session_mgr = if let Ok(mgr) = depot.get_typed::<Arc<GatewaySessionManager>>() {
         mgr.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -788,7 +788,7 @@ async fn sessions_handler(depot: &mut Depot, res: &mut Response) {
 /// `GET /api/channels`  - List configured channel integrations.
 #[handler]
 async fn channels_handler(depot: &mut Depot, res: &mut Response) {
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1240,7 +1240,7 @@ fn count_runtime_secrets(secrets: &RuntimeBridgeSecrets) -> usize {
 /// `POST /api/config/patch`  - Merge-patch the gateway configuration.
 #[handler]
 async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() {
         channel.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1302,7 +1302,7 @@ async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
 /// `POST /api/config/apply`  - Replace the gateway configuration entirely.
 #[handler]
 async fn config_apply_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() {
         channel.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1414,13 +1414,13 @@ async fn restart_handler(req: &mut Request, depot: &mut Depot, res: &mut Respons
 /// Body: `{"session_id": "...", "message": "...", "model": "...", "system": "..."}`
 #[handler]
 async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+    let session_store = if let Ok(store) = depot.get_typed::<Arc<SessionStore>>() {
         store.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1622,14 +1622,14 @@ async fn session_history_handler(req: &mut Request, depot: &mut Depot, res: &mut
         return;
     }
 
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+    let session_store = if let Ok(store) = depot.get_typed::<Arc<SessionStore>>() {
         store.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() {
         channel.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1660,14 +1660,14 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
         return;
     }
 
-    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() {
         channel.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+    let session_store = if let Ok(store) = depot.get_typed::<Arc<SessionStore>>() {
         store.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1733,7 +1733,7 @@ async fn plugin_route_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         return;
     }
 
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

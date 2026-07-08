@@ -676,7 +676,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     }
 
     // Dispatch each accepted command via gateway-server runtime.
-    let Ok(gateway_channel) = depot.obtain::<Arc<GatewayChannel>>() else {
+    let Ok(gateway_channel) = depot.get_typed::<Arc<GatewayChannel>>() else {
         warn!("applet: gateway channel state missing from depot");
         release_transaction_claim(&state, &identity);
         render_error(
@@ -687,7 +687,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         );
         return;
     };
-    let Ok(session_store) = depot.obtain::<Arc<SessionStore>>() else {
+    let Ok(session_store) = depot.get_typed::<Arc<SessionStore>>() else {
         warn!("applet: session store state missing from depot");
         release_transaction_claim(&state, &identity);
         render_error(

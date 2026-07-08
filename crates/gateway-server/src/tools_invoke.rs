@@ -51,7 +51,7 @@ fn build_tool_prompt(tool: &str, action: Option<&str>, arguments: &Value) -> Str
 #[handler]
 pub(crate) async fn tools_invoke_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     // Authenticate.
-    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() {
+    let auth = if let Ok(a) = depot.get_typed::<Arc<GatewayAuth>>() {
         a.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -91,7 +91,7 @@ pub(crate) async fn tools_invoke_handler(req: &mut Request, depot: &mut Depot, r
         }
     };
 
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

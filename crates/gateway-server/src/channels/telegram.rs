@@ -256,7 +256,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     debug!("Webhook request received");
 
     let expected_secret = depot
-        .obtain::<Arc<GatewayConfig>>()
+        .get_typed::<Arc<GatewayConfig>>()
         .ok()
         .and_then(|cfg| {
             cfg.channels

@@ -28,7 +28,7 @@ pub async fn sessions_patch_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+    let session_store = if let Ok(store) = depot.get_typed::<Arc<SessionStore>>() {
         store.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -66,7 +66,7 @@ pub async fn sessions_reset_handler(req: &mut Request, depot: &mut Depot, res: &
         return;
     }
 
-    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() {
+    let session_mgr = if let Ok(mgr) = depot.get_typed::<Arc<GatewaySessionManager>>() {
         mgr.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -96,14 +96,14 @@ pub async fn sessions_delete_handler(req: &mut Request, depot: &mut Depot, res: 
         return;
     }
 
-    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() {
+    let session_mgr = if let Ok(mgr) = depot.get_typed::<Arc<GatewaySessionManager>>() {
         mgr.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+    let session_store = if let Ok(store) = depot.get_typed::<Arc<SessionStore>>() {
         store.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -153,7 +153,7 @@ pub async fn sessions_compact_handler(req: &mut Request, _depot: &mut Depot, res
 pub async fn sessions_preview_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let limit = req.query::<usize>("limit").unwrap_or(10);
 
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+    let session_store = if let Ok(store) = depot.get_typed::<Arc<SessionStore>>() {
         store.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

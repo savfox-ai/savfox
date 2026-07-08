@@ -89,7 +89,7 @@ async-channel = "2.5.0"
 async-session = "3"
 async-stream = "0.3.6"
 async-trait = "0.1"
-salvo = { version = "0.91", default-features = false, features = [
+salvo = { version = "0.94", default-features = false, features = [
     "server",
     "server-handle",
     "http1",
@@ -98,7 +98,7 @@ salvo = { version = "0.91", default-features = false, features = [
     "websocket",
     "sse",
 ] }
-salvo_extra = { version = "0.91", default-features = false, features = [
+salvo_extra = { version = "0.94", default-features = false, features = [
     "tower-compat",
 ] }
 backoff = { version = "0.4" }

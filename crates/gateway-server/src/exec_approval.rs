@@ -386,14 +386,14 @@ pub(crate) async fn approval_request_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let session_mgr = if let Ok(m) = depot.obtain::<Arc<GatewaySessionManager>>() {
+    let session_mgr = if let Ok(m) = depot.get_typed::<Arc<GatewaySessionManager>>() {
         m.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -461,14 +461,14 @@ pub(crate) async fn approval_resolve_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let session_mgr = if let Ok(m) = depot.obtain::<Arc<GatewaySessionManager>>() {
+    let session_mgr = if let Ok(m) = depot.get_typed::<Arc<GatewaySessionManager>>() {
         m.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -559,7 +559,7 @@ pub(crate) async fn approval_resolve_handler(
 /// `GET /api/exec/approvals`  - List pending approval requests.
 #[handler]
 pub(crate) async fn approvals_list_handler(depot: &mut Depot, res: &mut Response) {
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = if let Ok(b) = depot.get_typed::<Arc<GatewayChannel>>() {
         b.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
