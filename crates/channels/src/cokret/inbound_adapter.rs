@@ -305,35 +305,6 @@ pub fn parse_delta_frame_for_account(
     CokretInboundParseResult { events, skipped }
 }
 
-/// Parse one `ck.self.events.stream.subscribe` event frame payload for the
-/// configured account.
-#[must_use]
-pub fn parse_event_frame_for_account(
-    event_value: &Value,
-    account: &CokretAccountConfig,
-) -> CokretInboundParseResult {
-    let mut events = Vec::new();
-    let mut skipped = Vec::new();
-    match classify_message_event(event_value, &account.id) {
-        CokretInboundEventOutcome::Dispatchable(parsed) => {
-            if let Some(reason) = dispatch_skip_reason(&parsed, account) {
-                skipped.push(CokretInboundSkippedEvent {
-                    account_id: parsed.account_id.clone(),
-                    event_id: Some(parsed.event_id.clone()),
-                    realm_id: Some(parsed.realm_id.clone()),
-                    sender_did: Some(parsed.sender_did.clone()),
-                    encrypted_payload: None,
-                    reason,
-                });
-            } else {
-                events.push(parsed);
-            }
-        }
-        CokretInboundEventOutcome::Skip(event) => skipped.push(event),
-    }
-    CokretInboundParseResult { events, skipped }
-}
-
 /// Walk an account-stream `notifications` delta and extract task-oriented
 /// notifications that should wake the configured savfox agent.
 ///

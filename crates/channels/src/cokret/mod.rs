@@ -1,13 +1,13 @@
 //! Cokret v1 channel adapter.
 //!
 //! Supports two modes:
-//! * **agent** — personal agent runtime configuration seeded from a Yougen bootstrap. Runtime keys
+//! * **agent** — personal agent runtime configuration seeded from an Inkson bootstrap. Runtime keys
 //!   use `agent_key_proof` to mint short-lived DPoP-bound `ck.session.grant` credentials for
 //!   protected self endpoints.
 //! * **applet** — register this node as a Cokret Applet (the Matrix-AppService equivalent), with
 //!   Ghost Actor minting and Ed25519 event signing (see the [`applet`] and [`signer`] submodules).
 //!
-//! Principal provisioning is performed by Yougen/Cokret; this adapter consumes the resulting
+//! Principal provisioning is performed by Inkson/Cokret; this adapter consumes the resulting
 //! bootstrap and runtime-key authorization. MLS/E2EE membership for agent runtimes remains a
 //! separate integration path.
 //!
@@ -71,7 +71,7 @@ pub use inbound_adapter::{
     CokretInboundEvent, CokretInboundEventOutcome, CokretInboundParseResult,
     CokretInboundSkipReason, CokretInboundSkippedEvent, account_allows_event_read,
     classify_message_event, extract_message_event, parse_delta_frame_for_account,
-    parse_event_frame_for_account, parse_notification_delta_for_account, should_dispatch_event,
+    parse_notification_delta_for_account, should_dispatch_event,
 };
 pub use outbound::{MessageCreateRequest, build_message_create_event, sign_outbound_event};
 pub use seq_store::FileSeqStore;
