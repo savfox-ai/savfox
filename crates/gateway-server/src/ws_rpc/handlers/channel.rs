@@ -2035,7 +2035,7 @@ async fn handle_cokret_channel_test(
         .ok_or_else(|| {
             (
                 INVALID_REQUEST,
-                "Cokret agent channel config must include a Yougen bootstrap plus completed runtime key pairing"
+                "Cokret agent channel config must include a Inkson bootstrap plus completed runtime key pairing"
                     .to_owned(),
             )
         })?;
@@ -2081,7 +2081,7 @@ pub(crate) async fn handle_channels_cokret_runtime_key_request(
         .ok_or_else(|| {
             (
                 INVALID_REQUEST,
-                "Cokret agent channel config must include a Yougen bootstrap and runtime key ref"
+                "Cokret agent channel config must include a Inkson bootstrap and runtime key ref"
                     .to_owned(),
             )
         })?;
@@ -2122,7 +2122,7 @@ pub(crate) async fn handle_channels_cokret_runtime_key_request(
             .cloned()
             .unwrap_or(Value::Null),
         "status": approval.get("status").cloned().unwrap_or(Value::Null),
-        "message": "Cokret runtime key approval request sent to Yougen",
+        "message": "Cokret runtime key approval request sent to Inkson",
     }))
 }
 
@@ -2133,9 +2133,9 @@ async fn submit_cokret_runtime_key_approval_request(
     request: Value,
 ) -> Result<Value, String> {
     let bootstrap = account
-        .yougen_bootstrap
+        .inkson_bootstrap
         .as_ref()
-        .ok_or_else(|| "Cokret agent account has no resolved Yougen bootstrap".to_owned())?;
+        .ok_or_else(|| "Cokret agent account has no resolved Inkson bootstrap".to_owned())?;
     let mut body = request;
     let object = body
         .as_object_mut()
@@ -2222,7 +2222,7 @@ pub(crate) async fn handle_channels_cokret_resolve_pairing_bootstrap(
             "platform": "cokret",
             "ok": true,
             "mode": "agent",
-            "yougen_bootstrap": bootstrap,
+            "inkson_bootstrap": bootstrap,
             "message": "Cokret pairing bootstrap is already resolved",
         }));
     }
@@ -2246,7 +2246,7 @@ pub(crate) async fn handle_channels_cokret_resolve_pairing_bootstrap(
         "platform": "cokret",
         "ok": true,
         "mode": "agent",
-        "yougen_bootstrap": bootstrap,
+        "inkson_bootstrap": bootstrap,
         "message": "Cokret pairing link resolved",
     }))
 }
@@ -3405,7 +3405,7 @@ mod tests {
     }
 
     #[cfg(feature = "cokret")]
-    fn sdk_yougen_bootstrap() -> serde_json::Value {
+    fn sdk_inkson_bootstrap() -> serde_json::Value {
         json!({
             "cokret_base_url": "https://cokret.example.org",
             "service_did": "did:webvh:cokret.example.org",
@@ -3462,7 +3462,7 @@ mod tests {
     #[cfg(feature = "cokret")]
     #[test]
     fn cokret_pairing_bootstrap_validation_rejects_legacy_scope_payload() {
-        let mut value = sdk_yougen_bootstrap();
+        let mut value = sdk_inkson_bootstrap();
         value["requested_scope"] = json!({ "actions": ["ck.event.read"] });
 
         let err = validate_cokret_pairing_bootstrap_value(value)
@@ -3566,7 +3566,7 @@ mod tests {
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
                 "serviceDid": "did:webvh:cokret.example.org",
-                "yougenBootstrap": sdk_yougen_bootstrap(),
+                "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
@@ -3583,7 +3583,7 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
-                "yougenBootstrap": sdk_yougen_bootstrap(),
+                "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1"
@@ -3609,7 +3609,7 @@ mod tests {
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
                 "serviceDid": "did:webvh:cokret.example.org",
-                "yougenBootstrap": sdk_yougen_bootstrap(),
+                "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
@@ -3632,7 +3632,7 @@ mod tests {
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
                 "serviceDid": "did:webvh:cokret.example.org",
-                "yougenBootstrap": sdk_yougen_bootstrap(),
+                "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",

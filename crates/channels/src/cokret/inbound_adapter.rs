@@ -567,7 +567,7 @@ mod tests {
             cokret_server_did: None,
             login_challenge: None,
             grant_event_path: None,
-            yougen_bootstrap: None,
+            inkson_bootstrap: None,
             authorized_event_ref: None,
             requested_scope: vec!["ck.event.read".into()],
             listen: true,

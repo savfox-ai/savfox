@@ -541,7 +541,7 @@ fn account_cursor_service_did(
         .or_else(|| channel.service_did.clone())
         .or_else(|| {
             account
-                .yougen_bootstrap
+                .inkson_bootstrap
                 .as_ref()
                 .map(|bootstrap| bootstrap.service_did.to_string())
         })
@@ -2007,7 +2007,7 @@ async fn construct_account_client(
         .or_else(|| channel.service_did.clone())
         .or_else(|| {
             account
-                .yougen_bootstrap
+                .inkson_bootstrap
                 .as_ref()
                 .map(|bootstrap| bootstrap.service_did.to_string())
         })
@@ -2222,7 +2222,7 @@ mod tests {
             cokret_server_did: None,
             login_challenge: None,
             grant_event_path: None,
-            yougen_bootstrap: None,
+            inkson_bootstrap: None,
             authorized_event_ref: None,
             requested_scope: vec![
                 "ck.self.events.stream.subscribe".into(),

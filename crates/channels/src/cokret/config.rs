@@ -24,7 +24,7 @@ const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CokretAccountMode {
-    /// CKP-0008 personal agent runtime: Yougen bootstrap, local runtime key,
+    /// CKP-0008 personal agent runtime: Inkson bootstrap, local runtime key,
     /// agent_key_proof session grant, and DPoP-bound self endpoints.
     Agent,
 }
@@ -48,7 +48,7 @@ pub struct CokretAccountConfig {
     /// tokens; applet bearer config lives in the applet config.
     pub access_token: String,
     /// Local Ed25519 runtime key reference. In personal-agent mode this is the
-    /// savfox-owned runtime key authorized by Yougen/controller.
+    /// savfox-owned runtime key authorized by Inkson/controller.
     pub key_ref: Option<CokretKeyRef>,
     /// Authorized runtime verification method id for agent_key_proof and event
     /// signing.
@@ -62,9 +62,9 @@ pub struct CokretAccountConfig {
     /// When set, the event_id is attached as `authorization_ref` on every
     /// outbound write.
     pub grant_event_path: Option<PathBuf>,
-    /// Yougen pairing/bootstrap metadata consumed by savfox. This never
+    /// Inkson pairing/bootstrap metadata consumed by savfox. This never
     /// contains a private key.
-    pub yougen_bootstrap: Option<AgentPairingBootstrap>,
+    pub inkson_bootstrap: Option<AgentPairingBootstrap>,
     /// Durable `ck.agent.key.authorize` reference proving the runtime key has
     /// been approved by the controller.
     pub authorized_event_ref: Option<String>,
@@ -92,7 +92,7 @@ impl CokretChannelConfig {
         }
 
         let raw = config.config.as_object()?;
-        let bootstrap = parse_yougen_bootstrap(raw.get("yougenBootstrap"));
+        let bootstrap = parse_inkson_bootstrap(raw.get("inksonBootstrap"));
         let base_url = first_non_empty(raw, &["baseUrl"]).or_else(|| {
             bootstrap
                 .as_ref()
@@ -202,13 +202,13 @@ impl CokretAccountConfig {
     fn validate_agent_runtime(&self) -> anyhow::Result<()> {
         if !self.access_token.trim().is_empty() {
             anyhow::bail!(
-                "Cokret agent '{}' must not store accessToken; use Yougen bootstrap, keyRef, and agent_key_proof + DPoP",
+                "Cokret agent '{}' must not store accessToken; use Inkson bootstrap, keyRef, and agent_key_proof + DPoP",
                 self.id
             );
         }
-        if self.yougen_bootstrap.is_none() {
+        if self.inkson_bootstrap.is_none() {
             anyhow::bail!(
-                "Cokret agent '{}' missing yougenBootstrap; paste the Yougen pairing link or resolved bootstrap instead of a static session grant",
+                "Cokret agent '{}' missing inksonBootstrap; paste the Inkson pairing link or resolved bootstrap instead of a static session grant",
                 self.id
             );
         }
@@ -273,13 +273,13 @@ fn parse_accounts(
             .iter()
             .filter_map(|item| {
                 let object = item.as_object()?;
-                let item_bootstrap = parse_yougen_bootstrap(object.get("yougenBootstrap"));
+                let item_bootstrap = parse_inkson_bootstrap(object.get("inksonBootstrap"));
                 parse_account_entry(object, channel_id, item_bootstrap.as_ref().or(bootstrap))
             })
             .collect(),
         Value::Object(_) | Value::Null => {
             // Allow single-account flat form, but the personal-agent runtime
-            // must still carry a Yougen bootstrap.
+            // must still carry a Inkson bootstrap.
             if let Some(account) = parse_account_entry(parent_raw, channel_id, bootstrap) {
                 vec![account]
             } else {
@@ -336,7 +336,7 @@ fn parse_account_entry(
         cokret_server_did,
         login_challenge,
         grant_event_path,
-        yougen_bootstrap: bootstrap.cloned(),
+        inkson_bootstrap: bootstrap.cloned(),
         authorized_event_ref,
         requested_scope,
         listen,
@@ -344,7 +344,7 @@ fn parse_account_entry(
     })
 }
 
-fn parse_yougen_bootstrap(value: Option<&Value>) -> Option<AgentPairingBootstrap> {
+fn parse_inkson_bootstrap(value: Option<&Value>) -> Option<AgentPairingBootstrap> {
     serde_json::from_value(value?.clone()).ok()
 }
 
@@ -441,9 +441,9 @@ pub fn build_cokret_runtime_key_request_json(
     account: &CokretAccountConfig,
     _now: DateTime<Utc>,
 ) -> anyhow::Result<Value> {
-    let bootstrap = account.yougen_bootstrap.as_ref().ok_or_else(|| {
+    let bootstrap = account.inkson_bootstrap.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
-            "Cokret agent '{}' missing yougenBootstrap for runtime key request",
+            "Cokret agent '{}' missing inksonBootstrap for runtime key request",
             account.id
         )
     })?;
@@ -547,7 +547,7 @@ mod tests {
         }
     }
 
-    fn sdk_yougen_bootstrap(
+    fn sdk_inkson_bootstrap(
         base_url: &str,
         service_did: &str,
         agent_principal_id: &str,
@@ -572,7 +572,7 @@ mod tests {
             "accounts": [
                 {
                     "id": "support",
-                    "yougenBootstrap": sdk_yougen_bootstrap(
+                    "inksonBootstrap": sdk_inkson_bootstrap(
                         "https://cokret.example.org",
                         "did:webvh:cokret.example.org",
                         "did:webvh:example.org:agents:support-1",
@@ -587,7 +587,7 @@ mod tests {
                 },
                 {
                     "id": "billing",
-                    "yougenBootstrap": sdk_yougen_bootstrap(
+                    "inksonBootstrap": sdk_inkson_bootstrap(
                         "https://cokret.example.org",
                         "did:webvh:cokret.example.org",
                         "did:webvh:example.org:agents:billing-1",
@@ -618,7 +618,7 @@ mod tests {
     fn parses_single_account_flat_form() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_bootstrap(
+            "inksonBootstrap": sdk_inkson_bootstrap(
                 "https://cokret.example.org",
                 "did:webvh:cokret.example.org",
                 "did:webvh:example.org:agents:bot",
@@ -641,10 +641,10 @@ mod tests {
     }
 
     #[test]
-    fn parses_yougen_bootstrap_agent_runtime_config() {
+    fn parses_inkson_bootstrap_agent_runtime_config() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": {
+            "inksonBootstrap": {
                 "cokret_base_url": "https://cokret.example.org",
                 "service_did": "did:webvh:cokret.example.org",
                 "agent_principal_id": "did:webvh:example.org:agents:support",
@@ -711,7 +711,7 @@ mod tests {
                 .contains(&"ck.self.device_messages.command.ack".to_owned())
         );
         assert_eq!(
-            account.yougen_bootstrap.as_ref().map(|bootstrap| bootstrap
+            account.inkson_bootstrap.as_ref().map(|bootstrap| bootstrap
                 .pairing_expires_at
                 .to_rfc3339_opts(SecondsFormat::Secs, true)),
             Some("2026-07-06T12:00:00Z".to_owned())
@@ -738,7 +738,7 @@ mod tests {
     fn derives_stable_device_id_when_user_omits_it() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_bootstrap(
+            "inksonBootstrap": sdk_inkson_bootstrap(
                 "https://cokret.example.org",
                 "did:webvh:cokret.example.org",
                 "did:webvh:example.org:agents:bot",
@@ -760,7 +760,7 @@ mod tests {
     fn explicit_bad_device_id_rejects_validation() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_bootstrap(
+            "inksonBootstrap": sdk_inkson_bootstrap(
                 "https://cokret.example.org",
                 "did:webvh:cokret.example.org",
                 "did:webvh:example.org:agents:bot",
@@ -781,7 +781,7 @@ mod tests {
     fn agent_runtime_rejects_missing_authorized_event_ref() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_bootstrap(
+            "inksonBootstrap": sdk_inkson_bootstrap(
                 "https://cokret.example.org",
                 "did:webvh:cokret.example.org",
                 "did:webvh:example.org:agents:support",
@@ -802,7 +802,7 @@ mod tests {
     fn agent_runtime_rejects_missing_runtime_key() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_bootstrap(
+            "inksonBootstrap": sdk_inkson_bootstrap(
                 "https://cokret.example.org",
                 "did:webvh:cokret.example.org",
                 "did:webvh:example.org:agents:support",
@@ -823,7 +823,7 @@ mod tests {
     fn agent_runtime_rejects_listen_without_stream_service_scope() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_bootstrap(
+            "inksonBootstrap": sdk_inkson_bootstrap(
                 "https://cokret.example.org",
                 "did:webvh:cokret.example.org",
                 "did:webvh:example.org:agents:support",
@@ -848,7 +848,7 @@ mod tests {
     fn agent_runtime_rejects_send_without_submit_service_scope() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_bootstrap(
+            "inksonBootstrap": sdk_inkson_bootstrap(
                 "https://cokret.example.org",
                 "did:webvh:cokret.example.org",
                 "did:webvh:example.org:agents:support",
@@ -915,7 +915,7 @@ mod tests {
             "accounts": [
                 {
                     "id":"a",
-                    "yougenBootstrap": sdk_yougen_bootstrap(
+                    "inksonBootstrap": sdk_inkson_bootstrap(
                         "https://x.example",
                         "did:webvh:x.example",
                         "did:webvh:a",
@@ -928,7 +928,7 @@ mod tests {
                 },
                 {
                     "id":"b",
-                    "yougenBootstrap": sdk_yougen_bootstrap(
+                    "inksonBootstrap": sdk_inkson_bootstrap(
                         "https://x.example",
                         "did:webvh:x.example",
                         "did:webvh:b",
@@ -951,7 +951,7 @@ mod tests {
         let seed = STANDARD_NO_PAD.encode([7u8; 32]);
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_bootstrap(
+            "inksonBootstrap": sdk_inkson_bootstrap(
                 "https://cokret.example.org",
                 "did:webvh:cokret.example.org",
                 "did:webvh:example.org:agents:support",
