@@ -438,7 +438,20 @@ async fn drive_account_subscription_engine(
             tokio::pin!(refresh);
             loop {
                 tokio::select! {
-                    result = &mut run => return account_engine_outcome_from_result(result),
+                    result = &mut run => {
+                        drain_pending_account_events(
+                            client,
+                            &mut rx,
+                            channel,
+                            account,
+                            &account_store,
+                            &crypto_store,
+                            &gateway_channel,
+                            &session_store,
+                        )
+                        .await;
+                        return account_engine_outcome_from_result(result);
+                    }
                     maybe_event = rx.recv() => {
                         if let Some(event) = maybe_event {
                             handle_account_client_event(
@@ -455,7 +468,22 @@ async fn drive_account_subscription_engine(
                         }
                     }
                     _ = &mut refresh => {
+                        // Stop the engine, then wait for it to actually finish
+                        // before draining: only a completed engine future is
+                        // guaranteed to emit no further events into the sink.
                         engine.cancel();
+                        let _ = (&mut run).await;
+                        drain_pending_account_events(
+                            client,
+                            &mut rx,
+                            channel,
+                            account,
+                            &account_store,
+                            &crypto_store,
+                            &gateway_channel,
+                            &session_store,
+                        )
+                        .await;
                         return AccountEngineOutcome::RefreshSession;
                     }
                 }
@@ -463,7 +491,20 @@ async fn drive_account_subscription_engine(
         }
         None => loop {
             tokio::select! {
-                result = &mut run => return account_engine_outcome_from_result(result),
+                result = &mut run => {
+                    drain_pending_account_events(
+                        client,
+                        &mut rx,
+                        channel,
+                        account,
+                        &account_store,
+                        &crypto_store,
+                        &gateway_channel,
+                        &session_store,
+                    )
+                    .await;
+                    return account_engine_outcome_from_result(result);
+                }
                 maybe_event = rx.recv() => {
                     if let Some(event) = maybe_event {
                         handle_account_client_event(
@@ -481,6 +522,38 @@ async fn drive_account_subscription_engine(
                 }
             }
         },
+    }
+}
+
+/// Deliver events the sink already queued but the select loop has not consumed
+/// yet. The engine checkpoints the cursor BEFORE emitting to the sink, so any
+/// return path that drops the channel un-drained would permanently lose events
+/// the cursor has already advanced past — the session-refresh stop hits this
+/// once per grant lifetime without any crash involved. Dedupe makes redundant
+/// deliveries safe; skipped ones are not recoverable.
+#[allow(clippy::too_many_arguments)]
+async fn drain_pending_account_events(
+    client: &CokretHttpClient,
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<ClientEvent>,
+    channel: &CokretChannelConfig,
+    account: &CokretAccountConfig,
+    account_store: &FileCokretAccountStore,
+    crypto_store: &FileCokretCryptoStore,
+    gateway_channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
+) {
+    while let Ok(event) = rx.try_recv() {
+        handle_account_client_event(
+            client,
+            event,
+            channel,
+            account,
+            account_store,
+            crypto_store,
+            gateway_channel,
+            session_store,
+        )
+        .await;
     }
 }
 
