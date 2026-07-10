@@ -98,11 +98,6 @@ pub fn classify_message_event(event: &Value, account_id: &str) -> ArkretInboundE
                 ArkretInboundSkipReason::KindNotMessageCreate,
             ),
         },
-        Ok(DecodedInbound::Notification(notification)) => skip_sdk_event(
-            &notification.event,
-            account_id,
-            ArkretInboundSkipReason::KindNotMessageCreate,
-        ),
         Ok(DecodedInbound::Event(event_envelope)) => skip_sdk_event(
             &event_envelope,
             account_id,

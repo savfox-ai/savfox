@@ -21,10 +21,9 @@ use arkret::{
 };
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer as _, SigningKey};
-use futures_util::{Stream, StreamExt};
+use futures_util::Stream;
 use garth::{
-    AgentKeyProofLogin, ArkretClient, LoginKind, MemoryStore, NativeExecutor,
-    SessionEngine,
+    AgentKeyProofLogin, ArkretClient, LoginKind, MemoryStore, NativeExecutor, SessionEngine,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -465,55 +464,6 @@ fn joined_htu(base_url: &Url, path: &str) -> anyhow::Result<String> {
     url.set_query(None);
     url.set_fragment(None);
     Ok(url.to_string())
-}
-
-fn ndjson_event_frame_stream(
-    response: reqwest::Response,
-) -> impl Stream<Item = Result<EventsSubscribeFrame, anyhow::Error>> + Send {
-    let byte_stream = response
-        .bytes_stream()
-        .map(|item| item.map_err(|err| anyhow::anyhow!("stream bytes: {err}")))
-        .boxed();
-    futures_util::stream::unfold(
-        (byte_stream, Vec::<u8>::new()),
-        |(mut byte_stream, mut buffer)| async move {
-            loop {
-                if let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
-                    let line_bytes: Vec<u8> = buffer.drain(..=newline).collect();
-                    let line = String::from_utf8_lossy(&line_bytes);
-                    match EventsSubscribeFrame::from_ndjson_line(&line) {
-                        Ok(Some(frame)) => return Some((Ok(frame), (byte_stream, buffer))),
-                        Ok(None) => continue,
-                        Err(err) => {
-                            return Some((
-                                Err(anyhow::anyhow!("events subscribe frame: {err}")),
-                                (byte_stream, buffer),
-                            ));
-                        }
-                    }
-                }
-                match byte_stream.next().await {
-                    Some(Ok(bytes)) => buffer.extend_from_slice(&bytes),
-                    Some(Err(err)) => return Some((Err(err), (byte_stream, buffer))),
-                    None if buffer.is_empty() => return None,
-                    None => {
-                        let line = String::from_utf8_lossy(&buffer);
-                        let result = EventsSubscribeFrame::from_ndjson_line(&line)
-                            .map_err(|err| anyhow::anyhow!("events subscribe frame: {err}"))
-                            .and_then(|frame| {
-                                frame.ok_or_else(|| {
-                                    anyhow::anyhow!(
-                                        "events subscribe stream ended with empty frame"
-                                    )
-                                })
-                            });
-                        buffer.clear();
-                        return Some((result, (byte_stream, buffer)));
-                    }
-                }
-            }
-        },
-    )
 }
 
 #[cfg(test)]
