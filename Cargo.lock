@@ -325,6 +325,7 @@ dependencies = [
  "arkret-keystore",
  "arkret-server",
  "arkret-signatures",
+ "arkret-state",
  "base64",
  "chacha20poly1305",
  "chrono",
@@ -393,6 +394,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "subtle",
  "thiserror 2.0.18",
  "tracing",
  "unicode-normalization",
@@ -437,6 +439,7 @@ version = "0.3.0"
 dependencies = [
  "arkret-core",
  "arkret-signatures",
+ "arkret-state",
  "base64",
  "chrono",
  "futures-util",
@@ -478,8 +481,12 @@ version = "0.3.0"
 dependencies = [
  "arkret-core",
  "arkret-signatures",
+ "arkret-state",
+ "chrono",
+ "salvo 0.93.0",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -497,7 +504,21 @@ dependencies = [
  "subtle",
  "thiserror 2.0.18",
  "url",
+ "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "arkret-state"
+version = "0.3.0"
+dependencies = [
+ "arkret-core",
+ "chrono",
+ "hex",
+ "salvo 0.93.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -9282,6 +9303,7 @@ source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb
 dependencies = [
  "salvo-oapi",
  "salvo_core 0.93.0",
+ "salvo_extra 0.93.0",
 ]
 
 [[package]]
@@ -9291,7 +9313,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e58d7158d996e7005dc9b67b0fe01bc070d500e644156ea74badc4826bb18d42"
 dependencies = [
  "salvo_core 0.94.0",
- "salvo_extra",
+ "salvo_extra 0.94.0",
 ]
 
 [[package]]
@@ -9576,6 +9598,27 @@ dependencies = [
 
 [[package]]
 name = "salvo_extra"
+version = "0.93.0"
+source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
+dependencies = [
+ "base64",
+ "etag",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "pin-project",
+ "salvo_core 0.93.0",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.29.0",
+ "tower",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
+name = "salvo_extra"
 version = "0.94.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61b71870d38e66f9328b11d375556698eeac4e3067ce94fd0bfae96898de027c"
@@ -9699,7 +9742,7 @@ dependencies = [
  "pretty_assertions",
  "rmcp",
  "salvo 0.94.0",
- "salvo_extra",
+ "salvo_extra 0.94.0",
  "savfox-app-server-protocol",
  "savfox-arg0",
  "savfox-common",
@@ -10537,7 +10580,7 @@ dependencies = [
  "reqwest 0.13.4",
  "rmcp",
  "salvo 0.94.0",
- "salvo_extra",
+ "salvo_extra 0.94.0",
  "savfox-keyring-store",
  "savfox-protocol",
  "savfox-utils",

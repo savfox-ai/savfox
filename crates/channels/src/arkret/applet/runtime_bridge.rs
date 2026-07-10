@@ -20,7 +20,7 @@
 use std::sync::Arc;
 
 use arkret_bridge_runtime::{
-    AppletResolver, CokretEdge as ArkretEdge, Config, ResolvedActor, ResolvedRealm, SeqStore,
+    AppletResolver, ArkretEdge, Config, ResolvedActor, ResolvedRealm, SeqStore,
 };
 use serde_json::json;
 

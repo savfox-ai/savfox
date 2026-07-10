@@ -23,7 +23,7 @@ use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::{Stream, StreamExt};
 use garth::{
-    AgentKeyProofLogin, CokretClient as ArkretClient, LoginKind, MemoryStore, NativeExecutor,
+    AgentKeyProofLogin, ArkretClient, LoginKind, MemoryStore, NativeExecutor,
     SessionEngine,
 };
 use serde_json::{Value, json};
@@ -297,12 +297,8 @@ impl ArkretHttpClient {
                 {
                     let signing_key = Arc::clone(&signing_key);
                     move |request| {
-                        let arkret::http_client::DpopProofRequest {
-                            method,
-                            htu,
-                            access_token,
-                        } = request;
-                        build_dpop_header(&signing_key, method, htu, access_token.as_deref())
+                        arkret::dpop::build_dpop_proof(&request, &signing_key)
+                            .map(|proof| proof.header_value)
                     }
                 },
             )))
@@ -371,12 +367,28 @@ impl ArkretHttpClient {
         realm_id: &str,
         after: Option<&str>,
     ) -> anyhow::Result<ArkretFrameStream> {
-        let response = self
+        let mut options = arkret::http_client::EventsSubscribeOptions::new().realm(realm_id);
+        if let Some(after) = after {
+            options = options.after(after);
+        }
+        let stream = self
             .inner
-            .events_subscribe_stream(realm_id, after)
+            .events_subscribe_frames(&options)
             .await
             .map_err(|err| anyhow::anyhow!("arkret events_subscribe_stream: {err}"))?;
-        Ok(Box::pin(ndjson_event_frame_stream(response)))
+        Ok(Box::pin(futures_util::stream::unfold(
+            stream,
+            |mut stream| async move {
+                match stream.next_frame().await {
+                    Ok(Some(frame)) => Some((Ok(frame), stream)),
+                    Ok(None) => None,
+                    Err(err) => Some((
+                        Err(anyhow::anyhow!("arkret events_subscribe_stream: {err}")),
+                        stream,
+                    )),
+                }
+            },
+        )))
     }
 
     /// `GET /_arkret/self/account/subscribe` — returns a user-scoped account
@@ -398,9 +410,20 @@ impl ArkretHttpClient {
             .inner
             .account_subscribe_frames(&request)
             .await
-            .map_err(|err| anyhow::anyhow!("arkret account_subscribe: {err}"))?
-            .map(|frame| frame.map_err(|err| anyhow::anyhow!("arkret account_subscribe: {err}")));
-        Ok(Box::pin(stream))
+            .map_err(|err| anyhow::anyhow!("arkret account_subscribe: {err}"))?;
+        Ok(Box::pin(futures_util::stream::unfold(
+            stream,
+            |mut stream| async move {
+                match stream.next_frame().await {
+                    Ok(Some(frame)) => Some((Ok(frame), stream)),
+                    Ok(None) => None,
+                    Err(err) => Some((
+                        Err(anyhow::anyhow!("arkret account_subscribe: {err}")),
+                        stream,
+                    )),
+                }
+            },
+        )))
     }
 
     /// `POST /api/v1/events` — submit one signed Event Envelope.

@@ -484,7 +484,7 @@ pub fn build_arkret_runtime_key_request_json(
         "alg": "Ed25519",
         "key": arkret::base64url_encode(signing_key.verifying_key().to_bytes()),
     });
-    let request_canonical_digest = arkret::agent::agent_key_pair_proof_request_binding_digest(
+    let request_canonical_digest = arkret::agent_key_pair_proof_request_binding_digest(
         &bootstrap.pairing_request_id,
         &agent_principal_id,
         verification_method,
