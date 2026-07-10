@@ -336,7 +336,7 @@ dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-
 
 # Optional Arkret v1 integration crates. These are path dependencies during
 # local protocol/runtime co-development across the sibling Arkret workspace.
-arkret = { path = "../../arkret/arkret-rust-sdk/crates/sdk", default-features = false, features = [
+arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk", default-features = false, features = [
     "client",
     "applet-runtime",
     "device-runtime",
@@ -344,9 +344,9 @@ arkret = { path = "../../arkret/arkret-rust-sdk/crates/sdk", default-features = 
     "mls",
     "signer",
 ] }
-arkret-core = { path = "../../arkret/arkret-rust-sdk/crates/core", default-features = false }
-garth = { path = "../../arkret/garth", default-features = false, features = ["native"] }
-arkret-bridge-runtime = { path = "../../arkret/bridges/crates/runtime", default-features = false, features = ["edge"] }
+arkret-core = { path = "../../arkret-org/arkret-rust-sdk/crates/core", default-features = false }
+garth = { path = "../../arkret-org/garth", default-features = false, features = ["native"] }
+arkret-bridge-runtime = { path = "../../arkret-org/bridges/crates/runtime", default-features = false, features = ["edge"] }
 
 # WASM dependencies for gateway-dioxus
 dioxus = { version = "0.7", default-features = false, features = [
