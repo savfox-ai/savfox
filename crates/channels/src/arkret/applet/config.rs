@@ -1,60 +1,60 @@
 //! Applet mode configuration.
 //!
-//! A Cokret channel saved with `mode = "applet"` declares this savfox node
-//! as a registered Applet (the Matrix-AppService equivalent in the Cokret
+//! A Arkret channel saved with `mode = "applet"` declares this savfox node
+//! as a registered Applet (the Matrix-AppService equivalent in the Arkret
 //! universe). The config carries: applet identity, service URL where this
-//! node receives `POST /_cokret/edge/applet/transactions`, the Cokret server we
+//! node receives `POST /_arkret/edge/applet/transactions`, the Arkret server we
 //! write events back to, namespace declarations, and a ghost-DID
 //! generation rule.
 
 use std::path::PathBuf;
 
 use anyhow::Context;
-use cokret::signatures::PublicKeyMaterial;
-use cokret::{DeviceId, Did};
+use arkret::signatures::PublicKeyMaterial;
+use arkret::{DeviceId, Did};
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};
-use crate::cokret::signer::CokretKeyRef;
+use crate::arkret::signer::ArkretKeyRef;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CokretAppletTrustedVerificationMethod {
+pub struct ArkretAppletTrustedVerificationMethod {
     pub verification_method: String,
     pub public_key: PublicKeyMaterial,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CokretAppletConfig {
+pub struct ArkretAppletConfig {
     /// Stable identifier in savfox's local channel store.
     pub id: String,
-    /// `ck:applet:<uuidv7>` — stable across registrations.
+    /// `ak:applet:<uuidv7>` — stable across registrations.
     pub applet_id: String,
     /// Applet service DID (e.g. `did:web:slack-bridge.example`).
     pub service_did: String,
     /// Controller DID that signs the registration (typically `did:webvh:...`).
     pub controller_did: String,
     /// Public URL where this savfox node accepts inbound transactions
-    /// (mounted under `/appservices/cokret/{id}/_cokret/edge/applet`).
+    /// (mounted under `/appservices/arkret/{id}/_arkret/edge/applet`).
     pub base_url: String,
     /// Bot actor DID — the visible identity of the applet in Realms it joins
     /// (usually `<service_did>:bot`).
     pub bot_actor_id: String,
-    /// Optional Cokret device id for the bot/applet local MLS member. Required
+    /// Optional Arkret device id for the bot/applet local MLS member. Required
     /// for generating precise MLS recovery plans, but kept optional for
     /// existing bearer-only applet deployments.
     pub device_id: Option<String>,
-    /// Cokret server base URL where outbound events are POSTed.
-    pub cokret_server_url: String,
-    /// Cokret server service DID used by applet outbound authentication.
-    pub cokret_server_did: Option<String>,
+    /// Arkret server base URL where outbound events are POSTed.
+    pub arkret_server_url: String,
+    /// Arkret server service DID used by applet outbound authentication.
+    pub arkret_server_did: Option<String>,
     /// Static server verification methods accepted for inbound applet HTTP
     /// Message Signatures and event pushes.
-    pub trusted_verification_methods: Vec<CokretAppletTrustedVerificationMethod>,
+    pub trusted_verification_methods: Vec<ArkretAppletTrustedVerificationMethod>,
     /// Server-issued one-time challenge for DID-proof session grant issuance.
     pub login_challenge: Option<String>,
     /// Optional bearer for outbound `events_submit` calls. In a fully
     /// signed flow this is replaced by the ghost actor's detached JWS.
-    pub cokret_bearer_token: Option<String>,
+    pub arkret_bearer_token: Option<String>,
     /// Namespaces declared in the registration. Used for inbound transaction
     /// filtering and for actor / realm lookup endpoints.
     pub namespaces: AppletNamespaces,
@@ -65,16 +65,16 @@ pub struct CokretAppletConfig {
     /// Default `"ghost:"` → `did:web:host:ghost:<slug>`.
     pub ghost_did_prefix: String,
     /// `requested_scopes[]` — informational; reducer ignores this and only
-    /// honors actual `ck.capability.grant` events.
+    /// honors actual `ak.capability.grant` events.
     pub requested_scopes: Vec<String>,
-    /// Whether the Cokret server is expected to push event transactions
+    /// Whether the Arkret server is expected to push event transactions
     /// (`receive_events: true`). Default `true`.
     pub receive_events: bool,
     /// Whether to receive ephemeral (typing/presence) events. Default `false`.
     pub receive_ephemeral: bool,
     /// Whether the server is permitted to rate-limit transaction pushes.
     pub rate_limited: bool,
-    /// Optional `ck.capability.grant` event id this applet currently holds.
+    /// Optional `ak.capability.grant` event id this applet currently holds.
     /// When set, outbound events include it as `authorization_ref`.
     pub authorization_grant_id: Option<String>,
     /// Operator-supplied security epoch hash (`sha256:<hex>`) over the
@@ -85,24 +85,24 @@ pub struct CokretAppletConfig {
     /// for offline controller signing.
     pub registration_epoch: Option<String>,
     /// Phase 8 (T8.A): ed25519 key for DID-proof login + event signing.
-    /// When set, `start_cokret_applet_channel` runs login_did_proof to
+    /// When set, `start_arkret_applet_channel` runs login_did_proof to
     /// obtain the bearer rather than relying on a static `accessToken`.
-    pub key_ref: Option<CokretKeyRef>,
+    pub key_ref: Option<ArkretKeyRef>,
     /// Phase 8: verification method id used by the signer. Defaults to
     /// `{bot_actor_id}#key-1` when missing.
     pub verification_method: Option<String>,
-    /// Phase 8: path to a pre-signed `ck.capability.grant` Event JSON.
+    /// Phase 8: path to a pre-signed `ak.capability.grant` Event JSON.
     pub grant_event_path: Option<PathBuf>,
 }
 
-impl CokretAppletConfig {
-    /// Parse a savfox channel config as an Applet-mode Cokret channel.
+impl ArkretAppletConfig {
+    /// Parse a savfox channel config as an Applet-mode Arkret channel.
     /// Returns `None` if the channel is disabled, of the wrong kind, or
     /// missing the `mode == "applet"` discriminator.
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
-        if !config.enabled || !config.kind.eq_ignore_ascii_case("cokret") {
+        if !config.enabled || !config.kind.eq_ignore_ascii_case("arkret") {
             return None;
         }
         let raw = config.config.as_object()?;
@@ -122,14 +122,14 @@ impl CokretAppletConfig {
         let bot_actor_id = first_non_empty(raw, &["botActorId", "bot_actor_id"])
             .unwrap_or_else(|| format!("{service_did}:bot"));
         let device_id = first_non_empty(raw, &["deviceId", "device_id", "botDeviceId"]);
-        let cokret_server_url =
-            first_non_empty(raw, &["cokretServerUrl", "cokret_server_url", "homeserver"])
+        let arkret_server_url =
+            first_non_empty(raw, &["arkretServerUrl", "arkret_server_url", "homeserver"])
                 .unwrap_or_else(|| base_url.clone());
-        let cokret_server_did = first_non_empty(
+        let arkret_server_did = first_non_empty(
             raw,
             &[
-                "cokretServerDid",
-                "cokret_server_did",
+                "arkretServerDid",
+                "arkret_server_did",
                 "trustedServerDid",
                 "trusted_server_did",
             ],
@@ -139,8 +139,8 @@ impl CokretAppletConfig {
                 .or_else(|| raw.get("trusted_verification_methods")),
         )?;
         let login_challenge = first_non_empty(raw, &["loginChallenge", "login_challenge"]);
-        let cokret_bearer_token =
-            first_non_empty(raw, &["accessToken", "access_token", "cokretBearerToken"]);
+        let arkret_bearer_token =
+            first_non_empty(raw, &["accessToken", "access_token", "arkretBearerToken"]);
 
         let namespaces = parse_namespaces(raw.get("namespaces"));
         let protocols = parse_string_list(raw.get("protocols"));
@@ -172,7 +172,7 @@ impl CokretAppletConfig {
         let key_ref = raw
             .get("keyRef")
             .or_else(|| raw.get("key_ref"))
-            .and_then(CokretKeyRef::from_value);
+            .and_then(ArkretKeyRef::from_value);
         let verification_method = first_non_empty(
             raw,
             &[
@@ -192,11 +192,11 @@ impl CokretAppletConfig {
             base_url,
             bot_actor_id,
             device_id,
-            cokret_server_url,
-            cokret_server_did,
+            arkret_server_url,
+            arkret_server_did,
             trusted_verification_methods,
             login_challenge,
-            cokret_bearer_token,
+            arkret_bearer_token,
             namespaces,
             protocols,
             ghost_did_prefix,
@@ -220,10 +220,10 @@ impl CokretAppletConfig {
             ("controller_did", &self.controller_did),
             ("base_url", &self.base_url),
             ("bot_actor_id", &self.bot_actor_id),
-            ("cokret_server_url", &self.cokret_server_url),
+            ("arkret_server_url", &self.arkret_server_url),
         ] {
             if value.trim().is_empty() {
-                anyhow::bail!("Cokret applet channel '{}' missing {label}", self.id);
+                anyhow::bail!("Arkret applet channel '{}' missing {label}", self.id);
             }
         }
         // Strictly parse the DID-typed fields with the SDK parser (not a loose
@@ -237,7 +237,7 @@ impl CokretAppletConfig {
         ] {
             Did::new(value.clone()).map_err(|err| {
                 anyhow::anyhow!(
-                    "Cokret applet channel '{}' {label} must be a valid DID URI, got '{}': {err}",
+                    "Arkret applet channel '{}' {label} must be a valid DID URI, got '{}': {err}",
                     self.id,
                     value
                 )
@@ -246,45 +246,45 @@ impl CokretAppletConfig {
         if let Some(device_id) = self.device_id.as_deref() {
             DeviceId::new(device_id.to_owned()).map_err(|err| {
                 anyhow::anyhow!(
-                    "Cokret applet channel '{}' device_id must be a valid Cokret device id, got '{}': {err}",
+                    "Arkret applet channel '{}' device_id must be a valid Arkret device id, got '{}': {err}",
                     self.id,
                     device_id
                 )
             })?;
         }
-        if let Some(value) = self.cokret_server_did.as_deref() {
+        if let Some(value) = self.arkret_server_did.as_deref() {
             Did::new(value.to_owned()).map_err(|err| {
                 anyhow::anyhow!(
-                    "Cokret applet channel '{}' cokret_server_did must be a valid DID URI, got '{}': {err}",
+                    "Arkret applet channel '{}' arkret_server_did must be a valid DID URI, got '{}': {err}",
                     self.id,
                     value
                 )
             })?;
         } else if self.key_ref.is_some() {
             anyhow::bail!(
-                "Cokret applet channel '{}' has key_ref but no cokret_server_did / cokretServerDid for DID-proof audience",
+                "Arkret applet channel '{}' has key_ref but no arkret_server_did / arkretServerDid for DID-proof audience",
                 self.id
             );
         }
         for method in &self.trusted_verification_methods {
             if method.verification_method.trim().is_empty() {
                 anyhow::bail!(
-                    "Cokret applet channel '{}' has an empty trusted verification method id",
+                    "Arkret applet channel '{}' has an empty trusted verification method id",
                     self.id
                 );
             }
             let owner_did = verification_method_did(&method.verification_method).ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Cokret applet channel '{}' trusted verification method '{}' must include a DID fragment",
+                    "Arkret applet channel '{}' trusted verification method '{}' must include a DID fragment",
                     self.id,
                     method.verification_method
                 )
             })?;
-            if let Some(server_did) = self.cokret_server_did.as_deref()
+            if let Some(server_did) = self.arkret_server_did.as_deref()
                 && owner_did != server_did
             {
                 anyhow::bail!(
-                    "Cokret applet channel '{}' trusted verification method '{}' is owned by '{}', not trusted server DID '{}'",
+                    "Arkret applet channel '{}' trusted verification method '{}' is owned by '{}', not trusted server DID '{}'",
                     self.id,
                     method.verification_method,
                     owner_did,
@@ -293,7 +293,7 @@ impl CokretAppletConfig {
             }
             method.public_key.ed25519_bytes().map_err(|err| {
                 anyhow::anyhow!(
-                    "Cokret applet channel '{}' trusted verification method '{}' public key is not valid Ed25519 material: {err}",
+                    "Arkret applet channel '{}' trusted verification method '{}' public key is not valid Ed25519 material: {err}",
                     self.id,
                     method.verification_method
                 )
@@ -302,19 +302,19 @@ impl CokretAppletConfig {
         if self.key_ref.is_some() {
             let Some(challenge) = self.login_challenge.as_deref().map(str::trim) else {
                 anyhow::bail!(
-                    "Cokret applet channel '{}' has key_ref but no login_challenge / loginChallenge",
+                    "Arkret applet channel '{}' has key_ref but no login_challenge / loginChallenge",
                     self.id
                 );
             };
             if challenge.is_empty() {
                 anyhow::bail!(
-                    "Cokret applet channel '{}' has key_ref but no login_challenge / loginChallenge",
+                    "Arkret applet channel '{}' has key_ref but no login_challenge / loginChallenge",
                     self.id
                 );
             }
             if challenge.len() < 16 {
                 anyhow::bail!(
-                    "Cokret applet channel '{}' login_challenge must be at least 16 characters",
+                    "Arkret applet channel '{}' login_challenge must be at least 16 characters",
                     self.id
                 );
             }
@@ -324,25 +324,25 @@ impl CokretAppletConfig {
             && self.namespaces.handles.is_empty()
         {
             anyhow::bail!(
-                "Cokret applet channel '{}' declares no namespaces; at least one of \
+                "Arkret applet channel '{}' declares no namespaces; at least one of \
                  actors/realms/handles is required",
                 self.id
             );
         }
         if self.protocols.is_empty() {
             anyhow::bail!(
-                "Cokret applet channel '{}' declares no protocols (e.g. [\"slack\"])",
+                "Arkret applet channel '{}' declares no protocols (e.g. [\"slack\"])",
                 self.id
             );
         }
         if self
-            .cokret_bearer_token
+            .arkret_bearer_token
             .as_deref()
             .map(str::trim)
             .is_none_or(str::is_empty)
         {
             anyhow::bail!(
-                "Cokret applet channel '{}' missing access_token / cokretBearerToken for inbound applet authentication",
+                "Arkret applet channel '{}' missing access_token / arkretBearerToken for inbound applet authentication",
                 self.id
             );
         }
@@ -388,7 +388,7 @@ fn parse_pattern_list(value: Option<&Value>) -> Vec<NamespacePattern> {
 
 fn parse_trusted_verification_methods(
     value: Option<&Value>,
-) -> Option<Vec<CokretAppletTrustedVerificationMethod>> {
+) -> Option<Vec<ArkretAppletTrustedVerificationMethod>> {
     let Some(value) = value else {
         return Some(Vec::new());
     };
@@ -401,7 +401,7 @@ fn parse_trusted_verification_methods(
 
 fn parse_trusted_verification_method(
     value: &Value,
-) -> Option<CokretAppletTrustedVerificationMethod> {
+) -> Option<ArkretAppletTrustedVerificationMethod> {
     let obj = value.as_object()?;
     let verification_method = first_non_empty(
         obj,
@@ -422,7 +422,7 @@ fn parse_trusted_verification_method(
             value: obj.get("publicKeyMultibase")?.as_str()?.to_owned(),
         }
     };
-    Some(CokretAppletTrustedVerificationMethod {
+    Some(ArkretAppletTrustedVerificationMethod {
         verification_method,
         public_key,
     })
@@ -470,16 +470,16 @@ fn parse_string_list(value: Option<&Value>) -> Vec<String> {
     }
 }
 
-/// Load all configured Cokret applet channels.
-pub async fn load_cokret_applet_configs(
+/// Load all configured Arkret applet channels.
+pub async fn load_arkret_applet_configs(
     savfox_home: &std::path::PathBuf,
-) -> anyhow::Result<Vec<CokretAppletConfig>> {
+) -> anyhow::Result<Vec<ArkretAppletConfig>> {
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home)
         .await
-        .context("failed to load channel configs for cokret applet")?;
+        .context("failed to load channel configs for arkret applet")?;
     Ok(all_configs
         .iter()
-        .filter_map(CokretAppletConfig::from_channel_config)
+        .filter_map(ArkretAppletConfig::from_channel_config)
         .collect())
 }
 
@@ -492,8 +492,8 @@ mod tests {
 
     fn make_channel_config(body: Value) -> ChannelConfig {
         ChannelConfig {
-            id: "cokret-applet-test".into(),
-            kind: "cokret".into(),
+            id: "arkret-applet-test".into(),
+            kind: "arkret".into(),
             slug: "applet".into(),
             name: "Applet".into(),
             enabled: true,
@@ -509,13 +509,13 @@ mod tests {
     fn valid_body() -> Value {
         json!({
             "mode": "applet",
-            "appletId": "ck:applet:21532600-0000-7000-8000-000000000000",
+            "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
             "serviceDid": "did:web:slack-bridge.example",
             "controllerDid": "did:webvh:example.com:admin",
-            "baseUrl": "https://savfox.example/appservices/cokret/cokret-applet-test",
+            "baseUrl": "https://savfox.example/appservices/arkret/arkret-applet-test",
             "botActorId": "did:web:slack-bridge.example:bot",
-            "cokretServerUrl": "https://cokret.example.org",
-            "cokretServerDid": "did:webvh:cokret.example.org",
+            "arkretServerUrl": "https://arkret.example.org",
+            "arkretServerDid": "did:webvh:arkret.example.org",
             "accessToken": "applet-bearer-1",
             "protocols": ["slack"],
             "namespaces": {
@@ -529,22 +529,22 @@ mod tests {
                     { "pattern": "slack.acme.example/*", "exclusive": false }
                 ]
             },
-            "requestedScopes": ["ck.flow.create", "ck.message.create"]
+            "requestedScopes": ["ak.flow.create", "ak.message.create"]
         })
     }
 
     #[test]
     fn parses_full_applet_config() {
         let cfg = make_channel_config(valid_body());
-        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         assert_eq!(
             parsed.applet_id,
-            "ck:applet:21532600-0000-7000-8000-000000000000"
+            "ak:applet:21532600-0000-7000-8000-000000000000"
         );
         assert_eq!(parsed.protocols, vec!["slack"]);
         assert_eq!(
-            parsed.cokret_server_did.as_deref(),
-            Some("did:webvh:cokret.example.org")
+            parsed.arkret_server_did.as_deref(),
+            Some("did:webvh:arkret.example.org")
         );
         assert_eq!(parsed.namespaces.actors.len(), 1);
         assert!(parsed.namespaces.actors[0].exclusive);
@@ -555,13 +555,13 @@ mod tests {
     #[test]
     fn parses_keyed_applet_login_challenge() {
         let mut body = valid_body();
-        body["keyRef"] = json!({ "kind": "env", "var": "SAVFOX_COKRET_APPLET_KEY" });
-        body["loginChallenge"] = json!("challenge-from-cokret");
+        body["keyRef"] = json!({ "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" });
+        body["loginChallenge"] = json!("challenge-from-arkret");
         let cfg = make_channel_config(body);
-        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         assert_eq!(
             parsed.login_challenge.as_deref(),
-            Some("challenge-from-cokret")
+            Some("challenge-from-arkret")
         );
         parsed.validate().expect("validate");
     }
@@ -571,7 +571,7 @@ mod tests {
         let mut body = valid_body();
         body["trustedVerificationMethods"] = json!([
             {
-                "verificationMethod": "did:webvh:cokret.example.org#key-1",
+                "verificationMethod": "did:webvh:arkret.example.org#key-1",
                 "publicKey": {
                     "encoding": "ed25519_raw",
                     "bytes": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg"
@@ -579,12 +579,12 @@ mod tests {
             }
         ]);
         let cfg = make_channel_config(body);
-        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         parsed.validate().expect("validate");
         assert_eq!(parsed.trusted_verification_methods.len(), 1);
         assert_eq!(
             parsed.trusted_verification_methods[0].verification_method,
-            "did:webvh:cokret.example.org#key-1"
+            "did:webvh:arkret.example.org#key-1"
         );
         assert_eq!(
             parsed.trusted_verification_methods[0]
@@ -608,7 +608,7 @@ mod tests {
             }
         ]);
         let cfg = make_channel_config(body);
-        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         let err = parsed
             .validate()
             .expect_err("wrong trusted server DID should fail");
@@ -620,7 +620,7 @@ mod tests {
         let mut body = valid_body();
         body["mode"] = json!("account");
         let cfg = make_channel_config(body);
-        assert!(CokretAppletConfig::from_channel_config(&cfg).is_none());
+        assert!(ArkretAppletConfig::from_channel_config(&cfg).is_none());
     }
 
     #[test]
@@ -630,14 +630,14 @@ mod tests {
             .expect("valid body should be an object")
             .remove("mode");
         let cfg = make_channel_config(body);
-        assert!(CokretAppletConfig::from_channel_config(&cfg).is_none());
+        assert!(ArkretAppletConfig::from_channel_config(&cfg).is_none());
     }
 
     #[test]
     fn disabled_returns_none() {
         let mut cfg = make_channel_config(valid_body());
         cfg.enabled = false;
-        assert!(CokretAppletConfig::from_channel_config(&cfg).is_none());
+        assert!(ArkretAppletConfig::from_channel_config(&cfg).is_none());
     }
 
     #[test]
@@ -647,7 +647,7 @@ mod tests {
             .expect("valid body should be an object")
             .remove("appletId");
         let cfg = make_channel_config(body);
-        assert!(CokretAppletConfig::from_channel_config(&cfg).is_none());
+        assert!(ArkretAppletConfig::from_channel_config(&cfg).is_none());
     }
 
     #[test]
@@ -655,7 +655,7 @@ mod tests {
         let mut body = valid_body();
         body["namespaces"] = json!({"actors": [], "realms": [], "handles": []});
         let cfg = make_channel_config(body);
-        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         let err = parsed.validate().expect_err("empty namespaces should fail");
         assert!(err.to_string().contains("namespaces"));
     }
@@ -665,7 +665,7 @@ mod tests {
         let mut body = valid_body();
         body["protocols"] = json!([]);
         let cfg = make_channel_config(body);
-        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         let err = parsed.validate().expect_err("empty protocols should fail");
         assert!(err.to_string().contains("protocols"));
     }
@@ -675,7 +675,7 @@ mod tests {
         let mut body = valid_body();
         body["serviceDid"] = json!("not-a-did");
         let cfg = make_channel_config(body);
-        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         assert!(parsed.validate().is_err());
     }
 
@@ -686,7 +686,7 @@ mod tests {
             .expect("valid body should be an object")
             .remove("accessToken");
         let cfg = make_channel_config(body);
-        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         let err = parsed
             .validate()
             .expect_err("missing inbound bearer token should fail");
@@ -696,7 +696,7 @@ mod tests {
     #[test]
     fn defaults_receive_flags() {
         let cfg = make_channel_config(valid_body());
-        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         assert!(parsed.receive_events);
         assert!(!parsed.receive_ephemeral);
         assert!(parsed.rate_limited);

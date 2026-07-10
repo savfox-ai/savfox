@@ -1,12 +1,12 @@
-//! Build a `ck.message.create` Event Envelope for a Cokret actor.
+//! Build a `ak.message.create` Event Envelope for an Arkret actor.
 //!
 //! Callers with a signer plumbed in should call [`sign_outbound_event`] after
 //! `build_message_create_event` and before `Client::events_submit`.
 //! Production servers are expected to reject unsigned writes.
 
 use anyhow::Context;
-use cokret::signatures::{SignEventOptions, sign_event};
-use cokret::{
+use arkret::signatures::{SignEventOptions, sign_event};
+use arkret::{
     ContentBlock, Did, Ed25519MoveSigner, Event, Hlc, OperationEventConversion, RealmId, StrandId,
 };
 use garth::{MessageCreateOptions, OutboundBuilder, OutboundCommandContext};
@@ -22,12 +22,12 @@ pub struct MessageCreateRequest {
     pub thread_root_id: Option<String>,
 }
 
-/// Build an unsigned `ck.message.create` Event Envelope ready to be POSTed to
+/// Build an unsigned `ak.message.create` Event Envelope ready to be POSTed to
 /// `/api/v1/events`.
 ///
 /// **Caveat:** this returns the envelope with `proofs[]` empty. The server
 /// will reject submission if it enforces per-event detached-JWS signing
-/// (`event_proofs_empty`); see `_cokret_todos.md` §"不在本阶段做".
+/// (`event_proofs_empty`); see `_arkret_todos.md` §"不在本阶段做".
 pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<Event> {
     if req.realm_id.trim().is_empty() {
         anyhow::bail!("MessageCreateRequest missing realm_id");
@@ -86,7 +86,7 @@ fn apply_legacy_flow_id(payload: &mut Value, flow_id: &str) {
 
 /// Phase 8 (T8.C): attach a detached-JWS [`Proof`] to an outbound event.
 ///
-/// Wraps SDK `cokret::signatures::sign_event` (S-1). Same semantics as
+/// Wraps SDK `arkret::signatures::sign_event` (S-1). Same semantics as
 /// the applet-mode helper in [`super::applet::sign_outbound_event`].
 pub fn sign_outbound_event(
     event: &mut Event,
@@ -105,7 +105,7 @@ pub fn sign_outbound_event(
 
 fn current_hlc() -> Hlc {
     // HLC format: `unix_ms_hex(12) - logical_hex(4) - node_hex(8)`. We don't
-    // own a logical clock here, so emit `(now, 0, 00000000)` — Cokret v1
+    // own a logical clock here, so emit `(now, 0, 00000000)` — Arkret v1
     // tolerates monotonic-by-time stamps from a single emitter.
     let unix_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
     let value = format!("{unix_ms:012x}-0000-00000000");
@@ -118,8 +118,8 @@ mod tests {
 
     fn valid_request() -> MessageCreateRequest {
         MessageCreateRequest {
-            realm_id: "ck:realm:01904100-0000-7000-8000-000000000001".into(),
-            flow_id: "ck:flow:01904100-0000-7000-8000-000000000001".into(),
+            realm_id: "ak:realm:01904100-0000-7000-8000-000000000001".into(),
+            flow_id: "ak:flow:01904100-0000-7000-8000-000000000001".into(),
             body: "hello world".into(),
             principal_id: "did:webvh:example.org:agents:support".into(),
             actor_seq: 1,
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn builds_basic_message_event() {
         let event = build_message_create_event(&valid_request()).expect("build");
-        assert_eq!(event.kind, "ck.message.create");
+        assert_eq!(event.kind, "ak.message.create");
         assert_eq!(event.realm_id.as_str(), valid_request().realm_id);
         assert_eq!(event.actor_id.as_str(), valid_request().principal_id);
         // payload shape sanity
@@ -155,11 +155,11 @@ mod tests {
     #[test]
     fn uses_strand_flow_id_for_sdk_payload_when_supplied() {
         let mut req = valid_request();
-        req.flow_id = "ck:strand:01904100-0000-7000-8000-000000000002".into();
+        req.flow_id = "ak:strand:01904100-0000-7000-8000-000000000002".into();
         let event = build_message_create_event(&req).expect("build");
         assert_eq!(
             event.payload.get("strand_id").and_then(Value::as_str),
-            Some("ck:strand:01904100-0000-7000-8000-000000000002")
+            Some("ak:strand:01904100-0000-7000-8000-000000000002")
         );
         assert!(event.payload.get("flow_id").is_none());
     }
@@ -195,10 +195,10 @@ mod tests {
     #[test]
     fn thread_root_id_maps_to_sdk_reply_to_when_supplied() {
         let mut req = valid_request();
-        req.thread_root_id = Some("ck:event:01H...".into());
+        req.thread_root_id = Some("ak:event:01H...".into());
         let event = build_message_create_event(&req).expect("build");
         let tr = event.payload.get("reply_to").and_then(|v| v.as_str());
-        assert_eq!(tr, Some("ck:event:01H..."));
+        assert_eq!(tr, Some("ak:event:01H..."));
         assert!(event.payload.get("thread_root_id").is_none());
     }
 }

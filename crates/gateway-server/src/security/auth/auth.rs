@@ -720,11 +720,11 @@ mod tests {
         assert_eq!(required_scope("channels.list"), Scope::Write);
         assert_eq!(required_scope("channels.create"), Scope::Write);
         assert_eq!(
-            required_scope("channels.cokret.runtime_key_request"),
+            required_scope("channels.arkret.runtime_key_request"),
             Scope::Write
         );
         assert_eq!(
-            required_scope("channels.cokret.generate_runtime_key_ref"),
+            required_scope("channels.arkret.generate_runtime_key_ref"),
             Scope::Write
         );
     }

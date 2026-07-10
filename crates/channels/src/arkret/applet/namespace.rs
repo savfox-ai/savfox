@@ -1,7 +1,7 @@
 //! Applet namespace helpers.
 //!
-//! Grammar (Cokret spec [`applet-schema.md`
-//! §2](../../../../../../cokret/cokret-spec/spec/v1/zh/extensions/applet-schema.md)):
+//! Grammar (Arkret spec [`applet-schema.md`
+//! §2](../../../../../../arkret/arkret-spec/spec/v1/zh/extensions/applet-schema.md)):
 //!
 //! * `*` matches one segment — one or more chars that are not a separator for the domain.
 //! * `**` matches one or more `/`-separated segments but never crosses a `:` (SDK T-SDK-7 / S-13
@@ -10,10 +10,10 @@
 //! * Separators are domain-specific: actors split on `:` only; realms and handles split on `:` and
 //!   `/`. A DID `#fragment` is ignored for actors.
 //!
-//! The wire DTOs live in the Cokret SDK. This module keeps the local helper
+//! The wire DTOs live in the Arkret SDK. This module keeps the local helper
 //! names used by the channel code while aliasing the SDK types directly.
 
-use cokret::{AppletNamespaceDomain, AppletNamespaceEntry, AppletWireNamespaces};
+use arkret::{AppletNamespaceDomain, AppletNamespaceEntry, AppletWireNamespaces};
 
 pub type NamespacePattern = AppletNamespaceEntry;
 pub type AppletNamespaces = AppletWireNamespaces;
@@ -21,7 +21,7 @@ pub type AppletNamespaces = AppletWireNamespaces;
 /// True iff `candidate` matches `pattern` under the applet namespace grammar
 /// for `domain`.
 ///
-/// Thin alias for [`cokret::namespace_pattern_matches`]. Since SDK T-SDK-7 the
+/// Thin alias for [`arkret::namespace_pattern_matches`]. Since SDK T-SDK-7 the
 /// matcher is domain-aware: the actor domain separates only on `:`, while the
 /// realm / handle domains separate on `:` and `/`.
 #[must_use]
@@ -30,7 +30,7 @@ pub fn namespace_pattern_matches(
     pattern: &str,
     candidate: &str,
 ) -> bool {
-    cokret::namespace_pattern_matches(domain, pattern, candidate)
+    arkret::namespace_pattern_matches(domain, pattern, candidate)
 }
 
 pub trait NamespacePatternExt {
@@ -77,7 +77,7 @@ impl AppletNamespacesExt for AppletNamespaces {
 
 #[cfg(test)]
 mod tests {
-    // Spec applet-schema.md §2 grammar table — all 9 rows from _cokret_todos.md.
+    // Spec applet-schema.md §2 grammar table — all 9 rows from _arkret_todos.md.
     use AppletNamespaceDomain::{Actors, Realms};
 
     use super::*;
@@ -158,7 +158,7 @@ mod tests {
         // SDK semantics (T-SDK-7): empty pattern rejects any non-empty
         // candidate. Empty/empty matches as a degenerate identity case —
         // we tolerate it because in practice we never invoke matchers with
-        // an empty pattern at runtime (`load_cokret_applet_configs` filters
+        // an empty pattern at runtime (`load_arkret_applet_configs` filters
         // them out).
         assert!(!namespace_pattern_matches(Actors, "", "anything"));
     }

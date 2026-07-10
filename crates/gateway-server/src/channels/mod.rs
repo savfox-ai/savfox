@@ -1,8 +1,8 @@
 pub(crate) mod channel_stream;
-#[cfg(feature = "cokret")]
-pub(crate) mod cokret;
-#[cfg(feature = "cokret")]
-pub(crate) mod cokret_applet;
+#[cfg(feature = "arkret")]
+pub(crate) mod arkret;
+#[cfg(feature = "arkret")]
+pub(crate) mod arkret_applet;
 pub(crate) mod dingtalk;
 pub(crate) mod discord;
 pub(crate) mod feishu;
@@ -218,8 +218,8 @@ pub(crate) async fn initialize_and_start_channels(
 
         let result = match kind.as_str() {
             "matrix" => start_matrix_channel(&config, &registry, channel, session_store).await,
-            #[cfg(feature = "cokret")]
-            "cokret" => {
+            #[cfg(feature = "arkret")]
+            "arkret" => {
                 // Branch on the inner `mode` discriminator: `"applet"` runs as
                 // a registered Applet (≈ Matrix Appservice), anything else
                 // (default `"agent"`, plus legacy `"account"`) runs through
@@ -231,14 +231,14 @@ pub(crate) async fn initialize_and_start_channels(
                     .map(|m| m.to_ascii_lowercase())
                     .unwrap_or_else(|| "agent".to_owned());
                 if mode == "applet" {
-                    crate::channels::cokret_applet::start_cokret_applet_channel(
+                    crate::channels::arkret_applet::start_arkret_applet_channel(
                         &config,
                         channel,
                         session_store,
                     )
                     .await
                 } else {
-                    crate::channels::cokret::start_cokret_channel(
+                    crate::channels::arkret::start_arkret_channel(
                         &config,
                         &registry,
                         channel,

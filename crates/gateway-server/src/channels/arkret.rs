@@ -1,13 +1,13 @@
-//! Cokret personal-agent channel runtime.
+//! Arkret personal-agent channel runtime.
 //!
 //! Owns one async task per (channel, account) pair. Each task:
 //!
 //! 1. Mints a short-lived `agent_key_proof` session grant bound to DPoP.
-//! 2. Opens `/_cokret/self/account/subscribe` for the owning user account.
-//! 3. Extracts dispatchable `ck.message.create` events.
+//! 2. Opens `/_arkret/self/account/subscribe` for the owning user account.
+//! 3. Extracts dispatchable `ak.message.create` events.
 //! 4. Dispatches each event to the agent pipeline.
 //!
-//! Outbound sends go through [`send_to_cokret_account`].
+//! Outbound sends go through [`send_to_arkret_account`].
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -17,19 +17,19 @@ use std::time::Duration;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use cokret::{
+use arkret::{
     DeviceId, DeviceMessagesAckRequestBody, Did, KeyPackageUploadEntry,
     KeyPackagesConsumeRequestBody, KeyPackagesUploadRequestBody, MlsKeyPackageRecord, RealmId,
     StrandId,
 };
 use garth::{ClientEvent, SubscriptionStopReason};
-use savfox_channels::cokret::{
-    CokretAccountConfig, CokretChannelConfig, CokretDecryptDetailedOutcome, CokretEncryptOutcome,
-    CokretHttpClient, CokretInboundEvent, CokretInboundParseResult, CokretInboundSkipReason,
-    CokretInboundSkippedEvent, CokretMlsWelcomeConsumeBinding, FileCokretAccountStore,
-    FileCokretCryptoStore, MessageCreateRequest, account_allows_event_read,
+use savfox_channels::arkret::{
+    ArkretAccountConfig, ArkretChannelConfig, ArkretDecryptDetailedOutcome, ArkretEncryptOutcome,
+    ArkretHttpClient, ArkretInboundEvent, ArkretInboundParseResult, ArkretInboundSkipReason,
+    ArkretInboundSkippedEvent, ArkretMlsWelcomeConsumeBinding, FileArkretAccountStore,
+    FileArkretCryptoStore, MessageCreateRequest, account_allows_event_read,
     build_message_create_event, parse_delta_frame_for_account,
-    parse_notification_delta_for_account, resolve_cokret_outbound_account,
+    parse_notification_delta_for_account, resolve_arkret_outbound_account,
     sign_key_operation_value,
 };
 use serde_json::{Value, json};
@@ -41,7 +41,7 @@ use crate::session::SessionStore;
 
 /// Per-(channel, account) runtime handles. Indexed by `{channel_id}::{account_id}`.
 #[derive(Default)]
-struct CokretRuntimeState {
+struct ArkretRuntimeState {
     handles: HashMap<String, tokio::task::JoinHandle<()>>,
 }
 
@@ -51,47 +51,47 @@ const ACCOUNT_SCAN_CATCHUP_MAX_PAGES: usize = 64;
 const DEVICE_MESSAGES_PULL_LIMIT: u32 = 100;
 const DEVICE_MESSAGES_PULL_MAX_PAGES: usize = 16;
 
-const KEYPACKAGES_UPLOAD_SCOPE: &str = "ck.self.keys.keypackages.upload.create";
-const KEYPACKAGES_CONSUME_SCOPE: &str = "ck.self.keys.keypackages.command.consume";
-const DEVICE_MESSAGES_LIST_SCOPE: &str = "ck.self.device_messages.query.list";
-const DEVICE_MESSAGES_ACK_SCOPE: &str = "ck.self.device_messages.command.ack";
+const KEYPACKAGES_UPLOAD_SCOPE: &str = "ak.self.keys.keypackages.upload.create";
+const KEYPACKAGES_CONSUME_SCOPE: &str = "ak.self.keys.keypackages.command.consume";
+const DEVICE_MESSAGES_LIST_SCOPE: &str = "ak.self.device_messages.query.list";
+const DEVICE_MESSAGES_ACK_SCOPE: &str = "ak.self.device_messages.command.ack";
 
 /// Refresh an agent session grant this many seconds before it expires.
 const SESSION_REFRESH_SKEW_SECS: i64 = 60;
 
-fn runtime_state() -> &'static StdMutex<CokretRuntimeState> {
-    static STATE: OnceLock<StdMutex<CokretRuntimeState>> = OnceLock::new();
-    STATE.get_or_init(|| StdMutex::new(CokretRuntimeState::default()))
+fn runtime_state() -> &'static StdMutex<ArkretRuntimeState> {
+    static STATE: OnceLock<StdMutex<ArkretRuntimeState>> = OnceLock::new();
+    STATE.get_or_init(|| StdMutex::new(ArkretRuntimeState::default()))
 }
 
 fn task_key(channel_id: &str, account_id: &str) -> String {
     format!("{channel_id}::{account_id}")
 }
 
-pub(crate) async fn start_cokret_channel(
+pub(crate) async fn start_arkret_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     _registry: &ChannelRegistry,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    let cokret_config = CokretChannelConfig::from_channel_config(config)
-        .ok_or_else(|| anyhow::anyhow!("Cokret channel config must be an object"))?;
-    cokret_config
+    let arkret_config = ArkretChannelConfig::from_channel_config(config)
+        .ok_or_else(|| anyhow::anyhow!("Arkret channel config must be an object"))?;
+    arkret_config
         .validate()
-        .with_context(|| format!("Cokret channel '{}' config validation failed", config.id))?;
+        .with_context(|| format!("Arkret channel '{}' config validation failed", config.id))?;
 
     info!(
-        "cokret: channel '{}' validated; {} account(s), base_url='{}'",
-        cokret_config.id,
-        cokret_config.accounts.len(),
-        cokret_config.base_url,
+        "arkret: channel '{}' validated; {} account(s), base_url='{}'",
+        arkret_config.id,
+        arkret_config.accounts.len(),
+        arkret_config.base_url,
     );
 
-    for account in &cokret_config.accounts {
+    for account in &arkret_config.accounts {
         if account.listen {
             spawn_account_listener(
                 gateway_channel.config().savfox_home.clone(),
-                cokret_config.clone(),
+                arkret_config.clone(),
                 account.clone(),
                 Arc::clone(gateway_channel),
                 Arc::clone(session_store),
@@ -104,13 +104,13 @@ pub(crate) async fn start_cokret_channel(
 
 /// Abort and drop all account-subscribe listener tasks belonging to a channel.
 ///
-/// Called when a Cokret channel is disabled/deleted so the long-poll tasks
+/// Called when an Arkret channel is disabled/deleted so the long-poll tasks
 /// (and their `JoinHandle`s) don't leak and keep dispatching events for a
 /// channel the operator already removed. Returns the number of tasks stopped.
-pub(crate) fn stop_cokret_account_listeners(channel_id: &str) -> usize {
+pub(crate) fn stop_arkret_account_listeners(channel_id: &str) -> usize {
     let prefix = format!("{channel_id}::");
     let Ok(mut state) = runtime_state().lock() else {
-        warn!("cokret: runtime state mutex poisoned; cannot stop listeners for '{channel_id}'");
+        warn!("arkret: runtime state mutex poisoned; cannot stop listeners for '{channel_id}'");
         return 0;
     };
     let keys: Vec<String> = state
@@ -129,10 +129,10 @@ pub(crate) fn stop_cokret_account_listeners(channel_id: &str) -> usize {
     stopped
 }
 
-pub(crate) fn cokret_account_listener_count(channel_id: &str) -> usize {
+pub(crate) fn arkret_account_listener_count(channel_id: &str) -> usize {
     let prefix = format!("{channel_id}::");
     let Ok(state) = runtime_state().lock() else {
-        warn!("cokret: runtime state mutex poisoned; cannot inspect listeners for '{channel_id}'");
+        warn!("arkret: runtime state mutex poisoned; cannot inspect listeners for '{channel_id}'");
         return 0;
     };
     state
@@ -144,8 +144,8 @@ pub(crate) fn cokret_account_listener_count(channel_id: &str) -> usize {
 
 fn spawn_account_listener(
     savfox_home: PathBuf,
-    channel: CokretChannelConfig,
-    account: CokretAccountConfig,
+    channel: ArkretChannelConfig,
+    account: ArkretAccountConfig,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
@@ -161,7 +161,7 @@ fn spawn_account_listener(
         .await;
     });
     let Ok(mut state) = runtime_state().lock() else {
-        warn!("cokret: runtime state mutex poisoned; aborting listener task '{key}'");
+        warn!("arkret: runtime state mutex poisoned; aborting listener task '{key}'");
         handle.abort();
         return;
     };
@@ -172,22 +172,22 @@ fn spawn_account_listener(
 
 async fn run_account_listener(
     savfox_home: PathBuf,
-    channel: CokretChannelConfig,
-    account: CokretAccountConfig,
+    channel: ArkretChannelConfig,
+    account: ArkretAccountConfig,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
-    if !account.has_requested_scope("ck.self.events.stream.subscribe") {
+    if !account.has_requested_scope("ak.self.events.stream.subscribe") {
         warn!(
-            "cokret: account '{}' listen=true but missing ck.self.events.stream.subscribe; refusing to open subscribe endpoint",
+            "arkret: account '{}' listen=true but missing ak.self.events.stream.subscribe; refusing to open subscribe endpoint",
             account.id
         );
-        runtime::record_channel_probe("cokret", "error").await;
+        runtime::record_channel_probe("arkret", "error").await;
         return;
     }
 
     let mut backoff = Duration::from_secs(1);
-    let account_store = match FileCokretAccountStore::for_account_with_limit(
+    let account_store = match FileArkretAccountStore::for_account_with_limit(
         &savfox_home,
         &channel.id,
         &account.id,
@@ -196,11 +196,11 @@ async fn run_account_listener(
         Ok(store) => {
             if let Err(err) = store.ensure_created() {
                 warn!(
-                    "cokret: account '{}' durable subscribe state unavailable at {}: {err}",
+                    "arkret: account '{}' durable subscribe state unavailable at {}: {err}",
                     account.id,
                     store.path().display()
                 );
-                runtime::record_channel_probe("cokret", "error").await;
+                runtime::record_channel_probe("arkret", "error").await;
                 return;
             } else {
                 store
@@ -208,19 +208,19 @@ async fn run_account_listener(
         }
         Err(err) => {
             warn!(
-                "cokret: account '{}' failed to open durable subscribe state: {err}",
+                "arkret: account '{}' failed to open durable subscribe state: {err}",
                 account.id
             );
-            runtime::record_channel_probe("cokret", "error").await;
+            runtime::record_channel_probe("arkret", "error").await;
             return;
         }
     };
-    let crypto_store = FileCokretCryptoStore::for_account(&savfox_home, &channel.id, &account.id);
+    let crypto_store = FileArkretCryptoStore::for_account(&savfox_home, &channel.id, &account.id);
     if let Err(err) =
-        FileCokretCryptoStore::feature_report().and_then(|_| crypto_store.ensure_created())
+        FileArkretCryptoStore::feature_report().and_then(|_| crypto_store.ensure_created())
     {
         warn!(
-            "cokret: account '{}' crypto state unavailable at {}: {err:#}",
+            "arkret: account '{}' crypto state unavailable at {}: {err:#}",
             account.id,
             crypto_store.path().display()
         );
@@ -231,14 +231,14 @@ async fn run_account_listener(
         Ok(pair) => pair,
         Err(err) => {
             warn!(
-                "cokret: account '{}' on channel '{}' failed to construct HTTP client: {err:#}",
+                "arkret: account '{}' on channel '{}' failed to construct HTTP client: {err:#}",
                 account.id, channel.id
             );
-            runtime::record_channel_probe("cokret", "error").await;
+            runtime::record_channel_probe("arkret", "error").await;
             return;
         }
     };
-    runtime::record_channel_probe("cokret", "ok").await;
+    runtime::record_channel_probe("arkret", "ok").await;
     run_account_key_lifecycle_maintenance(
         &client,
         &channel,
@@ -250,7 +250,7 @@ async fn run_account_listener(
     .await;
 
     loop {
-        runtime::record_channel_probe("cokret", "ok").await;
+        runtime::record_channel_probe("arkret", "ok").await;
 
         // Proactively refresh the agent session grant before it expires so a
         // long-lived stream does not wait for Unauthorized to recover.
@@ -258,21 +258,21 @@ async fn run_account_listener(
             && session_grant_needs_refresh(Some(expiry), Utc::now())
         {
             info!(
-                "cokret: account '{}' session grant near expiry ({expiry}) — refreshing",
+                "arkret: account '{}' session grant near expiry ({expiry}) — refreshing",
                 account.id
             );
             match construct_account_client(&channel, &account).await {
                 Ok((fresh, fresh_expiry)) => {
                     client = fresh;
                     session_expiry = fresh_expiry;
-                    runtime::record_channel_probe("cokret", "ok").await;
+                    runtime::record_channel_probe("arkret", "ok").await;
                 }
                 Err(err) => {
                     warn!(
-                        "cokret: account '{}' proactive refresh failed: {err:#}; stopping listener",
+                        "arkret: account '{}' proactive refresh failed: {err:#}; stopping listener",
                         account.id
                     );
-                    runtime::record_channel_probe("cokret", "error").await;
+                    runtime::record_channel_probe("arkret", "error").await;
                     return;
                 }
             }
@@ -292,7 +292,7 @@ async fn run_account_listener(
         {
             AccountEngineOutcome::RefreshSession => {
                 info!(
-                    "cokret: account '{}' session grant near expiry — refreshing",
+                    "arkret: account '{}' session grant near expiry — refreshing",
                     account.id
                 );
                 match construct_account_client(&channel, &account).await {
@@ -300,14 +300,14 @@ async fn run_account_listener(
                         client = fresh;
                         session_expiry = fresh_expiry;
                         backoff = Duration::from_secs(1);
-                        runtime::record_channel_probe("cokret", "ok").await;
+                        runtime::record_channel_probe("arkret", "ok").await;
                     }
                     Err(err) => {
                         warn!(
-                            "cokret: account '{}' proactive refresh failed: {err:#}; stopping listener",
+                            "arkret: account '{}' proactive refresh failed: {err:#}; stopping listener",
                             account.id
                         );
-                        runtime::record_channel_probe("cokret", "error").await;
+                        runtime::record_channel_probe("arkret", "error").await;
                         return;
                     }
                 }
@@ -317,7 +317,7 @@ async fn run_account_listener(
                 // try a fresh agent_key_proof session exchange; the shared
                 // subscription engine owns cursor recovery semantics.
                 warn!(
-                    "cokret: account '{}' became unauthorized mid-stream{} — refreshing agent session",
+                    "arkret: account '{}' became unauthorized mid-stream{} — refreshing agent session",
                     account.id,
                     reason
                         .as_deref()
@@ -330,35 +330,35 @@ async fn run_account_listener(
                         client = fresh;
                         session_expiry = fresh_expiry;
                         backoff = Duration::from_secs(1);
-                        runtime::record_channel_probe("cokret", "ok").await;
+                        runtime::record_channel_probe("arkret", "ok").await;
                         info!(
-                            "cokret: account '{}' agent session refresh succeeded",
+                            "arkret: account '{}' agent session refresh succeeded",
                             account.id
                         );
                     }
                     Err(err) => {
                         warn!(
-                            "cokret: account '{}' agent session refresh failed: {err:#}; stopping listener",
+                            "arkret: account '{}' agent session refresh failed: {err:#}; stopping listener",
                             account.id
                         );
-                        runtime::record_channel_probe("cokret", "error").await;
+                        runtime::record_channel_probe("arkret", "error").await;
                         return;
                     }
                 }
             }
             AccountEngineOutcome::Cancelled => {
                 debug!(
-                    "cokret: account '{}' subscription engine cancelled; reconnecting",
+                    "arkret: account '{}' subscription engine cancelled; reconnecting",
                     account.id
                 );
                 backoff = Duration::from_secs(1);
             }
             AccountEngineOutcome::Retry { error } => {
                 warn!(
-                    "cokret: subscribe engine for '{}/{}' failed: {error:#}",
+                    "arkret: subscribe engine for '{}/{}' failed: {error:#}",
                     channel.id, account.id
                 );
-                runtime::record_channel_probe("cokret", "error").await;
+                runtime::record_channel_probe("arkret", "error").await;
                 sleep_with_backoff(&mut backoff).await;
             }
         }
@@ -391,12 +391,12 @@ fn session_refresh_delay(
 }
 
 async fn drive_account_subscription_engine(
-    client: &CokretHttpClient,
+    client: &ArkretHttpClient,
     session_expiry: Option<DateTime<Utc>>,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    account_store: FileCokretAccountStore,
-    crypto_store: FileCokretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: FileArkretAccountStore,
+    crypto_store: FileArkretCryptoStore,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> AccountEngineOutcome {
@@ -404,7 +404,7 @@ async fn drive_account_subscription_engine(
         Ok(actor_id) => actor_id,
         Err(err) => {
             return AccountEngineOutcome::Retry {
-                error: anyhow::anyhow!("invalid Cokret account principal id: {err}"),
+                error: anyhow::anyhow!("invalid Arkret account principal id: {err}"),
             };
         }
     };
@@ -412,7 +412,7 @@ async fn drive_account_subscription_engine(
         Ok(device_id) => device_id,
         Err(err) => {
             return AccountEngineOutcome::Retry {
-                error: anyhow::anyhow!("invalid Cokret account device id: {err}"),
+                error: anyhow::anyhow!("invalid Arkret account device id: {err}"),
             };
         }
     };
@@ -533,12 +533,12 @@ async fn drive_account_subscription_engine(
 /// deliveries safe; skipped ones are not recoverable.
 #[allow(clippy::too_many_arguments)]
 async fn drain_pending_account_events(
-    client: &CokretHttpClient,
+    client: &ArkretHttpClient,
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<ClientEvent>,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    account_store: &FileCokretAccountStore,
-    crypto_store: &FileCokretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) {
@@ -558,7 +558,7 @@ async fn drain_pending_account_events(
 }
 
 fn account_engine_outcome_from_result(
-    result: cokret::Result<SubscriptionStopReason>,
+    result: arkret::Result<SubscriptionStopReason>,
 ) -> AccountEngineOutcome {
     match result {
         Ok(SubscriptionStopReason::Cancelled) => AccountEngineOutcome::Cancelled,
@@ -572,12 +572,12 @@ fn account_engine_outcome_from_result(
 }
 
 async fn handle_account_client_event(
-    client: &CokretHttpClient,
+    client: &ArkretHttpClient,
     event: ClientEvent,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    account_store: &FileCokretAccountStore,
-    crypto_store: &FileCokretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) {
@@ -597,7 +597,7 @@ async fn handle_account_client_event(
         }
         other => {
             debug!(
-                "cokret: account '{}/{}' ignored non-account subscription event: {:?}",
+                "arkret: account '{}/{}' ignored non-account subscription event: {:?}",
                 channel.id, account.id, other
             );
         }
@@ -605,11 +605,11 @@ async fn handle_account_client_event(
 }
 
 fn account_cursor_service_did(
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
 ) -> Option<String> {
     account
-        .cokret_server_did
+        .arkret_server_did
         .clone()
         .or_else(|| channel.service_did.clone())
         .or_else(|| {
@@ -621,23 +621,23 @@ fn account_cursor_service_did(
 }
 
 fn account_subscription_service_did(
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
 ) -> anyhow::Result<Option<Did>> {
     account_cursor_service_did(channel, account)
         .map(|value| {
             Did::new(value.clone())
-                .map_err(|err| anyhow::anyhow!("invalid Cokret service DID '{value}': {err}"))
+                .map_err(|err| anyhow::anyhow!("invalid Arkret service DID '{value}': {err}"))
         })
         .transpose()
 }
 
 async fn run_account_key_lifecycle_maintenance(
-    client: &CokretHttpClient,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    account_store: &FileCokretAccountStore,
-    crypto_store: &FileCokretCryptoStore,
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    crypto_store: &FileArkretCryptoStore,
     reason: &'static str,
 ) {
     publish_account_mls_key_packages(client, channel, account, crypto_store).await;
@@ -653,17 +653,17 @@ async fn run_account_key_lifecycle_maintenance(
 }
 
 async fn publish_account_mls_key_packages(
-    client: &CokretHttpClient,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    crypto_store: &FileCokretCryptoStore,
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
 ) {
     if !account.has_requested_scope(KEYPACKAGES_UPLOAD_SCOPE) {
         warn!(
             channel_id = %channel.id,
             account_id = %account.id,
             scope = KEYPACKAGES_UPLOAD_SCOPE,
-            "cokret: cannot publish MLS KeyPackages without requested standard scope"
+            "arkret: cannot publish MLS KeyPackages without requested standard scope"
         );
         return;
     }
@@ -673,7 +673,7 @@ async fn publish_account_mls_key_packages(
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "cokret: invalid principal id for MLS KeyPackage upload: {err}"
+                "arkret: invalid principal id for MLS KeyPackage upload: {err}"
             );
             return;
         }
@@ -684,7 +684,7 @@ async fn publish_account_mls_key_packages(
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "cokret: invalid device id for MLS KeyPackage upload: {err}"
+                "arkret: invalid device id for MLS KeyPackage upload: {err}"
             );
             return;
         }
@@ -703,7 +703,7 @@ async fn publish_account_mls_key_packages(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     last_resort,
-                    "cokret: failed to ensure local MLS KeyPackage: {err:#}"
+                    "arkret: failed to ensure local MLS KeyPackage: {err:#}"
                 );
                 return;
             }
@@ -720,7 +720,7 @@ async fn publish_account_mls_key_packages(
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "cokret: failed to build MLS KeyPackage upload signature payload: {err:#}"
+                "arkret: failed to build MLS KeyPackage upload signature payload: {err:#}"
             );
             return;
         }
@@ -732,7 +732,7 @@ async fn publish_account_mls_key_packages(
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
-                    "cokret: failed to sign MLS KeyPackage upload request: {err:#}"
+                    "arkret: failed to sign MLS KeyPackage upload request: {err:#}"
                 );
                 return;
             }
@@ -758,7 +758,7 @@ async fn publish_account_mls_key_packages(
                     account_id = %account.id,
                     accepted = outcome.accepted,
                     rejected = ?outcome.rejected,
-                    "cokret: MLS KeyPackage upload returned rejected entries"
+                    "arkret: MLS KeyPackage upload returned rejected entries"
                 );
             } else {
                 debug!(
@@ -766,21 +766,21 @@ async fn publish_account_mls_key_packages(
                     account_id = %account.id,
                     accepted = outcome.accepted,
                     refs = outcome.key_package_refs.len(),
-                    "cokret: published MLS KeyPackages"
+                    "arkret: published MLS KeyPackages"
                 );
             }
         }
         Err(err) => warn!(
             channel_id = %channel.id,
             account_id = %account.id,
-            "cokret: MLS KeyPackage upload failed: {err}"
+            "arkret: MLS KeyPackage upload failed: {err}"
         ),
     }
 }
 
 fn key_package_upload_entry(
     record: &MlsKeyPackageRecord,
-    device_signature: Option<cokret::KeyOperationSignature>,
+    device_signature: Option<arkret::KeyOperationSignature>,
 ) -> KeyPackageUploadEntry {
     KeyPackageUploadEntry {
         keypackage_id: record.keypackage_id.clone(),
@@ -812,11 +812,11 @@ fn key_package_upload_signature_value(
 }
 
 async fn drain_account_device_messages_from_cursor(
-    client: &CokretHttpClient,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    account_store: &FileCokretAccountStore,
-    crypto_store: &FileCokretCryptoStore,
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    crypto_store: &FileArkretCryptoStore,
     initial_cursor: Option<String>,
     reason: &'static str,
 ) {
@@ -826,7 +826,7 @@ async fn drain_account_device_messages_from_cursor(
             account_id = %account.id,
             scope = DEVICE_MESSAGES_LIST_SCOPE,
             reason,
-            "cokret: cannot pull standard device messages without requested scope"
+            "arkret: cannot pull standard device messages without requested scope"
         );
         return;
     }
@@ -848,7 +848,7 @@ async fn drain_account_device_messages_from_cursor(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     reason,
-                    "cokret: failed to load device-message cursor: {err}"
+                    "arkret: failed to load device-message cursor: {err}"
                 );
                 None
             }
@@ -867,7 +867,7 @@ async fn drain_account_device_messages_from_cursor(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     reason,
-                    "cokret: standard device_messages pull failed: {err}"
+                    "arkret: standard device_messages pull failed: {err}"
                 );
                 return;
             }
@@ -888,7 +888,7 @@ async fn drain_account_device_messages_from_cursor(
                 account_id = %account.id,
                 reason,
                 page,
-                "cokret: device_messages reported cursor loss; clearing local cursor without ack"
+                "arkret: device_messages reported cursor loss; clearing local cursor without ack"
             );
             if let Err(err) = account_store
                 .clear_device_message_cursor(
@@ -901,7 +901,7 @@ async fn drain_account_device_messages_from_cursor(
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
-                    "cokret: failed to clear lost device-message cursor: {err}"
+                    "arkret: failed to clear lost device-message cursor: {err}"
                 );
             }
             return;
@@ -911,7 +911,7 @@ async fn drain_account_device_messages_from_cursor(
                 channel_id = %channel.id,
                 account_id = %account.id,
                 reason,
-                "cokret: device_messages returned messages without ack_token; leaving cursor unchanged"
+                "arkret: device_messages returned messages without ack_token; leaving cursor unchanged"
             );
             return;
         }
@@ -934,7 +934,7 @@ async fn drain_account_device_messages_from_cursor(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     reason,
-                    "cokret: failed to persist device-message cursor: {err}"
+                    "arkret: failed to persist device-message cursor: {err}"
                 );
                 return;
             }
@@ -946,7 +946,7 @@ async fn drain_account_device_messages_from_cursor(
                 account_id = %account.id,
                 reason,
                 page,
-                "cokret: device_messages page was limited"
+                "arkret: device_messages page was limited"
             );
         }
         if !outcome.has_more {
@@ -958,14 +958,14 @@ async fn drain_account_device_messages_from_cursor(
         account_id = %account.id,
         reason,
         max_pages = DEVICE_MESSAGES_PULL_MAX_PAGES,
-        "cokret: stopped device_messages pull after page cap"
+        "arkret: stopped device_messages pull after page cap"
     );
 }
 
 async fn ack_account_device_messages(
-    client: &CokretHttpClient,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
     ack_token: &str,
     reason: &'static str,
 ) -> bool {
@@ -975,7 +975,7 @@ async fn ack_account_device_messages(
             account_id = %account.id,
             scope = DEVICE_MESSAGES_ACK_SCOPE,
             reason,
-            "cokret: cannot ack standard device messages without requested scope"
+            "arkret: cannot ack standard device messages without requested scope"
         );
         return false;
     }
@@ -990,7 +990,7 @@ async fn ack_account_device_messages(
                 account_id = %account.id,
                 reason,
                 pruned_count = ?outcome.pruned_count,
-                "cokret: device_messages ack returned ok=false"
+                "arkret: device_messages ack returned ok=false"
             );
             false
         }
@@ -999,7 +999,7 @@ async fn ack_account_device_messages(
                 channel_id = %channel.id,
                 account_id = %account.id,
                 reason,
-                "cokret: device_messages ack failed: {err}"
+                "arkret: device_messages ack failed: {err}"
             );
             false
         }
@@ -1007,11 +1007,11 @@ async fn ack_account_device_messages(
 }
 
 async fn consume_account_mls_key_packages(
-    client: &CokretHttpClient,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    crypto_store: &FileCokretCryptoStore,
-    bindings: &[CokretMlsWelcomeConsumeBinding],
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
+    bindings: &[ArkretMlsWelcomeConsumeBinding],
 ) {
     if bindings.is_empty() {
         return;
@@ -1022,7 +1022,7 @@ async fn consume_account_mls_key_packages(
             account_id = %account.id,
             scope = KEYPACKAGES_CONSUME_SCOPE,
             count = bindings.len(),
-            "cokret: cannot consume MLS KeyPackages without requested standard scope"
+            "arkret: cannot consume MLS KeyPackages without requested standard scope"
         );
         return;
     }
@@ -1032,7 +1032,7 @@ async fn consume_account_mls_key_packages(
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "cokret: invalid device id for MLS KeyPackage consume: {err}"
+                "arkret: invalid device id for MLS KeyPackage consume: {err}"
             );
             return;
         }
@@ -1046,7 +1046,7 @@ async fn consume_account_mls_key_packages(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     keypackage_ref = %binding.keypackage_ref,
-                    "cokret: invalid Realm id in MLS Welcome consume binding: {err}"
+                    "arkret: invalid Realm id in MLS Welcome consume binding: {err}"
                 );
                 continue;
             }
@@ -1058,7 +1058,7 @@ async fn consume_account_mls_key_packages(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     keypackage_ref = %binding.keypackage_ref,
-                    "cokret: invalid Strand id in MLS Welcome consume binding: {err}"
+                    "arkret: invalid Strand id in MLS Welcome consume binding: {err}"
                 );
                 continue;
             }
@@ -1073,7 +1073,7 @@ async fn consume_account_mls_key_packages(
                         channel_id = %channel.id,
                         account_id = %account.id,
                         keypackage_ref = %binding.keypackage_ref,
-                        "cokret: failed to sign MLS KeyPackage consume request: {err:#}"
+                        "arkret: failed to sign MLS KeyPackage consume request: {err:#}"
                     );
                     continue;
                 }
@@ -1098,7 +1098,7 @@ async fn consume_account_mls_key_packages(
                         channel_id = %channel.id,
                         account_id = %account.id,
                         keypackage_ref = %binding.keypackage_ref,
-                        "cokret: failed to mark local MLS KeyPackage consumed after server ack: {err:#}"
+                        "arkret: failed to mark local MLS KeyPackage consumed after server ack: {err:#}"
                     );
                 }
                 if let Err(err) = crypto_store.mark_mls_welcome_consume_binding_acked(binding) {
@@ -1106,7 +1106,7 @@ async fn consume_account_mls_key_packages(
                         channel_id = %channel.id,
                         account_id = %account.id,
                         keypackage_ref = %binding.keypackage_ref,
-                        "cokret: failed to clear MLS Welcome consume binding after server ack: {err:#}"
+                        "arkret: failed to clear MLS Welcome consume binding after server ack: {err:#}"
                     );
                 }
                 debug!(
@@ -1114,7 +1114,7 @@ async fn consume_account_mls_key_packages(
                     account_id = %account.id,
                     keypackage_ref = %binding.keypackage_ref,
                     consumed = outcome.consumed.len(),
-                    "cokret: consumed MLS KeyPackage after Welcome decrypt"
+                    "arkret: consumed MLS KeyPackage after Welcome decrypt"
                 );
             }
             Ok(outcome) => {
@@ -1123,21 +1123,21 @@ async fn consume_account_mls_key_packages(
                     account_id = %account.id,
                     keypackage_ref = %binding.keypackage_ref,
                     failures = ?outcome.failures,
-                    "cokret: MLS KeyPackage consume returned failures"
+                    "arkret: MLS KeyPackage consume returned failures"
                 );
             }
             Err(err) => warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
                 keypackage_ref = %binding.keypackage_ref,
-                "cokret: MLS KeyPackage consume failed: {err}"
+                "arkret: MLS KeyPackage consume failed: {err}"
             ),
         }
     }
 }
 
 fn key_package_consume_signature_value(
-    binding: &CokretMlsWelcomeConsumeBinding,
+    binding: &ArkretMlsWelcomeConsumeBinding,
     consumer_device: &DeviceId,
     realm_id: &Option<RealmId>,
     strand_id: &Option<StrandId>,
@@ -1194,17 +1194,17 @@ fn optional_strand_id(value: Option<&str>) -> anyhow::Result<Option<StrandId>> {
 }
 
 fn sign_account_key_operation(
-    account: &CokretAccountConfig,
+    account: &ArkretAccountConfig,
     context: &str,
     value: &Value,
-) -> anyhow::Result<cokret::KeyOperationSignature> {
+) -> anyhow::Result<arkret::KeyOperationSignature> {
     let key_ref = account
         .key_ref
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Cokret account '{}' missing keyRef", account.id))?;
+        .ok_or_else(|| anyhow::anyhow!("Arkret account '{}' missing keyRef", account.id))?;
     let verification_method = account.verification_method.as_deref().ok_or_else(|| {
         anyhow::anyhow!(
-            "Cokret account '{}' missing authorized verificationMethod",
+            "Arkret account '{}' missing authorized verificationMethod",
             account.id
         )
     })?;
@@ -1212,16 +1212,16 @@ fn sign_account_key_operation(
 }
 
 async fn remember_account_event(
-    account_store: &FileCokretAccountStore,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
     event_id: &str,
 ) -> bool {
     match account_store.remember_event_id_str(event_id).await {
         Ok(is_new) => is_new,
         Err(err) => {
             warn!(
-                "cokret: account '{}/{}' durable event cache failed for event '{}': {err}; dispatching without local dedupe fallback",
+                "arkret: account '{}/{}' durable event cache failed for event '{}': {err}; dispatching without local dedupe fallback",
                 channel.id, account.id, event_id
             );
             true
@@ -1230,12 +1230,12 @@ async fn remember_account_event(
 }
 
 async fn handle_sync_updates_for_account(
-    client: &CokretHttpClient,
-    updates: cokret::SyncUpdates,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    account_store: &FileCokretAccountStore,
-    crypto_store: &FileCokretCryptoStore,
+    client: &ArkretHttpClient,
+    updates: arkret::SyncUpdates,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) {
@@ -1325,7 +1325,7 @@ async fn handle_sync_updates_for_account(
             if pull.reason == "to_device_lost" {
                 warn!(
                     account_id = %account.id,
-                    "cokret: account sync reported lost to-device messages; pulling standard device_messages queue"
+                    "arkret: account sync reported lost to-device messages; pulling standard device_messages queue"
                 );
             }
             drain_account_device_messages_from_cursor(
@@ -1368,7 +1368,7 @@ async fn handle_sync_updates_for_account(
                     warn!(
                         channel_id = %channel.id,
                         account_id = %account.id,
-                        "cokret: account subscribe to-device batch was limited without next_cursor; falling back to stored device_messages cursor"
+                        "arkret: account subscribe to-device batch was limited without next_cursor; falling back to stored device_messages cursor"
                     );
                 }
                 drain_account_device_messages_from_cursor(
@@ -1434,11 +1434,11 @@ fn account_to_device_ack_plan(
 }
 
 async fn drain_account_device_messages(
-    client: &CokretHttpClient,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    account_store: &FileCokretAccountStore,
-    crypto_store: &FileCokretCryptoStore,
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    crypto_store: &FileArkretCryptoStore,
     reason: &'static str,
 ) {
     drain_account_device_messages_from_cursor(
@@ -1455,19 +1455,19 @@ async fn drain_account_device_messages(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AccountScanCatchupRequest {
-    realm_id: cokret::RealmId,
+    realm_id: arkret::RealmId,
     before: Option<String>,
 }
 
 #[derive(Debug)]
 struct AccountScanCatchupOutcome {
-    events: Vec<cokret::Event>,
+    events: Vec<arkret::Event>,
     limited: bool,
     pages: usize,
 }
 
 fn account_scan_catchup_request_for_update(
-    update: &cokret::RealmUpdate,
+    update: &arkret::RealmUpdate,
 ) -> Option<AccountScanCatchupRequest> {
     let timeline = update.timeline.as_ref()?;
     if !timeline.limited {
@@ -1484,8 +1484,8 @@ async fn collect_account_scan_catchup<F, Fut>(
     mut fetch: F,
 ) -> anyhow::Result<AccountScanCatchupOutcome>
 where
-    F: FnMut(cokret::RealmId, Option<String>, u32) -> Fut,
-    Fut: Future<Output = anyhow::Result<cokret::SyncBackfillOutcome>>,
+    F: FnMut(arkret::RealmId, Option<String>, u32) -> Fut,
+    Fut: Future<Output = anyhow::Result<arkret::SyncBackfillOutcome>>,
 {
     let mut before = request.before;
     let mut events = Vec::new();
@@ -1517,21 +1517,21 @@ where
 }
 
 async fn scan_limited_realm_timeline_for_account(
-    client: &CokretHttpClient,
+    client: &ArkretHttpClient,
     request: AccountScanCatchupRequest,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    account_store: &FileCokretAccountStore,
-    crypto_store: &FileCokretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) {
-    if !account.has_requested_scope("ck.self.events.query.scan") {
+    if !account.has_requested_scope("ak.self.events.query.scan") {
         warn!(
             channel_id = %channel.id,
             account_id = %account.id,
             realm_id = %request.realm_id.as_str(),
-            "cokret: limited account timeline cannot be scan-backfilled without ck.self.events.query.scan"
+            "arkret: limited account timeline cannot be scan-backfilled without ak.self.events.query.scan"
         );
         return;
     }
@@ -1559,7 +1559,7 @@ async fn scan_limited_realm_timeline_for_account(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     realm_id = %realm_id.as_str(),
-                    "cokret: scan catch-up failed for limited account timeline: {err:#}"
+                    "arkret: scan catch-up failed for limited account timeline: {err:#}"
                 );
                 return;
             }
@@ -1595,17 +1595,17 @@ async fn scan_limited_realm_timeline_for_account(
             account_id = %account.id,
             realm_id = %realm_id.as_str(),
             pages = outcome.pages,
-            "cokret: scan catch-up stopped before exhausting limited account timeline"
+            "arkret: scan catch-up stopped before exhausting limited account timeline"
         );
     }
 }
 
 fn parse_realm_update_for_account(
-    update: cokret::RealmUpdate,
-    account: &CokretAccountConfig,
-) -> CokretInboundParseResult {
+    update: arkret::RealmUpdate,
+    account: &ArkretAccountConfig,
+) -> ArkretInboundParseResult {
     let Some(timeline) = update.timeline else {
-        return CokretInboundParseResult::default();
+        return ArkretInboundParseResult::default();
     };
     let mut realms = serde_json::Map::new();
     realms.insert(
@@ -1616,17 +1616,17 @@ fn parse_realm_update_for_account(
 }
 
 fn parse_backfill_events_for_account(
-    realm_id: &cokret::RealmId,
-    events: Vec<cokret::Event>,
-    account: &CokretAccountConfig,
-) -> CokretInboundParseResult {
+    realm_id: &arkret::RealmId,
+    events: Vec<arkret::Event>,
+    account: &ArkretAccountConfig,
+) -> ArkretInboundParseResult {
     let events = events
         .into_iter()
         .filter_map(|event| serde_json::to_value(event).ok())
         .collect();
-    let update = cokret::RealmUpdate {
+    let update = arkret::RealmUpdate {
         realm_id: realm_id.clone(),
-        timeline: Some(cokret::SyncTimeline {
+        timeline: Some(arkret::SyncTimeline {
             events,
             limited: false,
             prev_cursor: None,
@@ -1638,10 +1638,10 @@ fn parse_backfill_events_for_account(
 }
 
 fn record_account_mls_welcomes_from_realm_update(
-    update: &cokret::RealmUpdate,
-    crypto_store: &FileCokretCryptoStore,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
+    update: &arkret::RealmUpdate,
+    crypto_store: &FileArkretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
 ) -> usize {
     let mut recorded = 0;
     if let Some(timeline) = &update.timeline {
@@ -1668,10 +1668,10 @@ fn record_account_mls_welcomes_from_realm_update(
 }
 
 fn record_account_mls_welcome_from_value_tree(
-    crypto_store: &FileCokretCryptoStore,
+    crypto_store: &FileArkretCryptoStore,
     value: &Value,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
     source: &'static str,
 ) -> usize {
     record_account_mls_welcome_from_value_tree_inner(
@@ -1685,10 +1685,10 @@ fn record_account_mls_welcome_from_value_tree(
 }
 
 fn record_account_mls_welcome_from_value_tree_inner(
-    crypto_store: &FileCokretCryptoStore,
+    crypto_store: &FileArkretCryptoStore,
     value: &Value,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
     source: &'static str,
     remaining_depth: usize,
 ) -> usize {
@@ -1702,7 +1702,7 @@ fn record_account_mls_welcome_from_value_tree_inner(
                 epoch = welcome.epoch,
                 recipient_principal_id = %welcome.recipient_principal_id.as_str(),
                 recipient_device_id = %welcome.recipient_device_id.as_str(),
-                "cokret: recorded MLS Welcome from account inbound event"
+                "arkret: recorded MLS Welcome from account inbound event"
             );
             return 1;
         }
@@ -1712,7 +1712,7 @@ fn record_account_mls_welcome_from_value_tree_inner(
                 channel_id = %channel.id,
                 account_id = %account.id,
                 source,
-                "cokret: failed to persist MLS Welcome from account inbound event: {err:#}"
+                "arkret: failed to persist MLS Welcome from account inbound event: {err:#}"
             );
             return 1;
         }
@@ -1751,7 +1751,7 @@ fn record_account_mls_welcome_from_value_tree_inner(
     }
 }
 
-fn notification_delta_to_value(notification: cokret::NotificationDelta) -> Value {
+fn notification_delta_to_value(notification: arkret::NotificationDelta) -> Value {
     let mut object = serde_json::Map::new();
     object.insert(
         "notification_id".to_owned(),
@@ -1779,18 +1779,18 @@ fn notification_delta_to_value(notification: cokret::NotificationDelta) -> Value
 }
 
 async fn handle_parsed_account_events(
-    client: &CokretHttpClient,
-    parsed: CokretInboundParseResult,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-    account_store: &FileCokretAccountStore,
-    crypto_store: &FileCokretCryptoStore,
+    client: &ArkretHttpClient,
+    parsed: ArkretInboundParseResult,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) {
     for skipped in parsed.skipped {
         match skipped.reason {
-            CokretInboundSkipReason::EncryptedContent => {
+            ArkretInboundSkipReason::EncryptedContent => {
                 let decrypted = try_handle_encrypted_account_skip(
                     client,
                     &skipped,
@@ -1808,7 +1808,7 @@ async fn handle_parsed_account_events(
                     account_id = %skipped.account_id,
                     event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
                     realm_id = skipped.realm_id.as_deref().unwrap_or("<unknown>"),
-                    "cokret: encrypted account message skipped; crypto session decrypt is not wired"
+                    "arkret: encrypted account message skipped; crypto session decrypt is not wired"
                 );
             }
             reason => {
@@ -1817,7 +1817,7 @@ async fn handle_parsed_account_events(
                     event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
                     realm_id = skipped.realm_id.as_deref().unwrap_or("<unknown>"),
                     ?reason,
-                    "cokret: account event skipped"
+                    "arkret: account event skipped"
                 );
             }
         }
@@ -1838,9 +1838,9 @@ async fn handle_parsed_account_events(
 }
 
 async fn dispatch_to_agent(
-    event: CokretInboundEvent,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
+    event: ArkretInboundEvent,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
@@ -1863,7 +1863,7 @@ async fn dispatch_to_agent(
         runtime::spawn_start_thread_pipeline_with_meta_coordinated(
             gateway_channel,
             session_store,
-            "cokret",
+            "arkret",
             realm_id.clone(),
             body,
             Some(sender.clone()),
@@ -1883,11 +1883,11 @@ async fn dispatch_to_agent(
 }
 
 async fn try_handle_encrypted_account_skip(
-    client: &CokretHttpClient,
-    skipped: &CokretInboundSkippedEvent,
-    crypto_store: &FileCokretCryptoStore,
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
+    client: &ArkretHttpClient,
+    skipped: &ArkretInboundSkippedEvent,
+    crypto_store: &FileArkretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> bool {
@@ -1898,7 +1898,7 @@ async fn try_handle_encrypted_account_skip(
         warn!(
             account_id = %account.id,
             event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
-            "cokret: encrypted account event skipped because ck.event.read is not granted"
+            "arkret: encrypted account event skipped because ak.event.read is not granted"
         );
         return false;
     }
@@ -1913,16 +1913,16 @@ async fn try_handle_encrypted_account_skip(
             required_epoch = plan.required_epoch,
             local_epoch = ?plan.local_epoch,
             action = ?plan.action,
-            "cokret: planned crypto bootstrap for encrypted account event"
+            "arkret: planned crypto bootstrap for encrypted account event"
         ),
         Err(err) => warn!(
             account_id = %account.id,
-            "cokret: failed to plan crypto bootstrap for encrypted account event: {err:#}"
+            "arkret: failed to plan crypto bootstrap for encrypted account event: {err:#}"
         ),
     }
 
     match crypto_store.try_decrypt_content_block_detailed(payload) {
-        Ok(CokretDecryptDetailedOutcome::Decrypted {
+        Ok(ArkretDecryptDetailedOutcome::Decrypted {
             content,
             consume_bindings,
         }) => {
@@ -1938,7 +1938,7 @@ async fn try_handle_encrypted_account_skip(
                 warn!(
                     account_id = %account.id,
                     event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
-                    "cokret: decrypted encrypted account event but content is not displayable text"
+                    "arkret: decrypted encrypted account event but content is not displayable text"
                 );
                 return false;
             };
@@ -1952,7 +1952,7 @@ async fn try_handle_encrypted_account_skip(
                 return false;
             };
             dispatch_to_agent(
-                CokretInboundEvent {
+                ArkretInboundEvent {
                     account_id: skipped.account_id.clone(),
                     event_id,
                     realm_id,
@@ -1969,27 +1969,27 @@ async fn try_handle_encrypted_account_skip(
             .await;
             true
         }
-        Ok(CokretDecryptDetailedOutcome::MissingGroupState) => {
+        Ok(ArkretDecryptDetailedOutcome::MissingGroupState) => {
             record_account_unable_to_decrypt(
                 crypto_store,
                 skipped,
                 payload.clone(),
-                cokret::crypto_protocol::UnableToDecryptReason::NoSession,
+                arkret::crypto_protocol::UnableToDecryptReason::NoSession,
             );
             false
         }
-        Ok(CokretDecryptDetailedOutcome::UnsupportedScheme(scheme)) => {
+        Ok(ArkretDecryptDetailedOutcome::UnsupportedScheme(scheme)) => {
             warn!(
                 account_id = %account.id,
                 event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
                 scheme,
-                "cokret: encrypted account event uses unsupported encrypted payload scheme"
+                "arkret: encrypted account event uses unsupported encrypted payload scheme"
             );
             record_account_unable_to_decrypt(
                 crypto_store,
                 skipped,
                 payload.clone(),
-                cokret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
+                arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
             );
             false
         }
@@ -1997,13 +1997,13 @@ async fn try_handle_encrypted_account_skip(
             warn!(
                 account_id = %account.id,
                 event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
-                "cokret: failed to decrypt encrypted account event: {err:#}"
+                "arkret: failed to decrypt encrypted account event: {err:#}"
             );
             record_account_unable_to_decrypt(
                 crypto_store,
                 skipped,
                 payload.clone(),
-                cokret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
+                arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
             );
             false
         }
@@ -2011,10 +2011,10 @@ async fn try_handle_encrypted_account_skip(
 }
 
 fn record_account_unable_to_decrypt(
-    crypto_store: &FileCokretCryptoStore,
-    skipped: &CokretInboundSkippedEvent,
-    payload: cokret::EncryptedPayload,
-    reason: cokret::crypto_protocol::UnableToDecryptReason,
+    crypto_store: &FileArkretCryptoStore,
+    skipped: &ArkretInboundSkippedEvent,
+    payload: arkret::EncryptedPayload,
+    reason: arkret::crypto_protocol::UnableToDecryptReason,
 ) {
     let (Some(event_id), Some(realm_id), Some(sender)) = (
         skipped.event_id.as_deref(),
@@ -2028,7 +2028,7 @@ fn record_account_unable_to_decrypt(
     {
         warn!(
             event_id,
-            realm_id, "cokret: failed to persist unable-to-decrypt record: {err:#}"
+            realm_id, "arkret: failed to persist unable-to-decrypt record: {err:#}"
         );
     }
 }
@@ -2039,7 +2039,7 @@ fn decrypted_text_body(content: &Value) -> Option<String> {
         .filter(|inner| inner.get("kind").is_some())
         .unwrap_or(content);
     let kind = block.get("kind").and_then(Value::as_str)?;
-    if kind != "ck.content.text" {
+    if kind != "ak.content.text" {
         return None;
     }
     block
@@ -2056,26 +2056,26 @@ async fn sleep_with_backoff(backoff: &mut Duration) {
     *backoff = Duration::from_secs(next.max(1));
 }
 
-/// Build an authenticated DPoP-bound `CokretHttpClient` for one agent runtime.
+/// Build an authenticated DPoP-bound `ArkretHttpClient` for one agent runtime.
 async fn construct_account_client(
-    channel: &CokretChannelConfig,
-    account: &CokretAccountConfig,
-) -> anyhow::Result<(CokretHttpClient, Option<DateTime<Utc>>)> {
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<(ArkretHttpClient, Option<DateTime<Utc>>)> {
     let key_ref = account
         .key_ref
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Cokret agent '{}' missing keyRef", account.id))?;
+        .ok_or_else(|| anyhow::anyhow!("Arkret agent '{}' missing keyRef", account.id))?;
     let verification_method = account.verification_method.as_deref().ok_or_else(|| {
         anyhow::anyhow!(
-            "Cokret agent '{}' missing authorized verificationMethod",
+            "Arkret agent '{}' missing authorized verificationMethod",
             account.id
         )
     })?;
     let authorization_ref = account.authorized_event_ref.as_deref().ok_or_else(|| {
-        anyhow::anyhow!("Cokret agent '{}' missing authorizedEventRef", account.id)
+        anyhow::anyhow!("Arkret agent '{}' missing authorizedEventRef", account.id)
     })?;
     let audience = account
-        .cokret_server_did
+        .arkret_server_did
         .clone()
         .or_else(|| channel.service_did.clone())
         .or_else(|| {
@@ -2086,13 +2086,13 @@ async fn construct_account_client(
         })
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Cokret agent '{}' missing serviceDid/cokretServerDid for agent_key_proof audience",
+                "Arkret agent '{}' missing serviceDid/arkretServerDid for agent_key_proof audience",
                 account.id
             )
         })?;
     let principal = Did::new(account.principal_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
-    let (client, session) = CokretHttpClient::login_agent(
+    let (client, session) = ArkretHttpClient::login_agent(
         &channel.base_url,
         key_ref,
         principal,
@@ -2104,7 +2104,7 @@ async fn construct_account_client(
     )
     .await?;
     info!(
-        "cokret: agent '{}' obtained DPoP-bound session; audience='{}' expires_at='{}'",
+        "arkret: agent '{}' obtained DPoP-bound session; audience='{}' expires_at='{}'",
         account.id, audience, session.expires_at
     );
     Ok((client, Some(session.expires_at)))
@@ -2112,17 +2112,17 @@ async fn construct_account_client(
 
 /// Build the restart-safe monotonic `actor_seq` allocator for an outbound
 /// account, mirroring the applet allocator. The backing file store lives under
-/// `{savfox_home}/gateway/cokret-account-seq/{account_id}.seq`, keyed
+/// `{savfox_home}/gateway/arkret-account-seq/{account_id}.seq`, keyed
 /// `account:{account_id}:actor_seq`, so each account has an independent
 /// monotonic counter that survives restarts (the previous `timestamp_millis()`
 /// source was neither monotonic across rapid sends nor restart-safe).
 fn build_account_seq_allocator(
     savfox_home: &std::path::Path,
     account_id: &str,
-) -> anyhow::Result<cokret_bridge_runtime::SeqAllocator> {
+) -> anyhow::Result<arkret_bridge_runtime::SeqAllocator> {
     let dir = savfox_home
         .join(savfox_utils::home_dir::GATEWAY_SUBDIR)
-        .join("cokret-account-seq");
+        .join("arkret-account-seq");
     let safe_id: String = account_id
         .chars()
         .map(|c| {
@@ -2134,39 +2134,39 @@ fn build_account_seq_allocator(
         })
         .collect();
     let path = dir.join(format!("{safe_id}.seq"));
-    let store = savfox_channels::cokret::FileSeqStore::shared(path)
-        .map_err(|e| anyhow::anyhow!("cokret account seq store: {e}"))?;
-    Ok(cokret_bridge_runtime::SeqAllocator::new(
+    let store = savfox_channels::arkret::FileSeqStore::shared(path)
+        .map_err(|e| anyhow::anyhow!("arkret account seq store: {e}"))?;
+    Ok(arkret_bridge_runtime::SeqAllocator::new(
         store,
         format!("account:{account_id}:actor_seq"),
     ))
 }
 
-/// Send a `ck.message.create` event as one of the channel's configured
+/// Send a `ak.message.create` event as one of the channel's configured
 /// outbound accounts.
 ///
-/// `realm_id` selects the outbound Cokret realm. `flow_id` must come from the
-/// inbound Cokret context that triggered the reply; it is not configured on the
+/// `realm_id` selects the outbound Arkret realm. `flow_id` must come from the
+/// inbound Arkret context that triggered the reply; it is not configured on the
 /// channel.
-pub(crate) async fn send_to_cokret_account(
+pub(crate) async fn send_to_arkret_account(
     savfox_home: &std::path::PathBuf,
     realm_id: &str,
     flow_id: Option<&str>,
     body: &str,
 ) -> anyhow::Result<()> {
-    let Some((channel, account)) = resolve_cokret_outbound_account(savfox_home, realm_id).await?
+    let Some((channel, account)) = resolve_arkret_outbound_account(savfox_home, realm_id).await?
     else {
-        anyhow::bail!("no Cokret channel configured for realm {realm_id}");
+        anyhow::bail!("no Arkret channel configured for realm {realm_id}");
     };
-    if !account.has_requested_scope("ck.self.events.command.submit") {
+    if !account.has_requested_scope("ak.self.events.command.submit") {
         anyhow::bail!(
-            "Cokret account '{}' send=true but missing service scope ck.self.events.command.submit; refusing to call submit endpoint",
+            "Arkret account '{}' send=true but missing service scope ak.self.events.command.submit; refusing to call submit endpoint",
             account.id
         );
     }
     let flow = flow_id.map(str::to_owned).ok_or_else(|| {
         anyhow::anyhow!(
-            "Cokret account '{}' cannot send without an inbound Cokret flow id",
+            "Arkret account '{}' cannot send without an inbound Arkret flow id",
             account.id
         )
     })?;
@@ -2177,7 +2177,7 @@ pub(crate) async fn send_to_cokret_account(
     // Monotonic, restart-safe actor sequence (parity with the applet path).
     let actor_seq = build_account_seq_allocator(savfox_home, &account.id)?
         .alloc()
-        .map_err(|e| anyhow::anyhow!("cokret account seq alloc: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("arkret account seq alloc: {e}"))?;
     let request = MessageCreateRequest {
         realm_id: realm_id.to_owned(),
         flow_id: flow,
@@ -2187,24 +2187,24 @@ pub(crate) async fn send_to_cokret_account(
         thread_root_id: None,
     };
     let mut event = build_message_create_event(&request)?;
-    let crypto_store = FileCokretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
+    let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     apply_account_outbound_encryption(&crypto_store, realm_id, &mut event)?;
 
     // Phase 8 (T8.E): attach capability grant event_id when configured.
     if let Some(grant_path) = &account.grant_event_path {
         let grant =
-            savfox_channels::cokret::load_and_verify_grant(grant_path, &account.principal_id, None)
+            savfox_channels::arkret::load_and_verify_grant(grant_path, &account.principal_id, None)
                 .await
                 .with_context(|| {
                     format!(
-                        "Cokret account '{}' failed to load capability grant {}",
+                        "Arkret account '{}' failed to load capability grant {}",
                         account.id,
                         grant_path.display()
                     )
                 })?;
-        if !grant.covers_action("ck.message.create") {
+        if !grant.covers_action("ak.message.create") {
             anyhow::bail!(
-                "Cokret account '{}' capability grant {} does not cover ck.message.create",
+                "Arkret account '{}' capability grant {} does not cover ak.message.create",
                 account.id,
                 grant_path.display()
             );
@@ -2219,8 +2219,8 @@ pub(crate) async fn send_to_cokret_account(
             .clone()
             .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
         let signer =
-            savfox_channels::cokret::load_ed25519_signer(key_ref, &account.principal_id, &vm)?;
-        savfox_channels::cokret::sign_outbound_event(&mut event, &signer, &vm)?;
+            savfox_channels::arkret::load_ed25519_signer(key_ref, &account.principal_id, &vm)?;
+        savfox_channels::arkret::sign_outbound_event(&mut event, &signer, &vm)?;
     }
 
     let response = client.submit_event(&event).await?;
@@ -2230,18 +2230,18 @@ pub(crate) async fn send_to_cokret_account(
     // silently treating a dropped event as delivered.
     if !response.rejected.is_empty() {
         anyhow::bail!(
-            "cokret: server rejected event for realm '{realm_id}': {:?}",
+            "arkret: server rejected event for realm '{realm_id}': {:?}",
             response.rejected
         );
     }
     if response.accepted.is_empty() && response.duplicate.is_empty() {
         anyhow::bail!(
-            "cokret: server accepted no events for realm '{realm_id}' (status={:?})",
+            "arkret: server accepted no events for realm '{realm_id}' (status={:?})",
             response.status
         );
     }
     debug!(
-        "cokret: submitted event to '{}': status={:?} accepted={} duplicate={}",
+        "arkret: submitted event to '{}': status={:?} accepted={} duplicate={}",
         realm_id,
         response.status,
         response.accepted.len(),
@@ -2251,27 +2251,27 @@ pub(crate) async fn send_to_cokret_account(
 }
 
 fn apply_account_outbound_encryption(
-    crypto_store: &FileCokretCryptoStore,
+    crypto_store: &FileArkretCryptoStore,
     realm_id: &str,
-    event: &mut cokret::Event,
+    event: &mut arkret::Event,
 ) -> anyhow::Result<()> {
     let Some(content_block) = event.payload.get("content").cloned() else {
         return Ok(());
     };
     match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
-        CokretEncryptOutcome::PlaintextAllowed => Ok(()),
-        CokretEncryptOutcome::Encrypted(encrypted_content) => {
+        ArkretEncryptOutcome::PlaintextAllowed => Ok(()),
+        ArkretEncryptOutcome::Encrypted(encrypted_content) => {
             let object = event
                 .payload
                 .as_object_mut()
-                .ok_or_else(|| anyhow::anyhow!("Cokret message content is not an object"))?;
+                .ok_or_else(|| anyhow::anyhow!("Arkret message content is not an object"))?;
             object.remove("content");
             object.insert("encrypted_content".to_owned(), encrypted_content);
             Ok(())
         }
-        CokretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
+        ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
             anyhow::bail!(
-                "Cokret realm '{realm_id}' requires E2EE but no local MLS group state exists for group '{group_id}'"
+                "Arkret realm '{realm_id}' requires E2EE but no local MLS group state exists for group '{group_id}'"
             );
         }
     }
@@ -2283,56 +2283,56 @@ mod tests {
 
     use super::*;
 
-    fn make_account() -> CokretAccountConfig {
-        CokretAccountConfig {
-            mode: savfox_channels::cokret::CokretAccountMode::Agent,
+    fn make_account() -> ArkretAccountConfig {
+        ArkretAccountConfig {
+            mode: savfox_channels::arkret::ArkretAccountMode::Agent,
             id: "support".into(),
             principal_id: "did:webvh:z6mkfixture:agent.example".into(),
-            device_id: "ck:device:01904100-0000-7000-8000-000000000001".into(),
+            device_id: "ak:device:01904100-0000-7000-8000-000000000001".into(),
             access_token: String::new(),
             key_ref: None,
             verification_method: None,
-            cokret_server_did: None,
+            arkret_server_did: None,
             login_challenge: None,
             grant_event_path: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
             requested_scope: vec![
-                "ck.self.events.stream.subscribe".into(),
-                "ck.self.events.query.scan".into(),
-                "ck.event.read".into(),
+                "ak.self.events.stream.subscribe".into(),
+                "ak.self.events.query.scan".into(),
+                "ak.event.read".into(),
             ],
             listen: true,
             send: true,
         }
     }
 
-    fn realm_id() -> cokret::RealmId {
-        cokret::RealmId::new("ck:realm:01904100-0000-7000-8000-000000000001").unwrap()
+    fn realm_id() -> arkret::RealmId {
+        arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001").unwrap()
     }
 
     fn actor_id() -> Did {
         Did::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap()
     }
 
-    fn message_event(body: &str) -> cokret::Event {
+    fn message_event(body: &str) -> arkret::Event {
         message_event_with_seq(body, 1)
     }
 
-    fn message_event_with_seq(body: &str, actor_seq: u64) -> cokret::Event {
-        cokret::Event::new(
-            "ck.message.create",
+    fn message_event_with_seq(body: &str, actor_seq: u64) -> arkret::Event {
+        arkret::Event::new(
+            "ak.message.create",
             realm_id(),
             actor_id(),
             actor_seq,
-            cokret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
+            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             json!({
-                "strand_id": "ck:strand:01904100-0000-7000-8000-000000000002",
+                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000002",
                 "track_name": "discussion",
                 "content": {
-                    "kind": "ck.content.text",
+                    "kind": "ak.content.text",
                     "body": body,
-                    "thread_root_id": "ck:strand:01904100-0000-7000-8000-000000000003"
+                    "thread_root_id": "ak:strand:01904100-0000-7000-8000-000000000003"
                 }
             }),
         )
@@ -2340,17 +2340,17 @@ mod tests {
     }
 
     fn mls_welcome_value(group_id: &str) -> Value {
-        serde_json::to_value(cokret::MlsWelcomeEnvelope {
+        serde_json::to_value(arkret::MlsWelcomeEnvelope {
             group_id: group_id.to_owned(),
             epoch: 7,
             recipient_principal_id: Did::new("did:webvh:z6mkfixture:bob.example".to_owned())
                 .unwrap(),
-            recipient_device_id: cokret::DeviceId::new(
-                "ck:device:01904100-0000-7000-8000-00000000000e".to_owned(),
+            recipient_device_id: arkret::DeviceId::new(
+                "ak:device:01904100-0000-7000-8000-00000000000e".to_owned(),
             )
             .unwrap(),
             welcome: "AA".to_owned(),
-            welcome_hash: cokret::Hash::new(format!("sha256:{}", "ab".repeat(32))).unwrap(),
+            welcome_hash: arkret::Hash::new(format!("sha256:{}", "ab".repeat(32))).unwrap(),
             ratchet_tree: None,
         })
         .unwrap()
@@ -2400,9 +2400,9 @@ mod tests {
     fn sync_realm_delta_parses_dispatchable_messages() {
         let account = make_account();
         let realm_id = realm_id();
-        let update = cokret::RealmUpdate {
+        let update = arkret::RealmUpdate {
             realm_id: realm_id.clone(),
-            timeline: Some(cokret::SyncTimeline {
+            timeline: Some(arkret::SyncTimeline {
                 events: vec![serde_json::to_value(message_event("hello from engine")).unwrap()],
                 limited: false,
                 prev_cursor: None,
@@ -2420,21 +2420,21 @@ mod tests {
         assert_eq!(parsed.events[0].sender_did, actor_id().as_str());
         assert_eq!(
             parsed.events[0].flow_id.as_deref(),
-            Some("ck:strand:01904100-0000-7000-8000-000000000002")
+            Some("ak:strand:01904100-0000-7000-8000-000000000002")
         );
     }
 
     #[test]
     fn sync_notification_flattens_data_for_existing_parser() {
         let account = make_account();
-        let notification = cokret::NotificationDelta {
-            id: "ck:notification:01904100-0000-7000-8000-000000000001".to_owned(),
+        let notification = arkret::NotificationDelta {
+            id: "ak:notification:01904100-0000-7000-8000-000000000001".to_owned(),
             notification_type: "assignment".to_owned(),
             action: "add".to_owned(),
             data: Some(json!({
                 "realm_id": realm_id().as_str(),
-                "strand_id": "ck:strand:01904100-0000-7000-8000-000000000004",
-                "source_event_id": "ck:event:01904100-0000-7000-8000-000000000005",
+                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000004",
+                "source_event_id": "ak:event:01904100-0000-7000-8000-000000000005",
                 "source_actor_id": actor_id().as_str(),
                 "body": "Assigned to you"
             })),
@@ -2450,7 +2450,7 @@ mod tests {
         assert_eq!(parsed.events[0].realm_id, realm_id().as_str());
         assert_eq!(
             parsed.events[0].thread_root_id.as_deref(),
-            Some("ck:strand:01904100-0000-7000-8000-000000000004")
+            Some("ak:strand:01904100-0000-7000-8000-000000000004")
         );
         assert!(parsed.events[0].body.contains("assignment notification"));
     }
@@ -2474,12 +2474,12 @@ mod tests {
                 false,
                 Some("ack-1"),
                 true,
-                Some("ck:cursor:device-next")
+                Some("ak:cursor:device-next")
             ),
             AccountToDeviceAckPlan::Ack {
                 ack_token: "ack-1".to_owned(),
                 followup: Some(AccountDeviceMessagesPull {
-                    initial_cursor: Some("ck:cursor:device-next".to_owned()),
+                    initial_cursor: Some("ak:cursor:device-next".to_owned()),
                     reason: "to_device_sync_limited",
                 }),
             }
@@ -2510,12 +2510,12 @@ mod tests {
 
     #[test]
     fn limited_account_timeline_builds_scan_catchup_request() {
-        let update = cokret::RealmUpdate {
+        let update = arkret::RealmUpdate {
             realm_id: realm_id(),
-            timeline: Some(cokret::SyncTimeline {
+            timeline: Some(arkret::SyncTimeline {
                 events: vec![serde_json::to_value(message_event("window head")).unwrap()],
                 limited: true,
-                prev_cursor: Some("ck:cursor:older-1".to_owned()),
+                prev_cursor: Some("ak:cursor:older-1".to_owned()),
             }),
             state: Vec::new(),
             summary: Value::Null,
@@ -2524,7 +2524,7 @@ mod tests {
         let request = account_scan_catchup_request_for_update(&update).unwrap();
 
         assert_eq!(request.realm_id, realm_id());
-        assert_eq!(request.before.as_deref(), Some("ck:cursor:older-1"));
+        assert_eq!(request.before.as_deref(), Some("ak:cursor:older-1"));
     }
 
     #[tokio::test]
@@ -2532,14 +2532,14 @@ mod tests {
         let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let responses =
             std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from([
-                cokret::SyncBackfillOutcome {
+                arkret::SyncBackfillOutcome {
                     events: vec![message_event_with_seq("older one", 2)],
                     snapshot_bootstrap: None,
-                    prev_cursor: Some("ck:cursor:older-2".to_owned()),
+                    prev_cursor: Some("ak:cursor:older-2".to_owned()),
                     next_cursor: None,
                     limited: true,
                 },
-                cokret::SyncBackfillOutcome {
+                arkret::SyncBackfillOutcome {
                     events: vec![message_event_with_seq("older two", 3)],
                     snapshot_bootstrap: None,
                     prev_cursor: None,
@@ -2551,7 +2551,7 @@ mod tests {
         let responses_for_fetch = std::sync::Arc::clone(&responses);
         let request = AccountScanCatchupRequest {
             realm_id: realm_id(),
-            before: Some("ck:cursor:older-1".to_owned()),
+            before: Some("ak:cursor:older-1".to_owned()),
         };
 
         let outcome = collect_account_scan_catchup(request, move |realm_id, before, limit| {
@@ -2574,12 +2574,12 @@ mod tests {
             &[
                 (
                     realm_id().as_str().to_owned(),
-                    Some("ck:cursor:older-1".to_owned()),
+                    Some("ak:cursor:older-1".to_owned()),
                     ACCOUNT_SCAN_CATCHUP_LIMIT
                 ),
                 (
                     realm_id().as_str().to_owned(),
-                    Some("ck:cursor:older-2".to_owned()),
+                    Some("ak:cursor:older-2".to_owned()),
                     ACCOUNT_SCAN_CATCHUP_LIMIT
                 )
             ]
@@ -2601,25 +2601,25 @@ mod tests {
     #[test]
     fn account_realm_update_records_nested_mls_welcome() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let channel = CokretChannelConfig {
+        let channel = ArkretChannelConfig {
             id: "c1".to_owned(),
-            base_url: "https://cokret.example".to_owned(),
+            base_url: "https://arkret.example".to_owned(),
             service_did: None,
             accounts: Vec::new(),
         };
         let account = make_account();
-        let crypto_store = FileCokretCryptoStore::for_account(tmp.path(), &channel.id, &account.id);
+        let crypto_store = FileArkretCryptoStore::for_account(tmp.path(), &channel.id, &account.id);
         let group_id = "group-account-welcome";
-        let update = cokret::RealmUpdate {
+        let update = arkret::RealmUpdate {
             realm_id: realm_id(),
-            timeline: Some(cokret::SyncTimeline {
+            timeline: Some(arkret::SyncTimeline {
                 events: vec![json!({
-                    "kind": "ck.mls.welcome",
-                    "event_id": "ck:event:01904100-0000-7000-8000-000000000007",
+                    "kind": "ak.mls.welcome",
+                    "event_id": "ak:event:01904100-0000-7000-8000-000000000007",
                     "realm_id": realm_id().as_str(),
                     "actor_id": actor_id().as_str(),
                     "payload": {
-                        "kind": "ck.mls.welcome",
+                        "kind": "ak.mls.welcome",
                         "content": mls_welcome_value(group_id)
                     }
                 })],

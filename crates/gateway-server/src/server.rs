@@ -500,10 +500,10 @@ pub(crate) fn build_router(
     router = router.push(channels::matrix::matrix_appservice_router());
     router = router.push(channels::matrix::appservice_router());
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     {
-        router = router.push(channels::cokret_applet::cokret_applet_router());
-        router = router.push(channels::cokret_applet::cokret_appservices_router());
+        router = router.push(channels::arkret_applet::arkret_applet_router());
+        router = router.push(channels::arkret_applet::arkret_appservices_router());
     }
 
     // Hook mapping endpoints (Phase 8).

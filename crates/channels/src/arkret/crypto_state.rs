@@ -1,7 +1,7 @@
-//! Local Cokret crypto state for Savfox channel adapters.
+//! Local Arkret crypto state for Savfox channel adapters.
 //!
 //! The SDK owns the protocol objects (`CryptoStoreBinding`, `MemoryCryptoStore`
-//! and `CokretMlsGroup`). This module gives Savfox a small file-backed wrapper
+//! and `ArkretMlsGroup`). This module gives Savfox a small file-backed wrapper
 //! so account-mode and applet-mode can persist decryption failures, MLS group
 //! snapshots, recovery plans and realm encryption policy under `SAVFOX_HOME`.
 
@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use cokret::crypto_protocol::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
-use cokret::{
-    CokretMlsGroup, CokretMlsIdentity, CryptoStore, DeviceId, Did, EncryptedPayload,
+use arkret::crypto_protocol::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
+use arkret::{
+    ArkretMlsGroup, ArkretMlsIdentity, CryptoStore, DeviceId, Did, EncryptedPayload,
     EncryptedPayloadScheme, EventId, FeatureSafetyReport, MemoryCryptoStore, MlsGroupStateRecord,
     MlsKeyPackageRecord, MlsKeyPackageState, MlsRecoveryAction, MlsWelcomeEnvelope,
     MlsWelcomePayload, RealmId, current_feature_safety_report,
@@ -20,19 +20,19 @@ use cokret::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const STATE_VERSION: &str = "savfox.cokret.crypto_state.v1";
-const CONTENT_BLOCK_JSON: &str = "application/vnd.cokret.content-block+json";
+const STATE_VERSION: &str = "savfox.arkret.crypto_state.v1";
+const CONTENT_BLOCK_JSON: &str = "application/vnd.arkret.content-block+json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CokretContentEncryptionFloor {
+pub enum ArkretContentEncryptionFloor {
     AllowPlaintext,
     E2eeRequired,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CokretRealmCryptoPolicy {
+pub struct ArkretRealmCryptoPolicy {
     pub realm_id: String,
-    pub content_encryption_floor: CokretContentEncryptionFloor,
+    pub content_encryption_floor: ArkretContentEncryptionFloor,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encryption_profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -41,10 +41,10 @@ pub struct CokretRealmCryptoPolicy {
     pub updated_at: DateTime<Utc>,
 }
 
-impl CokretRealmCryptoPolicy {
+impl ArkretRealmCryptoPolicy {
     #[must_use]
     pub fn requires_e2ee(&self) -> bool {
-        self.content_encryption_floor == CokretContentEncryptionFloor::E2eeRequired
+        self.content_encryption_floor == ArkretContentEncryptionFloor::E2eeRequired
     }
 
     #[must_use]
@@ -56,7 +56,7 @@ impl CokretRealmCryptoPolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CokretBootstrapRecord {
+pub struct ArkretBootstrapRecord {
     pub group_id: String,
     pub required_epoch: u64,
     pub local_epoch: Option<u64>,
@@ -65,7 +65,7 @@ pub struct CokretBootstrapRecord {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CokretKeyBackupState {
+pub struct ArkretKeyBackupState {
     pub restore_needed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_needed_for_group_id: Option<String>,
@@ -76,7 +76,7 @@ pub struct CokretKeyBackupState {
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CokretMlsIdentityStateRecord {
+pub struct ArkretMlsIdentityStateRecord {
     pub principal_id: Did,
     pub device_id: DeviceId,
     pub private_state: Vec<u8>,
@@ -87,9 +87,9 @@ pub struct CokretMlsIdentityStateRecord {
     pub updated_at: DateTime<Utc>,
 }
 
-impl std::fmt::Debug for CokretMlsIdentityStateRecord {
+impl std::fmt::Debug for ArkretMlsIdentityStateRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CokretMlsIdentityStateRecord")
+        f.debug_struct("ArkretMlsIdentityStateRecord")
             .field("principal_id", &self.principal_id)
             .field("device_id", &self.device_id)
             .field(
@@ -104,7 +104,7 @@ impl std::fmt::Debug for CokretMlsIdentityStateRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CokretMlsWelcomeConsumeBinding {
+pub struct ArkretMlsWelcomeConsumeBinding {
     pub keypackage_ref: String,
     pub claim_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,7 +117,7 @@ pub struct CokretMlsWelcomeConsumeBinding {
     pub epoch: u64,
 }
 
-impl CokretMlsWelcomeConsumeBinding {
+impl ArkretMlsWelcomeConsumeBinding {
     #[must_use]
     pub fn cache_key(&self) -> String {
         format!(
@@ -128,27 +128,27 @@ impl CokretMlsWelcomeConsumeBinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CokretCryptoStateFile {
+pub struct ArkretCryptoStateFile {
     pub version: String,
     pub scope_id: String,
     pub sdk_features: Vec<String>,
     pub binding: CryptoStoreBinding,
     pub mls_store_json: String,
     #[serde(default)]
-    pub mls_identities: BTreeMap<String, CokretMlsIdentityStateRecord>,
+    pub mls_identities: BTreeMap<String, ArkretMlsIdentityStateRecord>,
     #[serde(default)]
     pub mls_key_packages: BTreeMap<String, MlsKeyPackageRecord>,
     #[serde(default)]
-    pub mls_welcome_consume_bindings: BTreeMap<String, CokretMlsWelcomeConsumeBinding>,
+    pub mls_welcome_consume_bindings: BTreeMap<String, ArkretMlsWelcomeConsumeBinding>,
     #[serde(default)]
-    pub realm_policies: BTreeMap<String, CokretRealmCryptoPolicy>,
+    pub realm_policies: BTreeMap<String, ArkretRealmCryptoPolicy>,
     #[serde(default)]
-    pub bootstrap: BTreeMap<String, CokretBootstrapRecord>,
+    pub bootstrap: BTreeMap<String, ArkretBootstrapRecord>,
     #[serde(default)]
-    pub key_backup: CokretKeyBackupState,
+    pub key_backup: ArkretKeyBackupState,
 }
 
-impl CokretCryptoStateFile {
+impl ArkretCryptoStateFile {
     fn new(scope_id: String) -> anyhow::Result<Self> {
         let store = MemoryCryptoStore::new();
         Ok(Self {
@@ -158,13 +158,13 @@ impl CokretCryptoStateFile {
             binding: CryptoStoreBinding::default(),
             mls_store_json: store
                 .export_backup_json()
-                .map_err(|err| anyhow::anyhow!("cokret crypto store export: {err}"))?,
+                .map_err(|err| anyhow::anyhow!("arkret crypto store export: {err}"))?,
             mls_identities: BTreeMap::new(),
             mls_key_packages: BTreeMap::new(),
             mls_welcome_consume_bindings: BTreeMap::new(),
             realm_policies: BTreeMap::new(),
             bootstrap: BTreeMap::new(),
-            key_backup: CokretKeyBackupState::default(),
+            key_backup: ArkretKeyBackupState::default(),
         })
     }
 
@@ -172,25 +172,25 @@ impl CokretCryptoStateFile {
         let mut store = MemoryCryptoStore::new();
         store
             .import_backup_json(&self.mls_store_json)
-            .map_err(|err| anyhow::anyhow!("cokret crypto store import: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("arkret crypto store import: {err}"))?;
         Ok(store)
     }
 
     fn set_mls_store(&mut self, store: &MemoryCryptoStore) -> anyhow::Result<()> {
         self.mls_store_json = store
             .export_backup_json()
-            .map_err(|err| anyhow::anyhow!("cokret crypto store export: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("arkret crypto store export: {err}"))?;
         Ok(())
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct FileCokretCryptoStore {
+pub struct FileArkretCryptoStore {
     path: PathBuf,
     scope_id: String,
 }
 
-impl FileCokretCryptoStore {
+impl FileArkretCryptoStore {
     #[must_use]
     pub fn for_account(savfox_home: &Path, channel_id: &str, account_id: &str) -> Self {
         let scope_id = account_scope_id(channel_id, account_id);
@@ -207,7 +207,7 @@ impl FileCokretCryptoStore {
     pub fn new(savfox_home: &Path, scope_id: String) -> Self {
         let path = savfox_home
             .join("gateway")
-            .join("cokret-crypto")
+            .join("arkret-crypto")
             .join(format!("{}.json", safe_file_stem(&scope_id)));
         Self { path, scope_id }
     }
@@ -221,26 +221,26 @@ impl FileCokretCryptoStore {
         let report = current_feature_safety_report();
         report
             .validate()
-            .map_err(|err| anyhow::anyhow!("cokret crypto feature set is unsafe: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("arkret crypto feature set is unsafe: {err}"))?;
         Ok(report)
     }
 
-    pub fn load(&self) -> anyhow::Result<CokretCryptoStateFile> {
+    pub fn load(&self) -> anyhow::Result<ArkretCryptoStateFile> {
         match std::fs::read(&self.path) {
-            Ok(bytes) if bytes.is_empty() => CokretCryptoStateFile::new(self.scope_id.clone()),
+            Ok(bytes) if bytes.is_empty() => ArkretCryptoStateFile::new(self.scope_id.clone()),
             Ok(bytes) => {
-                let mut state: CokretCryptoStateFile = serde_json::from_slice(&bytes)
+                let mut state: ArkretCryptoStateFile = serde_json::from_slice(&bytes)
                     .with_context(|| format!("parse {}", self.path.display()))?;
                 if state.version != STATE_VERSION {
                     anyhow::bail!(
-                        "unsupported Cokret crypto state version '{}' in {}",
+                        "unsupported Arkret crypto state version '{}' in {}",
                         state.version,
                         self.path.display()
                     );
                 }
                 if state.scope_id != self.scope_id {
                     anyhow::bail!(
-                        "Cokret crypto state scope mismatch: expected '{}', got '{}'",
+                        "Arkret crypto state scope mismatch: expected '{}', got '{}'",
                         self.scope_id,
                         state.scope_id
                     );
@@ -249,16 +249,16 @@ impl FileCokretCryptoStore {
                 Ok(state)
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                CokretCryptoStateFile::new(self.scope_id.clone())
+                ArkretCryptoStateFile::new(self.scope_id.clone())
             }
             Err(err) => Err(err).with_context(|| format!("read {}", self.path.display())),
         }
     }
 
-    pub fn save(&self, state: &CokretCryptoStateFile) -> anyhow::Result<()> {
+    pub fn save(&self, state: &ArkretCryptoStateFile) -> anyhow::Result<()> {
         if state.scope_id != self.scope_id {
             anyhow::bail!(
-                "refusing to save Cokret crypto state for scope '{}' into '{}'",
+                "refusing to save Arkret crypto state for scope '{}' into '{}'",
                 state.scope_id,
                 self.scope_id
             );
@@ -284,7 +284,7 @@ impl FileCokretCryptoStore {
         self.save(&state)
     }
 
-    pub fn upsert_realm_policy(&self, policy: CokretRealmCryptoPolicy) -> anyhow::Result<()> {
+    pub fn upsert_realm_policy(&self, policy: ArkretRealmCryptoPolicy) -> anyhow::Result<()> {
         let mut state = self.load()?;
         state.realm_policies.insert(policy.realm_id.clone(), policy);
         self.save(&state)
@@ -316,9 +316,9 @@ impl FileCokretCryptoStore {
     ) -> anyhow::Result<MlsKeyPackageRecord> {
         let mut state = self.load()?;
         let principal = Did::new(principal_id.to_owned())
-            .with_context(|| format!("invalid Cokret principal DID '{principal_id}'"))?;
+            .with_context(|| format!("invalid Arkret principal DID '{principal_id}'"))?;
         let device = DeviceId::new(device_id.to_owned())
-            .with_context(|| format!("invalid Cokret device id '{device_id}'"))?;
+            .with_context(|| format!("invalid Arkret device id '{device_id}'"))?;
         let identity_key = mls_identity_key(&principal, &device);
         let cache_key = mls_key_package_cache_key(&principal, &device, last_resort);
 
@@ -336,21 +336,21 @@ impl FileCokretCryptoStore {
         let identity = if let Some(record) = state.mls_identities.get(&identity_key) {
             restore_mls_identity(record)?
         } else {
-            CokretMlsIdentity::new_basic(principal.clone(), device.clone())
-                .map_err(|err| anyhow::anyhow!("create Cokret MLS identity: {err}"))?
+            ArkretMlsIdentity::new_basic(principal.clone(), device.clone())
+                .map_err(|err| anyhow::anyhow!("create Arkret MLS identity: {err}"))?
         };
         let record = if last_resort {
             identity
                 .last_resort_key_package_record()
-                .map_err(|err| anyhow::anyhow!("create Cokret MLS last-resort KeyPackage: {err}"))?
+                .map_err(|err| anyhow::anyhow!("create Arkret MLS last-resort KeyPackage: {err}"))?
         } else {
             identity
                 .key_package_record()
-                .map_err(|err| anyhow::anyhow!("create Cokret MLS KeyPackage: {err}"))?
+                .map_err(|err| anyhow::anyhow!("create Arkret MLS KeyPackage: {err}"))?
         };
         let private_state = identity
             .export_private_state()
-            .map_err(|err| anyhow::anyhow!("export Cokret MLS identity state: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("export Arkret MLS identity state: {err}"))?;
 
         // Keep KeyPackages in a Savfox-owned string-keyed map: the SDK store
         // currently serializes its keypackage map with tuple keys, which
@@ -358,7 +358,7 @@ impl FileCokretCryptoStore {
         state.mls_key_packages.insert(cache_key, record.clone());
         state.mls_identities.insert(
             identity_key,
-            CokretMlsIdentityStateRecord {
+            ArkretMlsIdentityStateRecord {
                 principal_id: principal,
                 device_id: device,
                 private_state,
@@ -377,7 +377,7 @@ impl FileCokretCryptoStore {
         claim_id: &str,
     ) -> anyhow::Result<Option<MlsKeyPackageRecord>> {
         if claim_id.trim().is_empty() {
-            anyhow::bail!("Cokret MLS KeyPackage claim id must not be empty");
+            anyhow::bail!("Arkret MLS KeyPackage claim id must not be empty");
         }
         self.update_cached_mls_key_package(keypackage_ref_or_id, |record| {
             if matches!(
@@ -385,7 +385,7 @@ impl FileCokretCryptoStore {
                 MlsKeyPackageState::Consumed | MlsKeyPackageState::Revoked
             ) {
                 anyhow::bail!(
-                    "refusing to claim Cokret MLS KeyPackage '{}' in state {:?}",
+                    "refusing to claim Arkret MLS KeyPackage '{}' in state {:?}",
                     record.keypackage_id,
                     record.state
                 );
@@ -406,7 +406,7 @@ impl FileCokretCryptoStore {
             }
             if record.state == MlsKeyPackageState::Revoked {
                 anyhow::bail!(
-                    "refusing to consume revoked Cokret MLS KeyPackage '{}'",
+                    "refusing to consume revoked Arkret MLS KeyPackage '{}'",
                     record.keypackage_id
                 );
             }
@@ -422,7 +422,7 @@ impl FileCokretCryptoStore {
     fn record_mls_welcome_inner(
         &self,
         welcome: MlsWelcomeEnvelope,
-        consume_binding: Option<CokretMlsWelcomeConsumeBinding>,
+        consume_binding: Option<ArkretMlsWelcomeConsumeBinding>,
     ) -> anyhow::Result<()> {
         let mut state = self.load()?;
         let mut store = state.mls_store()?;
@@ -431,10 +431,10 @@ impl FileCokretCryptoStore {
             .map(|record| record.epoch);
         store
             .put_welcome(welcome.clone())
-            .map_err(|err| anyhow::anyhow!("persist Cokret MLS Welcome: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("persist Arkret MLS Welcome: {err}"))?;
         state.bootstrap.insert(
             welcome.group_id.clone(),
-            CokretBootstrapRecord {
+            ArkretBootstrapRecord {
                 group_id: welcome.group_id,
                 required_epoch: welcome.epoch,
                 local_epoch,
@@ -476,7 +476,7 @@ impl FileCokretCryptoStore {
 
     pub fn mark_mls_welcome_consume_binding_acked(
         &self,
-        binding: &CokretMlsWelcomeConsumeBinding,
+        binding: &ArkretMlsWelcomeConsumeBinding,
     ) -> anyhow::Result<()> {
         let mut state = self.load()?;
         state
@@ -490,13 +490,13 @@ impl FileCokretCryptoStore {
         principal_id: &str,
         device_id: &str,
         payload: &EncryptedPayload,
-    ) -> anyhow::Result<CokretBootstrapRecord> {
+    ) -> anyhow::Result<ArkretBootstrapRecord> {
         let mut state = self.load()?;
         let store = state.mls_store()?;
         let principal = Did::new(principal_id.to_owned())
-            .with_context(|| format!("invalid Cokret principal DID '{principal_id}'"))?;
+            .with_context(|| format!("invalid Arkret principal DID '{principal_id}'"))?;
         let device = DeviceId::new(device_id.to_owned())
-            .with_context(|| format!("invalid Cokret device id '{device_id}'"))?;
+            .with_context(|| format!("invalid Arkret device id '{device_id}'"))?;
         let local_epoch = store
             .mls_group_state(&payload.group_id)
             .map(|record| record.epoch);
@@ -507,7 +507,7 @@ impl FileCokretCryptoStore {
             &principal,
             &device,
         );
-        let record = CokretBootstrapRecord {
+        let record = ArkretBootstrapRecord {
             group_id: plan.group_id,
             required_epoch: payload.epoch,
             local_epoch,
@@ -540,11 +540,11 @@ impl FileCokretCryptoStore {
         let mut state = self.load()?;
         let record = UnableToDecryptRecord {
             event_id: EventId::new(event_id.to_owned())
-                .with_context(|| format!("invalid Cokret event id '{event_id}'"))?,
+                .with_context(|| format!("invalid Arkret event id '{event_id}'"))?,
             realm_id: RealmId::new(realm_id.to_owned())
-                .with_context(|| format!("invalid Cokret realm id '{realm_id}'"))?,
+                .with_context(|| format!("invalid Arkret realm id '{realm_id}'"))?,
             sender: Did::new(sender.to_owned())
-                .with_context(|| format!("invalid Cokret sender DID '{sender}'"))?,
+                .with_context(|| format!("invalid Arkret sender DID '{sender}'"))?,
             reason,
             encrypted_content,
             first_seen_at: Utc::now(),
@@ -556,18 +556,18 @@ impl FileCokretCryptoStore {
     pub fn try_decrypt_content_block(
         &self,
         payload: &EncryptedPayload,
-    ) -> anyhow::Result<CokretDecryptOutcome> {
+    ) -> anyhow::Result<ArkretDecryptOutcome> {
         let detailed = self.try_decrypt_content_block_detailed(payload)?;
         Ok(match detailed {
-            CokretDecryptDetailedOutcome::Decrypted {
+            ArkretDecryptDetailedOutcome::Decrypted {
                 content,
                 consume_bindings: _,
-            } => CokretDecryptOutcome::Decrypted(content),
-            CokretDecryptDetailedOutcome::MissingGroupState => {
-                CokretDecryptOutcome::MissingGroupState
+            } => ArkretDecryptOutcome::Decrypted(content),
+            ArkretDecryptDetailedOutcome::MissingGroupState => {
+                ArkretDecryptOutcome::MissingGroupState
             }
-            CokretDecryptDetailedOutcome::UnsupportedScheme(scheme) => {
-                CokretDecryptOutcome::UnsupportedScheme(scheme)
+            ArkretDecryptDetailedOutcome::UnsupportedScheme(scheme) => {
+                ArkretDecryptOutcome::UnsupportedScheme(scheme)
             }
         })
     }
@@ -575,7 +575,7 @@ impl FileCokretCryptoStore {
     pub fn try_decrypt_content_block_detailed(
         &self,
         payload: &EncryptedPayload,
-    ) -> anyhow::Result<CokretDecryptDetailedOutcome> {
+    ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
         let mut state = self.load()?;
         let mut store = state.mls_store()?;
         let mut joined_from_welcome = None;
@@ -583,12 +583,12 @@ impl FileCokretCryptoStore {
             let Some((updated, welcome)) =
                 try_consume_stored_welcome_for_payload(&state, &mut store, payload)?
             else {
-                return Ok(CokretDecryptDetailedOutcome::MissingGroupState);
+                return Ok(ArkretDecryptDetailedOutcome::MissingGroupState);
             };
             joined_from_welcome = Some(welcome);
             state.bootstrap.insert(
                 updated.group_id.clone(),
-                CokretBootstrapRecord {
+                ArkretBootstrapRecord {
                     group_id: updated.group_id,
                     required_epoch: updated.epoch,
                     local_epoch: Some(updated.epoch),
@@ -602,28 +602,28 @@ impl FileCokretCryptoStore {
         let record = store
             .mls_group_state(&payload.group_id)
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Cokret MLS admission did not produce group state"))?;
-        let mut group = CokretMlsGroup::restore_from_state_record(&record)
-            .map_err(|err| anyhow::anyhow!("restore Cokret MLS group: {err}"))?;
+            .ok_or_else(|| anyhow::anyhow!("Arkret MLS admission did not produce group state"))?;
+        let mut group = ArkretMlsGroup::restore_from_state_record(&record)
+            .map_err(|err| anyhow::anyhow!("restore Arkret MLS group: {err}"))?;
         let plaintext = match payload.scheme {
             EncryptedPayloadScheme::MlsRfc9420 => group
                 .decrypt_payload(payload)
-                .map_err(|err| anyhow::anyhow!("decrypt Cokret MLS payload: {err}"))?,
+                .map_err(|err| anyhow::anyhow!("decrypt Arkret MLS payload: {err}"))?,
             EncryptedPayloadScheme::MlsExporterAeadV1 => {
-                return Ok(CokretDecryptDetailedOutcome::UnsupportedScheme(
+                return Ok(ArkretDecryptDetailedOutcome::UnsupportedScheme(
                     payload.scheme.as_str().to_owned(),
                 ));
             }
         };
         let content = serde_json::from_slice(&plaintext)
-            .with_context(|| "decrypted Cokret content block is not JSON")?;
+            .with_context(|| "decrypted Arkret content block is not JSON")?;
         let updated = group
             .persist_state(&mut store)
-            .map_err(|err| anyhow::anyhow!("persist Cokret MLS group: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
         state.set_mls_store(&store)?;
         state.bootstrap.insert(
             updated.group_id.clone(),
-            CokretBootstrapRecord {
+            ArkretBootstrapRecord {
                 group_id: updated.group_id,
                 required_epoch: updated.epoch,
                 local_epoch: Some(updated.epoch),
@@ -645,7 +645,7 @@ impl FileCokretCryptoStore {
             })
             .unwrap_or_default();
         self.save(&state)?;
-        Ok(CokretDecryptDetailedOutcome::Decrypted {
+        Ok(ArkretDecryptDetailedOutcome::Decrypted {
             content,
             consume_bindings,
         })
@@ -655,34 +655,34 @@ impl FileCokretCryptoStore {
         &self,
         realm_id: &str,
         content: &Value,
-    ) -> anyhow::Result<CokretEncryptOutcome> {
+    ) -> anyhow::Result<ArkretEncryptOutcome> {
         let mut state = self.load()?;
         let Some(policy) = state.realm_policies.get(realm_id).cloned() else {
-            return Ok(CokretEncryptOutcome::PlaintextAllowed);
+            return Ok(ArkretEncryptOutcome::PlaintextAllowed);
         };
         if !policy.requires_e2ee() {
-            return Ok(CokretEncryptOutcome::PlaintextAllowed);
+            return Ok(ArkretEncryptOutcome::PlaintextAllowed);
         }
         let mut store = state.mls_store()?;
         let group_id = policy.group_id_for_realm().to_owned();
         let Some(record) = store.mls_group_state(&group_id).cloned() else {
-            return Ok(CokretEncryptOutcome::MissingRequiredGroupState {
+            return Ok(ArkretEncryptOutcome::MissingRequiredGroupState {
                 group_id,
                 realm_id: realm_id.to_owned(),
             });
         };
-        let mut group = CokretMlsGroup::restore_from_state_record(&record)
-            .map_err(|err| anyhow::anyhow!("restore Cokret MLS group: {err}"))?;
+        let mut group = ArkretMlsGroup::restore_from_state_record(&record)
+            .map_err(|err| anyhow::anyhow!("restore Arkret MLS group: {err}"))?;
         let plaintext = serde_json::to_vec(content)?;
         let payload = group
             .encrypt_payload(CONTENT_BLOCK_JSON, &plaintext)
-            .map_err(|err| anyhow::anyhow!("encrypt Cokret MLS payload: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("encrypt Arkret MLS payload: {err}"))?;
         group
             .persist_state(&mut store)
-            .map_err(|err| anyhow::anyhow!("persist Cokret MLS group: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
         state.set_mls_store(&store)?;
         self.save(&state)?;
-        Ok(CokretEncryptOutcome::Encrypted(serde_json::to_value(
+        Ok(ArkretEncryptOutcome::Encrypted(serde_json::to_value(
             payload,
         )?))
     }
@@ -701,7 +701,7 @@ impl FileCokretCryptoStore {
         let record = state
             .mls_key_packages
             .get_mut(&cache_key)
-            .ok_or_else(|| anyhow::anyhow!("Cokret MLS KeyPackage cache key disappeared"))?;
+            .ok_or_else(|| anyhow::anyhow!("Arkret MLS KeyPackage cache key disappeared"))?;
         update(record)?;
         let updated = record.clone();
         self.save(&state)?;
@@ -713,42 +713,42 @@ impl FileCokretCryptoStore {
             .path
             .file_name()
             .map(|n| n.to_os_string())
-            .unwrap_or_else(|| "cokret-crypto.json".into());
+            .unwrap_or_else(|| "arkret-crypto.json".into());
         name.push(".tmp");
         self.path.with_file_name(name)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum CokretDecryptOutcome {
+pub enum ArkretDecryptOutcome {
     Decrypted(Value),
     MissingGroupState,
     UnsupportedScheme(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum CokretDecryptDetailedOutcome {
+pub enum ArkretDecryptDetailedOutcome {
     Decrypted {
         content: Value,
-        consume_bindings: Vec<CokretMlsWelcomeConsumeBinding>,
+        consume_bindings: Vec<ArkretMlsWelcomeConsumeBinding>,
     },
     MissingGroupState,
     UnsupportedScheme(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum CokretEncryptOutcome {
+pub enum ArkretEncryptOutcome {
     PlaintextAllowed,
     Encrypted(Value),
     MissingRequiredGroupState { realm_id: String, group_id: String },
 }
 
 pub fn mls_key_package_record_from_claim(
-    claim: &cokret::KeyPackageClaimRecord,
+    claim: &arkret::KeyPackageClaimRecord,
 ) -> anyhow::Result<MlsKeyPackageRecord> {
     let device_id = DeviceId::new(claim.device_id.clone()).with_context(|| {
         format!(
-            "invalid Cokret KeyPackage claim device id '{}'",
+            "invalid Arkret KeyPackage claim device id '{}'",
             claim.device_id
         )
     })?;
@@ -791,7 +791,7 @@ pub fn extract_encrypted_payload_from_message_content(content: &Value) -> Option
     if inner
         .get("kind")
         .and_then(Value::as_str)
-        .is_some_and(|kind| kind == "ck.content.encrypted")
+        .is_some_and(|kind| kind == "ak.content.encrypted")
     {
         for key in ["payload", "encrypted_payload", "encrypted_content"] {
             if let Some(value) = inner.get(key)
@@ -815,7 +815,7 @@ pub fn message_content_has_encrypted_carrier(content: &Value) -> bool {
             .get("content")
             .and_then(|content| content.get("kind"))
             .and_then(Value::as_str)
-            .is_some_and(|kind| kind == "ck.content.encrypted")
+            .is_some_and(|kind| kind == "ak.content.encrypted")
 }
 
 pub fn extract_mls_welcome_envelope(value: &Value) -> Option<MlsWelcomeEnvelope> {
@@ -834,16 +834,16 @@ pub fn extract_mls_welcome_envelope(value: &Value) -> Option<MlsWelcomeEnvelope>
 
 pub fn extract_mls_welcome_consume_binding(
     value: &Value,
-) -> Option<CokretMlsWelcomeConsumeBinding> {
+) -> Option<ArkretMlsWelcomeConsumeBinding> {
     extract_mls_welcome_consume_binding_inner(value, 6)
 }
 
 fn extract_mls_welcome_consume_binding_inner(
     value: &Value,
     remaining_depth: usize,
-) -> Option<CokretMlsWelcomeConsumeBinding> {
+) -> Option<ArkretMlsWelcomeConsumeBinding> {
     if let Ok(payload) = serde_json::from_value::<MlsWelcomePayload>(value.clone()) {
-        return Some(CokretMlsWelcomeConsumeBinding {
+        return Some(ArkretMlsWelcomeConsumeBinding {
             keypackage_ref: payload.keypackage_ref,
             claim_id: payload.claim_id,
             welcome_ref: payload.welcome_ref,
@@ -877,7 +877,7 @@ fn extract_mls_welcome_consume_binding_inner(
 
 fn extract_mls_welcome_consume_binding_from_object(
     object: &serde_json::Map<String, Value>,
-) -> Option<CokretMlsWelcomeConsumeBinding> {
+) -> Option<ArkretMlsWelcomeConsumeBinding> {
     let keypackage_ref = string_field(object, &["keypackage_ref", "keyPackageRef"])?;
     let claim_id = string_field(object, &["claim_id", "claimId"]).or_else(|| {
         object
@@ -909,7 +909,7 @@ fn extract_mls_welcome_consume_binding_from_object(
         ],
     );
 
-    Some(CokretMlsWelcomeConsumeBinding {
+    Some(ArkretMlsWelcomeConsumeBinding {
         keypackage_ref,
         claim_id,
         welcome_ref,
@@ -927,7 +927,7 @@ fn string_field(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Optio
 }
 
 fn try_consume_stored_welcome_for_payload(
-    state: &CokretCryptoStateFile,
+    state: &ArkretCryptoStateFile,
     store: &mut MemoryCryptoStore,
     payload: &EncryptedPayload,
 ) -> anyhow::Result<Option<(MlsGroupStateRecord, MlsWelcomeEnvelope)>> {
@@ -955,11 +955,11 @@ fn try_consume_stored_welcome_for_payload(
                 continue;
             }
         };
-        match CokretMlsGroup::join_from_welcome(identity, &welcome) {
+        match ArkretMlsGroup::join_from_welcome(identity, &welcome) {
             Ok(group) => {
                 let record = group
                     .persist_state(store)
-                    .map_err(|err| anyhow::anyhow!("persist Cokret MLS group: {err}"))?;
+                    .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
                 return Ok(Some((record, welcome)));
             }
             Err(err) => {
@@ -969,20 +969,20 @@ fn try_consume_stored_welcome_for_payload(
     }
 
     if let Some(err) = last_error {
-        anyhow::bail!("consume Cokret MLS Welcome failed: {err}");
+        anyhow::bail!("consume Arkret MLS Welcome failed: {err}");
     }
     Ok(None)
 }
 
 fn restore_mls_identity(
-    record: &CokretMlsIdentityStateRecord,
-) -> anyhow::Result<CokretMlsIdentity> {
-    CokretMlsIdentity::restore_from_private_state(
+    record: &ArkretMlsIdentityStateRecord,
+) -> anyhow::Result<ArkretMlsIdentity> {
+    ArkretMlsIdentity::restore_from_private_state(
         record.principal_id.clone(),
         record.device_id.clone(),
         &record.private_state,
     )
-    .map_err(|err| anyhow::anyhow!("restore Cokret MLS identity state: {err}"))
+    .map_err(|err| anyhow::anyhow!("restore Arkret MLS identity state: {err}"))
 }
 
 fn mls_identity_key(principal_id: &Did, device_id: &DeviceId) -> String {
@@ -1024,7 +1024,7 @@ fn find_mls_key_package_cache_key(
 fn extract_realm_crypto_policy(
     realm_id: &str,
     realm_value: &Value,
-) -> Option<CokretRealmCryptoPolicy> {
+) -> Option<ArkretRealmCryptoPolicy> {
     let candidate = first_policy_candidate(realm_value)?;
     let floor = candidate
         .get("content_encryption_floor")
@@ -1043,7 +1043,7 @@ fn extract_realm_crypto_policy(
         .or_else(|| candidate.get("groupId"))
         .and_then(Value::as_str)
         .map(str::to_owned);
-    Some(CokretRealmCryptoPolicy {
+    Some(ArkretRealmCryptoPolicy {
         realm_id: realm_id.to_owned(),
         content_encryption_floor: floor,
         encryption_profile,
@@ -1089,13 +1089,13 @@ fn first_policy_candidate(value: &Value) -> Option<&serde_json::Map<String, Valu
     None
 }
 
-fn parse_content_encryption_floor(value: &str) -> Option<CokretContentEncryptionFloor> {
+fn parse_content_encryption_floor(value: &str) -> Option<ArkretContentEncryptionFloor> {
     match value.trim().to_ascii_lowercase().as_str() {
         "allow_plaintext" | "allow-plaintext" | "none" | "plaintext" => {
-            Some(CokretContentEncryptionFloor::AllowPlaintext)
+            Some(ArkretContentEncryptionFloor::AllowPlaintext)
         }
         "e2ee_required" | "e2ee-required" | "required" | "mls_required" | "mls-required" => {
-            Some(CokretContentEncryptionFloor::E2eeRequired)
+            Some(ArkretContentEncryptionFloor::E2eeRequired)
         }
         _ => None,
     }
@@ -1119,9 +1119,9 @@ fn safe_file_stem(scope_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use cokret::crypto_protocol::UnableToDecryptReason;
-    use cokret::{
-        CokretMlsIdentity, EncryptedPayloadScheme, Hash, KeyOperationSignature,
+    use arkret::crypto_protocol::UnableToDecryptReason;
+    use arkret::{
+        ArkretMlsIdentity, EncryptedPayloadScheme, Hash, KeyOperationSignature,
         KeyPackageClaimRecord,
     };
     use serde_json::json;
@@ -1132,7 +1132,7 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
         std::env::temp_dir().join(format!(
-            "savfox-cokret-crypto-{}-{}-{}",
+            "savfox-arkret-crypto-{}-{}-{}",
             label,
             std::process::id(),
             N.fetch_add(1, Ordering::SeqCst)
@@ -1158,12 +1158,12 @@ mod tests {
     #[test]
     fn state_file_persists_unable_to_decrypt() {
         let home = temp_home("utd");
-        let store = FileCokretCryptoStore::for_account(&home, "c1", "a1");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
         store.ensure_created().expect("create");
         store
             .record_unable_to_decrypt(
-                "ck:event:01904100-0000-7000-8000-000000000001",
-                "ck:realm:01904100-0000-7000-8000-000000000001",
+                "ak:event:01904100-0000-7000-8000-000000000001",
+                "ak:realm:01904100-0000-7000-8000-000000000001",
                 "did:webvh:example.org:alice",
                 encrypted_payload(),
                 UnableToDecryptReason::NoSession,
@@ -1178,7 +1178,7 @@ mod tests {
     fn extracts_encrypted_payload_carriers() {
         let payload = serde_json::to_value(encrypted_payload()).expect("payload should serialize");
         let content = json!({
-            "message_id": "ck:message:1",
+            "message_id": "ak:message:1",
             "encrypted_content": payload,
         });
         assert!(message_content_has_encrypted_carrier(&content));
@@ -1189,9 +1189,9 @@ mod tests {
     #[test]
     fn sync_realm_policy_is_persisted() {
         let home = temp_home("policy");
-        let store = FileCokretCryptoStore::for_account(&home, "c1", "a1");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
         let realms = json!({
-            "ck:realm:01904100-0000-7000-8000-000000000001": {
+            "ak:realm:01904100-0000-7000-8000-000000000001": {
                 "state": {
                     "realm": {
                         "content_encryption_floor": "e2ee_required",
@@ -1210,7 +1210,7 @@ mod tests {
         let state = store.load().expect("state should load");
         let policy = state
             .realm_policies
-            .get("ck:realm:01904100-0000-7000-8000-000000000001")
+            .get("ak:realm:01904100-0000-7000-8000-000000000001")
             .expect("policy should be present");
         assert!(policy.requires_e2ee());
         assert_eq!(policy.group_id_for_realm(), "group1");
@@ -1220,11 +1220,11 @@ mod tests {
     #[test]
     fn missing_required_group_state_blocks_encryption() {
         let home = temp_home("encrypt-missing");
-        let store = FileCokretCryptoStore::for_account(&home, "c1", "a1");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
         store
-            .upsert_realm_policy(CokretRealmCryptoPolicy {
-                realm_id: "ck:realm:01904100-0000-7000-8000-000000000001".to_owned(),
-                content_encryption_floor: CokretContentEncryptionFloor::E2eeRequired,
+            .upsert_realm_policy(ArkretRealmCryptoPolicy {
+                realm_id: "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
                 encryption_profile: Some("mls".to_owned()),
                 mls_group_id: Some("group1".to_owned()),
                 source: "test".to_owned(),
@@ -1233,14 +1233,14 @@ mod tests {
             .expect("policy should persist");
         let outcome = store
             .encrypt_content_block_for_realm(
-                "ck:realm:01904100-0000-7000-8000-000000000001",
-                &json!({"kind":"ck.content.text","body":"secret"}),
+                "ak:realm:01904100-0000-7000-8000-000000000001",
+                &json!({"kind":"ak.content.text","body":"secret"}),
             )
             .expect("encryption decision should complete");
         assert_eq!(
             outcome,
-            CokretEncryptOutcome::MissingRequiredGroupState {
-                realm_id: "ck:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+            ArkretEncryptOutcome::MissingRequiredGroupState {
+                realm_id: "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
                 group_id: "group1".to_owned()
             }
         );
@@ -1250,11 +1250,11 @@ mod tests {
     #[test]
     fn bootstrap_plan_marks_key_backup_restore_needed() {
         let home = temp_home("bootstrap");
-        let store = FileCokretCryptoStore::for_account(&home, "c1", "a1");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
         let record = store
             .plan_bootstrap_for_payload(
                 "did:webvh:example.org:alice",
-                "ck:device:01904100-0000-7000-8000-000000000001",
+                "ak:device:01904100-0000-7000-8000-000000000001",
                 &encrypted_payload(),
             )
             .expect("bootstrap plan should persist");
@@ -1274,19 +1274,19 @@ mod tests {
     #[test]
     fn single_use_key_package_claim_rotates_local_cache() {
         let home = temp_home("kp-single-use");
-        let store = FileCokretCryptoStore::for_account(&home, "c1", "bob");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
         let principal = "did:webvh:z6mkfixture:bob.example";
-        let device = "ck:device:01904100-0000-7000-8000-00000000000e";
+        let device = "ak:device:01904100-0000-7000-8000-00000000000e";
         let first = store
             .ensure_mls_key_package(principal, device, false)
             .expect("single-use KeyPackage should be created");
 
         let claimed = store
-            .mark_mls_key_package_claimed(first.keypackage_ref.as_str(), "ck:claim:test")
+            .mark_mls_key_package_claimed(first.keypackage_ref.as_str(), "ak:claim:test")
             .expect("claim marker should persist")
             .expect("KeyPackage should be found");
         assert_eq!(claimed.state, MlsKeyPackageState::Claimed);
-        assert_eq!(claimed.claim_id.as_deref(), Some("ck:claim:test"));
+        assert_eq!(claimed.claim_id.as_deref(), Some("ak:claim:test"));
 
         let rotated = store
             .ensure_mls_key_package(principal, device, false)
@@ -1300,9 +1300,9 @@ mod tests {
     #[test]
     fn last_resort_key_package_survives_claim_and_consume_markers() {
         let home = temp_home("kp-last-resort");
-        let store = FileCokretCryptoStore::for_account(&home, "c1", "bob");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
         let principal = "did:webvh:z6mkfixture:bob.example";
-        let device = "ck:device:01904100-0000-7000-8000-00000000000e";
+        let device = "ak:device:01904100-0000-7000-8000-00000000000e";
         let single_use = store
             .ensure_mls_key_package(principal, device, false)
             .expect("single-use KeyPackage should be created");
@@ -1312,7 +1312,7 @@ mod tests {
         assert_ne!(single_use.keypackage_id, last_resort.keypackage_id);
 
         let claimed = store
-            .mark_mls_key_package_claimed(last_resort.keypackage_id.as_str(), "ck:claim:last")
+            .mark_mls_key_package_claimed(last_resort.keypackage_id.as_str(), "ak:claim:last")
             .expect("claim marker should persist")
             .expect("last-resort KeyPackage should be found");
         assert_eq!(claimed.state, MlsKeyPackageState::Claimed);
@@ -1345,15 +1345,15 @@ mod tests {
     #[test]
     fn claimed_key_package_record_can_feed_group_add_member() {
         let home = temp_home("kp-claim-record");
-        let bob_store = FileCokretCryptoStore::for_account(&home, "c1", "bob");
+        let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
         let bob_principal = "did:webvh:z6mkfixture:bob.example";
-        let bob_device = "ck:device:01904100-0000-7000-8000-00000000000e";
+        let bob_device = "ak:device:01904100-0000-7000-8000-00000000000e";
         let bob_key_package = bob_store
             .ensure_mls_key_package(bob_principal, bob_device, false)
             .expect("Bob KeyPackage should be created");
         let claim = KeyPackageClaimRecord {
-            claim_id: "ck:claim:test-claim-record".to_owned(),
-            keypackage_ref: "ck:mls:keypackage:test-claim-record".to_owned(),
+            claim_id: "ak:claim:test-claim-record".to_owned(),
+            keypackage_ref: "ak:mls:keypackage:test-claim-record".to_owned(),
             keypackage_digest: bob_key_package.keypackage_ref.clone(),
             principal_id: Did::new(bob_principal.to_owned()).unwrap(),
             device_id: bob_device.to_owned(),
@@ -1378,13 +1378,13 @@ mod tests {
         assert_eq!(claimed.claim_id.as_deref(), Some(claim.claim_id.as_str()));
         assert_eq!(claimed.keypackage_ref, bob_key_package.keypackage_ref);
 
-        let alice = CokretMlsIdentity::new_basic(
+        let alice = ArkretMlsIdentity::new_basic(
             Did::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap(),
-            DeviceId::new("ck:device:01904100-0000-7000-8000-000000000006".to_owned()).unwrap(),
+            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned()).unwrap(),
         )
         .unwrap();
         let mut alice_group = alice
-            .create_group(b"ck:realm:01904100-0000-7000-8000-f7claim00001")
+            .create_group(b"ak:realm:01904100-0000-7000-8000-f7claim00001")
             .unwrap();
         let add = alice_group
             .add_member(&claimed)
@@ -1397,9 +1397,9 @@ mod tests {
     #[test]
     fn stored_welcome_admits_group_and_decrypts_content_block() {
         let home = temp_home("welcome-admit");
-        let bob_store = FileCokretCryptoStore::for_account(&home, "c1", "bob");
+        let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
         let bob_principal = "did:webvh:z6mkfixture:bob.example";
-        let bob_device = "ck:device:01904100-0000-7000-8000-00000000000e";
+        let bob_device = "ak:device:01904100-0000-7000-8000-00000000000e";
         let bob_key_package = bob_store
             .ensure_mls_key_package(bob_principal, bob_device, false)
             .expect("Bob KeyPackage should be stored with private identity state");
@@ -1407,20 +1407,20 @@ mod tests {
         assert_eq!(state.mls_identities.len(), 1);
         assert_eq!(state.mls_key_packages.len(), 1);
 
-        let alice = CokretMlsIdentity::new_basic(
+        let alice = ArkretMlsIdentity::new_basic(
             Did::new("did:webvh:z6mkfixture:alice.example").unwrap(),
-            DeviceId::new("ck:device:01904100-0000-7000-8000-000000000006").unwrap(),
+            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
         )
         .unwrap();
         let mut alice_group = alice
-            .create_group(b"ck:realm:01904100-0000-7000-8000-f7admission")
+            .create_group(b"ak:realm:01904100-0000-7000-8000-f7admission")
             .unwrap();
         let add = alice_group.add_member(&bob_key_package).unwrap();
-        let expected_binding = CokretMlsWelcomeConsumeBinding {
+        let expected_binding = ArkretMlsWelcomeConsumeBinding {
             keypackage_ref: bob_key_package.keypackage_ref.as_str().to_owned(),
-            claim_id: "ck:claim:test-welcome".to_owned(),
-            welcome_ref: Some("ck:welcome:test".to_owned()),
-            realm_id: Some("ck:realm:01904100-0000-7000-8000-000000000001".to_owned()),
+            claim_id: "ak:claim:test-welcome".to_owned(),
+            welcome_ref: Some("ak:welcome:test".to_owned()),
+            realm_id: Some("ak:realm:01904100-0000-7000-8000-000000000001".to_owned()),
             strand_id: None,
             mls_group_id: add.welcome.group_id.clone(),
             epoch: add.welcome.epoch,
@@ -1461,14 +1461,14 @@ mod tests {
             Some(expected_binding.claim_id.as_str())
         );
 
-        let content = json!({"kind":"ck.content.text","body":"secret"});
+        let content = json!({"kind":"ak.content.text","body":"secret"});
         let payload = alice_group
             .encrypt_payload(CONTENT_BLOCK_JSON, &serde_json::to_vec(&content).unwrap())
             .unwrap();
         let outcome = bob_store
             .try_decrypt_content_block_detailed(&payload)
             .expect("stored Welcome should admit Bob before decrypt");
-        let CokretDecryptDetailedOutcome::Decrypted {
+        let ArkretDecryptDetailedOutcome::Decrypted {
             content: decrypted,
             consume_bindings,
         } = outcome
@@ -1488,20 +1488,20 @@ mod tests {
         let store = state.mls_store().expect("MLS store should load");
         assert!(store.mls_group_state(&payload.group_id).is_some());
 
-        let content_after_restart = json!({"kind":"ck.content.text","body":"after restart"});
+        let content_after_restart = json!({"kind":"ak.content.text","body":"after restart"});
         let payload_after_restart = alice_group
             .encrypt_payload(
                 CONTENT_BLOCK_JSON,
                 &serde_json::to_vec(&content_after_restart).unwrap(),
             )
             .unwrap();
-        let reloaded_bob_store = FileCokretCryptoStore::for_account(&home, "c1", "bob");
+        let reloaded_bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
         let outcome_after_restart = reloaded_bob_store
             .try_decrypt_content_block(&payload_after_restart)
             .expect("persisted group state should decrypt after restart");
         assert_eq!(
             outcome_after_restart,
-            CokretDecryptOutcome::Decrypted(content_after_restart)
+            ArkretDecryptOutcome::Decrypted(content_after_restart)
         );
         let _ = std::fs::remove_dir_all(&home);
     }

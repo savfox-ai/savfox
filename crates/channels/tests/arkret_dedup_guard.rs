@@ -1,4 +1,4 @@
-//! Static guard for the Cokret channel's shared SDK model usage.
+//! Static guard for the Arkret channel's shared SDK model usage.
 
 use std::fs;
 use std::path::{Path, PathBuf};

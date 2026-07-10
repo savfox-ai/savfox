@@ -1387,7 +1387,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9b18233253483ce2f65329a24072ec414db782531bdbb7d0bbc4bd2ce6b7e21"
 
 [[package]]
-name = "cokret"
+name = "arkret"
 version = "0.3.0"
 dependencies = [
  "argon2",
@@ -1395,14 +1395,14 @@ dependencies = [
  "chacha20poly1305",
  "chrono",
  "chrono-tz",
- "cokret-core",
- "cokret-crypto",
- "cokret-ffi",
- "cokret-html",
- "cokret-http-client",
- "cokret-keystore",
- "cokret-server",
- "cokret-signatures",
+ "arkret-core",
+ "arkret-crypto",
+ "arkret-ffi",
+ "arkret-html",
+ "arkret-http-client",
+ "arkret-keystore",
+ "arkret-server",
+ "arkret-signatures",
  "ed25519-dalek",
  "getrandom 0.4.2",
  "hex",
@@ -1429,13 +1429,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "cokret-bridge-runtime"
+name = "arkret-bridge-runtime"
 version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "cokret",
+ "arkret",
  "parking_lot",
  "reqwest 0.13.4",
  "serde",
@@ -1449,7 +1449,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cokret-core"
+name = "arkret-core"
 version = "0.3.0"
 dependencies = [
  "base64",
@@ -1457,7 +1457,7 @@ dependencies = [
  "bs58",
  "chrono",
  "chrono-tz",
- "cokret-identifiers",
+ "arkret-identifiers",
  "getrandom 0.4.2",
  "hex",
  "hmac 0.13.0",
@@ -1475,12 +1475,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "cokret-crypto"
+name = "arkret-crypto"
 version = "0.3.0"
 dependencies = [
  "chrono",
- "cokret-core",
- "cokret-signatures",
+ "arkret-core",
+ "arkret-signatures",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -1488,31 +1488,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "cokret-ffi"
+name = "arkret-ffi"
 version = "0.3.0"
 dependencies = [
- "cokret-core",
+ "arkret-core",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "cokret-html"
+name = "arkret-html"
 version = "0.3.0"
 dependencies = [
- "cokret-core",
+ "arkret-core",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "cokret-http-client"
+name = "arkret-http-client"
 version = "0.3.0"
 dependencies = [
  "base64",
  "chrono",
- "cokret-core",
- "cokret-signatures",
+ "arkret-core",
+ "arkret-signatures",
  "futures-util",
  "getrandom 0.4.2",
  "reqwest 0.13.4",
@@ -1524,7 +1524,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cokret-identifiers"
+name = "arkret-identifiers"
 version = "0.3.0"
 dependencies = [
  "getrandom 0.2.17",
@@ -1539,30 +1539,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "cokret-keystore"
+name = "arkret-keystore"
 version = "0.3.0"
 dependencies = [
- "cokret-core",
+ "arkret-core",
  "tracing",
 ]
 
 [[package]]
-name = "cokret-server"
+name = "arkret-server"
 version = "0.3.0"
 dependencies = [
- "cokret-core",
- "cokret-signatures",
+ "arkret-core",
+ "arkret-signatures",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "cokret-signatures"
+name = "arkret-signatures"
 version = "0.3.0"
 dependencies = [
  "base64",
  "chrono",
- "cokret-core",
+ "arkret-core",
  "ed25519-dalek",
  "rand_core 0.6.4",
  "serde",
@@ -3946,9 +3946,9 @@ name = "garth"
 version = "0.3.0"
 dependencies = [
  "chrono",
- "cokret",
- "cokret-core",
- "cokret-http-client",
+ "arkret",
+ "arkret-core",
+ "arkret-http-client",
  "ed25519-dalek",
  "serde",
  "serde_json",
@@ -9828,8 +9828,8 @@ dependencies = [
  "base64",
  "bytes",
  "chrono",
- "cokret",
- "cokret-bridge-runtime",
+ "arkret",
+ "arkret-bridge-runtime",
  "dingtalk-sdk",
  "ed25519-dalek",
  "feishu-sdk",
@@ -10182,7 +10182,7 @@ version = "0.3.1"
 dependencies = [
  "base64",
  "chrono",
- "cokret-core",
+ "arkret-core",
  "console_error_panic_hook",
  "dioxus",
  "futures",
@@ -10214,8 +10214,8 @@ dependencies = [
  "bcrypt",
  "chrono",
  "clap",
- "cokret",
- "cokret-bridge-runtime",
+ "arkret",
+ "arkret-bridge-runtime",
  "dirs",
  "dotenvy",
  "ed25519-dalek",

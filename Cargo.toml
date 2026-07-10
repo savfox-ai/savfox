@@ -334,9 +334,9 @@ scraper = "0.26.0"
 feishu-sdk = { version = "0.1.2", features = ["websocket"] }
 dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-sdk", rev = "14ba4f9d784e1dd2e8830108529a1c968be7f3b7" }
 
-# Optional Cokret v1 integration crates. These are path dependencies during
-# local protocol/runtime co-development across the sibling Cokret workspace.
-cokret = { path = "../../cokret/cokret-rust-sdk/crates/sdk", default-features = false, features = [
+# Optional Arkret v1 integration crates. These are path dependencies during
+# local protocol/runtime co-development across the sibling Arkret workspace.
+arkret = { path = "../../arkret/arkret-rust-sdk/crates/sdk", default-features = false, features = [
     "client",
     "applet-runtime",
     "device-runtime",
@@ -344,9 +344,9 @@ cokret = { path = "../../cokret/cokret-rust-sdk/crates/sdk", default-features = 
     "mls",
     "signer",
 ] }
-cokret-core = { path = "../../cokret/cokret-rust-sdk/crates/core", default-features = false }
-garth = { path = "../../cokret/garth", default-features = false, features = ["native"] }
-cokret-bridge-runtime = { path = "../../cokret/bridges/crates/runtime", default-features = false, features = ["edge"] }
+arkret-core = { path = "../../arkret/arkret-rust-sdk/crates/core", default-features = false }
+garth = { path = "../../arkret/garth", default-features = false, features = ["native"] }
+arkret-bridge-runtime = { path = "../../arkret/bridges/crates/runtime", default-features = false, features = ["edge"] }
 
 # WASM dependencies for gateway-dioxus
 dioxus = { version = "0.7", default-features = false, features = [

@@ -1,27 +1,27 @@
-//! Cokret Applet + Ghost Actor mode (≈ Matrix AppService).
+//! Arkret Applet + Ghost Actor mode (≈ Matrix AppService).
 //!
-//! When a savfox channel is saved with `kind = "cokret"` and
+//! When a savfox channel is saved with `kind = "arkret"` and
 //! `config.mode = "applet"`, this module's types take over.
 //!
 //! Layered like Phase 1 (`mode = "account"`) but oriented around the
 //! *bridge* direction:
 //!
-//! * [`config`] — `CokretAppletConfig` + parser + namespace block.
+//! * [`config`] — `ArkretAppletConfig` + parser + namespace block.
 //! * [`namespace`] — applet namespace pattern matcher (spec `applet-schema.md` §2 grammar). Mirrors
-//!   `cokret::namespace_pattern_matches` but stays self-contained for downstream feature-gating.
-//! * [`registration`] — wire-format `ck.applet.registration` JSON builder. Output is unsigned;
+//!   `arkret::namespace_pattern_matches` but stays self-contained for downstream feature-gating.
+//! * [`registration`] — wire-format `ak.applet.registration` JSON builder. Output is unsigned;
 //!   controller signs offline.
 //! * [`ghost`] — Ghost actor DID minting + profile event content + external_ref builder.
-//! * [`outbound`] — Build `ck.message.create` Event attributed to a Ghost Actor.
-//! * [`transaction`] — Parse inbound `POST /_cokret/edge/applet/transactions` request bodies into
+//! * [`outbound`] — Build `ak.message.create` Event attributed to a Ghost Actor.
+//! * [`transaction`] — Parse inbound `POST /_arkret/edge/applet/transactions` request bodies into
 //!   savfox-side dispatch commands.
 //!
-//! Phase 6 limitations (see `_cokret_todos.md`):
+//! Phase 6 limitations (see `_arkret_todos.md`):
 //!
 //! * Events are unsigned (`proofs: []`).
-//! * Real `ck.capability.grant` flow is not modeled; the `authorization_ref` is whatever the
+//! * Real `ak.capability.grant` flow is not modeled; the `authorization_ref` is whatever the
 //!   operator pre-configured.
-//! * No `ck.applet.bridge_error` emission.
+//! * No `ak.applet.bridge_error` emission.
 //! * No MLS / E2EE.
 
 pub mod config;
@@ -33,7 +33,7 @@ pub mod runtime_bridge;
 pub mod transaction;
 
 pub use config::{
-    CokretAppletConfig, CokretAppletTrustedVerificationMethod, load_cokret_applet_configs,
+    ArkretAppletConfig, ArkretAppletTrustedVerificationMethod, load_arkret_applet_configs,
 };
 #[allow(deprecated)]
 pub use ghost::build_ghost_profile;

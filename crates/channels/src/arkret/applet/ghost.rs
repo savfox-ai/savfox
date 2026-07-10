@@ -1,9 +1,9 @@
 //! Ghost actor helpers — DID minting, profile event content, external_ref.
 //!
-//! A Ghost Actor is the Cokret mirror of an external network user (Slack
+//! A Ghost Actor is the Arkret mirror of an external network user (Slack
 //! `U123`, Discord user id, GitHub login, ...). Spec
 //! [`applet-integration.md`
-//! §9](../../../../../../cokret/cokret-spec/spec/v1/zh/extensions/applet-integration.md)
+//! §9](../../../../../../arkret/arkret-spec/spec/v1/zh/extensions/applet-integration.md)
 //! requires:
 //!
 //! * Ghost DID MUST be distinguishable from native human DIDs at the protocol layer. We use the
@@ -15,7 +15,7 @@
 //!   `profile_fields.external_ref`, and `accountable_principal_ids`.
 
 use anyhow::Context as _;
-use cokret::{AppletId, Did, Event, Hlc, ProfileCreateBuilder, RealmId};
+use arkret::{AppletId, Did, Event, Hlc, ProfileCreateBuilder, RealmId};
 use serde_json::{Value, json};
 
 /// Mint a stable ghost DID for an external user.
@@ -46,14 +46,14 @@ pub fn mint_ghost_did(
     format!("{applet_service_did}:{ghost_did_prefix}{suffix}")
 }
 
-/// Build a `ck.profile.create` Event Envelope for a Ghost Actor.
+/// Build a `ak.profile.create` Event Envelope for a Ghost Actor.
 ///
 /// Uses the SDK's [`ProfileCreateBuilder`] (S-9 in SDK commit `bf29056`)
 /// to stamp `actor_kind = "integration"`, `profile_fields.managed_by_applet`,
 /// `profile_fields.external_ref`, and `accountable_principal_ids` per spec
 /// applet-integration.md §9. The returned
 /// Event is unsigned (`proofs: []`) — caller attaches a `Proof` via
-/// `cokret_signatures::sign_event` when an Ed25519 signer is plumbed in
+/// `arkret_signatures::sign_event` when an Ed25519 signer is plumbed in
 /// (Phase 8).
 ///
 /// `realm_id` is the Realm where the profile is published (typically the
@@ -199,22 +199,22 @@ mod tests {
     #[test]
     fn ghost_profile_event_uses_sdk_builder() {
         let event = build_ghost_profile_event(
-            "ck:realm:01904100-0000-7000-8000-000000000001",
+            "ak:realm:01904100-0000-7000-8000-000000000001",
             "did:web:bridge.example:ghost:u1",
             "Alice on Slack",
-            "ck:applet:21532600-0000-7000-8000-000000000000",
+            "ak:applet:21532600-0000-7000-8000-000000000000",
             "did:webvh:acme:admin",
             build_external_ref("slack", "T123", "U1"),
             5,
         )
         .expect("build");
-        assert_eq!(event.kind, "ck.profile.create");
+        assert_eq!(event.kind, "ak.profile.create");
         assert_eq!(event.actor_id.as_str(), "did:web:bridge.example:ghost:u1");
         let object = &event.payload["object"];
         assert_eq!(object["actor_kind"], "integration");
         assert_eq!(
             object["profile_fields"]["managed_by_applet"],
-            "ck:applet:21532600-0000-7000-8000-000000000000"
+            "ak:applet:21532600-0000-7000-8000-000000000000"
         );
         assert_eq!(
             object["accountable_principal_ids"][0],
@@ -228,10 +228,10 @@ mod tests {
     #[test]
     fn ghost_profile_event_rejects_invalid_did() {
         let result = build_ghost_profile_event(
-            "ck:realm:01904100-0000-7000-8000-000000000001",
+            "ak:realm:01904100-0000-7000-8000-000000000001",
             "not-a-did",
             "Alice",
-            "ck:applet:1",
+            "ak:applet:1",
             "did:webvh:acme:admin",
             build_external_ref("slack", "T123", "U1"),
             1,
@@ -245,7 +245,7 @@ mod tests {
         let profile = build_ghost_profile(
             "did:web:bridge.example:ghost:u1",
             "Alice on Slack",
-            "ck:applet:1",
+            "ak:applet:1",
             "did:web:bridge.example",
             "did:webvh:acme:admin",
             build_external_ref("slack", "T123", "U1"),
@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(profile["actor_kind"], "integration");
         assert_eq!(
             profile["profile_fields"]["managed_by_applet"],
-            "ck:applet:1"
+            "ak:applet:1"
         );
         assert_eq!(
             profile["accountable_principal_ids"][0],

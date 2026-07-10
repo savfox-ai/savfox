@@ -152,7 +152,7 @@ pub struct MatrixStatus {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct CokretStatus {
+pub struct ArkretStatus {
     pub configured: Option<bool>,
     pub running: Option<bool>,
     pub connected: Option<bool>,

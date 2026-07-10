@@ -14,11 +14,11 @@ workspace = true
 
 [features]
 default = []
-cokret = [
-    "dep:cokret",
+arkret = [
+    "dep:arkret",
     "dep:garth",
-    "dep:cokret-bridge-runtime",
-    "savfox-channels/cokret",
+    "dep:arkret-bridge-runtime",
+    "savfox-channels/arkret",
 ]
 
 [dependencies]
@@ -83,9 +83,9 @@ tracing = { workspace = true, features = ["log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v7"] }
-cokret = { workspace = true, optional = true }
+arkret = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
-cokret-bridge-runtime = { workspace = true, optional = true }
+arkret-bridge-runtime = { workspace = true, optional = true }
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["json"] }

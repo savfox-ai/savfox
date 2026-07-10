@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
-#[cfg(feature = "cokret")]
+#[cfg(feature = "arkret")]
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(feature = "cokret")]
+#[cfg(feature = "arkret")]
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{Value, json};
-#[cfg(feature = "cokret")]
+#[cfg(feature = "arkret")]
 use url::Url;
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
@@ -76,7 +76,7 @@ pub(crate) async fn handle_channels_list(_channel: &Arc<GatewayChannel>) -> RpcR
         json!({"platform": "msteams", "endpoint": "/webhooks/msteams", "type": "channel"}),
         json!({"platform": "webhook", "endpoint": "/webhooks/webhook", "type": "generic"}),
         json!({"platform": "matrix", "endpoint": "/webhooks/matrix", "type": "channel"}),
-        json!({"platform": "cokret", "endpoint": "/_cokret/edge/applet/transactions", "type": "channel"}),
+        json!({"platform": "arkret", "endpoint": "/_arkret/edge/applet/transactions", "type": "channel"}),
         json!({"platform": "mattermost", "endpoint": "/webhooks/mattermost", "type": "webhook"}),
         json!({"platform": "googlechat", "endpoint": "/webhooks/googlechat", "type": "webhook"}),
         json!({"platform": "line", "endpoint": "/webhooks/line", "type": "webhook"}),
@@ -157,7 +157,7 @@ fn channel_config_collection_len(
     })
 }
 
-fn cokret_mode_from_config_obj(map: &serde_json::Map<String, Value>) -> String {
+fn arkret_mode_from_config_obj(map: &serde_json::Map<String, Value>) -> String {
     match first_non_empty_channel_config_string(map, &["mode"])
         .map(|value| value.to_ascii_lowercase())
         .as_deref()
@@ -170,7 +170,7 @@ fn cokret_mode_from_config_obj(map: &serde_json::Map<String, Value>) -> String {
     }
 }
 
-fn cokret_namespace_count(map: &serde_json::Map<String, Value>) -> Option<u32> {
+fn arkret_namespace_count(map: &serde_json::Map<String, Value>) -> Option<u32> {
     let namespaces = map.get("namespaces").and_then(Value::as_object)?;
     let count = ["actors", "realms", "handles"]
         .into_iter()
@@ -180,21 +180,21 @@ fn cokret_namespace_count(map: &serde_json::Map<String, Value>) -> Option<u32> {
     (count > 0).then_some(count)
 }
 
-fn cokret_saved_config_running(config: &savfox_core::config::channel_store::ChannelConfig) -> bool {
-    #[cfg(not(feature = "cokret"))]
+fn arkret_saved_config_running(config: &savfox_core::config::channel_store::ChannelConfig) -> bool {
+    #[cfg(not(feature = "arkret"))]
     {
         let _ = config;
         false
     }
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     {
         let Some(raw) = config.config.as_object() else {
             return false;
         };
-        if cokret_mode_from_config_obj(raw) == "applet" {
-            crate::channels::cokret_applet::is_cokret_applet_registered(&config.id)
+        if arkret_mode_from_config_obj(raw) == "applet" {
+            crate::channels::arkret_applet::is_arkret_applet_registered(&config.id)
         } else {
-            crate::channels::cokret::cokret_account_listener_count(&config.id) > 0
+            crate::channels::arkret::arkret_account_listener_count(&config.id) > 0
         }
     }
 }
@@ -249,18 +249,18 @@ pub(crate) fn saved_channel_config_ready(
             }),
         "matrix" => savfox_channels::matrix::MatrixChannelConfig::from_channel_config(config)
             .is_some_and(|parsed| parsed.is_ready()),
-        "cokret" => {
-            #[cfg(not(feature = "cokret"))]
+        "arkret" => {
+            #[cfg(not(feature = "arkret"))]
             {
                 false
             }
-            #[cfg(feature = "cokret")]
+            #[cfg(feature = "arkret")]
             {
-                if cokret_mode_from_config_obj(raw) == "applet" {
-                    savfox_channels::cokret::applet::CokretAppletConfig::from_channel_config(config)
+                if arkret_mode_from_config_obj(raw) == "applet" {
+                    savfox_channels::arkret::applet::ArkretAppletConfig::from_channel_config(config)
                         .is_some_and(|parsed| parsed.validate().is_ok())
                 } else {
-                    savfox_channels::cokret::CokretChannelConfig::from_channel_config(config)
+                    savfox_channels::arkret::ArkretChannelConfig::from_channel_config(config)
                         .is_some_and(|parsed| parsed.validate().is_ok())
                 }
             }
@@ -604,8 +604,8 @@ fn insert_saved_channel_metadata(
                 info.insert("appservice_url".to_owned(), json!(public_url));
             }
         }
-        "cokret" => {
-            let mode = cokret_mode_from_config_obj(config_obj);
+        "arkret" => {
+            let mode = arkret_mode_from_config_obj(config_obj);
             info.insert("mode".to_owned(), json!(&mode));
             if let Some(base_url) =
                 first_non_empty_channel_config_string(config_obj, &["baseUrl", "base_url", "url"])
@@ -617,11 +617,11 @@ fn insert_saved_channel_metadata(
             {
                 info.insert("service_did".to_owned(), json!(service_did));
             }
-            #[cfg(feature = "cokret")]
+            #[cfg(feature = "arkret")]
             if let Some(config) = saved_state.config.as_ref() {
                 if mode == "applet" {
                     if let Some(parsed) =
-                        savfox_channels::cokret::applet::CokretAppletConfig::from_channel_config(
+                        savfox_channels::arkret::applet::ArkretAppletConfig::from_channel_config(
                             config,
                         )
                     {
@@ -652,12 +652,12 @@ fn insert_saved_channel_metadata(
                         {
                             info.insert("protocol_count".to_owned(), json!(protocol_count));
                         }
-                        if let Some(namespace_count) = cokret_namespace_count(config_obj) {
+                        if let Some(namespace_count) = arkret_namespace_count(config_obj) {
                             info.insert("namespace_count".to_owned(), json!(namespace_count));
                         }
                     }
                 } else if let Some(parsed) =
-                    savfox_channels::cokret::CokretChannelConfig::from_channel_config(config)
+                    savfox_channels::arkret::ArkretChannelConfig::from_channel_config(config)
                 {
                     info.insert("base_url".to_owned(), json!(&parsed.base_url));
                     if let Some(service_did) = parsed.service_did.as_deref() {
@@ -887,13 +887,13 @@ pub(crate) async fn handle_channels_status(
         .as_ref()
         .map(|state| state.connected)
         .unwrap_or(matrix_running);
-    let cokret_configured =
-        channel_is_configured("cokret", &runtime, &saved_configs, nostr_configured);
-    let cokret_saved = saved_channel_state(&saved_configs, "cokret");
-    let cokret_running = cokret_saved
+    let arkret_configured =
+        channel_is_configured("arkret", &runtime, &saved_configs, nostr_configured);
+    let arkret_saved = saved_channel_state(&saved_configs, "arkret");
+    let arkret_running = arkret_saved
         .config
         .as_ref()
-        .is_some_and(cokret_saved_config_running);
+        .is_some_and(arkret_saved_config_running);
     let whatsapp_configured =
         channel_is_configured("whatsapp", &runtime, &saved_configs, nostr_configured);
     let signal_configured =
@@ -953,10 +953,10 @@ pub(crate) async fn handle_channels_status(
             "connected": matrix_connected,
             "pending_invites": matrix_pending_invites,
         },
-        "cokret": {
-            "configured": cokret_configured,
-            "running": cokret_running,
-            "connected": cokret_running,
+        "arkret": {
+            "configured": arkret_configured,
+            "running": arkret_running,
+            "connected": arkret_running,
         },
         "whatsapp": {
             "configured": whatsapp_configured,
@@ -1461,24 +1461,24 @@ pub(crate) async fn handle_channels_login(
         }));
     }
 
-    if platform == "cokret" {
+    if platform == "arkret" {
         if !is_configured {
             return Ok(json!({
                 "platform": platform,
                 "status": "needs_config",
                 "configured": false,
-                "message": "Please configure cokret in the channel settings",
+                "message": "Please configure arkret in the channel settings",
             }));
         }
 
-        #[cfg(not(feature = "cokret"))]
+        #[cfg(not(feature = "arkret"))]
         {
             return Err((
                 INVALID_REQUEST,
-                "Cokret support is not enabled in this build".to_owned(),
+                "Arkret support is not enabled in this build".to_owned(),
             ));
         }
-        #[cfg(feature = "cokret")]
+        #[cfg(feature = "arkret")]
         {
             let registry = channel.channel_registry();
             let mut started = 0_u32;
@@ -1488,7 +1488,7 @@ pub(crate) async fn handle_channels_login(
             let mut account_configs = 0_u32;
 
             for saved in &saved_configs {
-                if !channel_platform_matches_kind(&saved.kind, "cokret")
+                if !channel_platform_matches_kind(&saved.kind, "arkret")
                     || !saved.enabled
                     || !saved_channel_config_ready(saved)
                 {
@@ -1499,16 +1499,16 @@ pub(crate) async fn handle_channels_login(
                 let mode = saved
                     .config
                     .as_object()
-                    .map(cokret_mode_from_config_obj)
+                    .map(arkret_mode_from_config_obj)
                     .unwrap_or_else(|| "account".to_owned());
 
                 if mode == "applet" {
                     applet_configs = applet_configs.saturating_add(1);
-                    if crate::channels::cokret_applet::is_cokret_applet_registered(&saved.id) {
+                    if crate::channels::arkret_applet::is_arkret_applet_registered(&saved.id) {
                         already_running = already_running.saturating_add(1);
                         continue;
                     }
-                    crate::channels::cokret_applet::start_cokret_applet_channel(
+                    crate::channels::arkret_applet::start_arkret_applet_channel(
                         saved,
                         channel,
                         session_store,
@@ -1518,18 +1518,18 @@ pub(crate) async fn handle_channels_login(
                         (
                             INTERNAL_ERROR,
                             format!(
-                                "failed to start Cokret applet channel '{}': {err}",
+                                "failed to start Arkret applet channel '{}': {err}",
                                 saved.id
                             ),
                         )
                     })?;
                 } else {
                     account_configs = account_configs.saturating_add(1);
-                    if crate::channels::cokret::cokret_account_listener_count(&saved.id) > 0 {
+                    if crate::channels::arkret::arkret_account_listener_count(&saved.id) > 0 {
                         already_running = already_running.saturating_add(1);
                         continue;
                     }
-                    crate::channels::cokret::start_cokret_channel(
+                    crate::channels::arkret::start_arkret_channel(
                         saved,
                         &registry,
                         channel,
@@ -1540,7 +1540,7 @@ pub(crate) async fn handle_channels_login(
                         (
                             INTERNAL_ERROR,
                             format!(
-                                "failed to start Cokret account channel '{}': {err}",
+                                "failed to start Arkret account channel '{}': {err}",
                                 saved.id
                             ),
                         )
@@ -1551,23 +1551,23 @@ pub(crate) async fn handle_channels_login(
             }
 
             let (status, message) = if started > 0 {
-                ("started", format!("Started {started} Cokret channel(s)"))
+                ("started", format!("Started {started} Arkret channel(s)"))
             } else if already_running > 0 {
                 (
                     "already_running",
-                    format!("{already_running} Cokret channel(s) already running"),
+                    format!("{already_running} Arkret channel(s) already running"),
                 )
             } else if ready_configs > 0 {
                 (
                     "configured",
                     format!(
-                        "Cokret is configured (account: {account_configs}, applet: {applet_configs}), but no runtime was started"
+                        "Arkret is configured (account: {account_configs}, applet: {applet_configs}), but no runtime was started"
                     ),
                 )
             } else {
                 (
                     "needs_config",
-                    "No enabled Cokret channel has a valid account or applet config".to_owned(),
+                    "No enabled Arkret channel has a valid account or applet config".to_owned(),
                 )
             };
 
@@ -1824,20 +1824,20 @@ pub(crate) async fn handle_channels_logout(
                 }
             }
         }
-        "cokret" => {
-            #[cfg(feature = "cokret")]
+        "arkret" => {
+            #[cfg(feature = "arkret")]
             {
                 for saved in load_saved_channel_configs(channel).await {
-                    if !channel_platform_matches_kind(&saved.kind, "cokret") {
+                    if !channel_platform_matches_kind(&saved.kind, "arkret") {
                         continue;
                     }
                     // Account mode: abort long-poll listener tasks.
                     let listeners =
-                        crate::channels::cokret::stop_cokret_account_listeners(&saved.id);
+                        crate::channels::arkret::stop_arkret_account_listeners(&saved.id);
                     // Applet mode: drop the registry entry so a stale bearer/
                     // namespace can no longer match inbound transactions.
                     let removed_applet =
-                        crate::channels::cokret_applet::remove_cokret_applet_channel(&saved.id)
+                        crate::channels::arkret_applet::remove_arkret_applet_channel(&saved.id)
                             .unwrap_or(false);
                     if listeners > 0 || removed_applet {
                         stopped = stopped.saturating_add(1);
@@ -1857,9 +1857,9 @@ pub(crate) async fn handle_channels_logout(
 
     Ok(json!({
         "platform": platform,
-        "status": if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "cokret") && stopped > 0 {
+        "status": if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "arkret") && stopped > 0 {
             "stopped"
-        } else if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "cokret") {
+        } else if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "arkret") {
             "already_stopped"
         } else {
             "logged_out"
@@ -1894,8 +1894,8 @@ pub(crate) async fn handle_channels_test(
     if platform == "matrix" {
         return handle_matrix_channel_test(params, channel, &saved_configs).await;
     }
-    if platform == "cokret" {
-        return handle_cokret_channel_test(params, &saved_configs).await;
+    if platform == "arkret" {
+        return handle_arkret_channel_test(params, &saved_configs).await;
     }
 
     Ok(json!({
@@ -1909,7 +1909,7 @@ pub(crate) async fn handle_channels_test(
     }))
 }
 
-fn cokret_test_channel_config(
+fn arkret_test_channel_config(
     params: &Value,
     saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
 ) -> Option<savfox_core::config::channel_store::ChannelConfig> {
@@ -1919,7 +1919,7 @@ fn cokret_test_channel_config(
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .unwrap_or("cokret-test");
+            .unwrap_or("arkret-test");
         let name = params
             .get("name")
             .and_then(Value::as_str)
@@ -1928,7 +1928,7 @@ fn cokret_test_channel_config(
             .unwrap_or(id);
         return Some(savfox_core::config::channel_store::ChannelConfig {
             id: id.to_owned(),
-            kind: "cokret".to_owned(),
+            kind: "arkret".to_owned(),
             slug: id.to_owned(),
             name: name.to_owned(),
             enabled: true,
@@ -1944,13 +1944,13 @@ fn cokret_test_channel_config(
     saved_configs
         .iter()
         .find(|config| {
-            channel_platform_matches_kind(&config.kind, "cokret")
+            channel_platform_matches_kind(&config.kind, "arkret")
                 && config.enabled
                 && saved_channel_config_ready(config)
         })
         .or_else(|| {
             saved_configs.iter().find(|config| {
-                channel_platform_matches_kind(&config.kind, "cokret") && config.enabled
+                channel_platform_matches_kind(&config.kind, "arkret") && config.enabled
             })
         })
         .cloned()
@@ -1975,42 +1975,42 @@ fn object_without_null_fields(value: &Value) -> Value {
     )
 }
 
-#[cfg(not(feature = "cokret"))]
-async fn handle_cokret_channel_test(
+#[cfg(not(feature = "arkret"))]
+async fn handle_arkret_channel_test(
     _params: &Value,
     _saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
 ) -> RpcResult {
     Err((
         INVALID_REQUEST,
-        "Cokret support is not enabled in this build".to_owned(),
+        "Arkret support is not enabled in this build".to_owned(),
     ))
 }
 
-#[cfg(feature = "cokret")]
-async fn handle_cokret_channel_test(
+#[cfg(feature = "arkret")]
+async fn handle_arkret_channel_test(
     params: &Value,
     saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
 ) -> RpcResult {
-    let Some(raw_config) = cokret_test_channel_config(params, saved_configs) else {
+    let Some(raw_config) = arkret_test_channel_config(params, saved_configs) else {
         return Ok(json!({
-            "platform": "cokret",
+            "platform": "arkret",
             "ok": false,
-            "message": "cokret is not configured. Please add configuration in the channel settings.",
+            "message": "arkret is not configured. Please add configuration in the channel settings.",
         }));
     };
     let mode = raw_config
         .config
         .as_object()
-        .map(cokret_mode_from_config_obj)
+        .map(arkret_mode_from_config_obj)
         .unwrap_or_else(|| "agent".to_owned());
 
     if mode == "applet" {
         let parsed =
-            savfox_channels::cokret::applet::CokretAppletConfig::from_channel_config(&raw_config)
+            savfox_channels::arkret::applet::ArkretAppletConfig::from_channel_config(&raw_config)
                 .ok_or_else(|| {
                 (
                     INVALID_REQUEST,
-                    "Cokret applet channel config must be an object with mode='applet'".to_owned(),
+                    "Arkret applet channel config must be an object with mode='applet'".to_owned(),
                 )
             })?;
         parsed
@@ -2020,22 +2020,22 @@ async fn handle_cokret_channel_test(
             + parsed.namespaces.realms.len()
             + parsed.namespaces.handles.len();
         return Ok(json!({
-            "platform": "cokret",
+            "platform": "arkret",
             "ok": true,
             "mode": "applet",
             "applet_id": parsed.applet_id.as_str(),
             "service_did": parsed.service_did.as_str(),
             "protocol_count": parsed.protocols.len(),
             "namespace_count": namespace_count,
-            "message": "Cokret applet configuration is valid",
+            "message": "Arkret applet configuration is valid",
         }));
     }
 
-    let parsed = savfox_channels::cokret::CokretChannelConfig::from_channel_config(&raw_config)
+    let parsed = savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&raw_config)
         .ok_or_else(|| {
             (
                 INVALID_REQUEST,
-                "Cokret agent channel config must include a Inkson bootstrap plus completed runtime key pairing"
+                "Arkret agent channel config must include a Inkson bootstrap plus completed runtime key pairing"
                     .to_owned(),
             )
         })?;
@@ -2043,45 +2043,45 @@ async fn handle_cokret_channel_test(
         .validate()
         .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
     Ok(json!({
-        "platform": "cokret",
+        "platform": "arkret",
         "ok": true,
         "mode": "agent",
         "base_url": parsed.base_url.as_str(),
         "service_did": parsed.service_did.as_deref(),
         "account_count": parsed.accounts.len(),
         "listener_count": parsed.accounts.iter().filter(|account| account.listen).count(),
-        "message": "Cokret agent configuration is valid",
+        "message": "Arkret agent configuration is valid",
     }))
 }
 
-#[cfg(not(feature = "cokret"))]
-pub(crate) async fn handle_channels_cokret_runtime_key_request(
+#[cfg(not(feature = "arkret"))]
+pub(crate) async fn handle_channels_arkret_runtime_key_request(
     _params: &Value,
     _channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     Err((
         INVALID_REQUEST,
-        "Cokret support is not enabled in this build".to_owned(),
+        "Arkret support is not enabled in this build".to_owned(),
     ))
 }
 
-#[cfg(feature = "cokret")]
-pub(crate) async fn handle_channels_cokret_runtime_key_request(
+#[cfg(feature = "arkret")]
+pub(crate) async fn handle_channels_arkret_runtime_key_request(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let saved_configs = load_saved_channel_configs(channel).await;
-    let Some(raw_config) = cokret_test_channel_config(params, &saved_configs) else {
+    let Some(raw_config) = arkret_test_channel_config(params, &saved_configs) else {
         return Err((
             INVALID_REQUEST,
-            "Cokret agent channel config is required".to_owned(),
+            "Arkret agent channel config is required".to_owned(),
         ));
     };
-    let parsed = savfox_channels::cokret::CokretChannelConfig::from_channel_config(&raw_config)
+    let parsed = savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&raw_config)
         .ok_or_else(|| {
             (
                 INVALID_REQUEST,
-                "Cokret agent channel config must include a Inkson bootstrap and runtime key ref"
+                "Arkret agent channel config must include a Inkson bootstrap and runtime key ref"
                     .to_owned(),
             )
         })?;
@@ -2102,18 +2102,18 @@ pub(crate) async fn handle_channels_cokret_runtime_key_request(
     .ok_or_else(|| {
         (
             INVALID_REQUEST,
-            "Cokret agent channel config has no runtime account to pair".to_owned(),
+            "Arkret agent channel config has no runtime account to pair".to_owned(),
         )
     })?;
     let request =
-        savfox_channels::cokret::build_cokret_runtime_key_request_json(account, chrono::Utc::now())
+        savfox_channels::arkret::build_arkret_runtime_key_request_json(account, chrono::Utc::now())
             .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
     let approval =
-        submit_cokret_runtime_key_approval_request(channel.http_client(), account, request)
+        submit_arkret_runtime_key_approval_request(channel.http_client(), account, request)
             .await
             .map_err(|err| (INVALID_REQUEST, err))?;
     Ok(json!({
-        "platform": "cokret",
+        "platform": "arkret",
         "ok": true,
         "mode": "agent",
         "account_id": account.id.as_str(),
@@ -2122,37 +2122,37 @@ pub(crate) async fn handle_channels_cokret_runtime_key_request(
             .cloned()
             .unwrap_or(Value::Null),
         "status": approval.get("status").cloned().unwrap_or(Value::Null),
-        "message": "Cokret runtime key approval request sent to Inkson",
+        "message": "Arkret runtime key approval request sent to Inkson",
     }))
 }
 
-#[cfg(feature = "cokret")]
-async fn submit_cokret_runtime_key_approval_request(
+#[cfg(feature = "arkret")]
+async fn submit_arkret_runtime_key_approval_request(
     client: &reqwest::Client,
-    account: &savfox_channels::cokret::CokretAccountConfig,
+    account: &savfox_channels::arkret::ArkretAccountConfig,
     request: Value,
 ) -> Result<Value, String> {
     let bootstrap = account
         .inkson_bootstrap
         .as_ref()
-        .ok_or_else(|| "Cokret agent account has no resolved Inkson bootstrap".to_owned())?;
+        .ok_or_else(|| "Arkret agent account has no resolved Inkson bootstrap".to_owned())?;
     let mut body = request;
     let object = body
         .as_object_mut()
-        .ok_or_else(|| "Cokret runtime key request must be a JSON object".to_owned())?;
+        .ok_or_else(|| "Arkret runtime key request must be a JSON object".to_owned())?;
     object.insert(
         "pairing_code".to_owned(),
         json!(bootstrap.pairing_code.clone()),
     );
-    let typed: cokret::AgentRuntimeApprovalRequestBody = serde_json::from_value(body.clone())
+    let typed: arkret::AgentRuntimeApprovalRequestBody = serde_json::from_value(body.clone())
         .map_err(|err| {
-            format!("Cokret runtime approval request does not match the spec body: {err}")
+            format!("Arkret runtime approval request does not match the spec body: {err}")
         })?;
     let request_body = serde_json::to_vec(&typed)
-        .map_err(|err| format!("serialize Cokret runtime approval request: {err}"))?;
+        .map_err(|err| format!("serialize Arkret runtime approval request: {err}"))?;
     let endpoint = format!(
-        "{}/_cokret/open/agent-pairing/runtime-key-requests",
-        bootstrap.cokret_base_url.trim_end_matches('/')
+        "{}/_arkret/open/agent-pairing/runtime-key-requests",
+        bootstrap.arkret_base_url.trim_end_matches('/')
     );
     let response = client
         .post(&endpoint)
@@ -2160,41 +2160,41 @@ async fn submit_cokret_runtime_key_approval_request(
         .body(request_body)
         .send()
         .await
-        .map_err(|err| format!("submit Cokret runtime approval request failed: {err}"))?;
+        .map_err(|err| format!("submit Arkret runtime approval request failed: {err}"))?;
     let status = response.status();
     let bytes = response
         .bytes()
         .await
-        .map_err(|err| format!("read Cokret runtime approval response failed: {err}"))?;
+        .map_err(|err| format!("read Arkret runtime approval response failed: {err}"))?;
     if !status.is_success() {
         let detail = String::from_utf8_lossy(&bytes);
         let detail = detail.chars().take(300).collect::<String>();
         return Err(format!(
-            "Cokret runtime approval endpoint returned HTTP {status}: {detail}"
+            "Arkret runtime approval endpoint returned HTTP {status}: {detail}"
         ));
     }
     let value = serde_json::from_slice::<Value>(&bytes)
-        .map_err(|err| format!("Cokret runtime approval endpoint returned invalid JSON: {err}"))?;
-    let _typed: cokret::AgentRuntimeApprovalOutcome = serde_json::from_value(value.clone())
+        .map_err(|err| format!("Arkret runtime approval endpoint returned invalid JSON: {err}"))?;
+    let _typed: arkret::AgentRuntimeApprovalOutcome = serde_json::from_value(value.clone())
         .map_err(|err| {
-            format!("Cokret runtime approval endpoint returned invalid outcome: {err}")
+            format!("Arkret runtime approval endpoint returned invalid outcome: {err}")
         })?;
     Ok(value)
 }
 
-#[cfg(not(feature = "cokret"))]
-pub(crate) async fn handle_channels_cokret_resolve_pairing_bootstrap(
+#[cfg(not(feature = "arkret"))]
+pub(crate) async fn handle_channels_arkret_resolve_pairing_bootstrap(
     _params: &Value,
     _channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     Err((
         INVALID_REQUEST,
-        "Cokret support is not enabled in this build".to_owned(),
+        "Arkret support is not enabled in this build".to_owned(),
     ))
 }
 
-#[cfg(feature = "cokret")]
-pub(crate) async fn handle_channels_cokret_resolve_pairing_bootstrap(
+#[cfg(feature = "arkret")]
+pub(crate) async fn handle_channels_arkret_resolve_pairing_bootstrap(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
@@ -2210,20 +2210,20 @@ pub(crate) async fn handle_channels_cokret_resolve_pairing_bootstrap(
         .ok_or_else(|| {
             (
                 INVALID_REQUEST,
-                "Cokret pairing link or token is required".to_owned(),
+                "Arkret pairing link or token is required".to_owned(),
             )
         })?;
     if input.starts_with('{') {
         let value = serde_json::from_str::<Value>(input)
             .map_err(|err| (INVALID_REQUEST, format!("invalid bootstrap JSON: {err}")))?;
         let bootstrap =
-            validate_cokret_pairing_bootstrap_value(value).map_err(|err| (INVALID_REQUEST, err))?;
+            validate_arkret_pairing_bootstrap_value(value).map_err(|err| (INVALID_REQUEST, err))?;
         return Ok(json!({
-            "platform": "cokret",
+            "platform": "arkret",
             "ok": true,
             "mode": "agent",
             "inkson_bootstrap": bootstrap,
-            "message": "Cokret pairing bootstrap is already resolved",
+            "message": "Arkret pairing bootstrap is already resolved",
         }));
     }
 
@@ -2234,8 +2234,8 @@ pub(crate) async fn handle_channels_cokret_resolve_pairing_bootstrap(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let (resolve_url, pairing_token) =
-        cokret_pairing_resolve_target(input, base_url).map_err(|err| (INVALID_REQUEST, err))?;
-    let bootstrap = fetch_cokret_pairing_bootstrap(
+        arkret_pairing_resolve_target(input, base_url).map_err(|err| (INVALID_REQUEST, err))?;
+    let bootstrap = fetch_arkret_pairing_bootstrap(
         channel.http_client(),
         resolve_url.as_str(),
         pairing_token.as_str(),
@@ -2243,36 +2243,36 @@ pub(crate) async fn handle_channels_cokret_resolve_pairing_bootstrap(
     .await
     .map_err(|err| (INVALID_REQUEST, err))?;
     Ok(json!({
-        "platform": "cokret",
+        "platform": "arkret",
         "ok": true,
         "mode": "agent",
         "inkson_bootstrap": bootstrap,
-        "message": "Cokret pairing link resolved",
+        "message": "Arkret pairing link resolved",
     }))
 }
 
-#[cfg(feature = "cokret")]
-fn cokret_pairing_resolve_target(
+#[cfg(feature = "arkret")]
+fn arkret_pairing_resolve_target(
     input: &str,
     base_url: Option<&str>,
 ) -> Result<(String, String), String> {
     let input = input.trim();
     if let Ok(mut url) = Url::parse(input) {
         let path = url.path().trim_end_matches('/');
-        if path != "/_cokret/open/agent-pairing/resolve" {
+        if path != "/_arkret/open/agent-pairing/resolve" {
             return Err(
-                "Cokret pairing link must target /_cokret/open/agent-pairing/resolve".to_owned(),
+                "Arkret pairing link must target /_arkret/open/agent-pairing/resolve".to_owned(),
             );
         }
         if url.query().is_some() {
-            return Err("Cokret pairing token must be in the URL fragment, not query".to_owned());
+            return Err("Arkret pairing token must be in the URL fragment, not query".to_owned());
         }
         let token = url
             .fragment()
-            .and_then(cokret_pairing_token_from_fragment)
-            .ok_or_else(|| "Cokret pairing link fragment must contain token".to_owned())?;
-        if !is_cokret_pairing_token_shape(&token) {
-            return Err("Cokret pairing token shape is invalid".to_owned());
+            .and_then(arkret_pairing_token_from_fragment)
+            .ok_or_else(|| "Arkret pairing link fragment must contain token".to_owned())?;
+        if !is_arkret_pairing_token_shape(&token) {
+            return Err("Arkret pairing token shape is invalid".to_owned());
         }
         url.set_fragment(None);
         return Ok((url.to_string(), token));
@@ -2283,38 +2283,38 @@ fn cokret_pairing_resolve_target(
         .unwrap_or(input)
         .trim()
         .to_owned();
-    if !is_cokret_pairing_token_shape(&token) {
+    if !is_arkret_pairing_token_shape(&token) {
         return Err(
-            "Cokret pairing input must be a resolver link or a base64url pairing token".to_owned(),
+            "Arkret pairing input must be a resolver link or a base64url pairing token".to_owned(),
         );
     }
     let base_url =
-        base_url.ok_or_else(|| "Cokret Base URL is required for token-only input".to_owned())?;
+        base_url.ok_or_else(|| "Arkret Base URL is required for token-only input".to_owned())?;
     let resolve_url = format!(
-        "{}/_cokret/open/agent-pairing/resolve",
+        "{}/_arkret/open/agent-pairing/resolve",
         base_url.trim_end_matches('/')
     );
-    Url::parse(&resolve_url).map_err(|err| format!("Cokret Base URL is invalid: {err}"))?;
+    Url::parse(&resolve_url).map_err(|err| format!("Arkret Base URL is invalid: {err}"))?;
     Ok((resolve_url, token))
 }
 
-#[cfg(feature = "cokret")]
-fn cokret_pairing_token_from_fragment(fragment: &str) -> Option<String> {
+#[cfg(feature = "arkret")]
+fn arkret_pairing_token_from_fragment(fragment: &str) -> Option<String> {
     form_urlencoded::parse(fragment.as_bytes())
         .find(|(key, _)| key == "token")
         .map(|(_, value)| value.into_owned())
 }
 
-#[cfg(feature = "cokret")]
-fn is_cokret_pairing_token_shape(value: &str) -> bool {
+#[cfg(feature = "arkret")]
+fn is_arkret_pairing_token_shape(value: &str) -> bool {
     (22..=512).contains(&value.len())
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-#[cfg(feature = "cokret")]
-async fn fetch_cokret_pairing_bootstrap(
+#[cfg(feature = "arkret")]
+async fn fetch_arkret_pairing_bootstrap(
     client: &reqwest::Client,
     resolve_url: &str,
     pairing_token: &str,
@@ -2327,52 +2327,52 @@ async fn fetch_cokret_pairing_bootstrap(
         .body(body)
         .send()
         .await
-        .map_err(|err| format!("resolve Cokret pairing link failed: {err}"))?;
+        .map_err(|err| format!("resolve Arkret pairing link failed: {err}"))?;
     let status = response.status();
     let bytes = response
         .bytes()
         .await
-        .map_err(|err| format!("read Cokret pairing resolver response failed: {err}"))?;
+        .map_err(|err| format!("read Arkret pairing resolver response failed: {err}"))?;
     if !status.is_success() {
         let detail = String::from_utf8_lossy(&bytes);
         let detail = detail.chars().take(240).collect::<String>();
         return Err(format!(
-            "Cokret pairing resolver returned HTTP {status}: {detail}"
+            "Arkret pairing resolver returned HTTP {status}: {detail}"
         ));
     }
     let value = serde_json::from_slice::<Value>(&bytes)
-        .map_err(|err| format!("Cokret pairing resolver returned invalid JSON: {err}"))?;
-    validate_cokret_pairing_bootstrap_value(value)
+        .map_err(|err| format!("Arkret pairing resolver returned invalid JSON: {err}"))?;
+    validate_arkret_pairing_bootstrap_value(value)
 }
 
-#[cfg(feature = "cokret")]
-fn validate_cokret_pairing_bootstrap_value(value: Value) -> Result<Value, String> {
-    let bootstrap: cokret::AgentPairingBootstrap =
+#[cfg(feature = "arkret")]
+fn validate_arkret_pairing_bootstrap_value(value: Value) -> Result<Value, String> {
+    let bootstrap: arkret::AgentPairingBootstrap =
         serde_json::from_value(value.clone()).map_err(|err| {
-            format!("Cokret pairing resolver returned invalid AgentPairingBootstrap: {err}")
+            format!("Arkret pairing resolver returned invalid AgentPairingBootstrap: {err}")
         })?;
     if bootstrap.pairing_request_id.trim().is_empty()
         || bootstrap.pairing_code.trim().is_empty()
-        || bootstrap.cokret_base_url.trim().is_empty()
+        || bootstrap.arkret_base_url.trim().is_empty()
     {
-        return Err("Cokret pairing bootstrap contains empty required fields".to_owned());
+        return Err("Arkret pairing bootstrap contains empty required fields".to_owned());
     }
     Ok(value)
 }
 
-#[cfg(not(feature = "cokret"))]
-pub(crate) async fn handle_channels_cokret_generate_runtime_key_ref(
+#[cfg(not(feature = "arkret"))]
+pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
     _params: &Value,
     _channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     Err((
         INVALID_REQUEST,
-        "Cokret support is not enabled in this build".to_owned(),
+        "Arkret support is not enabled in this build".to_owned(),
     ))
 }
 
-#[cfg(feature = "cokret")]
-pub(crate) async fn handle_channels_cokret_generate_runtime_key_ref(
+#[cfg(feature = "arkret")]
+pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
@@ -2385,32 +2385,32 @@ pub(crate) async fn handle_channels_cokret_generate_runtime_key_ref(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let key_ref = generate_cokret_runtime_file_key_ref(&channel.config().savfox_home, label)
+    let key_ref = generate_arkret_runtime_file_key_ref(&channel.config().savfox_home, label)
         .await
         .map_err(|err| (INTERNAL_ERROR, err.to_string()))?;
     let key_ref_json = serde_json::to_value(&key_ref)
-        .map_err(|err| (INTERNAL_ERROR, format!("serialize Cokret keyRef: {err}")))?;
+        .map_err(|err| (INTERNAL_ERROR, format!("serialize Arkret keyRef: {err}")))?;
     Ok(json!({
-        "platform": "cokret",
+        "platform": "arkret",
         "ok": true,
         "mode": "agent",
         "key_ref": key_ref_json,
-        "message": "Cokret runtime key generated as a local file keyRef",
+        "message": "Arkret runtime key generated as a local file keyRef",
     }))
 }
 
-#[cfg(feature = "cokret")]
-async fn generate_cokret_runtime_file_key_ref(
+#[cfg(feature = "arkret")]
+async fn generate_arkret_runtime_file_key_ref(
     savfox_home: &Path,
     label: Option<&str>,
-) -> anyhow::Result<savfox_channels::cokret::CokretKeyRef> {
+) -> anyhow::Result<savfox_channels::arkret::ArkretKeyRef> {
     use tokio::io::AsyncWriteExt as _;
 
-    let key_dir = crate::home_paths::gateway_dir(savfox_home).join("cokret-runtime-keys");
+    let key_dir = crate::home_paths::gateway_dir(savfox_home).join("arkret-runtime-keys");
     tokio::fs::create_dir_all(&key_dir)
         .await
-        .map_err(|err| anyhow::anyhow!("create Cokret runtime key directory: {err}"))?;
-    let safe_label = sanitize_cokret_runtime_key_label(label.unwrap_or("agent"));
+        .map_err(|err| anyhow::anyhow!("create Arkret runtime key directory: {err}"))?;
+    let safe_label = sanitize_arkret_runtime_key_label(label.unwrap_or("agent"));
     let path = key_dir.join(format!(
         "runtime-{safe_label}-{}.seed",
         uuid::Uuid::now_v7()
@@ -2426,19 +2426,19 @@ async fn generate_cokret_runtime_file_key_ref(
     let mut file = options
         .open(&path)
         .await
-        .map_err(|err| anyhow::anyhow!("create Cokret runtime key file: {err}"))?;
+        .map_err(|err| anyhow::anyhow!("create Arkret runtime key file: {err}"))?;
     let write_result = async {
         file.write_all(&seed).await?;
         file.flush().await
     }
     .await;
     seed.fill(0);
-    write_result.map_err(|err| anyhow::anyhow!("write Cokret runtime key file: {err}"))?;
-    Ok(savfox_channels::cokret::CokretKeyRef::File { path })
+    write_result.map_err(|err| anyhow::anyhow!("write Arkret runtime key file: {err}"))?;
+    Ok(savfox_channels::arkret::ArkretKeyRef::File { path })
 }
 
-#[cfg(feature = "cokret")]
-fn sanitize_cokret_runtime_key_label(label: &str) -> String {
+#[cfg(feature = "arkret")]
+fn sanitize_arkret_runtime_key_label(label: &str) -> String {
     let mut sanitized = String::new();
     for ch in label.chars() {
         if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
@@ -3372,17 +3372,17 @@ pub(crate) async fn handle_directory_groups_members(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     use std::path::Path;
 
     use serde_json::json;
 
     use super::saved_channel_config_ready;
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     use super::{
-        SavedChannelState, cokret_pairing_resolve_target, generate_cokret_runtime_file_key_ref,
-        insert_saved_channel_metadata, sanitize_cokret_runtime_key_label,
-        validate_cokret_pairing_bootstrap_value,
+        SavedChannelState, arkret_pairing_resolve_target, generate_arkret_runtime_file_key_ref,
+        insert_saved_channel_metadata, sanitize_arkret_runtime_key_label,
+        validate_arkret_pairing_bootstrap_value,
     };
 
     fn channel_config(
@@ -3404,11 +3404,11 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     fn sdk_inkson_bootstrap() -> serde_json::Value {
         json!({
-            "cokret_base_url": "https://cokret.example.org",
-            "service_did": "did:webvh:cokret.example.org",
+            "arkret_base_url": "https://arkret.example.org",
+            "service_did": "did:webvh:arkret.example.org",
             "agent_principal_id": "did:webvh:example.org:agents:support",
             "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
             "pairing_code": "12345678",
@@ -3416,56 +3416,56 @@ mod tests {
         })
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[test]
-    fn cokret_pairing_resolver_target_accepts_fragment_link() {
+    fn arkret_pairing_resolver_target_accepts_fragment_link() {
         let token = "abcdefghijklmnopqrstuvwxyz_123456";
-        let link = format!("https://local.host/_cokret/open/agent-pairing/resolve#token={token}");
+        let link = format!("https://local.host/_arkret/open/agent-pairing/resolve#token={token}");
 
         let (resolve_url, parsed_token) =
-            cokret_pairing_resolve_target(&link, None).expect("resolve target");
+            arkret_pairing_resolve_target(&link, None).expect("resolve target");
 
         assert_eq!(
             resolve_url,
-            "https://local.host/_cokret/open/agent-pairing/resolve"
+            "https://local.host/_arkret/open/agent-pairing/resolve"
         );
         assert_eq!(parsed_token, token);
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[test]
-    fn cokret_pairing_resolver_target_rejects_query_token() {
+    fn arkret_pairing_resolver_target_rejects_query_token() {
         let token = "abcdefghijklmnopqrstuvwxyz_123456";
-        let link = format!("https://local.host/_cokret/open/agent-pairing/resolve?token={token}");
+        let link = format!("https://local.host/_arkret/open/agent-pairing/resolve?token={token}");
 
-        let err = cokret_pairing_resolve_target(&link, None).expect_err("query token must fail");
+        let err = arkret_pairing_resolve_target(&link, None).expect_err("query token must fail");
 
         assert!(err.contains("fragment"));
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[test]
-    fn cokret_pairing_resolver_target_accepts_token_with_base_url() {
+    fn arkret_pairing_resolver_target_accepts_token_with_base_url() {
         let token = "abcdefghijklmnopqrstuvwxyz_123456";
 
         let (resolve_url, parsed_token) =
-            cokret_pairing_resolve_target(token, Some("https://local.host/"))
+            arkret_pairing_resolve_target(token, Some("https://local.host/"))
                 .expect("resolve target");
 
         assert_eq!(
             resolve_url,
-            "https://local.host/_cokret/open/agent-pairing/resolve"
+            "https://local.host/_arkret/open/agent-pairing/resolve"
         );
         assert_eq!(parsed_token, token);
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[test]
-    fn cokret_pairing_bootstrap_validation_rejects_legacy_scope_payload() {
+    fn arkret_pairing_bootstrap_validation_rejects_legacy_scope_payload() {
         let mut value = sdk_inkson_bootstrap();
-        value["requested_scope"] = json!({ "actions": ["ck.event.read"] });
+        value["requested_scope"] = json!({ "actions": ["ak.event.read"] });
 
-        let err = validate_cokret_pairing_bootstrap_value(value)
+        let err = validate_arkret_pairing_bootstrap_value(value)
             .expect_err("legacy bootstrap fields must fail validation");
 
         assert!(err.contains("unknown field"));
@@ -3484,21 +3484,21 @@ mod tests {
         assert!(saved_channel_config_ready(&config));
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[test]
-    fn cokret_runtime_key_label_is_filesystem_safe() {
+    fn arkret_runtime_key_label_is_filesystem_safe() {
         assert_eq!(
-            sanitize_cokret_runtime_key_label("did:webvh:example.org:agents/support"),
+            sanitize_arkret_runtime_key_label("did:webvh:example.org:agents/support"),
             "did-webvh-example.org-agents-support"
         );
-        assert_eq!(sanitize_cokret_runtime_key_label(""), "agent");
+        assert_eq!(sanitize_arkret_runtime_key_label(""), "agent");
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[tokio::test]
-    async fn generated_cokret_runtime_key_ref_writes_local_file_without_returning_seed() {
+    async fn generated_arkret_runtime_key_ref_writes_local_file_without_returning_seed() {
         let home = tempfile::tempdir().expect("temp home");
-        let key_ref = generate_cokret_runtime_file_key_ref(
+        let key_ref = generate_arkret_runtime_file_key_ref(
             home.path(),
             Some("did:webvh:example.org:agents/support"),
         )
@@ -3511,10 +3511,10 @@ mod tests {
         assert!(key_ref_json.get("seed").is_none());
         let path = key_ref_json["path"].as_str().expect("file path");
         let path = Path::new(path);
-        assert!(path.starts_with(home.path().join("gateway").join("cokret-runtime-keys")));
+        assert!(path.starts_with(home.path().join("gateway").join("arkret-runtime-keys")));
         assert_eq!(std::fs::read(path).expect("read seed").len(), 32);
 
-        let seed_hex = savfox_channels::cokret::load_ed25519_seed_hex(&key_ref)
+        let seed_hex = savfox_channels::arkret::load_ed25519_seed_hex(&key_ref)
             .expect("generated file keyRef must load");
         assert_eq!(seed_hex.len(), 64);
     }
@@ -3557,64 +3557,64 @@ mod tests {
         assert!(saved_channel_config_ready(&wechat));
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[test]
-    fn cokret_agent_ready_requires_completed_runtime_pairing() {
+    fn arkret_agent_ready_requires_completed_runtime_pairing() {
         let ready = channel_config(
-            "cokret",
+            "arkret",
             json!({
                 "mode": "agent",
-                "baseUrl": "https://cokret.example.org",
-                "serviceDid": "did:webvh:cokret.example.org",
+                "baseUrl": "https://arkret.example.org",
+                "serviceDid": "did:webvh:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
-                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
                 "requestedScope": [
-                    "ck.self.events.stream.subscribe",
-                    "ck.self.events.command.submit",
-                    "ck.event.read"
+                    "ak.self.events.stream.subscribe",
+                    "ak.self.events.command.submit",
+                    "ak.event.read"
                 ]
             }),
         );
         let missing_authorization = channel_config(
-            "cokret",
+            "arkret",
             json!({
                 "mode": "agent",
-                "baseUrl": "https://cokret.example.org",
+                "baseUrl": "https://arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
-                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1"
             }),
         );
 
         let parsed_ready =
-            savfox_channels::cokret::CokretChannelConfig::from_channel_config(&ready)
-                .expect("ready Cokret config should parse");
+            savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&ready)
+                .expect("ready Arkret config should parse");
         parsed_ready
             .validate()
-            .expect("ready Cokret config should validate");
+            .expect("ready Arkret config should validate");
         assert!(saved_channel_config_ready(&ready));
         assert!(!saved_channel_config_ready(&missing_authorization));
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[test]
-    fn cokret_agent_ready_rejects_content_scope_without_service_scope() {
+    fn arkret_agent_ready_rejects_content_scope_without_service_scope() {
         let content_only = channel_config(
-            "cokret",
+            "arkret",
             json!({
                 "mode": "agent",
-                "baseUrl": "https://cokret.example.org",
-                "serviceDid": "did:webvh:cokret.example.org",
+                "baseUrl": "https://arkret.example.org",
+                "serviceDid": "did:webvh:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
-                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
-                "requestedScope": ["ck.event.read", "ck.message.create"],
+                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
+                "requestedScope": ["ak.event.read", "ak.message.create"],
                 "listen": true,
                 "send": false
             }),
@@ -3623,24 +3623,24 @@ mod tests {
         assert!(!saved_channel_config_ready(&content_only));
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[test]
-    fn cokret_metadata_exposes_active_runtime_pairing() {
+    fn arkret_metadata_exposes_active_runtime_pairing() {
         let config = channel_config(
-            "cokret",
+            "arkret",
             json!({
                 "mode": "agent",
-                "baseUrl": "https://cokret.example.org",
-                "serviceDid": "did:webvh:cokret.example.org",
+                "baseUrl": "https://arkret.example.org",
+                "serviceDid": "did:webvh:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
-                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
                 "requestedScope": [
-                    "ck.self.events.stream.subscribe",
-                    "ck.self.events.command.submit",
-                    "ck.event.read"
+                    "ak.self.events.stream.subscribe",
+                    "ak.self.events.command.submit",
+                    "ak.event.read"
                 ]
             }),
         );
@@ -3648,18 +3648,18 @@ mod tests {
             exists: true,
             enabled: true,
             ready: true,
-            channel_name: Some("Cokret".to_owned()),
-            channel_slug: Some("cokret".to_owned()),
+            channel_name: Some("Arkret".to_owned()),
+            channel_slug: Some("arkret".to_owned()),
             config: Some(config),
         };
         let mut info = serde_json::Map::new();
 
-        insert_saved_channel_metadata(&mut info, "cokret", &state);
+        insert_saved_channel_metadata(&mut info, "arkret", &state);
 
         assert_eq!(info["runtime_pairing_state"], "active");
         assert_eq!(
             info["authorized_event_ref"],
-            "ck:event:01904100-0000-7000-8000-000000000099"
+            "ak:event:01904100-0000-7000-8000-000000000099"
         );
         assert_eq!(
             info["verification_method"],
@@ -3668,20 +3668,20 @@ mod tests {
         assert_eq!(info["runtime_scope_count"], 3);
     }
 
-    #[cfg(feature = "cokret")]
+    #[cfg(feature = "arkret")]
     #[test]
-    fn cokret_applet_ready_requires_valid_applet_config() {
+    fn arkret_applet_ready_requires_valid_applet_config() {
         let ready = channel_config(
-            "cokret",
+            "arkret",
             json!({
                 "mode": "applet",
-                "appletId": "ck:applet:21532600-0000-7000-8000-000000000000",
+                "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
                 "serviceDid": "did:web:slack-bridge.example",
                 "controllerDid": "did:webvh:example.com:admin",
-                "baseUrl": "https://savfox.example/appservices/cokret/cokret-default",
+                "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
                 "botActorId": "did:web:slack-bridge.example:bot",
-                "cokretServerUrl": "https://cokret.example.org",
-                "cokretServerDid": "did:webvh:cokret.example.org",
+                "arkretServerUrl": "https://arkret.example.org",
+                "arkretServerDid": "did:webvh:arkret.example.org",
                 "accessToken": "applet-bearer-1",
                 "protocols": ["slack"],
                 "namespaces": {
@@ -3698,15 +3698,15 @@ mod tests {
             }),
         );
         let missing_namespaces = channel_config(
-            "cokret",
+            "arkret",
             json!({
                 "mode": "applet",
-                "appletId": "ck:applet:21532600-0000-7000-8000-000000000000",
+                "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
                 "serviceDid": "did:web:slack-bridge.example",
                 "controllerDid": "did:webvh:example.com:admin",
-                "baseUrl": "https://savfox.example/appservices/cokret/cokret-default",
+                "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
                 "botActorId": "did:web:slack-bridge.example:bot",
-                "cokretServerUrl": "https://cokret.example.org",
+                "arkretServerUrl": "https://arkret.example.org",
                 "accessToken": "applet-bearer-1",
                 "protocols": ["slack"]
             }),

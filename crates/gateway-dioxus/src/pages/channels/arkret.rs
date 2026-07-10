@@ -1,7 +1,7 @@
-use crate::api::types::CokretStatus;
+use crate::api::types::ArkretStatus;
 use crate::pages::channels::common::{ChannelStatusView, channel_status_page};
 
-impl ChannelStatusView for CokretStatus {
+impl ChannelStatusView for ArkretStatus {
     fn configured(&self) -> Option<bool> {
         self.configured
     }
@@ -59,10 +59,10 @@ impl ChannelStatusView for CokretStatus {
 }
 
 channel_status_page! {
-    component: CokretChannel,
-    status: CokretStatus,
-    channel_id: "cokret",
-    title: "Cokret",
+    component: ArkretChannel,
+    status: ArkretStatus,
+    channel_id: "arkret",
+    title: "Arkret",
     icon: crate::utils::icons::ICON_RADIO,
     subtitle: "Account client and applet bridge status.",
 }

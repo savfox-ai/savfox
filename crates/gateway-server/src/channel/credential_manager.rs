@@ -1370,19 +1370,19 @@ impl GatewayChannel {
                     warn!("Zalo OA access token not configured");
                 }
             }
-            #[cfg(feature = "cokret")]
-            "cokret" => {
+            #[cfg(feature = "arkret")]
+            "arkret" => {
                 let flow_id = non_empty_trimmed(reply_target).or_else(|| {
-                    non_empty_trimmed(session_id).filter(|value| value.starts_with("ck:flow:"))
+                    non_empty_trimmed(session_id).filter(|value| value.starts_with("ak:flow:"))
                 });
-                if crate::channels::cokret_applet::send_to_cokret_applet_for_realm(
+                if crate::channels::arkret_applet::send_to_arkret_applet_for_realm(
                     channel_id, flow_id, text,
                 )
                 .await?
                 {
                     return Ok(());
                 }
-                crate::channels::cokret::send_to_cokret_account(
+                crate::channels::arkret::send_to_arkret_account(
                     savfox_home,
                     channel_id,
                     flow_id,
@@ -1390,9 +1390,9 @@ impl GatewayChannel {
                 )
                 .await?;
             }
-            #[cfg(not(feature = "cokret"))]
-            "cokret" => {
-                warn!("Cokret support is not enabled for channel: {channel}");
+            #[cfg(not(feature = "arkret"))]
+            "arkret" => {
+                warn!("Arkret support is not enabled for channel: {channel}");
             }
             _ => {
                 warn!("unknown platform for channel: {channel}");

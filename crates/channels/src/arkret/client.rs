@@ -1,11 +1,11 @@
-//! Thin wrapper around [`cokret::http_client::Client`] for Cokret agent traffic.
+//! Thin wrapper around [`arkret::http_client::Client`] for Arkret agent traffic.
 //!
 //! All HTTP / retry / canonical-bytes / NDJSON line splitting logic lives in
 //! the upstream SDK; this type only exists so the gateway runtime never has
 //! to think about constructing the underlying client.
 //!
 //! Personal-agent mode uses `agent_key_proof` to mint a short-lived
-//! `ck.session.grant`, then presents that grant with a fresh DPoP proof on
+//! `ak.session.grant`, then presents that grant with a fresh DPoP proof on
 //! every protected self-surface call.
 
 use std::pin::Pin;
@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use cokret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
-use cokret::{
+use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
+use arkret::{
     AccountSubscribeFrame, DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome,
     EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
     KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServerDescription,
@@ -23,66 +23,66 @@ use cokret::{
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::{Stream, StreamExt};
 use garth::{
-    AgentKeyProofLogin, CokretClient, LoginKind, MemorySecureKeyStore, MemoryStore, NativeExecutor,
+    AgentKeyProofLogin, ArkretClient, LoginKind, MemorySecureKeyStore, MemoryStore, NativeExecutor,
     SessionEngine,
 };
 use serde_json::{Value, json};
 use url::Url;
 use uuid::Uuid;
 
-use super::FileCokretAccountStore;
-use super::session::{CokretSession, login_with_signer};
-use super::signer::{CokretKeyRef, load_ed25519_signing_key};
+use super::FileArkretAccountStore;
+use super::session::{ArkretSession, login_with_signer};
+use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
-const SESSION_GRANT_PATH: &str = "/_cokret/gate/account/session-grants";
+const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
-pub struct CokretHttpClient {
+pub struct ArkretHttpClient {
     inner: Client,
 }
 
 /// Stream of [`EventsSubscribeFrame`] yielded by
-/// [`CokretHttpClient::events_subscribe_stream`].
+/// [`ArkretHttpClient::events_subscribe_stream`].
 ///
 /// Each item is a fully-parsed frame (transient line decode errors come
 /// through as `Err` but the stream continues). Use
 /// [`futures_util::StreamExt::next`] to pull frames.
-pub type CokretFrameStream =
+pub type ArkretFrameStream =
     Pin<Box<dyn Stream<Item = Result<EventsSubscribeFrame, anyhow::Error>> + Send>>;
 
 /// Stream of account-level subscribe frames yielded by
-/// [`CokretHttpClient::account_subscribe_stream`].
-pub type CokretAccountFrameStream =
+/// [`ArkretHttpClient::account_subscribe_stream`].
+pub type ArkretAccountFrameStream =
     Pin<Box<dyn Stream<Item = Result<AccountSubscribeFrame, anyhow::Error>> + Send>>;
 
-pub type SavfoxCokretClientCore =
-    CokretClient<NativeExecutor, MemoryStore, MemoryStore, MemorySecureKeyStore>;
+pub type SavfoxArkretClientCore =
+    ArkretClient<NativeExecutor, MemoryStore, MemoryStore, MemorySecureKeyStore>;
 
-pub type SavfoxDurableCokretClientCore = CokretClient<
+pub type SavfoxDurableArkretClientCore = ArkretClient<
     NativeExecutor,
-    FileCokretAccountStore,
-    FileCokretAccountStore,
+    FileArkretAccountStore,
+    FileArkretAccountStore,
     MemorySecureKeyStore,
 >;
 
 pub fn sign_key_operation_value(
-    key_ref: &CokretKeyRef,
+    key_ref: &ArkretKeyRef,
     verification_method: &str,
     context: &str,
     value: &Value,
 ) -> anyhow::Result<KeyOperationSignature> {
     let verification_method = verification_method.trim();
     if verification_method.is_empty() {
-        anyhow::bail!("Cokret key operation signature missing verification method");
+        anyhow::bail!("Arkret key operation signature missing verification method");
     }
     let context = context.trim();
     if context.is_empty() {
-        anyhow::bail!("Cokret key operation signature missing context");
+        anyhow::bail!("Arkret key operation signature missing context");
     }
     let signing_key = load_ed25519_signing_key(key_ref)?;
-    let canonical = cokret::canonical::canonical_json_bytes(value)
-        .map_err(|err| anyhow::anyhow!("Cokret key operation canonical JSON: {err}"))?;
+    let canonical = arkret::canonical::canonical_json_bytes(value)
+        .map_err(|err| anyhow::anyhow!("Arkret key operation canonical JSON: {err}"))?;
     let mut signing_input = Vec::with_capacity(context.len() + 1 + canonical.len());
     signing_input.extend_from_slice(context.as_bytes());
     signing_input.push(b'\n');
@@ -91,18 +91,18 @@ pub fn sign_key_operation_value(
     Ok(KeyOperationSignature {
         kid: verification_method.to_owned(),
         alg: Some("Ed25519".to_owned()),
-        sig: cokret::base64url_encode(signature.to_bytes()),
+        sig: arkret::base64url_encode(signature.to_bytes()),
     })
 }
 
 pub fn sign_mls_welcome_claim_envelope(
-    key_ref: &CokretKeyRef,
+    key_ref: &ArkretKeyRef,
     verification_method: &str,
     envelope: &mut MlsWelcomeClaimEnvelope,
 ) -> anyhow::Result<()> {
     let verification_method = verification_method.trim();
     if verification_method.is_empty() {
-        anyhow::bail!("Cokret MLS Welcome claim signature missing verification method");
+        anyhow::bail!("Arkret MLS Welcome claim signature missing verification method");
     }
     let signing_key = load_ed25519_signing_key(key_ref)?;
     let signing_input = envelope
@@ -112,7 +112,7 @@ pub fn sign_mls_welcome_claim_envelope(
     envelope.signature = KeyOperationSignature {
         kid: verification_method.to_owned(),
         alg: Some("Ed25519".to_owned()),
-        sig: cokret::base64url_encode(signature.to_bytes()),
+        sig: arkret::base64url_encode(signature.to_bytes()),
     };
     Ok(())
 }
@@ -131,27 +131,27 @@ pub fn build_mls_key_packages_claim_request(
     timeout_ms: Option<u64>,
 ) -> anyhow::Result<KeyPackagesClaimRequestBody> {
     if claim_nonce.trim().is_empty() {
-        anyhow::bail!("Cokret MLS KeyPackage claim nonce must not be empty");
+        anyhow::bail!("Arkret MLS KeyPackage claim nonce must not be empty");
     }
     let target_principal_id = Did::new(target_principal_id.to_owned())
-        .with_context(|| format!("invalid Cokret KeyPackage target DID '{target_principal_id}'"))?;
+        .with_context(|| format!("invalid Arkret KeyPackage target DID '{target_principal_id}'"))?;
     let intended_realm_id = RealmId::new(intended_realm_id.to_owned()).with_context(|| {
-        format!("invalid Cokret KeyPackage claim Realm id '{intended_realm_id}'")
+        format!("invalid Arkret KeyPackage claim Realm id '{intended_realm_id}'")
     })?;
     let requester = Did::new(requester.to_owned())
-        .with_context(|| format!("invalid Cokret KeyPackage requester DID '{requester}'"))?;
+        .with_context(|| format!("invalid Arkret KeyPackage requester DID '{requester}'"))?;
     let target_device_ids = target_device_ids
         .iter()
         .map(|device_id| {
             DeviceId::new(device_id.to_owned()).with_context(|| {
-                format!("invalid Cokret KeyPackage target device id '{device_id}'")
+                format!("invalid Arkret KeyPackage target device id '{device_id}'")
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let strand_id = strand_id
         .map(|value| {
             StrandId::new(value.to_owned())
-                .with_context(|| format!("invalid Cokret KeyPackage claim Strand id '{value}'"))
+                .with_context(|| format!("invalid Arkret KeyPackage claim Strand id '{value}'"))
         })
         .transpose()?;
     let mls_group_id = mls_group_id
@@ -174,15 +174,15 @@ pub fn build_mls_key_packages_claim_request(
     })
 }
 
-impl CokretHttpClient {
+impl ArkretHttpClient {
     #[must_use]
     pub fn inner(&self) -> &Client {
         &self.inner
     }
 
     #[must_use]
-    pub fn client_core(&self) -> SavfoxCokretClientCore {
-        CokretClient::new(
+    pub fn client_core(&self) -> SavfoxArkretClientCore {
+        ArkretClient::new(
             self.inner.clone(),
             NativeExecutor,
             MemoryStore::new(),
@@ -194,9 +194,9 @@ impl CokretHttpClient {
     #[must_use]
     pub fn client_core_with_account_store(
         &self,
-        store: FileCokretAccountStore,
-    ) -> SavfoxDurableCokretClientCore {
-        CokretClient::new(
+        store: FileArkretAccountStore,
+    ) -> SavfoxDurableArkretClientCore {
+        ArkretClient::new(
             self.inner.clone(),
             NativeExecutor,
             store.clone(),
@@ -210,11 +210,11 @@ impl CokretHttpClient {
     /// [`Self::login_agent`] instead.
     pub fn new(base_url: &str, access_token: &str) -> anyhow::Result<Self> {
         let url =
-            Url::parse(base_url).with_context(|| format!("invalid Cokret base_url: {base_url}"))?;
+            Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
         let inner = ClientBuilder::new(url)
             .auth(Auth::Bearer(access_token.to_owned()))
             .build()
-            .map_err(|err| anyhow::anyhow!("failed to build Cokret HTTP client: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("failed to build Arkret HTTP client: {err}"))?;
         Ok(Self { inner })
     }
 
@@ -223,16 +223,16 @@ impl CokretHttpClient {
     #[allow(clippy::too_many_arguments)]
     pub async fn login_agent(
         base_url: &str,
-        key_ref: &CokretKeyRef,
+        key_ref: &ArkretKeyRef,
         principal_did: Did,
         verification_method: &str,
         agent_key_authorization_ref: &str,
         requested_scope: Vec<String>,
         audience: &str,
         realm_id: Option<&str>,
-    ) -> anyhow::Result<(Self, CokretSession)> {
+    ) -> anyhow::Result<(Self, ArkretSession)> {
         let url =
-            Url::parse(base_url).with_context(|| format!("invalid Cokret base_url: {base_url}"))?;
+            Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
         let signing_key = Arc::new(load_ed25519_signing_key(key_ref)?);
         let grant_htu = joined_htu(&url, SESSION_GRANT_PATH)?;
         let binding_proof = build_dpop_header(&signing_key, "POST", grant_htu.clone(), None)?;
@@ -245,7 +245,7 @@ impl CokretHttpClient {
                         || request.htu != expected_htu
                         || request.access_token.is_some()
                     {
-                        return Err(cokret::Error::Protocol(
+                        return Err(arkret::Error::Protocol(
                             "unexpected DPoP kickoff request shape".to_owned(),
                         ));
                     }
@@ -266,7 +266,7 @@ impl CokretHttpClient {
         let dpop_binding_proof = SessionGrantDpopBindingProof {
             proof_jwt: binding_proof,
         };
-        let signing_input = cokret::agent::agent_key_proof_signing_input_for_session_grant(
+        let signing_input = arkret::agent::agent_key_proof_signing_input_for_session_grant(
             &principal_did,
             &requested_scope,
             agent_key_authorization_ref,
@@ -284,7 +284,7 @@ impl CokretHttpClient {
                 .canonical_bytes()
                 .map_err(|err| anyhow::anyhow!("agent_key_proof canonical bytes: {err}"))?,
         );
-        let signature = cokret::base64url_encode(signature.to_bytes());
+        let signature = arkret::base64url_encode(signature.to_bytes());
         let login = AgentKeyProofLogin {
             principal_id: principal_did.clone(),
             requested_scope,
@@ -314,7 +314,7 @@ impl CokretHttpClient {
                 {
                     let signing_key = Arc::clone(&signing_key);
                     move |request| {
-                        let cokret::http_client::DpopProofRequest {
+                        let arkret::http_client::DpopProofRequest {
                             method,
                             htu,
                             access_token,
@@ -324,10 +324,10 @@ impl CokretHttpClient {
                 },
             )))
             .build()
-            .map_err(|err| anyhow::anyhow!("DPoP-bound Cokret HTTP client: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("DPoP-bound Arkret HTTP client: {err}"))?;
         Ok((
             Self { inner },
-            CokretSession {
+            ArkretSession {
                 session_grant,
                 expires_at: state.expires_at,
                 principal_did: state.principal_id,
@@ -349,9 +349,9 @@ impl CokretHttpClient {
         device_id: DeviceId,
         challenge: &str,
         audience: &str,
-    ) -> anyhow::Result<(Self, CokretSession)> {
+    ) -> anyhow::Result<(Self, ArkretSession)> {
         let url =
-            Url::parse(base_url).with_context(|| format!("invalid Cokret base_url: {base_url}"))?;
+            Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
         let bootstrap = ClientBuilder::new(url.clone())
             .build()
             .map_err(|err| anyhow::anyhow!("bootstrap HTTP client: {err}"))?;
@@ -380,30 +380,30 @@ impl CokretHttpClient {
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }
 
-    /// `GET /_cokret/self/events/subscribe` — returns a
-    /// [`CokretFrameStream`] that yields fully-parsed `EventsSubscribeFrame`
+    /// `GET /_arkret/self/events/subscribe` — returns a
+    /// [`ArkretFrameStream`] that yields fully-parsed `EventsSubscribeFrame`
     /// items.
     pub async fn events_subscribe_stream(
         &self,
         realm_id: &str,
         after: Option<&str>,
-    ) -> anyhow::Result<CokretFrameStream> {
+    ) -> anyhow::Result<ArkretFrameStream> {
         let response = self
             .inner
             .events_subscribe_stream(realm_id, after)
             .await
-            .map_err(|err| anyhow::anyhow!("cokret events_subscribe_stream: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("arkret events_subscribe_stream: {err}"))?;
         Ok(Box::pin(ndjson_event_frame_stream(response)))
     }
 
-    /// `GET /_cokret/self/account/subscribe` — returns a user-scoped account
+    /// `GET /_arkret/self/account/subscribe` — returns a user-scoped account
     /// stream. Personal-agent runtimes consume this instead of binding the
     /// listener to a configured Realm.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn account_subscribe_stream(
         &self,
         after: Option<&str>,
-    ) -> anyhow::Result<CokretAccountFrameStream> {
+    ) -> anyhow::Result<ArkretAccountFrameStream> {
         let request = SyncRequestBody {
             after: after.map(str::to_owned),
             catchup: None,
@@ -415,8 +415,8 @@ impl CokretHttpClient {
             .inner
             .account_subscribe_frames(&request)
             .await
-            .map_err(|err| anyhow::anyhow!("cokret account_subscribe: {err}"))?
-            .map(|frame| frame.map_err(|err| anyhow::anyhow!("cokret account_subscribe: {err}")));
+            .map_err(|err| anyhow::anyhow!("arkret account_subscribe: {err}"))?
+            .map(|frame| frame.map_err(|err| anyhow::anyhow!("arkret account_subscribe: {err}")));
         Ok(Box::pin(stream))
     }
 
@@ -444,18 +444,18 @@ fn build_dpop_header(
     method: impl Into<String>,
     htu: impl Into<String>,
     access_token: Option<&str>,
-) -> cokret::Result<String> {
-    let mut request = cokret::dpop::DpopProofRequest::new(method, htu);
+) -> arkret::Result<String> {
+    let mut request = arkret::dpop::DpopProofRequest::new(method, htu);
     if let Some(access_token) = access_token {
         request = request.access_token(access_token.to_owned());
     }
-    cokret::dpop::build_dpop_proof(&request, signing_key).map(|proof| proof.header_value)
+    arkret::dpop::build_dpop_proof(&request, signing_key).map(|proof| proof.header_value)
 }
 
 fn joined_htu(base_url: &Url, path: &str) -> anyhow::Result<String> {
     let mut url = base_url
         .join(path.trim_start_matches('/'))
-        .with_context(|| format!("invalid Cokret endpoint path: {path}"))?;
+        .with_context(|| format!("invalid Arkret endpoint path: {path}"))?;
     url.set_query(None);
     url.set_fragment(None);
     Ok(url.to_string())
@@ -523,8 +523,8 @@ mod tests {
         SigningKey::from_bytes(&[7_u8; 32])
     }
 
-    fn key_ref() -> CokretKeyRef {
-        CokretKeyRef::InlineSeedBase64 {
+    fn key_ref() -> ArkretKeyRef {
+        ArkretKeyRef::InlineSeedBase64 {
             value: STANDARD_NO_PAD.encode([7_u8; 32]),
         }
     }
@@ -534,7 +534,7 @@ mod tests {
         let header = build_dpop_header(
             &signing_key(),
             "GET",
-            "https://cokret.example/_cokret/self/events",
+            "https://arkret.example/_arkret/self/events",
             Some("session-grant-token"),
         )
         .expect("dpop header");
@@ -542,21 +542,21 @@ mod tests {
         assert_eq!(parts.len(), 3);
 
         let protected: Value =
-            serde_json::from_slice(&cokret::base64url_decode(parts[0]).unwrap()).unwrap();
+            serde_json::from_slice(&arkret::base64url_decode(parts[0]).unwrap()).unwrap();
         let payload: Value =
-            serde_json::from_slice(&cokret::base64url_decode(parts[1]).unwrap()).unwrap();
+            serde_json::from_slice(&arkret::base64url_decode(parts[1]).unwrap()).unwrap();
 
         assert_eq!(protected["typ"], "dpop+jwt");
         assert_eq!(protected["alg"], "EdDSA");
         assert_eq!(payload["htm"], "GET");
-        assert_eq!(payload["htu"], "https://cokret.example/_cokret/self/events");
+        assert_eq!(payload["htu"], "https://arkret.example/_arkret/self/events");
         assert_eq!(
             payload["ath"],
-            cokret::dpop::dpop_access_token_hash("session-grant-token")
+            arkret::dpop::dpop_access_token_hash("session-grant-token")
         );
         assert_ne!(
             payload["ath"],
-            cokret::dpop::dpop_access_token_hash("other-token")
+            arkret::dpop::dpop_access_token_hash("other-token")
         );
     }
 
@@ -564,13 +564,13 @@ mod tests {
     fn claim_request_builder_validates_typed_claim_fields() {
         let request = build_mls_key_packages_claim_request(
             "did:webvh:z6mkfixture:bob.example",
-            "ck:realm:01904100-0000-7000-8000-000000000001",
+            "ak:realm:01904100-0000-7000-8000-000000000001",
             "did:webvh:z6mkfixture:alice.example",
-            &["mimi.content.v1".to_owned(), "ck.content.v1".to_owned()],
+            &["mimi.content.v1".to_owned(), "ak.content.v1".to_owned()],
             "claim-nonce-1".to_owned(),
             Utc::now() + chrono::Duration::minutes(5),
-            &["ck:device:01904100-0000-7000-8000-00000000000e".to_owned()],
-            Some("ck:strand:01904100-0000-7000-8000-000000000002"),
+            &["ak:device:01904100-0000-7000-8000-00000000000e".to_owned()],
+            Some("ak:strand:01904100-0000-7000-8000-000000000002"),
             Some("group-1"),
             Some(1500),
         )
@@ -584,7 +584,7 @@ mod tests {
         assert_eq!(request.target_device_ids.len(), 1);
         assert_eq!(
             request.strand_id.as_ref().map(StrandId::as_str),
-            Some("ck:strand:01904100-0000-7000-8000-000000000002")
+            Some("ak:strand:01904100-0000-7000-8000-000000000002")
         );
         assert_eq!(request.mls_group_id.as_deref(), Some("group-1"));
         assert!(request.proofs.is_empty());
@@ -593,18 +593,18 @@ mod tests {
     #[test]
     fn mls_welcome_claim_envelope_signing_uses_sdk_transcript() {
         let mut envelope = MlsWelcomeClaimEnvelope {
-            keypackage_ref: "ck:mls:keypackage:test".to_owned(),
-            keypackage_digest: cokret::Hash::new(format!("sha256:{}", "aa".repeat(32))).unwrap(),
+            keypackage_ref: "ak:mls:keypackage:test".to_owned(),
+            keypackage_digest: arkret::Hash::new(format!("sha256:{}", "aa".repeat(32))).unwrap(),
             intended_realm_id: RealmId::new(
-                "ck:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+                "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
             )
             .unwrap(),
-            claim_id: "ck:claim:test".to_owned(),
+            claim_id: "ak:claim:test".to_owned(),
             requester_did: Did::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap(),
             ssk_generation: None,
-            requester_device_id: Some("ck:device:01904100-0000-7000-8000-000000000001".to_owned()),
+            requester_device_id: Some("ak:device:01904100-0000-7000-8000-000000000001".to_owned()),
             nonce: "nonce-1".to_owned(),
-            welcome_digest: cokret::Hash::new(format!("sha256:{}", "bb".repeat(32))).unwrap(),
+            welcome_digest: arkret::Hash::new(format!("sha256:{}", "bb".repeat(32))).unwrap(),
             created_at: Utc::now(),
             signature: KeyOperationSignature {
                 kid: String::new(),
@@ -631,7 +631,7 @@ mod tests {
             .expect("signature shape should be valid");
 
         let sig =
-            Signature::from_slice(&cokret::base64url_decode(&envelope.signature.sig).unwrap())
+            Signature::from_slice(&arkret::base64url_decode(&envelope.signature.sig).unwrap())
                 .expect("signature bytes");
         signing_key()
             .verifying_key()

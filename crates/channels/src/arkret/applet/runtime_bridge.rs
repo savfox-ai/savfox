@@ -1,47 +1,47 @@
-//! Bridge between savfox's [`CokretAppletConfig`] and the reusable
-//! `cokret-bridge-runtime` crate.
+//! Bridge between savfox's [`ArkretAppletConfig`] and the reusable
+//! `arkret-bridge-runtime` crate.
 //!
 //! The runtime crate factors out the outbound mint bookkeeping (monotonic
 //! `actor_seq`, HLC generation, signing, and applet metadata transport tagging)
 //! and the inbound actor/realm resolution probes. savfox owns the
 //! *configuration* and the
-//! *signer* (loaded from a [`CokretKeyRef`] via [`load_ed25519_signer`]), so the
+//! *signer* (loaded from a [`ArkretKeyRef`] via [`load_ed25519_signer`]), so the
 //! glue here is purely:
 //!
 //! * [`applet_runtime_config`] — translate a savfox applet config into the runtime's
-//!   [`Config`](cokret_bridge_runtime::Config). The pure mapping leaves the signing seed empty;
+//!   [`Config`](arkret_bridge_runtime::Config). The pure mapping leaves the signing seed empty;
 //!   [`build_outbound_edge`] fills it from the configured
-//!   [`CokretKeyRef`](crate::cokret::CokretKeyRef) before handing the config to the runtime.
+//!   [`ArkretKeyRef`](crate::arkret::ArkretKeyRef) before handing the config to the runtime.
 //! * [`SavfoxAppletResolver`] — answer `resolve_actor` / `resolve_realm` probes from the applet's
 //!   declared namespaces.
 //! * [`build_outbound_edge`] — assemble a ready-to-use
-//!   [`CokretEdge`](cokret_bridge_runtime::CokretEdge).
+//!   [`ArkretEdge`](arkret_bridge_runtime::ArkretEdge).
 
 use std::sync::Arc;
 
-use cokret_bridge_runtime::{
-    AppletResolver, CokretEdge, Config, ResolvedActor, ResolvedRealm, SeqStore,
+use arkret_bridge_runtime::{
+    AppletResolver, ArkretEdge, Config, ResolvedActor, ResolvedRealm, SeqStore,
 };
 use serde_json::json;
 
-use crate::cokret::applet::config::CokretAppletConfig;
-use crate::cokret::applet::namespace::{AppletNamespaces, AppletNamespacesExt};
+use crate::arkret::applet::config::ArkretAppletConfig;
+use crate::arkret::applet::namespace::{AppletNamespaces, AppletNamespacesExt};
 
 /// Default verification method fragment when the applet config leaves it unset.
 const DEFAULT_VERIFICATION_METHOD: &str = "#key-1";
 
-/// Translate a savfox [`CokretAppletConfig`] into a runtime
-/// [`Config`](cokret_bridge_runtime::Config).
+/// Translate a savfox [`ArkretAppletConfig`] into a runtime
+/// [`Config`](arkret_bridge_runtime::Config).
 ///
 /// Field mapping (savfox → runtime):
 ///
-/// * `cfg.cokret_server_url`              → `cokret.server_url`
-/// * `cfg.cokret_server_did`              → `cokret.trusted_server_did`
-/// * `cfg.service_did`                    → `cokret.service_did`
-/// * `cfg.applet_id`                      → `cokret.applet_id`
-/// * `cfg.cokret_bearer_token` (or "")    → `cokret.access_token`
-/// * `cfg.verification_method` (or "#key-1") → `cokret.verification_method_id`
-/// * `""` (placeholder)                   → `cokret.signing_key_seed_hex`
+/// * `cfg.arkret_server_url`              → `arkret.server_url`
+/// * `cfg.arkret_server_did`              → `arkret.trusted_server_did`
+/// * `cfg.service_did`                    → `arkret.service_did`
+/// * `cfg.applet_id`                      → `arkret.applet_id`
+/// * `cfg.arkret_bearer_token` (or "")    → `arkret.access_token`
+/// * `cfg.verification_method` (or "#key-1") → `arkret.verification_method_id`
+/// * `""` (placeholder)                   → `arkret.signing_key_seed_hex`
 /// * `cfg.id`                             → `bridge.bridge_id`
 ///
 /// `bridge` gets sensible defaults for the transport fields (the runtime
@@ -49,7 +49,7 @@ const DEFAULT_VERIFICATION_METHOD: &str = "#key-1";
 /// own appservice mount), and `database` / `logging` use their `Default`. The
 /// `app` adapter section is `Null`.
 ///
-/// The runtime keeps its `BridgeConfig` / `CokretConfig` field structs private
+/// The runtime keeps its `BridgeConfig` / `ArkretConfig` field structs private
 /// (only the top-level [`Config`] is re-exported), so we assemble the config
 /// through its `Deserialize` impl from a JSON document rather than naming the
 /// inner types. `database` / `logging` / `app` are omitted and fall back to the
@@ -63,13 +63,13 @@ const DEFAULT_VERIFICATION_METHOD: &str = "#key-1";
 /// matches the runtime `Config` schema exactly. The `expect` guards against a
 /// future schema drift, which would surface immediately in tests/CI.
 #[must_use]
-pub fn applet_runtime_config(cfg: &CokretAppletConfig) -> Config {
+pub fn applet_runtime_config(cfg: &ArkretAppletConfig) -> Config {
     let verification_method_id = cfg
         .verification_method
         .clone()
         .unwrap_or_else(|| DEFAULT_VERIFICATION_METHOD.to_owned());
     let trusted_server_did = cfg
-        .cokret_server_did
+        .arkret_server_did
         .clone()
         .unwrap_or_else(|| cfg.service_did.clone());
     let doc = json!({
@@ -78,11 +78,11 @@ pub fn applet_runtime_config(cfg: &CokretAppletConfig) -> Config {
             "port": 9100,
             "bind_address": "0.0.0.0",
         },
-        "cokret": {
-            "server_url": cfg.cokret_server_url,
+        "arkret": {
+            "server_url": cfg.arkret_server_url,
             "service_did": cfg.service_did,
             "applet_id": cfg.applet_id,
-            "access_token": cfg.cokret_bearer_token.clone().unwrap_or_default(),
+            "access_token": cfg.arkret_bearer_token.clone().unwrap_or_default(),
             "trusted_server_did": trusted_server_did,
             // Placeholder: build_outbound_edge fills this from key_ref before
             // constructing a runtime edge.
@@ -110,7 +110,7 @@ pub struct SavfoxAppletResolver {
 impl SavfoxAppletResolver {
     /// Build a resolver from the applet config.
     #[must_use]
-    pub fn new(cfg: &CokretAppletConfig) -> Self {
+    pub fn new(cfg: &ArkretAppletConfig) -> Self {
         Self {
             namespaces: cfg.namespaces.clone(),
             service_did: cfg.service_did.clone(),
@@ -148,50 +148,50 @@ impl AppletResolver for SavfoxAppletResolver {
     }
 }
 
-/// Build a ready-to-use outbound [`CokretEdge`](cokret_bridge_runtime::CokretEdge)
+/// Build a ready-to-use outbound [`ArkretEdge`](arkret_bridge_runtime::ArkretEdge)
 /// for `cfg`, injecting a `seq` store.
 ///
 /// The runtime config is derived from `cfg` via [`applet_runtime_config`], then
 /// its `signing_key_seed_hex` placeholder is filled from `cfg.key_ref` because
-/// current `cokret-bridge-runtime` constructs its own signer inside
-/// [`CokretEdge::new`]. The runtime [`BridgeError`] is mapped into `anyhow` for
+/// current `arkret-bridge-runtime` constructs its own signer inside
+/// [`ArkretEdge::new`]. The runtime [`BridgeError`] is mapped into `anyhow` for
 /// savfox callers.
 pub fn build_outbound_edge(
-    cfg: &CokretAppletConfig,
+    cfg: &ArkretAppletConfig,
     seq: Arc<dyn SeqStore>,
-) -> anyhow::Result<CokretEdge> {
+) -> anyhow::Result<ArkretEdge> {
     let mut config = applet_runtime_config(cfg);
     let key_ref = cfg.key_ref.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
-            "cokret applet '{}' cannot build runtime edge without key_ref",
+            "arkret applet '{}' cannot build runtime edge without key_ref",
             cfg.id
         )
     })?;
-    config.cokret.signing_key_seed_hex = crate::cokret::load_ed25519_seed_hex(key_ref)?;
+    config.arkret.signing_key_seed_hex = crate::arkret::load_ed25519_seed_hex(key_ref)?;
     let (inbound_tx, _inbound_rx) = tokio::sync::mpsc::channel(1);
-    CokretEdge::new(Arc::new(config), seq, inbound_tx)
-        .map_err(|e| anyhow::anyhow!("cokret runtime edge: {e}"))
+    ArkretEdge::new(Arc::new(config), seq, inbound_tx)
+        .map_err(|e| anyhow::anyhow!("arkret runtime edge: {e}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cokret::applet::namespace::NamespacePattern;
+    use crate::arkret::applet::namespace::NamespacePattern;
 
-    fn make_config() -> CokretAppletConfig {
-        CokretAppletConfig {
-            id: "cokret-applet-test".to_owned(),
-            applet_id: "ck:applet:21532600-0000-7000-8000-000000000000".to_owned(),
+    fn make_config() -> ArkretAppletConfig {
+        ArkretAppletConfig {
+            id: "arkret-applet-test".to_owned(),
+            applet_id: "ak:applet:21532600-0000-7000-8000-000000000000".to_owned(),
             service_did: "did:web:slack-bridge.example".to_owned(),
             controller_did: "did:webvh:example.com:admin".to_owned(),
-            base_url: "https://savfox.example/appservices/cokret/cokret-applet-test".to_owned(),
+            base_url: "https://savfox.example/appservices/arkret/arkret-applet-test".to_owned(),
             bot_actor_id: "did:web:slack-bridge.example:bot".to_owned(),
             device_id: None,
-            cokret_server_url: "https://cokret.example.org".to_owned(),
-            cokret_server_did: Some("did:webvh:cokret.example.org".to_owned()),
+            arkret_server_url: "https://arkret.example.org".to_owned(),
+            arkret_server_did: Some("did:webvh:arkret.example.org".to_owned()),
             trusted_verification_methods: Vec::new(),
             login_challenge: None,
-            cokret_bearer_token: Some("applet-bearer-1".to_owned()),
+            arkret_bearer_token: Some("applet-bearer-1".to_owned()),
             namespaces: AppletNamespaces {
                 actors: vec![NamespacePattern::exclusive(
                     "did:web:slack-bridge.example:ghost:*",
@@ -218,20 +218,20 @@ mod tests {
         let cfg = make_config();
         let rc = applet_runtime_config(&cfg);
 
-        assert_eq!(rc.bridge.bridge_id, "cokret-applet-test");
-        assert_eq!(rc.cokret.server_url, "https://cokret.example.org");
-        assert_eq!(rc.cokret.trusted_server_did, "did:webvh:cokret.example.org");
-        assert_eq!(rc.cokret.service_did, "did:web:slack-bridge.example");
+        assert_eq!(rc.bridge.bridge_id, "arkret-applet-test");
+        assert_eq!(rc.arkret.server_url, "https://arkret.example.org");
+        assert_eq!(rc.arkret.trusted_server_did, "did:webvh:arkret.example.org");
+        assert_eq!(rc.arkret.service_did, "did:web:slack-bridge.example");
         assert_eq!(
-            rc.cokret.applet_id,
-            "ck:applet:21532600-0000-7000-8000-000000000000"
+            rc.arkret.applet_id,
+            "ak:applet:21532600-0000-7000-8000-000000000000"
         );
-        assert_eq!(rc.cokret.access_token, "applet-bearer-1");
+        assert_eq!(rc.arkret.access_token, "applet-bearer-1");
         // Defaulted verification method when config leaves it unset.
-        assert_eq!(rc.cokret.verification_method_id, "#key-1");
+        assert_eq!(rc.arkret.verification_method_id, "#key-1");
         // Placeholder seed in the pure config mapping; build_outbound_edge
         // fills it from key_ref before constructing a runtime edge.
-        assert!(rc.cokret.signing_key_seed_hex.is_empty());
+        assert!(rc.arkret.signing_key_seed_hex.is_empty());
         assert!(rc.app.is_null());
     }
 
@@ -241,7 +241,7 @@ mod tests {
         cfg.verification_method = Some("did:web:slack-bridge.example#bridge-key".to_owned());
         let rc = applet_runtime_config(&cfg);
         assert_eq!(
-            rc.cokret.verification_method_id,
+            rc.arkret.verification_method_id,
             "did:web:slack-bridge.example#bridge-key"
         );
     }
@@ -249,9 +249,9 @@ mod tests {
     #[test]
     fn runtime_config_empty_access_token_when_missing() {
         let mut cfg = make_config();
-        cfg.cokret_bearer_token = None;
+        cfg.arkret_bearer_token = None;
         let rc = applet_runtime_config(&cfg);
-        assert!(rc.cokret.access_token.is_empty());
+        assert!(rc.arkret.access_token.is_empty());
     }
 
     #[test]

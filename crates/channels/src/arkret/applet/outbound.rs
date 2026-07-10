@@ -1,8 +1,8 @@
-//! Build outbound `ck.message.create` Event Envelopes attributed to a
+//! Build outbound `ak.message.create` Event Envelopes attributed to a
 //! Ghost Actor.
 //!
 //! Spec [`applet-integration.md`
-//! §8](../../../../../../cokret/cokret-spec/spec/v1/zh/extensions/applet-integration.md)
+//! §8](../../../../../../arkret/arkret-spec/spec/v1/zh/extensions/applet-integration.md)
 //! requires every applet-written Event to carry `actor_id`, applet provenance,
 //! `authorization_ref`, and `proof`.
 //!
@@ -17,14 +17,14 @@
 //! reject with `event_proofs_empty`.
 
 use anyhow::Context;
-use cokret::signatures::{SignEventOptions, sign_event};
-use cokret::{Did, Ed25519MoveSigner, Event, Hlc, RealmId, new_prefixed_uuid7};
+use arkret::signatures::{SignEventOptions, sign_event};
+use arkret::{Did, Ed25519MoveSigner, Event, Hlc, RealmId, new_prefixed_uuid7};
 use serde_json::{Value, json};
 
-/// Inputs for an applet-attributed `ck.message.create` event.
+/// Inputs for an applet-attributed `ak.message.create` event.
 #[derive(Debug, Clone)]
 pub struct AppletMessageRequest {
-    /// Stable applet id (`ck:applet:<uuidv7>`).
+    /// Stable applet id (`ak:applet:<uuidv7>`).
     pub applet_id: String,
     /// Target Realm where the message lands.
     pub realm_id: String,
@@ -36,7 +36,7 @@ pub struct AppletMessageRequest {
     pub body: String,
     /// External-origin reference (protocol/network/external_id).
     pub external_ref: Value,
-    /// `ck:grant:<uuidv7>` granting the ghost actor permission to write to
+    /// `ak:grant:<uuidv7>` granting the ghost actor permission to write to
     /// this realm/flow. Set if available; omitted otherwise.
     pub authorization_ref: Option<String>,
     /// When the event is delegated (Applet acting *on behalf of* a native
@@ -49,7 +49,7 @@ pub struct AppletMessageRequest {
     pub thread_root_id: Option<String>,
 }
 
-/// Build an unsigned `ck.message.create` Event Envelope attributed to a
+/// Build an unsigned `ak.message.create` Event Envelope attributed to a
 /// Ghost Actor.
 ///
 /// Returned Event is suitable for `Client::events_submit` once a server
@@ -82,11 +82,11 @@ pub fn build_applet_message_event(req: &AppletMessageRequest) -> anyhow::Result<
     let hlc = current_hlc();
 
     let mut content = json!({
-        "message_id": new_prefixed_uuid7("ck:message:"),
+        "message_id": new_prefixed_uuid7("ak:message:"),
         "flow_id": req.flow_id,
         "track": "discussion",
         "content": {
-            "kind": "ck.content.text",
+            "kind": "ak.content.text",
             "body": req.body,
         }
     });
@@ -97,7 +97,7 @@ pub fn build_applet_message_event(req: &AppletMessageRequest) -> anyhow::Result<
     }
 
     let mut event = Event::new(
-        "ck.message.create",
+        "ak.message.create",
         realm,
         actor,
         req.actor_seq,
@@ -129,7 +129,7 @@ pub fn build_applet_message_event(req: &AppletMessageRequest) -> anyhow::Result<
 /// Phase 8 (T8.C): attach a detached-JWS [`Proof`] to an outbound event using
 /// the supplied Ed25519 signer.
 ///
-/// Wraps SDK `cokret::signatures::sign_event` (S-1). The receiver's
+/// Wraps SDK `arkret::signatures::sign_event` (S-1). The receiver's
 /// reducer validates `proof.event_digest == event.event_digest()` and
 /// the JWS signature — so the produced event satisfies the
 /// `event_proofs_empty` and `proof_verification_failed` checks that
@@ -163,9 +163,9 @@ mod tests {
 
     fn valid() -> AppletMessageRequest {
         AppletMessageRequest {
-            applet_id: "ck:applet:21532600-0000-7000-8000-000000000000".into(),
-            realm_id: "ck:realm:01904100-0000-7000-8000-000000000001".into(),
-            flow_id: "ck:flow:01904100-0000-7000-8000-000000000001".into(),
+            applet_id: "ak:applet:21532600-0000-7000-8000-000000000000".into(),
+            realm_id: "ak:realm:01904100-0000-7000-8000-000000000001".into(),
+            flow_id: "ak:flow:01904100-0000-7000-8000-000000000001".into(),
             ghost_actor_did: "did:web:slack-bridge.example:ghost:u123".into(),
             body: "hi from Slack".into(),
             external_ref: json!({
@@ -173,7 +173,7 @@ mod tests {
                 "network_id": "T123",
                 "external_id": "U1"
             }),
-            authorization_ref: Some("ck:grant:01904100-0000-7000-8000-000000000099".into()),
+            authorization_ref: Some("ak:grant:01904100-0000-7000-8000-000000000099".into()),
             executed_by: None,
             actor_seq: 7,
             thread_root_id: None,
@@ -183,14 +183,14 @@ mod tests {
     #[test]
     fn builds_event_with_ghost_actor_id() {
         let ev = build_applet_message_event(&valid()).expect("build");
-        assert_eq!(ev.kind, "ck.message.create");
+        assert_eq!(ev.kind, "ak.message.create");
         assert_eq!(
             ev.actor_id.as_str(),
             "did:web:slack-bridge.example:ghost:u123"
         );
         assert_eq!(
             ev.realm_id.as_str(),
-            "ck:realm:01904100-0000-7000-8000-000000000001"
+            "ak:realm:01904100-0000-7000-8000-000000000001"
         );
     }
 
@@ -199,7 +199,7 @@ mod tests {
         let ev = build_applet_message_event(&valid()).expect("build");
         assert_eq!(
             ev.unsigned.get("applet_id").and_then(Value::as_str),
-            Some("ck:applet:21532600-0000-7000-8000-000000000000")
+            Some("ak:applet:21532600-0000-7000-8000-000000000000")
         );
     }
 
@@ -216,7 +216,7 @@ mod tests {
         let ev = build_applet_message_event(&valid()).expect("build");
         assert_eq!(
             ev.authorization_ref.as_deref(),
-            Some("ck:grant:01904100-0000-7000-8000-000000000099")
+            Some("ak:grant:01904100-0000-7000-8000-000000000099")
         );
     }
 
@@ -266,16 +266,16 @@ mod tests {
         use base64::Engine;
         use base64::engine::general_purpose::STANDARD_NO_PAD;
 
-        use crate::cokret::signer::{CokretKeyRef, load_ed25519_signer};
+        use crate::arkret::signer::{ArkretKeyRef, load_ed25519_signer};
 
         const SEED: [u8; 32] = [9; 32];
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
-            "savfox-cokret-test-sign-{}.txt",
+            "savfox-arkret-test-sign-{}.txt",
             std::process::id()
         ));
         std::fs::write(&path, STANDARD_NO_PAD.encode(SEED)).expect("write");
-        let key_ref = CokretKeyRef::File { path: path.clone() };
+        let key_ref = ArkretKeyRef::File { path: path.clone() };
         let did = "did:web:slack-bridge.example:ghost:u123";
         let vm = "did:web:slack-bridge.example:ghost:u123#key-1";
         let signer = load_ed25519_signer(&key_ref, did, vm).expect("load");
@@ -291,11 +291,11 @@ mod tests {
     #[test]
     fn thread_root_id_passes_through() {
         let mut req = valid();
-        req.thread_root_id = Some("ck:event:abc".into());
+        req.thread_root_id = Some("ak:event:abc".into());
         let ev = build_applet_message_event(&req).expect("build");
         assert_eq!(
             ev.payload.get("thread_root_id").and_then(Value::as_str),
-            Some("ck:event:abc")
+            Some("ak:event:abc")
         );
     }
 }

@@ -1,6 +1,6 @@
-//! File-backed [`SeqStore`] for the cokret bridge runtime.
+//! File-backed [`SeqStore`] for the arkret bridge runtime.
 //!
-//! The `cokret-bridge-runtime` crate drives outbound event minting through a
+//! The `arkret-bridge-runtime` crate drives outbound event minting through a
 //! restart-safe monotonic sequence allocator. The runtime's own
 //! `SeqAllocator` reserves blocks from a pluggable [`SeqStore`]; the default
 //! upstream implementation is diesel-backed. savfox does not embed diesel in
@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use cokret_bridge_runtime::{BridgeError, Result as BridgeResult, SeqStore};
+use arkret_bridge_runtime::{BridgeError, Result as BridgeResult, SeqStore};
 use parking_lot::Mutex;
 
 /// On-disk JSON shape: `{ "<seq-key>": <high-water-mark>, ... }`.
@@ -136,7 +136,7 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
         std::env::temp_dir().join(format!(
-            "savfox-cokret-seqstore-{}-{}-{}.json",
+            "savfox-arkret-seqstore-{}-{}-{}.json",
             label,
             std::process::id(),
             N.fetch_add(1, Ordering::SeqCst)

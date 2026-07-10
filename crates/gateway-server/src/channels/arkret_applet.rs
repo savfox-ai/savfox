@@ -1,52 +1,52 @@
-//! Cokret Applet HTTP server endpoints.
+//! Arkret Applet HTTP server endpoints.
 //!
-//! When savfox runs as a registered Cokret Applet (savfox channel config
-//! with `kind = "cokret"` + `mode = "applet"`), this module hosts the
-//! inbound HTTP routes the Cokret server calls. Mirrors the Matrix
+//! When savfox runs as a registered Arkret Applet (savfox channel config
+//! with `kind = "arkret"` + `mode = "applet"`), this module hosts the
+//! inbound HTTP routes the Arkret server calls. Mirrors the Matrix
 //! Appservice route layout in [`channels::matrix`](crate::channels::matrix)
 //! one-for-one:
 //!
-//! Paths follow the Cokret spec `edge` trust segment (applet-integration.md
-//! §6) — versionless, under the `/_cokret/edge/applet/...` namespace:
+//! Paths follow the Arkret spec `edge` trust segment (applet-integration.md
+//! §6) — versionless, under the `/_arkret/edge/applet/...` namespace:
 //!
 //! | path | method | corresponds to |
 //! |---|---|---|
-//! | `/_cokret/edge/applet/ping` | GET | Matrix `/_matrix/app/v1/ping` |
-//! | `/_cokret/edge/applet/describe` | GET | (new — capability descriptor) |
-//! | `/_cokret/edge/applet/transactions` | POST | Matrix `PUT /_matrix/app/v1/transactions/{txn_id}` |
-//! | `/_cokret/edge/applet/actors/{actor_id}` | GET | Matrix `/_matrix/app/v1/users/{user_id}` |
-//! | `/_cokret/edge/applet/realms/{realm_id_or_alias}` | GET | Matrix `/_matrix/app/v1/rooms/{room_alias}` |
-//! | `/_cokret/edge/applet/protocols/{protocol}` | GET | Matrix `/_matrix/app/v1/thirdparty/protocol/{protocol}` |
-//! | `/_cokret/edge/applet/third_party/users` | GET | Third-party actor lookup |
-//! | `/_cokret/edge/applet/third_party/locations` | GET | Third-party realm lookup |
+//! | `/_arkret/edge/applet/ping` | GET | Matrix `/_matrix/app/v1/ping` |
+//! | `/_arkret/edge/applet/describe` | GET | (new — capability descriptor) |
+//! | `/_arkret/edge/applet/transactions` | POST | Matrix `PUT /_matrix/app/v1/transactions/{txn_id}` |
+//! | `/_arkret/edge/applet/actors/{actor_id}` | GET | Matrix `/_matrix/app/v1/users/{user_id}` |
+//! | `/_arkret/edge/applet/realms/{realm_id_or_alias}` | GET | Matrix `/_matrix/app/v1/rooms/{room_alias}` |
+//! | `/_arkret/edge/applet/protocols/{protocol}` | GET | Matrix `/_matrix/app/v1/thirdparty/protocol/{protocol}` |
+//! | `/_arkret/edge/applet/third_party/users` | GET | Third-party actor lookup |
+//! | `/_arkret/edge/applet/third_party/locations` | GET | Third-party realm lookup |
 //!
 //! Two mount points (mirroring matrix.rs convention):
 //!
-//! * Direct: `/_cokret/edge/applet/...` — auth resolves the channel via bearer.
-//! * Per-config: `/appservices/cokret/{config_id}/_cokret/edge/applet/...`.
+//! * Direct: `/_arkret/edge/applet/...` — auth resolves the channel via bearer.
+//! * Per-config: `/appservices/arkret/{config_id}/_arkret/edge/applet/...`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context as _;
-use cokret::http_signature::{
+use arkret::http_signature::{
     Component, HttpMessageVerificationError, SignaturePolicyError, SignatureVerificationPolicy,
     parse_signature_input, public_key_from_bytes, verify_signed_http_message,
 };
-use cokret::{
+use arkret::{
     AppletActorView, AppletDescription, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, Did, Hash, IdempotencyClaim,
     IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow, canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
-use savfox_channels::cokret::applet::{
-    AppletDispatchSkip, AppletEventOutcome, AppletInboundCommand, CokretAppletConfig,
-    classify_inbound_event, load_cokret_applet_configs,
+use savfox_channels::arkret::applet::{
+    AppletDispatchSkip, AppletEventOutcome, AppletInboundCommand, ArkretAppletConfig,
+    classify_inbound_event, load_arkret_applet_configs,
 };
-use savfox_channels::cokret::{
-    AppletNamespacesExt, CokretDecryptOutcome, CokretEncryptOutcome, FileCokretCryptoStore,
+use savfox_channels::arkret::{
+    AppletNamespacesExt, ArkretDecryptOutcome, ArkretEncryptOutcome, FileArkretCryptoStore,
     extract_encrypted_payload_from_message_content,
 };
 use serde_json::{Map, Value, json};
@@ -78,15 +78,15 @@ impl Default for AppletRuntimeState {
 }
 
 struct AppletChannelState {
-    config: CokretAppletConfig,
+    config: ArkretAppletConfig,
     runtime: Mutex<AppletRuntimeState>,
-    crypto_store: FileCokretCryptoStore,
+    crypto_store: FileArkretCryptoStore,
     /// Restart-safe monotonic allocator for this applet's outbound
     /// `actor_seq`. Backed by a file-backed [`SeqStore`] under the savfox
     /// home dir; replaces the previous `timestamp_millis()` hack which was
     /// neither monotonic across calls nor restart-safe. `SeqAllocator` is
     /// internally synchronized, so it lives outside the `runtime` Mutex.
-    seq: cokret_bridge_runtime::SeqAllocator,
+    seq: arkret_bridge_runtime::SeqAllocator,
 }
 
 // `SeqAllocator` is not `Debug`; provide a manual impl that elides it so
@@ -125,19 +125,19 @@ fn register_channel(state: AppletChannelState) -> anyhow::Result<()> {
 
 /// Remove a registered applet channel from the global registry.
 ///
-/// Must be called when a Cokret applet channel is disabled, deleted, or
+/// Must be called when an Arkret applet channel is disabled, deleted, or
 /// reconfigured. Without this, a stale `AppletChannelState` (carrying the
 /// bearer token and namespace patterns) would linger forever and keep matching
 /// `lookup_by_bearer` / `lookup_by_realm`, dispatching to a channel the
 /// operator already removed. Mirrors `matrix::remove_matrix_appservice_channel`.
-pub(crate) fn remove_cokret_applet_channel(config_id: &str) -> anyhow::Result<bool> {
+pub(crate) fn remove_arkret_applet_channel(config_id: &str) -> anyhow::Result<bool> {
     let mut reg = applet_registry()
         .lock()
         .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
     Ok(reg.remove(config_id).is_some())
 }
 
-pub(crate) fn is_cokret_applet_registered(config_id: &str) -> bool {
+pub(crate) fn is_arkret_applet_registered(config_id: &str) -> bool {
     let Ok(reg) = applet_registry().lock() else {
         return false;
     };
@@ -167,7 +167,7 @@ fn lookup_by_bearer(req: &Request) -> anyhow::Result<Option<Arc<AppletChannelSta
         .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
     Ok(reg
         .values()
-        .find(|state| applet_token_matches(state.config.cokret_bearer_token.as_deref(), &token))
+        .find(|state| applet_token_matches(state.config.arkret_bearer_token.as_deref(), &token))
         .cloned())
 }
 
@@ -248,12 +248,12 @@ struct VerifiedAppletHttpSignature {
 }
 
 fn render_state_unavailable(res: &mut Response, err: &anyhow::Error) {
-    warn!("cokret applet state unavailable: {err:#}");
+    warn!("arkret applet state unavailable: {err:#}");
     render_error(
         res,
         StatusCode::INTERNAL_SERVER_ERROR,
         "state_unavailable",
-        "Cokret applet state unavailable",
+        "Arkret applet state unavailable",
     );
 }
 
@@ -277,17 +277,17 @@ fn resolve_applet_for_request(
                 render_unauthorized(
                     res,
                     "missing_bearer_token",
-                    "Cokret applet endpoint requires Authorization: Bearer <token>",
+                    "Arkret applet endpoint requires Authorization: Bearer <token>",
                 );
                 return None;
             };
-            if applet_token_matches(state.config.cokret_bearer_token.as_deref(), &token) {
+            if applet_token_matches(state.config.arkret_bearer_token.as_deref(), &token) {
                 return Some(state);
             }
             render_unauthorized(
                 res,
                 "invalid_bearer_token",
-                "Authorization token does not match this Cokret applet channel",
+                "Authorization token does not match this Arkret applet channel",
             );
             return None;
         }
@@ -295,7 +295,7 @@ fn resolve_applet_for_request(
             res,
             StatusCode::NOT_FOUND,
             "applet_not_found",
-            format!("no cokret applet channel configured with id '{config_id}'"),
+            format!("no arkret applet channel configured with id '{config_id}'"),
         );
         return None;
     }
@@ -314,7 +314,7 @@ fn resolve_applet_for_request(
                 res,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "applet_unconfigured",
-                "no cokret applet channel is currently registered",
+                "no arkret applet channel is currently registered",
             );
             return None;
         }
@@ -327,7 +327,7 @@ fn resolve_applet_for_request(
     render_unauthorized(
         res,
         "invalid_bearer_token",
-        "Cokret applet endpoint requires a matching Authorization bearer token",
+        "Arkret applet endpoint requires a matching Authorization bearer token",
     );
     None
 }
@@ -343,7 +343,7 @@ async fn applet_ping(req: &mut Request, res: &mut Response) {
         ok: true,
         applet_id: state.config.applet_id.clone(),
         // `service_did` is strictly validated (Did::new) in
-        // `CokretAppletConfig::validate()` before the channel is registered,
+        // `ArkretAppletConfig::validate()` before the channel is registered,
         // so a registered applet always has a parseable DID here. No silent
         // `applet.unknown` fallback that would mask a config error.
         service_did: Did::new(state.config.service_did.clone())
@@ -410,7 +410,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             res,
             StatusCode::BAD_REQUEST,
             "missing_idempotency_key",
-            "Cokret applet transactions require an Idempotency-Key header",
+            "Arkret applet transactions require an Idempotency-Key header",
         );
         return;
     };
@@ -437,7 +437,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "payload_too_large",
                 format!(
-                    "Cokret applet transaction body exceeds {MAX_APPLET_TRANSACTION_BODY_BYTES} bytes"
+                    "Arkret applet transaction body exceeds {MAX_APPLET_TRANSACTION_BODY_BYTES} bytes"
                 ),
             );
             return;
@@ -467,13 +467,13 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     };
 
     let source_service_did = body.source_service_did.as_str().to_owned();
-    if let Some(expected_source) = state.config.cokret_server_did.as_deref()
+    if let Some(expected_source) = state.config.arkret_server_did.as_deref()
         && source_service_did != expected_source
     {
         render_unauthorized(
             res,
             "invalid_source_service_did",
-            "Cokret applet transaction source_service_did does not match the trusted server DID",
+            "Arkret applet transaction source_service_did does not match the trusted server DID",
         );
         return;
     }
@@ -496,7 +496,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             render_unauthorized(
                 res,
                 "invalid_signature",
-                "Cokret applet transaction HTTP message signature verification failed",
+                "Arkret applet transaction HTTP message signature verification failed",
             );
             return;
         }
@@ -507,7 +507,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         render_unauthorized(
             res,
             "invalid_signature",
-            "Cokret applet transaction source_service_did does not match signed source service DID",
+            "Arkret applet transaction source_service_did does not match signed source service DID",
         );
         return;
     }
@@ -550,7 +550,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     );
     let source_signature_evidence = if let Some(signature) = verified_http_signature.as_ref() {
         json!({
-            "operation_id": cokret::APPLET_TRANSACTION_OPERATION_ID,
+            "operation_id": arkret::APPLET_TRANSACTION_OPERATION_ID,
             "direction": IdempotencyDirection::NodeToApplet.as_str(),
             "source_service_did": &source_service_did,
             "destination_service_did": &signature.destination_service_did,
@@ -567,7 +567,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         })
     } else {
         json!({
-            "operation_id": cokret::APPLET_TRANSACTION_OPERATION_ID,
+            "operation_id": arkret::APPLET_TRANSACTION_OPERATION_ID,
             "direction": IdempotencyDirection::NodeToApplet.as_str(),
             "source_service_did": &source_service_did,
             "destination_service_did": state.config.service_did.clone(),
@@ -601,7 +601,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 res,
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "state_unavailable",
-                "Cokret applet runtime state unavailable",
+                "Arkret applet runtime state unavailable",
             );
             return;
         };
@@ -664,7 +664,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                         config_id = %state.config.id,
                         event_id = event.event_id.as_str(),
                         realm_id = event.realm_id.as_str(),
-                        "cokret applet: encrypted inbound event rejected; crypto session decrypt is not wired"
+                        "arkret applet: encrypted inbound event rejected; crypto session decrypt is not wired"
                     );
                 }
                 rejected.push(json!({
@@ -706,7 +706,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         let gw = gateway_channel.clone();
         let store = session_store.clone();
         let cid = config_id.clone();
-        let dedupe_key = format!("cokret-applet:{}:{}", cid, cmd.event_id);
+        let dedupe_key = format!("arkret-applet:{}:{}", cid, cmd.event_id);
         if runtime::should_drop_duplicate(Some(dedupe_key)).await {
             continue;
         }
@@ -714,7 +714,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                 gw,
                 store,
-                "cokret",
+                "arkret",
                 cmd.realm_id.clone(),
                 cmd.body,
                 Some(cmd.sender_did.clone()),
@@ -762,8 +762,8 @@ fn verify_applet_transaction_http_signature(
         return Ok(None);
     }
 
-    let expected_source = state.config.cokret_server_did.as_deref().ok_or_else(|| {
-        anyhow::anyhow!("trusted verification methods require cokret_server_did / trustedServerDid")
+    let expected_source = state.config.arkret_server_did.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("trusted verification methods require arkret_server_did / trustedServerDid")
     })?;
     let signature_input_header = header_value_from(headers, "signature-input")
         .ok_or_else(|| anyhow::anyhow!("Signature-Input header is required"))?;
@@ -947,13 +947,13 @@ fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error 
     }
 }
 
-fn record_applet_mls_welcome_from_event(state: &AppletChannelState, event: &cokret::Event) -> bool {
+fn record_applet_mls_welcome_from_event(state: &AppletChannelState, event: &arkret::Event) -> bool {
     record_applet_mls_welcome_from_value_tree(state, event, &event.payload, 6) > 0
 }
 
 fn record_applet_mls_welcome_from_value_tree(
     state: &AppletChannelState,
-    event: &cokret::Event,
+    event: &arkret::Event,
     value: &Value,
     remaining_depth: usize,
 ) -> usize {
@@ -967,7 +967,7 @@ fn record_applet_mls_welcome_from_value_tree(
                 epoch = welcome.epoch,
                 recipient_principal_id = %welcome.recipient_principal_id.as_str(),
                 recipient_device_id = %welcome.recipient_device_id.as_str(),
-                "cokret applet: recorded MLS Welcome from inbound transaction event"
+                "arkret applet: recorded MLS Welcome from inbound transaction event"
             );
             return 1;
         }
@@ -977,7 +977,7 @@ fn record_applet_mls_welcome_from_value_tree(
                 config_id = %state.config.id,
                 event_id = event.event_id.as_str(),
                 realm_id = event.realm_id.as_str(),
-                "cokret applet: failed to persist MLS Welcome from inbound transaction event: {err:#}"
+                "arkret applet: failed to persist MLS Welcome from inbound transaction event: {err:#}"
             );
             return 1;
         }
@@ -1004,7 +1004,7 @@ fn record_applet_mls_welcome_from_value_tree(
 
 fn try_decrypt_applet_event(
     state: &AppletChannelState,
-    event: &cokret::Event,
+    event: &arkret::Event,
 ) -> Option<AppletInboundCommand> {
     let payload = extract_encrypted_payload_from_message_content(&event.payload)?;
     if let Some(device_id) = state.config.device_id.as_deref() {
@@ -1019,22 +1019,22 @@ fn try_decrypt_applet_event(
                 required_epoch = plan.required_epoch,
                 local_epoch = ?plan.local_epoch,
                 action = ?plan.action,
-                "cokret applet: planned crypto bootstrap for encrypted event"
+                "arkret applet: planned crypto bootstrap for encrypted event"
             ),
             Err(err) => warn!(
                 config_id = %state.config.id,
-                "cokret applet: failed to plan crypto bootstrap for encrypted event: {err:#}"
+                "arkret applet: failed to plan crypto bootstrap for encrypted event: {err:#}"
             ),
         }
     }
 
     match state.crypto_store.try_decrypt_content_block(&payload) {
-        Ok(CokretDecryptOutcome::Decrypted(content)) => {
+        Ok(ArkretDecryptOutcome::Decrypted(content)) => {
             let Some(body) = decrypted_text_body(&content) else {
                 warn!(
                     config_id = %state.config.id,
                     event_id = event.event_id.as_str(),
-                    "cokret applet: decrypted encrypted event but content is not displayable text"
+                    "arkret applet: decrypted encrypted event but content is not displayable text"
                 );
                 return None;
             };
@@ -1055,27 +1055,27 @@ fn try_decrypt_applet_event(
                     .map(str::to_owned),
             })
         }
-        Ok(CokretDecryptOutcome::MissingGroupState) => {
+        Ok(ArkretDecryptOutcome::MissingGroupState) => {
             record_applet_unable_to_decrypt(
                 state,
                 event,
                 payload,
-                cokret::crypto_protocol::UnableToDecryptReason::NoSession,
+                arkret::crypto_protocol::UnableToDecryptReason::NoSession,
             );
             None
         }
-        Ok(CokretDecryptOutcome::UnsupportedScheme(scheme)) => {
+        Ok(ArkretDecryptOutcome::UnsupportedScheme(scheme)) => {
             warn!(
                 config_id = %state.config.id,
                 event_id = event.event_id.as_str(),
                 scheme,
-                "cokret applet: unsupported encrypted payload scheme"
+                "arkret applet: unsupported encrypted payload scheme"
             );
             record_applet_unable_to_decrypt(
                 state,
                 event,
                 payload,
-                cokret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
+                arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
             );
             None
         }
@@ -1083,13 +1083,13 @@ fn try_decrypt_applet_event(
             warn!(
                 config_id = %state.config.id,
                 event_id = event.event_id.as_str(),
-                "cokret applet: encrypted event decrypt failed: {err:#}"
+                "arkret applet: encrypted event decrypt failed: {err:#}"
             );
             record_applet_unable_to_decrypt(
                 state,
                 event,
                 payload,
-                cokret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
+                arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
             );
             None
         }
@@ -1098,9 +1098,9 @@ fn try_decrypt_applet_event(
 
 fn record_applet_unable_to_decrypt(
     state: &AppletChannelState,
-    event: &cokret::Event,
-    payload: cokret::EncryptedPayload,
-    reason: cokret::crypto_protocol::UnableToDecryptReason,
+    event: &arkret::Event,
+    payload: arkret::EncryptedPayload,
+    reason: arkret::crypto_protocol::UnableToDecryptReason,
 ) {
     if let Err(err) = state.crypto_store.record_unable_to_decrypt(
         event.event_id.as_str(),
@@ -1112,7 +1112,7 @@ fn record_applet_unable_to_decrypt(
         warn!(
             config_id = %state.config.id,
             event_id = event.event_id.as_str(),
-            "cokret applet: failed to persist unable-to-decrypt record: {err:#}"
+            "arkret applet: failed to persist unable-to-decrypt record: {err:#}"
         );
     }
 }
@@ -1123,7 +1123,7 @@ fn decrypted_text_body(content: &Value) -> Option<String> {
         .filter(|inner| inner.get("kind").is_some())
         .unwrap_or(content);
     let kind = block.get("kind").and_then(Value::as_str)?;
-    if kind != "ck.content.text" {
+    if kind != "ak.content.text" {
         return None;
     }
     block
@@ -1176,7 +1176,7 @@ async fn applet_realm(req: &mut Request, res: &mut Response) {
     }
     let body = AppletRealmView {
         exists: true,
-        realm_id: cokret::RealmId::new(realm).ok(),
+        realm_id: arkret::RealmId::new(realm).ok(),
         title: None,
         external_ref: Value::Null,
     };
@@ -1250,7 +1250,7 @@ fn field_string<'a>(fields: &'a Map<String, Value>, keys: &[&str]) -> Option<&'a
 }
 
 fn ensure_supported_protocol(
-    cfg: &CokretAppletConfig,
+    cfg: &ArkretAppletConfig,
     fields: &Map<String, Value>,
     res: &mut Response,
 ) -> Option<String> {
@@ -1330,7 +1330,7 @@ async fn applet_third_party_users(req: &mut Request, res: &mut Response) {
         &["actor_id", "user", "user_id", "external_id", "id", "actor"],
     )
     .map(|external_id| {
-        savfox_channels::cokret::mint_ghost_did(
+        savfox_channels::arkret::mint_ghost_did(
             &state.config.service_did,
             &state.config.ghost_did_prefix,
             external_id,
@@ -1377,8 +1377,8 @@ async fn applet_third_party_locations(req: &mut Request, res: &mut Response) {
 /// namespace covers `realm_id`.
 ///
 /// Returns `Ok(false)` when no registered applet claims the realm so callers
-/// can fall back to account-mode Cokret sending.
-pub(crate) async fn send_to_cokret_applet_for_realm(
+/// can fall back to account-mode Arkret sending.
+pub(crate) async fn send_to_arkret_applet_for_realm(
     realm_id: &str,
     flow_id: Option<&str>,
     body: &str,
@@ -1388,7 +1388,7 @@ pub(crate) async fn send_to_cokret_applet_for_realm(
     };
     let flow_id = flow_id.ok_or_else(|| {
         anyhow::anyhow!(
-            "Cokret applet '{}' cannot reply to realm '{}' without a flow id",
+            "Arkret applet '{}' cannot reply to realm '{}' without a flow id",
             state.config.id,
             realm_id
         )
@@ -1401,7 +1401,7 @@ pub(crate) async fn send_to_cokret_applet_for_realm(
     });
     // `actor_seq` is no longer derived from a wall-clock timestamp here — it
     // is sourced inside `send_via_applet` from the per-applet
-    // `cokret-bridge-runtime` `SeqAllocator` (monotonic, restart-safe).
+    // `arkret-bridge-runtime` `SeqAllocator` (monotonic, restart-safe).
     send_via_applet(
         &state.config.id,
         realm_id,
@@ -1414,16 +1414,16 @@ pub(crate) async fn send_to_cokret_applet_for_realm(
     Ok(true)
 }
 
-/// Send a Ghost-actor-attributed `ck.message.create` Event from this applet
-/// to the Cokret server. On failure, emit a best-effort
-/// `ck.applet.bridge_error` Event so receivers don't silently lose state
+/// Send a Ghost-actor-attributed `ak.message.create` Event from this applet
+/// to the Arkret server. On failure, emit a best-effort
+/// `ak.applet.bridge_error` Event so receivers don't silently lose state
 /// (spec applet-integration.md §14).
 ///
 /// `config_id` looks up the registered applet; `external_ref` is the
 /// bridge-side origin (protocol/network/external_id) for audit.
 ///
 /// The outbound `actor_seq` is allocated from the applet's
-/// `cokret-bridge-runtime` [`SeqAllocator`] (file-backed [`SeqStore`]),
+/// `arkret-bridge-runtime` [`SeqAllocator`] (file-backed [`SeqStore`]),
 /// giving a monotonic, restart-safe sequence — no longer
 /// `chrono::Utc::now().timestamp_millis()`.
 pub(crate) async fn send_via_applet(
@@ -1435,8 +1435,8 @@ pub(crate) async fn send_via_applet(
     external_ref: Value,
 ) -> anyhow::Result<()> {
     let state = lookup_by_config_id(config_id)
-        .with_context(|| format!("cokret applet '{config_id}' registry lookup failed"))?
-        .ok_or_else(|| anyhow::anyhow!("cokret applet '{config_id}' not registered"))?;
+        .with_context(|| format!("arkret applet '{config_id}' registry lookup failed"))?
+        .ok_or_else(|| anyhow::anyhow!("arkret applet '{config_id}' not registered"))?;
     let cfg = &state.config;
 
     // Monotonic restart-safe actor sequence from the per-applet allocator.
@@ -1455,7 +1455,7 @@ pub(crate) async fn send_via_applet(
         .await
         .or_else(|| cfg.authorization_grant_id.clone());
 
-    let req = savfox_channels::cokret::AppletMessageRequest {
+    let req = savfox_channels::arkret::AppletMessageRequest {
         applet_id: cfg.applet_id.clone(),
         realm_id: realm_id.to_owned(),
         flow_id: flow_id.to_owned(),
@@ -1467,7 +1467,7 @@ pub(crate) async fn send_via_applet(
         actor_seq,
         thread_root_id: None,
     };
-    let mut event = savfox_channels::cokret::build_applet_message_event(&req)?;
+    let mut event = savfox_channels::arkret::build_applet_message_event(&req)?;
     apply_applet_outbound_encryption(&state.crypto_store, realm_id, &mut event)?;
 
     // Phase 8 (T8.C): sign with the applet's bot key when key_ref is set.
@@ -1481,12 +1481,12 @@ pub(crate) async fn send_via_applet(
         Ok(resp) => {
             if !resp.rejected.is_empty() {
                 Err(anyhow::anyhow!(
-                    "cokret applet: server rejected event for realm '{realm_id}': {:?}",
+                    "arkret applet: server rejected event for realm '{realm_id}': {:?}",
                     resp.rejected
                 ))
             } else if resp.accepted.is_empty() && resp.duplicate.is_empty() {
                 Err(anyhow::anyhow!(
-                    "cokret applet: server accepted no events for realm '{realm_id}' (status={:?})",
+                    "arkret applet: server accepted no events for realm '{realm_id}' (status={:?})",
                     resp.status
                 ))
             } else {
@@ -1503,7 +1503,7 @@ pub(crate) async fn send_via_applet(
                 realm_id,
                 flow_id,
                 error = %err,
-                "cokret applet: send_via_applet submission failed — emitting bridge_error"
+                "arkret applet: send_via_applet submission failed — emitting bridge_error"
             );
             // Best-effort bridge_error emission. If THIS submit also fails,
             // we log and continue — there is no escalation path for a
@@ -1511,13 +1511,13 @@ pub(crate) async fn send_via_applet(
             if let Err(err2) = emit_bridge_error(
                 &state,
                 realm_id,
-                "cokret_submit_failed",
+                "arkret_submit_failed",
                 &err.to_string(),
                 Some(external_ref),
             )
             .await
             {
-                warn!(config_id, error = %err2, "cokret applet: bridge_error emit also failed");
+                warn!(config_id, error = %err2, "arkret applet: bridge_error emit also failed");
             }
             Err(err)
         }
@@ -1525,36 +1525,36 @@ pub(crate) async fn send_via_applet(
 }
 
 fn apply_applet_outbound_encryption(
-    crypto_store: &FileCokretCryptoStore,
+    crypto_store: &FileArkretCryptoStore,
     realm_id: &str,
-    event: &mut cokret::Event,
+    event: &mut arkret::Event,
 ) -> anyhow::Result<()> {
     let Some(content_block) = event.payload.get("content").cloned() else {
         return Ok(());
     };
     match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
-        CokretEncryptOutcome::PlaintextAllowed => Ok(()),
-        CokretEncryptOutcome::Encrypted(encrypted_content) => {
+        ArkretEncryptOutcome::PlaintextAllowed => Ok(()),
+        ArkretEncryptOutcome::Encrypted(encrypted_content) => {
             let object = event
                 .payload
                 .as_object_mut()
-                .ok_or_else(|| anyhow::anyhow!("Cokret applet message content is not an object"))?;
+                .ok_or_else(|| anyhow::anyhow!("Arkret applet message content is not an object"))?;
             object.remove("content");
             object.insert("encrypted_content".to_owned(), encrypted_content);
             Ok(())
         }
-        CokretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
+        ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
             anyhow::bail!(
-                "Cokret realm '{realm_id}' requires E2EE but no local applet MLS group state exists for group '{group_id}'"
+                "Arkret realm '{realm_id}' requires E2EE but no local applet MLS group state exists for group '{group_id}'"
             );
         }
     }
 }
 
-/// Emit a `ck.applet.bridge_error` Event (SDK S-11).
+/// Emit a `ak.applet.bridge_error` Event (SDK S-11).
 ///
 /// `code` should be one of the spec-blessed strings:
-/// `external_rate_limited` / `external_rejected` / `cokret_submit_failed` /
+/// `external_rate_limited` / `external_rejected` / `arkret_submit_failed` /
 /// `delivery_unconfirmed`. `message` is human-readable.
 async fn emit_bridge_error(
     state: &Arc<AppletChannelState>,
@@ -1563,7 +1563,7 @@ async fn emit_bridge_error(
     message: &str,
     external_ref: Option<Value>,
 ) -> anyhow::Result<()> {
-    use cokret::{
+    use arkret::{
         AppletBridgeErrorBuilder, AppletBridgeErrorClass, AppletBridgeErrorVisibility, Hlc, RealmId,
     };
 
@@ -1620,17 +1620,17 @@ async fn emit_bridge_error(
 /// Build the outbound HTTP client for an applet config. Uses DID-proof
 /// login when `key_ref` is set; falls back to the static bearer otherwise.
 async fn construct_applet_client(
-    cfg: &savfox_channels::cokret::CokretAppletConfig,
-) -> anyhow::Result<savfox_channels::cokret::CokretHttpClient> {
+    cfg: &savfox_channels::arkret::ArkretAppletConfig,
+) -> anyhow::Result<savfox_channels::arkret::ArkretHttpClient> {
     if let Some(key_ref) = &cfg.key_ref {
-        use savfox_channels::cokret::CokretHttpClient;
+        use savfox_channels::arkret::ArkretHttpClient;
         let vm = cfg
             .verification_method
             .clone()
             .unwrap_or_else(|| format!("{}#key-1", cfg.bot_actor_id));
-        let audience = cfg.cokret_server_did.as_deref().ok_or_else(|| {
+        let audience = cfg.arkret_server_did.as_deref().ok_or_else(|| {
             anyhow::anyhow!(
-                "applet '{}' has key_ref but no cokret_server_did / cokretServerDid for DID-proof audience",
+                "applet '{}' has key_ref but no arkret_server_did / arkretServerDid for DID-proof audience",
                 cfg.id
             )
         })?;
@@ -1640,13 +1640,13 @@ async fn construct_applet_client(
                 cfg.id
             )
         })?;
-        let signer = savfox_channels::cokret::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
-        let principal = cokret::Did::new(cfg.bot_actor_id.clone())
+        let signer = savfox_channels::arkret::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
+        let principal = arkret::Did::new(cfg.bot_actor_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
         // Applet configs keep the bot device optional for bearer-only mode.
         // DID-proof login still needs a protocol-valid runtime device id.
-        let device = cokret::DeviceId::new(cfg.device_id.clone().unwrap_or_else(|| {
-            savfox_channels::cokret::derive_cokret_device_id(&[
+        let device = arkret::DeviceId::new(cfg.device_id.clone().unwrap_or_else(|| {
+            savfox_channels::arkret::derive_arkret_device_id(&[
                 "applet",
                 &cfg.id,
                 &cfg.applet_id,
@@ -1654,8 +1654,8 @@ async fn construct_applet_client(
             ])
         }))
         .map_err(|err| anyhow::anyhow!("synth device_id: {err}"))?;
-        let (client, _session) = CokretHttpClient::login(
-            &cfg.cokret_server_url,
+        let (client, _session) = ArkretHttpClient::login(
+            &cfg.arkret_server_url,
             &signer,
             principal,
             device,
@@ -1665,22 +1665,22 @@ async fn construct_applet_client(
         .await?;
         Ok(client)
     } else {
-        let bearer = cfg.cokret_bearer_token.as_deref().ok_or_else(|| {
+        let bearer = cfg.arkret_bearer_token.as_deref().ok_or_else(|| {
             anyhow::anyhow!(
-                "applet '{}' has neither key_ref nor cokret_bearer_token",
+                "applet '{}' has neither key_ref nor arkret_bearer_token",
                 cfg.id
             )
         })?;
-        savfox_channels::cokret::CokretHttpClient::new(&cfg.cokret_server_url, bearer)
+        savfox_channels::arkret::ArkretHttpClient::new(&cfg.arkret_server_url, bearer)
     }
 }
 
 /// Phase 8 (T8.C): sign the outbound event with the applet's bot key,
 /// if `key_ref` is set. No-op otherwise.
 async fn sign_applet_event_if_keyed(
-    cfg: &savfox_channels::cokret::CokretAppletConfig,
+    cfg: &savfox_channels::arkret::ArkretAppletConfig,
     actor_did: &str,
-    event: &mut cokret::Event,
+    event: &mut arkret::Event,
 ) -> anyhow::Result<()> {
     let Some(key_ref) = &cfg.key_ref else {
         // No signer configured: the event goes out with empty `proofs[]`, which
@@ -1688,7 +1688,7 @@ async fn sign_applet_event_if_keyed(
         // Don't fail (bare-bearer dev deployments rely on this), but make the
         // misconfiguration visible instead of silently submitting a doomed event.
         warn!(
-            "cokret applet '{}': no key_ref configured — submitting UNSIGNED outbound event \
+            "arkret applet '{}': no key_ref configured — submitting UNSIGNED outbound event \
              (production servers will reject with event_proofs_empty)",
             cfg.id
         );
@@ -1698,8 +1698,8 @@ async fn sign_applet_event_if_keyed(
         .verification_method
         .clone()
         .unwrap_or_else(|| format!("{actor_did}#key-1"));
-    let signer = savfox_channels::cokret::load_ed25519_signer(key_ref, actor_did, &vm)?;
-    savfox_channels::cokret::applet::sign_outbound_event(event, &signer, &vm)?;
+    let signer = savfox_channels::arkret::load_ed25519_signer(key_ref, actor_did, &vm)?;
+    savfox_channels::arkret::applet::sign_outbound_event(event, &signer, &vm)?;
     Ok(())
 }
 
@@ -1708,14 +1708,14 @@ async fn sign_applet_event_if_keyed(
 /// `authorization_ref`. Logs and returns `None` on load failure (grant
 /// is operator-managed; missing files shouldn't crash outbound).
 async fn load_applet_grant_event_id(
-    cfg: &savfox_channels::cokret::CokretAppletConfig,
+    cfg: &savfox_channels::arkret::ArkretAppletConfig,
 ) -> Option<String> {
     let path = cfg.grant_event_path.as_ref()?;
-    match savfox_channels::cokret::load_and_verify_grant(path, &cfg.bot_actor_id, None).await {
-        Ok(grant) if grant.covers_action("ck.message.create") => Some(grant.event_id),
+    match savfox_channels::arkret::load_and_verify_grant(path, &cfg.bot_actor_id, None).await {
+        Ok(grant) if grant.covers_action("ak.message.create") => Some(grant.event_id),
         Ok(_) => {
             warn!(
-                "cokret applet '{}': capability grant at {} does not cover ck.message.create",
+                "arkret applet '{}': capability grant at {} does not cover ak.message.create",
                 cfg.id,
                 path.display()
             );
@@ -1723,7 +1723,7 @@ async fn load_applet_grant_event_id(
         }
         Err(err) => {
             warn!(
-                "cokret applet '{}': capability grant load failed at {}: {err:#}",
+                "arkret applet '{}': capability grant load failed at {}: {err:#}",
                 cfg.id,
                 path.display()
             );
@@ -1734,9 +1734,9 @@ async fn load_applet_grant_event_id(
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
-/// Routes mounted at `/_cokret/edge/applet/...` (direct).
-pub(crate) fn cokret_applet_router() -> Router {
-    Router::with_path("_cokret/edge/applet")
+/// Routes mounted at `/_arkret/edge/applet/...` (direct).
+pub(crate) fn arkret_applet_router() -> Router {
+    Router::with_path("_arkret/edge/applet")
         .push(Router::with_path("ping").get(applet_ping))
         .push(Router::with_path("describe").get(applet_describe))
         .push(Router::with_path("transactions").post(applet_transactions))
@@ -1747,9 +1747,9 @@ pub(crate) fn cokret_applet_router() -> Router {
         .push(Router::with_path("third_party/locations").get(applet_third_party_locations))
 }
 
-/// Routes mounted at `/appservices/cokret/{config_id}/_cokret/edge/applet/...`.
-pub(crate) fn cokret_appservices_router() -> Router {
-    Router::with_path("appservices/cokret/{config_id}").push(cokret_applet_router())
+/// Routes mounted at `/appservices/arkret/{config_id}/_arkret/edge/applet/...`.
+pub(crate) fn arkret_appservices_router() -> Router {
+    Router::with_path("appservices/arkret/{config_id}").push(arkret_applet_router())
 }
 
 // ─── Startup glue ───────────────────────────────────────────────────────────
@@ -1757,7 +1757,7 @@ pub(crate) fn cokret_appservices_router() -> Router {
 /// Build the restart-safe monotonic [`SeqAllocator`] for an applet.
 ///
 /// The backing [`SeqStore`] is a file under
-/// `{savfox_home}/gateway/cokret-applet-seq/{config_id}.seq`; the allocator
+/// `{savfox_home}/gateway/arkret-applet-seq/{config_id}.seq`; the allocator
 /// is keyed `applet:{config_id}:actor_seq` so each applet has an independent
 /// monotonic counter. Persisting the high-water mark makes `actor_seq`
 /// restart-safe — the previous `timestamp_millis()` approach was neither
@@ -1765,10 +1765,10 @@ pub(crate) fn cokret_appservices_router() -> Router {
 fn build_applet_seq_allocator(
     savfox_home: &std::path::Path,
     config_id: &str,
-) -> anyhow::Result<cokret_bridge_runtime::SeqAllocator> {
+) -> anyhow::Result<arkret_bridge_runtime::SeqAllocator> {
     let dir = savfox_home
         .join(savfox_utils::home_dir::GATEWAY_SUBDIR)
-        .join("cokret-applet-seq");
+        .join("arkret-applet-seq");
     // Sanitize the config id for use as a filename (ids are operator-defined
     // and may contain path separators / colons).
     let safe_id: String = config_id
@@ -1782,28 +1782,28 @@ fn build_applet_seq_allocator(
         })
         .collect();
     let path = dir.join(format!("{safe_id}.seq"));
-    let store = savfox_channels::cokret::FileSeqStore::shared(path)
-        .map_err(|e| anyhow::anyhow!("cokret applet seq store: {e}"))?;
-    Ok(cokret_bridge_runtime::SeqAllocator::new(
+    let store = savfox_channels::arkret::FileSeqStore::shared(path)
+        .map_err(|e| anyhow::anyhow!("arkret applet seq store: {e}"))?;
+    Ok(arkret_bridge_runtime::SeqAllocator::new(
         store,
         format!("applet:{config_id}:actor_seq"),
     ))
 }
 
-/// Start (register) a Cokret Applet channel. Mounts no extra HTTP listener
+/// Start (register) an Arkret Applet channel. Mounts no extra HTTP listener
 /// — the routes are added to the main savfox-gateway-server `Router` in
 /// `server.rs`. Returns once registry insertion is done.
-pub(crate) async fn start_cokret_applet_channel(
+pub(crate) async fn start_arkret_applet_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     channel: &Arc<GatewayChannel>,
     _session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    let applet_cfg = CokretAppletConfig::from_channel_config(config).ok_or_else(|| {
-        anyhow::anyhow!("Cokret applet channel '{}' missing or invalid", config.id)
+    let applet_cfg = ArkretAppletConfig::from_channel_config(config).ok_or_else(|| {
+        anyhow::anyhow!("Arkret applet channel '{}' missing or invalid", config.id)
     })?;
     applet_cfg.validate().with_context(|| {
         format!(
-            "Cokret applet channel '{}' validation failed",
+            "Arkret applet channel '{}' validation failed",
             applet_cfg.id
         )
     })?;
@@ -1814,12 +1814,12 @@ pub(crate) async fn start_cokret_applet_channel(
     // (replacing the old `timestamp_millis()` hack). `SeqAllocator` is keyed
     // per-applet (`config.id`) so multiple applets don't share a counter.
     let savfox_home = channel.config().savfox_home.clone();
-    let crypto_store = FileCokretCryptoStore::for_applet(&savfox_home, &applet_cfg.id);
+    let crypto_store = FileArkretCryptoStore::for_applet(&savfox_home, &applet_cfg.id);
     if let Err(err) =
-        FileCokretCryptoStore::feature_report().and_then(|_| crypto_store.ensure_created())
+        FileArkretCryptoStore::feature_report().and_then(|_| crypto_store.ensure_created())
     {
         warn!(
-            "cokret: applet '{}' crypto state unavailable at {}: {err:#}",
+            "arkret: applet '{}' crypto state unavailable at {}: {err:#}",
             applet_cfg.id,
             crypto_store.path().display()
         );
@@ -1833,7 +1833,7 @@ pub(crate) async fn start_cokret_applet_channel(
         seq,
     };
     info!(
-        "cokret: applet channel '{}' registered (applet_id={}, service_did={})",
+        "arkret: applet channel '{}' registered (applet_id={}, service_did={})",
         state.config.id, state.config.applet_id, state.config.service_did
     );
     register_channel(state)?;
@@ -1841,31 +1841,31 @@ pub(crate) async fn start_cokret_applet_channel(
 }
 
 /// Loader used at gateway startup to count + log configured applet channels
-/// without booting them (booting is `start_cokret_applet_channel`).
-pub(crate) async fn log_cokret_applet_configs(savfox_home: &std::path::PathBuf) {
-    match load_cokret_applet_configs(savfox_home).await {
+/// without booting them (booting is `start_arkret_applet_channel`).
+pub(crate) async fn log_arkret_applet_configs(savfox_home: &std::path::PathBuf) {
+    match load_arkret_applet_configs(savfox_home).await {
         Ok(configs) => {
             for cfg in configs {
                 info!(
-                    "cokret applet config '{}': applet_id={}, service_did={}, protocols={:?}",
+                    "arkret applet config '{}': applet_id={}, service_did={}, protocols={:?}",
                     cfg.id, cfg.applet_id, cfg.service_did, cfg.protocols,
                 );
             }
         }
         Err(err) => {
-            warn!("cokret applet: failed to load configs: {err}");
+            warn!("arkret applet: failed to load configs: {err}");
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use cokret::http_signature::{
+    use arkret::http_signature::{
         Component, ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
         parse_signature_input, sign_message, signing_key_from_seed,
     };
-    use cokret::signatures::PublicKeyMaterial;
-    use savfox_channels::cokret::applet::CokretAppletTrustedVerificationMethod;
+    use arkret::signatures::PublicKeyMaterial;
+    use savfox_channels::arkret::applet::ArkretAppletTrustedVerificationMethod;
     use savfox_core::config::channel_store::ChannelConfig;
 
     use super::*;
@@ -1873,24 +1873,24 @@ mod tests {
     fn valid_channel_config() -> ChannelConfig {
         ChannelConfig {
             id: "applet-test".into(),
-            kind: "cokret".into(),
+            kind: "arkret".into(),
             slug: "applet".into(),
             name: "Applet".into(),
             enabled: true,
             config: json!({
                 "mode": "applet",
-                "appletId": "ck:applet:21532600-0000-7000-8000-000000000000",
+                "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
                 "serviceDid": "did:web:bridge.example",
                 "controllerDid": "did:webvh:example.com:admin",
                 "baseUrl": "https://savfox.example/applet-test",
                 "botActorId": "did:web:bridge.example:bot",
-                "cokretServerUrl": "https://cokret.example.org",
-                "cokretServerDid": "did:webvh:cokret.example.org",
+                "arkretServerUrl": "https://arkret.example.org",
+                "arkretServerDid": "did:webvh:arkret.example.org",
                 "accessToken": "test-bearer",
                 "protocols": ["slack"],
                 "namespaces": {
                     "actors": [{"pattern": "did:web:bridge.example:ghost:*", "exclusive": true}],
-                    "realms": [{"pattern": "ck:realm:*", "exclusive": true}],
+                    "realms": [{"pattern": "ak:realm:*", "exclusive": true}],
                     "handles": []
                 }
             }),
@@ -1904,9 +1904,9 @@ mod tests {
 
     fn state_with_trusted_http_signature_key(public_key: Vec<u8>) -> AppletChannelState {
         let cfg = valid_channel_config();
-        let mut applet = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
-        applet.trusted_verification_methods = vec![CokretAppletTrustedVerificationMethod {
-            verification_method: "did:webvh:cokret.example.org#key-1".to_owned(),
+        let mut applet = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
+        applet.trusted_verification_methods = vec![ArkretAppletTrustedVerificationMethod {
+            verification_method: "did:webvh:arkret.example.org#key-1".to_owned(),
             public_key: PublicKeyMaterial::Ed25519Raw { bytes: public_key },
         }];
         applet.validate().expect("validate");
@@ -1914,7 +1914,7 @@ mod tests {
         AppletChannelState {
             config: applet.clone(),
             runtime: Mutex::new(AppletRuntimeState::default()),
-            crypto_store: FileCokretCryptoStore::for_applet(tmp.path(), &applet.id),
+            crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
             seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
         }
     }
@@ -1928,14 +1928,14 @@ mod tests {
             "sig1=(\"@method\" \"@target-uri\" \"@authority\" \
              \"source-service-did\" \"destination-service-did\" \
              \"content-digest\" \"idempotency-key\");created={now};expires={};\
-             keyid=\"did:webvh:cokret.example.org#key-1\";alg=\"ed25519\"",
+             keyid=\"did:webvh:arkret.example.org#key-1\";alg=\"ed25519\"",
             now + 300
         );
         let mut headers = vec![
             ("host".to_owned(), "savfox.example".to_owned()),
             (
                 SOURCE_SERVICE_DID_HEADER.to_owned(),
-                "did:webvh:cokret.example.org".to_owned(),
+                "did:webvh:arkret.example.org".to_owned(),
             ),
             (
                 DESTINATION_SERVICE_DID_HEADER.to_owned(),
@@ -1960,9 +1960,9 @@ mod tests {
         ]));
         let request = SignedRequestParts {
             method: "POST".to_owned(),
-            target_uri: "https://savfox.example/_cokret/edge/applet/transactions".to_owned(),
+            target_uri: "https://savfox.example/_arkret/edge/applet/transactions".to_owned(),
             authority: "savfox.example".to_owned(),
-            path: "/_cokret/edge/applet/transactions".to_owned(),
+            path: "/_arkret/edge/applet/transactions".to_owned(),
             headers: headers.clone(),
             body_digest: Some(content_digest.wire_value),
         };
@@ -1973,13 +1973,13 @@ mod tests {
     }
 
     fn mls_welcome_value(group_id: &str) -> Value {
-        serde_json::to_value(cokret::MlsWelcomeEnvelope {
+        serde_json::to_value(arkret::MlsWelcomeEnvelope {
             group_id: group_id.to_owned(),
             epoch: 7,
             recipient_principal_id: Did::new("did:webvh:z6mkfixture:bob.example".to_owned())
                 .unwrap(),
-            recipient_device_id: cokret::DeviceId::new(
-                "ck:device:01904100-0000-7000-8000-00000000000e".to_owned(),
+            recipient_device_id: arkret::DeviceId::new(
+                "ak:device:01904100-0000-7000-8000-00000000000e".to_owned(),
             )
             .unwrap(),
             welcome: "AA".to_owned(),
@@ -1993,17 +1993,17 @@ mod tests {
     async fn start_registers_applet_into_registry() {
         let cfg = valid_channel_config();
         // We can't easily build a full GatewayChannel/SessionStore in unit
-        // scope — but `start_cokret_applet_channel` only uses them for
+        // scope — but `start_arkret_applet_channel` only uses them for
         // logging context and accepts &Arc<...>. We use placeholder Arcs.
         // Actually it doesn't use them at all in Phase 6, so dummies are fine.
         // We bypass by calling internals directly:
-        let applet = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let applet = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         applet.validate().expect("validate");
         let tmp = tempfile::tempdir().expect("tempdir");
         let state = AppletChannelState {
             config: applet.clone(),
             runtime: Mutex::new(AppletRuntimeState::default()),
-            crypto_store: FileCokretCryptoStore::for_applet(tmp.path(), &applet.id),
+            crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
             seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
         };
         register_channel(state).expect("register");
@@ -2016,24 +2016,24 @@ mod tests {
     #[test]
     fn applet_transaction_event_records_nested_mls_welcome() {
         let cfg = valid_channel_config();
-        let applet = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let applet = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         applet.validate().expect("validate");
         let tmp = tempfile::tempdir().expect("tempdir");
         let state = AppletChannelState {
             config: applet.clone(),
             runtime: Mutex::new(AppletRuntimeState::default()),
-            crypto_store: FileCokretCryptoStore::for_applet(tmp.path(), &applet.id),
+            crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
             seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
         };
         let group_id = "group-applet-welcome";
-        let event = cokret::Event::new(
-            "ck.mls.welcome",
-            cokret::RealmId::new("ck:realm:01904100-0000-7000-8000-000000000123").unwrap(),
+        let event = arkret::Event::new(
+            "ak.mls.welcome",
+            arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000123").unwrap(),
             Did::new("did:webvh:acme:alice".to_owned()).unwrap(),
             1,
-            cokret::Hlc::new("000000000000-0000-00000000").unwrap(),
+            arkret::Hlc::new("000000000000-0000-00000000").unwrap(),
             json!({
-                "kind": "ck.mls.welcome",
+                "kind": "ak.mls.welcome",
                 "content": mls_welcome_value(group_id)
             }),
         )
@@ -2048,7 +2048,7 @@ mod tests {
     fn verifies_trusted_http_message_signature() {
         let body = serde_json::to_vec(&json!({
             "transaction_id": "txn-1",
-            "source_service_did": "did:webvh:cokret.example.org",
+            "source_service_did": "did:webvh:arkret.example.org",
             "events": []
         }))
         .expect("body should serialize");
@@ -2057,17 +2057,17 @@ mod tests {
         let verified = verify_applet_transaction_http_signature(
             &state,
             "POST",
-            Some("https://savfox.example/_cokret/edge/applet/transactions"),
+            Some("https://savfox.example/_arkret/edge/applet/transactions"),
             Some("savfox.example"),
-            "/_cokret/edge/applet/transactions",
+            "/_arkret/edge/applet/transactions",
             &headers,
             &body,
         )
         .expect("signature should verify")
         .expect("signature should be required");
-        assert_eq!(verified.source_service_did, "did:webvh:cokret.example.org");
+        assert_eq!(verified.source_service_did, "did:webvh:arkret.example.org");
         assert_eq!(verified.destination_service_did, "did:web:bridge.example");
-        assert_eq!(verified.key_id, "did:webvh:cokret.example.org#key-1");
+        assert_eq!(verified.key_id, "did:webvh:arkret.example.org#key-1");
         assert!(verified.content_digest.is_some());
     }
 
@@ -2075,7 +2075,7 @@ mod tests {
     fn rejects_tampered_http_message_signature_body() {
         let body = serde_json::to_vec(&json!({
             "transaction_id": "txn-1",
-            "source_service_did": "did:webvh:cokret.example.org",
+            "source_service_did": "did:webvh:arkret.example.org",
             "events": []
         }))
         .expect("body should serialize");
@@ -2083,16 +2083,16 @@ mod tests {
         let state = state_with_trusted_http_signature_key(public_key);
         let tampered = serde_json::to_vec(&json!({
             "transaction_id": "txn-1",
-            "source_service_did": "did:webvh:cokret.example.org",
-            "events": [{"kind":"ck.message.create"}]
+            "source_service_did": "did:webvh:arkret.example.org",
+            "events": [{"kind":"ak.message.create"}]
         }))
         .expect("tampered body should serialize");
         let err = verify_applet_transaction_http_signature(
             &state,
             "POST",
-            Some("https://savfox.example/_cokret/edge/applet/transactions"),
+            Some("https://savfox.example/_arkret/edge/applet/transactions"),
             Some("savfox.example"),
-            "/_cokret/edge/applet/transactions",
+            "/_arkret/edge/applet/transactions",
             &headers,
             &tampered,
         )

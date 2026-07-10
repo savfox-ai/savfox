@@ -5,19 +5,19 @@
 
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
-use cokret::http_client::Client;
-use cokret::{AuthManager, DeviceId, Did, Ed25519MoveSigner};
+use arkret::http_client::Client;
+use arkret::{AuthManager, DeviceId, Did, Ed25519MoveSigner};
 
 /// One-shot session state produced by [`login_with_signer`].
 #[derive(Debug, Clone)]
-pub struct CokretSession {
+pub struct ArkretSession {
     pub session_grant: String,
     pub expires_at: DateTime<Utc>,
     pub principal_did: Did,
     pub device_id: Option<DeviceId>,
 }
 
-impl CokretSession {
+impl ArkretSession {
     /// True if the session has expired (or is within `skew` seconds of
     /// expiring). Callers MUST re-login before the window closes.
     #[must_use]
@@ -30,7 +30,7 @@ impl CokretSession {
 
 /// Run applet `AuthManager::login_did_proof` against the given HTTP client.
 ///
-/// `audience` is the Cokret server's service DID.
+/// `audience` is the Arkret server's service DID.
 pub async fn login_with_signer(
     http: &Client,
     signer: &Ed25519MoveSigner,
@@ -38,7 +38,7 @@ pub async fn login_with_signer(
     device_id: DeviceId,
     challenge: &str,
     audience: &str,
-) -> anyhow::Result<CokretSession> {
+) -> anyhow::Result<ArkretSession> {
     let mut auth = AuthManager::default();
     let session = auth
         .login_did_proof(
@@ -53,12 +53,12 @@ pub async fn login_with_signer(
         .map_err(|err| anyhow::anyhow!("login_did_proof failed: {err}"))
         .with_context(|| {
             format!(
-                "cokret login_did_proof: principal={} audience={}",
+                "arkret login_did_proof: principal={} audience={}",
                 principal_did.as_str(),
                 audience
             )
         })?;
-    Ok(CokretSession {
+    Ok(ArkretSession {
         session_grant: session.session_grant,
         expires_at: session.expires_at,
         principal_did: session.principal_id,
@@ -72,13 +72,13 @@ mod tests {
 
     #[test]
     fn near_expiry_returns_true_when_past_threshold() {
-        let s = CokretSession {
+        let s = ArkretSession {
             session_grant: "g".into(),
             expires_at: Utc::now() + chrono::Duration::seconds(10),
             principal_did: Did::new("did:web:alice.example".to_owned())
                 .expect("test DID should parse"),
             device_id: Some(
-                DeviceId::new("ck:device:01904100-0000-7000-8000-000000000001".to_owned())
+                DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
                     .expect("test device id should parse"),
             ),
         };
@@ -90,13 +90,13 @@ mod tests {
 
     #[test]
     fn near_expiry_handles_already_expired() {
-        let s = CokretSession {
+        let s = ArkretSession {
             session_grant: "g".into(),
             expires_at: Utc::now() - chrono::Duration::seconds(10),
             principal_did: Did::new("did:web:alice.example".to_owned())
                 .expect("test DID should parse"),
             device_id: Some(
-                DeviceId::new("ck:device:01904100-0000-7000-8000-000000000001".to_owned())
+                DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
                     .expect("test device id should parse"),
             ),
         };

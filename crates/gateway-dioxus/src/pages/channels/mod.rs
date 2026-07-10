@@ -1,6 +1,6 @@
 #![allow(clippy::items_after_test_module)]
 
-pub mod cokret;
+pub mod arkret;
 pub mod common;
 pub mod dingtalk;
 pub mod discord;
@@ -24,7 +24,7 @@ pub mod webhook;
 pub mod whatsapp;
 pub mod zalo;
 
-use cokret_core::AgentPairingBootstrap;
+use arkret_core::AgentPairingBootstrap;
 use dioxus::prelude::*;
 use savfox_utils::string::normalize_slug;
 use serde_json::{Value, json};
@@ -550,10 +550,10 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
             ],
         },
         ChannelTypeInfo {
-            id: "cokret".into(),
-            name: "Cokret".into(),
-            icon: "Ck".into(),
-            description: "Connect a Cokret AI agent or registered applet".into(),
+            id: "arkret".into(),
+            name: "Arkret".into(),
+            icon: "Ak".into(),
+            description: "Connect an Arkret AI agent or registered applet".into(),
             config_fields: vec![
                 ConfigField {
                     key: "mode".into(),
@@ -562,34 +562,34 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "agent".into(),
                     secret: false,
                     required: true,
-                    help: "Agent consumes a Inkson bootstrap and uses a local runtime key. Applet exposes Savfox as a registered Cokret Applet endpoint.",
+                    help: "Agent consumes a Inkson bootstrap and uses a local runtime key. Applet exposes Savfox as a registered Arkret Applet endpoint.",
                 },
                 ConfigField {
                     key: "inksonBootstrap".into(),
                     label: "Inkson Pairing Link / Bootstrap JSON".into(),
                     field_type: FieldType::Textarea,
-                    placeholder: "https://cokret.example.org/_cokret/open/agent-pairing/resolve#token=...".into(),
+                    placeholder: "https://arkret.example.org/_arkret/open/agent-pairing/resolve#token=...".into(),
                     secret: false,
                     required: false,
                     help: "Paste the short Inkson pairing link or resolved CKP-0008 bootstrap JSON. Request approval resolves links automatically. The stored bootstrap carries pairing metadata only, not scopes, private keys, or session grants.",
                 },
                 ConfigField {
                     key: "baseUrl".into(),
-                    label: "Cokret Base URL".into(),
+                    label: "Arkret Base URL".into(),
                     field_type: FieldType::Text,
-                    placeholder: "https://cokret.example.org".into(),
+                    placeholder: "https://arkret.example.org".into(),
                     secret: false,
                     required: false,
-                    help: "Cokret server URL. Agent mode normally derives this from the Inkson bootstrap.",
+                    help: "Arkret server URL. Agent mode normally derives this from the Inkson bootstrap.",
                 },
                 ConfigField {
                     key: "serviceDid".into(),
-                    label: "Cokret Service DID".into(),
+                    label: "Arkret Service DID".into(),
                     field_type: FieldType::Text,
-                    placeholder: "did:webvh:cokret.example.org".into(),
+                    placeholder: "did:webvh:arkret.example.org".into(),
                     secret: false,
                     required: false,
-                    help: "Cokret service DID used as the agent_key_proof audience and DPoP-bound self endpoint service identity.",
+                    help: "Arkret service DID used as the agent_key_proof audience and DPoP-bound self endpoint service identity.",
                 },
                 ConfigField {
                     key: "accessToken".into(),
@@ -598,16 +598,16 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "applet bearer token".into(),
                     secret: true,
                     required: false,
-                    help: "Inbound applet bearer token configured in Cokret. Agent mode does not store a static session grant here.",
+                    help: "Inbound applet bearer token configured in Arkret. Agent mode does not store a static session grant here.",
                 },
                 ConfigField {
                     key: "deviceId".into(),
                     label: "Device ID (internal)".into(),
                     field_type: FieldType::Text,
-                    placeholder: "ck:device:...".into(),
+                    placeholder: "ak:device:...".into(),
                     secret: false,
                     required: false,
-                    help: "Internal Cokret runtime device id. Savfox derives this automatically.",
+                    help: "Internal Arkret runtime device id. Savfox derives this automatically.",
                 },
                 ConfigField {
                     key: "advanced".into(),
@@ -616,22 +616,22 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: String::new(),
                     secret: false,
                     required: false,
-                    help: "Show low-level Cokret scope, signing, and applet runtime fields.",
+                    help: "Show low-level Arkret scope, signing, and applet runtime fields.",
                 },
                 ConfigField {
                     key: "appletId".into(),
                     label: "Applet ID".into(),
                     field_type: FieldType::Text,
-                    placeholder: "ck:applet:...".into(),
+                    placeholder: "ak:applet:...".into(),
                     secret: false,
                     required: true,
-                    help: "Registered Cokret applet identifier.",
+                    help: "Registered Arkret applet identifier.",
                 },
                 ConfigField {
                     key: "controllerDid".into(),
                     label: "Controller DID".into(),
                     field_type: FieldType::Text,
-                    placeholder: "did:webvh:cokret.example.org".into(),
+                    placeholder: "did:webvh:arkret.example.org".into(),
                     secret: false,
                     required: true,
                     help: "Controller DID that owns or signs the applet registration.",
@@ -646,22 +646,22 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Visible applet bot actor DID. Defaults to serviceDid:bot.",
                 },
                 ConfigField {
-                    key: "cokretServerUrl".into(),
-                    label: "Cokret Server URL".into(),
+                    key: "arkretServerUrl".into(),
+                    label: "Arkret Server URL".into(),
                     field_type: FieldType::Text,
-                    placeholder: "https://cokret.example.org".into(),
+                    placeholder: "https://arkret.example.org".into(),
                     secret: false,
                     required: false,
-                    help: "Cokret server used by the applet for outbound event submission.",
+                    help: "Arkret server used by the applet for outbound event submission.",
                 },
                 ConfigField {
-                    key: "cokretServerDid".into(),
-                    label: "Cokret Server DID".into(),
+                    key: "arkretServerDid".into(),
+                    label: "Arkret Server DID".into(),
                     field_type: FieldType::Text,
-                    placeholder: "did:webvh:cokret.example.org".into(),
+                    placeholder: "did:webvh:arkret.example.org".into(),
                     secret: false,
                     required: false,
-                    help: "Trusted Cokret server DID for applet outbound authentication and HTTP Message Signature verification.",
+                    help: "Trusted Arkret server DID for applet outbound authentication and HTTP Message Signature verification.",
                 },
                 ConfigField {
                     key: "protocols".into(),
@@ -679,7 +679,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "did:web:savfox.example:ghost:*".into(),
                     secret: false,
                     required: false,
-                    help: "Applet actor namespace patterns. Saved as Cokret namespaces.actors[].",
+                    help: "Applet actor namespace patterns. Saved as Arkret namespaces.actors[].",
                 },
                 ConfigField {
                     key: "namespaceRealms".into(),
@@ -688,7 +688,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "slack:team:*:channel:*".into(),
                     secret: false,
                     required: false,
-                    help: "Applet realm namespace patterns. Saved as Cokret namespaces.realms[].",
+                    help: "Applet realm namespace patterns. Saved as Arkret namespaces.realms[].",
                 },
                 ConfigField {
                     key: "namespaceHandles".into(),
@@ -697,7 +697,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "slack.example/*".into(),
                     secret: false,
                     required: false,
-                    help: "Applet third-party handle namespace patterns. Saved as Cokret namespaces.handles[].",
+                    help: "Applet third-party handle namespace patterns. Saved as Arkret namespaces.handles[].",
                 },
                 ConfigField {
                     key: "ghostDidPrefix".into(),
@@ -712,7 +712,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     key: "requestedScopes".into(),
                     label: "Requested Scopes".into(),
                     field_type: FieldType::Textarea,
-                    placeholder: "ck.message.create\nck.flow.create".into(),
+                    placeholder: "ak.message.create\nck.flow.create".into(),
                     secret: false,
                     required: false,
                     help: "Requested applet scopes, one per line or comma-separated",
@@ -724,7 +724,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: String::new(),
                     secret: false,
                     required: false,
-                    help: "Allow Cokret to push event transactions to this applet",
+                    help: "Allow Arkret to push event transactions to this applet",
                 },
                 ConfigField {
                     key: "receiveEphemeral".into(),
@@ -733,7 +733,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: String::new(),
                     secret: false,
                     required: false,
-                    help: "Allow ephemeral Cokret events such as typing/presence",
+                    help: "Allow ephemeral Arkret events such as typing/presence",
                 },
                 ConfigField {
                     key: "rateLimited".into(),
@@ -742,13 +742,13 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: String::new(),
                     secret: false,
                     required: false,
-                    help: "Permit the Cokret server to rate-limit applet transaction pushes",
+                    help: "Permit the Arkret server to rate-limit applet transaction pushes",
                 },
                 ConfigField {
                     key: "authorizationGrantId".into(),
                     label: "Authorization Grant ID".into(),
                     field_type: FieldType::Text,
-                    placeholder: "ck:event:...".into(),
+                    placeholder: "ak:event:...".into(),
                     secret: false,
                     required: false,
                     help: "Optional capability grant event id attached to outbound applet events",
@@ -766,16 +766,16 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     key: "trustedVerificationMethods".into(),
                     label: "Trusted Verification Methods JSON".into(),
                     field_type: FieldType::Textarea,
-                    placeholder: r#"[{"verificationMethod":"did:webvh:cokret.example.org#key-1","publicKeyMultibase":"z..."}]"#.into(),
+                    placeholder: r#"[{"verificationMethod":"did:webvh:arkret.example.org#key-1","publicKeyMultibase":"z..."}]"#.into(),
                     secret: false,
                     required: false,
-                    help: "Optional array of Cokret server HTTP Message Signature public keys",
+                    help: "Optional array of Arkret server HTTP Message Signature public keys",
                 },
                 ConfigField {
                     key: "loginChallenge".into(),
                     label: "Applet DID-proof Challenge".into(),
                     field_type: FieldType::Text,
-                    placeholder: "challenge-from-cokret".into(),
+                    placeholder: "challenge-from-arkret".into(),
                     secret: false,
                     required: false,
                     help: "Applet outbound DID-proof challenge. Personal agent runtime uses agent_key_proof instead.",
@@ -793,10 +793,10 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     key: "authorizedEventRef".into(),
                     label: "Authorization event (internal)".into(),
                     field_type: FieldType::Text,
-                    placeholder: "ck:event:...".into(),
+                    placeholder: "ak:event:...".into(),
                     secret: false,
                     required: false,
-                    help: "ck.agent.key.authorize event reference produced after controller approval.",
+                    help: "ak.agent.key.authorize event reference produced after controller approval.",
                 },
                 ConfigField {
                     key: "runtimeKeyRequest".into(),
@@ -820,16 +820,16 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     key: "grantEventPath".into(),
                     label: "Grant Event Path".into(),
                     field_type: FieldType::Text,
-                    placeholder: "C:\\secrets\\cokret-grant.json".into(),
+                    placeholder: "C:\\secrets\\arkret-grant.json".into(),
                     secret: false,
                     required: false,
-                    help: "Path to a pre-signed ck.capability.grant Event JSON",
+                    help: "Path to a pre-signed ak.capability.grant Event JSON",
                 },
                 ConfigField {
                     key: "keyRef".into(),
                     label: "Local Runtime Key".into(),
                     field_type: FieldType::Textarea,
-                    placeholder: r#"{"kind":"env","var":"SAVFOX_COKRET_BOT_KEY"}"#.into(),
+                    placeholder: r#"{"kind":"env","var":"SAVFOX_ARKRET_BOT_KEY"}"#.into(),
                     secret: true,
                     required: false,
                     help: "Advanced local runtime key reference. By default Savfox generates a local file key automatically.",
@@ -1436,12 +1436,12 @@ fn parse_json_config_field(label: &str, value: &str) -> Result<Value, String> {
     serde_json::from_str::<Value>(value).map_err(|err| format!("{label} must be valid JSON: {err}"))
 }
 
-fn parse_cokret_agent_pairing_bootstrap(value: Value) -> Result<AgentPairingBootstrap, String> {
+fn parse_arkret_agent_pairing_bootstrap(value: Value) -> Result<AgentPairingBootstrap, String> {
     let bootstrap: AgentPairingBootstrap = serde_json::from_value(value).map_err(|err| {
         format!("Inkson Bootstrap JSON must match CKP-0008 AgentPairingBootstrap: {err}")
     })?;
     for (name, value) in [
-        ("cokret_base_url", bootstrap.cokret_base_url.as_str()),
+        ("arkret_base_url", bootstrap.arkret_base_url.as_str()),
         ("service_did", bootstrap.service_did.as_str()),
         ("agent_principal_id", bootstrap.agent_principal_id.as_str()),
         ("pairing_request_id", bootstrap.pairing_request_id.as_str()),
@@ -1553,8 +1553,8 @@ fn restore_channel_values(
             }
         }
 
-        if is_cokret_channel(fields) {
-            restore_cokret_derived_values(channel_id, &mut restored, config_obj);
+        if is_arkret_channel(fields) {
+            restore_arkret_derived_values(channel_id, &mut restored, config_obj);
         }
     }
 
@@ -1568,7 +1568,7 @@ fn restore_channel_values(
     restored
 }
 
-fn restore_cokret_derived_values(
+fn restore_arkret_derived_values(
     channel_id: &str,
     restored: &mut std::collections::HashMap<String, String>,
     config_obj: &serde_json::Map<String, Value>,
@@ -1595,12 +1595,12 @@ fn restore_cokret_derived_values(
             restored.insert(field_value_key(channel_id, key), rendered);
         }
     }
-    if cokret_config_has_advanced_values(config_obj) {
+    if arkret_config_has_advanced_values(config_obj) {
         restored.insert(field_value_key(channel_id, "advanced"), "true".to_string());
     }
 }
 
-fn cokret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>) -> bool {
+fn arkret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>) -> bool {
     let mode = config_obj
         .get("mode")
         .and_then(Value::as_str)
@@ -1611,7 +1611,7 @@ fn cokret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>
     }
     let applet_advanced = [
         "botActorId",
-        "cokretServerDid",
+        "arkretServerDid",
         "ghostDidPrefix",
         "requestedScopes",
         "receiveEvents",
@@ -1627,10 +1627,10 @@ fn cokret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>
     ];
     applet_advanced
         .iter()
-        .any(|key| config_obj.get(*key).is_some_and(cokret_value_is_present))
+        .any(|key| config_obj.get(*key).is_some_and(arkret_value_is_present))
 }
 
-fn cokret_value_is_present(value: &Value) -> bool {
+fn arkret_value_is_present(value: &Value) -> bool {
     match value {
         Value::Null => false,
         Value::String(value) => !value.trim().is_empty(),
@@ -1910,7 +1910,7 @@ fn is_matrix_channel(fields: &[ConfigField]) -> bool {
         && fields.iter().any(|field| field.key == "homeserver")
 }
 
-fn is_cokret_channel(fields: &[ConfigField]) -> bool {
+fn is_arkret_channel(fields: &[ConfigField]) -> bool {
     fields.iter().any(|field| field.key == "mode")
         && fields.iter().any(|field| field.key == "appletId")
         && fields.iter().any(|field| field.key == "inksonBootstrap")
@@ -1959,7 +1959,7 @@ fn is_matrix_appservice_only_field(field_key: &str) -> bool {
     )
 }
 
-fn current_cokret_mode(
+fn current_arkret_mode(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
 ) -> String {
@@ -1970,7 +1970,7 @@ fn current_cokret_mode(
         .unwrap_or_else(|| "agent".to_string())
 }
 
-fn cokret_advanced_enabled(
+fn arkret_advanced_enabled(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
 ) -> bool {
@@ -1980,7 +1980,7 @@ fn cokret_advanced_enabled(
         .unwrap_or(false)
 }
 
-fn is_cokret_internal_field(field_key: &str) -> bool {
+fn is_arkret_internal_field(field_key: &str) -> bool {
     matches!(field_key, "deviceId")
 }
 
@@ -1989,13 +1989,13 @@ fn field_display_label(
     field: &ConfigField,
     values: &std::collections::HashMap<String, String>,
 ) -> String {
-    if ch_id == "cokret" {
-        let mode = current_cokret_mode(ch_id, values);
+    if ch_id == "arkret" {
+        let mode = current_arkret_mode(ch_id, values);
         match (field.key.as_str(), mode.as_str()) {
             ("baseUrl", "applet") => return "Applet URL".to_string(),
-            ("baseUrl", _) => return "Cokret Base URL".to_string(),
+            ("baseUrl", _) => return "Arkret Base URL".to_string(),
             ("serviceDid", "applet") => return "Applet Service DID".to_string(),
-            ("serviceDid", _) => return "Cokret Service DID".to_string(),
+            ("serviceDid", _) => return "Arkret Service DID".to_string(),
             ("accessToken", "applet") => return "Bearer Token".to_string(),
             _ => {}
         }
@@ -2008,15 +2008,15 @@ fn field_display_placeholder(
     field: &ConfigField,
     values: &std::collections::HashMap<String, String>,
 ) -> String {
-    if ch_id == "cokret" {
-        let mode = current_cokret_mode(ch_id, values);
+    if ch_id == "arkret" {
+        let mode = current_arkret_mode(ch_id, values);
         match (field.key.as_str(), mode.as_str()) {
             ("baseUrl", "applet") => {
-                return "https://savfox.example/appservices/cokret/cokret-default".to_string();
+                return "https://savfox.example/appservices/arkret/arkret-default".to_string();
             }
-            ("baseUrl", _) => return "https://cokret.example.org".to_string(),
+            ("baseUrl", _) => return "https://arkret.example.org".to_string(),
             ("serviceDid", "applet") => return "did:web:savfox.example".to_string(),
-            ("serviceDid", _) => return "did:webvh:cokret.example.org".to_string(),
+            ("serviceDid", _) => return "did:webvh:arkret.example.org".to_string(),
             ("accessToken", "applet") => return "applet bearer token".to_string(),
             _ => {}
         }
@@ -2029,24 +2029,24 @@ fn field_display_help(
     field: &ConfigField,
     values: &std::collections::HashMap<String, String>,
 ) -> String {
-    if ch_id == "cokret" {
-        let mode = current_cokret_mode(ch_id, values);
+    if ch_id == "arkret" {
+        let mode = current_arkret_mode(ch_id, values);
         match (field.key.as_str(), mode.as_str()) {
             ("baseUrl", "applet") => {
-                return "Public Savfox callback URL registered as the Cokret Applet endpoint."
+                return "Public Savfox callback URL registered as the Arkret Applet endpoint."
                     .to_string();
             }
             ("baseUrl", _) => {
-                return "Cokret server URL, normally parsed from the Inkson bootstrap.".to_string();
+                return "Arkret server URL, normally parsed from the Inkson bootstrap.".to_string();
             }
             ("serviceDid", "applet") => {
-                return "Applet service DID registered with Cokret.".to_string();
+                return "Applet service DID registered with Arkret.".to_string();
             }
             ("serviceDid", _) => {
-                return "Cokret service DID used as the agent_key_proof audience.".to_string();
+                return "Arkret service DID used as the agent_key_proof audience.".to_string();
             }
             ("accessToken", "applet") => {
-                return "Inbound applet bearer token configured in Cokret.".to_string();
+                return "Inbound applet bearer token configured in Arkret.".to_string();
             }
             _ => {}
         }
@@ -2059,8 +2059,8 @@ fn field_display_required(
     field: &ConfigField,
     values: &std::collections::HashMap<String, String>,
 ) -> bool {
-    if ch_id == "cokret" {
-        let mode = current_cokret_mode(ch_id, values);
+    if ch_id == "arkret" {
+        let mode = current_arkret_mode(ch_id, values);
         if field.key == "serviceDid" {
             return mode == "applet";
         }
@@ -2071,7 +2071,7 @@ fn field_display_required(
     field.required
 }
 
-fn is_cokret_account_only_field(field_key: &str) -> bool {
+fn is_arkret_account_only_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "inksonBootstrap"
@@ -2089,13 +2089,13 @@ fn is_cokret_account_only_field(field_key: &str) -> bool {
     )
 }
 
-fn is_cokret_agent_hidden_field(field_key: &str) -> bool {
+fn is_arkret_agent_hidden_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "advanced"
             | "baseUrl"
             | "serviceDid"
-            | "cokretServerDid"
+            | "arkretServerDid"
             | "principalId"
             | "defaultRealmId"
             | "defaultFlowId"
@@ -2111,7 +2111,7 @@ fn is_cokret_agent_hidden_field(field_key: &str) -> bool {
     )
 }
 
-fn is_cokret_applet_only_field(field_key: &str) -> bool {
+fn is_arkret_applet_only_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "appletId"
@@ -2119,7 +2119,7 @@ fn is_cokret_applet_only_field(field_key: &str) -> bool {
             | "botActorId"
             | "accessToken"
             | "loginChallenge"
-            | "cokretServerUrl"
+            | "arkretServerUrl"
             | "protocols"
             | "requestedScopes"
             | "namespaceActors"
@@ -2135,7 +2135,7 @@ fn is_cokret_applet_only_field(field_key: &str) -> bool {
     )
 }
 
-fn is_cokret_helper_field(field_key: &str) -> bool {
+fn is_arkret_helper_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "advanced"
@@ -2147,8 +2147,8 @@ fn is_cokret_helper_field(field_key: &str) -> bool {
     )
 }
 
-fn is_cokret_advanced_field(field_key: &str, mode: &str) -> bool {
-    matches!(field_key, "cokretServerDid")
+fn is_arkret_advanced_field(field_key: &str, mode: &str) -> bool {
+    matches!(field_key, "arkretServerDid")
         || (mode == "applet"
             && matches!(
                 field_key,
@@ -2168,7 +2168,7 @@ fn is_cokret_advanced_field(field_key: &str, mode: &str) -> bool {
             ))
 }
 
-fn should_skip_hidden_cokret_field(field_key: &str) -> bool {
+fn should_skip_hidden_arkret_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "deviceId"
@@ -2196,25 +2196,25 @@ fn field_is_visible(
             return matrix_mode == "appservice";
         }
     }
-    if channel_id == "cokret" {
-        let cokret_mode = current_cokret_mode(channel_id, values);
-        if is_cokret_internal_field(&field.key) {
+    if channel_id == "arkret" {
+        let arkret_mode = current_arkret_mode(channel_id, values);
+        if is_arkret_internal_field(&field.key) {
             return false;
         }
-        if cokret_mode != "applet" && is_cokret_agent_hidden_field(&field.key) {
+        if arkret_mode != "applet" && is_arkret_agent_hidden_field(&field.key) {
             return false;
         }
-        if is_cokret_account_only_field(&field.key) && cokret_mode == "applet" {
+        if is_arkret_account_only_field(&field.key) && arkret_mode == "applet" {
             return false;
         }
-        if is_cokret_applet_only_field(&field.key) && cokret_mode != "applet" {
+        if is_arkret_applet_only_field(&field.key) && arkret_mode != "applet" {
             return false;
         }
-        if field.key == "authorizationResult" && cokret_mode != "applet" {
+        if field.key == "authorizationResult" && arkret_mode != "applet" {
             return false;
         }
-        if is_cokret_advanced_field(&field.key, &cokret_mode) {
-            return cokret_advanced_enabled(channel_id, values);
+        if is_arkret_advanced_field(&field.key, &arkret_mode) {
+            return arkret_advanced_enabled(channel_id, values);
         }
     }
     true
@@ -2225,8 +2225,8 @@ fn build_channel_patch(
     fields: &[ConfigField],
     values: &std::collections::HashMap<String, String>,
 ) -> Result<Value, String> {
-    if is_cokret_channel(fields) {
-        return build_cokret_channel_patch(channel_id, fields, values);
+    if is_arkret_channel(fields) {
+        return build_arkret_channel_patch(channel_id, fields, values);
     }
 
     let mut patch = json!({});
@@ -2255,13 +2255,13 @@ fn build_channel_patch(
     Ok(patch)
 }
 
-fn build_cokret_channel_patch(
+fn build_arkret_channel_patch(
     channel_id: &str,
     fields: &[ConfigField],
     values: &std::collections::HashMap<String, String>,
 ) -> Result<Value, String> {
     let mut patch = json!({});
-    let mode = current_cokret_mode(channel_id, values);
+    let mode = current_arkret_mode(channel_id, values);
     patch["mode"] = json!(mode);
 
     for field in fields {
@@ -2269,18 +2269,18 @@ fn build_cokret_channel_patch(
             continue;
         }
 
-        if is_cokret_internal_field(&field.key) {
+        if is_arkret_internal_field(&field.key) {
             continue;
         }
 
         if !field_is_visible(channel_id, field, values) {
-            if !is_cokret_helper_field(&field.key) && !should_skip_hidden_cokret_field(&field.key) {
+            if !is_arkret_helper_field(&field.key) && !should_skip_hidden_arkret_field(&field.key) {
                 patch[&field.key] = Value::Null;
             }
             continue;
         }
 
-        if is_cokret_helper_field(&field.key) {
+        if is_arkret_helper_field(&field.key) {
             continue;
         }
 
@@ -2305,12 +2305,12 @@ fn build_cokret_channel_patch(
             "inksonBootstrap" => {
                 if !value.starts_with('{') {
                     return Err(
-                        "Resolve the Inkson pairing link before saving the Cokret agent channel."
+                        "Resolve the Inkson pairing link before saving the Arkret agent channel."
                             .to_string(),
                     );
                 }
                 let parsed = parse_json_config_field("Inkson Bootstrap JSON", value)?;
-                parse_cokret_agent_pairing_bootstrap(parsed.clone())?;
+                parse_arkret_agent_pairing_bootstrap(parsed.clone())?;
                 patch[&field.key] = parsed;
             }
             "trustedVerificationMethods" => {
@@ -2358,16 +2358,16 @@ fn build_cokret_channel_patch(
         }
     } else {
         patch["namespaces"] = Value::Null;
-        clear_cokret_agent_obsolete_fields(&mut patch);
-        apply_cokret_hidden_agent_runtime_values(channel_id, values, &mut patch)?;
-        apply_cokret_bootstrap_defaults(&mut patch);
-        validate_cokret_agent_runtime_request_inputs(&patch)?;
+        clear_arkret_agent_obsolete_fields(&mut patch);
+        apply_arkret_hidden_agent_runtime_values(channel_id, values, &mut patch)?;
+        apply_arkret_bootstrap_defaults(&mut patch);
+        validate_arkret_agent_runtime_request_inputs(&patch)?;
     }
 
     Ok(patch)
 }
 
-fn apply_cokret_hidden_agent_runtime_values(
+fn apply_arkret_hidden_agent_runtime_values(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
     patch: &mut Value,
@@ -2400,7 +2400,7 @@ fn apply_cokret_hidden_agent_runtime_values(
         .or_else(|| {
             values
                 .get(&field_value_key(channel_id, "authorizationResult"))
-                .and_then(|value| extract_cokret_authorized_event_ref(value))
+                .and_then(|value| extract_arkret_authorized_event_ref(value))
         });
     if let Some(authorized_event_ref) = authorized_event_ref {
         patch["authorizedEventRef"] = json!(authorized_event_ref);
@@ -2409,14 +2409,14 @@ fn apply_cokret_hidden_agent_runtime_values(
     Ok(())
 }
 
-fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), String> {
+fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), String> {
     if patch
         .get("inksonBootstrap")
         .and_then(Value::as_object)
         .is_none_or(|object| object.is_empty())
     {
         return Err(
-            "Cokret agent mode requires Inkson Bootstrap JSON before runtime key approval."
+            "Arkret agent mode requires Inkson Bootstrap JSON before runtime key approval."
                 .to_string(),
         );
     }
@@ -2426,7 +2426,7 @@ fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
         .is_none_or(|object| object.is_empty())
     {
         return Err(
-            "Cokret agent mode needs a generated local runtime key. Click Request approval so Savfox can generate it automatically."
+            "Arkret agent mode needs a generated local runtime key. Click Request approval so Savfox can generate it automatically."
                 .to_string(),
         );
     }
@@ -2437,18 +2437,18 @@ fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
         .is_none_or(str::is_empty)
     {
         return Err(
-            "Cokret agent mode needs a runtime verification method derived from the resolved Inkson bootstrap."
+            "Arkret agent mode needs a runtime verification method derived from the resolved Inkson bootstrap."
                 .to_string(),
         );
     }
     Ok(())
 }
 
-fn apply_cokret_bootstrap_defaults(patch: &mut Value) {
+fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
     let Some(bootstrap_value) = patch.get("inksonBootstrap").cloned() else {
         return;
     };
-    let Ok(bootstrap) = parse_cokret_agent_pairing_bootstrap(bootstrap_value) else {
+    let Ok(bootstrap) = parse_arkret_agent_pairing_bootstrap(bootstrap_value) else {
         return;
     };
 
@@ -2469,11 +2469,11 @@ fn apply_cokret_bootstrap_defaults(patch: &mut Value) {
     }
 }
 
-fn clear_cokret_agent_obsolete_fields(patch: &mut Value) {
+fn clear_arkret_agent_obsolete_fields(patch: &mut Value) {
     for key in [
         "baseUrl",
         "serviceDid",
-        "cokretServerDid",
+        "arkretServerDid",
         "deviceId",
         "principalId",
         "defaultRealmId",
@@ -2499,25 +2499,25 @@ fn patch_value_empty(value: Option<&Value>) -> bool {
     }
 }
 
-fn extract_cokret_authorized_event_ref(input: &str) -> Option<String> {
+fn extract_arkret_authorized_event_ref(input: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
     }
     if let Ok(value) = serde_json::from_str::<Value>(trimmed)
-        && let Some(event_ref) = find_cokret_authorized_event_ref_in_value(&value)
+        && let Some(event_ref) = find_arkret_authorized_event_ref_in_value(&value)
     {
         return Some(event_ref);
     }
-    find_cokret_event_ref_in_text(trimmed)
+    find_arkret_event_ref_in_text(trimmed)
 }
 
-fn find_cokret_authorized_event_ref_in_value(value: &Value) -> Option<String> {
+fn find_arkret_authorized_event_ref_in_value(value: &Value) -> Option<String> {
     match value {
-        Value::String(text) => find_cokret_event_ref_in_text(text),
+        Value::String(text) => find_arkret_event_ref_in_text(text),
         Value::Array(items) => items
             .iter()
-            .find_map(find_cokret_authorized_event_ref_in_value),
+            .find_map(find_arkret_authorized_event_ref_in_value),
         Value::Object(map) => {
             for key in [
                 "authorized_event_ref",
@@ -2529,26 +2529,26 @@ fn find_cokret_authorized_event_ref_in_value(value: &Value) -> Option<String> {
                 "ref",
             ] {
                 if let Some(value) = map.get(key)
-                    && let Some(event_ref) = find_cokret_authorized_event_ref_in_value(value)
+                    && let Some(event_ref) = find_arkret_authorized_event_ref_in_value(value)
                 {
                     return Some(event_ref);
                 }
             }
             map.values()
-                .find_map(find_cokret_authorized_event_ref_in_value)
+                .find_map(find_arkret_authorized_event_ref_in_value)
         }
         Value::Null | Value::Bool(_) | Value::Number(_) => None,
     }
 }
 
-fn find_cokret_event_ref_in_text(text: &str) -> Option<String> {
-    for (start, _) in text.match_indices("ck:event:") {
+fn find_arkret_event_ref_in_text(text: &str) -> Option<String> {
+    for (start, _) in text.match_indices("ak:event:") {
         let rest = &text[start..];
         let end = rest
             .find(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, ':' | '-' | '_')))
             .unwrap_or(rest.len());
         let candidate = rest[..end].trim();
-        if candidate.len() > "ck:event:".len() {
+        if candidate.len() > "ak:event:".len() {
             return Some(candidate.to_owned());
         }
     }
@@ -2560,7 +2560,7 @@ fn default_channel_values(
     fields: &[ConfigField],
 ) -> std::collections::HashMap<String, String> {
     let mut values = std::collections::HashMap::new();
-    if is_cokret_channel(fields) {
+    if is_arkret_channel(fields) {
         values.insert(field_value_key(channel_id, "mode"), "agent".to_string());
         values.insert(field_value_key(channel_id, "listen"), "true".to_string());
         values.insert(field_value_key(channel_id, "send"), "true".to_string());
@@ -3179,21 +3179,21 @@ fn render_channel_card(
     let relay_count = channel_data
         .and_then(|c| c.get("relay_count"))
         .and_then(|v| v.as_u64());
-    let cokret_pairing_state = channel_data
+    let arkret_pairing_state = channel_data
         .and_then(|c| c.get("runtime_pairing_state"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let cokret_pairing_label = cokret_pairing_state.as_deref().map(|state| match state {
+    let arkret_pairing_label = arkret_pairing_state.as_deref().map(|state| match state {
         "active" => "Active".to_owned(),
         "pending_authorization" => "Pending authorization".to_owned(),
         "pending_runtime_key" => "Pending runtime key".to_owned(),
         other => other.to_owned(),
     });
-    let cokret_authorized_event_ref = channel_data
+    let arkret_authorized_event_ref = channel_data
         .and_then(|c| c.get("authorized_event_ref"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let cokret_verification_method = channel_data
+    let arkret_verification_method = channel_data
         .and_then(|c| c.get("verification_method"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
@@ -3202,7 +3202,7 @@ fn render_channel_card(
         (ChipVariant::Success, "Connected")
     } else if is_running {
         (ChipVariant::Warning, "Running")
-    } else if ch_type.id == "cokret" && cokret_pairing_state.as_deref() == Some("active") {
+    } else if ch_type.id == "arkret" && arkret_pairing_state.as_deref() == Some("active") {
         (ChipVariant::Success, "Active")
     } else if is_configured {
         (ChipVariant::Info, "Configured")
@@ -3266,9 +3266,9 @@ fn render_channel_card(
                 let has_platform_info = bot_username.is_some() || guild_count.is_some()
                     || matrix_user_id.is_some() || room_count.is_some()
                     || nostr_public_key.is_some() || relay_count.is_some()
-                    || cokret_pairing_label.is_some()
-                    || cokret_authorized_event_ref.is_some()
-                    || cokret_verification_method.is_some();
+                    || arkret_pairing_label.is_some()
+                    || arkret_authorized_event_ref.is_some()
+                    || arkret_verification_method.is_some();
                 rsx! {
                     if has_platform_info {
                         div { class: "channels-card__platform-info",
@@ -3308,19 +3308,19 @@ fn render_channel_card(
                                     span { class: "channels-card__pinfo-value", "{count}" }
                                 }
                             }
-                            if let Some(label) = cokret_pairing_label {
+                            if let Some(label) = arkret_pairing_label {
                                 span { class: "channels-card__pinfo-item",
                                     span { class: "channels-card__pinfo-label", "Pairing" }
                                     span { class: "channels-card__pinfo-value", "{label}" }
                                 }
                             }
-                            if let Some(ref event_ref) = cokret_authorized_event_ref {
+                            if let Some(ref event_ref) = arkret_authorized_event_ref {
                                 span { class: "channels-card__pinfo-item",
                                     span { class: "channels-card__pinfo-label", "Auth ref" }
                                     span { class: "channels-card__pinfo-value channels-card__pinfo-value--truncate", "{event_ref}" }
                                 }
                             }
-                            if let Some(ref verification_method) = cokret_verification_method {
+                            if let Some(ref verification_method) = arkret_verification_method {
                                 span { class: "channels-card__pinfo-item",
                                     span { class: "channels-card__pinfo-label", "VM" }
                                     span { class: "channels-card__pinfo-value channels-card__pinfo-value--truncate", "{verification_method}" }
@@ -3960,8 +3960,8 @@ fn render_single_field(
     let display_placeholder = field_display_placeholder(ch_id, field, &value_map);
     let help_text = field_display_help(ch_id, field, &value_map);
     let is_required = field_display_required(ch_id, field, &value_map);
-    if ch_id == "cokret" && field.key == "inksonBootstrap" {
-        let pairing_code = cokret_pairing_code_from_bootstrap_text(&current_val);
+    if ch_id == "arkret" && field.key == "inksonBootstrap" {
+        let pairing_code = arkret_pairing_code_from_bootstrap_text(&current_val);
         let key_for_input = key.clone();
         drop(value_map);
         return rsx! {
@@ -3993,7 +3993,7 @@ fn render_single_field(
             }
         };
     }
-    if ch_id == "cokret" && field.key == "runtimeKeyRequest" {
+    if ch_id == "arkret" && field.key == "runtimeKeyRequest" {
         let current_result = current_val.trim().to_owned();
         let has_generated_request = current_result.trim_start().starts_with('{');
         let display_status = if has_generated_request {
@@ -4003,7 +4003,7 @@ fn render_single_field(
         } else {
             current_result.clone()
         };
-        let can_request_approval = cokret_runtime_key_request_can_request(ch_id, &value_map);
+        let can_request_approval = arkret_runtime_key_request_can_request(ch_id, &value_map);
         let ch_id_for_generate = ch_id.to_owned();
         let fields_for_generate = fields.to_vec();
         let key_for_generate = key.clone();
@@ -4053,7 +4053,7 @@ fn render_single_field(
                                         .unwrap_or_default();
                                     let result = ws
                                         .call::<serde_json::Value>(
-                                            "channels.cokret.resolve_pairing_bootstrap",
+                                            "channels.arkret.resolve_pairing_bootstrap",
                                             Some(json!({
                                                 "input": bootstrap_input,
                                                 "base_url": base_url,
@@ -4120,10 +4120,10 @@ fn render_single_field(
                                         "Generating local runtime key...".to_string(),
                                     );
                                     let params =
-                                        cokret_runtime_key_ref_generation_params(&ch_id, &snapshot);
+                                        arkret_runtime_key_ref_generation_params(&ch_id, &snapshot);
                                     let result = ws
                                         .call::<serde_json::Value>(
-                                            "channels.cokret.generate_runtime_key_ref",
+                                            "channels.arkret.generate_runtime_key_ref",
                                             Some(params),
                                         )
                                         .await;
@@ -4159,9 +4159,9 @@ fn render_single_field(
                                 };
                                 let result = ws
                                     .call::<serde_json::Value>(
-                                        "channels.cokret.runtime_key_request",
+                                        "channels.arkret.runtime_key_request",
                                     Some(json!({
-                                        "platform": "cokret",
+                                        "platform": "arkret",
                                         "config": patch,
                                     })),
                                 )
@@ -4195,7 +4195,7 @@ fn render_single_field(
             }
         };
     }
-    if ch_id == "cokret" && field.key == "authorizationResult" {
+    if ch_id == "arkret" && field.key == "authorizationResult" {
         let event_ref_key = field_value_key(ch_id, "authorizedEventRef");
         let authorized_event_ref = value_map.get(&event_ref_key).cloned().unwrap_or_default();
         let key_for_input = key.clone();
@@ -4214,7 +4214,7 @@ fn render_single_field(
                     value: "{current_val}",
                     oninput: move |e| {
                         let raw = e.value();
-                        let event_ref = extract_cokret_authorized_event_ref(&raw);
+                        let event_ref = extract_arkret_authorized_event_ref(&raw);
                         let mut values = values.write();
                         values.insert(key_for_input.clone(), raw.clone());
                         if let Some(event_ref) = event_ref {
@@ -4235,7 +4235,7 @@ fn render_single_field(
             }
         };
     }
-    if ch_id == "cokret" && field.key == "keyRef" {
+    if ch_id == "arkret" && field.key == "keyRef" {
         let ch_id_for_generate = ch_id.to_owned();
         let key_for_generate = key.clone();
         let status_key_for_generate = field_value_key(ch_id, "runtimeKeyRequest");
@@ -4273,11 +4273,11 @@ fn render_single_field(
                             let status_key = status_key_for_generate.clone();
                             let ws = ws_generate.clone();
                             let snapshot = values.read().clone();
-                            let params = cokret_runtime_key_ref_generation_params(&ch_id, &snapshot);
+                            let params = arkret_runtime_key_ref_generation_params(&ch_id, &snapshot);
                             spawn(async move {
                                 let result = ws
                                     .call::<serde_json::Value>(
-                                        "channels.cokret.generate_runtime_key_ref",
+                                        "channels.arkret.generate_runtime_key_ref",
                                         Some(params),
                                     )
                                     .await;
@@ -4500,7 +4500,7 @@ fn render_single_field(
     }
 }
 
-fn cokret_runtime_key_request_can_request(
+fn arkret_runtime_key_request_can_request(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
 ) -> bool {
@@ -4510,19 +4510,19 @@ fn cokret_runtime_key_request_can_request(
         .is_some_and(|value| !value.is_empty())
 }
 
-fn cokret_pairing_code_from_bootstrap_text(input: &str) -> Option<String> {
+fn arkret_pairing_code_from_bootstrap_text(input: &str) -> Option<String> {
     let input = input.trim();
     if input.is_empty() || !input.starts_with('{') {
         return None;
     }
     serde_json::from_str::<Value>(input)
         .ok()
-        .and_then(|value| parse_cokret_agent_pairing_bootstrap(value).ok())
+        .and_then(|value| parse_arkret_agent_pairing_bootstrap(value).ok())
         .map(|bootstrap| bootstrap.pairing_code)
         .filter(|value| !value.trim().is_empty())
 }
 
-fn cokret_runtime_key_ref_generation_params(
+fn arkret_runtime_key_ref_generation_params(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
 ) -> Value {
@@ -4531,7 +4531,7 @@ fn cokret_runtime_key_ref_generation_params(
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .and_then(|value| serde_json::from_str::<Value>(value).ok())
-        .and_then(|value| parse_cokret_agent_pairing_bootstrap(value).ok());
+        .and_then(|value| parse_arkret_agent_pairing_bootstrap(value).ok());
     let bootstrap_principal = bootstrap
         .as_ref()
         .map(|bootstrap| bootstrap.agent_principal_id.to_string());
@@ -4552,7 +4552,7 @@ fn cokret_runtime_key_ref_generation_params(
         });
 
     let mut params = serde_json::Map::new();
-    params.insert("platform".to_owned(), json!("cokret"));
+    params.insert("platform".to_owned(), json!("arkret"));
     if let Some(principal_id) = principal_id {
         params.insert("agent_principal_id".to_owned(), json!(principal_id));
     }
@@ -4805,7 +4805,7 @@ fn render_add_modal(
 
     let search_query = add_channel_search().trim().to_ascii_lowercase();
     let popular_ids: &[&str] = &[
-        "discord", "telegram", "slack", "whatsapp", "signal", "matrix", "cokret",
+        "discord", "telegram", "slack", "whatsapp", "signal", "matrix", "arkret",
     ];
     let filtered_types: Vec<&ChannelTypeInfo> = if search_query.is_empty() {
         channel_types.iter().collect()
@@ -5075,18 +5075,18 @@ mod tests {
 
     use super::*;
 
-    fn cokret_fields() -> Vec<ConfigField> {
+    fn arkret_fields() -> Vec<ConfigField> {
         build_channel_types()
             .into_iter()
-            .find(|channel| channel.id == "cokret")
-            .expect("cokret channel type")
+            .find(|channel| channel.id == "arkret")
+            .expect("arkret channel type")
             .config_fields
     }
 
     fn sdk_inkson_bootstrap_value() -> Value {
         json!({
-            "cokret_base_url": "https://cokret.example.org",
-            "service_did": "did:webvh:cokret.example.org",
+            "arkret_base_url": "https://arkret.example.org",
+            "service_did": "did:webvh:arkret.example.org",
             "agent_principal_id": "did:webvh:example.org:agents:support",
             "pairing_request_id": "pair-123",
             "pairing_code": "123456",
@@ -5099,45 +5099,45 @@ mod tests {
     }
 
     #[test]
-    fn channel_types_include_cokret() {
-        let cokret = build_channel_types()
+    fn channel_types_include_arkret() {
+        let arkret = build_channel_types()
             .into_iter()
-            .find(|channel| channel.id == "cokret")
-            .expect("cokret channel type");
+            .find(|channel| channel.id == "arkret")
+            .expect("arkret channel type");
 
-        assert_eq!(cokret.name, "Cokret");
+        assert_eq!(arkret.name, "Arkret");
         assert!(
-            cokret
+            arkret
                 .config_fields
                 .iter()
                 .any(|field| field.key == "keyRef")
         );
         assert!(
-            cokret
+            arkret
                 .config_fields
                 .iter()
                 .any(|field| field.key == "trustedVerificationMethods")
         );
         assert!(
-            cokret
+            arkret
                 .config_fields
                 .iter()
                 .any(|field| field.key == "advanced")
         );
         assert!(
-            cokret
+            arkret
                 .config_fields
                 .iter()
                 .any(|field| field.key == "runtimeKeyRequest")
         );
         assert!(
-            cokret
+            arkret
                 .config_fields
                 .iter()
                 .any(|field| field.key == "authorizationResult")
         );
         assert!(
-            !cokret
+            !arkret
                 .config_fields
                 .iter()
                 .any(|field| field.key == "externalAiEndpointConfig")
@@ -5145,25 +5145,25 @@ mod tests {
     }
 
     #[test]
-    fn cokret_bootstrap_parser_rejects_old_scope_payload_fields() {
+    fn arkret_bootstrap_parser_rejects_old_scope_payload_fields() {
         let mut value = sdk_inkson_bootstrap_value();
-        value["requested_scope"] = json!({"actions": ["ck.event.read"]});
+        value["requested_scope"] = json!({"actions": ["ak.event.read"]});
 
-        let err = parse_cokret_agent_pairing_bootstrap(value)
+        let err = parse_arkret_agent_pairing_bootstrap(value)
             .expect_err("legacy scope payload must be rejected");
 
         assert!(err.contains("unknown field"));
     }
 
     #[test]
-    fn cokret_simple_account_hides_low_level_fields() {
-        let fields = cokret_fields();
-        let values = default_channel_values("cokret", &fields);
+    fn arkret_simple_account_hides_low_level_fields() {
+        let fields = arkret_fields();
+        let values = default_channel_values("arkret", &fields);
         let visible = |key: &str| {
             fields
                 .iter()
                 .find(|field| field.key == key)
-                .is_some_and(|field| field_is_visible("cokret", field, &values))
+                .is_some_and(|field| field_is_visible("arkret", field, &values))
         };
 
         assert!(visible("inksonBootstrap"));
@@ -5175,7 +5175,7 @@ mod tests {
         assert!(!visible("advanced"));
         assert!(!visible("baseUrl"));
         assert!(!visible("serviceDid"));
-        assert!(!visible("cokretServerDid"));
+        assert!(!visible("arkretServerDid"));
         assert!(!visible("principalId"));
         assert!(!visible("externalAiEndpointConfig"));
         assert!(!visible("accessToken"));
@@ -5190,15 +5190,15 @@ mod tests {
     }
 
     #[test]
-    fn cokret_agent_hides_legacy_fields_even_when_advanced_is_set() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
-        values.insert(field_value_key("cokret", "advanced"), "true".to_owned());
+    fn arkret_agent_hides_legacy_fields_even_when_advanced_is_set() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
+        values.insert(field_value_key("arkret", "advanced"), "true".to_owned());
         let visible = |key: &str| {
             fields
                 .iter()
                 .find(|field| field.key == key)
-                .is_some_and(|field| field_is_visible("cokret", field, &values))
+                .is_some_and(|field| field_is_visible("arkret", field, &values))
         };
 
         assert!(!visible("advanced"));
@@ -5217,27 +5217,27 @@ mod tests {
     }
 
     #[test]
-    fn cokret_agent_hides_approval_result_internal_field() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
+    fn arkret_agent_hides_approval_result_internal_field() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
         let field = fields
             .iter()
             .find(|field| field.key == "authorizationResult")
             .expect("authorizationResult");
 
-        assert!(!field_is_visible("cokret", field, &values));
+        assert!(!field_is_visible("arkret", field, &values));
 
         values.insert(
-            field_value_key("cokret", "runtimeKeyRequest"),
+            field_value_key("arkret", "runtimeKeyRequest"),
             r#"{"pairing_request_id":"pair-123"}"#.to_owned(),
         );
 
-        assert!(!field_is_visible("cokret", field, &values));
+        assert!(!field_is_visible("arkret", field, &values));
     }
 
     #[test]
-    fn cokret_url_label_tracks_connection_type() {
-        let fields = cokret_fields();
+    fn arkret_url_label_tracks_connection_type() {
+        let fields = arkret_fields();
         let base_url_field = fields
             .iter()
             .find(|field| field.key == "baseUrl")
@@ -5246,111 +5246,111 @@ mod tests {
             .iter()
             .find(|field| field.key == "serviceDid")
             .expect("serviceDid");
-        let mut values = default_channel_values("cokret", &fields);
+        let mut values = default_channel_values("arkret", &fields);
 
-        assert!(!field_is_visible("cokret", base_url_field, &values));
-        assert!(!field_is_visible("cokret", service_did_field, &values));
+        assert!(!field_is_visible("arkret", base_url_field, &values));
+        assert!(!field_is_visible("arkret", service_did_field, &values));
 
-        values.insert(field_value_key("cokret", "mode"), "applet".to_owned());
+        values.insert(field_value_key("arkret", "mode"), "applet".to_owned());
         assert_eq!(
-            field_display_label("cokret", base_url_field, &values),
+            field_display_label("arkret", base_url_field, &values),
             "Applet URL"
         );
         assert_eq!(
-            field_display_placeholder("cokret", base_url_field, &values),
-            "https://savfox.example/appservices/cokret/cokret-default"
+            field_display_placeholder("arkret", base_url_field, &values),
+            "https://savfox.example/appservices/arkret/arkret-default"
         );
         assert_eq!(
-            field_display_label("cokret", service_did_field, &values),
+            field_display_label("arkret", service_did_field, &values),
             "Applet Service DID"
         );
-        assert!(field_display_required("cokret", service_did_field, &values));
+        assert!(field_display_required("arkret", service_did_field, &values));
     }
 
     #[test]
-    fn cokret_saved_agent_config_does_not_restore_advanced_toggle() {
-        let fields = cokret_fields();
+    fn arkret_saved_agent_config_does_not_restore_advanced_toggle() {
+        let fields = arkret_fields();
         let saved = json!({
-            "name": "Cokret",
+            "name": "Arkret",
             "config": {
                 "mode": "agent",
-                "baseUrl": "https://cokret.example.org",
+                "baseUrl": "https://arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap_value(),
                 "principalId": "did:webvh:example.org:agents:support",
-                "defaultRealmId": "ck:realm:abc",
-                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
-                "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099"
+                "defaultRealmId": "ak:realm:abc",
+                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
+                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099"
             }
         });
 
-        let restored = restore_channel_values("cokret", &fields, &saved);
+        let restored = restore_channel_values("arkret", &fields, &saved);
 
         assert!(
             restored
-                .get(&field_value_key("cokret", "advanced"))
+                .get(&field_value_key("arkret", "advanced"))
                 .is_none()
         );
         assert_eq!(
-            restored.get(&field_value_key("cokret", "keyRef")),
-            Some(&"{\n  \"kind\": \"env\",\n  \"var\": \"SAVFOX_COKRET_AGENT_KEY\"\n}".to_owned())
+            restored.get(&field_value_key("arkret", "keyRef")),
+            Some(&"{\n  \"kind\": \"env\",\n  \"var\": \"SAVFOX_ARKRET_AGENT_KEY\"\n}".to_owned())
         );
     }
 
     #[test]
-    fn cokret_runtime_key_request_can_start_from_bootstrap_without_protocol_payload() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
+    fn arkret_runtime_key_request_can_start_from_bootstrap_without_protocol_payload() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
         values.insert(
-            field_value_key("cokret", "inksonBootstrap"),
+            field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
         );
         values.insert(
-            field_value_key("cokret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+            field_value_key("arkret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
         );
 
-        assert!(cokret_runtime_key_request_can_request("cokret", &values));
+        assert!(arkret_runtime_key_request_can_request("arkret", &values));
     }
 
     #[test]
-    fn cokret_runtime_key_request_can_start_from_pairing_link_for_auto_resolve() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
+    fn arkret_runtime_key_request_can_start_from_pairing_link_for_auto_resolve() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
         values.insert(
-            field_value_key("cokret", "inksonBootstrap"),
-            "https://cokret.example.org/_cokret/open/agent-pairing/resolve#token=abcdefghijklmnopqrstuvwxyz"
+            field_value_key("arkret", "inksonBootstrap"),
+            "https://arkret.example.org/_arkret/open/agent-pairing/resolve#token=abcdefghijklmnopqrstuvwxyz"
                 .to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+            field_value_key("arkret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
         );
 
-        assert!(cokret_runtime_key_request_can_request("cokret", &values));
-        values.insert(field_value_key("cokret", "inksonBootstrap"), String::new());
-        assert!(!cokret_runtime_key_request_can_request("cokret", &values));
+        assert!(arkret_runtime_key_request_can_request("arkret", &values));
+        values.insert(field_value_key("arkret", "inksonBootstrap"), String::new());
+        assert!(!arkret_runtime_key_request_can_request("arkret", &values));
     }
 
     #[test]
-    fn cokret_runtime_key_ref_generation_params_use_bootstrap_principal_only() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
+    fn arkret_runtime_key_ref_generation_params_use_bootstrap_principal_only() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
         values.insert(
-            field_value_key("cokret", "inksonBootstrap"),
+            field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
         );
         values.insert(
-            field_value_key("cokret", "principalId"),
+            field_value_key("arkret", "principalId"),
             "did:webvh:example.org:agents:stale".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "keyRef"),
+            field_value_key("arkret", "keyRef"),
             r#"{"kind":"inline_seed_base64","value":"secret"}"#.to_owned(),
         );
 
-        let params = cokret_runtime_key_ref_generation_params("cokret", &values);
+        let params = arkret_runtime_key_ref_generation_params("arkret", &values);
 
-        assert_eq!(params["platform"], "cokret");
+        assert_eq!(params["platform"], "arkret");
         assert_eq!(
             params["agent_principal_id"],
             "did:webvh:example.org:agents:support"
@@ -5364,92 +5364,92 @@ mod tests {
     }
 
     #[test]
-    fn cokret_agent_patch_rejects_missing_key_ref() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
+    fn arkret_agent_patch_rejects_missing_key_ref() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
         values.insert(
-            field_value_key("cokret", "inksonBootstrap"),
+            field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
         );
 
-        let err = build_channel_patch("cokret", &fields, &values).expect_err("missing keyRef");
+        let err = build_channel_patch("arkret", &fields, &values).expect_err("missing keyRef");
 
         assert!(err.contains("local runtime key"));
     }
 
     #[test]
-    fn cokret_agent_patch_rejects_unresolved_pairing_link() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
+    fn arkret_agent_patch_rejects_unresolved_pairing_link() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
         values.insert(
-            field_value_key("cokret", "inksonBootstrap"),
-            "https://cokret.example.org/_cokret/open/agent-pairing/resolve#token=abcdefghijklmnopqrstuvwxyz"
+            field_value_key("arkret", "inksonBootstrap"),
+            "https://arkret.example.org/_arkret/open/agent-pairing/resolve#token=abcdefghijklmnopqrstuvwxyz"
                 .to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+            field_value_key("arkret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
         );
 
-        let err = build_channel_patch("cokret", &fields, &values)
+        let err = build_channel_patch("arkret", &fields, &values)
             .expect_err("unresolved pairing link must not be saved");
 
         assert!(err.contains("Resolve the Inkson pairing link"));
     }
 
     #[test]
-    fn cokret_account_patch_builds_flat_account_config() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
+    fn arkret_account_patch_builds_flat_account_config() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
         values.insert(
-            field_value_key("cokret", "inksonBootstrap"),
+            field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
         );
         values.insert(
-            field_value_key("cokret", "baseUrl"),
+            field_value_key("arkret", "baseUrl"),
             "https://stale.example.org".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "serviceDid"),
+            field_value_key("arkret", "serviceDid"),
             "did:webvh:stale.example.org".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "principalId"),
+            field_value_key("arkret", "principalId"),
             "did:webvh:example.org:agents:stale".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+            field_value_key("arkret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "authorizationResult"),
-            r#"{"authorized_event_ref":"ck:event:01904100-0000-7000-8000-000000000099"}"#
+            field_value_key("arkret", "authorizationResult"),
+            r#"{"authorized_event_ref":"ak:event:01904100-0000-7000-8000-000000000099"}"#
                 .to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "requestedScope"),
-            "ck.self.events.stream.subscribe\nck.event.read".to_owned(),
+            field_value_key("arkret", "requestedScope"),
+            "ak.self.events.stream.subscribe\nck.event.read".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "defaultRealmId"),
-            "ck:realm:legacy".to_owned(),
+            field_value_key("arkret", "defaultRealmId"),
+            "ak:realm:legacy".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "defaultFlowId"),
-            "ck:flow:legacy".to_owned(),
+            field_value_key("arkret", "defaultFlowId"),
+            "ak:flow:legacy".to_owned(),
         );
-        values.insert(field_value_key("cokret", "agentId"), "legacy".to_owned());
+        values.insert(field_value_key("arkret", "agentId"), "legacy".to_owned());
         values.insert(
-            field_value_key("cokret", "externalAiEndpointConfig"),
+            field_value_key("arkret", "externalAiEndpointConfig"),
             r#"{"provider":"external","model":"agent-model","base_url":"https://ai.example/v1"}"#
                 .to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "runtimeKeyRequest"),
+            field_value_key("arkret", "runtimeKeyRequest"),
             r#"{"must":"not be saved"}"#.to_owned(),
         );
 
-        let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
+        let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert_eq!(patch["mode"], json!("agent"));
         assert!(patch["listen"].is_null());
@@ -5465,13 +5465,13 @@ mod tests {
         );
         assert_eq!(
             patch["keyRef"],
-            json!({"kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY"})
+            json!({"kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY"})
         );
         assert!(patch["externalAiEndpointConfig"].is_null());
         assert!(patch["runtimeKeyRequest"].is_null());
         assert_eq!(
             patch["authorizedEventRef"],
-            json!("ck:event:01904100-0000-7000-8000-000000000099")
+            json!("ak:event:01904100-0000-7000-8000-000000000099")
         );
         assert!(patch["principalId"].is_null());
         assert!(patch["baseUrl"].is_null());
@@ -5481,42 +5481,42 @@ mod tests {
     }
 
     #[test]
-    fn cokret_account_patch_ignores_hidden_external_ai_endpoint_config() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
-        values.insert(field_value_key("cokret", "advanced"), "true".to_owned());
+    fn arkret_account_patch_ignores_hidden_external_ai_endpoint_config() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
+        values.insert(field_value_key("arkret", "advanced"), "true".to_owned());
         values.insert(
-            field_value_key("cokret", "inksonBootstrap"),
+            field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
         );
         values.insert(
-            field_value_key("cokret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+            field_value_key("arkret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "externalAiEndpointConfig"),
+            field_value_key("arkret", "externalAiEndpointConfig"),
             r#""not-object""#.to_owned(),
         );
 
-        let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
+        let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert!(patch["externalAiEndpointConfig"].is_null());
     }
 
     #[test]
-    fn cokret_bootstrap_defaults_fill_runtime_verification_method() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
+    fn arkret_bootstrap_defaults_fill_runtime_verification_method() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
         values.insert(
-            field_value_key("cokret", "inksonBootstrap"),
+            field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
         );
         values.insert(
-            field_value_key("cokret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+            field_value_key("arkret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
         );
 
-        let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
+        let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert!(patch["baseUrl"].is_null());
         assert!(patch["serviceDid"].is_null());
@@ -5529,49 +5529,49 @@ mod tests {
     }
 
     #[test]
-    fn cokret_applet_patch_builds_structured_namespaces() {
-        let fields = cokret_fields();
-        let mut values = default_channel_values("cokret", &fields);
-        values.insert(field_value_key("cokret", "mode"), "applet".to_owned());
+    fn arkret_applet_patch_builds_structured_namespaces() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
+        values.insert(field_value_key("arkret", "mode"), "applet".to_owned());
         values.insert(
-            field_value_key("cokret", "baseUrl"),
-            "https://savfox.example/appservices/cokret/cokret-default".to_owned(),
+            field_value_key("arkret", "baseUrl"),
+            "https://savfox.example/appservices/arkret/arkret-default".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "serviceDid"),
+            field_value_key("arkret", "serviceDid"),
             "did:web:slack-bridge.example".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "accessToken"),
+            field_value_key("arkret", "accessToken"),
             "applet-bearer-1".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "appletId"),
-            "ck:applet:21532600-0000-7000-8000-000000000000".to_owned(),
+            field_value_key("arkret", "appletId"),
+            "ak:applet:21532600-0000-7000-8000-000000000000".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "controllerDid"),
+            field_value_key("arkret", "controllerDid"),
             "did:webvh:example.com:admin".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "cokretServerUrl"),
-            "https://cokret.example.org".to_owned(),
+            field_value_key("arkret", "arkretServerUrl"),
+            "https://arkret.example.org".to_owned(),
         );
-        values.insert(field_value_key("cokret", "protocols"), "slack".to_owned());
+        values.insert(field_value_key("arkret", "protocols"), "slack".to_owned());
         values.insert(
-            field_value_key("cokret", "namespaceActors"),
+            field_value_key("arkret", "namespaceActors"),
             "did:web:slack-bridge.example:ghost:*".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "namespaceRealms"),
+            field_value_key("arkret", "namespaceRealms"),
             "slack:team:*:channel:*".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "namespaceHandles"),
+            field_value_key("arkret", "namespaceHandles"),
             "slack.acme.example/*".to_owned(),
         );
 
-        let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
+        let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert_eq!(patch["mode"], json!("applet"));
         assert!(patch["receiveEvents"].is_null());

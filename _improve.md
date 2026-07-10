@@ -64,9 +64,9 @@
 
 - [x] `crates/gateway-server/src/ws_rpc/handlers/session.rs`：`events.subscribe`/`events.unsubscribe` 仍未持久化任何订阅状态（handler 拿不到连接/session），服务端事件过滤实为 no-op。需把连接订阅集穿进来再落地。
 - [x] `crates/core/src/tools/handlers/{agents_list,process,cron}.rs`、`sessions.rs` 的 `sessions_history`/`session_status`：仍是返回空/canned JSON 的占位（带 note 说明），spec 仍把它们当成可用工具宣传给模型。需要么真正接入 SessionManager/调度器，么像 `nodes` 一样在 spec 描述里如实标注占位。
-- [x] `crates/channels/src/cokret/applet/runtime_bridge.rs`：整套 runtime-bridge（`build_outbound_edge`/`applet_runtime_config`/`SavfoxAppletResolver`）只有自身测试在用，gateway-server 出站走 `CokretHttpClient` 直连，inbound rx 建好即丢。需接线或删除。
-- [x] `crates/channels/src/cokret/session.rs`：`CokretSession` 的 `expires_at`/`is_near_expiry` 计算后被所有调用方 `let (_, _session)` 丢弃，无 session 刷新；`Unauthorized` 时直接停流而非重登。需落地刷新逻辑或移除过期机制。
-- [x] `crates/channels/src/cokret/applet/outbound.rs`：未配置 `key_ref` 时出站事件 `proofs[]` 为空，docstring 自承认"生产服务端会以 `event_proofs_empty` 拒绝"。需强制签名或在无 signer 时 fail-fast。
+- [x] `crates/channels/src/arkret/applet/runtime_bridge.rs`：整套 runtime-bridge（`build_outbound_edge`/`applet_runtime_config`/`SavfoxAppletResolver`）只有自身测试在用，gateway-server 出站走 `ArkretHttpClient` 直连，inbound rx 建好即丢。需接线或删除。
+- [x] `crates/channels/src/arkret/session.rs`：`ArkretSession` 的 `expires_at`/`is_near_expiry` 计算后被所有调用方 `let (_, _session)` 丢弃，无 session 刷新；`Unauthorized` 时直接停流而非重登。需落地刷新逻辑或移除过期机制。
+- [x] `crates/channels/src/arkret/applet/outbound.rs`：未配置 `key_ref` 时出站事件 `proofs[]` 为空，docstring 自承认"生产服务端会以 `event_proofs_empty` 拒绝"。需强制签名或在无 signer 时 fail-fast。
 - [x] `crates/core/src/tools/handlers/image_generate.rs`、`memory.rs`、`md_memory.rs`：除 `image_generate` 已补 `is_mutating` 外，`memory`/`md_memory` 的写/删动作仍未实现 `is_mutating`，绕过工具调用 gate。需为其 mutating action 补 `is_mutating`。
 - [x] `crates/gateway-server/src/ws_rpc/handlers/config.rs`：`config.export` 默认 `redacted=false`，导出/分享场景默认明文带出密钥。建议默认 `redacted=true`。
 
@@ -106,8 +106,8 @@
 - [x] `crates/core/src/auth.rs`：`enforce_login_restrictions` 依据未验签的 `id_token.chatgpt_account_id` 做工作区限制，用户改本地 `openai.json` 即可绕过。需改用服务端校验过的 account_id 或先验签。
 - [x] `crates/core/src/config/provider_store.rs`：凭据文件 load→mutate→save 无锁/版本校验（TOCTOU），RPC 与 TUI 并发写会互相覆盖。需原子写 + 乐观并发版本号（`config/service.rs` 已有范式）。
 - [x] `crates/app-server/src/savfox_message_processor/auth_handler.rs`：`fetch_account_rate_limits` 永远返回 Err（`account/getRateLimits` 永不可用）。需实现或在 API 层标注不支持。
-- [x] channels：cokret 入站从不设置 `sender_kind`，导致 `ExternalBotPolicy` 对 cokret/matrix-webhook 路径全程不可达（bot 被当人回复）。需在入站边界计算 `SenderKind`。
-- [x] 死代码（低优先）：`crates/core/src/sandboxing/mod.rs` `SandboxPreference`、`windows_sandbox.rs` 两个 free-function、`cokret.rs:520` `handle_outbound_action`、`api-client/src/sse/responses.rs` 几个 `#[allow(dead_code)]` 字段。
+- [x] channels：arkret 入站从不设置 `sender_kind`，导致 `ExternalBotPolicy` 对 arkret/matrix-webhook 路径全程不可达（bot 被当人回复）。需在入站边界计算 `SenderKind`。
+- [x] 死代码（低优先）：`crates/core/src/sandboxing/mod.rs` `SandboxPreference`、`windows_sandbox.rs` 两个 free-function、`arkret.rs:520` `handle_outbound_action`、`api-client/src/sse/responses.rs` 几个 `#[allow(dead_code)]` 字段。
 
 ## 本轮验证
 
@@ -133,13 +133,13 @@
 
 ### 死代码
 
-- [x] `crates/gateway-server/src/channels/cokret.rs`：删除零调用方、带 `#[allow(dead_code)]` 的 `handle_outbound_action`，并清理随之失效的 `ChannelAction` 导入。
+- [x] `crates/gateway-server/src/channels/arkret.rs`：删除零调用方、带 `#[allow(dead_code)]` 的 `handle_outbound_action`，并清理随之失效的 `ChannelAction` 导入。
 
 ## 待继续处理（评估后判定为不宜在本轮简单改动）
 
 - [x] `git show/log/diff` 的 `.gitattributes` textconv / `diff.external` / `core.pager` 配置驱动 RCE：`is_known_safe_command` 只做分类、无法改写命令注入安全 flag，真正修复应在 exec 层为 git 注入安全环境（`GIT_PAGER=cat`、`GIT_EXTERNAL_DIFF=`、`-c diff.external=`、`--no-textconv`）。属架构性改动，单独评审。注：自动 exec 下 stdout 非 TTY，core.pager 通常不触发，但 textconv 不依赖 TTY，仍是实打实的风险。
 - [x] Windows `windows_dangerous_commands.rs` 的 `Start-Process calc.exe`/`start ms-settings:`/UNC 等"非 URL"放行：该检测器**刻意**只针对"打开恶意 URL/文件"威胁模型（`has_url &&` 门控），把所有 `Start-Process` 判危险会海量误报。如要收紧 `looks_like_url` 覆盖 `file://`/scheme/UNC，需配套调整正则解析，单独评审。
-- [x] 其余上一轮列出的待办（id_token 未验签工作区限制、provider_store TOCTOU、`fetch_account_rate_limits` 永久失败、cokret 入站 `sender_kind` 缺失、若干低优先死代码）保持不变。
+- [x] 其余上一轮列出的待办（id_token 未验签工作区限制、provider_store TOCTOU、`fetch_account_rate_limits` 永久失败、arkret 入站 `sender_kind` 缺失、若干低优先死代码）保持不变。
 
 ## 本轮验证
 
@@ -171,11 +171,11 @@
 
 下列剩余项经评估都属于"架构性 / 安全敏感 / 会改变默认行为"，需单独评审而非快速 round，故本轮在此停止：
 
-- [x] **会改变默认行为**：cokret/matrix user-mode/webhook 补 `sender_kind` → `ExternalBotPolicy::default()` 是 `Ignore`，未配置策略的渠道会开始**静默丢弃** localpart 含 "bot" 的发送者消息（appservice 路径已是此行为，但 user-mode/webhook 对齐会改变现状）。需产品确认。
+- [x] **会改变默认行为**：arkret/matrix user-mode/webhook 补 `sender_kind` → `ExternalBotPolicy::default()` 是 `Ignore`，未配置策略的渠道会开始**静默丢弃** localpart 含 "bot" 的发送者消息（appservice 路径已是此行为，但 user-mode/webhook 对齐会改变现状）。需产品确认。
 - [x] **架构性**：`git show/log/diff` 的 textconv/external-diff/pager 配置驱动 RCE，需在 exec 层为 git 注入安全环境，非分类器可解决。
 - [x] **刻意设计**：Windows `Start-Process` 非 URL 放行（威胁模型只针对恶意 URL/文件）；`fetch_account_rate_limits` 永久返回 Err（测试断言其错误，明确未支持）。
 - [x] **安全敏感 / 较大重构**：`id_token` 未验签即用于工作区限制；`provider_store` load→mutate→save 的 TOCTOU 并发覆盖（需乐观并发版本号，涉及多调用方）。
-- [x] **意图不明 / 较大**：cokret `runtime_bridge` 整套未接线（删除 vs 接线需产品判断）；`CokretSession` 过期刷新；cokret 无 `key_ref` 出站空签名。
+- [x] **意图不明 / 较大**：arkret `runtime_bridge` 整套未接线（删除 vs 接线需产品判断）；`ArkretSession` 过期刷新；arkret 无 `key_ref` 出站空签名。
 
 ## 本轮验证
 
@@ -209,11 +209,11 @@
 
 ## 本轮已处理
 
-- [x] `crates/gateway-server/src/channels/matrix.rs`、`cokret.rs`：**补全 `sender_kind`，让 `ExternalBotPolicy` 真正生效**。此前只有 appservice 模式计算 sender_kind，matrix user-mode/webhook 与 cokret 入站都默认 `Human`，导致 `ExternalBotPolicy` 不可达。抽出 `matrix_localpart_looks_like_bot` + `matrix_user_mode_sender_kind`（与 appservice 共用判定）并接入 user-mode 派发与 webhook；cokret 把账号自身 DID 标为 `SelfBot` 防自我回复环。新增单测。**注意：这使默认 `Ignore` 策略生效，bot-like 发送者在这些路径会被默认丢弃（预期行为）。**
-- [x] `crates/gateway-server/src/channels/cokret.rs`：`Unauthorized` 不再直接停掉渠道，改为带退避**重新登录**（key_ref 时重跑 DID-proof）并重置 cursor/dedupe 续跑，token 过期变为可恢复。
-- [x] `crates/gateway-server/src/channels/cokret.rs`：账号出站 `actor_seq` 从 `timestamp_millis()`（可回退/重复）改为文件支撑的单调 `SeqAllocator`（与 applet 路径一致，按账号持久化、重启安全）。
+- [x] `crates/gateway-server/src/channels/matrix.rs`、`arkret.rs`：**补全 `sender_kind`，让 `ExternalBotPolicy` 真正生效**。此前只有 appservice 模式计算 sender_kind，matrix user-mode/webhook 与 arkret 入站都默认 `Human`，导致 `ExternalBotPolicy` 不可达。抽出 `matrix_localpart_looks_like_bot` + `matrix_user_mode_sender_kind`（与 appservice 共用判定）并接入 user-mode 派发与 webhook；arkret 把账号自身 DID 标为 `SelfBot` 防自我回复环。新增单测。**注意：这使默认 `Ignore` 策略生效，bot-like 发送者在这些路径会被默认丢弃（预期行为）。**
+- [x] `crates/gateway-server/src/channels/arkret.rs`：`Unauthorized` 不再直接停掉渠道，改为带退避**重新登录**（key_ref 时重跑 DID-proof）并重置 cursor/dedupe 续跑，token 过期变为可恢复。
+- [x] `crates/gateway-server/src/channels/arkret.rs`：账号出站 `actor_seq` 从 `timestamp_millis()`（可回退/重复）改为文件支撑的单调 `SeqAllocator`（与 applet 路径一致，按账号持久化、重启安全）。
 - [x] `crates/core/src/config/provider_store.rs`：`persist_provider_connection` / `update_provider_store_models` 的 load→mutate→save 加按 account_id 的进程内互斥锁，防并发写丢更新；`update_provider_store_models` 在锁内重新加载。跨进程仍需 OS 文件锁（已注明）。
-- [x] `crates/gateway-server/src/channels/cokret_applet.rs`：无 `key_ref` 时出站事件空 `proofs[]`（生产服务端会以 `event_proofs_empty` 拒绝）由静默改为**显著警告**，保留 dev/bare-bearer 可用。
+- [x] `crates/gateway-server/src/channels/arkret_applet.rs`：无 `key_ref` 时出站事件空 `proofs[]`（生产服务端会以 `event_proofs_empty` 拒绝）由静默改为**显著警告**，保留 dev/bare-bearer 可用。
 
 ## 评估后明确不做（激进模式下仍判定不宜）
 
@@ -221,14 +221,14 @@
 - [x] Windows `Start-Process` 非 URL 放行：检测器刻意只针对"打开恶意 URL/文件"威胁模型，扩成"所有 Start-Process 危险"会海量误报。
 - [x] `id_token` 未验签做工作区限制：需引入 JWKS 验签（外部依赖+较大改动）。
 - [x] `fetch_account_rate_limits` 永久 Err：测试断言其错误，明确为"未支持"占位。
-- [x] cokret `runtime_bridge`（`build_outbound_edge`/`SavfoxAppletResolver`/`applet_runtime_config`）：虽无内部调用方，但经 `cokret/mod.rs` 公开 re-export，属公共 API 脚手架（edge 集成预留），删除会改公共接口，非明确 bug。
+- [x] arkret `runtime_bridge`（`build_outbound_edge`/`SavfoxAppletResolver`/`applet_runtime_config`）：虽无内部调用方，但经 `arkret/mod.rs` 公开 re-export，属公共 API 脚手架（edge 集成预留），删除会改公共接口，非明确 bug。
 
 ## 本轮验证
 
 - [x] `cargo check -p savfox-core -p savfox-gateway-server`
 - [x] `cargo test -p savfox-gateway-server --lib channels::`（47 passed）
 - [x] `cargo test -p savfox-gateway-server --lib matrix`（7 passed，含新增 sender_kind 单测）
-- [x] `cargo test -p savfox-gateway-server --lib cokret`（4 passed）
+- [x] `cargo test -p savfox-gateway-server --lib arkret`（4 passed）
 - [x] `cargo test -p savfox-core --lib config::provider_store`（11 passed）
 
 ---
@@ -242,14 +242,14 @@
 - [x] **git 配置驱动 RCE（exec 层加固）** `crates/core/src/spawn.rs`：在所有 exec 路径的唯一汇聚点 `spawn_child_async` 对 `git` 注入 `GIT_PAGER=cat` 与 `GIT_CONFIG_*`（`core.pager=cat`、`diff.external=`），中和 repo 本地 `core.pager`/`diff.external` 的代码执行，无论分类器是否自动放行。残留：per-driver `textconv` 需命令行 `--no-textconv`，已注明。含 2 单测。
 - [x] **Windows 危险命令检测扩展** `windows_dangerous_commands.rs`：`looks_like_url` 扩展到危险非 http scheme（`file`/`vbscript`/`search-ms`/`shell`/任意 `ms-*`）并排除单字符盘符；UNC 在 shlex 前的原始参数上检测（shlex 会吞反斜杠）。本地启动（notepad.exe、`C:\...`）不误报。含 2 单测。残留：危险侧仍用 POSIX shlex 解析 PS，已注明。
 - [x] **Unix `truncate`** `is_dangerous_command.rs`：补为明确破坏性命令（与 dd/shred/mkfs 同列）。
-- [x] **CokretSession 过期主动刷新** `gateway-server/src/channels/cokret.rs`：`construct_account_client` 返回 session `expires_at`，订阅循环在过期前 ~60s 主动重登（用上了此前被丢弃的过期跟踪）；叠加第七轮的 Unauthorized 反应式重登。
+- [x] **ArkretSession 过期主动刷新** `gateway-server/src/channels/arkret.rs`：`construct_account_client` 返回 session `expires_at`，订阅循环在过期前 ~60s 主动重登（用上了此前被丢弃的过期跟踪）；叠加第七轮的 Unauthorized 反应式重登。
 - [x] **events.subscribe/unsubscribe** `ws_rpc/handlers/session.rs`：服务端推送不按订阅过滤，响应改为 `advisory:true` 并加注释，不再暗示订阅生效。
 
 ## 本轮以工程决策终结（非"假装修复"）
 
 - [x] **`id_token` 未验签工作区限制** `core/src/auth.rs`：完整修复需引入 `jsonwebtoken`+JWKS 拉取/缓存+async 重构+fail-open/closed 产品决策，会影响所有登录路径且无法对真实 issuer 验证。威胁为"本地用户改自己的 `openai.json` 绕过本地工作区策略"（用户本就有本地权限）。结合用户"不在乎安全性"的明确优先级，**判定不引入重量级 JWKS 特性**；如需，应作为独立、带真实 issuer 验证的安全 PR。状态：已评估并决策（不实施），非遗漏。
 - [x] **`fetch_account_rate_limits` 永久 Err** `app-server/.../auth_handler.rs`：速率限制只能从实时 API 响应头观测、无独立查询端点，故"不支持"是正确语义。API 已返回明确 `"rate limit fetching is not available"`，且测试锁定该契约。即 item 的"在 API 层标注不支持"选项已满足。
-- [x] **cokret `runtime_bridge`** `channels/.../runtime_bridge.rs`：有完整文档+单测的**刻意脚手架**（为 `cokret-bridge-runtime` edge 集成预留），全工作区无外部消费者。删除会丢弃计划内工作、重写出站路径风险大。保留为"计划内、暂未接线"，非意外死代码。
+- [x] **arkret `runtime_bridge`** `channels/.../runtime_bridge.rs`：有完整文档+单测的**刻意脚手架**（为 `arkret-bridge-runtime` edge 集成预留），全工作区无外部消费者。删除会丢弃计划内工作、重写出站路径风险大。保留为"计划内、暂未接线"，非意外死代码。
 - [x] **Windows `Start-Process` 威胁模型**：本轮已扩展危险 scheme/UNC 覆盖；"把所有 `Start-Process` 判危险"仍刻意不做（会海量误报），符合该检测器只针对"打开恶意目标"的设计。
 
 ## 早前各轮已完成（在此统一勾选确认）
@@ -258,16 +258,16 @@
 - [x] `memory`/`md_memory` 补 `is_mutating`（第 3 轮）
 - [x] `config.export` 默认 `redacted=true`（第 3 轮）
 - [x] `provider_store` TOCTOU 进程内锁 + 锁内重载（第 7 轮）
-- [x] cokret/matrix `sender_kind` 接入，`ExternalBotPolicy` 生效（第 7 轮）
-- [x] cokret Unauthorized 重登（第 7 轮）；账号 `actor_seq` 单调化（第 7 轮）
-- [x] 低优先死代码：`SandboxPreference`、`windows_sandbox` 两 free-fn（第 5 轮）、`cokret.rs` `handle_outbound_action`（第 4 轮）、api-client SSE 死字段（第 6 轮）
+- [x] arkret/matrix `sender_kind` 接入，`ExternalBotPolicy` 生效（第 7 轮）
+- [x] arkret Unauthorized 重登（第 7 轮）；账号 `actor_seq` 单调化（第 7 轮）
+- [x] 低优先死代码：`SandboxPreference`、`windows_sandbox` 两 free-fn（第 5 轮）、`arkret.rs` `handle_outbound_action`（第 4 轮）、api-client SSE 死字段（第 6 轮）
 - [x] 危险命令检测 Unix 侧 `rm --force/-fr/-rfv`、`dd`/`shred`/`mkfs`（第 4 轮）
 
 ## 本轮验证
 
 - [x] `cargo test -p savfox-core --lib spawn::`（2 passed）
 - [x] `cargo test -p savfox-core --lib commands::safety`（89 passed）
-- [x] `cargo test -p savfox-gateway-server --lib cokret`（4 passed）
+- [x] `cargo test -p savfox-gateway-server --lib arkret`（4 passed）
 - [x] `cargo check -p savfox-core -p savfox-gateway-server`
 
 ---

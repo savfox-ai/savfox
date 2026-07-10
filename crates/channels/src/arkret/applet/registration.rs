@@ -1,25 +1,25 @@
-//! Build a wire-format `ck.applet.registration` payload using the SDK's
-//! [`cokret::WireAppletRegistration`] (S-4 in SDK commit `bf29056`).
+//! Build a wire-format `ak.applet.registration` payload using the SDK's
+//! [`arkret::WireAppletRegistration`] (S-4 in SDK commit `bf29056`).
 //!
 //! The output is the canonical payload that a controller DID holder must
-//! sign before submitting to a Cokret server. savfox does not currently
+//! sign before submitting to an Arkret server. savfox does not currently
 //! do signing — operators generate the payload here, sign offline (via
-//! `cokret::sign_registration` once they wire the Ed25519 signer in
-//! Phase 8), and submit by hand or via the Cokret admin tooling.
+//! `arkret::sign_registration` once they wire the Ed25519 signer in
+//! Phase 8), and submit by hand or via the Arkret admin tooling.
 //!
-//! Schema reference: Cokret spec
+//! Schema reference: Arkret spec
 //! [`applet-schema.md`
-//! §1](../../../../../../cokret/cokret-spec/spec/v1/zh/extensions/applet-schema.md).
+//! §1](../../../../../../arkret/arkret-spec/spec/v1/zh/extensions/applet-schema.md).
 
-use cokret::{Did, Hash, WireAppletRegistration};
+use arkret::{Did, Hash, WireAppletRegistration};
 use serde_json::Value;
 
-use super::config::CokretAppletConfig;
-/// Build the wire-format `ck.applet.registration` payload (unsigned).
+use super::config::ArkretAppletConfig;
+/// Build the wire-format `ak.applet.registration` payload (unsigned).
 ///
 /// Returns a strongly-typed [`WireAppletRegistration`] from the SDK whose
 /// `proof` field is `None`. Caller chains
-/// [`cokret::sign_registration(&mut reg, &signer, vm)`] to populate it
+/// [`arkret::sign_registration(&mut reg, &signer, vm)`] to populate it
 /// (or serializes the unsigned payload to JSON for offline signing).
 ///
 /// Note: spec applet-schema.md §1/§2 shows each namespace entry as
@@ -32,14 +32,14 @@ use super::config::CokretAppletConfig;
 /// is taken from `cfg.registration_epoch` when supplied; otherwise a zero
 /// placeholder is emitted — see [`resolve_registration_epoch`].
 pub fn build_registration_payload(
-    cfg: &CokretAppletConfig,
+    cfg: &ArkretAppletConfig,
 ) -> anyhow::Result<WireAppletRegistration> {
     // Parse fallibly rather than `expect`: callers may build a payload from a
     // config that has not been through `validate()`, and a malformed DID must
     // surface as an error, never a panic.
     let parse_did = |label: &str, raw: &str| -> anyhow::Result<Did> {
         Did::new(raw.to_owned()).map_err(|err| {
-            anyhow::anyhow!("cokret applet registration: invalid {label} DID '{raw}': {err}")
+            anyhow::anyhow!("arkret applet registration: invalid {label} DID '{raw}': {err}")
         })
     };
     let service_did = parse_did("service_did", &cfg.service_did)?;
@@ -69,7 +69,7 @@ pub fn build_registration_payload(
 /// Convenience: render the SDK [`WireAppletRegistration`] as JSON for
 /// offline tooling (signing scripts, registration submission via
 /// `curl`, etc.).
-pub fn build_registration_json(cfg: &CokretAppletConfig) -> anyhow::Result<Value> {
+pub fn build_registration_json(cfg: &ArkretAppletConfig) -> anyhow::Result<Value> {
     let reg = build_registration_payload(cfg)?;
     Ok(serde_json::to_value(&reg).expect("WireAppletRegistration always serializes"))
 }
@@ -81,11 +81,11 @@ pub fn build_registration_json(cfg: &CokretAppletConfig) -> anyhow::Result<Value
 /// so an unset epoch yields an UNSIGNED draft only — the operator must set
 /// `registrationEpoch` (or have controller tooling compute it) before the
 /// payload is signed and submitted.
-fn resolve_registration_epoch(cfg: &CokretAppletConfig) -> anyhow::Result<Hash> {
+fn resolve_registration_epoch(cfg: &ArkretAppletConfig) -> anyhow::Result<Hash> {
     match cfg.registration_epoch.as_deref().map(str::trim) {
         Some(raw) if !raw.is_empty() => Hash::new(raw.to_owned()).map_err(|err| {
             anyhow::anyhow!(
-                "cokret applet '{}': invalid registrationEpoch '{raw}': {err}",
+                "arkret applet '{}': invalid registrationEpoch '{raw}': {err}",
                 cfg.id
             )
         }),
@@ -96,25 +96,25 @@ fn resolve_registration_epoch(cfg: &CokretAppletConfig) -> anyhow::Result<Hash> 
 
 #[cfg(test)]
 mod tests {
-    use cokret::AppletNamespaceEntry;
+    use arkret::AppletNamespaceEntry;
 
     use super::*;
-    use crate::cokret::applet::namespace::{AppletNamespaces, NamespacePattern};
+    use crate::arkret::applet::namespace::{AppletNamespaces, NamespacePattern};
 
-    fn cfg() -> CokretAppletConfig {
-        CokretAppletConfig {
+    fn cfg() -> ArkretAppletConfig {
+        ArkretAppletConfig {
             id: "applet-1".into(),
-            applet_id: "ck:applet:21532600-0000-7000-8000-000000000000".into(),
+            applet_id: "ak:applet:21532600-0000-7000-8000-000000000000".into(),
             service_did: "did:web:slack-bridge.example".into(),
             controller_did: "did:webvh:example.com:admin".into(),
-            base_url: "https://savfox.example/appservices/cokret/applet-1".into(),
+            base_url: "https://savfox.example/appservices/arkret/applet-1".into(),
             bot_actor_id: "did:web:slack-bridge.example:bot".into(),
             device_id: None,
-            cokret_server_url: "https://cokret.example.org".into(),
-            cokret_server_did: Some("did:webvh:cokret.example.org".into()),
+            arkret_server_url: "https://arkret.example.org".into(),
+            arkret_server_did: Some("did:webvh:arkret.example.org".into()),
             trusted_verification_methods: Vec::new(),
             login_challenge: None,
-            cokret_bearer_token: None,
+            arkret_bearer_token: None,
             namespaces: AppletNamespaces {
                 actors: vec![NamespacePattern::exclusive(
                     "did:web:slack-bridge.example:ghost:*",
@@ -124,7 +124,7 @@ mod tests {
             },
             protocols: vec!["slack".into()],
             ghost_did_prefix: "ghost:".into(),
-            requested_scopes: vec!["ck.message.create".into(), "ck.flow.create".into()],
+            requested_scopes: vec!["ak.message.create".into(), "ak.flow.create".into()],
             receive_events: true,
             receive_ephemeral: false,
             rate_limited: true,
@@ -140,7 +140,7 @@ mod tests {
     fn kind_is_applet_registration() {
         let reg = build_registration_payload(&cfg()).expect("build registration");
         assert_eq!(reg.kind, WireAppletRegistration::KIND);
-        assert_eq!(reg.kind, "ck.applet.registration");
+        assert_eq!(reg.kind, "ak.applet.registration");
     }
 
     #[test]
@@ -154,7 +154,7 @@ mod tests {
         let reg = build_registration_payload(&cfg()).expect("build registration");
         assert_eq!(
             reg.applet_id,
-            "ck:applet:21532600-0000-7000-8000-000000000000"
+            "ak:applet:21532600-0000-7000-8000-000000000000"
         );
         assert_eq!(reg.service_did.as_str(), "did:web:slack-bridge.example");
         assert_eq!(reg.controller_did.as_str(), "did:webvh:example.com:admin");
@@ -212,14 +212,14 @@ mod tests {
         assert!(
             reg.requested_scopes
                 .iter()
-                .any(|s| s == "ck.message.create")
+                .any(|s| s == "ak.message.create")
         );
     }
 
     #[test]
     fn json_form_contains_kind_field() {
         let json = build_registration_json(&cfg()).expect("build registration json");
-        assert_eq!(json["kind"], "ck.applet.registration");
+        assert_eq!(json["kind"], "ak.applet.registration");
         assert!(json["proof"].is_null());
     }
 }
