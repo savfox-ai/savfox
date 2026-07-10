@@ -16,13 +16,13 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context;
-use chrono::{DateTime, Utc};
 use arkret::{
     DeviceId, DeviceMessagesAckRequestBody, Did, KeyPackageUploadEntry,
     KeyPackagesConsumeRequestBody, KeyPackagesUploadRequestBody, MlsKeyPackageRecord, RealmId,
     StrandId,
 };
-use garth::{ClientEvent, SubscriptionStopReason};
+use chrono::{DateTime, Utc};
+use garth::{ClientEvent, ClientProjector, SubscriptionStopReason};
 use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretChannelConfig, ArkretDecryptDetailedOutcome, ArkretEncryptOutcome,
     ArkretHttpClient, ArkretInboundEvent, ArkretInboundParseResult, ArkretInboundSkipReason,
@@ -373,6 +373,25 @@ enum AccountEngineOutcome {
     Retry { error: anyhow::Error },
 }
 
+struct AccountEventProjector {
+    tx: tokio::sync::mpsc::UnboundedSender<ClientEvent>,
+}
+
+impl ClientProjector for AccountEventProjector {
+    fn project(&self, batch: Vec<ClientEvent>) -> impl Future<Output = arkret::Result<()>> + '_ {
+        async move {
+            for event in batch {
+                self.tx.send(event).map_err(|_| {
+                    arkret::Error::Protocol(
+                        "Savfox Arkret account event receiver closed".to_owned(),
+                    )
+                })?;
+            }
+            Ok(())
+        }
+    }
+}
+
 fn session_grant_needs_refresh(session_expiry: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
     session_expiry
         .is_some_and(|expiry| now >= expiry - chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS))
@@ -426,10 +445,8 @@ async fn drive_account_subscription_engine(
         engine = engine.with_service_did(service_did);
     }
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let sink = move |event: ClientEvent| {
-        let _ = tx.send(event);
-    };
-    let run = engine.run_account(actor_id, device_id, client.inner(), &sink);
+    let projector = AccountEventProjector { tx };
+    let run = engine.run_account(actor_id, device_id, client.inner(), &projector);
     tokio::pin!(run);
 
     match session_refresh_delay(session_expiry, Utc::now()) {

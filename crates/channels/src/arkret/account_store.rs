@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use arkret::{DeviceId, Did, Error, EventId, Hash, RealmId, Result as ArkretResult};
+use arkret::{DeviceId, Did, Error, EventId, RealmId, Result as ArkretResult};
 use garth::{CursorScope, CursorStore, EventCacheStore, OpaqueCursor};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -419,20 +419,6 @@ fn scope_key(scope: &CursorScope) -> ArkretResult<String> {
             "kind": "realm_events",
             "service_did": service_did.as_ref().map(Did::as_str),
             "realm_id": realm_id.as_str(),
-        }),
-        CursorScope::EventsQuery {
-            service_did,
-            realms,
-            actors,
-            order,
-            filter_digest,
-        } => json!({
-            "kind": "events_query",
-            "service_did": service_did.as_ref().map(Did::as_str),
-            "realms": realms.iter().map(RealmId::as_str).collect::<Vec<_>>(),
-            "actors": actors.iter().map(Did::as_str).collect::<Vec<_>>(),
-            "order": order,
-            "filter_digest": filter_digest.as_ref().map(Hash::as_str),
         }),
     };
     serde_json::to_string(&value)

@@ -12,7 +12,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::Context;
-use chrono::{DateTime, Utc};
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
     AccountSubscribeFrame, DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome,
@@ -20,10 +19,11 @@ use arkret::{
     KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServerDescription,
     SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
 };
+use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::{Stream, StreamExt};
 use garth::{
-    AgentKeyProofLogin, ArkretClient, LoginKind, MemorySecureKeyStore, MemoryStore, NativeExecutor,
+    AgentKeyProofLogin, CokretClient as ArkretClient, LoginKind, MemoryStore, NativeExecutor,
     SessionEngine,
 };
 use serde_json::{Value, json};
@@ -56,15 +56,10 @@ pub type ArkretFrameStream =
 pub type ArkretAccountFrameStream =
     Pin<Box<dyn Stream<Item = Result<AccountSubscribeFrame, anyhow::Error>> + Send>>;
 
-pub type SavfoxArkretClientCore =
-    ArkretClient<NativeExecutor, MemoryStore, MemoryStore, MemorySecureKeyStore>;
+pub type SavfoxArkretClientCore = ArkretClient<NativeExecutor, MemoryStore, MemoryStore>;
 
-pub type SavfoxDurableArkretClientCore = ArkretClient<
-    NativeExecutor,
-    FileArkretAccountStore,
-    FileArkretAccountStore,
-    MemorySecureKeyStore,
->;
+pub type SavfoxDurableArkretClientCore =
+    ArkretClient<NativeExecutor, FileArkretAccountStore, FileArkretAccountStore>;
 
 pub fn sign_key_operation_value(
     key_ref: &ArkretKeyRef,
@@ -182,13 +177,7 @@ impl ArkretHttpClient {
 
     #[must_use]
     pub fn client_core(&self) -> SavfoxArkretClientCore {
-        ArkretClient::new(
-            self.inner.clone(),
-            NativeExecutor,
-            MemoryStore::new(),
-            MemoryStore::new(),
-            MemorySecureKeyStore::new(),
-        )
+        ArkretClient::new(NativeExecutor, MemoryStore::new(), MemoryStore::new())
     }
 
     #[must_use]
@@ -196,13 +185,7 @@ impl ArkretHttpClient {
         &self,
         store: FileArkretAccountStore,
     ) -> SavfoxDurableArkretClientCore {
-        ArkretClient::new(
-            self.inner.clone(),
-            NativeExecutor,
-            store.clone(),
-            store,
-            MemorySecureKeyStore::new(),
-        )
+        ArkretClient::new(NativeExecutor, store.clone(), store)
     }
 
     /// Build an applet HTTP client bound to `base_url`, authenticated via the

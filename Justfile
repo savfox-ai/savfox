@@ -28,9 +28,9 @@ gateway-release:
 gateway-skip-web:
     $gatewayArgs = @('run', '--bin', 'savfox', '--', 'gateway', '--port', '{{port}}'); if ($env:SAVFOX_GATEWAY_TOKEN) { $gatewayArgs += @('--token', $env:SAVFOX_GATEWAY_TOKEN) }; cargo @gatewayArgs
 
-# Run the gateway backend only, on the fixed dev port expected by the Dioxus proxy config
+# Run the Arkret-enabled gateway backend on the fixed dev port expected by the Dioxus proxy config
 gateway-backend:
-    $gatewayArgs = @('run', '--bin', 'savfox', '--', 'gateway', '--port', '{{dev_backend_port}}'); if ($env:SAVFOX_GATEWAY_TOKEN) { $gatewayArgs += @('--token', $env:SAVFOX_GATEWAY_TOKEN) }; cargo @gatewayArgs
+    $gatewayArgs = @('run', '--bin', 'savfox', '--features', 'savfox-gateway-server/arkret', '--', 'gateway', '--port', '{{dev_backend_port}}'); if ($env:SAVFOX_GATEWAY_TOKEN) { $gatewayArgs += @('--token', $env:SAVFOX_GATEWAY_TOKEN) }; cargo @gatewayArgs
 
 # ── Web frontend ─────────────────────────────────────────────────────────────
 

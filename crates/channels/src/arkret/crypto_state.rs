@@ -9,14 +9,15 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use chrono::{DateTime, Utc};
 use arkret::crypto_protocol::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
 use arkret::{
-    ArkretMlsGroup, ArkretMlsIdentity, CryptoStore, DeviceId, Did, EncryptedPayload,
-    EncryptedPayloadScheme, EventId, FeatureSafetyReport, MemoryCryptoStore, MlsGroupStateRecord,
-    MlsKeyPackageRecord, MlsKeyPackageState, MlsRecoveryAction, MlsWelcomeEnvelope,
-    MlsWelcomePayload, RealmId, current_feature_safety_report,
+    CokretMlsGroup as ArkretMlsGroup, CokretMlsIdentity as ArkretMlsIdentity, CryptoStore,
+    DeviceId, Did, EncryptedPayload, EncryptedPayloadScheme, EventId, FeatureSafetyReport,
+    MemoryCryptoStore, MlsGroupStateRecord, MlsKeyPackageRecord, MlsKeyPackageState,
+    MlsRecoveryAction, MlsWelcomeEnvelope, MlsWelcomePayload, RealmId,
+    current_feature_safety_report,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -1121,8 +1122,8 @@ fn safe_file_stem(scope_id: &str) -> String {
 mod tests {
     use arkret::crypto_protocol::UnableToDecryptReason;
     use arkret::{
-        ArkretMlsIdentity, EncryptedPayloadScheme, Hash, KeyOperationSignature,
-        KeyPackageClaimRecord,
+        CokretMlsIdentity as ArkretMlsIdentity, EncryptedPayloadScheme, Hash,
+        KeyOperationSignature, KeyPackageClaimRecord,
     };
     use serde_json::json;
 

@@ -7,9 +7,10 @@
 use anyhow::Context;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    ContentBlock, Did, Ed25519MoveSigner, Event, Hlc, OperationEventConversion, RealmId, StrandId,
+    ContentBlock, Did, Ed25519MoveSigner, Event, Hlc, MessageCreatePayload, OP_MESSAGE_CREATE,
+    OperationEnvelopeBuilder, OperationEventConversion, OperationId, OperationKindRegistry,
+    RealmId, StrandId, new_prefixed_uuid7,
 };
-use garth::{MessageCreateOptions, OutboundBuilder, OutboundCommandContext};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -44,31 +45,40 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
         .with_context(|| format!("invalid principal DID: {}", req.principal_id))?;
     let hlc = current_hlc();
 
-    let mut legacy_flow_id = None;
-    let mut options = MessageCreateOptions::default().with_track_name("discussion");
-    if let Ok(strand_id) = StrandId::new(req.flow_id.clone()) {
-        options = options.with_strand_id(strand_id);
-    } else {
-        legacy_flow_id = Some(req.flow_id.as_str());
-    }
+    let (strand_id, legacy_flow_id) = match StrandId::new(req.flow_id.clone()) {
+        Ok(strand_id) => (strand_id, None),
+        Err(_) => (
+            StrandId::new(new_prefixed_uuid7("ak:strand:"))
+                .context("failed to generate message strand id")?,
+            Some(req.flow_id.as_str()),
+        ),
+    };
+    let content = ContentBlock::text(req.body.clone())
+        .to_value()
+        .map_err(|err| anyhow::anyhow!("failed to build text content block: {err}"))?;
+    let mut payload = MessageCreatePayload::with_content(strand_id, "discussion", content)
+        .with_message_id(new_prefixed_uuid7("ak:message:"));
     if let Some(thread_root) = &req.thread_root_id {
-        options = options.with_reply_to(thread_root.clone());
+        payload = payload.with_reply_to(thread_root.clone());
     }
-
-    let builder = OutboundBuilder::new();
-    let context = OutboundCommandContext::new(actor, req.actor_seq, hlc);
-    let envelope = builder
-        .message_create_envelope_with(
-            realm,
-            context,
-            options,
-            ContentBlock::text(req.body.clone())
-                .to_value()
-                .map_err(|err| anyhow::anyhow!("failed to build text content block: {err}"))?,
-        )
-        .map_err(|err| anyhow::anyhow!("failed to build message-create envelope: {err}"))?;
-    let mut event = builder
-        .event_from_envelope(envelope, OperationEventConversion::default())
+    let envelope = OperationEnvelopeBuilder::new(
+        OperationId::new(new_prefixed_uuid7("ak:operation:"))
+            .context("failed to generate message operation id")?,
+        realm,
+        actor,
+        OP_MESSAGE_CREATE,
+        req.actor_seq,
+        hlc,
+    )
+    .with_payload(
+        payload
+            .to_value()
+            .map_err(|err| anyhow::anyhow!("failed to build message-create payload: {err}"))?,
+    )
+    .build(&OperationKindRegistry::default())
+    .map_err(|err| anyhow::anyhow!("failed to build message-create envelope: {err}"))?;
+    let mut event = envelope
+        .into_event_envelope(OperationEventConversion::default())
         .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))?;
 
     if let Some(flow_id) = legacy_flow_id {
