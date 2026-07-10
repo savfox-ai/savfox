@@ -182,6 +182,9 @@ pub(crate) async fn dispatch_rpc(
         "channels.arkret.runtime_key_request" => {
             handle_channels_arkret_runtime_key_request(&params, channel).await
         }
+        "channels.arkret.runtime_key_request_status" => {
+            handle_channels_arkret_runtime_key_request_status(&params, channel).await
+        }
         "channels.arkret.resolve_pairing_bootstrap" => {
             handle_channels_arkret_resolve_pairing_bootstrap(&params, channel).await
         }

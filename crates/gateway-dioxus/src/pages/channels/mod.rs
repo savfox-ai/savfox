@@ -4011,6 +4011,7 @@ fn render_single_field(
         let bootstrap_key_for_generate = field_value_key(ch_id, "inksonBootstrap");
         let base_url_key_for_generate = field_value_key(ch_id, "baseUrl");
         let verification_method_key_for_generate = field_value_key(ch_id, "verificationMethod");
+        let authorized_event_ref_key_for_generate = field_value_key(ch_id, "authorizedEventRef");
         let ws_generate = ws.clone();
         drop(value_map);
         return rsx! {
@@ -4028,6 +4029,7 @@ fn render_single_field(
                             let bootstrap_key = bootstrap_key_for_generate.clone();
                             let base_url_key = base_url_key_for_generate.clone();
                             let verification_method_key = verification_method_key_for_generate.clone();
+                            let authorized_event_ref_key = authorized_event_ref_key_for_generate.clone();
                             let ws = ws_generate.clone();
                             let mut snapshot = values.read().clone();
                             spawn(async move {
@@ -4162,7 +4164,7 @@ fn render_single_field(
                                         "channels.arkret.runtime_key_request",
                                     Some(json!({
                                         "platform": "arkret",
-                                        "config": patch,
+                                        "config": patch.clone(),
                                     })),
                                 )
                                 .await;
@@ -4173,9 +4175,17 @@ fn render_single_field(
                                             .and_then(serde_json::Value::as_str)
                                             .unwrap_or("Approval request sent to Inkson");
                                         values.write().insert(
-                                            key,
+                                            key.clone(),
                                             format!("{message}. Waiting for Inkson approval."),
                                         );
+                                        arkret_poll_runtime_key_approval(
+                                            ws,
+                                            values,
+                                            key,
+                                            authorized_event_ref_key,
+                                            patch,
+                                        )
+                                        .await;
                                     }
                                     Err(err) => {
                                         values.write().insert(
@@ -4520,6 +4530,121 @@ fn arkret_pairing_code_from_bootstrap_text(input: &str) -> Option<String> {
         .and_then(|value| parse_arkret_agent_pairing_bootstrap(value).ok())
         .map(|bootstrap| bootstrap.pairing_code)
         .filter(|value| !value.trim().is_empty())
+}
+
+static ARKRET_APPROVAL_POLL_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Poll the Arkret server for the Inkson controller decision after a
+/// `Request approval` submission and drive the pairing status line to a
+/// terminal state (approved / expired / paired-by-another-runtime / timeout).
+/// A newer `Request approval` click supersedes any older poll loop through
+/// the generation counter.
+async fn arkret_poll_runtime_key_approval(
+    ws: WsRpc,
+    mut values: Signal<std::collections::HashMap<String, String>>,
+    status_key: String,
+    authorized_event_ref_key: String,
+    config_patch: Value,
+) {
+    use std::sync::atomic::Ordering;
+
+    let generation = ARKRET_APPROVAL_POLL_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    // Poll every 3 s for up to ~10 minutes; the pairing itself expires
+    // server-side, so a stale loop can only ever see a terminal state.
+    for _ in 0..200 {
+        crate::utils::sleep_ms(3000).await;
+        if ARKRET_APPROVAL_POLL_GENERATION.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let response = ws
+            .call::<serde_json::Value>(
+                "channels.arkret.runtime_key_request_status",
+                Some(json!({
+                    "platform": "arkret",
+                    "config": config_patch.clone(),
+                })),
+            )
+            .await;
+        if ARKRET_APPROVAL_POLL_GENERATION.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let payload = match response {
+            Ok(payload) => payload,
+            Err(err) => {
+                values.write().insert(
+                    status_key.clone(),
+                    format!("Approval status check failed: {err}. Retrying..."),
+                );
+                continue;
+            }
+        };
+        let approved = payload
+            .get("approved")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let paired_by_other_runtime = payload
+            .get("paired_by_other_runtime")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let status = payload
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        if approved {
+            if let Some(event_ref) = payload
+                .get("authorized_event_ref")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                values
+                    .write()
+                    .insert(authorized_event_ref_key.clone(), event_ref.to_owned());
+            }
+            values.write().insert(
+                status_key,
+                "Approved by Inkson. Agent is active — save the channel to finish.".to_owned(),
+            );
+            return;
+        }
+        if paired_by_other_runtime {
+            values.write().insert(
+                status_key,
+                "Pairing was completed by a different runtime key. Create a new pairing in Inkson and try again."
+                    .to_owned(),
+            );
+            return;
+        }
+        match status.as_str() {
+            "pairing_expired" => {
+                values.write().insert(
+                    status_key,
+                    "Pairing request expired before approval. Create a new pairing in Inkson and try again."
+                        .to_owned(),
+                );
+                return;
+            }
+            "deactivated" => {
+                values.write().insert(
+                    status_key,
+                    "Agent was deactivated before pairing completed.".to_owned(),
+                );
+                return;
+            }
+            _ => {
+                values.write().insert(
+                    status_key.clone(),
+                    "Waiting for Inkson approval...".to_owned(),
+                );
+            }
+        }
+    }
+    values.write().insert(
+        status_key,
+        "Timed out waiting for Inkson approval. Click Request approval to retry.".to_owned(),
+    );
 }
 
 fn arkret_runtime_key_ref_generation_params(

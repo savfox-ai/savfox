@@ -54,8 +54,8 @@ pub use client::{
 };
 pub use config::{
     ArkretAccountConfig, ArkretAccountMode, ArkretChannelConfig,
-    build_arkret_runtime_key_request_json, derive_arkret_device_id, load_arkret_channel_configs,
-    resolve_arkret_outbound_account,
+    build_arkret_runtime_key_request_json, build_arkret_runtime_key_status_request_json,
+    derive_arkret_device_id, load_arkret_channel_configs, resolve_arkret_outbound_account,
 };
 pub use crypto_state::{
     ArkretBootstrapRecord, ArkretContentEncryptionFloor, ArkretCryptoStateFile,

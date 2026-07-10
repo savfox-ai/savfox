@@ -2183,6 +2183,152 @@ async fn submit_arkret_runtime_key_approval_request(
 }
 
 #[cfg(not(feature = "arkret"))]
+pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
+    _params: &Value,
+    _channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    Err((
+        INVALID_REQUEST,
+        "Arkret support is not enabled in this build".to_owned(),
+    ))
+}
+
+#[cfg(feature = "arkret")]
+pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let saved_configs = load_saved_channel_configs(channel).await;
+    let Some(raw_config) = arkret_test_channel_config(params, &saved_configs) else {
+        return Err((
+            INVALID_REQUEST,
+            "Arkret agent channel config is required".to_owned(),
+        ));
+    };
+    let parsed = savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&raw_config)
+        .ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "Arkret agent channel config must include a Inkson bootstrap and runtime key ref"
+                    .to_owned(),
+            )
+        })?;
+    let account_id = params
+        .get("account_id")
+        .or_else(|| params.get("accountId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let account = if let Some(account_id) = account_id {
+        parsed
+            .accounts
+            .iter()
+            .find(|account| account.id == account_id)
+    } else {
+        parsed.accounts.first()
+    }
+    .ok_or_else(|| {
+        (
+            INVALID_REQUEST,
+            "Arkret agent channel config has no runtime account to poll".to_owned(),
+        )
+    })?;
+    let (request, local_public_key_digest) =
+        savfox_channels::arkret::build_arkret_runtime_key_status_request_json(account)
+            .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+    let outcome = poll_arkret_runtime_key_status(channel.http_client(), account, request)
+        .await
+        .map_err(|err| (INVALID_REQUEST, err))?;
+    let status = outcome
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let authorized_public_key_digest = outcome
+        .get("authorized_public_key_digest")
+        .and_then(Value::as_str);
+    let key_digest_matches =
+        authorized_public_key_digest.map(|digest| digest == local_public_key_digest);
+    let approved =
+        matches!(status.as_str(), "active" | "paused") && key_digest_matches.unwrap_or(false);
+    let paired_by_other_runtime = matches!(status.as_str(), "active" | "paused" | "deactivated")
+        && key_digest_matches == Some(false);
+    let message = if approved {
+        "Runtime key approved by Inkson; agent is active"
+    } else if paired_by_other_runtime {
+        "Pairing was completed by a different runtime key; this Savfox key was not authorized"
+    } else {
+        match status.as_str() {
+            "pending_runtime_key" => "Waiting for Inkson approval",
+            "pairing_expired" => "Pairing request expired before approval",
+            "deactivated" => "Agent was deactivated",
+            _ => "Unknown pairing status",
+        }
+    };
+    Ok(json!({
+        "platform": "arkret",
+        "ok": true,
+        "mode": "agent",
+        "account_id": account.id.as_str(),
+        "status": status,
+        "approved": approved,
+        "key_digest_matches": key_digest_matches,
+        "paired_by_other_runtime": paired_by_other_runtime,
+        "authorized_event_ref": outcome.get("authorized_event_ref").cloned().unwrap_or(Value::Null),
+        "message": message,
+    }))
+}
+
+#[cfg(feature = "arkret")]
+async fn poll_arkret_runtime_key_status(
+    client: &reqwest::Client,
+    account: &savfox_channels::arkret::ArkretAccountConfig,
+    request: Value,
+) -> Result<Value, String> {
+    let bootstrap = account
+        .inkson_bootstrap
+        .as_ref()
+        .ok_or_else(|| "Arkret agent account has no resolved Inkson bootstrap".to_owned())?;
+    let typed: arkret::AgentRuntimeApprovalStatusRequestBody = serde_json::from_value(request)
+        .map_err(|err| {
+            format!("Arkret runtime key status request does not match the spec body: {err}")
+        })?;
+    let request_body = serde_json::to_vec(&typed)
+        .map_err(|err| format!("serialize Arkret runtime key status request: {err}"))?;
+    let endpoint = format!(
+        "{}/_arkret/open/agent-pairing/runtime-key-requests/status",
+        bootstrap.arkret_base_url.trim_end_matches('/')
+    );
+    let response = client
+        .post(&endpoint)
+        .header(CONTENT_TYPE, "application/json")
+        .body(request_body)
+        .send()
+        .await
+        .map_err(|err| format!("poll Arkret runtime key status failed: {err}"))?;
+    let status = response.status();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|err| format!("read Arkret runtime key status response failed: {err}"))?;
+    if !status.is_success() {
+        let detail = String::from_utf8_lossy(&bytes);
+        let detail = detail.chars().take(300).collect::<String>();
+        return Err(format!(
+            "Arkret runtime key status endpoint returned HTTP {status}: {detail}"
+        ));
+    }
+    let value = serde_json::from_slice::<Value>(&bytes).map_err(|err| {
+        format!("Arkret runtime key status endpoint returned invalid JSON: {err}")
+    })?;
+    let _typed: arkret::AgentRuntimeApprovalStatusOutcome = serde_json::from_value(value.clone())
+        .map_err(|err| {
+        format!("Arkret runtime key status endpoint returned invalid outcome: {err}")
+    })?;
+    Ok(value)
+}
+
+#[cfg(not(feature = "arkret"))]
 pub(crate) async fn handle_channels_arkret_resolve_pairing_bootstrap(
     _params: &Value,
     _channel: &Arc<GatewayChannel>,

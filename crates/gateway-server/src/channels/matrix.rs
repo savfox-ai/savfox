@@ -2360,6 +2360,7 @@ mod tests {
                 SocketAddr::Unknown,
                 Scheme::HTTP,
                 None,
+                salvo::conn::ConnCtrl::default(),
                 None,
             )
             .handle(req)

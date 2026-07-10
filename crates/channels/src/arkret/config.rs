@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
-use chrono::{DateTime, SecondsFormat, Utc};
 use arkret::{AgentPairingBootstrap, DeviceId, Did};
+use chrono::{DateTime, SecondsFormat, Utc};
 use ed25519_dalek::Signer as _;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -522,6 +522,56 @@ pub fn build_arkret_runtime_key_request_json(
     }))
 }
 
+/// Build the open runtime-key-request status poll body plus the digest of the
+/// local runtime public key. The digest lets the caller compare the
+/// `authorized_public_key_digest` returned by the Arkret server against the
+/// local key: a mismatch means the pairing was completed by another runtime
+/// and MUST NOT be treated as this runtime's approval.
+pub fn build_arkret_runtime_key_status_request_json(
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<(Value, String)> {
+    let bootstrap = account.inkson_bootstrap.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Arkret agent '{}' missing inksonBootstrap for runtime key status poll",
+            account.id
+        )
+    })?;
+    let key_ref = account.key_ref.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Arkret agent '{}' missing keyRef for runtime key status poll",
+            account.id
+        )
+    })?;
+    let verification_method = account
+        .verification_method
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Arkret agent '{}' missing verificationMethod for runtime key status poll",
+                account.id
+            )
+        })?;
+    let signing_key = load_ed25519_signing_key(key_ref)?;
+    let public_key = serde_json::json!({
+        "kty": "OKP",
+        "kid": verification_method,
+        "alg": "Ed25519",
+        "key": arkret::base64url_encode(signing_key.verifying_key().to_bytes()),
+    });
+    let local_public_key_digest = arkret::agent_runtime_public_key_digest(&public_key)
+        .map_err(|err| anyhow::anyhow!("agent runtime public key digest: {err}"))?;
+    Ok((
+        serde_json::json!({
+            "pairing_request_id": bootstrap.pairing_request_id,
+            "pairing_code": bootstrap.pairing_code,
+            "agent_principal_id": account.principal_id,
+        }),
+        local_public_key_digest.as_str().to_owned(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use base64::Engine as _;
@@ -1015,5 +1065,49 @@ mod tests {
         assert!(!rendered.contains(&seed));
         assert!(request.get("keyRef").is_none());
         assert!(request.get("keyRef").is_none());
+    }
+
+    #[test]
+    fn runtime_key_status_request_carries_pairing_triple_and_local_digest() {
+        let seed = STANDARD_NO_PAD.encode([7u8; 32]);
+        let cfg = make_channel_config(json!({
+            "mode": "agent",
+            "inksonBootstrap": sdk_inkson_bootstrap(
+                "https://arkret.example.org",
+                "did:webvh:arkret.example.org",
+                "did:webvh:example.org:agents:support",
+                "pair-123",
+                "123456"
+            ),
+            "keyRef": { "kind": "inline_seed_base64", "value": seed },
+            "verificationMethod": "did:webvh:example.org:agents:support#runtime-1"
+        }));
+        let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
+        let (request, local_digest) =
+            build_arkret_runtime_key_status_request_json(&parsed.accounts[0]).expect("request");
+
+        assert_eq!(request["pairing_request_id"], json!("pair-123"));
+        assert_eq!(request["pairing_code"], json!("123456"));
+        assert_eq!(
+            request["agent_principal_id"],
+            json!("did:webvh:example.org:agents:support")
+        );
+        // The status poll body must stay minimal: no key material, no PoP.
+        assert!(request.get("public_key").is_none());
+        assert!(request.get("proof_of_possession").is_none());
+        assert!(local_digest.starts_with("sha256:"));
+
+        // The local digest must match the digest of the public key the
+        // submit path sends, so a server echo compares equal for this key.
+        let submit = build_arkret_runtime_key_request_json(
+            &parsed.accounts[0],
+            DateTime::parse_from_rfc3339("2026-07-06T11:50:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        )
+        .expect("submit request");
+        let expected_digest =
+            arkret::agent_runtime_public_key_digest(&submit["public_key"]).expect("digest");
+        assert_eq!(local_digest, expected_digest.as_str());
     }
 }
