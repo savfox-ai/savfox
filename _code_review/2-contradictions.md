@@ -185,7 +185,7 @@ let grant = load_and_verify_grant(
 // ghost.rs:114-118
 "accountability": {
     "mode": "applet_managed",
-    "responsible_actor_id": controller_did,
+    "responsible_actor_id": controller_id,
     "operator_actor_ids": [service_id],   // ← 有
 },
 ```
@@ -196,7 +196,7 @@ let grant = load_and_verify_grant(
 // ghost.rs:80-82
 event.content["actor_kind"] = json!("ghost");
 event.content["accountability"]["mode"] = json!("applet_managed");
-event.content["accountability"]["responsible_actor_id"] = json!(controller_did);
+event.content["accountability"]["responsible_actor_id"] = json!(controller_id);
 // 缺 operator_actor_ids
 ```
 

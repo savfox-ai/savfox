@@ -110,8 +110,8 @@ fn applet_registry() -> &'static Mutex<AppletRegistry> {
 
 const TXN_DEDUPE_WINDOW: Duration = Duration::from_secs(300);
 const MAX_APPLET_TRANSACTION_BODY_BYTES: usize = 65_536;
-const SOURCE_SERVICE_ID_HEADER: &str = "source-service-did";
-const DESTINATION_SERVICE_ID_HEADER: &str = "destination-service-did";
+const SOURCE_SERVICE_ID_HEADER: &str = "source-service-id";
+const DESTINATION_SERVICE_ID_HEADER: &str = "destination-service-id";
 const APPLET_TRANSACTION_SIGNATURE_MAX_LIFETIME_SECS: i64 = 300;
 const APPLET_TRANSACTION_SIGNATURE_MAX_CLOCK_SKEW_SECS: i64 = 30;
 
@@ -1926,7 +1926,7 @@ mod tests {
         let content_digest = ContentDigest::compute(body, ContentDigestAlgorithm::Sha256);
         let signature_input = format!(
             "sig1=(\"@method\" \"@target-uri\" \"@authority\" \
-             \"source-service-did\" \"destination-service-did\" \
+             \"source-service-id\" \"destination-service-id\" \
              \"content-digest\" \"idempotency-key\");created={now};expires={};\
              keyid=\"did:webvh:arkret.example.org#key-1\";alg=\"ed25519\"",
             now + 300
