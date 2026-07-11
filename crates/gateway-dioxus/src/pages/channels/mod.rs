@@ -26,6 +26,7 @@ pub mod zalo;
 
 use arkret_core::AgentPairingBootstrap;
 use dioxus::prelude::*;
+use lucide_dioxus::{Activity, Braces, Power, Settings, SlidersHorizontal, Trash2};
 use savfox_utils::string::normalize_slug;
 use serde_json::{Value, json};
 
@@ -2644,6 +2645,9 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
     let mut add_channel_name = use_signal(String::new);
     let mut modal_revealed: Signal<std::collections::HashSet<String>> =
         use_signal(|| std::collections::HashSet::new());
+    let mut open_channel_menu = use_signal(|| Option::<String>::None);
+    let mut confirm_card_delete = use_signal(|| Option::<String>::None);
+    let mut deleting_channel = use_signal(|| Option::<String>::None);
 
     // Sync URL with modal state for deep linking
     use_effect(move || {
@@ -2932,7 +2936,20 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
             } else {
                 div { class: "channels-grid",
                     for ch_type in configured_channel_types.into_iter() {
-                        { render_channel_card(ch_type, channels_status, ws.clone(), refresh_tick, show_raw_json, testing_channel, test_result, &channel_configs, config_modal_channel) }
+                        { render_channel_card(
+                            ch_type,
+                            channels_status,
+                            ws.clone(),
+                            refresh_tick,
+                            show_raw_json,
+                            testing_channel,
+                            test_result,
+                            &channel_configs,
+                            config_modal_channel,
+                            open_channel_menu,
+                            confirm_card_delete,
+                            deleting_channel,
+                        ) }
                     }
                 }
             }
@@ -3092,6 +3109,9 @@ fn render_channel_card(
     mut test_result: Signal<Option<(String, bool, String)>>,
     channel_configs: &std::collections::HashMap<String, (String, String, bool)>,
     mut config_modal_channel: Signal<Option<String>>,
+    mut open_channel_menu: Signal<Option<String>>,
+    mut confirm_card_delete: Signal<Option<String>>,
+    mut deleting_channel: Signal<Option<String>>,
 ) -> Element {
     let channel_data = channels_status
         .and_then(|s| s.get("channels"))
@@ -3118,8 +3138,8 @@ fn render_channel_card(
     let is_enabled = config_entry
         .map(|(_, _, enabled)| *enabled)
         .unwrap_or(is_running || is_connected);
-    let config_id = config_entry.map(|(id, ..)| id.as_str());
-    let config_name = config_entry.map(|(_, name, _)| name.as_str());
+    let config_id = config_entry.map(|(id, ..)| id.clone());
+    let config_name = config_entry.map(|(_, name, _)| name.clone());
 
     let last_error = channel_data
         .and_then(|c| c.get("lastError"))
@@ -3226,11 +3246,28 @@ fn render_channel_card(
     let platform_health = ch_type.id.clone();
     let platform_test = ch_type.id.clone();
     let platform_test_name = ch_type.name.clone();
+    let platform_test_quick = ch_type.id.clone();
+    let platform_test_quick_name = ch_type.name.clone();
+    let platform_toggle_menu = ch_type.id.clone();
+    let config_id_toggle_menu = config_id.clone();
+    let config_name_toggle_menu = config_name.clone();
+    let config_id_toggle_quick = config_id.clone();
+    let config_name_toggle_quick = config_name.clone();
     let ws_login = ws.clone();
+    let ws_login_menu = ws.clone();
     let ws_test = ws.clone();
+    let ws_test_quick = ws.clone();
+    let ws_delete = ws.clone();
 
     let is_testing = testing_channel().as_deref() == Some(ch_type.id.as_str());
     let platform_config = ch_type.id.clone();
+    let menu_is_open = open_channel_menu().as_deref() == Some(ch_type.id.as_str());
+    let delete_is_confirming = config_id
+        .as_deref()
+        .is_some_and(|id| confirm_card_delete().as_deref() == Some(id));
+    let delete_is_running = config_id
+        .as_deref()
+        .is_some_and(|id| deleting_channel().as_deref() == Some(id));
 
     rsx! {
         div {
@@ -3244,11 +3281,11 @@ fn render_channel_card(
                     div { class: "channels-card__meta",
                         div { class: "channels-card__name", "{ch_type.name}" }
                         div { class: "channels-card__desc", "{ch_type.description}" }
-                        if let Some(cfg_id) = config_id {
+                        if let Some(ref cfg_id) = config_id {
                             div { class: "channels-card__config-id",
                                 span { class: "channels-card__config-id-label", "id" }
                                 " {cfg_id}"
-                                if let Some(cfg_name) = config_name {
+                                if let Some(ref cfg_name) = config_name {
                                     span { class: "channels-card__config-id-sep", " / " }
                                     span { class: "channels-card__config-name", "{cfg_name}" }
                                 }
@@ -3256,8 +3293,180 @@ fn render_channel_card(
                         }
                     }
                 }
-                div { class: "channels-card__status",
+                div { class: "channels-card__header-actions",
                     Chip { label: status_text.to_string(), variant: status_variant }
+                    div { class: "channels-card__menu-wrap",
+                        button {
+                            class: "channels-card__menu-trigger",
+                            title: "Channel actions",
+                            aria_label: "Channel actions for {ch_type.name}",
+                            onclick: {
+                                let menu_id = ch_type.id.clone();
+                                move |_| {
+                                    if open_channel_menu().as_deref() == Some(menu_id.as_str()) {
+                                        open_channel_menu.set(None);
+                                        confirm_card_delete.set(None);
+                                    } else {
+                                        open_channel_menu.set(Some(menu_id.clone()));
+                                        confirm_card_delete.set(None);
+                                    }
+                                }
+                            },
+                            Settings { size: 16 }
+                        }
+                        if menu_is_open {
+                            div { class: "channels-card__menu",
+                                button {
+                                    class: "channels-card__menu-item",
+                                    onclick: move |_| {
+                                        let ws = ws_login_menu.clone();
+                                        let platform = platform_toggle_menu.clone();
+                                        let config_id = config_id_toggle_menu.clone();
+                                        let config_name = config_name_toggle_menu.clone();
+                                        let new_enabled = !is_enabled;
+                                        open_channel_menu.set(None);
+                                        spawn(async move {
+                                            let _ = ws.call::<serde_json::Value>(
+                                                "channels.config.save",
+                                                Some(json!({
+                                                    "channel": platform,
+                                                    "id": config_id,
+                                                    "name": config_name,
+                                                    "config": { "enabled": new_enabled },
+                                                })),
+                                            ).await;
+                                            if new_enabled {
+                                                let _ = ws.call::<serde_json::Value>(
+                                                    "channels.login",
+                                                    Some(json!({ "platform": platform })),
+                                                ).await;
+                                            } else {
+                                                let _ = ws.call::<serde_json::Value>(
+                                                    "channels.logout",
+                                                    Some(json!({ "platform": platform })),
+                                                ).await;
+                                            }
+                                            refresh_tick += 1;
+                                        });
+                                    },
+                                    Power { size: 14 }
+                                    span { if is_enabled { "Disable" } else { "Enable" } }
+                                }
+                                button {
+                                    class: "channels-card__menu-item",
+                                    onclick: move |_| {
+                                        open_channel_menu.set(None);
+                                        config_modal_channel.set(Some(platform_config.clone()));
+                                    },
+                                    SlidersHorizontal { size: 14 }
+                                    span { "Settings" }
+                                }
+                                button {
+                                    class: "channels-card__menu-item",
+                                    disabled: is_testing,
+                                    onclick: move |_| {
+                                        let ws = ws_test.clone();
+                                        let platform = platform_test.clone();
+                                        let name = platform_test_name.clone();
+                                        open_channel_menu.set(None);
+                                        testing_channel.set(Some(platform.clone()));
+                                        test_result.set(None);
+                                        spawn(async move {
+                                            let result = ws.call::<serde_json::Value>(
+                                                "channels.test",
+                                                Some(json!({ "platform": platform })),
+                                            ).await;
+                                            testing_channel.set(None);
+                                            let (ok, msg) = match result {
+                                                Ok(val) => {
+                                                    let ok = val.get("ok")
+                                                        .and_then(Value::as_bool)
+                                                        .unwrap_or(false);
+                                                    let msg = val.get("message")
+                                                        .and_then(Value::as_str)
+                                                        .unwrap_or(if ok { "Connection successful" } else { "Test failed" })
+                                                        .to_string();
+                                                    (ok, msg)
+                                                }
+                                                Err(error) => (false, error.to_string()),
+                                            };
+                                            test_result.set(Some((name, ok, msg)));
+                                        });
+                                    },
+                                    Activity { size: 14 }
+                                    span { if is_testing { "Testing..." } else { "Test connection" } }
+                                }
+                                button {
+                                    class: "channels-card__menu-item",
+                                    onclick: move |_| {
+                                        open_channel_menu.set(None);
+                                        show_raw_json.set(Some(platform_health.clone()));
+                                    },
+                                    Braces { size: 14 }
+                                    span { "Health JSON" }
+                                }
+                                if let Some(ref delete_id) = config_id {
+                                    div { class: "channels-card__menu-separator" }
+                                    if delete_is_confirming {
+                                        div { class: "channels-card__menu-confirm",
+                                            span { "Stop and delete {delete_id}?" }
+                                            div { class: "channels-card__menu-confirm-actions",
+                                                button {
+                                                    class: "channels-card__menu-confirm-delete",
+                                                    disabled: delete_is_running,
+                                                    onclick: {
+                                                        let ws = ws_delete.clone();
+                                                        let delete_id = delete_id.to_string();
+                                                        let channel_name = ch_type.name.clone();
+                                                        move |_| {
+                                                            let ws = ws.clone();
+                                                            let delete_id = delete_id.clone();
+                                                            let channel_name = channel_name.clone();
+                                                            deleting_channel.set(Some(delete_id.clone()));
+                                                            spawn(async move {
+                                                                let result = ws.call::<serde_json::Value>(
+                                                                    "channels.config.delete",
+                                                                    Some(json!({ "channel": delete_id.clone() })),
+                                                                ).await;
+                                                                deleting_channel.set(None);
+                                                                confirm_card_delete.set(None);
+                                                                open_channel_menu.set(None);
+                                                                match result {
+                                                                    Ok(value) if value.get("deleted").and_then(Value::as_bool).unwrap_or(false) => {
+                                                                        test_result.set(Some((channel_name, true, "Channel stopped and deleted.".into())));
+                                                                        refresh_tick += 1;
+                                                                    }
+                                                                    Ok(_) => test_result.set(Some((channel_name, false, "Channel configuration was not found.".into()))),
+                                                                    Err(error) => test_result.set(Some((channel_name, false, format!("Delete failed: {error}")))),
+                                                                }
+                                                            });
+                                                        }
+                                                    },
+                                                    if delete_is_running { "Deleting..." } else { "Confirm" }
+                                                }
+                                                button {
+                                                    class: "channels-card__menu-confirm-cancel",
+                                                    disabled: delete_is_running,
+                                                    onclick: move |_| confirm_card_delete.set(None),
+                                                    "Cancel"
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        button {
+                                            class: "channels-card__menu-item channels-card__menu-item--danger",
+                                            onclick: {
+                                                let delete_id = delete_id.clone();
+                                                move |_| confirm_card_delete.set(Some(delete_id.clone()))
+                                            },
+                                            Trash2 { size: 14 }
+                                            span { "Stop and delete" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -3384,12 +3593,16 @@ fn render_channel_card(
                     onclick: move |_| {
                         let ws = ws_login.clone();
                         let platform = platform.clone();
+                        let config_id = config_id_toggle_quick.clone();
+                        let config_name = config_name_toggle_quick.clone();
                         let new_enabled = !is_enabled;
                         spawn(async move {
                             let _ = ws.call::<serde_json::Value>(
                                 "channels.config.save",
                                 Some(json!({
                                     "channel": platform,
+                                    "id": config_id,
+                                    "name": config_name,
                                     "config": { "enabled": new_enabled },
                                 })),
                             ).await;
@@ -3419,12 +3632,12 @@ fn render_channel_card(
                     }
                 }
 
-                // Test button (TASK-014: enhanced with loading spinner and inline result)
+                // Test remains a quick action and is also available in the menu.
                 button {
                     onclick: move |_| {
-                        let ws = ws_test.clone();
-                        let platform = platform_test.clone();
-                        let name = platform_test_name.clone();
+                        let ws = ws_test_quick.clone();
+                        let platform = platform_test_quick.clone();
+                        let name = platform_test_quick_name.clone();
                         testing_channel.set(Some(platform.clone()));
                         test_result.set(None);
                         spawn(async move {
@@ -3436,18 +3649,15 @@ fn render_channel_card(
                             let (ok, msg) = match result {
                                 Ok(val) => {
                                     let ok = val.get("ok")
-                                        .and_then(|v| v.as_bool())
+                                        .and_then(Value::as_bool)
                                         .unwrap_or(false);
                                     let msg = val.get("message")
-                                        .and_then(|v| v.as_str())
+                                        .and_then(Value::as_str)
                                         .unwrap_or(if ok { "Connection successful" } else { "Test failed" })
                                         .to_string();
                                     (ok, msg)
                                 }
-                                Err(e) => {
-                                    let reason = format!("{e}");
-                                    (false, reason)
-                                }
+                                Err(error) => (false, error.to_string()),
                             };
                             test_result.set(Some((name, ok, msg)));
                         });
@@ -3466,7 +3676,7 @@ fn render_channel_card(
                     }
                 }
 
-                // Inline test result for this card (TASK-014)
+                // Inline test result for this card.
                 {
                     let card_ch_id = ch_type.id.clone();
                     let card_result = test_result().and_then(|(ref id, ok, ref msg)| {
@@ -3484,32 +3694,12 @@ fn render_channel_card(
                                 } else {
                                     "font-size:11px;color:#ef4444;font-weight:500;"
                                 },
-                                if success {
-                                    "Connection successful"
-                                } else {
-                                    "{msg}"
-                                }
+                                if success { "Connection successful" } else { "{msg}" }
                             }
                         }
                     } else {
                         rsx! { span { style: "display:none;" } }
                     }
-                }
-
-                // Configure
-                button {
-                    onclick: move |_| config_modal_channel.set(Some(platform_config.clone())),
-                    class: "channels-action-btn",
-                    title: "Channel settings",
-                    "Settings"
-                }
-
-                // Health JSON
-                button {
-                    onclick: move |_| show_raw_json.set(Some(platform_health.clone())),
-                    class: "channels-action-btn channels-action-btn--muted",
-                    title: "View raw health data",
-                    "JSON"
                 }
 
             }
@@ -3537,6 +3727,9 @@ fn ChannelConfigModal(
     let mut inline_values: Signal<std::collections::HashMap<String, String>> =
         use_signal(|| std::collections::HashMap::new());
     let mut inline_saving = use_signal(|| false);
+    let mut deleting = use_signal(|| false);
+    let mut confirm_delete = use_signal(|| false);
+    let mut saved_channel_id = use_signal(|| Option::<String>::None);
     let mut inline_msg = use_signal(|| Option::<(bool, String)>::None);
     let mut revealed: Signal<std::collections::HashSet<String>> =
         use_signal(|| std::collections::HashSet::new());
@@ -3546,6 +3739,7 @@ fn ChannelConfigModal(
     let fields_vec = fields;
     let ws_save = ws.clone();
     let ws_test = ws.clone();
+    let ws_delete = ws.clone();
     let ws_load = ws.clone();
     let load_ch_id = ch_id.clone();
     let load_fields = fields_vec.clone();
@@ -3564,6 +3758,16 @@ fn ChannelConfigModal(
             let Some(saved) = payload.get("config") else {
                 return;
             };
+            if saved.is_null() {
+                saved_channel_id.set(None);
+                return;
+            }
+            saved_channel_id.set(
+                saved
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+            );
             let mut restored = default_channel_values(&ch_id, &fields);
             restored.extend(restore_channel_values(&ch_id, &fields, saved));
             inline_values.set(restored);
@@ -3843,6 +4047,71 @@ fn ChannelConfigModal(
                             rsx! {}
                         }
                     }
+
+                    if let Some(delete_id) = saved_channel_id() {
+                        div { class: "channels-cfg__delete-action",
+                        if confirm_delete() {
+                            div { class: "channels-cfg__delete-confirm",
+                                span { "Delete {delete_id}? This cannot be undone." }
+                                button {
+                                    onclick: {
+                                        let ws = ws_delete.clone();
+                                        let delete_id = delete_id.clone();
+                                        move |_| {
+                                            let ws = ws.clone();
+                                            let delete_id = delete_id.clone();
+                                            deleting.set(true);
+                                            inline_msg.set(None);
+                                            spawn(async move {
+                                                let result = ws
+                                                    .call::<serde_json::Value>(
+                                                        "channels.config.delete",
+                                                        Some(json!({ "channel": delete_id })),
+                                                    )
+                                                    .await;
+                                                deleting.set(false);
+                                                match result {
+                                                    Ok(value) if value
+                                                        .get("deleted")
+                                                        .and_then(Value::as_bool)
+                                                        .unwrap_or(false) =>
+                                                    {
+                                                        confirm_delete.set(false);
+                                                        config_modal_channel.set(None);
+                                                        refresh_tick += 1;
+                                                    }
+                                                    Ok(_) => inline_msg.set(Some((
+                                                        false,
+                                                        "Channel configuration was not found.".into(),
+                                                    ))),
+                                                    Err(error) => inline_msg.set(Some((
+                                                        false,
+                                                        format!("Delete failed: {error}"),
+                                                    ))),
+                                                }
+                                            });
+                                        }
+                                    },
+                                    disabled: deleting(),
+                                    class: "channels-action-btn channels-action-btn--danger",
+                                    if deleting() { "Stopping and deleting..." } else { "Confirm delete" }
+                                }
+                                button {
+                                    onclick: move |_| confirm_delete.set(false),
+                                    disabled: deleting(),
+                                    class: "channels-action-btn",
+                                    "Cancel"
+                                }
+                            }
+                        } else {
+                            button {
+                                onclick: move |_| confirm_delete.set(true),
+                                class: "channels-action-btn channels-action-btn--danger",
+                                "Delete"
+                            }
+                        }
+                    }
+                }
                 }
             }
         }
@@ -6027,11 +6296,121 @@ const CHANNELS_STYLES: &str = r#"
         color: var(--text-secondary);
     }
 
-    .channels-card__status {
+    .channels-card__header-actions {
         display: flex;
         align-items: center;
         gap: 8px;
         flex-shrink: 0;
+    }
+
+    .channels-card__menu-wrap {
+        position: relative;
+    }
+
+    .channels-card__menu-trigger {
+        width: 30px;
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+    }
+
+    .channels-card__menu-trigger:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+
+    .channels-card__menu {
+        position: absolute;
+        z-index: 30;
+        top: calc(100% + 6px);
+        right: 0;
+        width: 190px;
+        padding: 6px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-primary);
+        box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+    }
+
+    .channels-card__menu-item {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 9px;
+        border: 0;
+        border-radius: calc(var(--radius) - 2px);
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 12px;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .channels-card__menu-item:hover:not(:disabled) {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+
+    .channels-card__menu-item:disabled {
+        cursor: wait;
+        opacity: 0.55;
+    }
+
+    .channels-card__menu-item--danger {
+        color: var(--danger);
+    }
+
+    .channels-card__menu-separator {
+        height: 1px;
+        margin: 5px 3px;
+        background: var(--border);
+    }
+
+    .channels-card__menu-confirm {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 7px 8px;
+        color: var(--danger);
+        font-size: 11px;
+        line-height: 1.4;
+    }
+
+    .channels-card__menu-confirm-actions {
+        display: flex;
+        gap: 6px;
+    }
+
+    .channels-card__menu-confirm-delete,
+    .channels-card__menu-confirm-cancel {
+        flex: 1;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: calc(var(--radius) - 2px);
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 11px;
+        cursor: pointer;
+    }
+
+    .channels-card__menu-confirm-delete {
+        border-color: var(--danger);
+        background: rgba(239,68,68,0.12);
+        color: var(--danger);
+    }
+
+    .channels-card__menu-confirm-delete:disabled,
+    .channels-card__menu-confirm-cancel:disabled {
+        cursor: wait;
+        opacity: 0.55;
     }
 
     /* ---- Accounts section ---- */
@@ -6698,8 +7077,35 @@ const CHANNELS_STYLES: &str = r#"
     /* ---- Config action row ---- */
     .channels-cfg__actions {
         display: flex;
+        align-items: center;
         gap: 8px;
         margin-top: 8px;
+    }
+
+    .channels-cfg__delete-action {
+        display: flex;
+        align-items: center;
+        margin-left: auto;
+    }
+
+    .channels-cfg__delete-confirm {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+        color: var(--danger);
+        font-size: 12px;
+        text-align: right;
+    }
+
+    .channels-action-btn--danger {
+        border-color: var(--danger);
+        color: var(--danger);
+    }
+
+    .channels-action-btn--danger:hover:not(:disabled) {
+        background: rgba(239,68,68,0.12);
     }
 
     /* ---- Responsive ---- */
@@ -6742,6 +7148,11 @@ const CHANNELS_STYLES: &str = r#"
 
         .channels-cfg__actions {
             flex-wrap: wrap;
+        }
+
+        .channels-cfg__delete-confirm {
+            justify-content: flex-start;
+            text-align: left;
         }
     }
 "#;

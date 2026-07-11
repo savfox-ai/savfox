@@ -366,10 +366,65 @@ pub(in crate::ws_rpc) async fn handle_channels_config_delete(
 ) -> RpcResult {
     use savfox_core::config::channel_store;
 
-    let channel_id = require_str(params, "channel")?;
+    let selector = require_str(params, "channel")?;
+    let Some(config) = channel_store::get_channel_config(&channel.config().savfox_home, selector)
+        .await
+        .map_err(|e| {
+            (
+                INTERNAL_ERROR,
+                format!("failed to load channel config before deletion: {e}"),
+            )
+        })?
+    else {
+        return Ok(json!({ "deleted": false, "channel": selector, "stopped": 0 }));
+    };
 
-    match channel_store::delete_channel_config(&channel.config().savfox_home, channel_id).await {
-        Ok(deleted) => Ok(json!({ "deleted": deleted, "channel": channel_id })),
+    // Runtime instances are keyed by the persisted config ID. Stop that exact
+    // instance before removing its credentials so deletion cannot leave an
+    // orphaned listener running until the gateway is restarted.
+    let stopped = match config.kind.to_ascii_lowercase().as_str() {
+        "discord" => u32::from(savfox_channels::discord::stop_discord_stream(&config.id).await),
+        "telegram" => u32::from(savfox_channels::telegram::stop_telegram_polling(&config.id).await),
+        "feishu" | "lark" => {
+            u32::from(savfox_channels::feishu::stop_feishu_stream(&config.id).await)
+        }
+        "matrix" => {
+            let registry = channel.channel_registry();
+            let removed_registry = registry.write().await.remove(&config.id).is_some();
+            let had_appservice =
+                crate::channels::matrix::matrix_appservice_channel_for(&config.id).is_some();
+            crate::channels::matrix::remove_matrix_appservice_channel(&config.id);
+            u32::from(removed_registry || had_appservice)
+        }
+        "arkret" => {
+            #[cfg(feature = "arkret")]
+            {
+                let listeners = crate::channels::arkret::stop_arkret_account_listeners(&config.id);
+                let removed_applet =
+                    crate::channels::arkret_applet::remove_arkret_applet_channel(&config.id)
+                        .map_err(|e| {
+                            (
+                                INTERNAL_ERROR,
+                                format!("failed to stop Arkret channel '{}': {e}", config.id),
+                            )
+                        })?;
+                u32::from(listeners > 0 || removed_applet)
+            }
+            #[cfg(not(feature = "arkret"))]
+            {
+                0
+            }
+        }
+        _ => 0,
+    };
+
+    match channel_store::delete_channel_config(&channel.config().savfox_home, &config.id).await {
+        Ok(deleted) => Ok(json!({
+            "deleted": deleted,
+            "channel": config.id,
+            "platform": config.kind,
+            "stopped": stopped,
+        })),
         Err(e) => Err((
             INTERNAL_ERROR,
             format!("failed to delete channel config: {e}"),
