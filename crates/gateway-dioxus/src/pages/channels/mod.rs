@@ -3918,10 +3918,7 @@ fn ChannelConfigModal(
                                     match persist_result {
                                         Ok(_) => {
                                             inline_saving.set(false);
-                                            inline_msg.set(Some((
-                                                true,
-                                                "Configuration saved.".into(),
-                                            )));
+                                            config_modal_channel.set(None);
                                             refresh_tick += 1;
                                         }
                                         Err(e) => {
