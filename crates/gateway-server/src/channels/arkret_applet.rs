@@ -1585,7 +1585,7 @@ async fn emit_bridge_error(
     let failed_transaction_ref = format!("outbound:{realm_id}");
     let retriable = !matches!(code, "external_rejected");
     let mut builder = AppletBridgeErrorBuilder::new(
-        realm,
+        realm.clone(),
         cfg.applet_id.clone(),
         actor,
         failed_transaction_ref,
