@@ -32,20 +32,14 @@ mod crypto_state;
 mod grant;
 mod inbound_adapter;
 mod outbound;
-mod seq_store;
 mod session;
 mod signer;
 
 pub use account_store::FileArkretAccountStore;
-#[allow(deprecated)]
-pub use applet::build_ghost_profile;
 pub use applet::{
-    AppletDispatchSkip, AppletEventOutcome, AppletInboundCommand, AppletMessageRequest,
-    AppletNamespaces, AppletNamespacesExt, ArkretAppletConfig, NamespacePattern,
-    NamespacePatternExt, SavfoxAppletResolver, applet_runtime_config, build_applet_message_event,
-    build_external_ref, build_ghost_profile_event, build_outbound_edge, build_registration_json,
-    build_registration_payload, classify_inbound_event, load_arkret_applet_configs, mint_ghost_did,
-    namespace_pattern_matches,
+    AppletDispatchSkip, AppletEventOutcome, AppletInboundCommand, AppletNamespaces,
+    AppletNamespacesExt, ArkretAppletConfig, NamespacePattern, NamespacePatternExt,
+    classify_inbound_event, load_arkret_applet_configs, mint_ghost_did, namespace_pattern_matches,
 };
 pub use client::{
     ArkretAccountFrameStream, ArkretFrameStream, ArkretHttpClient, SavfoxArkretClientCore,
@@ -74,6 +68,5 @@ pub use inbound_adapter::{
     parse_notification_delta_for_account, should_dispatch_event,
 };
 pub use outbound::{MessageCreateRequest, build_message_create_event, sign_outbound_event};
-pub use seq_store::FileSeqStore;
 pub use session::{ArkretSession, login_with_signer};
 pub use signer::{ArkretKeyRef, load_ed25519_seed_hex, load_ed25519_signer};

@@ -80,7 +80,7 @@ pub struct ArkretAppletConfig {
     /// Operator-supplied security epoch hash (`sha256:<hex>`) over the
     /// registration evidence (DID Document + signing key + endpoint + auth),
     /// per `applet-schema.md` §1. savfox cannot synthesize it locally; when
-    /// absent, [`build_registration_payload`](super::build_registration_payload)
+    /// absent, applet registration validation
     /// emits a zero placeholder suitable only for an unsigned draft destined
     /// for offline controller signing.
     pub registration_epoch: Option<String>,
@@ -228,8 +228,7 @@ impl ArkretAppletConfig {
         }
         // Strictly parse the DID-typed fields with the SDK parser (not a loose
         // `starts_with("did:")`). This guarantees the invariant relied on by
-        // `build_registration_payload`, whose `Did::new(...).expect(...)` would
-        // otherwise panic on an input that passed the lenient prefix check.
+        // downstream applet registration and edge construction.
         for (label, value) in [
             ("service_id", &self.service_id),
             ("controller_id", &self.controller_id),
@@ -242,6 +241,19 @@ impl ArkretAppletConfig {
                     value
                 )
             })?;
+        }
+        let service_did = Did::new(self.service_id.clone())?;
+        if service_did.method() != "webvh" {
+            anyhow::bail!(
+                "Arkret applet channel '{}' service_id must use did:webvh",
+                self.id
+            );
+        }
+        if self.key_ref.is_none() {
+            anyhow::bail!(
+                "Arkret applet channel '{}' requires key_ref for signed outbound events",
+                self.id
+            );
         }
         if let Some(device_id) = self.device_id.as_deref() {
             DeviceId::new(device_id.to_owned()).map_err(|err| {
@@ -510,17 +522,19 @@ mod tests {
         json!({
             "mode": "applet",
             "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-            "serviceId": "did:web:slack-bridge.example",
+            "serviceId": "did:webvh:slack-bridge.example",
             "controllerId": "did:webvh:example.com:admin",
             "baseUrl": "https://savfox.example/appservices/arkret/arkret-applet-test",
-            "botActorId": "did:web:slack-bridge.example:bot",
+            "botActorId": "did:webvh:slack-bridge.example:bot",
             "arkretServerUrl": "https://arkret.example.org",
             "arkretServerDid": "did:webvh:arkret.example.org",
             "accessToken": "applet-bearer-1",
+            "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" },
+            "loginChallenge": "arkret-applet-login-challenge",
             "protocols": ["slack"],
             "namespaces": {
                 "actors": [
-                    { "pattern": "did:web:slack-bridge.example:ghost:*", "exclusive": true }
+                    { "pattern": "did:webvh:slack-bridge.example:ghost:*", "exclusive": true }
                 ],
                 "realms": [
                     { "pattern": "slack:team:*:channel:*", "exclusive": true }

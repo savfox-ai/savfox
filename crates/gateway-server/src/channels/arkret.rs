@@ -2151,7 +2151,7 @@ fn build_account_seq_allocator(
         })
         .collect();
     let path = dir.join(format!("{safe_id}.seq"));
-    let store = savfox_channels::arkret::FileSeqStore::shared(path)
+    let store = arkret_bridge_runtime::FileSeqStore::shared(path)
         .map_err(|e| anyhow::anyhow!("arkret account seq store: {e}"))?;
     Ok(arkret_bridge_runtime::SeqAllocator::new(
         store,

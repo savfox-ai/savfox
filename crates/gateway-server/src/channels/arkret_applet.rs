@@ -36,8 +36,9 @@ use arkret::http_signature::{
 };
 use arkret::{
     AppletActorView, AppletDescription, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
-    AppletTransactionOutcome, AppletTransactionRequestBody, Did, Hash, IdempotencyClaim,
-    IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow, canonical,
+    AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did, Hash,
+    IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow,
+    MessageCreatePayload, RealmId, StrandId, canonical, new_prefixed_uuid7,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -87,6 +88,9 @@ struct AppletChannelState {
     /// neither monotonic across calls nor restart-safe. `SeqAllocator` is
     /// internally synchronized, so it lives outside the `runtime` Mutex.
     seq: arkret_bridge_runtime::SeqAllocator,
+    /// Authenticated outbound edge, initialized lazily and refreshed after a
+    /// failed submission so expired DID-proof grants cannot wedge the applet.
+    edge: tokio::sync::Mutex<Option<Arc<arkret_bridge_runtime::ArkretEdge>>>,
 }
 
 // `SeqAllocator` is not `Debug`; provide a manual impl that elides it so
@@ -97,6 +101,10 @@ impl std::fmt::Debug for AppletChannelState {
             .field("config", &self.config)
             .field("runtime", &self.runtime)
             .field("crypto_store_path", &self.crypto_store.path())
+            .field(
+                "edge_initialized",
+                &self.edge.try_lock().map(|edge| edge.is_some()).ok(),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -1438,62 +1446,60 @@ pub(crate) async fn send_via_applet(
         .with_context(|| format!("arkret applet '{config_id}' registry lookup failed"))?
         .ok_or_else(|| anyhow::anyhow!("arkret applet '{config_id}' not registered"))?;
     let cfg = &state.config;
-
-    // Monotonic restart-safe actor sequence from the per-applet allocator.
-    let actor_seq = state
-        .seq
-        .alloc()
-        .map_err(|e| anyhow::anyhow!("seq alloc: {e}"))?;
-
-    // Phase 8: prefer login_did_proof when key_ref is set; otherwise fall
-    // back to static bearer for Phase 6/7-style configs.
-    let http = construct_applet_client(cfg).await?;
+    let edge = applet_edge(&state).await?;
 
     // Phase 8 (T8.E): if a grant is configured, attach its event_id as
     // authorization_ref on the outbound event.
     let authorization_ref = load_applet_grant_event_id(cfg)
         .await
-        .or_else(|| cfg.authorization_grant_id.clone());
-
-    let req = savfox_channels::arkret::AppletMessageRequest {
-        applet_id: cfg.applet_id.clone(),
-        realm_id: realm_id.to_owned(),
-        flow_id: flow_id.to_owned(),
-        ghost_actor_did: ghost_actor_did.to_owned(),
-        body: body.to_owned(),
-        external_ref: external_ref.clone(),
-        authorization_ref,
-        executed_by: None,
-        actor_seq,
-        thread_root_id: None,
-    };
-    let mut event = savfox_channels::arkret::build_applet_message_event(&req)?;
+        .or_else(|| cfg.authorization_grant_id.clone())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "arkret applet '{}' requires an authorization grant for delegated outbound",
+                cfg.id
+            )
+        })?;
+    let realm = RealmId::new(realm_id.to_owned())
+        .with_context(|| format!("invalid realm_id: {realm_id}"))?;
+    let actor = Did::new(ghost_actor_did.to_owned())
+        .with_context(|| format!("invalid ghost actor DID: {ghost_actor_did}"))?;
+    let strand = StrandId::new(flow_id.to_owned())
+        .with_context(|| format!("invalid strand_id: {flow_id}"))?;
+    let content = ContentBlock::text(body.to_owned())
+        .to_value()
+        .map_err(|err| anyhow::anyhow!("build applet text content: {err}"))?;
+    let payload = MessageCreatePayload::with_content(strand, "discussion", content)
+        .with_message_id(new_prefixed_uuid7("ak:message:"));
+    let mut event = edge
+        .mint_event_as_unsigned_async(
+            &actor,
+            "ak.message.create",
+            &realm,
+            payload,
+            &authorization_ref,
+        )
+        .await
+        .map_err(|err| anyhow::anyhow!("arkret edge mint: {err}"))?;
+    event.external_ref = Some(external_ref.clone());
     apply_applet_outbound_encryption(&state.crypto_store, realm_id, &mut event)?;
-
-    // Phase 8 (T8.C): sign with the applet's bot key when key_ref is set.
-    sign_applet_event_if_keyed(cfg, ghost_actor_did, &mut event).await?;
+    edge.resign_event(&mut event)
+        .map_err(|err| anyhow::anyhow!("arkret edge sign: {err}"))?;
 
     // A transport 200 is not delivery confirmation: inspect the business-level
     // result and treat a rejection (or zero accepted/duplicate events) as a
     // failure so it flows through the same bridge_error path as a transport
     // error (spec §14), instead of being silently dropped.
-    let submit_result = match http.submit_event(&event).await {
-        Ok(resp) => {
-            if !resp.rejected.is_empty() {
-                Err(anyhow::anyhow!(
-                    "arkret applet: server rejected event for realm '{realm_id}': {:?}",
-                    resp.rejected
-                ))
-            } else if resp.accepted.is_empty() && resp.duplicate.is_empty() {
-                Err(anyhow::anyhow!(
-                    "arkret applet: server accepted no events for realm '{realm_id}' (status={:?})",
-                    resp.status
-                ))
-            } else {
-                Ok(())
-            }
+    let submit_result = match edge.submit_event(&event).await {
+        Ok(_) => Ok(()),
+        Err(first) => {
+            debug!(config_id, error = %first, "arkret applet submit failed; refreshing edge once");
+            let refreshed = refresh_applet_edge(&state).await?;
+            refreshed
+                .submit_event(&event)
+                .await
+                .map(|_| ())
+                .map_err(|err| anyhow::anyhow!(err.to_string()))
         }
-        Err(err) => Err(err),
     };
     match submit_result {
         Ok(()) => Ok(()),
@@ -1563,27 +1569,13 @@ async fn emit_bridge_error(
     message: &str,
     external_ref: Option<Value>,
 ) -> anyhow::Result<()> {
-    use arkret::{
-        AppletBridgeErrorBuilder, AppletBridgeErrorClass, AppletBridgeErrorVisibility, Hlc, RealmId,
-    };
+    use arkret::{AppletBridgeErrorBuilder, AppletBridgeErrorClass, AppletBridgeErrorVisibility};
 
     let cfg = &state.config;
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
     let actor = Did::new(cfg.bot_actor_id.clone())
         .with_context(|| format!("invalid bot DID: {}", cfg.bot_actor_id))?;
-    // Monotonic restart-safe actor sequence from the per-applet allocator —
-    // bridge_error events get a real sequence instead of the previous
-    // hard-coded `0`. The HLC origin still uses wall-clock millis (there is
-    // no shared HLC source available to the applet host yet).
-    let actor_seq = state
-        .seq
-        .alloc()
-        .map_err(|e| anyhow::anyhow!("seq alloc: {e}"))?;
-    let unix_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
-    let hlc = Hlc::new(format!("{unix_ms:012x}-0000-00000000"))
-        .map_err(|err| anyhow::anyhow!("hlc: {err}"))?;
-
     // SDK S-13 reshaped the payload: `severity` → `error_class` /
     // `error_code` / `retriable` / `visibility_scope` /
     // `failed_transaction_ref`. An outbound submit failure has no inbound
@@ -1606,19 +1598,14 @@ async fn emit_bridge_error(
     if let Some(ext) = external_ref {
         builder = builder.with_external_ref(ext);
     }
-    let mut event = builder
-        .build(actor_seq, hlc)
-        .map_err(|err| anyhow::anyhow!("bridge_error build: {err}"))?;
-
-    // Phase 8: sign bridge_error too if a signer is configured.
-    sign_applet_event_if_keyed(cfg, &cfg.bot_actor_id, &mut event).await?;
-    let http = construct_applet_client(cfg).await?;
-    http.submit_event(&event).await?;
+    let edge = applet_edge(state).await?;
+    edge.submit_bridge_error(&realm, builder)
+        .await
+        .map_err(|err| anyhow::anyhow!("arkret bridge_error submit: {err}"))?;
     Ok(())
 }
 
-/// Build the outbound HTTP client for an applet config. Uses DID-proof
-/// login when `key_ref` is set; falls back to the static bearer otherwise.
+/// Build the outbound HTTP client for an applet config using DID-proof login.
 async fn construct_applet_client(
     cfg: &savfox_channels::arkret::ArkretAppletConfig,
 ) -> anyhow::Result<savfox_channels::arkret::ArkretHttpClient> {
@@ -1665,42 +1652,78 @@ async fn construct_applet_client(
         .await?;
         Ok(client)
     } else {
-        let bearer = cfg.arkret_bearer_token.as_deref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "applet '{}' has neither key_ref nor arkret_bearer_token",
-                cfg.id
-            )
-        })?;
-        savfox_channels::arkret::ArkretHttpClient::new(&cfg.arkret_server_url, bearer)
+        anyhow::bail!(
+            "arkret applet '{}' requires key_ref; unsigned bearer-only outbound is retired",
+            cfg.id
+        )
     }
 }
 
-/// Phase 8 (T8.C): sign the outbound event with the applet's bot key,
-/// if `key_ref` is set. No-op otherwise.
-async fn sign_applet_event_if_keyed(
+async fn applet_edge(
+    state: &AppletChannelState,
+) -> anyhow::Result<Arc<arkret_bridge_runtime::ArkretEdge>> {
+    let mut slot = state.edge.lock().await;
+    if let Some(edge) = slot.as_ref() {
+        return Ok(edge.clone());
+    }
+    let edge = Arc::new(build_applet_edge(&state.config, state.seq.clone()).await?);
+    *slot = Some(edge.clone());
+    Ok(edge)
+}
+
+async fn refresh_applet_edge(
+    state: &AppletChannelState,
+) -> anyhow::Result<Arc<arkret_bridge_runtime::ArkretEdge>> {
+    let edge = Arc::new(build_applet_edge(&state.config, state.seq.clone()).await?);
+    *state.edge.lock().await = Some(edge.clone());
+    Ok(edge)
+}
+
+async fn build_applet_edge(
     cfg: &savfox_channels::arkret::ArkretAppletConfig,
-    actor_did: &str,
-    event: &mut arkret::Event,
-) -> anyhow::Result<()> {
-    let Some(key_ref) = &cfg.key_ref else {
-        // No signer configured: the event goes out with empty `proofs[]`, which
-        // spec-compliant production servers reject with `event_proofs_empty`.
-        // Don't fail (bare-bearer dev deployments rely on this), but make the
-        // misconfiguration visible instead of silently submitting a doomed event.
-        warn!(
-            "arkret applet '{}': no key_ref configured — submitting UNSIGNED outbound event \
-             (production servers will reject with event_proofs_empty)",
+    seq: arkret_bridge_runtime::SeqAllocator,
+) -> anyhow::Result<arkret_bridge_runtime::ArkretEdge> {
+    let key_ref = cfg.key_ref.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "arkret applet '{}' requires key_ref for signed outbound events",
             cfg.id
-        );
-        return Ok(());
-    };
-    let vm = cfg
+        )
+    })?;
+    let verification_method = cfg
         .verification_method
         .clone()
-        .unwrap_or_else(|| format!("{actor_did}#key-1"));
-    let signer = savfox_channels::arkret::load_ed25519_signer(key_ref, actor_did, &vm)?;
-    savfox_channels::arkret::applet::sign_outbound_event(event, &signer, &vm)?;
-    Ok(())
+        .unwrap_or_else(|| format!("{}#key-1", cfg.bot_actor_id));
+    let signer = savfox_channels::arkret::load_ed25519_signer(
+        key_ref,
+        &cfg.bot_actor_id,
+        &verification_method,
+    )?;
+    let http = construct_applet_client(cfg).await?;
+    let trusted_server_did = cfg
+        .arkret_server_did
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("arkret applet '{}' missing server DID", cfg.id))?;
+    let runtime_config: arkret_bridge_runtime::Config = serde_json::from_value(json!({
+        "bridge": { "bridge_id": cfg.id },
+        "arkret": {
+            "server_url": cfg.arkret_server_url,
+            "service_id": cfg.service_id,
+            "applet_id": cfg.applet_id,
+            "access_token": "",
+            "signing_key_seed_hex": "",
+            "verification_method_id": verification_method,
+            "trusted_server_did": trusted_server_did,
+        },
+        "app": Value::Null,
+    }))
+    .context("build arkret runtime edge config")?;
+    arkret_bridge_runtime::ArkretEdge::new_outbound(
+        Arc::new(runtime_config),
+        http.inner().clone(),
+        signer,
+        seq,
+    )
+    .map_err(|err| anyhow::anyhow!("build arkret outbound edge: {err}"))
 }
 
 /// Phase 8 (T8.E): if `grant_event_path` is set, load + verify the
@@ -1782,7 +1805,7 @@ fn build_applet_seq_allocator(
         })
         .collect();
     let path = dir.join(format!("{safe_id}.seq"));
-    let store = savfox_channels::arkret::FileSeqStore::shared(path)
+    let store = arkret_bridge_runtime::FileSeqStore::shared(path)
         .map_err(|e| anyhow::anyhow!("arkret applet seq store: {e}"))?;
     Ok(arkret_bridge_runtime::SeqAllocator::new(
         store,
@@ -1831,6 +1854,7 @@ pub(crate) async fn start_arkret_applet_channel(
         runtime: Mutex::new(AppletRuntimeState::default()),
         crypto_store,
         seq,
+        edge: tokio::sync::Mutex::new(None),
     };
     info!(
         "arkret: applet channel '{}' registered (applet_id={}, service_id={})",
@@ -1916,6 +1940,7 @@ mod tests {
             runtime: Mutex::new(AppletRuntimeState::default()),
             crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
             seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
+            edge: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -2005,6 +2030,7 @@ mod tests {
             runtime: Mutex::new(AppletRuntimeState::default()),
             crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
             seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
+            edge: tokio::sync::Mutex::new(None),
         };
         register_channel(state).expect("register");
         let resolved = lookup_by_config_id(&applet.id)
@@ -2024,6 +2050,7 @@ mod tests {
             runtime: Mutex::new(AppletRuntimeState::default()),
             crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
             seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
+            edge: tokio::sync::Mutex::new(None),
         };
         let group_id = "group-applet-welcome";
         let event = arkret::Event::new(
