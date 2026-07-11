@@ -19,7 +19,8 @@ pub struct GatewayConfig {
     #[serde(default = "default_port")]
     pub port: u16,
 
-    /// Static bearer token for authentication. If `None`, one is auto-generated at startup.
+    /// Static bearer token for authentication. If `None`, a previously generated token is
+    /// reused, or a new one is generated and persisted when none exists.
     #[serde(default)]
     pub token: Option<String>,
 
@@ -350,7 +351,7 @@ pub struct GatewayCommand {
     #[arg(long, default_value_t = DEFAULT_PORT)]
     pub port: u16,
 
-    /// Bearer token for authentication. Auto-generated if omitted.
+    /// Bearer token for authentication. Reused from disk or generated if omitted.
     #[arg(long)]
     pub token: Option<String>,
 

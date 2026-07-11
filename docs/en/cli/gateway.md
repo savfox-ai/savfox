@@ -19,7 +19,10 @@ savfox gateway --host 0.0.0.0 --port 443 --tls-cert cert.pem --tls-key key.pem
 | `--tls-cert <PATH>` | -- | TLS certificate file for HTTPS/WSS |
 | `--tls-key <PATH>` | -- | TLS private key file |
 
-If `--token` is omitted, a random token is generated and printed at startup. Copy it for client use.
+If `--token` is omitted, the gateway reuses the valid token stored at
+`<savfox-home>/gateway/token`. It generates and persists a new token only when
+the file is missing or invalid. Startup output shows the token file path and a
+fingerprint rather than the full secret.
 
 ## Management Subcommands
 

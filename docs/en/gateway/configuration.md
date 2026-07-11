@@ -21,7 +21,7 @@ savfox gateway [OPTIONS] [SUBCOMMAND]
 |---------------|----------|----------------|------------------------------------------|
 | `--host`      | IP addr  | `127.0.0.1`    | Host address to bind to                  |
 | `--port`      | u16      | `18881`        | Port to listen on                        |
-| `--token`     | String   | (auto-generated)| Bearer token for authentication         |
+| `--token`     | String   | (persisted/generated) | Bearer token for authentication    |
 | `--tls-cert`  | Path     | None           | TLS certificate path (PEM)               |
 | `--tls-key`   | Path     | None           | TLS private key path (PEM)               |
 

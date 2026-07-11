@@ -21,7 +21,8 @@ savfox gateway --host 0.0.0.0 --port 443 --tls-cert cert.pem --tls-key key.pem
 | `--tls-cert <PATH>` | — | HTTPS/WSS 所需的 TLS 证书 |
 | `--tls-key <PATH>` | — | TLS 私钥 |
 
-如果省略 `--token`，启动时会自动生成一个随机令牌并打印到控制台。
+如果省略 `--token`，网关会复用 `<savfox-home>/gateway/token` 中格式有效的令牌。
+首次启动或该文件无效时才会生成并持久化新令牌。启动输出只显示令牌指纹和令牌文件路径。
 
 ## 认证
 
