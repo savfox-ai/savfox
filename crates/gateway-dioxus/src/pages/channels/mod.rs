@@ -2465,9 +2465,26 @@ fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
     if patch_value_empty(patch.get("requestedScope")) {
         patch["requestedScope"] = Value::Null;
     }
-    if patch_value_empty(patch.get("verificationMethod")) {
-        patch["verificationMethod"] = json!(format!("{}#runtime-1", bootstrap.agent_id));
+    let agent_id = bootstrap.agent_id.to_string();
+    let existing_verification_method = patch
+        .get("verificationMethod")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if existing_verification_method
+        .is_none_or(|value| !arkret_verification_method_matches_agent(value, &agent_id))
+    {
+        if existing_verification_method.is_some() {
+            patch["authorizedEventRef"] = Value::Null;
+        }
+        patch["verificationMethod"] = json!(format!("{agent_id}#runtime-1"));
     }
+}
+
+fn arkret_verification_method_matches_agent(verification_method: &str, agent_id: &str) -> bool {
+    verification_method
+        .split_once('#')
+        .is_some_and(|(did, fragment)| did == agent_id && !fragment.is_empty())
 }
 
 fn clear_arkret_agent_obsolete_fields(patch: &mut Value) {
@@ -4350,19 +4367,17 @@ fn render_single_field(
                                                 values.insert(bootstrap_key.clone(), text.clone());
                                                 if let Some(default_verification_method) =
                                                     default_verification_method
-                                                    && values
-                                                        .get(&verification_method_key)
-                                                        .map(|value| value.trim().is_empty())
-                                                        .unwrap_or(true)
                                                 {
                                                     values.insert(
                                                         verification_method_key.clone(),
                                                         default_verification_method.clone(),
                                                     );
+                                                    values.remove(&authorized_event_ref_key);
                                                     snapshot.insert(
                                                         verification_method_key.clone(),
                                                         default_verification_method,
                                                     );
+                                                    snapshot.remove(&authorized_event_ref_key);
                                                 }
                                             }
                                             snapshot.insert(bootstrap_key.clone(), text);
@@ -4443,9 +4458,19 @@ fn render_single_field(
                                             .get("message")
                                             .and_then(serde_json::Value::as_str)
                                             .unwrap_or("Approval request sent to Inkson");
+                                        let pairing_code = snapshot
+                                            .get(&bootstrap_key)
+                                            .and_then(|text| {
+                                                arkret_pairing_code_from_bootstrap_text(text)
+                                            });
                                         values.write().insert(
                                             key.clone(),
-                                            format!("{message}. Waiting for Inkson approval."),
+                                            format!(
+                                                "{message}. {}",
+                                                arkret_waiting_for_approval_status(
+                                                    pairing_code.as_deref(),
+                                                ),
+                                            ),
                                         );
                                         arkret_poll_runtime_key_approval(
                                             ws,
@@ -4453,6 +4478,7 @@ fn render_single_field(
                                             key,
                                             authorized_event_ref_key,
                                             patch,
+                                            pairing_code,
                                         )
                                         .await;
                                     }
@@ -4801,6 +4827,18 @@ fn arkret_pairing_code_from_bootstrap_text(input: &str) -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
+/// Waiting-state status line for the pairing approval poll. Repeats the
+/// pairing code next to the spinner text so the user can compare it against
+/// the Inkson approval prompt without scrolling back to the bootstrap field.
+fn arkret_waiting_for_approval_status(pairing_code: Option<&str>) -> String {
+    match pairing_code {
+        Some(code) => format!(
+            "Waiting for Inkson approval... Compare pairing code {code} with the Inkson prompt."
+        ),
+        None => "Waiting for Inkson approval...".to_owned(),
+    }
+}
+
 static ARKRET_APPROVAL_POLL_GENERATION: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
@@ -4815,6 +4853,7 @@ async fn arkret_poll_runtime_key_approval(
     status_key: String,
     authorized_event_ref_key: String,
     config_patch: Value,
+    pairing_code: Option<String>,
 ) {
     use std::sync::atomic::Ordering;
 
@@ -4905,7 +4944,7 @@ async fn arkret_poll_runtime_key_approval(
             _ => {
                 values.write().insert(
                     status_key.clone(),
-                    "Waiting for Inkson approval...".to_owned(),
+                    arkret_waiting_for_approval_status(pairing_code.as_deref()),
                 );
             }
         }
@@ -4935,15 +4974,15 @@ fn arkret_runtime_key_ref_generation_params(
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty())
     });
-    let verification_method = values
-        .get(&field_value_key(channel_id, "verificationMethod"))
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            bootstrap
-                .as_ref()
-                .map(|bootstrap| format!("{}#runtime-1", bootstrap.agent_id))
-        });
+    let verification_method = bootstrap.as_ref().map(|bootstrap| {
+        let agent_id = bootstrap.agent_id.to_string();
+        values
+            .get(&field_value_key(channel_id, "verificationMethod"))
+            .map(|value| value.trim())
+            .filter(|value| arkret_verification_method_matches_agent(value, &agent_id))
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{agent_id}#runtime-1"))
+    });
 
     let mut params = serde_json::Map::new();
     params.insert("platform".to_owned(), json!("arkret"));
@@ -5738,6 +5777,10 @@ mod tests {
             "did:webvh:example.org:agents:stale".to_owned(),
         );
         values.insert(
+            field_value_key("arkret", "verificationMethod"),
+            "did:webvh:example.org:agents:stale#runtime-1".to_owned(),
+        );
+        values.insert(
             field_value_key("arkret", "keyRef"),
             r#"{"kind":"inline_seed_base64","value":"secret"}"#.to_owned(),
         );
@@ -5917,6 +5960,36 @@ mod tests {
             patch["verificationMethod"],
             json!("did:webvh:example.org:agents:support#runtime-1")
         );
+    }
+
+    #[test]
+    fn arkret_bootstrap_replaces_stale_verification_method_and_authorization() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
+        values.insert(
+            field_value_key("arkret", "inksonBootstrap"),
+            sdk_inkson_bootstrap_json(),
+        );
+        values.insert(
+            field_value_key("arkret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("arkret", "verificationMethod"),
+            "did:webvh:example.org:agents:stale#runtime-1".to_owned(),
+        );
+        values.insert(
+            field_value_key("arkret", "authorizedEventRef"),
+            "ak:event:01904100-0000-7000-8000-000000000099".to_owned(),
+        );
+
+        let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
+
+        assert_eq!(
+            patch["verificationMethod"],
+            json!("did:webvh:example.org:agents:support#runtime-1")
+        );
+        assert!(patch["authorizedEventRef"].is_null());
     }
 
     #[test]
