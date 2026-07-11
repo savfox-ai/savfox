@@ -22,7 +22,7 @@ impl ChannelStatusView for ArkretStatus {
         self.account_id
             .clone()
             .or_else(|| self.applet_id.clone())
-            .or_else(|| self.service_did.clone())
+            .or_else(|| self.service_id.clone())
     }
 
     fn extra_stats(&self) -> Vec<(String, String)> {
@@ -33,8 +33,8 @@ impl ChannelStatusView for ArkretStatus {
         if let Some(base_url) = &self.base_url {
             stats.push(("Base URL".into(), base_url.clone()));
         }
-        if let Some(service_did) = &self.service_did {
-            stats.push(("Service DID".into(), service_did.clone()));
+        if let Some(service_id) = &self.service_id {
+            stats.push(("Service DID".into(), service_id.clone()));
         }
         if let Some(account_id) = &self.account_id {
             stats.push(("Account".into(), account_id.clone()));

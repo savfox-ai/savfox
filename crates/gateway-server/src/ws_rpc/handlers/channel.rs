@@ -612,10 +612,10 @@ fn insert_saved_channel_metadata(
             {
                 info.insert("base_url".to_owned(), json!(base_url));
             }
-            if let Some(service_did) =
-                first_non_empty_channel_config_string(config_obj, &["serviceDid", "service_did"])
+            if let Some(service_id) =
+                first_non_empty_channel_config_string(config_obj, &["serviceId", "service_id"])
             {
-                info.insert("service_did".to_owned(), json!(service_did));
+                info.insert("service_id".to_owned(), json!(service_id));
             }
             #[cfg(feature = "arkret")]
             if let Some(config) = saved_state.config.as_ref() {
@@ -628,7 +628,7 @@ fn insert_saved_channel_metadata(
                         info.insert("applet_id".to_owned(), json!(&parsed.applet_id));
                         info.insert("bot_actor_id".to_owned(), json!(&parsed.bot_actor_id));
                         info.insert("base_url".to_owned(), json!(&parsed.base_url));
-                        info.insert("service_did".to_owned(), json!(&parsed.service_did));
+                        info.insert("service_id".to_owned(), json!(&parsed.service_id));
                         info.insert("protocol_count".to_owned(), json!(parsed.protocols.len()));
                         let namespace_count = parsed.namespaces.actors.len()
                             + parsed.namespaces.realms.len()
@@ -660,8 +660,8 @@ fn insert_saved_channel_metadata(
                     savfox_channels::arkret::ArkretChannelConfig::from_channel_config(config)
                 {
                     info.insert("base_url".to_owned(), json!(&parsed.base_url));
-                    if let Some(service_did) = parsed.service_did.as_deref() {
-                        info.insert("service_did".to_owned(), json!(service_did));
+                    if let Some(service_id) = parsed.service_id.as_deref() {
+                        info.insert("service_id".to_owned(), json!(service_id));
                     }
                     if let Some(account) = parsed.accounts.first() {
                         info.insert("account_id".to_owned(), json!(&account.id));
@@ -2024,7 +2024,7 @@ async fn handle_arkret_channel_test(
             "ok": true,
             "mode": "applet",
             "applet_id": parsed.applet_id.as_str(),
-            "service_did": parsed.service_did.as_str(),
+            "service_id": parsed.service_id.as_str(),
             "protocol_count": parsed.protocols.len(),
             "namespace_count": namespace_count,
             "message": "Arkret applet configuration is valid",
@@ -2047,7 +2047,7 @@ async fn handle_arkret_channel_test(
         "ok": true,
         "mode": "agent",
         "base_url": parsed.base_url.as_str(),
-        "service_did": parsed.service_did.as_deref(),
+        "service_id": parsed.service_id.as_deref(),
         "account_count": parsed.accounts.len(),
         "listener_count": parsed.accounts.iter().filter(|account| account.listen).count(),
         "message": "Arkret agent configuration is valid",
@@ -2525,8 +2525,8 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
     let label = params
         .get("account_id")
         .or_else(|| params.get("accountId"))
-        .or_else(|| params.get("agent_principal_id"))
-        .or_else(|| params.get("agentPrincipalId"))
+        .or_else(|| params.get("agent_id"))
+        .or_else(|| params.get("agentId"))
         .or_else(|| params.get("principalId"))
         .and_then(Value::as_str)
         .map(str::trim)
@@ -3554,8 +3554,8 @@ mod tests {
     fn sdk_inkson_bootstrap() -> serde_json::Value {
         json!({
             "arkret_base_url": "https://arkret.example.org",
-            "service_did": "did:webvh:arkret.example.org",
-            "agent_principal_id": "did:webvh:example.org:agents:support",
+            "service_id": "did:webvh:arkret.example.org",
+            "agent_id": "did:webvh:example.org:agents:support",
             "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
             "pairing_code": "12345678",
             "pairing_expires_at": "2999-01-01T00:00:00Z"
@@ -3711,7 +3711,7 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://arkret.example.org",
-                "serviceDid": "did:webvh:arkret.example.org",
+                "serviceId": "did:webvh:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
@@ -3754,7 +3754,7 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://arkret.example.org",
-                "serviceDid": "did:webvh:arkret.example.org",
+                "serviceId": "did:webvh:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
@@ -3777,7 +3777,7 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://arkret.example.org",
-                "serviceDid": "did:webvh:arkret.example.org",
+                "serviceId": "did:webvh:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
@@ -3822,8 +3822,8 @@ mod tests {
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceDid": "did:web:slack-bridge.example",
-                "controllerDid": "did:webvh:example.com:admin",
+                "serviceId": "did:web:slack-bridge.example",
+                "controllerId": "did:webvh:example.com:admin",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
                 "botActorId": "did:web:slack-bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",
@@ -3848,8 +3848,8 @@ mod tests {
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceDid": "did:web:slack-bridge.example",
-                "controllerDid": "did:webvh:example.com:admin",
+                "serviceId": "did:web:slack-bridge.example",
+                "controllerId": "did:webvh:example.com:admin",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
                 "botActorId": "did:web:slack-bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",

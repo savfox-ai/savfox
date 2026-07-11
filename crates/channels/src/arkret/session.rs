@@ -4,9 +4,9 @@
 //! must not call this path.
 
 use anyhow::Context as _;
-use chrono::{DateTime, Utc};
 use arkret::http_client::Client;
 use arkret::{AuthManager, DeviceId, Did, Ed25519MoveSigner};
+use chrono::{DateTime, Utc};
 
 /// One-shot session state produced by [`login_with_signer`].
 #[derive(Debug, Clone)]

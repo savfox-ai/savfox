@@ -19,8 +19,8 @@
 use std::path::Path;
 
 use anyhow::Context as _;
-use chrono::{DateTime, Utc};
 use arkret::{CapabilityGrant, CapabilitySubject, Event};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 /// Loaded capability grant ready for use as `authorization_ref` on

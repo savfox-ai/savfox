@@ -158,7 +158,7 @@ pub struct ArkretStatus {
     pub connected: Option<bool>,
     pub mode: Option<String>,
     pub base_url: Option<String>,
-    pub service_did: Option<String>,
+    pub service_id: Option<String>,
     pub account_id: Option<String>,
     pub principal_id: Option<String>,
     pub applet_id: Option<String>,

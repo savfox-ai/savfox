@@ -19,9 +19,9 @@
 
 #![allow(clippy::if_same_then_else, clippy::manual_let_else)]
 
-pub mod base;
 #[cfg(feature = "arkret")]
 pub mod arkret;
+pub mod base;
 #[cfg(feature = "dingtalk")]
 pub mod dingtalk;
 #[cfg(feature = "discord")]

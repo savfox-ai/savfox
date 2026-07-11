@@ -107,64 +107,64 @@ impl FileArkretAccountStore {
     /// Load the persisted account-subscribe cursor for a principal/device pair.
     pub async fn load_account_cursor(
         &self,
-        service_did: Option<&str>,
+        service_id: Option<&str>,
         actor_id: &str,
         device_id: &str,
     ) -> ArkretResult<Option<OpaqueCursor>> {
-        self.load(account_scope(service_did, actor_id, device_id)?)
+        self.load(account_scope(service_id, actor_id, device_id)?)
             .await
     }
 
     /// Persist the account-subscribe cursor for a principal/device pair.
     pub async fn save_account_cursor(
         &self,
-        service_did: Option<&str>,
+        service_id: Option<&str>,
         actor_id: &str,
         device_id: &str,
         cursor: OpaqueCursor,
     ) -> ArkretResult<()> {
-        self.save(account_scope(service_did, actor_id, device_id)?, cursor)
+        self.save(account_scope(service_id, actor_id, device_id)?, cursor)
             .await
     }
 
     /// Clear the account-subscribe cursor for a principal/device pair.
     pub async fn clear_account_cursor(
         &self,
-        service_did: Option<&str>,
+        service_id: Option<&str>,
         actor_id: &str,
         device_id: &str,
     ) -> ArkretResult<()> {
-        self.clear(account_scope(service_did, actor_id, device_id)?)
+        self.clear(account_scope(service_id, actor_id, device_id)?)
             .await
     }
 
     /// Load the persisted Realm events cursor used by scan catch-up.
     pub async fn load_realm_events_cursor(
         &self,
-        service_did: Option<&str>,
+        service_id: Option<&str>,
         realm_id: &str,
     ) -> ArkretResult<Option<OpaqueCursor>> {
-        self.load(realm_events_scope(service_did, realm_id)?).await
+        self.load(realm_events_scope(service_id, realm_id)?).await
     }
 
     /// Persist the Realm events cursor used by scan catch-up.
     pub async fn save_realm_events_cursor(
         &self,
-        service_did: Option<&str>,
+        service_id: Option<&str>,
         realm_id: &str,
         cursor: OpaqueCursor,
     ) -> ArkretResult<()> {
-        self.save(realm_events_scope(service_did, realm_id)?, cursor)
+        self.save(realm_events_scope(service_id, realm_id)?, cursor)
             .await
     }
 
     /// Clear the persisted Realm events cursor used by scan catch-up.
     pub async fn clear_realm_events_cursor(
         &self,
-        service_did: Option<&str>,
+        service_id: Option<&str>,
         realm_id: &str,
     ) -> ArkretResult<()> {
-        self.clear(realm_events_scope(service_did, realm_id)?).await
+        self.clear(realm_events_scope(service_id, realm_id)?).await
     }
 
     /// Remember an event id if it has not been seen before.
@@ -189,11 +189,11 @@ impl FileArkretAccountStore {
     /// principal/device pair.
     pub async fn load_device_message_cursor(
         &self,
-        service_did: Option<&str>,
+        service_id: Option<&str>,
         actor_id: &str,
         device_id: &str,
     ) -> ArkretResult<Option<OpaqueCursor>> {
-        let key = device_messages_scope_key(service_did, actor_id, device_id)?;
+        let key = device_messages_scope_key(service_id, actor_id, device_id)?;
         let state = self.inner.state.lock();
         Ok(state.cursors.get(&key).cloned())
     }
@@ -202,12 +202,12 @@ impl FileArkretAccountStore {
     /// principal/device pair.
     pub async fn save_device_message_cursor(
         &self,
-        service_did: Option<&str>,
+        service_id: Option<&str>,
         actor_id: &str,
         device_id: &str,
         cursor: OpaqueCursor,
     ) -> ArkretResult<()> {
-        let key = device_messages_scope_key(service_did, actor_id, device_id)?;
+        let key = device_messages_scope_key(service_id, actor_id, device_id)?;
         let mut state = self.inner.state.lock();
         state.cursors.insert(key, cursor);
         self.persist(&state)
@@ -216,11 +216,11 @@ impl FileArkretAccountStore {
     /// Clear the direct device-message cursor for a principal/device pair.
     pub async fn clear_device_message_cursor(
         &self,
-        service_did: Option<&str>,
+        service_id: Option<&str>,
         actor_id: &str,
         device_id: &str,
     ) -> ArkretResult<()> {
-        let key = device_messages_scope_key(service_did, actor_id, device_id)?;
+        let key = device_messages_scope_key(service_id, actor_id, device_id)?;
         let mut state = self.inner.state.lock();
         state.cursors.remove(&key);
         self.persist(&state)
@@ -342,12 +342,12 @@ fn load_state(path: &Path, scope_id: &str) -> ArkretResult<ArkretAccountStoreFil
 }
 
 fn account_scope(
-    service_did: Option<&str>,
+    service_id: Option<&str>,
     actor_id: &str,
     device_id: &str,
 ) -> ArkretResult<CursorScope> {
     Ok(CursorScope::Account {
-        service_did: service_did
+        service_id: service_id
             .map(|value| {
                 Did::new(value.to_owned())
                     .map_err(|err| Error::Protocol(format!("invalid service DID '{value}': {err}")))
@@ -361,9 +361,9 @@ fn account_scope(
     })
 }
 
-fn realm_events_scope(service_did: Option<&str>, realm_id: &str) -> ArkretResult<CursorScope> {
+fn realm_events_scope(service_id: Option<&str>, realm_id: &str) -> ArkretResult<CursorScope> {
     Ok(CursorScope::RealmEvents {
-        service_did: service_did
+        service_id: service_id
             .map(|value| {
                 Did::new(value.to_owned())
                     .map_err(|err| Error::Protocol(format!("invalid service DID '{value}': {err}")))
@@ -376,11 +376,11 @@ fn realm_events_scope(service_did: Option<&str>, realm_id: &str) -> ArkretResult
 }
 
 fn device_messages_scope_key(
-    service_did: Option<&str>,
+    service_id: Option<&str>,
     actor_id: &str,
     device_id: &str,
 ) -> ArkretResult<String> {
-    let service_did = service_did
+    let service_id = service_id
         .map(|value| {
             Did::new(value.to_owned())
                 .map_err(|err| Error::Protocol(format!("invalid service DID '{value}': {err}")))
@@ -392,7 +392,7 @@ fn device_messages_scope_key(
         .map_err(|err| Error::Protocol(format!("invalid Arkret device id '{device_id}': {err}")))?;
     serde_json::to_string(&json!({
         "kind": "device_messages",
-        "service_did": service_did.as_ref().map(Did::as_str),
+        "service_id": service_id.as_ref().map(Did::as_str),
         "actor_id": actor_id.as_str(),
         "device_id": device_id.as_str(),
     }))
@@ -403,21 +403,21 @@ fn device_messages_scope_key(
 fn scope_key(scope: &CursorScope) -> ArkretResult<String> {
     let value = match scope {
         CursorScope::Account {
-            service_did,
+            service_id,
             actor_id,
             device_id,
         } => json!({
             "kind": "account",
-            "service_did": service_did.as_ref().map(Did::as_str),
+            "service_id": service_id.as_ref().map(Did::as_str),
             "actor_id": actor_id.as_str(),
             "device_id": device_id.as_str(),
         }),
         CursorScope::RealmEvents {
-            service_did,
+            service_id,
             realm_id,
         } => json!({
             "kind": "realm_events",
-            "service_did": service_did.as_ref().map(Did::as_str),
+            "service_id": service_id.as_ref().map(Did::as_str),
             "realm_id": realm_id.as_str(),
         }),
     };

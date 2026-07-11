@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 
 /// Discovers Savfox gateways on the local network via Bonjour/mDNS.
 public class GatewayDiscovery: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
@@ -55,7 +55,7 @@ public class GatewayDiscovery: NSObject, NetServiceBrowserDelegate, NetServiceDe
 
     // MARK: - NetServiceDelegate
 
-    public func netServiceDidResolveAddress(_ sender: NetService) {
+    public func netServiceIdResolveAddress(_ sender: NetService) {
         guard let host = sender.hostName else { return }
 
         let gateway = GatewayClient.DiscoveredGateway(

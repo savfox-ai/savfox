@@ -144,8 +144,8 @@ mod tests {
         ArkretAppletConfig {
             id: "applet-1".into(),
             applet_id: "ak:applet:1".into(),
-            service_did: "did:web:bridge.example".into(),
-            controller_did: "did:webvh:acme:admin".into(),
+            service_id: "did:web:bridge.example".into(),
+            controller_id: "did:webvh:acme:admin".into(),
             base_url: "https://savfox.example/applet".into(),
             bot_actor_id: "did:web:bridge.example:bot".into(),
             device_id: None,

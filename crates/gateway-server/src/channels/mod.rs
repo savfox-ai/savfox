@@ -1,8 +1,8 @@
-pub(crate) mod channel_stream;
 #[cfg(feature = "arkret")]
 pub(crate) mod arkret;
 #[cfg(feature = "arkret")]
 pub(crate) mod arkret_applet;
+pub(crate) mod channel_stream;
 pub(crate) mod dingtalk;
 pub(crate) mod discord;
 pub(crate) mod feishu;

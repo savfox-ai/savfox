@@ -435,14 +435,14 @@ async fn drive_account_subscription_engine(
             };
         }
     };
-    let service_did = match account_subscription_service_did(channel, account) {
-        Ok(service_did) => service_did,
+    let service_id = match account_subscription_service_id(channel, account) {
+        Ok(service_id) => service_id,
         Err(error) => return AccountEngineOutcome::Retry { error },
     };
     let client_core = client.client_core_with_account_store(account_store.clone());
     let mut engine = client_core.subscription_engine();
-    if let Some(service_did) = service_did {
-        engine = engine.with_service_did(service_did);
+    if let Some(service_id) = service_id {
+        engine = engine.with_service_id(service_id);
     }
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let projector = AccountEventProjector { tx };
@@ -621,27 +621,27 @@ async fn handle_account_client_event(
     }
 }
 
-fn account_cursor_service_did(
+fn account_cursor_service_id(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
 ) -> Option<String> {
     account
         .arkret_server_did
         .clone()
-        .or_else(|| channel.service_did.clone())
+        .or_else(|| channel.service_id.clone())
         .or_else(|| {
             account
                 .inkson_bootstrap
                 .as_ref()
-                .map(|bootstrap| bootstrap.service_did.to_string())
+                .map(|bootstrap| bootstrap.service_id.to_string())
         })
 }
 
-fn account_subscription_service_did(
+fn account_subscription_service_id(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<Option<Did>> {
-    account_cursor_service_did(channel, account)
+    account_cursor_service_id(channel, account)
         .map(|value| {
             Did::new(value.clone())
                 .map_err(|err| anyhow::anyhow!("invalid Arkret service DID '{value}': {err}"))
@@ -847,13 +847,13 @@ async fn drain_account_device_messages_from_cursor(
         );
         return;
     }
-    let service_did = account_cursor_service_did(channel, account);
+    let service_id = account_cursor_service_id(channel, account);
     let mut cursor = if let Some(cursor) = initial_cursor {
         Some(cursor)
     } else {
         match account_store
             .load_device_message_cursor(
-                service_did.as_deref(),
+                service_id.as_deref(),
                 &account.principal_id,
                 &account.device_id,
             )
@@ -909,7 +909,7 @@ async fn drain_account_device_messages_from_cursor(
             );
             if let Err(err) = account_store
                 .clear_device_message_cursor(
-                    service_did.as_deref(),
+                    service_id.as_deref(),
                     &account.principal_id,
                     &account.device_id,
                 )
@@ -940,7 +940,7 @@ async fn drain_account_device_messages_from_cursor(
         if let Some(next_cursor) = outcome.next_cursor {
             if let Err(err) = account_store
                 .save_device_message_cursor(
-                    service_did.as_deref(),
+                    service_id.as_deref(),
                     &account.principal_id,
                     &account.device_id,
                     next_cursor.clone(),
@@ -2094,16 +2094,16 @@ async fn construct_account_client(
     let audience = account
         .arkret_server_did
         .clone()
-        .or_else(|| channel.service_did.clone())
+        .or_else(|| channel.service_id.clone())
         .or_else(|| {
             account
                 .inkson_bootstrap
                 .as_ref()
-                .map(|bootstrap| bootstrap.service_did.to_string())
+                .map(|bootstrap| bootstrap.service_id.to_string())
         })
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Arkret agent '{}' missing serviceDid/arkretServerDid for agent_key_proof audience",
+                "Arkret agent '{}' missing serviceId/arkretServerDid for agent_key_proof audience",
                 account.id
             )
         })?;
@@ -2621,7 +2621,7 @@ mod tests {
         let channel = ArkretChannelConfig {
             id: "c1".to_owned(),
             base_url: "https://arkret.example".to_owned(),
-            service_did: None,
+            service_id: None,
             accounts: Vec::new(),
         };
         let account = make_account();

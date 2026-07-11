@@ -584,7 +584,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Arkret server URL. Agent mode normally derives this from the Inkson bootstrap.",
                 },
                 ConfigField {
-                    key: "serviceDid".into(),
+                    key: "serviceId".into(),
                     label: "Arkret Service DID".into(),
                     field_type: FieldType::Text,
                     placeholder: "did:webvh:arkret.example.org".into(),
@@ -629,7 +629,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Registered Arkret applet identifier.",
                 },
                 ConfigField {
-                    key: "controllerDid".into(),
+                    key: "controllerId".into(),
                     label: "Controller DID".into(),
                     field_type: FieldType::Text,
                     placeholder: "did:webvh:arkret.example.org".into(),
@@ -644,7 +644,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "did:web:savfox.example:bot".into(),
                     secret: false,
                     required: false,
-                    help: "Visible applet bot actor DID. Defaults to serviceDid:bot.",
+                    help: "Visible applet bot actor DID. Defaults to serviceId:bot.",
                 },
                 ConfigField {
                     key: "arkretServerUrl".into(),
@@ -1443,8 +1443,8 @@ fn parse_arkret_agent_pairing_bootstrap(value: Value) -> Result<AgentPairingBoot
     })?;
     for (name, value) in [
         ("arkret_base_url", bootstrap.arkret_base_url.as_str()),
-        ("service_did", bootstrap.service_did.as_str()),
-        ("agent_principal_id", bootstrap.agent_principal_id.as_str()),
+        ("service_id", bootstrap.service_id.as_str()),
+        ("agent_id", bootstrap.agent_id.as_str()),
         ("pairing_request_id", bootstrap.pairing_request_id.as_str()),
         ("pairing_code", bootstrap.pairing_code.as_str()),
     ] {
@@ -1995,8 +1995,8 @@ fn field_display_label(
         match (field.key.as_str(), mode.as_str()) {
             ("baseUrl", "applet") => return "Applet URL".to_string(),
             ("baseUrl", _) => return "Arkret Base URL".to_string(),
-            ("serviceDid", "applet") => return "Applet Service DID".to_string(),
-            ("serviceDid", _) => return "Arkret Service DID".to_string(),
+            ("serviceId", "applet") => return "Applet Service DID".to_string(),
+            ("serviceId", _) => return "Arkret Service DID".to_string(),
             ("accessToken", "applet") => return "Bearer Token".to_string(),
             _ => {}
         }
@@ -2016,8 +2016,8 @@ fn field_display_placeholder(
                 return "https://savfox.example/appservices/arkret/arkret-default".to_string();
             }
             ("baseUrl", _) => return "https://arkret.example.org".to_string(),
-            ("serviceDid", "applet") => return "did:web:savfox.example".to_string(),
-            ("serviceDid", _) => return "did:webvh:arkret.example.org".to_string(),
+            ("serviceId", "applet") => return "did:web:savfox.example".to_string(),
+            ("serviceId", _) => return "did:webvh:arkret.example.org".to_string(),
             ("accessToken", "applet") => return "applet bearer token".to_string(),
             _ => {}
         }
@@ -2040,10 +2040,10 @@ fn field_display_help(
             ("baseUrl", _) => {
                 return "Arkret server URL, normally parsed from the Inkson bootstrap.".to_string();
             }
-            ("serviceDid", "applet") => {
+            ("serviceId", "applet") => {
                 return "Applet service DID registered with Arkret.".to_string();
             }
-            ("serviceDid", _) => {
+            ("serviceId", _) => {
                 return "Arkret service DID used as the agent_key_proof audience.".to_string();
             }
             ("accessToken", "applet") => {
@@ -2062,7 +2062,7 @@ fn field_display_required(
 ) -> bool {
     if ch_id == "arkret" {
         let mode = current_arkret_mode(ch_id, values);
-        if field.key == "serviceDid" {
+        if field.key == "serviceId" {
             return mode == "applet";
         }
         if mode != "applet" && field.key == "inksonBootstrap" {
@@ -2095,7 +2095,7 @@ fn is_arkret_agent_hidden_field(field_key: &str) -> bool {
         field_key,
         "advanced"
             | "baseUrl"
-            | "serviceDid"
+            | "serviceId"
             | "arkretServerDid"
             | "principalId"
             | "defaultRealmId"
@@ -2116,7 +2116,7 @@ fn is_arkret_applet_only_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "appletId"
-            | "controllerDid"
+            | "controllerId"
             | "botActorId"
             | "accessToken"
             | "loginChallenge"
@@ -2456,8 +2456,8 @@ fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
     if patch_value_empty(patch.get("baseUrl")) {
         patch["baseUrl"] = Value::Null;
     }
-    if patch_value_empty(patch.get("serviceDid")) {
-        patch["serviceDid"] = Value::Null;
+    if patch_value_empty(patch.get("serviceId")) {
+        patch["serviceId"] = Value::Null;
     }
     if patch_value_empty(patch.get("principalId")) {
         patch["principalId"] = Value::Null;
@@ -2466,14 +2466,14 @@ fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
         patch["requestedScope"] = Value::Null;
     }
     if patch_value_empty(patch.get("verificationMethod")) {
-        patch["verificationMethod"] = json!(format!("{}#runtime-1", bootstrap.agent_principal_id));
+        patch["verificationMethod"] = json!(format!("{}#runtime-1", bootstrap.agent_id));
     }
 }
 
 fn clear_arkret_agent_obsolete_fields(patch: &mut Value) {
     for key in [
         "baseUrl",
-        "serviceDid",
+        "serviceId",
         "arkretServerDid",
         "deviceId",
         "principalId",
@@ -4340,7 +4340,7 @@ fn render_single_field(
                                             let text = serde_json::to_string_pretty(&bootstrap)
                                                 .unwrap_or_else(|_| bootstrap.to_string());
                                             let default_verification_method = bootstrap
-                                                .get("agent_principal_id")
+                                                .get("agent_id")
                                                 .and_then(serde_json::Value::as_str)
                                                 .map(str::trim)
                                                 .filter(|value| !value.is_empty())
@@ -4928,7 +4928,7 @@ fn arkret_runtime_key_ref_generation_params(
         .and_then(|value| parse_arkret_agent_pairing_bootstrap(value).ok());
     let bootstrap_principal = bootstrap
         .as_ref()
-        .map(|bootstrap| bootstrap.agent_principal_id.to_string());
+        .map(|bootstrap| bootstrap.agent_id.to_string());
     let principal_id = bootstrap_principal.or_else(|| {
         values
             .get(&field_value_key(channel_id, "principalId"))
@@ -4942,13 +4942,13 @@ fn arkret_runtime_key_ref_generation_params(
         .or_else(|| {
             bootstrap
                 .as_ref()
-                .map(|bootstrap| format!("{}#runtime-1", bootstrap.agent_principal_id))
+                .map(|bootstrap| format!("{}#runtime-1", bootstrap.agent_id))
         });
 
     let mut params = serde_json::Map::new();
     params.insert("platform".to_owned(), json!("arkret"));
     if let Some(principal_id) = principal_id {
-        params.insert("agent_principal_id".to_owned(), json!(principal_id));
+        params.insert("agent_id".to_owned(), json!(principal_id));
     }
     if let Some(verification_method) = verification_method {
         params.insert("verification_method".to_owned(), json!(verification_method));
@@ -5480,8 +5480,8 @@ mod tests {
     fn sdk_inkson_bootstrap_value() -> Value {
         json!({
             "arkret_base_url": "https://arkret.example.org",
-            "service_did": "did:webvh:arkret.example.org",
-            "agent_principal_id": "did:webvh:example.org:agents:support",
+            "service_id": "did:webvh:arkret.example.org",
+            "agent_id": "did:webvh:example.org:agents:support",
             "pairing_request_id": "pair-123",
             "pairing_code": "123456",
             "pairing_expires_at": "2026-07-06T12:00:00Z"
@@ -5568,7 +5568,7 @@ mod tests {
         assert!(!visible("authorizedEventRef"));
         assert!(!visible("advanced"));
         assert!(!visible("baseUrl"));
-        assert!(!visible("serviceDid"));
+        assert!(!visible("serviceId"));
         assert!(!visible("arkretServerDid"));
         assert!(!visible("principalId"));
         assert!(!visible("externalAiEndpointConfig"));
@@ -5597,7 +5597,7 @@ mod tests {
 
         assert!(!visible("advanced"));
         assert!(!visible("baseUrl"));
-        assert!(!visible("serviceDid"));
+        assert!(!visible("serviceId"));
         assert!(!visible("principalId"));
         assert!(!visible("defaultRealmId"));
         assert!(!visible("defaultFlowId"));
@@ -5636,14 +5636,14 @@ mod tests {
             .iter()
             .find(|field| field.key == "baseUrl")
             .expect("baseUrl");
-        let service_did_field = fields
+        let service_id_field = fields
             .iter()
-            .find(|field| field.key == "serviceDid")
-            .expect("serviceDid");
+            .find(|field| field.key == "serviceId")
+            .expect("serviceId");
         let mut values = default_channel_values("arkret", &fields);
 
         assert!(!field_is_visible("arkret", base_url_field, &values));
-        assert!(!field_is_visible("arkret", service_did_field, &values));
+        assert!(!field_is_visible("arkret", service_id_field, &values));
 
         values.insert(field_value_key("arkret", "mode"), "applet".to_owned());
         assert_eq!(
@@ -5655,10 +5655,10 @@ mod tests {
             "https://savfox.example/appservices/arkret/arkret-default"
         );
         assert_eq!(
-            field_display_label("arkret", service_did_field, &values),
+            field_display_label("arkret", service_id_field, &values),
             "Applet Service DID"
         );
-        assert!(field_display_required("arkret", service_did_field, &values));
+        assert!(field_display_required("arkret", service_id_field, &values));
     }
 
     #[test]
@@ -5745,10 +5745,7 @@ mod tests {
         let params = arkret_runtime_key_ref_generation_params("arkret", &values);
 
         assert_eq!(params["platform"], "arkret");
-        assert_eq!(
-            params["agent_principal_id"],
-            "did:webvh:example.org:agents:support"
-        );
+        assert_eq!(params["agent_id"], "did:webvh:example.org:agents:support");
         assert_eq!(
             params["verification_method"],
             "did:webvh:example.org:agents:support#runtime-1"
@@ -5804,7 +5801,7 @@ mod tests {
             "https://stale.example.org".to_owned(),
         );
         values.insert(
-            field_value_key("arkret", "serviceDid"),
+            field_value_key("arkret", "serviceId"),
             "did:webvh:stale.example.org".to_owned(),
         );
         values.insert(
@@ -5869,7 +5866,7 @@ mod tests {
         );
         assert!(patch["principalId"].is_null());
         assert!(patch["baseUrl"].is_null());
-        assert!(patch["serviceDid"].is_null());
+        assert!(patch["serviceId"].is_null());
         assert!(patch["appletId"].is_null());
         assert!(patch["namespaces"].is_null());
     }
@@ -5913,7 +5910,7 @@ mod tests {
         let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert!(patch["baseUrl"].is_null());
-        assert!(patch["serviceDid"].is_null());
+        assert!(patch["serviceId"].is_null());
         assert!(patch["principalId"].is_null());
         assert!(patch["requestedScope"].is_null());
         assert_eq!(
@@ -5932,7 +5929,7 @@ mod tests {
             "https://savfox.example/appservices/arkret/arkret-default".to_owned(),
         );
         values.insert(
-            field_value_key("arkret", "serviceDid"),
+            field_value_key("arkret", "serviceId"),
             "did:web:slack-bridge.example".to_owned(),
         );
         values.insert(
@@ -5944,7 +5941,7 @@ mod tests {
             "ak:applet:21532600-0000-7000-8000-000000000000".to_owned(),
         );
         values.insert(
-            field_value_key("arkret", "controllerDid"),
+            field_value_key("arkret", "controllerId"),
             "did:webvh:example.com:admin".to_owned(),
         );
         values.insert(
@@ -5968,6 +5965,7 @@ mod tests {
         let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert_eq!(patch["mode"], json!("applet"));
+        assert_eq!(patch["controllerId"], json!("did:webvh:example.com:admin"));
         assert!(patch["receiveEvents"].is_null());
         assert!(patch["principalId"].is_null());
         assert_eq!(

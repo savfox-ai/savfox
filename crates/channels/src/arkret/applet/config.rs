@@ -30,14 +30,14 @@ pub struct ArkretAppletConfig {
     /// `ak:applet:<uuidv7>` — stable across registrations.
     pub applet_id: String,
     /// Applet service DID (e.g. `did:web:slack-bridge.example`).
-    pub service_did: String,
+    pub service_id: String,
     /// Controller DID that signs the registration (typically `did:webvh:...`).
-    pub controller_did: String,
+    pub controller_id: String,
     /// Public URL where this savfox node accepts inbound transactions
     /// (mounted under `/appservices/arkret/{id}/_arkret/edge/applet`).
     pub base_url: String,
     /// Bot actor DID — the visible identity of the applet in Realms it joins
-    /// (usually `<service_did>:bot`).
+    /// (usually `<service_id>:bot`).
     pub bot_actor_id: String,
     /// Optional Arkret device id for the bot/applet local MLS member. Required
     /// for generating precise MLS recovery plans, but kept optional for
@@ -61,7 +61,7 @@ pub struct ArkretAppletConfig {
     /// External protocols this Applet bridges (`["slack"]`, `["discord"]`, ...).
     pub protocols: Vec<String>,
     /// Prefix to prepend when minting ghost DIDs (colon path-segment form):
-    /// `{service_did}:{ghost_did_prefix}{external_id_slug}`.
+    /// `{service_id}:{ghost_did_prefix}{external_id_slug}`.
     /// Default `"ghost:"` → `did:web:host:ghost:<slug>`.
     pub ghost_did_prefix: String,
     /// `requested_scopes[]` — informational; reducer ignores this and only
@@ -116,11 +116,11 @@ impl ArkretAppletConfig {
         }
 
         let applet_id = first_non_empty(raw, &["appletId", "applet_id"])?;
-        let service_did = first_non_empty(raw, &["serviceDid", "service_did"])?;
-        let controller_did = first_non_empty(raw, &["controllerDid", "controller_did"])?;
+        let service_id = first_non_empty(raw, &["serviceId", "service_id"])?;
+        let controller_id = first_non_empty(raw, &["controllerId", "controller_id"])?;
         let base_url = first_non_empty(raw, &["baseUrl", "base_url"])?;
         let bot_actor_id = first_non_empty(raw, &["botActorId", "bot_actor_id"])
-            .unwrap_or_else(|| format!("{service_did}:bot"));
+            .unwrap_or_else(|| format!("{service_id}:bot"));
         let device_id = first_non_empty(raw, &["deviceId", "device_id", "botDeviceId"]);
         let arkret_server_url =
             first_non_empty(raw, &["arkretServerUrl", "arkret_server_url", "homeserver"])
@@ -187,8 +187,8 @@ impl ArkretAppletConfig {
         Some(Self {
             id: config.id.clone(),
             applet_id,
-            service_did,
-            controller_did,
+            service_id,
+            controller_id,
             base_url,
             bot_actor_id,
             device_id,
@@ -216,8 +216,8 @@ impl ArkretAppletConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         for (label, value) in [
             ("applet_id", &self.applet_id),
-            ("service_did", &self.service_did),
-            ("controller_did", &self.controller_did),
+            ("service_id", &self.service_id),
+            ("controller_id", &self.controller_id),
             ("base_url", &self.base_url),
             ("bot_actor_id", &self.bot_actor_id),
             ("arkret_server_url", &self.arkret_server_url),
@@ -231,8 +231,8 @@ impl ArkretAppletConfig {
         // `build_registration_payload`, whose `Did::new(...).expect(...)` would
         // otherwise panic on an input that passed the lenient prefix check.
         for (label, value) in [
-            ("service_did", &self.service_did),
-            ("controller_did", &self.controller_did),
+            ("service_id", &self.service_id),
+            ("controller_id", &self.controller_id),
             ("bot_actor_id", &self.bot_actor_id),
         ] {
             Did::new(value.clone()).map_err(|err| {
@@ -510,8 +510,8 @@ mod tests {
         json!({
             "mode": "applet",
             "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-            "serviceDid": "did:web:slack-bridge.example",
-            "controllerDid": "did:webvh:example.com:admin",
+            "serviceId": "did:web:slack-bridge.example",
+            "controllerId": "did:webvh:example.com:admin",
             "baseUrl": "https://savfox.example/appservices/arkret/arkret-applet-test",
             "botActorId": "did:web:slack-bridge.example:bot",
             "arkretServerUrl": "https://arkret.example.org",
@@ -549,6 +549,28 @@ mod tests {
         assert_eq!(parsed.namespaces.actors.len(), 1);
         assert!(parsed.namespaces.actors[0].exclusive);
         assert_eq!(parsed.ghost_did_prefix, "ghost:");
+        parsed.validate().expect("validate");
+    }
+
+    #[test]
+    fn parses_snake_case_controller_id() {
+        let mut body = valid_body();
+        let object = body
+            .as_object_mut()
+            .expect("valid body should be an object");
+        object.remove("controllerId");
+        object.insert(
+            "controller_id".to_owned(),
+            json!("did:webvh:example.com:snake-case-admin"),
+        );
+
+        let cfg = make_channel_config(body);
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
+
+        assert_eq!(
+            parsed.controller_id,
+            "did:webvh:example.com:snake-case-admin"
+        );
         parsed.validate().expect("validate");
     }
 
@@ -671,9 +693,9 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_bad_service_did_scheme() {
+    fn validate_rejects_bad_service_id_scheme() {
         let mut body = valid_body();
-        body["serviceDid"] = json!("not-a-did");
+        body["serviceId"] = json!("not-a-did");
         let cfg = make_channel_config(body);
         let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         assert!(parsed.validate().is_err());

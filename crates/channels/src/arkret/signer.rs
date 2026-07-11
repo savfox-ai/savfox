@@ -16,9 +16,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
+use arkret::{Did, Ed25519MoveSigner};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
-use arkret::{Did, Ed25519MoveSigner};
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -156,8 +156,8 @@ fn decode_base64_no_pad(text: &str, source: &str) -> anyhow::Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use base64::engine::general_purpose::STANDARD_NO_PAD;
     use arkret::MoveSigner;
+    use base64::engine::general_purpose::STANDARD_NO_PAD;
 
     use super::*;
 

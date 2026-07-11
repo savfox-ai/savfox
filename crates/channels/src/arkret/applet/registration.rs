@@ -42,15 +42,15 @@ pub fn build_registration_payload(
             anyhow::anyhow!("arkret applet registration: invalid {label} DID '{raw}': {err}")
         })
     };
-    let service_did = parse_did("service_did", &cfg.service_did)?;
-    let controller_did = parse_did("controller_did", &cfg.controller_did)?;
+    let service_id = parse_did("service_id", &cfg.service_id)?;
+    let controller_id = parse_did("controller_id", &cfg.controller_id)?;
     let bot_actor_id = parse_did("bot_actor_id", &cfg.bot_actor_id)?;
 
     let registration_epoch = resolve_registration_epoch(cfg)?;
     let mut reg = WireAppletRegistration::new(
         cfg.applet_id.clone(),
-        service_did,
-        controller_did,
+        service_id,
+        controller_id,
         cfg.base_url.clone(),
         bot_actor_id,
         cfg.protocols.clone(),
@@ -105,8 +105,8 @@ mod tests {
         ArkretAppletConfig {
             id: "applet-1".into(),
             applet_id: "ak:applet:21532600-0000-7000-8000-000000000000".into(),
-            service_did: "did:web:slack-bridge.example".into(),
-            controller_did: "did:webvh:example.com:admin".into(),
+            service_id: "did:web:slack-bridge.example".into(),
+            controller_id: "did:webvh:example.com:admin".into(),
             base_url: "https://savfox.example/appservices/arkret/applet-1".into(),
             bot_actor_id: "did:web:slack-bridge.example:bot".into(),
             device_id: None,
@@ -156,8 +156,8 @@ mod tests {
             reg.applet_id,
             "ak:applet:21532600-0000-7000-8000-000000000000"
         );
-        assert_eq!(reg.service_did.as_str(), "did:web:slack-bridge.example");
-        assert_eq!(reg.controller_did.as_str(), "did:webvh:example.com:admin");
+        assert_eq!(reg.service_id.as_str(), "did:web:slack-bridge.example");
+        assert_eq!(reg.controller_id.as_str(), "did:webvh:example.com:admin");
         assert_eq!(
             reg.bot_actor_id.as_str(),
             "did:web:slack-bridge.example:bot"

@@ -62,7 +62,7 @@ use crate::session::SessionStore;
 ///
 /// Phase 7: `txn_dedupe` is now an SDK [`IdempotencyWindow`] (S-5) that
 /// implements spec applet-integration.md §7.3 properly — including
-/// `duplicate_conflict` detection when the same `(source_service_did,
+/// `duplicate_conflict` detection when the same `(source_service_id,
 /// idempotency_key)` arrives with a different canonical body hash.
 #[derive(Debug)]
 struct AppletRuntimeState {
@@ -110,8 +110,8 @@ fn applet_registry() -> &'static Mutex<AppletRegistry> {
 
 const TXN_DEDUPE_WINDOW: Duration = Duration::from_secs(300);
 const MAX_APPLET_TRANSACTION_BODY_BYTES: usize = 65_536;
-const SOURCE_SERVICE_DID_HEADER: &str = "source-service-did";
-const DESTINATION_SERVICE_DID_HEADER: &str = "destination-service-did";
+const SOURCE_SERVICE_ID_HEADER: &str = "source-service-did";
+const DESTINATION_SERVICE_ID_HEADER: &str = "destination-service-did";
 const APPLET_TRANSACTION_SIGNATURE_MAX_LIFETIME_SECS: i64 = 300;
 const APPLET_TRANSACTION_SIGNATURE_MAX_CLOCK_SKEW_SECS: i64 = 30;
 
@@ -236,8 +236,8 @@ fn render_unauthorized(res: &mut Response, code: &str, message: impl Into<String
 
 #[derive(Debug, Clone)]
 struct VerifiedAppletHttpSignature {
-    source_service_did: String,
-    destination_service_did: String,
+    source_service_id: String,
+    destination_service_id: String,
     key_id: String,
     source_key_state_digest: String,
     content_digest: Option<String>,
@@ -342,12 +342,12 @@ async fn applet_ping(req: &mut Request, res: &mut Response) {
     let body = AppletPingOutcome {
         ok: true,
         applet_id: state.config.applet_id.clone(),
-        // `service_did` is strictly validated (Did::new) in
+        // `service_id` is strictly validated (Did::new) in
         // `ArkretAppletConfig::validate()` before the channel is registered,
         // so a registered applet always has a parseable DID here. No silent
         // `applet.unknown` fallback that would mask a config error.
-        service_did: Did::new(state.config.service_did.clone())
-            .expect("service_did validated at channel registration"),
+        service_id: Did::new(state.config.service_id.clone())
+            .expect("service_id validated at channel registration"),
         protocol_version: "1.0".to_owned(),
     };
     res.status_code(StatusCode::OK);
@@ -362,9 +362,9 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
     let cfg = &state.config;
     let body = AppletDescription {
         applet_id: cfg.applet_id.clone(),
-        // See `applet_ping`: service_did is validated before registration.
-        service_did: Did::new(cfg.service_did.clone())
-            .expect("service_did validated at channel registration"),
+        // See `applet_ping`: service_id is validated before registration.
+        service_id: Did::new(cfg.service_id.clone())
+            .expect("service_id validated at channel registration"),
         protocols: cfg.protocols.clone(),
         namespaces: json!({
             "actors": cfg.namespaces.actors,
@@ -384,7 +384,7 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
         }),
         auth: json!({
             "type": "bearer",
-            "controller_did": cfg.controller_did,
+            "controller_id": cfg.controller_id,
             "bot_actor_id": cfg.bot_actor_id,
             "bot_device_id": cfg.device_id.as_deref(),
             "http_message_signature": {
@@ -466,14 +466,14 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         }
     };
 
-    let source_service_did = body.source_service_did.as_str().to_owned();
+    let source_service_id = body.source_service_id.as_str().to_owned();
     if let Some(expected_source) = state.config.arkret_server_did.as_deref()
-        && source_service_did != expected_source
+        && source_service_id != expected_source
     {
         render_unauthorized(
             res,
-            "invalid_source_service_did",
-            "Arkret applet transaction source_service_did does not match the trusted server DID",
+            "invalid_source_service_id",
+            "Arkret applet transaction source_service_id does not match the trusted server DID",
         );
         return;
     }
@@ -502,18 +502,18 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         }
     };
     if let Some(signature) = verified_http_signature.as_ref()
-        && signature.source_service_did != source_service_did
+        && signature.source_service_id != source_service_id
     {
         render_unauthorized(
             res,
             "invalid_signature",
-            "Arkret applet transaction source_service_did does not match signed source service DID",
+            "Arkret applet transaction source_service_id does not match signed source service DID",
         );
         return;
     }
 
     // Canonical body hash for idempotency body-equality check (spec §7.3).
-    // Same `(source_service_did, key)` with matching body → return cached
+    // Same `(source_service_id, key)` with matching body → return cached
     // accepted; differing body → 409 duplicate_conflict.
     let body_hash = match canonical::canonical_sha256(&body) {
         Ok(digest) => match Hash::new(digest) {
@@ -544,16 +544,16 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     let idempotency_key = idempotency_key.trim().to_owned();
     let identity = IdempotencyIdentity::applet_transaction(
         IdempotencyDirection::NodeToApplet,
-        source_service_did.clone(),
-        state.config.service_did.clone(),
+        source_service_id.clone(),
+        state.config.service_id.clone(),
         idempotency_key.clone(),
     );
     let source_signature_evidence = if let Some(signature) = verified_http_signature.as_ref() {
         json!({
             "operation_id": arkret::APPLET_TRANSACTION_OPERATION_ID,
             "direction": IdempotencyDirection::NodeToApplet.as_str(),
-            "source_service_did": &source_service_did,
-            "destination_service_did": &signature.destination_service_did,
+            "source_service_id": &source_service_id,
+            "destination_service_id": &signature.destination_service_id,
             "idempotency_key": &idempotency_key,
             "auth_scheme": "http_message_signature+bearer",
             "canonical_body_digest": body_hash.clone(),
@@ -569,8 +569,8 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         json!({
             "operation_id": arkret::APPLET_TRANSACTION_OPERATION_ID,
             "direction": IdempotencyDirection::NodeToApplet.as_str(),
-            "source_service_did": &source_service_did,
-            "destination_service_did": state.config.service_did.clone(),
+            "source_service_id": &source_service_id,
+            "destination_service_id": state.config.service_id.clone(),
             "idempotency_key": &idempotency_key,
             "auth_scheme": "bearer",
             "content_digest": body_hash.clone(),
@@ -789,19 +789,19 @@ fn verify_applet_transaction_http_signature(
         );
     }
 
-    let source = header_value_from(headers, SOURCE_SERVICE_DID_HEADER)
-        .ok_or_else(|| anyhow::anyhow!("{SOURCE_SERVICE_DID_HEADER} header is required"))?;
+    let source = header_value_from(headers, SOURCE_SERVICE_ID_HEADER)
+        .ok_or_else(|| anyhow::anyhow!("{SOURCE_SERVICE_ID_HEADER} header is required"))?;
     if source != expected_source {
         anyhow::bail!(
             "HTTP signature source service DID '{source}' does not match trusted server DID '{expected_source}'"
         );
     }
-    let destination = header_value_from(headers, DESTINATION_SERVICE_DID_HEADER)
-        .ok_or_else(|| anyhow::anyhow!("{DESTINATION_SERVICE_DID_HEADER} header is required"))?;
-    if destination != state.config.service_did {
+    let destination = header_value_from(headers, DESTINATION_SERVICE_ID_HEADER)
+        .ok_or_else(|| anyhow::anyhow!("{DESTINATION_SERVICE_ID_HEADER} header is required"))?;
+    if destination != state.config.service_id {
         anyhow::bail!(
             "HTTP signature destination service DID '{destination}' does not match applet service DID '{}'",
-            state.config.service_did
+            state.config.service_id
         );
     }
 
@@ -820,8 +820,8 @@ fn verify_applet_transaction_http_signature(
         Component::Method,
         Component::TargetUri,
         Component::Authority,
-        Component::Header(SOURCE_SERVICE_DID_HEADER.to_owned()),
-        Component::Header(DESTINATION_SERVICE_DID_HEADER.to_owned()),
+        Component::Header(SOURCE_SERVICE_ID_HEADER.to_owned()),
+        Component::Header(DESTINATION_SERVICE_ID_HEADER.to_owned()),
         Component::Header("content-digest".to_owned()),
         Component::Header("idempotency-key".to_owned()),
     ];
@@ -855,8 +855,8 @@ fn verify_applet_transaction_http_signature(
         .collect();
     let canonical_message_digest = canonical::canonical_digest(&verified.canonical_message);
     Ok(Some(VerifiedAppletHttpSignature {
-        source_service_did: source,
-        destination_service_did: destination,
+        source_service_id: source,
+        destination_service_id: destination,
         key_id: verified.signature_input.key_id,
         source_key_state_digest,
         content_digest,
@@ -1331,7 +1331,7 @@ async fn applet_third_party_users(req: &mut Request, res: &mut Response) {
     )
     .map(|external_id| {
         savfox_channels::arkret::mint_ghost_did(
-            &state.config.service_did,
+            &state.config.service_id,
             &state.config.ghost_did_prefix,
             external_id,
         )
@@ -1833,8 +1833,8 @@ pub(crate) async fn start_arkret_applet_channel(
         seq,
     };
     info!(
-        "arkret: applet channel '{}' registered (applet_id={}, service_did={})",
-        state.config.id, state.config.applet_id, state.config.service_did
+        "arkret: applet channel '{}' registered (applet_id={}, service_id={})",
+        state.config.id, state.config.applet_id, state.config.service_id
     );
     register_channel(state)?;
     Ok(())
@@ -1847,8 +1847,8 @@ pub(crate) async fn log_arkret_applet_configs(savfox_home: &std::path::PathBuf) 
         Ok(configs) => {
             for cfg in configs {
                 info!(
-                    "arkret applet config '{}': applet_id={}, service_did={}, protocols={:?}",
-                    cfg.id, cfg.applet_id, cfg.service_did, cfg.protocols,
+                    "arkret applet config '{}': applet_id={}, service_id={}, protocols={:?}",
+                    cfg.id, cfg.applet_id, cfg.service_id, cfg.protocols,
                 );
             }
         }
@@ -1880,8 +1880,8 @@ mod tests {
             config: json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceDid": "did:web:bridge.example",
-                "controllerDid": "did:webvh:example.com:admin",
+                "serviceId": "did:web:bridge.example",
+                "controllerId": "did:webvh:example.com:admin",
                 "baseUrl": "https://savfox.example/applet-test",
                 "botActorId": "did:web:bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",
@@ -1934,11 +1934,11 @@ mod tests {
         let mut headers = vec![
             ("host".to_owned(), "savfox.example".to_owned()),
             (
-                SOURCE_SERVICE_DID_HEADER.to_owned(),
+                SOURCE_SERVICE_ID_HEADER.to_owned(),
                 "did:webvh:arkret.example.org".to_owned(),
             ),
             (
-                DESTINATION_SERVICE_DID_HEADER.to_owned(),
+                DESTINATION_SERVICE_ID_HEADER.to_owned(),
                 "did:web:bridge.example".to_owned(),
             ),
             (
@@ -1953,8 +1953,8 @@ mod tests {
             Component::Method,
             Component::TargetUri,
             Component::Authority,
-            Component::Header(SOURCE_SERVICE_DID_HEADER.to_owned()),
-            Component::Header(DESTINATION_SERVICE_DID_HEADER.to_owned()),
+            Component::Header(SOURCE_SERVICE_ID_HEADER.to_owned()),
+            Component::Header(DESTINATION_SERVICE_ID_HEADER.to_owned()),
             Component::Header("content-digest".to_owned()),
             Component::Header("idempotency-key".to_owned()),
         ]));
@@ -2048,7 +2048,7 @@ mod tests {
     fn verifies_trusted_http_message_signature() {
         let body = serde_json::to_vec(&json!({
             "transaction_id": "txn-1",
-            "source_service_did": "did:webvh:arkret.example.org",
+            "source_service_id": "did:webvh:arkret.example.org",
             "events": []
         }))
         .expect("body should serialize");
@@ -2065,8 +2065,8 @@ mod tests {
         )
         .expect("signature should verify")
         .expect("signature should be required");
-        assert_eq!(verified.source_service_did, "did:webvh:arkret.example.org");
-        assert_eq!(verified.destination_service_did, "did:web:bridge.example");
+        assert_eq!(verified.source_service_id, "did:webvh:arkret.example.org");
+        assert_eq!(verified.destination_service_id, "did:web:bridge.example");
         assert_eq!(verified.key_id, "did:webvh:arkret.example.org#key-1");
         assert!(verified.content_digest.is_some());
     }
@@ -2075,7 +2075,7 @@ mod tests {
     fn rejects_tampered_http_message_signature_body() {
         let body = serde_json::to_vec(&json!({
             "transaction_id": "txn-1",
-            "source_service_did": "did:webvh:arkret.example.org",
+            "source_service_id": "did:webvh:arkret.example.org",
             "events": []
         }))
         .expect("body should serialize");
@@ -2083,7 +2083,7 @@ mod tests {
         let state = state_with_trusted_http_signature_key(public_key);
         let tampered = serde_json::to_vec(&json!({
             "transaction_id": "txn-1",
-            "source_service_did": "did:webvh:arkret.example.org",
+            "source_service_id": "did:webvh:arkret.example.org",
             "events": [{"kind":"ak.message.create"}]
         }))
         .expect("tampered body should serialize");

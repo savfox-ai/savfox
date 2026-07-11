@@ -7,7 +7,7 @@
 //! requires:
 //!
 //! * Ghost DID MUST be distinguishable from native human DIDs at the protocol layer. We use the
-//!   colon path-segment form `{service_did}:{prefix}{slug}` (e.g.
+//!   colon path-segment form `{service_id}:{prefix}{slug}` (e.g.
 //!   `did:web:slack-bridge.example:ghost:u123`) so the controlling Applet's DID namespace is
 //!   visible. Per spec applet-integration.md §3.4 a `#fragment` MUST NOT appear in an `actor_id` —
 //!   fragments are reserved for DID-URL verification methods (`…:ghost:u123#key-1`).
@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 /// Mint a stable ghost DID for an external user.
 ///
-/// Format: `{service_did}:{ghost_did_prefix}{slug(external_user_id)}` —
+/// Format: `{service_id}:{ghost_did_prefix}{slug(external_user_id)}` —
 /// colon path-segment form (e.g. `did:web:slack-bridge.example:ghost:u123`),
 /// NOT a `#fragment` (which the spec reserves for verification methods and
 /// the identifiers crate rejects in an `actor_id`). The slug step lowercases
@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 /// the prefix.
 #[must_use]
 pub fn mint_ghost_did(
-    applet_service_did: &str,
+    applet_service_id: &str,
     ghost_did_prefix: &str,
     external_user_id: &str,
 ) -> String {
@@ -43,7 +43,7 @@ pub fn mint_ghost_did(
     } else {
         slug
     };
-    format!("{applet_service_did}:{ghost_did_prefix}{suffix}")
+    format!("{applet_service_id}:{ghost_did_prefix}{suffix}")
 }
 
 /// Build a `ak.profile.create` Event Envelope for a Ghost Actor.
@@ -64,7 +64,7 @@ pub fn build_ghost_profile_event(
     ghost_did: &str,
     display_name: &str,
     applet_id: &str,
-    controller_did: &str,
+    controller_id: &str,
     external_ref: Value,
     actor_seq: u64,
 ) -> anyhow::Result<Event> {
@@ -72,8 +72,8 @@ pub fn build_ghost_profile_event(
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
     let ghost = Did::new(ghost_did.to_owned())
         .with_context(|| format!("invalid ghost actor DID: {ghost_did}"))?;
-    let controller = Did::new(controller_did.to_owned())
-        .with_context(|| format!("invalid controller DID: {controller_did}"))?;
+    let controller = Did::new(controller_id.to_owned())
+        .with_context(|| format!("invalid controller DID: {controller_id}"))?;
     let applet = AppletId::new(applet_id.to_owned())
         .with_context(|| format!("invalid applet_id: {applet_id}"))?;
     let hlc = current_hlc();
@@ -103,15 +103,15 @@ pub fn build_ghost_profile(
     ghost_did: &str,
     display_name: &str,
     applet_id: &str,
-    service_did: &str,
-    controller_did: &str,
+    service_id: &str,
+    controller_id: &str,
     external_ref: Value,
 ) -> Value {
     json!({
         "actor_id": ghost_did,
         "actor_kind": "integration",
         "display_name": display_name,
-        "accountable_principal_ids": [controller_did, service_did],
+        "accountable_principal_ids": [controller_id, service_id],
         "profile_fields": {
             "managed_by_applet": applet_id,
             "external_ref": external_ref,

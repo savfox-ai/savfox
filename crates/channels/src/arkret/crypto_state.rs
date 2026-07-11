@@ -10,14 +10,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use arkret::crypto_protocol::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
+use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity};
 use arkret::{
-    CryptoStore,
-    DeviceId, Did, EncryptedPayload, EncryptedPayloadScheme, EventId, FeatureSafetyReport,
-    MemoryCryptoStore, MlsGroupStateRecord, MlsKeyPackageRecord, MlsKeyPackageState,
-    MlsRecoveryAction, MlsWelcomeEnvelope, MlsWelcomePayload, RealmId,
+    CryptoStore, DeviceId, Did, EncryptedPayload, EncryptedPayloadScheme, EventId,
+    FeatureSafetyReport, MemoryCryptoStore, MlsGroupStateRecord, MlsKeyPackageRecord,
+    MlsKeyPackageState, MlsRecoveryAction, MlsWelcomeEnvelope, MlsWelcomePayload, RealmId,
     current_feature_safety_report,
 };
-use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1122,10 +1121,7 @@ fn safe_file_stem(scope_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use arkret::crypto_protocol::UnableToDecryptReason;
-    use arkret::{
-        EncryptedPayloadScheme, Hash,
-        KeyOperationSignature, KeyPackageClaimRecord,
-    };
+    use arkret::{EncryptedPayloadScheme, Hash, KeyOperationSignature, KeyPackageClaimRecord};
     use serde_json::json;
 
     use super::*;

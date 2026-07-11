@@ -78,7 +78,7 @@ pub struct ArkretAccountConfig {
 pub struct ArkretChannelConfig {
     pub id: String,
     pub base_url: String,
-    pub service_did: Option<String>,
+    pub service_id: Option<String>,
     pub accounts: Vec<ArkretAccountConfig>,
 }
 
@@ -98,11 +98,8 @@ impl ArkretChannelConfig {
                 .as_ref()
                 .map(|value| value.arkret_base_url.clone())
         })?;
-        let service_did = first_non_empty(raw, &["serviceDid"]).or_else(|| {
-            bootstrap
-                .as_ref()
-                .map(|value| value.service_did.to_string())
-        });
+        let service_id = first_non_empty(raw, &["serviceId"])
+            .or_else(|| bootstrap.as_ref().map(|value| value.service_id.to_string()));
 
         let accounts = match raw.get("accounts") {
             Some(value) => parse_accounts(value, raw, &config.id, bootstrap.as_ref()),
@@ -112,7 +109,7 @@ impl ArkretChannelConfig {
         Some(Self {
             id: config.id.clone(),
             base_url,
-            service_did,
+            service_id,
             accounts,
         })
     }
@@ -122,12 +119,12 @@ impl ArkretChannelConfig {
         if self.base_url.trim().is_empty() {
             anyhow::bail!("Arkret channel '{}' missing base_url", self.id);
         }
-        if let Some(service_did) = self.service_did.as_deref() {
-            Did::new(service_did.to_owned()).map_err(|err| {
+        if let Some(service_id) = self.service_id.as_deref() {
+            Did::new(service_id.to_owned()).map_err(|err| {
                 anyhow::anyhow!(
-                    "Arkret channel '{}' service_did must be a valid DID URI, got '{}': {err}",
+                    "Arkret channel '{}' service_id must be a valid DID URI, got '{}': {err}",
                     self.id,
-                    service_did
+                    service_id
                 )
             })?;
         }
@@ -296,7 +293,7 @@ fn parse_account_entry(
     bootstrap: Option<&AgentPairingBootstrap>,
 ) -> Option<ArkretAccountConfig> {
     let principal_id = first_non_empty(map, &["principalId"])
-        .or_else(|| bootstrap.map(|value| value.agent_principal_id.to_string()))?;
+        .or_else(|| bootstrap.map(|value| value.agent_id.to_string()))?;
     let access_token = first_non_empty(map, &["accessToken"]).unwrap_or_default();
     let key_ref = map.get("keyRef").and_then(ArkretKeyRef::from_value);
     let mode = ArkretAccountMode::Agent;
@@ -467,16 +464,16 @@ pub fn build_arkret_runtime_key_request_json(
     let audience = account
         .arkret_server_did
         .as_deref()
-        .or(Some(bootstrap.service_did.as_str()))
+        .or(Some(bootstrap.service_id.as_str()))
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Arkret agent '{}' missing serviceDid/arkretServerDid for runtime key request audience",
+                "Arkret agent '{}' missing serviceId/arkretServerDid for runtime key request audience",
                 account.id
             )
         })?;
-    let agent_principal_id = Did::new(account.principal_id.clone())?;
+    let agent_id = Did::new(account.principal_id.clone())?;
     let signing_key = load_ed25519_signing_key(key_ref)?;
     let public_key = serde_json::json!({
         "kty": "OKP",
@@ -486,7 +483,7 @@ pub fn build_arkret_runtime_key_request_json(
     });
     let request_canonical_digest = arkret::agent_key_pair_proof_request_binding_digest(
         &bootstrap.pairing_request_id,
-        &agent_principal_id,
+        &agent_id,
         verification_method,
         &public_key,
         None,
@@ -509,7 +506,7 @@ pub fn build_arkret_runtime_key_request_json(
 
     Ok(serde_json::json!({
         "pairing_request_id": bootstrap.pairing_request_id,
-        "agent_principal_id": account.principal_id,
+        "agent_id": account.principal_id,
         "verification_method": verification_method,
         "public_key": public_key,
         "proof_of_possession": {
@@ -566,7 +563,7 @@ pub fn build_arkret_runtime_key_status_request_json(
         serde_json::json!({
             "pairing_request_id": bootstrap.pairing_request_id,
             "pairing_code": bootstrap.pairing_code,
-            "agent_principal_id": account.principal_id,
+            "agent_id": account.principal_id,
         }),
         local_public_key_digest.as_str().to_owned(),
     ))
@@ -599,15 +596,15 @@ mod tests {
 
     fn sdk_inkson_bootstrap(
         base_url: &str,
-        service_did: &str,
-        agent_principal_id: &str,
+        service_id: &str,
+        agent_id: &str,
         pairing_request_id: &str,
         pairing_code: &str,
     ) -> Value {
         json!({
             "arkret_base_url": base_url,
-            "service_did": service_did,
-            "agent_principal_id": agent_principal_id,
+            "service_id": service_id,
+            "agent_id": agent_id,
             "pairing_request_id": pairing_request_id,
             "pairing_code": pairing_code,
             "pairing_expires_at": "2026-07-06T12:00:00Z"
@@ -618,7 +615,7 @@ mod tests {
     fn parses_multi_account_array() {
         let cfg = make_channel_config(json!({
             "baseUrl": "https://arkret.example.org",
-            "serviceDid": "did:webvh:arkret.example.org",
+            "serviceId": "did:webvh:arkret.example.org",
             "accounts": [
                 {
                     "id": "support",
@@ -655,7 +652,7 @@ mod tests {
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
         assert_eq!(parsed.base_url, "https://arkret.example.org");
         assert_eq!(
-            parsed.service_did.as_deref(),
+            parsed.service_id.as_deref(),
             Some("did:webvh:arkret.example.org")
         );
         assert_eq!(parsed.accounts.len(), 2);
@@ -696,8 +693,8 @@ mod tests {
             "mode": "agent",
             "inksonBootstrap": {
                 "arkret_base_url": "https://arkret.example.org",
-                "service_did": "did:webvh:arkret.example.org",
-                "agent_principal_id": "did:webvh:example.org:agents:support",
+                "service_id": "did:webvh:arkret.example.org",
+                "agent_id": "did:webvh:example.org:agents:support",
                 "pairing_request_id": "pair-123",
                 "pairing_code": "123456",
                 "pairing_expires_at": "2026-07-06T12:00:00Z"
@@ -712,7 +709,7 @@ mod tests {
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
         assert_eq!(parsed.base_url, "https://arkret.example.org");
         assert_eq!(
-            parsed.service_did.as_deref(),
+            parsed.service_id.as_deref(),
             Some("did:webvh:arkret.example.org")
         );
         assert_eq!(parsed.accounts.len(), 1);
@@ -1023,7 +1020,7 @@ mod tests {
 
         assert_eq!(request["pairing_request_id"], json!("pair-123"));
         assert_eq!(
-            request["agent_principal_id"],
+            request["agent_id"],
             json!("did:webvh:example.org:agents:support")
         );
         assert_eq!(
@@ -1089,7 +1086,7 @@ mod tests {
         assert_eq!(request["pairing_request_id"], json!("pair-123"));
         assert_eq!(request["pairing_code"], json!("123456"));
         assert_eq!(
-            request["agent_principal_id"],
+            request["agent_id"],
             json!("did:webvh:example.org:agents:support")
         );
         // The status poll body must stay minimal: no key material, no PoP.

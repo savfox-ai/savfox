@@ -37,7 +37,7 @@ const DEFAULT_VERIFICATION_METHOD: &str = "#key-1";
 ///
 /// * `cfg.arkret_server_url`              → `arkret.server_url`
 /// * `cfg.arkret_server_did`              → `arkret.trusted_server_did`
-/// * `cfg.service_did`                    → `arkret.service_did`
+/// * `cfg.service_id`                    → `arkret.service_id`
 /// * `cfg.applet_id`                      → `arkret.applet_id`
 /// * `cfg.arkret_bearer_token` (or "")    → `arkret.access_token`
 /// * `cfg.verification_method` (or "#key-1") → `arkret.verification_method_id`
@@ -71,7 +71,7 @@ pub fn applet_runtime_config(cfg: &ArkretAppletConfig) -> Config {
     let trusted_server_did = cfg
         .arkret_server_did
         .clone()
-        .unwrap_or_else(|| cfg.service_did.clone());
+        .unwrap_or_else(|| cfg.service_id.clone());
     let doc = json!({
         "bridge": {
             "bridge_id": cfg.id,
@@ -80,7 +80,7 @@ pub fn applet_runtime_config(cfg: &ArkretAppletConfig) -> Config {
         },
         "arkret": {
             "server_url": cfg.arkret_server_url,
-            "service_did": cfg.service_did,
+            "service_id": cfg.service_id,
             "applet_id": cfg.applet_id,
             "access_token": cfg.arkret_bearer_token.clone().unwrap_or_default(),
             "trusted_server_did": trusted_server_did,
@@ -103,7 +103,7 @@ pub fn applet_runtime_config(cfg: &ArkretAppletConfig) -> Config {
 #[derive(Debug)]
 pub struct SavfoxAppletResolver {
     namespaces: AppletNamespaces,
-    service_did: String,
+    service_id: String,
     ghost_did_prefix: String,
 }
 
@@ -113,7 +113,7 @@ impl SavfoxAppletResolver {
     pub fn new(cfg: &ArkretAppletConfig) -> Self {
         Self {
             namespaces: cfg.namespaces.clone(),
-            service_did: cfg.service_did.clone(),
+            service_id: cfg.service_id.clone(),
             ghost_did_prefix: cfg.ghost_did_prefix.clone(),
         }
     }
@@ -128,7 +128,7 @@ impl AppletResolver for SavfoxAppletResolver {
             actor_id: actor_id.to_owned(),
             display_name: None,
             external_ref: json!({
-                "managed_by": self.service_did,
+                "managed_by": self.service_id,
                 "ghost_did_prefix": self.ghost_did_prefix,
             }),
         })
@@ -142,7 +142,7 @@ impl AppletResolver for SavfoxAppletResolver {
             realm_id: realm_id_or_alias.to_owned(),
             title: None,
             external_ref: json!({
-                "managed_by": self.service_did,
+                "managed_by": self.service_id,
             }),
         })
     }
@@ -182,8 +182,8 @@ mod tests {
         ArkretAppletConfig {
             id: "arkret-applet-test".to_owned(),
             applet_id: "ak:applet:21532600-0000-7000-8000-000000000000".to_owned(),
-            service_did: "did:web:slack-bridge.example".to_owned(),
-            controller_did: "did:webvh:example.com:admin".to_owned(),
+            service_id: "did:web:slack-bridge.example".to_owned(),
+            controller_id: "did:webvh:example.com:admin".to_owned(),
             base_url: "https://savfox.example/appservices/arkret/arkret-applet-test".to_owned(),
             bot_actor_id: "did:web:slack-bridge.example:bot".to_owned(),
             device_id: None,
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(rc.bridge.bridge_id, "arkret-applet-test");
         assert_eq!(rc.arkret.server_url, "https://arkret.example.org");
         assert_eq!(rc.arkret.trusted_server_did, "did:webvh:arkret.example.org");
-        assert_eq!(rc.arkret.service_did, "did:web:slack-bridge.example");
+        assert_eq!(rc.arkret.service_id, "did:web:slack-bridge.example");
         assert_eq!(
             rc.arkret.applet_id,
             "ak:applet:21532600-0000-7000-8000-000000000000"

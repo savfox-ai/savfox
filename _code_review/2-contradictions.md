@@ -6,7 +6,7 @@
 
 ---
 
-## 1. 【高】Applet DID-proof 登录把"自己的 service_did"当作 audience，与 account 模式、与 session 文档相互矛盾
+## 1. 【高】Applet DID-proof 登录把"自己的 service_id"当作 audience，与 account 模式、与 session 文档相互矛盾
 
 **位置：**
 - `crates/gateway-server/src/channels/contrix_applet.rs:958`（applet 模式）
@@ -29,20 +29,20 @@ account 模式严格遵守该语义——audience 取"Contrix 服务器 DID"：
 let audience = account
     .contrix_server_did
     .clone()
-    .or_else(|| channel.service_did.clone())   // 服务器的 service_did
-    .ok_or_else(|| { ... "no contrix_server_did or channel.service_did for login audience" })?;
+    .or_else(|| channel.service_id.clone())   // 服务器的 service_id
+    .ok_or_else(|| { ... "no contrix_server_did or channel.service_id for login audience" })?;
 ```
 
-但 applet 模式却把 **applet 自己的 service_did** 当作 audience：
+但 applet 模式却把 **applet 自己的 service_id** 当作 audience：
 
 ```rust
 // contrix_applet.rs:958
-let audience = cfg.service_did.clone();   // 这是 applet 自身身份 DID，不是服务器 DID
+let audience = cfg.service_id.clone();   // 这是 applet 自身身份 DID，不是服务器 DID
 ```
 
-`cfg.service_did` 在 `config.rs:25` 的文档里写明是"Applet service DID (e.g. `did:web:slack-bridge.example`)"，即 applet 自己的身份，而非它要登录的 Contrix 服务器。把自己的 DID 当作登录受众与文档定义和 account 模式直接冲突，真实服务器很可能拒绝该 DID-proof（aud 不匹配）。
+`cfg.service_id` 在 `config.rs:25` 的文档里写明是"Applet service DID (e.g. `did:web:slack-bridge.example`)"，即 applet 自己的身份，而非它要登录的 Contrix 服务器。把自己的 DID 当作登录受众与文档定义和 account 模式直接冲突，真实服务器很可能拒绝该 DID-proof（aud 不匹配）。
 
-**哪边是错的：** applet 模式（`contrix_applet.rs:958`）。应使用 Contrix 服务器 DID（类似 account 模式从 `contrix_server_url` 派生服务器 DID，或新增一个独立配置字段），而不是 `cfg.service_did`。
+**哪边是错的：** applet 模式（`contrix_applet.rs:958`）。应使用 Contrix 服务器 DID（类似 account 模式从 `contrix_server_url` 派生服务器 DID，或新增一个独立配置字段），而不是 `cfg.service_id`。
 
 **严重程度：高**（key_ref 配置下 applet 出站登录会失败/语义错误）。
 
@@ -186,7 +186,7 @@ let grant = load_and_verify_grant(
 "accountability": {
     "mode": "applet_managed",
     "responsible_actor_id": controller_did,
-    "operator_actor_ids": [service_did],   // ← 有
+    "operator_actor_ids": [service_id],   // ← 有
 },
 ```
 
@@ -337,7 +337,7 @@ pub(super) fn builtin_model_presets(_auth_mode: Option<AuthMode>) -> Vec<ModelPr
 
 复核员逐条 Read 矛盾双方源码后的结论（以代码证据为准）。
 
-- **#1 applet 登录 audience —— 保留（高）**。`session.rs:37` 文档明确 audience = "Contrix server's service DID"；account 模式（`contrix.rs:376-386`）正确取 `contrix_server_did` 并 fallback `channel.service_did`，而 `channel.service_did` 经 `config.rs:24-26`/测试值（`did:webvh:contrix.example.org`）确认确为**服务器** DID。applet 模式（`contrix_applet.rs:958`）却用 `cfg.service_did`，经 `applet/config.rs:25-26` 确认是 **applet 自身**身份 DID（`did:web:slack-bridge.example`），且 applet config 无 `contrix_server_did` 字段。矛盾成立。
+- **#1 applet 登录 audience —— 保留（高）**。`session.rs:37` 文档明确 audience = "Contrix server's service DID"；account 模式（`contrix.rs:376-386`）正确取 `contrix_server_did` 并 fallback `channel.service_id`，而 `channel.service_id` 经 `config.rs:24-26`/测试值（`did:webvh:contrix.example.org`）确认确为**服务器** DID。applet 模式（`contrix_applet.rs:958`）却用 `cfg.service_id`，经 `applet/config.rs:25-26` 确认是 **applet 自身**身份 DID（`did:web:slack-bridge.example`），且 applet config 无 `contrix_server_did` 字段。矛盾成立。
 
 - **#2 ReasoningEffort 默认值 —— 保留原样（提示项）**。报告自身已声明"非确凿矛盾，仅提示"，未列入缺陷清单，无需改动。
 
