@@ -9884,6 +9884,7 @@ dependencies = [
  "parking_lot",
  "reqwest 0.13.4",
  "savfox-core",
+ "savfox-keyring-store",
  "serde",
  "serde_json",
  "serenity",

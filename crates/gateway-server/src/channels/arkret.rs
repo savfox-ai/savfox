@@ -21,14 +21,18 @@ use arkret::{
     KeyPackagesConsumeRequestBody, KeyPackagesUploadRequestBody, MlsKeyPackageRecord, RealmId,
     StrandId,
 };
-use chrono::{DateTime, Utc};
-use garth::{ClientEvent, ClientProjector, SubscriptionStopReason};
+use chrono::Utc;
+use garth::{
+    ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, RunOptions, RunStopReason,
+    SyncLoopControl, TransportProvider,
+};
 use savfox_channels::arkret::{
-    ArkretAccountConfig, ArkretChannelConfig, ArkretDecryptDetailedOutcome, ArkretEncryptOutcome,
-    ArkretHttpClient, ArkretInboundEvent, ArkretInboundParseResult, ArkretInboundSkipReason,
-    ArkretInboundSkippedEvent, ArkretMlsWelcomeConsumeBinding, FileArkretAccountStore,
-    FileArkretCryptoStore, MessageCreateRequest, account_allows_event_read,
-    build_message_create_event, parse_delta_frame_for_account,
+    ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
+    ArkretDecryptDetailedOutcome, ArkretEncryptOutcome, ArkretHttpClient, ArkretInboundEvent,
+    ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent,
+    ArkretMlsWelcomeConsumeBinding, FileArkretAccountStore, FileArkretCryptoStore,
+    MessageCreateRequest, account_allows_event_read, build_message_create_event,
+    device_messages_scope, open_account_store, parse_delta_frame_for_account,
     parse_notification_delta_for_account, resolve_arkret_outbound_account,
     sign_key_operation_value,
 };
@@ -55,9 +59,6 @@ const KEYPACKAGES_UPLOAD_SCOPE: &str = "ak.self.keys.keypackages.upload.create";
 const KEYPACKAGES_CONSUME_SCOPE: &str = "ak.self.keys.keypackages.command.consume";
 const DEVICE_MESSAGES_LIST_SCOPE: &str = "ak.self.device_messages.query.list";
 const DEVICE_MESSAGES_ACK_SCOPE: &str = "ak.self.device_messages.command.ack";
-
-/// Refresh an agent session grant this many seconds before it expires.
-const SESSION_REFRESH_SKEW_SECS: i64 = 60;
 
 fn runtime_state() -> &'static StdMutex<ArkretRuntimeState> {
     static STATE: OnceLock<StdMutex<ArkretRuntimeState>> = OnceLock::new();
@@ -186,19 +187,21 @@ async fn run_account_listener(
         return;
     }
 
-    let mut backoff = Duration::from_secs(1);
-    let account_store = match FileArkretAccountStore::for_account_with_limit(
+    let account_store = match open_account_store(
         &savfox_home,
         &channel.id,
         &account.id,
         ACCOUNT_EVENT_DEDUPE_MAX,
     ) {
         Ok(store) => {
-            if let Err(err) = store.ensure_created() {
+            if let Err(err) = store.ensure_created().await {
+                let path = store
+                    .path()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|_| "<unavailable>".to_owned());
                 warn!(
-                    "arkret: account '{}' durable subscribe state unavailable at {}: {err}",
-                    account.id,
-                    store.path().display()
+                    "arkret: account '{}' durable subscribe state unavailable at {path}: {err}",
+                    account.id
                 );
                 runtime::record_channel_probe("arkret", "error").await;
                 return;
@@ -226,13 +229,23 @@ async fn run_account_listener(
         );
     }
 
-    let (mut client, mut session_expiry) = match construct_account_client(&channel, &account).await
-    {
-        Ok(pair) => pair,
+    let provider = match construct_account_provider(&channel, &account).await {
+        Ok(provider) => provider,
         Err(err) => {
             warn!(
-                "arkret: account '{}' on channel '{}' failed to construct HTTP client: {err:#}",
+                "arkret: account '{}' on channel '{}' failed to construct session provider: {err:#}",
                 account.id, channel.id
+            );
+            runtime::record_channel_probe("arkret", "error").await;
+            return;
+        }
+    };
+    let client = match provider.provide().await {
+        Ok(client) => ArkretHttpClient::from_inner(client),
+        Err(error) => {
+            warn!(
+                "arkret: account '{}' failed to build authenticated HTTP client: {error}",
+                account.id
             );
             runtime::record_channel_probe("arkret", "error").await;
             return;
@@ -249,169 +262,48 @@ async fn run_account_listener(
     )
     .await;
 
-    loop {
-        runtime::record_channel_probe("arkret", "ok").await;
-
-        // Proactively refresh the agent session grant before it expires so a
-        // long-lived stream does not wait for Unauthorized to recover.
-        if let Some(expiry) = session_expiry
-            && session_grant_needs_refresh(Some(expiry), Utc::now())
-        {
-            info!(
-                "arkret: account '{}' session grant near expiry ({expiry}) — refreshing",
+    runtime::record_channel_probe("arkret", "ok").await;
+    match drive_account_subscription_engine(
+        &provider,
+        &channel,
+        &account,
+        account_store,
+        crypto_store,
+        gateway_channel,
+        session_store,
+    )
+    .await
+    {
+        AccountEngineOutcome::Unauthorized { reason } => warn!(
+            account_id = %account.id,
+            reason = reason.as_deref().unwrap_or("unspecified"),
+            "arkret: shared session provider could not recover authorization"
+        ),
+        AccountEngineOutcome::Cancelled => {
+            debug!(
+                "arkret: account '{}' subscription engine stopped",
                 account.id
             );
-            match construct_account_client(&channel, &account).await {
-                Ok((fresh, fresh_expiry)) => {
-                    client = fresh;
-                    session_expiry = fresh_expiry;
-                    runtime::record_channel_probe("arkret", "ok").await;
-                }
-                Err(err) => {
-                    warn!(
-                        "arkret: account '{}' proactive refresh failed: {err:#}; stopping listener",
-                        account.id
-                    );
-                    runtime::record_channel_probe("arkret", "error").await;
-                    return;
-                }
-            }
         }
-
-        match drive_account_subscription_engine(
-            &client,
-            session_expiry,
-            &channel,
-            &account,
-            account_store.clone(),
-            crypto_store.clone(),
-            Arc::clone(&gateway_channel),
-            Arc::clone(&session_store),
-        )
-        .await
-        {
-            AccountEngineOutcome::RefreshSession => {
-                info!(
-                    "arkret: account '{}' session grant near expiry — refreshing",
-                    account.id
-                );
-                match construct_account_client(&channel, &account).await {
-                    Ok((fresh, fresh_expiry)) => {
-                        client = fresh;
-                        session_expiry = fresh_expiry;
-                        backoff = Duration::from_secs(1);
-                        runtime::record_channel_probe("arkret", "ok").await;
-                    }
-                    Err(err) => {
-                        warn!(
-                            "arkret: account '{}' proactive refresh failed: {err:#}; stopping listener",
-                            account.id
-                        );
-                        runtime::record_channel_probe("arkret", "error").await;
-                        return;
-                    }
-                }
-            }
-            AccountEngineOutcome::Unauthorized { reason } => {
-                // The agent session grant expired or was revoked. Back off and
-                // try a fresh agent_key_proof session exchange; the shared
-                // subscription engine owns cursor recovery semantics.
-                warn!(
-                    "arkret: account '{}' became unauthorized mid-stream{} — refreshing agent session",
-                    account.id,
-                    reason
-                        .as_deref()
-                        .map(|reason| format!(" ({reason})"))
-                        .unwrap_or_default()
-                );
-                sleep_with_backoff(&mut backoff).await;
-                match construct_account_client(&channel, &account).await {
-                    Ok((fresh, fresh_expiry)) => {
-                        client = fresh;
-                        session_expiry = fresh_expiry;
-                        backoff = Duration::from_secs(1);
-                        runtime::record_channel_probe("arkret", "ok").await;
-                        info!(
-                            "arkret: account '{}' agent session refresh succeeded",
-                            account.id
-                        );
-                    }
-                    Err(err) => {
-                        warn!(
-                            "arkret: account '{}' agent session refresh failed: {err:#}; stopping listener",
-                            account.id
-                        );
-                        runtime::record_channel_probe("arkret", "error").await;
-                        return;
-                    }
-                }
-            }
-            AccountEngineOutcome::Cancelled => {
-                debug!(
-                    "arkret: account '{}' subscription engine cancelled; reconnecting",
-                    account.id
-                );
-                backoff = Duration::from_secs(1);
-            }
-            AccountEngineOutcome::Retry { error } => {
-                warn!(
-                    "arkret: subscribe engine for '{}/{}' failed: {error:#}",
-                    channel.id, account.id
-                );
-                runtime::record_channel_probe("arkret", "error").await;
-                sleep_with_backoff(&mut backoff).await;
-            }
+        AccountEngineOutcome::Retry { error } => {
+            warn!(
+                "arkret: subscribe engine for '{}/{}' failed: {error:#}",
+                channel.id, account.id
+            );
+            runtime::record_channel_probe("arkret", "error").await;
         }
     }
 }
 
 #[derive(Debug)]
 enum AccountEngineOutcome {
-    RefreshSession,
     Unauthorized { reason: Option<String> },
     Cancelled,
     Retry { error: anyhow::Error },
 }
 
-struct AccountEventProjector {
-    tx: tokio::sync::mpsc::UnboundedSender<ClientEvent>,
-}
-
-impl ClientProjector for AccountEventProjector {
-    fn project(&self, batch: Vec<ClientEvent>) -> impl Future<Output = arkret::Result<()>> + '_ {
-        async move {
-            for event in batch {
-                self.tx.send(event).map_err(|_| {
-                    arkret::Error::Protocol(
-                        "Savfox Arkret account event receiver closed".to_owned(),
-                    )
-                })?;
-            }
-            Ok(())
-        }
-    }
-}
-
-fn session_grant_needs_refresh(session_expiry: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
-    session_expiry
-        .is_some_and(|expiry| now >= expiry - chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS))
-}
-
-fn session_refresh_delay(
-    session_expiry: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-) -> Option<Duration> {
-    let expiry = session_expiry?;
-    let refresh_at = expiry - chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS);
-    if now >= refresh_at {
-        return Some(Duration::ZERO);
-    }
-    (refresh_at - now).to_std().ok()
-}
-
 async fn drive_account_subscription_engine(
-    client: &ArkretHttpClient,
-    session_expiry: Option<DateTime<Utc>>,
+    provider: &ArkretAgentSessionProvider,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: FileArkretAccountStore,
@@ -439,119 +331,63 @@ async fn drive_account_subscription_engine(
         Ok(service_id) => service_id,
         Err(error) => return AccountEngineOutcome::Retry { error },
     };
-    let client_core = client.client_core_with_account_store(account_store.clone());
-    let mut engine = client_core.subscription_engine();
-    if let Some(service_id) = service_id {
-        engine = engine.with_service_id(service_id);
-    }
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let projector = AccountEventProjector { tx };
-    let run = engine.run_account(actor_id, device_id, client.inner(), &projector);
+    let client_core = garth::ArkretClient::new(
+        garth::NativeExecutor,
+        account_store.clone(),
+        account_store.clone(),
+    );
+    let control = SyncLoopControl::new();
+    let run = client_core.run_account_to_inbox(
+        actor_id,
+        device_id,
+        service_id,
+        provider,
+        &control,
+        RunOptions {
+            beat: Duration::from_millis(250),
+            min_backoff: Duration::from_secs(1),
+            max_backoff: Duration::from_secs(60),
+            jitter_ratio: 0.2,
+        },
+    );
     tokio::pin!(run);
+    let mut delivery_poll = tokio::time::interval(Duration::from_millis(50));
+    delivery_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    match session_refresh_delay(session_expiry, Utc::now()) {
-        Some(delay) => {
-            let refresh = tokio::time::sleep(delay);
-            tokio::pin!(refresh);
-            loop {
-                tokio::select! {
-                    result = &mut run => {
-                        drain_pending_account_events(
-                            client,
-                            &mut rx,
-                            channel,
-                            account,
-                            &account_store,
-                            &crypto_store,
-                            &gateway_channel,
-                            &session_store,
-                        )
-                        .await;
-                        return account_engine_outcome_from_result(result);
-                    }
-                    maybe_event = rx.recv() => {
-                        if let Some(event) = maybe_event {
-                            handle_account_client_event(
-                                client,
-                                event,
-                                channel,
-                                account,
-                                &account_store,
-                                &crypto_store,
-                                &gateway_channel,
-                                &session_store,
-                            )
-                            .await;
-                        }
-                    }
-                    _ = &mut refresh => {
-                        // Stop the engine, then wait for it to actually finish
-                        // before draining: only a completed engine future is
-                        // guaranteed to emit no further events into the sink.
-                        engine.cancel();
-                        let _ = (&mut run).await;
-                        drain_pending_account_events(
-                            client,
-                            &mut rx,
-                            channel,
-                            account,
-                            &account_store,
-                            &crypto_store,
-                            &gateway_channel,
-                            &session_store,
-                        )
-                        .await;
-                        return AccountEngineOutcome::RefreshSession;
-                    }
-                }
+    loop {
+        tokio::select! {
+            result = &mut run => {
+                drain_pending_account_events_with_provider(
+                    provider,
+                    channel,
+                    account,
+                    &account_store,
+                    &crypto_store,
+                    &gateway_channel,
+                    &session_store,
+                )
+                .await;
+                return account_engine_outcome_from_result(result);
+            }
+            _ = delivery_poll.tick() => {
+                drain_pending_account_events_with_provider(
+                    provider,
+                    channel,
+                    account,
+                    &account_store,
+                    &crypto_store,
+                    &gateway_channel,
+                    &session_store,
+                )
+                .await;
             }
         }
-        None => loop {
-            tokio::select! {
-                result = &mut run => {
-                    drain_pending_account_events(
-                        client,
-                        &mut rx,
-                        channel,
-                        account,
-                        &account_store,
-                        &crypto_store,
-                        &gateway_channel,
-                        &session_store,
-                    )
-                    .await;
-                    return account_engine_outcome_from_result(result);
-                }
-                maybe_event = rx.recv() => {
-                    if let Some(event) = maybe_event {
-                        handle_account_client_event(
-                            client,
-                            event,
-                            channel,
-                            account,
-                            &account_store,
-                            &crypto_store,
-                            &gateway_channel,
-                            &session_store,
-                        )
-                        .await;
-                    }
-                }
-            }
-        },
     }
 }
 
-/// Deliver events the sink already queued but the select loop has not consumed
-/// yet. The engine checkpoints the cursor BEFORE emitting to the sink, so any
-/// return path that drops the channel un-drained would permanently lose events
-/// the cursor has already advanced past — the session-refresh stop hits this
-/// once per grant lifetime without any crash involved. Dedupe makes redundant
-/// deliveries safe; skipped ones are not recoverable.
 #[allow(clippy::too_many_arguments)]
-async fn drain_pending_account_events(
-    client: &ArkretHttpClient,
-    rx: &mut tokio::sync::mpsc::UnboundedReceiver<ClientEvent>,
+async fn drain_pending_account_events_with_provider(
+    provider: &ArkretAgentSessionProvider,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &FileArkretAccountStore,
@@ -559,29 +395,131 @@ async fn drain_pending_account_events(
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) {
-    while let Ok(event) = rx.try_recv() {
-        handle_account_client_event(
-            client,
-            event,
-            channel,
-            account,
-            account_store,
-            crypto_store,
-            gateway_channel,
-            session_store,
-        )
-        .await;
+    let client = match provider.provide().await {
+        Ok(client) => ArkretHttpClient::from_inner(client),
+        Err(error) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: cannot drain durable inbox without an authenticated client: {error}"
+            );
+            return;
+        }
+    };
+    drain_pending_account_events(
+        &client,
+        channel,
+        account,
+        account_store,
+        crypto_store,
+        gateway_channel,
+        session_store,
+    )
+    .await;
+}
+
+/// Drain crash-safe deliveries committed atomically with the account cursor.
+/// A process exit before `ack` leaves the batch pending for the next listener.
+#[allow(clippy::too_many_arguments)]
+async fn drain_pending_account_events(
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &FileArkretAccountStore,
+    crypto_store: &FileArkretCryptoStore,
+    gateway_channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
+) {
+    loop {
+        let deliveries = match account_store.pending(32).await {
+            Ok(deliveries) => deliveries,
+            Err(error) => {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    "arkret: failed to read durable account inbox: {error}"
+                );
+                return;
+            }
+        };
+        if deliveries.is_empty() {
+            return;
+        }
+        for delivery in deliveries {
+            if delivery
+                .next_attempt_at_ms
+                .is_some_and(|next_at| next_at > Utc::now().timestamp_millis())
+            {
+                // Preserve delivery order; the poll timer will revisit this
+                // head item after its persisted retry deadline.
+                return;
+            }
+            let mut processing_error = None;
+            for event in delivery.events {
+                if let Err(error) = handle_account_client_event(
+                    client,
+                    event,
+                    channel,
+                    account,
+                    account_store,
+                    crypto_store,
+                    gateway_channel,
+                    session_store,
+                )
+                .await
+                {
+                    processing_error = Some(error);
+                    break;
+                }
+            }
+            if let Some(error) = processing_error {
+                let delay_secs = 1_u64
+                    .checked_shl(delivery.attempts.min(6))
+                    .unwrap_or(60)
+                    .min(60);
+                let next_at = Utc::now() + chrono::Duration::seconds(delay_secs as i64);
+                if let Err(store_error) = account_store
+                    .retry(
+                        delivery.id,
+                        Some(next_at.timestamp_millis()),
+                        garth::DeliveryErrorClass::Processing,
+                        format!("{error:#}"),
+                    )
+                    .await
+                {
+                    warn!(
+                        channel_id = %channel.id,
+                        account_id = %account.id,
+                        delivery_id = delivery.id.get(),
+                        "arkret: failed to persist delivery retry: {store_error}"
+                    );
+                }
+                return;
+            }
+            if let Err(error) = account_store.ack(delivery.id).await {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    delivery_id = delivery.id.get(),
+                    "arkret: failed to acknowledge durable account delivery: {error}"
+                );
+                return;
+            }
+        }
     }
 }
 
 fn account_engine_outcome_from_result(
-    result: arkret::Result<SubscriptionStopReason>,
+    result: garth::RunResult<RunStopReason>,
 ) -> AccountEngineOutcome {
     match result {
-        Ok(SubscriptionStopReason::Cancelled) => AccountEngineOutcome::Cancelled,
-        Ok(SubscriptionStopReason::Unauthorized { reason }) => {
-            AccountEngineOutcome::Unauthorized { reason }
+        Ok(RunStopReason::Cancelled | RunStopReason::LifecycleEnded) => {
+            AccountEngineOutcome::Cancelled
         }
+        Ok(RunStopReason::Unauthorized { reason }) => AccountEngineOutcome::Unauthorized { reason },
+        Ok(RunStopReason::Failed { class }) => AccountEngineOutcome::Retry {
+            error: anyhow::anyhow!("account subscription engine stopped: {class:?}"),
+        },
         Err(err) => AccountEngineOutcome::Retry {
             error: anyhow::anyhow!("account subscription engine: {err}"),
         },
@@ -597,7 +535,7 @@ async fn handle_account_client_event(
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
-) {
+) -> anyhow::Result<()> {
     match event {
         ClientEvent::AccountUpdates(updates) => {
             handle_sync_updates_for_account(
@@ -610,7 +548,7 @@ async fn handle_account_client_event(
                 gateway_channel,
                 session_store,
             )
-            .await;
+            .await?;
         }
         other => {
             debug!(
@@ -619,6 +557,7 @@ async fn handle_account_client_event(
             );
         }
     }
+    Ok(())
 }
 
 fn account_cursor_service_id(
@@ -851,21 +790,30 @@ async fn drain_account_device_messages_from_cursor(
     let mut cursor = if let Some(cursor) = initial_cursor {
         Some(cursor)
     } else {
-        match account_store
-            .load_device_message_cursor(
-                service_id.as_deref(),
-                &account.principal_id,
-                &account.device_id,
-            )
-            .await
-        {
-            Ok(cursor) => cursor,
+        let scope = device_messages_scope(
+            service_id.as_deref(),
+            &account.principal_id,
+            &account.device_id,
+        );
+        match scope {
+            Ok(scope) => match account_store.load(scope).await {
+                Ok(cursor) => cursor,
+                Err(err) => {
+                    warn!(
+                        channel_id = %channel.id,
+                        account_id = %account.id,
+                        reason,
+                        "arkret: failed to load device-message cursor: {err}"
+                    );
+                    None
+                }
+            },
             Err(err) => {
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     reason,
-                    "arkret: failed to load device-message cursor: {err}"
+                    "arkret: invalid device-message cursor scope: {err}"
                 );
                 None
             }
@@ -907,14 +855,15 @@ async fn drain_account_device_messages_from_cursor(
                 page,
                 "arkret: device_messages reported cursor loss; clearing local cursor without ack"
             );
-            if let Err(err) = account_store
-                .clear_device_message_cursor(
-                    service_id.as_deref(),
-                    &account.principal_id,
-                    &account.device_id,
-                )
-                .await
-            {
+            let clear = device_messages_scope(
+                service_id.as_deref(),
+                &account.principal_id,
+                &account.device_id,
+            );
+            if let Err(err) = match clear {
+                Ok(scope) => account_store.clear(scope).await,
+                Err(err) => Err(err),
+            } {
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
@@ -938,15 +887,15 @@ async fn drain_account_device_messages_from_cursor(
             return;
         }
         if let Some(next_cursor) = outcome.next_cursor {
-            if let Err(err) = account_store
-                .save_device_message_cursor(
-                    service_id.as_deref(),
-                    &account.principal_id,
-                    &account.device_id,
-                    next_cursor.clone(),
-                )
-                .await
-            {
+            let save = device_messages_scope(
+                service_id.as_deref(),
+                &account.principal_id,
+                &account.device_id,
+            );
+            if let Err(err) = match save {
+                Ok(scope) => account_store.save(scope, next_cursor.clone()).await,
+                Err(err) => Err(err),
+            } {
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
@@ -1228,22 +1177,40 @@ fn sign_account_key_operation(
     sign_key_operation_value(key_ref, verification_method, context, value)
 }
 
-async fn remember_account_event(
+async fn account_event_seen(
     account_store: &FileArkretAccountStore,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     event_id: &str,
-) -> bool {
-    match account_store.remember_event_id_str(event_id).await {
-        Ok(is_new) => is_new,
+) -> anyhow::Result<bool> {
+    let event_id = match arkret::EventId::new(event_id.to_owned()) {
+        Ok(event_id) => event_id,
         Err(err) => {
             warn!(
-                "arkret: account '{}/{}' durable event cache failed for event '{}': {err}; dispatching without local dedupe fallback",
+                "arkret: account '{}/{}' rejected invalid event id '{}': {err}",
                 channel.id, account.id, event_id
             );
-            true
+            return Ok(true);
         }
+    };
+    match account_store.seen(event_id.clone()).await {
+        Ok(seen) => Ok(seen),
+        Err(err) => Err(anyhow::anyhow!(
+            "arkret account '{}/{}' durable event cache read for '{}': {err}",
+            channel.id,
+            account.id,
+            event_id
+        )),
     }
+}
+
+async fn remember_account_event(
+    account_store: &FileArkretAccountStore,
+    event_id: &str,
+) -> anyhow::Result<()> {
+    let event_id = arkret::EventId::new(event_id.to_owned())?;
+    account_store.remember(event_id).await?;
+    Ok(())
 }
 
 async fn handle_sync_updates_for_account(
@@ -1255,7 +1222,7 @@ async fn handle_sync_updates_for_account(
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
-) {
+) -> anyhow::Result<()> {
     let to_device_lost = updates.to_device_lost;
     let saw_to_device_messages = !updates.to_device.is_empty();
     let to_device_ack_token = updates.to_device_ack_token.clone();
@@ -1293,7 +1260,7 @@ async fn handle_sync_updates_for_account(
             gateway_channel,
             session_store,
         )
-        .await;
+        .await?;
         if let Some(scan_request) = scan_request {
             scan_limited_realm_timeline_for_account(
                 client,
@@ -1305,7 +1272,7 @@ async fn handle_sync_updates_for_account(
                 gateway_channel,
                 session_store,
             )
-            .await;
+            .await?;
         }
     }
     for notification in updates.notifications {
@@ -1328,7 +1295,7 @@ async fn handle_sync_updates_for_account(
             gateway_channel,
             session_store,
         )
-        .await;
+        .await?;
     }
     match account_to_device_ack_plan(
         saw_to_device_messages,
@@ -1378,7 +1345,7 @@ async fn handle_sync_updates_for_account(
                     "to_device_sync_ack_fallback",
                 )
                 .await;
-                return;
+                return Ok(());
             }
             if let Some(pull) = followup {
                 if pull.initial_cursor.is_none() {
@@ -1401,6 +1368,7 @@ async fn handle_sync_updates_for_account(
             }
         }
     }
+    Ok(())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1542,7 +1510,7 @@ async fn scan_limited_realm_timeline_for_account(
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
-) {
+) -> anyhow::Result<()> {
     if !account.has_requested_scope("ak.self.events.query.scan") {
         warn!(
             channel_id = %channel.id,
@@ -1550,7 +1518,7 @@ async fn scan_limited_realm_timeline_for_account(
             realm_id = %request.realm_id.as_str(),
             "arkret: limited account timeline cannot be scan-backfilled without ak.self.events.query.scan"
         );
-        return;
+        return Ok(());
     }
 
     let realm_id = request.realm_id.clone();
@@ -1578,7 +1546,7 @@ async fn scan_limited_realm_timeline_for_account(
                     realm_id = %realm_id.as_str(),
                     "arkret: scan catch-up failed for limited account timeline: {err:#}"
                 );
-                return;
+                return Err(err);
             }
         };
 
@@ -1604,7 +1572,7 @@ async fn scan_limited_realm_timeline_for_account(
         gateway_channel,
         session_store,
     )
-    .await;
+    .await?;
 
     if outcome.limited {
         warn!(
@@ -1615,6 +1583,7 @@ async fn scan_limited_realm_timeline_for_account(
             "arkret: scan catch-up stopped before exhausting limited account timeline"
         );
     }
+    Ok(())
 }
 
 fn parse_realm_update_for_account(
@@ -1804,10 +1773,15 @@ async fn handle_parsed_account_events(
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
-) {
+) -> anyhow::Result<()> {
     for skipped in parsed.skipped {
         match skipped.reason {
             ArkretInboundSkipReason::EncryptedContent => {
+                if let Some(event_id) = skipped.event_id.as_deref()
+                    && account_event_seen(account_store, channel, account, event_id).await?
+                {
+                    continue;
+                }
                 let decrypted = try_handle_encrypted_account_skip(
                     client,
                     &skipped,
@@ -1817,8 +1791,11 @@ async fn handle_parsed_account_events(
                     gateway_channel,
                     session_store,
                 )
-                .await;
+                .await?;
                 if decrypted {
+                    if let Some(event_id) = skipped.event_id.as_deref() {
+                        remember_account_event(account_store, event_id).await?;
+                    }
                     continue;
                 }
                 warn!(
@@ -1840,9 +1817,10 @@ async fn handle_parsed_account_events(
         }
     }
     for event in parsed.events {
-        if !remember_account_event(account_store, channel, account, &event.event_id).await {
+        if account_event_seen(account_store, channel, account, &event.event_id).await? {
             continue;
         }
+        let event_id = event.event_id.clone();
         dispatch_to_agent(
             event,
             channel,
@@ -1850,8 +1828,10 @@ async fn handle_parsed_account_events(
             Arc::clone(gateway_channel),
             Arc::clone(session_store),
         )
-        .await;
+        .await?;
+        remember_account_event(account_store, &event_id).await?;
     }
+    Ok(())
 }
 
 async fn dispatch_to_agent(
@@ -1860,7 +1840,7 @@ async fn dispatch_to_agent(
     account: &ArkretAccountConfig,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
-) {
+) -> anyhow::Result<()> {
     let config_id = channel.id.clone();
     let sender = event.sender_did.clone();
     let realm_id = event.realm_id.clone();
@@ -1876,27 +1856,30 @@ async fn dispatch_to_agent(
         runtime::SenderKind::Human
     };
 
-    tokio::spawn(async move {
-        runtime::spawn_start_thread_pipeline_with_meta_coordinated(
-            gateway_channel,
-            session_store,
-            "arkret",
-            realm_id.clone(),
-            body,
-            Some(sender.clone()),
-            Some(runtime::StartThreadMeta {
-                peer_id: Some(sender),
-                group_id: Some(realm_id),
-                thread_id,
-                reply_target: flow_id,
-                chat_type: Some("group".to_owned()),
-                saved_channel_config_id: Some(config_id),
-                sender_kind,
-                ..runtime::StartThreadMeta::default()
-            }),
-        )
-        .await;
-    });
+    let accepted = runtime::spawn_start_thread_pipeline_with_meta_coordinated(
+        gateway_channel,
+        session_store,
+        "arkret",
+        realm_id.clone(),
+        body,
+        Some(sender.clone()),
+        Some(runtime::StartThreadMeta {
+            peer_id: Some(sender),
+            group_id: Some(realm_id),
+            thread_id,
+            reply_target: flow_id,
+            chat_type: Some("group".to_owned()),
+            saved_channel_config_id: Some(config_id),
+            sender_kind,
+            ..runtime::StartThreadMeta::default()
+        }),
+    )
+    .await;
+    anyhow::ensure!(
+        accepted,
+        "Arkret inbound task was not accepted by the coordinator"
+    );
+    Ok(())
 }
 
 async fn try_handle_encrypted_account_skip(
@@ -1907,9 +1890,9 @@ async fn try_handle_encrypted_account_skip(
     account: &ArkretAccountConfig,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
-) -> bool {
+) -> anyhow::Result<bool> {
     let Some(payload) = skipped.encrypted_payload.as_ref() else {
-        return false;
+        return Ok(false);
     };
     if !account_allows_event_read(account) {
         warn!(
@@ -1917,7 +1900,7 @@ async fn try_handle_encrypted_account_skip(
             event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
             "arkret: encrypted account event skipped because ak.event.read is not granted"
         );
-        return false;
+        return Ok(false);
     }
     match crypto_store.plan_bootstrap_for_payload(
         &account.principal_id,
@@ -1957,16 +1940,16 @@ async fn try_handle_encrypted_account_skip(
                     event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
                     "arkret: decrypted encrypted account event but content is not displayable text"
                 );
-                return false;
+                return Ok(false);
             };
             let Some(event_id) = skipped.event_id.clone() else {
-                return false;
+                return Ok(false);
             };
             let Some(realm_id) = skipped.realm_id.clone() else {
-                return false;
+                return Ok(false);
             };
             let Some(sender_did) = skipped.sender_did.clone() else {
-                return false;
+                return Ok(false);
             };
             dispatch_to_agent(
                 ArkretInboundEvent {
@@ -1983,8 +1966,8 @@ async fn try_handle_encrypted_account_skip(
                 Arc::clone(gateway_channel),
                 Arc::clone(session_store),
             )
-            .await;
-            true
+            .await?;
+            Ok(true)
         }
         Ok(ArkretDecryptDetailedOutcome::MissingGroupState) => {
             record_account_unable_to_decrypt(
@@ -1993,7 +1976,7 @@ async fn try_handle_encrypted_account_skip(
                 payload.clone(),
                 arkret::crypto_protocol::UnableToDecryptReason::NoSession,
             );
-            false
+            Ok(false)
         }
         Ok(ArkretDecryptDetailedOutcome::UnsupportedScheme(scheme)) => {
             warn!(
@@ -2008,7 +1991,7 @@ async fn try_handle_encrypted_account_skip(
                 payload.clone(),
                 arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
             );
-            false
+            Ok(false)
         }
         Err(err) => {
             warn!(
@@ -2022,7 +2005,7 @@ async fn try_handle_encrypted_account_skip(
                 payload.clone(),
                 arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
             );
-            false
+            Ok(false)
         }
     }
 }
@@ -2067,17 +2050,11 @@ fn decrypted_text_body(content: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
-async fn sleep_with_backoff(backoff: &mut Duration) {
-    tokio::time::sleep(*backoff).await;
-    let next = (backoff.as_secs() * 2).min(60);
-    *backoff = Duration::from_secs(next.max(1));
-}
-
-/// Build an authenticated DPoP-bound `ArkretHttpClient` for one agent runtime.
-async fn construct_account_client(
+/// Build a shared session-backed transport provider for one agent runtime.
+async fn construct_account_provider(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-) -> anyhow::Result<(ArkretHttpClient, Option<DateTime<Utc>>)> {
+) -> anyhow::Result<ArkretAgentSessionProvider> {
     let key_ref = account
         .key_ref
         .as_ref()
@@ -2109,7 +2086,7 @@ async fn construct_account_client(
         })?;
     let principal = Did::new(account.principal_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
-    let (client, session) = ArkretHttpClient::login_agent(
+    let (provider, session) = ArkretHttpClient::login_agent_provider(
         &channel.base_url,
         key_ref,
         principal,
@@ -2124,7 +2101,20 @@ async fn construct_account_client(
         "arkret: agent '{}' obtained DPoP-bound session; audience='{}' expires_at='{}'",
         account.id, audience, session.expires_at
     );
-    Ok((client, Some(session.expires_at)))
+    Ok(provider)
+}
+
+/// Obtain a current authenticated client for one-shot outbound operations.
+async fn construct_account_client(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<ArkretHttpClient> {
+    let provider = construct_account_provider(channel, account).await?;
+    let inner = provider
+        .provide()
+        .await
+        .map_err(|error| anyhow::anyhow!("build authenticated Arkret client: {error}"))?;
+    Ok(ArkretHttpClient::from_inner(inner))
 }
 
 /// Build the restart-safe monotonic `actor_seq` allocator for an outbound
@@ -2190,7 +2180,7 @@ pub(crate) async fn send_to_arkret_account(
 
     // One-shot send uses the same agent_key_proof + DPoP session exchange as
     // the listener. The short grant is not cached on this path.
-    let (client, _session_expiry) = construct_account_client(&channel, &account).await?;
+    let client = construct_account_client(&channel, &account).await?;
     // Monotonic, restart-safe actor sequence (parity with the applet path).
     let actor_seq = build_account_seq_allocator(savfox_home, &account.id)?
         .alloc()
@@ -2296,7 +2286,6 @@ fn apply_account_outbound_encryption(
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
 
     use super::*;
 
@@ -2371,46 +2360,6 @@ mod tests {
             ratchet_tree: None,
         })
         .unwrap()
-    }
-
-    #[test]
-    fn session_grant_refreshes_when_expired_or_inside_skew() {
-        let now = Utc.with_ymd_and_hms(2026, 7, 7, 12, 0, 0).unwrap();
-
-        assert!(!session_grant_needs_refresh(None, now));
-        assert!(!session_grant_needs_refresh(
-            Some(now + chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS + 1)),
-            now
-        ));
-        assert!(session_grant_needs_refresh(
-            Some(now + chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS)),
-            now
-        ));
-        assert!(session_grant_needs_refresh(
-            Some(now - chrono::Duration::seconds(1)),
-            now
-        ));
-    }
-
-    #[test]
-    fn session_refresh_delay_targets_skew_boundary() {
-        let now = Utc.with_ymd_and_hms(2026, 7, 7, 12, 0, 0).unwrap();
-
-        assert_eq!(session_refresh_delay(None, now), None);
-        assert_eq!(
-            session_refresh_delay(
-                Some(now + chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS + 1)),
-                now
-            ),
-            Some(Duration::from_secs(1))
-        );
-        assert_eq!(
-            session_refresh_delay(
-                Some(now + chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS)),
-                now
-            ),
-            Some(Duration::ZERO)
-        );
     }
 
     #[test]

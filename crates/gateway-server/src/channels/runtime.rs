@@ -225,7 +225,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta_coordinated(
     prompt: String,
     name: Option<String>,
     meta: Option<StartThreadMeta>,
-) {
+) -> bool {
     dispatch_to_coordinator(
         gateway_channel,
         session_store,
@@ -235,7 +235,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta_coordinated(
         name,
         meta,
     )
-    .await;
+    .await
 }
 
 /// Route an inbound message through the per-session coordinator.
@@ -248,7 +248,7 @@ async fn dispatch_to_coordinator(
     prompt: String,
     name: Option<String>,
     meta: Option<StartThreadMeta>,
-) {
+) -> bool {
     let session_key = format!("{platform}:{channel_id}");
     let task = coordinator::InboundTask {
         platform,
@@ -259,7 +259,7 @@ async fn dispatch_to_coordinator(
         gateway_channel,
         session_store,
     };
-    coordinator::dispatch(session_key, task).await;
+    coordinator::dispatch(session_key, task).await
 }
 
 pub(crate) async fn spawn_start_thread_pipeline_with_meta(

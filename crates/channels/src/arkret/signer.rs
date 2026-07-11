@@ -29,6 +29,7 @@ use zeroize::Zeroize;
 /// ```jsonc
 /// { "kind": "env", "var": "SAVFOX_ARKRET_BOT_KEY" }
 /// { "kind": "file", "path": "/var/secrets/savfox/arkret.seed" }
+/// { "kind": "keyring", "service": "savfox-arkret", "account": "agent-1" }
 /// { "kind": "inline_seed_base64", "value": "..." }   // debug only
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +41,9 @@ pub enum ArkretKeyRef {
     /// * raw 32 bytes (binary, file len == 32), or
     /// * UTF-8 text holding base64-no-pad of the 32-byte seed.
     File { path: PathBuf },
+    /// Read the seed from the platform credential vault (Keychain, DPAPI or
+    /// Secret Service). Personal-agent session providers require this form.
+    Keyring { service: String, account: String },
     /// **TEST ONLY** — inline base64-no-pad seed in the config JSON. Refused
     /// at runtime in release builds.
     InlineSeedBase64 { value: String },
@@ -113,6 +117,21 @@ fn load_seed_bytes(key_ref: &ArkretKeyRef) -> anyhow::Result<Vec<u8>> {
             decode_base64_no_pad(&value, "env value")
         }
         ArkretKeyRef::File { path } => load_file_seed(path),
+        ArkretKeyRef::Keyring { service, account } => {
+            use savfox_keyring_store::KeyringStore as _;
+
+            let value = savfox_keyring_store::DefaultKeyringStore
+                .load(service, account)
+                .with_context(|| {
+                    format!("arkret signer: load platform keyring entry {service}/{account}")
+                })?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "arkret signer: platform keyring entry {service}/{account} not found"
+                    )
+                })?;
+            decode_base64_no_pad(&value, "platform keyring value")
+        }
         ArkretKeyRef::InlineSeedBase64 { value } => {
             #[cfg(not(debug_assertions))]
             {

@@ -22,8 +22,11 @@ use arkret::{
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::Stream;
+use garth::session::BoxSessionFuture;
 use garth::{
-    AgentKeyProofLogin, ArkretClient, LoginKind, MemoryStore, NativeExecutor, SessionEngine,
+    AgentKeyProofLogin, ArkretClient, AuthenticatedTransportFactory, LoginKind, MemoryStore,
+    NativeExecutor, SessionEngine, SessionGrantState, SessionGrantTransport, SessionRefreshOptions,
+    SessionTransportProvider, TransportProvider,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -59,6 +62,59 @@ pub type SavfoxArkretClientCore = ArkretClient<NativeExecutor, MemoryStore, Memo
 
 pub type SavfoxDurableArkretClientCore =
     ArkretClient<NativeExecutor, FileArkretAccountStore, FileArkretAccountStore>;
+
+#[derive(Clone)]
+#[allow(missing_debug_implementations)]
+pub struct AgentSessionGrantTransport {
+    base_url: Url,
+    bootstrap: Client,
+    signing_key: Arc<SigningKey>,
+}
+
+impl SessionGrantTransport for AgentSessionGrantTransport {
+    fn issue_session_grant<'a>(
+        &'a self,
+        request: arkret::SessionGrantRequestBody,
+    ) -> BoxSessionFuture<'a, arkret::SessionGrantOutcome> {
+        Box::pin(async move { self.bootstrap.auth_issue_session_grant(&request).await })
+    }
+
+    fn refresh_session_grant<'a>(
+        &'a self,
+        request: arkret::SessionGrantRefreshRequestBody,
+    ) -> BoxSessionFuture<'a, arkret::SessionGrantRefreshOutcome> {
+        Box::pin(async move {
+            let client = build_dpop_client(
+                self.base_url.clone(),
+                Arc::clone(&self.signing_key),
+                request.grant_jwt.clone(),
+            )?;
+            client.auth_refresh_session_grant(&request).await
+        })
+    }
+}
+
+#[derive(Clone)]
+#[allow(missing_debug_implementations)]
+pub struct AgentAuthenticatedTransportFactory {
+    base_url: Url,
+    signing_key: Arc<SigningKey>,
+}
+
+impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
+    type Transport = Client;
+
+    fn build(&self, state: &SessionGrantState) -> arkret::Result<Self::Transport> {
+        build_dpop_client(
+            self.base_url.clone(),
+            Arc::clone(&self.signing_key),
+            state.grant_jwt.clone(),
+        )
+    }
+}
+
+pub type ArkretAgentSessionProvider =
+    SessionTransportProvider<AgentSessionGrantTransport, AgentAuthenticatedTransportFactory>;
 
 pub fn sign_key_operation_value(
     key_ref: &ArkretKeyRef,
@@ -175,6 +231,11 @@ impl ArkretHttpClient {
     }
 
     #[must_use]
+    pub fn from_inner(inner: Client) -> Self {
+        Self { inner }
+    }
+
+    #[must_use]
     pub fn client_core(&self) -> SavfoxArkretClientCore {
         ArkretClient::new(NativeExecutor, MemoryStore::new(), MemoryStore::new())
     }
@@ -203,7 +264,7 @@ impl ArkretHttpClient {
     /// Construct a personal-agent HTTP client by exchanging a runtime-key
     /// `agent_key_proof` for a short-lived DPoP-bound session grant.
     #[allow(clippy::too_many_arguments)]
-    pub async fn login_agent(
+    pub async fn login_agent_provider(
         base_url: &str,
         key_ref: &ArkretKeyRef,
         principal_did: Did,
@@ -212,7 +273,8 @@ impl ArkretHttpClient {
         requested_scope: Vec<String>,
         audience: &str,
         realm_id: Option<&str>,
-    ) -> anyhow::Result<(Self, ArkretSession)> {
+    ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
+        validate_agent_key_ref(key_ref)?;
         let url =
             Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
         let signing_key = Arc::new(load_ed25519_signing_key(key_ref)?);
@@ -280,7 +342,12 @@ impl ArkretHttpClient {
             expires_at,
             signature,
         };
-        let session_engine = SessionEngine::new(bootstrap);
+        let session_transport = AgentSessionGrantTransport {
+            base_url: url.clone(),
+            bootstrap,
+            signing_key: Arc::clone(&signing_key),
+        };
+        let session_engine = SessionEngine::new(session_transport);
         let handle = session_engine
             .login(LoginKind::AgentKeyProof(login), Utc::now())
             .await
@@ -290,21 +357,21 @@ impl ArkretHttpClient {
             .context("agent_key_proof session grant exchange did not yield state")?;
 
         let session_grant = handle.access_token;
-        let inner = ClientBuilder::new(url)
-            .auth(Auth::Dpop(DpopAuth::with_access_token(
-                session_grant.clone(),
-                {
-                    let signing_key = Arc::clone(&signing_key);
-                    move |request| {
-                        arkret::dpop::build_dpop_proof(&request, &signing_key)
-                            .map(|proof| proof.header_value)
-                    }
-                },
-            )))
-            .build()
-            .map_err(|err| anyhow::anyhow!("DPoP-bound Arkret HTTP client: {err}"))?;
+        let provider = SessionTransportProvider::new(
+            session_engine,
+            AgentAuthenticatedTransportFactory {
+                base_url: url,
+                signing_key,
+            },
+            SessionRefreshOptions {
+                audience: Some(state.audience.clone()),
+                device_id: state.device_id.clone(),
+                proof: None,
+                expected_dpop_jkt: state.dpop_jkt.clone(),
+            },
+        );
         Ok((
-            Self { inner },
+            provider,
             ArkretSession {
                 session_grant,
                 expires_at: state.expires_at,
@@ -312,6 +379,37 @@ impl ArkretHttpClient {
                 device_id: state.device_id,
             },
         ))
+    }
+
+    /// Compatibility helper for short-lived callers that only need the
+    /// authenticated client returned by the shared session provider.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn login_agent(
+        base_url: &str,
+        key_ref: &ArkretKeyRef,
+        principal_did: Did,
+        verification_method: &str,
+        agent_key_authorization_ref: &str,
+        requested_scope: Vec<String>,
+        audience: &str,
+        realm_id: Option<&str>,
+    ) -> anyhow::Result<(Self, ArkretSession)> {
+        let (provider, session) = Self::login_agent_provider(
+            base_url,
+            key_ref,
+            principal_did,
+            verification_method,
+            agent_key_authorization_ref,
+            requested_scope,
+            audience,
+            realm_id,
+        )
+        .await?;
+        let inner = provider
+            .provide()
+            .await
+            .map_err(|error| anyhow::anyhow!("build authenticated Arkret client: {error}"))?;
+        Ok((Self { inner }, session))
     }
 
     /// Construct an applet HTTP client by running DID-proof login.
@@ -442,6 +540,30 @@ impl ArkretHttpClient {
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }
+}
+
+fn validate_agent_key_ref(key_ref: &ArkretKeyRef) -> anyhow::Result<()> {
+    if matches!(key_ref, ArkretKeyRef::Keyring { .. }) {
+        Ok(())
+    } else {
+        anyhow::bail!("Arkret personal-agent session keys must use key_ref kind=keyring")
+    }
+}
+
+fn build_dpop_client(
+    base_url: Url,
+    signing_key: Arc<SigningKey>,
+    access_token: String,
+) -> arkret::Result<Client> {
+    ClientBuilder::new(base_url)
+        .auth(Auth::Dpop(DpopAuth::with_access_token(
+            access_token,
+            move |request| {
+                arkret::dpop::build_dpop_proof(&request, &signing_key)
+                    .map(|proof| proof.header_value)
+            },
+        )))
+        .build()
 }
 
 fn build_dpop_header(
@@ -593,5 +715,18 @@ mod tests {
             .verifying_key()
             .verify_strict(&after, &sig)
             .expect("signature should verify over SDK transcript");
+    }
+
+    #[test]
+    fn personal_agent_provider_requires_platform_keyring_reference() {
+        let inline = key_ref();
+        assert!(validate_agent_key_ref(&inline).is_err());
+        assert!(
+            validate_agent_key_ref(&ArkretKeyRef::Keyring {
+                service: "savfox-arkret".to_owned(),
+                account: "agent-1".to_owned(),
+            })
+            .is_ok()
+        );
     }
 }

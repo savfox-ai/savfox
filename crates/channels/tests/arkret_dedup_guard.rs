@@ -64,3 +64,38 @@ fn savfox_does_not_reintroduce_agent_pairing_bootstrap_shadow_type() {
         violations.join("\n")
     );
 }
+
+#[test]
+fn savfox_listener_does_not_reintroduce_session_outer_loop() {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("channels crate should live under crates/channels");
+    let listener = workspace.join("crates/gateway-server/src/channels/arkret.rs");
+    let contents = fs::read_to_string(&listener)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", listener.display()));
+    let forbidden = [
+        "SESSION_REFRESH_SKEW_SECS",
+        "AccountEngineOutcome::RefreshSession",
+        "fn session_refresh_delay(",
+        "fn session_grant_needs_refresh(",
+        "struct FixedAccountTransport",
+        "fn sleep_with_backoff(",
+    ];
+    let violations = forbidden
+        .iter()
+        .filter(|needle| contents.contains(**needle))
+        .copied()
+        .collect::<Vec<_>>();
+    assert!(
+        violations.is_empty(),
+        "Savfox account subscription must delegate session refresh and transport rebuild to \
+         garth::SessionTransportProvider. Forbidden listener surfaces: {violations:?}"
+    );
+    assert!(
+        contents.contains("construct_account_provider")
+            && contents.contains("ArkretAgentSessionProvider"),
+        "Savfox account listener must remain wired to the shared session provider"
+    );
+}

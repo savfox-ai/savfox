@@ -35,16 +35,16 @@ mod outbound;
 mod session;
 mod signer;
 
-pub use account_store::FileArkretAccountStore;
+pub use account_store::{FileArkretAccountStore, device_messages_scope, open_account_store};
 pub use applet::{
     AppletDispatchSkip, AppletEventOutcome, AppletInboundCommand, AppletNamespaces,
     AppletNamespacesExt, ArkretAppletConfig, NamespacePattern, NamespacePatternExt,
     classify_inbound_event, load_arkret_applet_configs, mint_ghost_did, namespace_pattern_matches,
 };
 pub use client::{
-    ArkretAccountFrameStream, ArkretFrameStream, ArkretHttpClient, SavfoxArkretClientCore,
-    SavfoxDurableArkretClientCore, build_mls_key_packages_claim_request, sign_key_operation_value,
-    sign_mls_welcome_claim_envelope,
+    ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretFrameStream, ArkretHttpClient,
+    SavfoxArkretClientCore, SavfoxDurableArkretClientCore, build_mls_key_packages_claim_request,
+    sign_key_operation_value, sign_mls_welcome_claim_envelope,
 };
 pub use config::{
     ArkretAccountConfig, ArkretAccountMode, ArkretChannelConfig,

@@ -54,13 +54,14 @@ fn coordinators() -> &'static tokio::sync::Mutex<CoordinatorMap> {
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Dispatch a task to the per-session coordinator, creating one if necessary.
-pub(crate) async fn dispatch(session_key: String, task: InboundTask) {
+/// Returns only after the task has entered a live coordinator inbox.
+pub(crate) async fn dispatch(session_key: String, task: InboundTask) -> bool {
     let mut map = coordinators().lock().await;
 
     // Try existing coordinator.
     if let Some(tx) = map.get(&session_key) {
         match tx.send(task).await {
-            Ok(()) => return,
+            Ok(()) => return true,
             Err(mpsc::error::SendError(returned_task)) => {
                 // Coordinator has exited – remove stale entry and re-send below.
                 map.remove(&session_key);
@@ -68,9 +69,9 @@ pub(crate) async fn dispatch(session_key: String, task: InboundTask) {
                 let (tx, rx) = mpsc::channel::<InboundTask>(32);
                 let key = session_key.clone();
                 tokio::spawn(run_coordinator(key, rx));
-                let _ = tx.send(returned_task).await;
+                let accepted = tx.send(returned_task).await.is_ok();
                 map.insert(session_key, tx);
-                return;
+                return accepted;
             }
         }
     }
@@ -78,8 +79,9 @@ pub(crate) async fn dispatch(session_key: String, task: InboundTask) {
     let (tx, rx) = mpsc::channel::<InboundTask>(32);
     let key = session_key.clone();
     tokio::spawn(run_coordinator(key, rx));
-    let _ = tx.send(task).await;
+    let accepted = tx.send(task).await.is_ok();
     map.insert(session_key, tx);
+    accepted
 }
 
 /// Remove a coordinator entry (called when the actor exits).
