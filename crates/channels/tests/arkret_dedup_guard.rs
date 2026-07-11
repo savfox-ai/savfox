@@ -99,3 +99,34 @@ fn savfox_listener_does_not_reintroduce_session_outer_loop() {
         "Savfox account listener must remain wired to the shared session provider"
     );
 }
+
+#[test]
+fn savfox_account_outbound_uses_garth_durable_queue() {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("channels crate should live under crates/channels");
+    let source_path = workspace.join("crates/gateway-server/src/channels/arkret.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", source_path.display()));
+    let send_start = source
+        .find("pub(crate) async fn send_to_arkret_account")
+        .expect("missing account outbound entrypoint");
+    let send_source = &source[send_start..];
+    assert!(
+        send_source.contains("OutboundEngine::new(outbound_store)")
+            && send_source.contains(".enqueue(")
+            && send_source.contains(".submit_next("),
+        "Savfox account outbound must enqueue and submit through Garth's durable engine"
+    );
+    assert!(
+        source.contains("drain_pending_account_outbound")
+            && source.contains("durable outbound worker completed queued event"),
+        "Savfox listener must resume pending outbound items after process restart"
+    );
+    assert!(
+        !send_source.contains("let response = client.submit_event(&event).await?"),
+        "Savfox account outbound must not bypass the durable queue with direct submit"
+    );
+}

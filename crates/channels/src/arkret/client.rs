@@ -25,8 +25,9 @@ use futures_util::Stream;
 use garth::session::BoxSessionFuture;
 use garth::{
     AgentKeyProofLogin, ArkretClient, AuthenticatedTransportFactory, LoginKind, MemoryStore,
-    NativeExecutor, SessionEngine, SessionGrantState, SessionGrantTransport, SessionRefreshOptions,
-    SessionTransportProvider, TransportProvider,
+    NativeExecutor, SecureKeyStore, SecureKeyStoreBackendInfo, SecureKeyStoreError,
+    SecureSessionGrantStore, SessionEngine, SessionGrantState, SessionGrantStore,
+    SessionGrantTransport, SessionRefreshOptions, SessionTransportProvider, TransportProvider,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -111,10 +112,85 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
             state.grant_jwt.clone(),
         )
     }
+
+    fn refresh_options(
+        &self,
+        state: &SessionGrantState,
+        fallback: &SessionRefreshOptions,
+    ) -> arkret::Result<SessionRefreshOptions> {
+        Ok(SessionRefreshOptions {
+            audience: Some(state.audience.clone()),
+            device_id: state.device_id.clone(),
+            proof: fallback.proof.clone(),
+            expected_dpop_jkt: state.dpop_jkt.clone(),
+        })
+    }
 }
 
-pub type ArkretAgentSessionProvider =
-    SessionTransportProvider<AgentSessionGrantTransport, AgentAuthenticatedTransportFactory>;
+#[derive(Clone, Debug)]
+pub struct SavfoxKeyringSecureStore {
+    service: String,
+}
+
+impl SavfoxKeyringSecureStore {
+    fn new(service: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+        }
+    }
+}
+
+impl SecureKeyStore for SavfoxKeyringSecureStore {
+    fn store_secret_bytes(&self, key: &str, value: &[u8]) -> Result<(), SecureKeyStoreError> {
+        use savfox_keyring_store::KeyringStore as _;
+
+        let value = std::str::from_utf8(value).map_err(|error| {
+            SecureKeyStoreError::Backend(format!("session grant utf8: {error}"))
+        })?;
+        savfox_keyring_store::DefaultKeyringStore
+            .save(&self.service, key, value)
+            .map_err(|error| SecureKeyStoreError::Backend(error.to_string()))
+    }
+
+    fn get_secret_bytes(
+        &self,
+        key: &str,
+    ) -> Result<Option<garth::SecretBytes>, SecureKeyStoreError> {
+        use savfox_keyring_store::KeyringStore as _;
+
+        savfox_keyring_store::DefaultKeyringStore
+            .load(&self.service, key)
+            .map(|value| value.map(|value| garth::SecretBytes::new(value.into_bytes())))
+            .map_err(|error| SecureKeyStoreError::Backend(error.to_string()))
+    }
+
+    fn delete_secret(&self, key: &str) -> Result<(), SecureKeyStoreError> {
+        use savfox_keyring_store::KeyringStore as _;
+
+        savfox_keyring_store::DefaultKeyringStore
+            .delete(&self.service, key)
+            .map(|_| ())
+            .map_err(|error| SecureKeyStoreError::Backend(error.to_string()))
+    }
+
+    fn list_secret_keys(&self, _prefix: Option<&str>) -> Result<Vec<String>, SecureKeyStoreError> {
+        Err(SecureKeyStoreError::Unsupported("keyring list"))
+    }
+
+    fn backend_info(&self) -> SecureKeyStoreBackendInfo {
+        SecureKeyStoreBackendInfo {
+            name: "savfox_os_keyring",
+            hardware_backed: false,
+            exportable: true,
+        }
+    }
+}
+
+pub type ArkretAgentSessionProvider = SessionTransportProvider<
+    AgentSessionGrantTransport,
+    AgentAuthenticatedTransportFactory,
+    SecureSessionGrantStore<SavfoxKeyringSecureStore>,
+>;
 
 pub fn sign_key_operation_value(
     key_ref: &ArkretKeyRef,
@@ -275,6 +351,13 @@ impl ArkretHttpClient {
         realm_id: Option<&str>,
     ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
         validate_agent_key_ref(key_ref)?;
+        let ArkretKeyRef::Keyring { service, account } = key_ref else {
+            unreachable!("validated personal-agent key reference must be keyring-backed")
+        };
+        let grant_store = SecureSessionGrantStore::new(
+            SavfoxKeyringSecureStore::new(service.clone()),
+            format!("{account}:session-grant"),
+        );
         let url =
             Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
         let signing_key = Arc::new(load_ed25519_signing_key(key_ref)?);
@@ -347,8 +430,38 @@ impl ArkretHttpClient {
             bootstrap,
             signing_key: Arc::clone(&signing_key),
         };
+        let factory = AgentAuthenticatedTransportFactory {
+            base_url: url,
+            signing_key,
+        };
+        let refresh_options = SessionRefreshOptions {
+            audience: Some(audience.to_owned()),
+            device_id: None,
+            proof: None,
+            expected_dpop_jkt: None,
+        };
+        let restored = SessionTransportProvider::restore(
+            session_transport.clone(),
+            factory.clone(),
+            refresh_options.clone(),
+            grant_store.clone(),
+        )
+        .map_err(|error| anyhow::anyhow!("restore agent session grant: {error}"))?;
+        if let Some(state) = restored.session().current_state() {
+            if state.principal_id == principal_did
+                && state.audience == audience
+                && state.expires_at > Utc::now()
+            {
+                let session = arkret_session_from_state(state);
+                return Ok((restored, session));
+            }
+            grant_store
+                .clear()
+                .map_err(|error| anyhow::anyhow!("clear stale agent session grant: {error}"))?;
+        }
+
         let session_engine = SessionEngine::new(session_transport);
-        let handle = session_engine
+        session_engine
             .login(LoginKind::AgentKeyProof(login), Utc::now())
             .await
             .map_err(|err| anyhow::anyhow!("agent_key_proof session grant exchange: {err}"))?;
@@ -356,29 +469,15 @@ impl ArkretHttpClient {
             .current_state()
             .context("agent_key_proof session grant exchange did not yield state")?;
 
-        let session_grant = handle.access_token;
-        let provider = SessionTransportProvider::new(
+        let provider = SessionTransportProvider::with_store(
             session_engine,
-            AgentAuthenticatedTransportFactory {
-                base_url: url,
-                signing_key,
-            },
-            SessionRefreshOptions {
-                audience: Some(state.audience.clone()),
-                device_id: state.device_id.clone(),
-                proof: None,
-                expected_dpop_jkt: state.dpop_jkt.clone(),
-            },
-        );
-        Ok((
-            provider,
-            ArkretSession {
-                session_grant,
-                expires_at: state.expires_at,
-                principal_did: state.principal_id,
-                device_id: state.device_id,
-            },
-        ))
+            factory,
+            refresh_options,
+            grant_store,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!("persist agent session grant: {error}"))?;
+        Ok((provider, arkret_session_from_state(state)))
     }
 
     /// Compatibility helper for short-lived callers that only need the
@@ -547,6 +646,15 @@ fn validate_agent_key_ref(key_ref: &ArkretKeyRef) -> anyhow::Result<()> {
         Ok(())
     } else {
         anyhow::bail!("Arkret personal-agent session keys must use key_ref kind=keyring")
+    }
+}
+
+fn arkret_session_from_state(state: SessionGrantState) -> ArkretSession {
+    ArkretSession {
+        session_grant: state.grant_jwt,
+        expires_at: state.expires_at,
+        principal_did: state.principal_id,
+        device_id: state.device_id,
     }
 }
 

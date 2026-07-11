@@ -23,7 +23,8 @@ use arkret::{
 };
 use chrono::Utc;
 use garth::{
-    ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, RunOptions, RunStopReason,
+    ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, OutboundEngine,
+    OutboundEngineOutcome, OutboundSubmitOutcome, OutboundSubmitter, RunOptions, RunStopReason,
     SyncLoopControl, TransportProvider,
 };
 use savfox_channels::arkret::{
@@ -416,6 +417,48 @@ async fn drain_pending_account_events_with_provider(
         session_store,
     )
     .await;
+    drain_pending_account_outbound(&client, account_store, channel, account).await;
+}
+
+async fn drain_pending_account_outbound(
+    client: &ArkretHttpClient,
+    account_store: &FileArkretAccountStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) {
+    let outbound = OutboundEngine::new(account_store.clone());
+    let submitter = AccountOutboundSubmitter {
+        client: client.clone(),
+    };
+    loop {
+        match outbound.submit_next(&submitter, Utc::now()).await {
+            Ok(OutboundEngineOutcome::Accepted(item) | OutboundEngineOutcome::Duplicate(item)) => {
+                debug!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    transaction_id = %item.transaction_id,
+                    "arkret: durable outbound worker completed queued event"
+                );
+            }
+            Ok(OutboundEngineOutcome::Rejected(item) | OutboundEngineOutcome::Terminal(item)) => {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    transaction_id = %item.transaction_id,
+                    "arkret: durable outbound worker reached terminal event state"
+                );
+            }
+            Ok(OutboundEngineOutcome::Idle | OutboundEngineOutcome::RetryAt { .. }) => return,
+            Err(error) => {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    "arkret: durable outbound worker deferred after error: {error}"
+                );
+                return;
+            }
+        }
+    }
 }
 
 /// Drain crash-safe deliveries committed atomically with the account cursor.
@@ -2149,6 +2192,47 @@ fn build_account_seq_allocator(
     ))
 }
 
+/// Maps one durable Garth queue item onto the Arkret submit endpoint.
+struct AccountOutboundSubmitter {
+    client: ArkretHttpClient,
+}
+
+impl OutboundSubmitter for AccountOutboundSubmitter {
+    fn submit<'a>(
+        &'a self,
+        item: arkret::sync_client::SendQueueItem,
+    ) -> garth::outbound::BoxOutboundFuture<'a, OutboundSubmitOutcome> {
+        Box::pin(async move {
+            let event: arkret::Event = serde_json::from_value(item.content).map_err(|error| {
+                arkret::Error::Protocol(format!("decode queued Arkret event: {error}"))
+            })?;
+            let response = match self.client.submit_event(&event).await {
+                Ok(response) => response,
+                Err(error) => {
+                    return Ok(OutboundSubmitOutcome::RetryAfter {
+                        delay: Duration::from_secs(1),
+                        reason: error.to_string(),
+                    });
+                }
+            };
+            if let Some(event_id) = response.accepted.into_iter().next() {
+                return Ok(OutboundSubmitOutcome::Accepted { event_id });
+            }
+            if let Some(event_id) = response.duplicate.into_iter().next() {
+                return Ok(OutboundSubmitOutcome::Duplicate { event_id });
+            }
+            if !response.rejected.is_empty() {
+                return Ok(OutboundSubmitOutcome::Rejected {
+                    reason: format!("{:?}", response.rejected),
+                });
+            }
+            Ok(OutboundSubmitOutcome::Terminal {
+                reason: format!("server accepted no events (status={:?})", response.status),
+            })
+        })
+    }
+}
+
 /// Send a `ak.message.create` event as one of the channel's configured
 /// outbound accounts.
 ///
@@ -2178,9 +2262,16 @@ pub(crate) async fn send_to_arkret_account(
         )
     })?;
 
-    // One-shot send uses the same agent_key_proof + DPoP session exchange as
-    // the listener. The short grant is not cached on this path.
+    // One-shot send restores the same keyring-backed session grant as the
+    // listener and participates in the shared refresh/client rebuild path.
     let client = construct_account_client(&channel, &account).await?;
+    let outbound_store = open_account_store(
+        savfox_home,
+        &channel.id,
+        &account.id,
+        ACCOUNT_EVENT_DEDUPE_MAX,
+    )?;
+    outbound_store.ensure_created().await?;
     // Monotonic, restart-safe actor sequence (parity with the applet path).
     let actor_seq = build_account_seq_allocator(savfox_home, &account.id)?
         .alloc()
@@ -2230,31 +2321,58 @@ pub(crate) async fn send_to_arkret_account(
         savfox_channels::arkret::sign_outbound_event(&mut event, &signer, &vm)?;
     }
 
-    let response = client.submit_event(&event).await?;
-    // A transport-level 200 does not mean the event was accepted: the server
-    // may reject it at the business layer (e.g. missing proofs, unsigned).
-    // Surface that as an error so the caller can retry/alert instead of
-    // silently treating a dropped event as delivered.
-    if !response.rejected.is_empty() {
-        anyhow::bail!(
-            "arkret: server rejected event for realm '{realm_id}': {:?}",
-            response.rejected
-        );
+    let transaction_id = event.event_id.to_string();
+    let realm_id_typed = RealmId::new(realm_id.to_owned())?;
+    let outbound = OutboundEngine::new(outbound_store);
+    outbound
+        .enqueue(
+            Some(transaction_id.clone()),
+            realm_id_typed,
+            arkret::sync_client::SendQueueItemKind::Message,
+            serde_json::to_value(event)?,
+            Vec::new(),
+        )
+        .await?;
+    let submitter = AccountOutboundSubmitter { client };
+    loop {
+        match outbound.submit_next(&submitter, Utc::now()).await? {
+            OutboundEngineOutcome::Accepted(item) | OutboundEngineOutcome::Duplicate(item)
+                if item.transaction_id == transaction_id =>
+            {
+                debug!(
+                    realm_id,
+                    transaction_id, "arkret: durable outbound event accepted"
+                );
+                return Ok(());
+            }
+            OutboundEngineOutcome::Accepted(_) | OutboundEngineOutcome::Duplicate(_) => continue,
+            OutboundEngineOutcome::RetryAt { item, at }
+                if item.transaction_id == transaction_id =>
+            {
+                anyhow::bail!(
+                    "arkret: outbound event queued for retry at {at} (transaction={transaction_id})"
+                );
+            }
+            OutboundEngineOutcome::RetryAt { .. } => continue,
+            OutboundEngineOutcome::Rejected(item) | OutboundEngineOutcome::Terminal(item)
+                if item.transaction_id == transaction_id =>
+            {
+                anyhow::bail!("arkret: outbound event rejected (transaction={transaction_id})");
+            }
+            OutboundEngineOutcome::Rejected(_) | OutboundEngineOutcome::Terminal(_) => continue,
+            OutboundEngineOutcome::Idle => {
+                let snapshot = outbound.snapshot().await?;
+                if snapshot.items.iter().any(|item| {
+                    item.transaction_id == transaction_id && item.remote_event_id.is_some()
+                }) {
+                    return Ok(());
+                }
+                anyhow::bail!(
+                    "arkret: outbound queue became idle before transaction {transaction_id} completed"
+                );
+            }
+        }
     }
-    if response.accepted.is_empty() && response.duplicate.is_empty() {
-        anyhow::bail!(
-            "arkret: server accepted no events for realm '{realm_id}' (status={:?})",
-            response.status
-        );
-    }
-    debug!(
-        "arkret: submitted event to '{}': status={:?} accepted={} duplicate={}",
-        realm_id,
-        response.status,
-        response.accepted.len(),
-        response.duplicate.len()
-    );
-    Ok(())
 }
 
 fn apply_account_outbound_encryption(

@@ -342,7 +342,7 @@ dependencies = [
  "rand_core 0.9.5",
  "regex",
  "reqwest 0.13.4",
- "salvo 0.93.0",
+ "salvo 0.94.0",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -389,7 +389,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "regex",
- "salvo 0.93.0",
+ "salvo 0.94.0",
  "salvo-oapi",
  "serde",
  "serde_json",
@@ -459,7 +459,7 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.4.2",
  "hex",
- "salvo 0.93.0",
+ "salvo 0.94.0",
  "salvo-oapi",
  "serde",
  "sha2 0.11.0",
@@ -483,7 +483,7 @@ dependencies = [
  "arkret-signatures",
  "arkret-state",
  "chrono",
- "salvo 0.93.0",
+ "salvo 0.94.0",
  "serde",
  "serde_json",
  "tokio",
@@ -515,7 +515,7 @@ dependencies = [
  "arkret-core",
  "chrono",
  "hex",
- "salvo 0.93.0",
+ "salvo 0.94.0",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -9298,22 +9298,13 @@ dependencies = [
 
 [[package]]
 name = "salvo"
-version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
-dependencies = [
- "salvo-oapi",
- "salvo_core 0.93.0",
- "salvo_extra 0.93.0",
-]
-
-[[package]]
-name = "salvo"
 version = "0.94.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e58d7158d996e7005dc9b67b0fe01bc070d500e644156ea74badc4826bb18d42"
 dependencies = [
+ "salvo-oapi",
  "salvo_core 0.94.0",
- "salvo_extra 0.94.0",
+ "salvo_extra",
 ]
 
 [[package]]
@@ -9362,8 +9353,9 @@ dependencies = [
 
 [[package]]
 name = "salvo-oapi"
-version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
+version = "0.94.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b98c7f653335de39036c1a05b1c25ac1be5922c4969e2aa714d6445eff64d48"
 dependencies = [
  "anyhow",
  "base64",
@@ -9380,7 +9372,7 @@ dependencies = [
  "rust-embed",
  "rust_decimal",
  "salvo-oapi-macros",
- "salvo_core 0.93.0",
+ "salvo_core 0.94.0",
  "serde",
  "serde_json",
  "serde_norway",
@@ -9396,15 +9388,16 @@ dependencies = [
 
 [[package]]
 name = "salvo-oapi-macros"
-version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
+version = "0.94.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe0c816049ec40cadff7c25feb45829b6bfc4082ce4773658d4c16ae00fd8fd9"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "proc-macro2-diagnostics",
  "quote",
- "salvo-serde-util 0.93.0",
- "salvo_core 0.93.0",
+ "salvo-serde-util 0.94.0",
+ "salvo_core 0.94.0",
  "syn 2.0.117",
 ]
 
@@ -9432,16 +9425,6 @@ name = "salvo-serde-util"
 version = "0.89.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c513cc94967322fab6ac2f1b3e68d40e110971fd4924f4d48677ca6e7df41038"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "salvo-serde-util"
-version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9514,48 +9497,6 @@ dependencies = [
 
 [[package]]
 name = "salvo_core"
-version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
-dependencies = [
- "async-trait",
- "base64",
- "bytes",
- "chardetng 1.0.0",
- "content_inspector",
- "cookie",
- "enumflags2",
- "form_urlencoded",
- "futures-channel",
- "futures-util",
- "headers",
- "http",
- "http-body-util",
- "hyper",
- "hyper-util",
- "indexmap 2.13.0",
- "mime",
- "mime-infer",
- "multimap",
- "multra",
- "parking_lot",
- "percent-encoding",
- "pin-project",
- "rand 0.10.0",
- "regex",
- "salvo_macros 0.93.0",
- "serde",
- "serde-xml-rs",
- "serde_json",
- "sync_wrapper",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "salvo_core"
 version = "0.94.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31dfe3c744ac1585cfa730d24b17710248ae96e8fcef9ac0df600c5e712ab709"
@@ -9565,6 +9506,7 @@ dependencies = [
  "bytes",
  "chardetng 1.0.0",
  "content_inspector",
+ "cookie",
  "enumflags2",
  "form_urlencoded",
  "futures-channel",
@@ -9594,27 +9536,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
-]
-
-[[package]]
-name = "salvo_extra"
-version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
-dependencies = [
- "base64",
- "etag",
- "futures-util",
- "http-body-util",
- "hyper",
- "pin-project",
- "salvo_core 0.93.0",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.29.0",
- "tower",
- "tracing",
- "ulid",
 ]
 
 [[package]]
@@ -9650,18 +9571,6 @@ dependencies = [
  "quote",
  "regex",
  "salvo-serde-util 0.89.3",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "salvo_macros"
-version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "salvo-serde-util 0.93.0",
  "syn 2.0.117",
 ]
 
@@ -9742,7 +9651,7 @@ dependencies = [
  "pretty_assertions",
  "rmcp",
  "salvo 0.94.0",
- "salvo_extra 0.94.0",
+ "salvo_extra",
  "savfox-app-server-protocol",
  "savfox-arg0",
  "savfox-common",
@@ -10581,7 +10490,7 @@ dependencies = [
  "reqwest 0.13.4",
  "rmcp",
  "salvo 0.94.0",
- "salvo_extra 0.94.0",
+ "salvo_extra",
  "savfox-keyring-store",
  "savfox-protocol",
  "savfox-utils",
