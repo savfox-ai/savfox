@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 #[cfg(feature = "arkret")]
-use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(feature = "arkret")]
@@ -709,6 +708,12 @@ fn insert_saved_channel_metadata(
                         };
                         info.insert("runtime_scope_count".to_owned(), json!(runtime_scope_count));
                     }
+                    info.insert(
+                        "listener_diagnostics".to_owned(),
+                        json!(crate::channels::arkret::arkret_account_runtime_diagnostics(
+                            &config.id
+                        )),
+                    );
                 }
             }
         }
@@ -2531,9 +2536,37 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let key_ref = generate_arkret_runtime_file_key_ref(&channel.config().savfox_home, label)
-        .await
-        .map_err(|err| (INTERNAL_ERROR, err.to_string()))?;
+    let _ = channel;
+    let keyring_account = format!(
+        "runtime-{}",
+        sanitize_arkret_runtime_key_label(label.unwrap_or("agent"))
+    );
+    let source_key_ref = params
+        .get("key_ref")
+        .or_else(|| params.get("keyRef"))
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            serde_json::from_value::<savfox_channels::arkret::ArkretKeyRef>(value.clone())
+                .map_err(|err| anyhow::anyhow!("invalid legacy Arkret keyRef: {err}"))
+        })
+        .transpose()
+        .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+    let key_ref = match source_key_ref {
+        Some(savfox_channels::arkret::ArkretKeyRef::Keyring { service, account }) => {
+            savfox_channels::arkret::ArkretKeyRef::Keyring { service, account }
+        }
+        Some(source) => savfox_channels::arkret::migrate_ed25519_key_ref_to_keyring(
+            &source,
+            "savfox-arkret",
+            keyring_account,
+        )
+        .map_err(|err| (INTERNAL_ERROR, err.to_string()))?,
+        None => savfox_channels::arkret::generate_ed25519_key_ref_in_keyring(
+            "savfox-arkret",
+            keyring_account,
+        )
+        .map_err(|err| (INTERNAL_ERROR, err.to_string()))?,
+    };
     let key_ref_json = serde_json::to_value(&key_ref)
         .map_err(|err| (INTERNAL_ERROR, format!("serialize Arkret keyRef: {err}")))?;
     Ok(json!({
@@ -2541,46 +2574,8 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
         "ok": true,
         "mode": "agent",
         "key_ref": key_ref_json,
-        "message": "Arkret runtime key generated as a local file keyRef",
+        "message": "Arkret runtime key stored in the platform credential vault",
     }))
-}
-
-#[cfg(feature = "arkret")]
-async fn generate_arkret_runtime_file_key_ref(
-    savfox_home: &Path,
-    label: Option<&str>,
-) -> anyhow::Result<savfox_channels::arkret::ArkretKeyRef> {
-    use tokio::io::AsyncWriteExt as _;
-
-    let key_dir = crate::home_paths::gateway_dir(savfox_home).join("arkret-runtime-keys");
-    tokio::fs::create_dir_all(&key_dir)
-        .await
-        .map_err(|err| anyhow::anyhow!("create Arkret runtime key directory: {err}"))?;
-    let safe_label = sanitize_arkret_runtime_key_label(label.unwrap_or("agent"));
-    let path = key_dir.join(format!(
-        "runtime-{safe_label}-{}.seed",
-        uuid::Uuid::now_v7()
-    ));
-    let mut seed: [u8; 32] = rand::random();
-    let mut options = tokio::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(&path)
-        .await
-        .map_err(|err| anyhow::anyhow!("create Arkret runtime key file: {err}"))?;
-    let write_result = async {
-        file.write_all(&seed).await?;
-        file.flush().await
-    }
-    .await;
-    seed.fill(0);
-    write_result.map_err(|err| anyhow::anyhow!("write Arkret runtime key file: {err}"))?;
-    Ok(savfox_channels::arkret::ArkretKeyRef::File { path })
 }
 
 #[cfg(feature = "arkret")]
@@ -3638,31 +3633,6 @@ mod tests {
             "did-webvh-example.org-agents-support"
         );
         assert_eq!(sanitize_arkret_runtime_key_label(""), "agent");
-    }
-
-    #[cfg(feature = "arkret")]
-    #[tokio::test]
-    async fn generated_arkret_runtime_key_ref_writes_local_file_without_returning_seed() {
-        let home = tempfile::tempdir().expect("temp home");
-        let key_ref = generate_arkret_runtime_file_key_ref(
-            home.path(),
-            Some("did:webvh:example.org:agents/support"),
-        )
-        .await
-        .expect("generate keyRef");
-        let key_ref_json = serde_json::to_value(&key_ref).expect("serialize keyRef");
-
-        assert_eq!(key_ref_json["kind"], "file");
-        assert!(key_ref_json.get("value").is_none());
-        assert!(key_ref_json.get("seed").is_none());
-        let path = key_ref_json["path"].as_str().expect("file path");
-        let path = Path::new(path);
-        assert!(path.starts_with(home.path().join("gateway").join("arkret-runtime-keys")));
-        assert_eq!(std::fs::read(path).expect("read seed").len(), 32);
-
-        let seed_hex = savfox_channels::arkret::load_ed25519_seed_hex(&key_ref)
-            .expect("generated file keyRef must load");
-        assert_eq!(seed_hex.len(), 64);
     }
 
     #[test]

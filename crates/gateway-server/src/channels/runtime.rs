@@ -38,6 +38,25 @@ use self::trigger::{
     TriggerContext, TriggerDecision, TriggerReason, apply_agent_trigger_policy, decide_trigger,
     effective_conversation_kind,
 };
+
+pub(crate) async fn resolve_start_thread_agent(
+    gateway_channel: &GatewayChannel,
+    session_store: &Arc<SessionStore>,
+    platform: &str,
+    channel_id: &str,
+    name: Option<&str>,
+    meta: &StartThreadMeta,
+) -> String {
+    resolve_routed_agent(
+        gateway_channel,
+        session_store,
+        platform,
+        channel_id,
+        name,
+        meta,
+    )
+    .await
+}
 use crate::auto_reply::directives::{
     DirectiveKind, fuzzy_match_model_name, parse_directives, parse_model_target,
 };
@@ -382,8 +401,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         "info",
         "channel/runtime",
         format!(
-            "start_thread platform={platform} channel={channel_id} session_id={}",
-            tracked.session_id
+            "start_thread platform={platform} channel={channel_id} agent_id={routed_agent} session_id={}",
+            tracked.session_id,
         ),
     )
     .await;

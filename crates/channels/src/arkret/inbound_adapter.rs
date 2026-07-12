@@ -24,6 +24,12 @@ pub struct ArkretInboundEvent {
     pub sender_did: String,
     pub body: String,
     pub thread_root_id: Option<String>,
+    /// Actor DIDs carried by structured `content.mentions` nodes.
+    ///
+    /// The gateway keeps this data through the host-dispatch boundary so a
+    /// personal-agent runtime can explain whether the event explicitly
+    /// addressed its Arkret principal instead of routing on body text alone.
+    pub mentioned_actor_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -180,6 +186,7 @@ fn classify_sdk_message_create(
         .reply_to
         .clone()
         .or_else(|| legacy_thread_root_id(&event.payload, content));
+    let mentioned_actor_ids = structured_mention_actor_ids(content);
 
     ArkretInboundEventOutcome::Dispatchable(ArkretInboundEvent {
         account_id: account_id.to_owned(),
@@ -189,7 +196,30 @@ fn classify_sdk_message_create(
         sender_did: event.actor_id.as_str().to_owned(),
         body: body.to_owned(),
         thread_root_id,
+        mentioned_actor_ids,
     })
+}
+
+fn structured_mention_actor_ids(content: &Value) -> Vec<String> {
+    let mut actor_ids = content
+        .get("mentions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|mention| {
+            mention
+                .get("subject_id")
+                .or_else(|| mention.get("actor_id"))
+                .or_else(|| mention.get("did"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|actor_id| !actor_id.is_empty())
+                .map(str::to_owned)
+        })
+        .collect::<Vec<_>>();
+    actor_ids.sort_unstable();
+    actor_ids.dedup();
+    actor_ids
 }
 
 fn legacy_thread_root_id(payload: &Value, content: &Value) -> Option<String> {
@@ -395,6 +425,7 @@ fn classify_notification_event(
         sender_did,
         body,
         thread_root_id: notification_strand_id(notification),
+        mentioned_actor_ids: Vec::new(),
     })
 }
 
@@ -629,6 +660,32 @@ mod tests {
         assert_eq!(parsed.body, "hello sdk");
         assert_eq!(parsed.flow_id.as_deref(), Some(STRAND_1));
         assert_eq!(parsed.sender_did, "did:webvh:z6mkfixture:alice.example");
+    }
+
+    #[test]
+    fn preserves_structured_agent_mention_targets_for_gateway_routing() {
+        let agent_id = "did:webvh:example.org:agents:support";
+        let event = event_value(
+            "ak.message.create",
+            REALM_1,
+            "did:webvh:z6mkfixture:alice.example",
+            json!({
+                "strand_id": STRAND_1,
+                "track_name": "discussion",
+                "content": {
+                    "kind": "ak.content.text",
+                    "body": "hello support",
+                    "mentions": [
+                        {"kind": "mention", "subject_id": agent_id},
+                        {"kind": "mention", "subject_id": agent_id}
+                    ]
+                }
+            }),
+        );
+
+        let parsed = extract_message_event(&event, "support").expect("parse");
+
+        assert_eq!(parsed.mentioned_actor_ids, vec![agent_id]);
     }
 
     #[test]

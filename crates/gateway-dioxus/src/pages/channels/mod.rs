@@ -4393,8 +4393,13 @@ fn render_single_field(
                                     .map(|value| {
                                         serde_json::from_str::<Value>(value.trim())
                                             .ok()
-                                            .and_then(|value| value.as_object().cloned())
-                                            .is_none()
+                                            .and_then(|value| {
+                                                value
+                                                    .get("kind")
+                                                    .and_then(Value::as_str)
+                                                    .map(str::to_owned)
+                                            })
+                                            .is_none_or(|kind| kind != "keyring")
                                     })
                                     .unwrap_or(true);
                                 if key_ref_needs_generation {
@@ -4988,6 +4993,18 @@ fn arkret_runtime_key_ref_generation_params(
     }
     if let Some(verification_method) = verification_method {
         params.insert("verification_method".to_owned(), json!(verification_method));
+    }
+    if let Some(key_ref) = values
+        .get(&field_value_key(channel_id, "keyRef"))
+        .and_then(|value| serde_json::from_str::<Value>(value.trim()).ok())
+        .filter(|value| {
+            matches!(
+                value.get("kind").and_then(Value::as_str),
+                Some("file" | "env")
+            )
+        })
+    {
+        params.insert("key_ref".to_owned(), key_ref);
     }
     Value::Object(params)
 }

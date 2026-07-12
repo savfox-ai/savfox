@@ -25,6 +25,7 @@ arkret = [
     "dep:garth",
     "dep:arkret-bridge-runtime",
     "dep:savfox-keyring-store",
+    "dep:rand",
 ]
 
 [dependencies]
@@ -37,6 +38,7 @@ feishu-sdk = { workspace = true, optional = true }
 form_urlencoded = { workspace = true }
 futures-util = { workspace = true, features = ["alloc"] }
 parking_lot = { workspace = true }
+rand = { workspace = true, optional = true }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true, features = ["alloc"] }
 hmac = { workspace = true }

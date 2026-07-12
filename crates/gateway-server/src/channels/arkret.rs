@@ -47,6 +47,63 @@ use crate::session::SessionStore;
 #[derive(Default)]
 struct ArkretRuntimeState {
     handles: HashMap<String, tokio::task::JoinHandle<()>>,
+    diagnostics: HashMap<String, ArkretListenerDiagnostic>,
+}
+
+#[derive(Debug, Clone)]
+struct ArkretListenerDiagnostic {
+    channel_id: String,
+    account_id: String,
+    principal_id: String,
+    phase: &'static str,
+    attempt: u64,
+    last_error: Option<String>,
+    last_event_id: Option<String>,
+    last_realm_id: Option<String>,
+    last_local_agent_id: Option<String>,
+    received_events: u64,
+    dispatched_events: u64,
+    skipped_events: u64,
+    updated_at: chrono::DateTime<Utc>,
+}
+
+impl ArkretListenerDiagnostic {
+    fn new(channel: &ArkretChannelConfig, account: &ArkretAccountConfig) -> Self {
+        Self {
+            channel_id: channel.id.clone(),
+            account_id: account.id.clone(),
+            principal_id: account.principal_id.clone(),
+            phase: "scheduled",
+            attempt: 0,
+            last_error: None,
+            last_event_id: None,
+            last_realm_id: None,
+            last_local_agent_id: None,
+            received_events: 0,
+            dispatched_events: 0,
+            skipped_events: 0,
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn to_value(&self, running: bool) -> Value {
+        json!({
+            "channel_id": self.channel_id,
+            "account_id": self.account_id,
+            "principal_id": self.principal_id,
+            "phase": self.phase,
+            "running": running,
+            "attempt": self.attempt,
+            "last_error": self.last_error,
+            "last_event_id": self.last_event_id,
+            "last_realm_id": self.last_realm_id,
+            "last_local_agent_id": self.last_local_agent_id,
+            "received_events": self.received_events,
+            "dispatched_events": self.dispatched_events,
+            "skipped_events": self.skipped_events,
+            "updated_at": self.updated_at,
+        })
+    }
 }
 
 const ACCOUNT_EVENT_DEDUPE_MAX: usize = 4096;
@@ -67,6 +124,68 @@ fn runtime_state() -> &'static StdMutex<ArkretRuntimeState> {
 
 fn task_key(channel_id: &str, account_id: &str) -> String {
     format!("{channel_id}::{account_id}")
+}
+
+fn update_listener_diagnostic(
+    channel_id: &str,
+    account_id: &str,
+    update: impl FnOnce(&mut ArkretListenerDiagnostic),
+) {
+    let key = task_key(channel_id, account_id);
+    let Ok(mut state) = runtime_state().lock() else {
+        warn!(channel_id, account_id, "arkret: runtime state mutex poisoned while updating diagnostics");
+        return;
+    };
+    if let Some(diagnostic) = state.diagnostics.get_mut(&key) {
+        update(diagnostic);
+        diagnostic.updated_at = Utc::now();
+    }
+}
+
+fn record_listener_failure(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    phase: &'static str,
+    error: impl std::fmt::Display,
+) {
+    let error = error.to_string();
+    update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+        diagnostic.phase = phase;
+        diagnostic.last_error = Some(error);
+    });
+}
+
+fn record_listener_phase(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    phase: &'static str,
+) {
+    update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+        diagnostic.phase = phase;
+        diagnostic.last_error = None;
+    });
+}
+
+pub(crate) fn arkret_account_runtime_diagnostics(channel_id: &str) -> Vec<Value> {
+    let prefix = format!("{channel_id}::");
+    let Ok(state) = runtime_state().lock() else {
+        return Vec::new();
+    };
+    let mut values = state
+        .diagnostics
+        .iter()
+        .filter(|(key, _)| key.starts_with(&prefix))
+        .map(|(key, diagnostic)| {
+            let running = state.handles.get(key).is_some_and(|handle| !handle.is_finished());
+            diagnostic.to_value(running)
+        })
+        .collect::<Vec<_>>();
+    values.sort_by(|left, right| {
+        left.get("account_id")
+            .and_then(Value::as_str)
+            .cmp(&right.get("account_id").and_then(Value::as_str))
+    });
+    values
 }
 
 pub(crate) async fn start_arkret_channel(
@@ -126,6 +245,10 @@ pub(crate) fn stop_arkret_account_listeners(channel_id: &str) -> usize {
             handle.abort();
             stopped += 1;
         }
+        if let Some(diagnostic) = state.diagnostics.get_mut(&key) {
+            diagnostic.phase = "stopped";
+            diagnostic.updated_at = Utc::now();
+        }
     }
     stopped
 }
@@ -138,8 +261,8 @@ pub(crate) fn arkret_account_listener_count(channel_id: &str) -> usize {
     };
     state
         .handles
-        .keys()
-        .filter(|key| key.starts_with(&prefix))
+        .iter()
+        .filter(|(key, handle)| key.starts_with(&prefix) && !handle.is_finished())
         .count()
 }
 
@@ -151,15 +274,48 @@ fn spawn_account_listener(
     session_store: Arc<SessionStore>,
 ) {
     let key = task_key(&channel.id, &account.id);
+    if let Ok(mut state) = runtime_state().lock() {
+        state
+            .diagnostics
+            .insert(key.clone(), ArkretListenerDiagnostic::new(&channel, &account));
+    }
+    let diagnostic_channel_id = channel.id.clone();
+    let diagnostic_account_id = account.id.clone();
     let handle = tokio::spawn(async move {
-        run_account_listener(
-            savfox_home,
-            channel,
-            account,
-            gateway_channel,
-            session_store,
-        )
-        .await;
+        let mut attempt = 0_u64;
+        loop {
+            attempt = attempt.saturating_add(1);
+            update_listener_diagnostic(
+                &diagnostic_channel_id,
+                &diagnostic_account_id,
+                |diagnostic| {
+                    diagnostic.phase = "starting";
+                    diagnostic.attempt = attempt;
+                },
+            );
+            run_account_listener(
+                savfox_home.clone(),
+                channel.clone(),
+                account.clone(),
+                Arc::clone(&gateway_channel),
+                Arc::clone(&session_store),
+            )
+            .await;
+            let retry_delay = Duration::from_secs(attempt.min(6).pow(2));
+            update_listener_diagnostic(
+                &diagnostic_channel_id,
+                &diagnostic_account_id,
+                |diagnostic| diagnostic.phase = "retry_wait",
+            );
+            warn!(
+                channel_id = %diagnostic_channel_id,
+                account_id = %diagnostic_account_id,
+                attempt,
+                retry_delay_ms = retry_delay.as_millis(),
+                "arkret: listener attempt ended; retrying instead of leaving a stale connected task"
+            );
+            tokio::time::sleep(retry_delay).await;
+        }
     });
     let Ok(mut state) = runtime_state().lock() else {
         warn!("arkret: runtime state mutex poisoned; aborting listener task '{key}'");
@@ -179,6 +335,12 @@ async fn run_account_listener(
     session_store: Arc<SessionStore>,
 ) {
     if !account.has_requested_scope("ak.self.events.stream.subscribe") {
+        record_listener_failure(
+            &channel,
+            &account,
+            "scope_rejected",
+            "missing ak.self.events.stream.subscribe",
+        );
         warn!(
             "arkret: account '{}' listen=true but missing ak.self.events.stream.subscribe; refusing to open subscribe endpoint",
             account.id
@@ -203,6 +365,7 @@ async fn run_account_listener(
                     "arkret: account '{}' durable subscribe state unavailable at {path}: {err}",
                     account.id
                 );
+                record_listener_failure(&channel, &account, "store_error", &err);
                 runtime::record_channel_probe("arkret", "error").await;
                 return;
             } else {
@@ -214,6 +377,7 @@ async fn run_account_listener(
                 "arkret: account '{}' failed to open durable subscribe state: {err}",
                 account.id
             );
+            record_listener_failure(&channel, &account, "store_error", &err);
             runtime::record_channel_probe("arkret", "error").await;
             return;
         }
@@ -236,6 +400,7 @@ async fn run_account_listener(
                 "arkret: account '{}' on channel '{}' failed to construct session provider: {err:#}",
                 account.id, channel.id
             );
+            record_listener_failure(&channel, &account, "session_provider_error", format!("{err:#}"));
             runtime::record_channel_probe("arkret", "error").await;
             return;
         }
@@ -247,10 +412,12 @@ async fn run_account_listener(
                 "arkret: account '{}' failed to build authenticated HTTP client: {error}",
                 account.id
             );
+            record_listener_failure(&channel, &account, "authentication_error", &error);
             runtime::record_channel_probe("arkret", "error").await;
             return;
         }
     };
+    record_listener_phase(&channel, &account, "subscribing");
     runtime::record_channel_probe("arkret", "ok").await;
     run_account_key_lifecycle_maintenance(
         &client,
@@ -274,11 +441,15 @@ async fn run_account_listener(
     )
     .await
     {
-        AccountEngineOutcome::Unauthorized { reason } => warn!(
-            account_id = %account.id,
-            reason = reason.as_deref().unwrap_or("unspecified"),
-            "arkret: shared session provider could not recover authorization"
-        ),
+        AccountEngineOutcome::Unauthorized { reason } => {
+            let detail = reason.as_deref().unwrap_or("unspecified");
+            record_listener_failure(&channel, &account, "unauthorized", detail);
+            warn!(
+                account_id = %account.id,
+                reason = detail,
+                "arkret: shared session provider could not recover authorization"
+            );
+        }
         AccountEngineOutcome::Cancelled => {
             debug!(
                 "arkret: account '{}' subscription engine stopped",
@@ -286,6 +457,7 @@ async fn run_account_listener(
             );
         }
         AccountEngineOutcome::Retry { error } => {
+            record_listener_failure(&channel, &account, "subscribe_error", format!("{error:#}"));
             warn!(
                 "arkret: subscribe engine for '{}/{}' failed: {error:#}",
                 channel.id, account.id
@@ -1817,6 +1989,11 @@ async fn handle_parsed_account_events(
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
     for skipped in parsed.skipped {
+        update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+            diagnostic.skipped_events = diagnostic.skipped_events.saturating_add(1);
+            diagnostic.last_event_id = skipped.event_id.clone();
+            diagnostic.last_realm_id = skipped.realm_id.clone();
+        });
         match skipped.reason {
             ArkretInboundSkipReason::EncryptedContent => {
                 if let Some(event_id) = skipped.event_id.as_deref()
@@ -1859,7 +2036,27 @@ async fn handle_parsed_account_events(
         }
     }
     for event in parsed.events {
+        update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+            diagnostic.received_events = diagnostic.received_events.saturating_add(1);
+            diagnostic.last_event_id = Some(event.event_id.clone());
+            diagnostic.last_realm_id = Some(event.realm_id.clone());
+        });
+        debug!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            event_id = %event.event_id,
+            realm_id = %event.realm_id,
+            sender_did = %event.sender_did,
+            mentioned_actor_ids = ?event.mentioned_actor_ids,
+            "arkret: parsed dispatchable account event"
+        );
         if account_event_seen(account_store, channel, account, &event.event_id).await? {
+            debug!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                event_id = %event.event_id,
+                "arkret: event already acknowledged in durable dedupe store"
+            );
             continue;
         }
         let event_id = event.event_id.clone();
@@ -1888,6 +2085,8 @@ async fn dispatch_to_agent(
     let realm_id = event.realm_id.clone();
     let flow_id = event.flow_id.clone();
     let thread_id = event.thread_root_id.clone();
+    let event_id = event.event_id.clone();
+    let mentioned_actor_ids = event.mentioned_actor_ids.clone();
     let body = event.body;
     // DIDs carry no external-bot localpart convention, but we can at least mark
     // the account's own DID as SelfBot so the runtime never replies to its own
@@ -1898,6 +2097,43 @@ async fn dispatch_to_agent(
         runtime::SenderKind::Human
     };
 
+    let mut start_meta = runtime::StartThreadMeta {
+        peer_id: Some(sender.clone()),
+        group_id: Some(realm_id.clone()),
+        thread_id,
+        reply_target: flow_id,
+        chat_type: Some("group".to_owned()),
+        saved_channel_config_id: Some(config_id.clone()),
+        sender_kind,
+        ..runtime::StartThreadMeta::default()
+    };
+    let local_agent_id = runtime::resolve_start_thread_agent(
+        &gateway_channel,
+        &session_store,
+        "arkret",
+        &realm_id,
+        Some(&sender),
+        &start_meta,
+    )
+    .await;
+    start_meta.forced_agent_id = Some(local_agent_id.clone());
+    update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+        diagnostic.phase = "dispatching";
+        diagnostic.last_event_id = Some(event_id.clone());
+        diagnostic.last_realm_id = Some(realm_id.clone());
+        diagnostic.last_local_agent_id = Some(local_agent_id.clone());
+    });
+    info!(
+        channel_id = %channel.id,
+        account_id = %account.id,
+        arkret_principal_id = %account.principal_id,
+        event_id = %event_id,
+        realm_id = %realm_id,
+        local_agent_id = %local_agent_id,
+        mentioned_actor_ids = ?mentioned_actor_ids,
+        "arkret: dispatching inbound event to resolved Savfox agent"
+    );
+
     let accepted = runtime::spawn_start_thread_pipeline_with_meta_coordinated(
         gateway_channel,
         session_store,
@@ -1905,22 +2141,17 @@ async fn dispatch_to_agent(
         realm_id.clone(),
         body,
         Some(sender.clone()),
-        Some(runtime::StartThreadMeta {
-            peer_id: Some(sender),
-            group_id: Some(realm_id),
-            thread_id,
-            reply_target: flow_id,
-            chat_type: Some("group".to_owned()),
-            saved_channel_config_id: Some(config_id),
-            sender_kind,
-            ..runtime::StartThreadMeta::default()
-        }),
+        Some(start_meta),
     )
     .await;
     anyhow::ensure!(
         accepted,
         "Arkret inbound task was not accepted by the coordinator"
     );
+    update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+        diagnostic.phase = "subscribing";
+        diagnostic.dispatched_events = diagnostic.dispatched_events.saturating_add(1);
+    });
     Ok(())
 }
 
@@ -2002,6 +2233,7 @@ async fn try_handle_encrypted_account_skip(
                     sender_did,
                     body,
                     thread_root_id: None,
+                    mentioned_actor_ids: Vec::new(),
                 },
                 channel,
                 account,

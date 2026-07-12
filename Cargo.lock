@@ -317,6 +317,7 @@ name = "arkret"
 version = "0.3.0"
 dependencies = [
  "argon2",
+ "arkret-canonical",
  "arkret-core",
  "arkret-crypto",
  "arkret-ffi",
@@ -326,6 +327,7 @@ dependencies = [
  "arkret-server",
  "arkret-signatures",
  "arkret-state",
+ "arkret-wire-base",
  "base64",
  "chacha20poly1305",
  "chrono",
@@ -376,10 +378,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "arkret-canonical"
+version = "0.3.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "bs58",
+ "chrono",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "arkret-core"
 version = "0.3.0"
 dependencies = [
+ "arkret-canonical",
  "arkret-identifiers",
+ "arkret-policy",
+ "arkret-schema",
+ "arkret-state",
+ "arkret-wire-base",
+ "arkret-wire-edge",
  "base64",
  "blake3",
  "bs58",
@@ -406,6 +430,7 @@ dependencies = [
 name = "arkret-crypto"
 version = "0.3.0"
 dependencies = [
+ "arkret-canonical",
  "arkret-core",
  "arkret-signatures",
  "chrono",
@@ -476,9 +501,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "arkret-policy"
+version = "0.3.0"
+dependencies = [
+ "arkret-schema",
+ "arkret-wire-base",
+ "chrono",
+ "chrono-tz",
+ "salvo 0.94.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "arkret-schema"
+version = "0.3.0"
+dependencies = [
+ "arkret-canonical",
+ "arkret-wire-base",
+ "chrono",
+ "regex",
+ "salvo 0.94.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "arkret-server"
 version = "0.3.0"
 dependencies = [
+ "arkret-canonical",
  "arkret-core",
  "arkret-signatures",
  "arkret-state",
@@ -493,7 +548,9 @@ dependencies = [
 name = "arkret-signatures"
 version = "0.3.0"
 dependencies = [
+ "arkret-canonical",
  "arkret-core",
+ "arkret-wire-base",
  "base64",
  "chrono",
  "ed25519-dalek",
@@ -512,13 +569,42 @@ dependencies = [
 name = "arkret-state"
 version = "0.3.0"
 dependencies = [
- "arkret-core",
+ "arkret-canonical",
+ "arkret-wire-base",
  "chrono",
  "hex",
  "salvo 0.94.0",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "arkret-wire-base"
+version = "0.3.0"
+dependencies = [
+ "arkret-canonical",
+ "arkret-identifiers",
+ "chrono",
+ "hex",
+ "salvo 0.94.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "arkret-wire-edge"
+version = "0.3.0"
+dependencies = [
+ "arkret-canonical",
+ "arkret-wire-base",
+ "chrono",
+ "salvo 0.94.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -9791,6 +9877,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "parking_lot",
+ "rand 0.10.0",
  "reqwest 0.13.4",
  "savfox-core",
  "savfox-keyring-store",
