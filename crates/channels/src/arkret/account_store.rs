@@ -5,14 +5,12 @@ use garth::{CursorScope, FileStore};
 
 use crate::arkret::account_scope_id;
 
-pub type FileArkretAccountStore = FileStore;
-
 pub fn open_account_store(
     savfox_home: &Path,
     channel_id: &str,
     account_id: &str,
     event_cache_capacity: usize,
-) -> arkret::Result<FileArkretAccountStore> {
+) -> arkret::Result<FileStore> {
     FileStore::open_with_seen_capacity(
         account_store_path(savfox_home, channel_id, account_id),
         event_cache_capacity,

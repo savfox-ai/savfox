@@ -31,11 +31,10 @@ use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
     ArkretDecryptDetailedOutcome, ArkretEncryptOutcome, ArkretHttpClient, ArkretInboundEvent,
     ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent,
-    ArkretMlsWelcomeConsumeBinding, FileArkretAccountStore, FileArkretCryptoStore,
-    MessageCreateRequest, account_allows_event_read, build_message_create_event,
-    device_messages_scope, open_account_store, parse_delta_frame_for_account,
-    parse_notification_delta_for_account, resolve_arkret_outbound_account,
-    sign_key_operation_value,
+    ArkretMlsWelcomeConsumeBinding, FileArkretCryptoStore, MessageCreateRequest,
+    account_allows_event_read, build_message_create_event, device_messages_scope,
+    open_account_store, parse_delta_frame_for_account, parse_notification_delta_for_account,
+    resolve_arkret_outbound_account, sign_key_operation_value,
 };
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
@@ -307,7 +306,7 @@ async fn drive_account_subscription_engine(
     provider: &ArkretAgentSessionProvider,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: FileArkretAccountStore,
+    account_store: garth::FileStore,
     crypto_store: FileArkretCryptoStore,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
@@ -358,7 +357,7 @@ async fn drive_account_subscription_engine(
     loop {
         tokio::select! {
             result = &mut run => {
-                drain_pending_account_events_with_provider(
+                process_durable_account_work(
                     provider,
                     channel,
                     account,
@@ -371,7 +370,7 @@ async fn drive_account_subscription_engine(
                 return account_engine_outcome_from_result(result);
             }
             _ = delivery_poll.tick() => {
-                drain_pending_account_events_with_provider(
+                process_durable_account_work(
                     provider,
                     channel,
                     account,
@@ -387,11 +386,11 @@ async fn drive_account_subscription_engine(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn drain_pending_account_events_with_provider(
+async fn process_durable_account_work(
     provider: &ArkretAgentSessionProvider,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
@@ -407,7 +406,7 @@ async fn drain_pending_account_events_with_provider(
             return;
         }
     };
-    drain_pending_account_events(
+    process_durable_account_inbox(
         &client,
         channel,
         account,
@@ -422,7 +421,7 @@ async fn drain_pending_account_events_with_provider(
 
 async fn drain_pending_account_outbound(
     client: &ArkretHttpClient,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
 ) {
@@ -464,11 +463,11 @@ async fn drain_pending_account_outbound(
 /// Drain crash-safe deliveries committed atomically with the account cursor.
 /// A process exit before `ack` leaves the batch pending for the next listener.
 #[allow(clippy::too_many_arguments)]
-async fn drain_pending_account_events(
+async fn process_durable_account_inbox(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
@@ -574,7 +573,7 @@ async fn handle_account_client_event(
     event: ClientEvent,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
@@ -635,7 +634,7 @@ async fn run_account_key_lifecycle_maintenance(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     reason: &'static str,
 ) {
@@ -814,7 +813,7 @@ async fn drain_account_device_messages_from_cursor(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     initial_cursor: Option<String>,
     reason: &'static str,
@@ -1221,7 +1220,7 @@ fn sign_account_key_operation(
 }
 
 async fn account_event_seen(
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     event_id: &str,
@@ -1248,7 +1247,7 @@ async fn account_event_seen(
 }
 
 async fn remember_account_event(
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     event_id: &str,
 ) -> anyhow::Result<()> {
     let event_id = arkret::EventId::new(event_id.to_owned())?;
@@ -1261,7 +1260,7 @@ async fn handle_sync_updates_for_account(
     updates: arkret::SyncUpdates,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
@@ -1465,7 +1464,7 @@ async fn drain_account_device_messages(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     reason: &'static str,
 ) {
@@ -1549,7 +1548,7 @@ async fn scan_limited_realm_timeline_for_account(
     request: AccountScanCatchupRequest,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
@@ -1812,7 +1811,7 @@ async fn handle_parsed_account_events(
     parsed: ArkretInboundParseResult,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: &FileArkretAccountStore,
+    account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,

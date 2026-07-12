@@ -35,7 +35,7 @@ mod outbound;
 mod session;
 mod signer;
 
-pub use account_store::{FileArkretAccountStore, device_messages_scope, open_account_store};
+pub use account_store::{device_messages_scope, open_account_store};
 pub use applet::{
     AppletDispatchSkip, AppletEventOutcome, AppletInboundCommand, AppletNamespaces,
     AppletNamespacesExt, ArkretAppletConfig, NamespacePattern, NamespacePatternExt,

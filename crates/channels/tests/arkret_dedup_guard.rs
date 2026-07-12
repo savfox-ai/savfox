@@ -130,3 +130,34 @@ fn savfox_account_outbound_uses_garth_durable_queue() {
         "Savfox account outbound must not bypass the durable queue with direct submit"
     );
 }
+
+#[test]
+fn savfox_account_runtime_does_not_restore_legacy_store_or_channel_drain() {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("channels crate should live under crates/channels");
+    let account_store = workspace.join("crates/channels/src/arkret/account_store.rs");
+    let listener = workspace.join("crates/gateway-server/src/channels/arkret.rs");
+    let sources = [account_store, listener]
+        .map(|path| {
+            fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+        })
+        .join("\n");
+    for forbidden in [
+        "FileArkretAccountStore",
+        "drain_pending_account_events",
+        "unbounded_channel",
+    ] {
+        assert!(
+            !sources.contains(forbidden),
+            "Savfox must use Garth FileStore and durable inbox directly; found legacy surface `{forbidden}`"
+        );
+    }
+    assert!(
+        sources.contains("process_durable_account_inbox") && sources.contains("garth::FileStore"),
+        "Savfox listener must keep the durable Garth inbox worker wired"
+    );
+}

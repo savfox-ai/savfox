@@ -33,9 +33,9 @@ use serde_json::{Value, json};
 use url::Url;
 use uuid::Uuid;
 
-use super::FileArkretAccountStore;
 use super::session::{ArkretSession, login_with_signer};
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
+use garth::FileStore;
 
 const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 
@@ -61,8 +61,7 @@ pub type ArkretAccountFrameStream =
 
 pub type SavfoxArkretClientCore = ArkretClient<NativeExecutor, MemoryStore, MemoryStore>;
 
-pub type SavfoxDurableArkretClientCore =
-    ArkretClient<NativeExecutor, FileArkretAccountStore, FileArkretAccountStore>;
+pub type SavfoxDurableArkretClientCore = ArkretClient<NativeExecutor, FileStore, FileStore>;
 
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
@@ -319,7 +318,7 @@ impl ArkretHttpClient {
     #[must_use]
     pub fn client_core_with_account_store(
         &self,
-        store: FileArkretAccountStore,
+        store: FileStore,
     ) -> SavfoxDurableArkretClientCore {
         ArkretClient::new(NativeExecutor, store.clone(), store)
     }
