@@ -13,12 +13,6 @@ const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
     "ak.self.events.query.scan",
     "ak.self.events.command.submit",
-    "ak.self.keys.keypackages.upload.create",
-    "ak.self.keys.keypackages.command.claim",
-    "ak.self.keys.keypackages.command.consume",
-    "ak.self.device_messages.query.list",
-    "ak.self.device_messages.command.ack",
-    "ak.event.read",
     "ak.message.create",
 ];
 

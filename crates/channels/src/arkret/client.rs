@@ -24,10 +24,10 @@ use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::Stream;
 use garth::session::BoxSessionFuture;
 use garth::{
-    AgentKeyProofLogin, ArkretClient, AuthenticatedTransportFactory, LoginKind, MemoryStore,
-    NativeExecutor, SecureKeyStore, SecureKeyStoreBackendInfo, SecureKeyStoreError,
-    SecureSessionGrantStore, SessionEngine, SessionGrantState, SessionGrantStore,
-    SessionGrantTransport, SessionRefreshOptions, SessionTransportProvider, TransportProvider,
+    AgentKeyProofLogin, ArkretClient, AuthenticatedTransportFactory, FileStore, LoginKind,
+    MemoryStore, NativeExecutor, NoopSessionGrantStore, SessionEngine, SessionGrantState,
+    SessionGrantStore, SessionGrantTransport, SessionRefreshOptions, SessionTransportProvider,
+    TransportProvider,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -35,7 +35,6 @@ use uuid::Uuid;
 
 use super::session::{ArkretSession, login_with_signer};
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
-use garth::FileStore;
 
 const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 
@@ -66,7 +65,7 @@ pub type SavfoxDurableArkretClientCore = ArkretClient<NativeExecutor, FileStore,
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
 pub struct AgentSessionGrantTransport {
-    base_url: Url,
+    grant_base_url: Url,
     bootstrap: Client,
     signing_key: Arc<SigningKey>,
 }
@@ -85,7 +84,7 @@ impl SessionGrantTransport for AgentSessionGrantTransport {
     ) -> BoxSessionFuture<'a, arkret::SessionGrantRefreshOutcome> {
         Box::pin(async move {
             let client = build_dpop_client(
-                self.base_url.clone(),
+                self.grant_base_url.clone(),
                 Arc::clone(&self.signing_key),
                 request.grant_jwt.clone(),
             )?;
@@ -119,76 +118,20 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
     ) -> arkret::Result<SessionRefreshOptions> {
         Ok(SessionRefreshOptions {
             audience: Some(state.audience.clone()),
-            device_id: state.device_id.clone(),
+            device_id: state
+                .device_id
+                .clone()
+                .or_else(|| fallback.device_id.clone()),
             proof: fallback.proof.clone(),
             expected_dpop_jkt: state.dpop_jkt.clone(),
         })
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct SavfoxKeyringSecureStore {
-    service: String,
-}
-
-impl SavfoxKeyringSecureStore {
-    fn new(service: impl Into<String>) -> Self {
-        Self {
-            service: service.into(),
-        }
-    }
-}
-
-impl SecureKeyStore for SavfoxKeyringSecureStore {
-    fn store_secret_bytes(&self, key: &str, value: &[u8]) -> Result<(), SecureKeyStoreError> {
-        use savfox_keyring_store::KeyringStore as _;
-
-        let value = std::str::from_utf8(value).map_err(|error| {
-            SecureKeyStoreError::Backend(format!("session grant utf8: {error}"))
-        })?;
-        savfox_keyring_store::DefaultKeyringStore
-            .save(&self.service, key, value)
-            .map_err(|error| SecureKeyStoreError::Backend(error.to_string()))
-    }
-
-    fn get_secret_bytes(
-        &self,
-        key: &str,
-    ) -> Result<Option<garth::SecretBytes>, SecureKeyStoreError> {
-        use savfox_keyring_store::KeyringStore as _;
-
-        savfox_keyring_store::DefaultKeyringStore
-            .load(&self.service, key)
-            .map(|value| value.map(|value| garth::SecretBytes::new(value.into_bytes())))
-            .map_err(|error| SecureKeyStoreError::Backend(error.to_string()))
-    }
-
-    fn delete_secret(&self, key: &str) -> Result<(), SecureKeyStoreError> {
-        use savfox_keyring_store::KeyringStore as _;
-
-        savfox_keyring_store::DefaultKeyringStore
-            .delete(&self.service, key)
-            .map(|_| ())
-            .map_err(|error| SecureKeyStoreError::Backend(error.to_string()))
-    }
-
-    fn list_secret_keys(&self, _prefix: Option<&str>) -> Result<Vec<String>, SecureKeyStoreError> {
-        Err(SecureKeyStoreError::Unsupported("keyring list"))
-    }
-
-    fn backend_info(&self) -> SecureKeyStoreBackendInfo {
-        SecureKeyStoreBackendInfo {
-            name: "savfox_os_keyring",
-            hardware_backed: false,
-            exportable: true,
-        }
-    }
-}
-
 pub type ArkretAgentSessionProvider = SessionTransportProvider<
     AgentSessionGrantTransport,
     AgentAuthenticatedTransportFactory,
-    SecureSessionGrantStore<SavfoxKeyringSecureStore>,
+    NoopSessionGrantStore,
 >;
 
 pub fn sign_key_operation_value(
@@ -347,22 +290,21 @@ impl ArkretHttpClient {
         agent_key_authorization_ref: &str,
         requested_scope: Vec<String>,
         audience: &str,
+        device_id: Option<DeviceId>,
         realm_id: Option<&str>,
     ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
         validate_agent_key_ref(key_ref)?;
-        let ArkretKeyRef::Keyring { service, account } = key_ref else {
-            unreachable!("validated personal-agent key reference must be keyring-backed")
-        };
-        let grant_store = SecureSessionGrantStore::new(
-            SavfoxKeyringSecureStore::new(service.clone()),
-            format!("{account}:session-grant"),
-        );
-        let url =
+        // Session grants can exceed the Windows Credential Manager 2560-byte
+        // secret limit. Keep the short-lived grant in the provider's memory;
+        // the long-lived runtime signing key remains keyring-backed.
+        let grant_store = NoopSessionGrantStore;
+        let resource_url =
             Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
+        let grant_base_url = discover_account_authority_base_url(&resource_url).await?;
         let signing_key = Arc::new(load_ed25519_signing_key(key_ref)?);
-        let grant_htu = joined_htu(&url, SESSION_GRANT_PATH)?;
+        let grant_htu = joined_htu(&grant_base_url, SESSION_GRANT_PATH)?;
         let binding_proof = build_dpop_header(&signing_key, "POST", grant_htu.clone(), None)?;
-        let bootstrap = ClientBuilder::new(url.clone())
+        let bootstrap = ClientBuilder::new(grant_base_url.clone())
             .auth(Auth::Dpop(DpopAuth::proof_only({
                 let expected_htu = grant_htu.clone();
                 let proof_jwt = binding_proof.clone();
@@ -425,17 +367,17 @@ impl ArkretHttpClient {
             signature,
         };
         let session_transport = AgentSessionGrantTransport {
-            base_url: url.clone(),
+            grant_base_url,
             bootstrap,
             signing_key: Arc::clone(&signing_key),
         };
         let factory = AgentAuthenticatedTransportFactory {
-            base_url: url,
+            base_url: resource_url,
             signing_key,
         };
         let refresh_options = SessionRefreshOptions {
             audience: Some(audience.to_owned()),
-            device_id: None,
+            device_id,
             proof: None,
             expected_dpop_jkt: None,
         };
@@ -500,6 +442,7 @@ impl ArkretHttpClient {
             agent_key_authorization_ref,
             requested_scope,
             audience,
+            None,
             realm_id,
         )
         .await?;
@@ -693,6 +636,41 @@ fn joined_htu(base_url: &Url, path: &str) -> anyhow::Result<String> {
     url.set_query(None);
     url.set_fragment(None);
     Ok(url.to_string())
+}
+
+async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Result<Url> {
+    let discovery = ClientBuilder::new(resource_url.clone())
+        .build()
+        .map_err(|error| anyhow::anyhow!("Arkret service discovery client: {error}"))?;
+    let description = discovery
+        .describe()
+        .await
+        .map_err(|error| anyhow::anyhow!("Arkret service discovery: {error}"))?;
+    let authority = description
+        .auth_metadata
+        .account_authority
+        .context("Arkret service description omitted auth_metadata.account_authority")?;
+    let authority_url = Url::parse(&authority.origin).with_context(|| {
+        format!(
+            "invalid Arkret account authority origin: {}",
+            authority.origin
+        )
+    })?;
+    let advertised_gate = Url::parse(&authority.gate_account_base).with_context(|| {
+        format!(
+            "invalid Arkret account authority gate_account_base: {}",
+            authority.gate_account_base
+        )
+    })?;
+    let expected_gate = joined_htu(&authority_url, "/_arkret/gate/account")?;
+    if advertised_gate.as_str().trim_end_matches('/') != expected_gate.trim_end_matches('/') {
+        anyhow::bail!(
+            "Arkret account authority metadata mismatch: origin '{}' does not own gate_account_base '{}'",
+            authority.origin,
+            authority.gate_account_base
+        );
+    }
+    Ok(authority_url)
 }
 
 #[cfg(test)]

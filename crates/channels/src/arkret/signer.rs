@@ -142,6 +142,25 @@ pub(crate) fn load_ed25519_signing_key(key_ref: &ArkretKeyRef) -> anyhow::Result
     Ok(signing_key)
 }
 
+/// Return the canonical public-key digest for diagnostics and authorization
+/// binding checks. No seed or private-key material leaves this function.
+pub fn ed25519_runtime_public_key_digest(
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+) -> anyhow::Result<String> {
+    let signing_key = load_ed25519_signing_key(key_ref)?;
+    let public_key = serde_json::json!({
+        "kty": "OKP",
+        "kid": verification_method,
+        "alg": "Ed25519",
+        "key": base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(signing_key.verifying_key().as_bytes()),
+    });
+    arkret::agent_runtime_public_key_digest(&public_key)
+        .map(|digest| digest.as_str().to_owned())
+        .map_err(|error| anyhow::anyhow!("arkret signer: public-key digest: {error}"))
+}
+
 fn load_seed_array(key_ref: &ArkretKeyRef) -> anyhow::Result<[u8; 32]> {
     let mut seed_bytes = load_seed_bytes(key_ref)?;
     if seed_bytes.len() != 32 {

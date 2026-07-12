@@ -133,7 +133,10 @@ fn update_listener_diagnostic(
 ) {
     let key = task_key(channel_id, account_id);
     let Ok(mut state) = runtime_state().lock() else {
-        warn!(channel_id, account_id, "arkret: runtime state mutex poisoned while updating diagnostics");
+        warn!(
+            channel_id,
+            account_id, "arkret: runtime state mutex poisoned while updating diagnostics"
+        );
         return;
     };
     if let Some(diagnostic) = state.diagnostics.get_mut(&key) {
@@ -176,7 +179,10 @@ pub(crate) fn arkret_account_runtime_diagnostics(channel_id: &str) -> Vec<Value>
         .iter()
         .filter(|(key, _)| key.starts_with(&prefix))
         .map(|(key, diagnostic)| {
-            let running = state.handles.get(key).is_some_and(|handle| !handle.is_finished());
+            let running = state
+                .handles
+                .get(key)
+                .is_some_and(|handle| !handle.is_finished());
             diagnostic.to_value(running)
         })
         .collect::<Vec<_>>();
@@ -262,7 +268,13 @@ pub(crate) fn arkret_account_listener_count(channel_id: &str) -> usize {
     state
         .handles
         .iter()
-        .filter(|(key, handle)| key.starts_with(&prefix) && !handle.is_finished())
+        .filter(|(key, handle)| {
+            key.starts_with(&prefix)
+                && !handle.is_finished()
+                && state.diagnostics.get(*key).is_some_and(|diagnostic| {
+                    matches!(diagnostic.phase, "subscribing" | "dispatching")
+                })
+        })
         .count()
 }
 
@@ -275,9 +287,10 @@ fn spawn_account_listener(
 ) {
     let key = task_key(&channel.id, &account.id);
     if let Ok(mut state) = runtime_state().lock() {
-        state
-            .diagnostics
-            .insert(key.clone(), ArkretListenerDiagnostic::new(&channel, &account));
+        state.diagnostics.insert(
+            key.clone(),
+            ArkretListenerDiagnostic::new(&channel, &account),
+        );
     }
     let diagnostic_channel_id = channel.id.clone();
     let diagnostic_account_id = account.id.clone();
@@ -400,7 +413,12 @@ async fn run_account_listener(
                 "arkret: account '{}' on channel '{}' failed to construct session provider: {err:#}",
                 account.id, channel.id
             );
-            record_listener_failure(&channel, &account, "session_provider_error", format!("{err:#}"));
+            record_listener_failure(
+                &channel,
+                &account,
+                "session_provider_error",
+                format!("{err:#}"),
+            );
             runtime::record_channel_probe("arkret", "error").await;
             return;
         }
@@ -2360,6 +2378,17 @@ async fn construct_account_provider(
         })?;
     let principal = Did::new(account.principal_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
+    let device_id = DeviceId::new(account.device_id.clone())
+        .map_err(|err| anyhow::anyhow!("invalid Arkret device_id: {err}"))?;
+    let runtime_public_key_digest =
+        savfox_channels::arkret::ed25519_runtime_public_key_digest(key_ref, verification_method)?;
+    info!(
+        channel_id = %channel.id,
+        account_id = %account.id,
+        verification_method,
+        runtime_public_key_digest,
+        "arkret: constructing agent session provider"
+    );
     let (provider, session) = ArkretHttpClient::login_agent_provider(
         &channel.base_url,
         key_ref,
@@ -2368,6 +2397,7 @@ async fn construct_account_provider(
         authorization_ref,
         account.requested_scope.clone(),
         &audience,
+        Some(device_id),
         None,
     )
     .await?;
