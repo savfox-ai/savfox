@@ -5,9 +5,10 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
 use crate::api::types::{
-    AgentDetail, AgentEntry, AgentFile, AgentFilesResponse, AgentIdleReplyConfig,
-    AgentTerminalDelegateConfig, AgentsResponse, AvailableModel, AvailableModelsResponse,
-    SkillDetail, SkillsBinsResponse, SkillsStatusResponse,
+    AgentApprovalMode, AgentDetail, AgentEntry, AgentFile, AgentFilesResponse,
+    AgentIdleReplyConfig, AgentPermissionPolicy, AgentSandboxMode, AgentTerminalDelegateConfig,
+    AgentToolAccessPolicy, AgentsResponse, AvailableModel, AvailableModelsResponse, SkillDetail,
+    SkillsBinsResponse, SkillsStatusResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::icon::Icon;
@@ -1417,12 +1418,11 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                     .await
                     .ok()
                     .and_then(|detail| {
-                        detail.permission_policy.as_ref().and_then(|pp| {
-                            pp.get("tool_access")
-                                .and_then(|ta| ta.get("allowed"))
-                                .and_then(|v| v.as_array())
-                                .map(|arr| arr.len())
-                        })
+                        detail
+                            .permission_policy
+                            .as_ref()
+                            .and_then(|policy| policy.tool_access.as_ref())
+                            .map(|tool_access| tool_access.allowed.len())
                     })
                     .unwrap_or(0)
             } else {
@@ -3770,14 +3770,9 @@ fn AgentOverviewTab(
                                         export_data["idle_reply"] = json!(idle_reply);
                                     }
                                     if let Some(ref pp) = detail.permission_policy {
-                                        if let Some(tools) = pp.get("tool_access")
-                                            .and_then(|ta| ta.get("allowed"))
-                                            .and_then(|v| v.as_array())
+                                        if let Some(tool_access) = pp.tool_access.as_ref()
                                         {
-                                            let tool_names: Vec<&str> = tools.iter()
-                                                .filter_map(|v| v.as_str())
-                                                .collect();
-                                            export_data["tools"] = json!(tool_names);
+                                            export_data["tools"] = json!(tool_access.allowed);
                                         }
                                     }
                                 }
@@ -5345,20 +5340,11 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
 
         // Extract profile and tool list from permission_policy.
         let (profile, enabled_tools) = if let Some(pp) = &detail.permission_policy {
-            let prof = pp
-                .get("_preset_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("coding")
-                .to_string();
-            let tools: Vec<String> = pp
-                .get("tool_access")
-                .and_then(|ta| ta.get("allowed"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
+            let prof = pp.preset_id.as_deref().unwrap_or("coding").to_string();
+            let tools = pp
+                .tool_access
+                .as_ref()
+                .map(|tool_access| tool_access.allowed.clone())
                 .unwrap_or_default();
             (prof, tools)
         } else {
@@ -5493,7 +5479,7 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                             let id = id.clone();
                             let profile = selected_profile();
                             let permission_policy = if profile.eq_ignore_ascii_case("inherit") {
-                                serde_json::Value::Null
+                                None
                             } else {
                                 let mut enabled: Vec<String> = tool_states
                                     .read()
@@ -5505,18 +5491,17 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                                 enabled.dedup();
                                 // Build a permission_policy with the selected preset and tools.
                                 let sandbox = match profile.as_str() {
-                                    "minimal" | "messaging" => "read-only",
-                                    _ => "workspace-write",
+                                    "minimal" | "messaging" => AgentSandboxMode::ReadOnly,
+                                    _ => AgentSandboxMode::WorkspaceWrite,
                                 };
-                                let approval = "on-request";
-                                json!({
-                                    "_preset_id": profile,
-                                    "sandbox": sandbox,
-                                    "approval": approval,
-                                    "tool_access": {
-                                        "allowed": enabled,
-                                        "denied": []
-                                    }
+                                Some(AgentPermissionPolicy {
+                                    preset_id: Some(profile),
+                                    sandbox: Some(sandbox),
+                                    approval: Some(AgentApprovalMode::OnRequest),
+                                    tool_access: Some(AgentToolAccessPolicy {
+                                        allowed: enabled,
+                                        ..AgentToolAccessPolicy::default()
+                                    }),
                                 })
                             };
                             spawn(async move {

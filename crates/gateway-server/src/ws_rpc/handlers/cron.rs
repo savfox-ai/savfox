@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
 use savfox_core::cron::{CronDelivery, CronPayload, CronSchedule, CronSessionTarget};
+use savfox_gateway_shared::{
+    CronDelivery as CronDeliveryDto, CronJob as CronJobDto, CronPayload as CronPayloadDto,
+    CronRunEntry as CronRunEntryDto, CronSessionTarget as CronSessionTargetDto, CronStatusResponse,
+};
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_REQUEST, RpcResult};
@@ -57,44 +61,69 @@ fn cron_schedule_label(schedule: &CronSchedule) -> String {
     }
 }
 
-pub(crate) fn cron_job_summary_value(job: &savfox_core::cron::CronJob) -> Value {
-    let session_target = match job.session_target {
-        CronSessionTarget::Main => "main",
-        CronSessionTarget::Isolated => "isolated",
-    };
+fn cron_payload_dto(payload: &CronPayload) -> CronPayloadDto {
+    match payload {
+        CronPayload::SystemEvent { text } => CronPayloadDto::SystemEvent { text: text.clone() },
+        CronPayload::AgentTurn {
+            message,
+            model,
+            timeout_secs,
+        } => CronPayloadDto::AgentTurn {
+            message: message.clone(),
+            model: model.clone(),
+            timeout_secs: *timeout_secs,
+        },
+    }
+}
 
-    json!({
-        "id": job.id,
-        "name": job.name,
-        "schedule": cron_schedule_label(&job.schedule),
-        "payload": job.payload,
-        "enabled": job.state.enabled,
-        "next_run": job.state.next_run_at_ms.and_then(cron_format_timestamp),
-        "last_run": job.state.last_run_at_ms.and_then(cron_format_timestamp),
-        "agent_id": job.agent_id,
-        "session_target": session_target,
-        "delivery": job.delivery,
+fn cron_delivery_dto(delivery: &CronDelivery) -> CronDeliveryDto {
+    CronDeliveryDto {
+        mode: delivery.mode.clone(),
+        channel: delivery.channel.clone(),
+        recipient: delivery.recipient.clone(),
+    }
+}
+
+fn cron_session_target_dto(session_target: &CronSessionTarget) -> CronSessionTargetDto {
+    match session_target {
+        CronSessionTarget::Main => CronSessionTargetDto::Main,
+        CronSessionTarget::Isolated => CronSessionTargetDto::Isolated,
+    }
+}
+
+pub(crate) fn cron_job_summary_value(job: &savfox_core::cron::CronJob) -> Value {
+    json!(CronJobDto {
+        id: job.id.clone(),
+        name: Some(job.name.clone()),
+        schedule: Some(cron_schedule_label(&job.schedule)),
+        payload: Some(cron_payload_dto(&job.payload)),
+        enabled: Some(job.state.enabled),
+        next_run: job.state.next_run_at_ms.and_then(cron_format_timestamp),
+        last_run: job.state.last_run_at_ms.and_then(cron_format_timestamp),
+        agent_id: job.agent_id.clone(),
+        session_target: Some(cron_session_target_dto(&job.session_target)),
+        delivery: Some(cron_delivery_dto(&job.delivery)),
     })
 }
 
 pub(crate) fn cron_status_summary_value(status: &savfox_core::cron::CronServiceStatus) -> Value {
-    json!({
-        "running": status.enabled,
-        "job_count": status.total_jobs,
-        "enabled_jobs": status.enabled_jobs,
-        "running_jobs": status.running_jobs,
+    json!(CronStatusResponse {
+        running: Some(status.enabled),
+        job_count: Some(status.total_jobs),
+        enabled_jobs: Some(status.enabled_jobs),
+        running_jobs: Some(status.running_jobs),
     })
 }
 
 pub(crate) fn cron_run_summary_value(run: &savfox_core::cron::CronRunEntry) -> Value {
-    json!({
-        "job_id": run.job_id,
-        "started_at": cron_format_timestamp(run.started_at_ms),
-        "finished_at": cron_format_timestamp(run.finished_at_ms),
-        "status": run.status,
-        "duration_ms": run.finished_at_ms.saturating_sub(run.started_at_ms),
-        "error": run.error,
-        "result_preview": run.result_preview,
+    json!(CronRunEntryDto {
+        job_id: run.job_id.clone(),
+        started_at: cron_format_timestamp(run.started_at_ms),
+        finished_at: cron_format_timestamp(run.finished_at_ms),
+        status: Some(run.status.clone()),
+        duration_ms: Some(run.finished_at_ms.saturating_sub(run.started_at_ms)),
+        error: run.error.clone(),
+        output: run.result_preview.clone(),
     })
 }
 

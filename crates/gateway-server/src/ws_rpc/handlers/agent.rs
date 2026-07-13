@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use savfox_gateway_shared::{AgentApprovalMode, AgentPermissionPolicy, AgentSandboxMode};
 use savfox_utils::home_dir::AGENTS_SUBDIR;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -1366,7 +1367,6 @@ fn validate_agent_shape(config: &Value) -> std::result::Result<(), String> {
                 .map_err(|err| format!("invalid native agent: {err}"))?;
             required_non_empty_string(native, "model")
                 .map_err(|err| format!("invalid native agent: {err}"))?;
-            Ok(())
         }
         "terminal" => {
             let terminal = config
@@ -1386,10 +1386,19 @@ fn validate_agent_shape(config: &Value) -> std::result::Result<(), String> {
             }
             required_non_empty_string(terminal, "command")
                 .map_err(|err| format!("invalid terminal agent: {err}"))?;
-            Ok(())
         }
-        _ => Err("invalid `kind`; expected `native` or `terminal`".to_owned()),
+        _ => return Err("invalid `kind`; expected `native` or `terminal`".to_owned()),
     }
+
+    if let Some(permission_policy) = config
+        .get("permission_policy")
+        .filter(|permission_policy| !permission_policy.is_null())
+    {
+        serde_json::from_value::<AgentPermissionPolicy>(permission_policy.clone())
+            .map_err(|err| format!("invalid `permission_policy`: {err}"))?;
+    }
+
+    Ok(())
 }
 
 /// Load the agent's JSON config and apply its `permission_policy` to the
@@ -1418,18 +1427,28 @@ pub(crate) async fn apply_agent_permission_policy_to_config(
         None => return,
     };
 
-    let Some(policy_val) = agent_config.get("permission_policy") else {
+    let Some(policy_val) = agent_config
+        .get("permission_policy")
+        .filter(|permission_policy| !permission_policy.is_null())
+    else {
         return;
+    };
+    let policy = match serde_json::from_value::<AgentPermissionPolicy>(policy_val.clone()) {
+        Ok(policy) => policy,
+        Err(err) => {
+            tracing::warn!("ignoring invalid agent permission policy: {err}");
+            return;
+        }
     };
 
     // Apply sandbox policy.
-    if let Some(sandbox_str) = policy_val.get("sandbox").and_then(|v| v.as_str()) {
+    if let Some(sandbox_mode) = policy.sandbox {
         use savfox_core::protocol::SandboxPolicy;
-        let sandbox = match sandbox_str {
-            "read-only" => Some(SandboxPolicy::ReadOnly),
-            "workspace-write" => Some(SandboxPolicy::new_workspace_write_policy()),
-            "danger-full-access" => Some(SandboxPolicy::DangerFullAccess),
-            _ => None,
+        let sandbox = match sandbox_mode {
+            AgentSandboxMode::ReadOnly => Some(SandboxPolicy::ReadOnly),
+            AgentSandboxMode::WorkspaceWrite => Some(SandboxPolicy::new_workspace_write_policy()),
+            AgentSandboxMode::DangerFullAccess => Some(SandboxPolicy::DangerFullAccess),
+            AgentSandboxMode::Other(_) => None,
         };
         if let Some(sb) = sandbox
             && let Err(e) = config.sandbox_policy.set(sb)
@@ -1439,14 +1458,14 @@ pub(crate) async fn apply_agent_permission_policy_to_config(
     }
 
     // Apply approval policy.
-    if let Some(approval_str) = policy_val.get("approval").and_then(|v| v.as_str()) {
+    if let Some(approval_mode) = policy.approval {
         use savfox_core::protocol::AskForApproval;
-        let approval = match approval_str {
-            "untrusted" => Some(AskForApproval::UnlessTrusted),
-            "on-failure" => Some(AskForApproval::OnFailure),
-            "on-request" => Some(AskForApproval::OnRequest),
-            "never" => Some(AskForApproval::Never),
-            _ => None,
+        let approval = match approval_mode {
+            AgentApprovalMode::Untrusted => Some(AskForApproval::UnlessTrusted),
+            AgentApprovalMode::OnFailure => Some(AskForApproval::OnFailure),
+            AgentApprovalMode::OnRequest => Some(AskForApproval::OnRequest),
+            AgentApprovalMode::Never => Some(AskForApproval::Never),
+            AgentApprovalMode::Other(_) => None,
         };
         if let Some(ap) = approval
             && let Err(e) = config.approval_policy.set(ap)
@@ -1456,10 +1475,12 @@ pub(crate) async fn apply_agent_permission_policy_to_config(
     }
 
     // Apply tool access policy.
-    if let Some(tool_access_val) = policy_val.get("tool_access")
-        && let Ok(tool_access) = serde_json::from_value::<ToolAccessPolicy>(tool_access_val.clone())
-    {
-        config.tool_access_policy = Some(tool_access);
+    if let Some(tool_access) = policy.tool_access {
+        config.tool_access_policy = Some(ToolAccessPolicy {
+            allowed: tool_access.allowed,
+            denied: tool_access.denied,
+            tool_approval_overrides: tool_access.tool_approval_overrides.into_iter().collect(),
+        });
     }
 }
 
@@ -2520,7 +2541,7 @@ mod tests {
 
     use super::{
         normalize_agent_config, parse_pty_size, parse_string_array, parse_string_map,
-        terminal_cleanup_targets, terminal_pty_key_from_params,
+        terminal_cleanup_targets, terminal_pty_key_from_params, validate_agent_shape,
     };
 
     fn assert_agents_response_deserializes(config: &serde_json::Value) {
@@ -2545,6 +2566,27 @@ mod tests {
         assert_eq!(config["native"]["provider"], json!("default"));
         assert_eq!(config["native"]["model"], json!("default"));
         assert_agents_response_deserializes(&config);
+    }
+
+    #[test]
+    fn agent_shape_rejects_malformed_permission_policy() {
+        let config = json!({
+            "kind": "native",
+            "native": {
+                "provider": "default",
+                "model": "default"
+            },
+            "permission_policy": {
+                "sandbox": "workspace-write",
+                "approval": "on-request",
+                "tool_access": {
+                    "allowed": "shell"
+                }
+            }
+        });
+
+        let error = validate_agent_shape(&config).expect_err("invalid tool list should fail");
+        assert!(error.starts_with("invalid `permission_policy`:"));
     }
 
     #[test]

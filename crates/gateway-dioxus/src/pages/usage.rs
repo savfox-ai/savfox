@@ -356,13 +356,9 @@ pub fn Usage() -> Element {
         .map(|days| {
             days.iter()
                 .map(|d| {
-                    let date = d
-                        .get("date")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?")
-                        .to_string();
-                    let tokens = d.get("tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let cost = d.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let date = d.date.clone().unwrap_or_else(|| "?".to_string());
+                    let tokens = d.tokens.unwrap_or(0);
+                    let cost = d.cost.unwrap_or(0.0);
                     (date, tokens, cost)
                 })
                 .collect()
