@@ -393,7 +393,7 @@ impl ArkretHttpClient {
                 && state.audience == audience
                 && state.expires_at > Utc::now()
             {
-                let session = arkret_session_from_state(state);
+                let session = arkret_session_from_state(&state);
                 return Ok((restored, session));
             }
             grant_store
@@ -418,7 +418,7 @@ impl ArkretHttpClient {
         )
         .await
         .map_err(|error| anyhow::anyhow!("persist agent session grant: {error}"))?;
-        Ok((provider, arkret_session_from_state(state)))
+        Ok((provider, arkret_session_from_state(&state)))
     }
 
     /// Compatibility helper for short-lived callers that only need the
@@ -612,12 +612,12 @@ fn validate_agent_key_ref(key_ref: &ArkretKeyRef) -> anyhow::Result<()> {
     }
 }
 
-fn arkret_session_from_state(state: SessionGrantState) -> ArkretSession {
+fn arkret_session_from_state(state: &SessionGrantState) -> ArkretSession {
     ArkretSession {
-        session_grant: state.grant_jwt,
+        session_grant: state.grant_jwt.clone(),
         expires_at: state.expires_at,
-        principal_did: state.principal_id,
-        device_id: state.device_id,
+        principal_did: state.principal_id.clone(),
+        device_id: state.device_id.clone(),
     }
 }
 
