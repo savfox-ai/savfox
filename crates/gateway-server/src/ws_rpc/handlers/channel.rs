@@ -2254,12 +2254,12 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
         .and_then(Value::as_str);
     let key_digest_matches =
         authorized_public_key_digest.map(|digest| digest == local_public_key_digest);
-    let approved =
-        matches!(status.as_str(), "active" | "paused") && key_digest_matches.unwrap_or(false);
-    let paired_by_other_runtime = matches!(status.as_str(), "active" | "paused" | "deactivated")
-        && key_digest_matches == Some(false);
-    let message = if approved {
+    let (approved, ready, paired_by_other_runtime) =
+        arkret_runtime_key_status_flags(&status, key_digest_matches);
+    let message = if ready {
         "Runtime key approved by Inkson; agent is active"
+    } else if status == "paused" && approved {
+        "Runtime key approved, but the agent is paused; resume it in Inkson before starting Savfox"
     } else if paired_by_other_runtime {
         "Pairing was completed by a different runtime key; this Savfox key was not authorized"
     } else {
@@ -2277,11 +2277,23 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
         "account_id": account.id.as_str(),
         "status": status,
         "approved": approved,
+        "ready": ready,
         "key_digest_matches": key_digest_matches,
         "paired_by_other_runtime": paired_by_other_runtime,
         "authorized_event_ref": outcome.get("authorized_event_ref").cloned().unwrap_or(Value::Null),
         "message": message,
     }))
+}
+
+fn arkret_runtime_key_status_flags(
+    status: &str,
+    key_digest_matches: Option<bool>,
+) -> (bool, bool, bool) {
+    let approved = matches!(status, "active" | "paused") && key_digest_matches == Some(true);
+    let ready = status == "active" && key_digest_matches == Some(true);
+    let paired_by_other_runtime =
+        matches!(status, "active" | "paused" | "deactivated") && key_digest_matches == Some(false);
+    (approved, ready, paired_by_other_runtime)
 }
 
 #[cfg(feature = "arkret")]
@@ -3513,18 +3525,28 @@ pub(crate) async fn handle_directory_groups_members(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "arkret")]
-    use std::path::Path;
-
     use serde_json::json;
 
     use super::saved_channel_config_ready;
     #[cfg(feature = "arkret")]
     use super::{
-        SavedChannelState, arkret_pairing_resolve_target, generate_arkret_runtime_file_key_ref,
+        SavedChannelState, arkret_pairing_resolve_target, arkret_runtime_key_status_flags,
         insert_saved_channel_metadata, sanitize_arkret_runtime_key_label,
         validate_arkret_pairing_bootstrap_value,
     };
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn paused_agent_key_is_approved_but_not_ready() {
+        assert_eq!(
+            arkret_runtime_key_status_flags("paused", Some(true)),
+            (true, false, false)
+        );
+        assert_eq!(
+            arkret_runtime_key_status_flags("active", Some(true)),
+            (true, true, false)
+        );
+    }
 
     fn channel_config(
         kind: &str,

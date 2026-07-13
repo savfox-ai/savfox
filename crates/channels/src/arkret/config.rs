@@ -716,40 +716,12 @@ mod tests {
         );
         assert!(account.access_token.is_empty());
         assert!(account.key_ref.is_some());
-        assert!(
-            account
-                .requested_scope
-                .contains(&"ak.self.events.stream.subscribe".to_owned())
-        );
-        assert!(
-            account
-                .requested_scope
-                .contains(&"ak.event.read".to_owned())
-        );
-        assert!(
-            account
-                .requested_scope
-                .contains(&"ak.self.keys.keypackages.upload.create".to_owned())
-        );
-        assert!(
-            account
-                .requested_scope
-                .contains(&"ak.self.keys.keypackages.command.claim".to_owned())
-        );
-        assert!(
-            account
-                .requested_scope
-                .contains(&"ak.self.keys.keypackages.command.consume".to_owned())
-        );
-        assert!(
-            account
-                .requested_scope
-                .contains(&"ak.self.device_messages.query.list".to_owned())
-        );
-        assert!(
-            account
-                .requested_scope
-                .contains(&"ak.self.device_messages.command.ack".to_owned())
+        assert_eq!(
+            account.requested_scope,
+            DEFAULT_AGENT_RUNTIME_SCOPE
+                .iter()
+                .map(|scope| (*scope).to_owned())
+                .collect::<Vec<_>>()
         );
         assert_eq!(
             account.inkson_bootstrap.as_ref().map(|bootstrap| bootstrap

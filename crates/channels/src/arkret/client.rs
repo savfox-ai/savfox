@@ -405,7 +405,7 @@ impl ArkretHttpClient {
         session_engine
             .login(LoginKind::AgentKeyProof(login), Utc::now())
             .await
-            .map_err(|err| anyhow::anyhow!("agent_key_proof session grant exchange: {err}"))?;
+            .map_err(agent_session_exchange_error)?;
         let state = session_engine
             .current_state()
             .context("agent_key_proof session grant exchange did not yield state")?;
@@ -581,6 +581,27 @@ impl ArkretHttpClient {
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }
+}
+
+fn agent_session_exchange_error(error: arkret::Error) -> anyhow::Error {
+    let reason = match &error {
+        arkret::Error::Api { error, .. } => error
+            .details()
+            .get("reason_code")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| error.code()),
+        _ => "unknown",
+    };
+    let action = match reason {
+        "agent_key_authorization_expired" => "the controller must re-authorize this runtime key",
+        "agent_paused" => "the controller must resume this agent",
+        "agent_deactivated" => "the agent is deactivated and must be provisioned again",
+        "superseded_by_repairing" => {
+            "this runtime key was replaced; import the new pairing bootstrap"
+        }
+        _ => "verify the pairing, authorization reference, scope, and service audience",
+    };
+    anyhow::anyhow!("agent_key_proof session grant exchange failed ({reason}): {action}: {error}")
 }
 
 fn validate_agent_key_ref(key_ref: &ArkretKeyRef) -> anyhow::Result<()> {
@@ -813,5 +834,28 @@ mod tests {
             })
             .is_ok()
         );
+    }
+
+    #[test]
+    fn agent_session_errors_preserve_actionable_reason_codes() {
+        for (reason, expected) in [
+            (
+                "agent_key_authorization_expired",
+                "controller must re-authorize",
+            ),
+            ("agent_paused", "controller must resume"),
+            ("agent_deactivated", "must be provisioned again"),
+            ("superseded_by_repairing", "new pairing bootstrap"),
+        ] {
+            let envelope = arkret::ErrorEnvelope::new("failed_precondition", "rejected")
+                .with_detail("reason_code", serde_json::json!(reason));
+            let rendered = agent_session_exchange_error(arkret::Error::Api {
+                status: 412,
+                error: Box::new(envelope),
+            })
+            .to_string();
+            assert!(rendered.contains(reason), "{rendered}");
+            assert!(rendered.contains(expected), "{rendered}");
+        }
     }
 }
