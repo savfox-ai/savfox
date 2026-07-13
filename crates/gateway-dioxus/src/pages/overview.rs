@@ -3,8 +3,8 @@ use serde_json::json;
 
 use crate::api::client::fetch_json;
 use crate::api::types::{
-    AgentsResponse, AvailableModel, AvailableModelsResponse, LogEntry, LogsResponse, SessionEntry,
-    SessionsResponse, StatusResponse, UsageStatus,
+    AgentsResponse, AvailableModel, AvailableModelsResponse, ChannelsStatusSnapshot, LogEntry,
+    LogsResponse, SessionEntry, SessionsResponse, StatusResponse, UsageStatus,
 };
 use crate::api::ws::WsRpc;
 use crate::components::copy_button::CopyButton;
@@ -78,32 +78,26 @@ fn platform_brand_colors(platform: &str) -> (&'static str, &'static str) {
     }
 }
 
-fn extract_channel_health(raw: &serde_json::Value) -> Vec<ChannelHealthInfo> {
-    let Some(channels_obj) = raw.get("channels").and_then(|c| c.as_object()) else {
+fn extract_channel_health(snapshot: &ChannelsStatusSnapshot) -> Vec<ChannelHealthInfo> {
+    let Some(channels) = snapshot.channels.as_ref() else {
         return Vec::new();
     };
 
     let mut result = Vec::new();
-    for (platform, info) in channels_obj {
-        let is_configured = info
-            .get("configured")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let is_running = info
-            .get("running")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let is_connected = info
-            .get("connected")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let has_error = info.get("lastError").and_then(|v| v.as_str()).is_some();
+    for (platform, info) in channels {
+        let is_configured = info.configured.unwrap_or(false);
+        let is_running = info.running.unwrap_or(false);
+        let is_connected = info.connected.unwrap_or(false);
+        let has_error = info
+            .last_error
+            .as_deref()
+            .is_some_and(|error| !error.is_empty());
 
         // Count accounts if present, otherwise treat as single
         let accounts = info
-            .get("accounts")
-            .and_then(|a| a.as_array())
-            .map(|a| a.len())
+            .accounts
+            .as_ref()
+            .map(Vec::len)
             .unwrap_or(if is_configured { 1 } else { 0 });
 
         let connected_count = if is_running && is_connected {
@@ -117,16 +111,13 @@ fn extract_channel_health(raw: &serde_json::Value) -> Vec<ChannelHealthInfo> {
 
         if is_configured || is_running {
             let channel_name = info
-                .get("channel_name")
-                .and_then(|v| v.as_str())
-                .or_else(|| info.get("slug").and_then(|v| v.as_str()))
-                .or_else(|| info.get("bot_username").and_then(|v| v.as_str()))
-                .or_else(|| info.get("user_id").and_then(|v| v.as_str()))
-                .map(|s| s.to_string());
-            let channel_id = info
-                .get("id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+                .channel_name
+                .as_ref()
+                .or(info.slug.as_ref())
+                .or(info.bot_username.as_ref())
+                .or(info.user_id.as_ref())
+                .cloned();
+            let channel_id = info.id.clone();
             result.push(ChannelHealthInfo {
                 platform: platform.clone(),
                 icon: platform_icon(platform).to_string(),
@@ -231,7 +222,7 @@ pub fn Overview() -> Element {
         let _t = refresh_tick();
         let ws = ws_channels.clone();
         async move {
-            ws.call::<serde_json::Value>("channels.status", Some(json!({ "probe": false })))
+            ws.call::<ChannelsStatusSnapshot>("channels.status", Some(json!({ "probe": false })))
                 .await
                 .ok()
         }

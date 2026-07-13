@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -16,11 +18,33 @@ pub struct ChannelsResponse {
 #[derive(Clone, Debug, Deserialize)]
 pub struct ChannelsStatusSnapshot {
     pub ts: Option<i64>,
-    pub channels: Option<serde_json::Value>,
+    pub channels: Option<HashMap<String, ChannelStatusSnapshot>>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// Common status fields returned for each platform by `channels.status`.
+///
+/// Platform-specific fields are intentionally ignored during deserialization;
+/// consumers of the aggregate status response only need this common subset.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ChannelStatusSnapshot {
+    pub configured: Option<bool>,
+    pub running: Option<bool>,
+    pub connected: Option<bool>,
+    pub saved: Option<bool>,
+    pub enabled: Option<bool>,
+    pub id: Option<String>,
+    pub channel_name: Option<String>,
+    pub slug: Option<String>,
+    pub bot_username: Option<String>,
+    pub user_id: Option<String>,
+    #[serde(alias = "lastError")]
+    pub last_error: Option<String>,
+    pub accounts: Option<Vec<ChannelAccountSnapshot>>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ChannelAccountSnapshot {
+    #[serde(default, alias = "accountId")]
     pub account_id: String,
     pub name: Option<String>,
     pub enabled: Option<bool>,
@@ -223,4 +247,45 @@ pub struct MsTeamsStatus {
     pub bot_name: Option<String>,
     pub last_activity: Option<i64>,
     pub last_error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::ChannelsStatusSnapshot;
+
+    #[test]
+    fn aggregate_channel_status_deserializes_common_fields() {
+        let snapshot: ChannelsStatusSnapshot = serde_json::from_value(json!({
+            "channels": {
+                "discord": {
+                    "configured": true,
+                    "running": true,
+                    "connected": false,
+                    "id": "discord-main",
+                    "channel_name": "Main Discord",
+                    "last_error": "connection lost",
+                    "guild_count": 3
+                },
+                "legacy": {
+                    "configured": true,
+                    "lastError": "legacy error"
+                }
+            }
+        }))
+        .expect("channel status should deserialize");
+
+        let channels = snapshot.channels.expect("channels should be present");
+        let discord = channels.get("discord").expect("discord should be present");
+        assert_eq!(discord.connected, Some(false));
+        assert_eq!(discord.id.as_deref(), Some("discord-main"));
+        assert_eq!(discord.last_error.as_deref(), Some("connection lost"));
+        assert_eq!(
+            channels
+                .get("legacy")
+                .and_then(|status| status.last_error.as_deref()),
+            Some("legacy error")
+        );
+    }
 }

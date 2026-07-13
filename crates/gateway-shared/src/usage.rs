@@ -35,7 +35,14 @@ pub struct UsageDetail {
     pub cache_hits: Option<u64>,
     pub cache_misses: Option<u64>,
     pub hourly_distribution: Option<Vec<u64>>,
-    pub daily_distribution: Option<Vec<serde_json::Value>>,
+    pub daily_distribution: Option<Vec<UsageDailyDistributionEntry>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct UsageDailyDistributionEntry {
+    pub date: Option<String>,
+    pub tokens: Option<u64>,
+    pub cost: Option<f64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -76,7 +83,18 @@ pub struct SessionsUsageResult {
     pub end_date: Option<String>,
     pub sessions: Option<Vec<SessionsUsageEntry>>,
     pub totals: Option<SessionsUsageTotals>,
-    pub daily: Option<Vec<serde_json::Value>>,
+    pub daily: Option<Vec<SessionsUsageDailyEntry>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct SessionsUsageDailyEntry {
+    pub date: Option<String>,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+    pub cost: Option<f64>,
+    pub session_count: Option<u32>,
+    pub message_count: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

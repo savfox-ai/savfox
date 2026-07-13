@@ -3,7 +3,8 @@ use lucide_dioxus::{ArrowLeft, Clock};
 use serde_json::json;
 
 use crate::api::types::{
-    AgentsResponse, CronJob, CronListResponse, CronRunEntry, CronRunsResponse, CronStatusResponse,
+    AgentsResponse, CronJob, CronListResponse, CronPayload, CronRunEntry, CronRunsResponse,
+    CronSchedule, CronSessionTarget, CronStatusResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::empty_state::EmptyState;
@@ -87,19 +88,19 @@ fn every_interval_secs(value: &str, unit: &str) -> Result<u64, String> {
         .ok_or_else(|| "Interval is too large".to_string())
 }
 
-fn build_schedule_value(
+fn build_schedule(
     schedule_type: ScheduleType,
     every_value: &str,
     every_unit: &str,
     at_datetime: &str,
     cron_expr: &str,
     cron_tz: &str,
-) -> Result<serde_json::Value, String> {
+) -> Result<CronSchedule, String> {
     match schedule_type {
-        ScheduleType::Every => Ok(json!({
-            "kind": "every",
-            "interval_secs": every_interval_secs(every_value, every_unit)?,
-        })),
+        ScheduleType::Every => Ok(CronSchedule::Every {
+            interval_secs: every_interval_secs(every_value, every_unit)?,
+            anchor_ms: 0,
+        }),
         ScheduleType::At => {
             let at_datetime =
                 trimmed_or_none(at_datetime).ok_or_else(|| "Run time is required".to_string())?;
@@ -108,36 +109,31 @@ fn build_schedule_value(
             if !at_ms.is_finite() {
                 return Err("Invalid run time".to_string());
             }
-            Ok(json!({
-                "kind": "at",
-                "at_ms": at_ms.max(0.0) as u64,
-            }))
+            Ok(CronSchedule::At {
+                at_ms: at_ms.max(0.0) as u64,
+            })
         }
         ScheduleType::Cron => {
             let expression = trimmed_or_none(cron_expr)
                 .ok_or_else(|| "Cron expression is required".to_string())?;
-            Ok(json!({
-                "kind": "cron",
-                "expression": expression,
-                "timezone": trimmed_or_none(cron_tz),
-            }))
+            Ok(CronSchedule::Cron {
+                expression,
+                timezone: trimmed_or_none(cron_tz),
+            })
         }
     }
 }
 
-fn build_payload_value(
+fn build_payload(
     payload_type: &str,
     payload_text: &str,
     payload_timeout: &str,
-) -> Result<serde_json::Value, String> {
+) -> Result<CronPayload, String> {
     match payload_type {
         "system_event" => {
             let text = trimmed_or_none(payload_text)
                 .ok_or_else(|| "Event message is required".to_string())?;
-            Ok(json!({
-                "type": "system_event",
-                "text": text,
-            }))
+            Ok(CronPayload::SystemEvent { text })
         }
         "agent_turn" => {
             let message = trimmed_or_none(payload_text)
@@ -154,11 +150,11 @@ fn build_payload_value(
                 }
                 None => None,
             };
-            Ok(json!({
-                "type": "agent_turn",
-                "message": message,
-                "timeout_secs": timeout_secs,
-            }))
+            Ok(CronPayload::AgentTurn {
+                message,
+                model: None,
+                timeout_secs,
+            })
         }
         _ => Err("Unsupported payload type".to_string()),
     }
@@ -701,7 +697,7 @@ fn render_create_form(
                                 return;
                             }
 
-                            let schedule = match build_schedule_value(
+                            let schedule = match build_schedule(
                                 schedule_type(),
                                 &new_every_value(),
                                 &new_every_unit(),
@@ -715,7 +711,7 @@ fn render_create_form(
                                     return;
                                 }
                             };
-                            let payload = match build_payload_value(
+                            let payload = match build_payload(
                                 &new_payload_type(),
                                 &new_payload_text(),
                                 &new_payload_timeout(),
@@ -727,7 +723,8 @@ fn render_create_form(
                                 }
                             };
                             let session_target = match new_session_target().as_str() {
-                                "main" | "isolated" => new_session_target(),
+                                "main" => CronSessionTarget::Main,
+                                "isolated" => CronSessionTarget::Isolated,
                                 _ => {
                                     toaster.error("Invalid session target");
                                     return;
@@ -813,12 +810,7 @@ fn render_job_detail(
 
     // Parse schedule for display
     let schedule_display = job.schedule.as_deref().unwrap_or("-").to_string();
-    let payload_type = job
-        .payload
-        .as_ref()
-        .and_then(|payload| payload.get("type"))
-        .and_then(|value| value.as_str())
-        .unwrap_or("-");
+    let payload_type = job.payload.as_ref().map(CronPayload::kind).unwrap_or("-");
 
     rsx! {
         div { style: "display:flex;flex-direction:column;height:100%;",

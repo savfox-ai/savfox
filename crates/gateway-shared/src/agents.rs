@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-macro_rules! terminal_string_enum {
+macro_rules! string_enum {
     ($name:ident { $($variant:ident => $value:literal),+ $(,)? }) => {
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum $name {
@@ -52,7 +52,7 @@ macro_rules! terminal_string_enum {
     };
 }
 
-terminal_string_enum!(TerminalProfile {
+string_enum!(TerminalProfile {
     Codex => "codex",
     Claude => "claude",
 });
@@ -91,47 +91,47 @@ impl TerminalAgentRuntime {
     }
 }
 
-terminal_string_enum!(TerminalMode {
+string_enum!(TerminalMode {
     OneShot => "one_shot",
     ManagedPty => "managed_pty",
     InteractiveLaunch => "interactive_launch",
     JsonlAdapter => "jsonl_adapter",
 });
 
-terminal_string_enum!(TerminalSessionScope {
+string_enum!(TerminalSessionScope {
     PerTurn => "per_turn",
     PerSession => "per_session",
     PerAgent => "per_agent",
     Manual => "manual",
 });
 
-terminal_string_enum!(TerminalIoProtocol {
+string_enum!(TerminalIoProtocol {
     PlainText => "plain_text",
     Jsonl => "jsonl",
     Profile => "profile",
     Sentinel => "sentinel",
 });
 
-terminal_string_enum!(TerminalExecution {
+string_enum!(TerminalExecution {
     NativeTerminal => "native_terminal",
     ManagedWorkspace => "managed_workspace",
     Disabled => "disabled",
 });
 
-terminal_string_enum!(SavfoxApprovalBridge {
+string_enum!(SavfoxApprovalBridge {
     Disabled => "disabled",
     Prompt => "prompt",
     Required => "required",
 });
 
-terminal_string_enum!(TerminalWorkspaceMode {
+string_enum!(TerminalWorkspaceMode {
     Shared => "shared",
     ReadOnly => "read_only",
     Worktree => "worktree",
     PatchOnly => "patch_only",
 });
 
-terminal_string_enum!(TerminalWorkspaceCleanupPolicy {
+string_enum!(TerminalWorkspaceCleanupPolicy {
     PerTurn => "per_turn",
     PerSession => "per_session",
     Manual => "manual",
@@ -296,6 +296,51 @@ pub struct AgentFilesResponse {
     pub files: Vec<AgentFile>,
 }
 
+string_enum!(AgentSandboxMode {
+    ReadOnly => "read-only",
+    WorkspaceWrite => "workspace-write",
+    DangerFullAccess => "danger-full-access",
+});
+
+string_enum!(AgentApprovalMode {
+    Untrusted => "untrusted",
+    OnFailure => "on-failure",
+    OnRequest => "on-request",
+    Never => "never",
+});
+
+/// Fine-grained tool settings stored in an agent permission policy.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AgentToolAccessPolicy {
+    #[serde(default)]
+    pub allowed: Vec<String>,
+    #[serde(default)]
+    pub denied: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tool_approval_overrides: BTreeMap<String, bool>,
+}
+
+/// Gateway representation of an agent's unified permission policy.
+///
+/// The sandbox representation intentionally remains the compact string form
+/// persisted by the gateway rather than the richer core `SandboxPolicy` wire
+/// shape.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AgentPermissionPolicy {
+    #[serde(
+        default,
+        rename = "_preset_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub preset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<AgentSandboxMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<AgentApprovalMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_access: Option<AgentToolAccessPolicy>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct AgentDetail {
     pub name: String,
@@ -316,7 +361,7 @@ pub struct AgentDetail {
     pub external_bot_policy: Option<String>,
     pub idle_reply: Option<AgentIdleReplyConfig>,
     /// Unified permission policy (sandbox + approval + tool access).
-    pub permission_policy: Option<serde_json::Value>,
+    pub permission_policy: Option<AgentPermissionPolicy>,
     /// List of Matrix appservice channel config IDs for which to auto-create
     /// a virtual user for this agent.
     pub matrix_auto_user_channels: Option<Vec<String>>,
@@ -334,9 +379,10 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        AgentTerminalDelegateConfig, SavfoxApprovalBridge, TerminalAgentConfig,
-        TerminalAgentRuntime, TerminalExecution, TerminalIoProtocol, TerminalMode, TerminalProfile,
-        TerminalSessionScope, TerminalWorkspaceCleanupPolicy, TerminalWorkspaceMode,
+        AgentApprovalMode, AgentPermissionPolicy, AgentSandboxMode, AgentTerminalDelegateConfig,
+        SavfoxApprovalBridge, TerminalAgentConfig, TerminalAgentRuntime, TerminalExecution,
+        TerminalIoProtocol, TerminalMode, TerminalProfile, TerminalSessionScope,
+        TerminalWorkspaceCleanupPolicy, TerminalWorkspaceMode,
     };
 
     #[test]
@@ -478,5 +524,35 @@ mod tests {
         assert_eq!(serialized["workspace"]["mode"], "shadow_copy");
         assert_eq!(serialized["workspace"]["base"], "/tmp/future");
         assert_eq!(serialized["workspace"]["cleanup_policy"], "after_review");
+    }
+
+    #[test]
+    fn permission_policy_is_typed_and_preserves_future_modes() {
+        let parsed: AgentPermissionPolicy = serde_json::from_value(json!({
+            "_preset_id": "coding",
+            "sandbox": "future-sandbox",
+            "approval": "on-request",
+            "tool_access": {
+                "allowed": ["shell", "read_file"],
+                "denied": ["browser"]
+            }
+        }))
+        .expect("permission policy should deserialize");
+
+        assert_eq!(parsed.preset_id.as_deref(), Some("coding"));
+        assert_eq!(
+            parsed.sandbox,
+            Some(AgentSandboxMode::Other("future-sandbox".to_owned()))
+        );
+        assert_eq!(parsed.approval, Some(AgentApprovalMode::OnRequest));
+        let tool_access = parsed
+            .tool_access
+            .as_ref()
+            .expect("tool access should exist");
+        assert_eq!(tool_access.allowed, ["shell", "read_file"]);
+
+        let serialized = serde_json::to_value(parsed).expect("permission policy should serialize");
+        assert_eq!(serialized["sandbox"], "future-sandbox");
+        assert_eq!(serialized["tool_access"]["denied"], json!(["browser"]));
     }
 }
