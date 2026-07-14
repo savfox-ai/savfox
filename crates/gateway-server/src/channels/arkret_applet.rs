@@ -38,7 +38,7 @@ use arkret::{
     AppletActorView, AppletDescription, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did, Hash,
     IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow,
-    MessageCreatePayload, RealmId, StrandId, canonical, new_prefixed_uuid7,
+    MessageCreatePayload, RealmId, RejectedItem, StrandId, canonical, new_prefixed_uuid7,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -652,7 +652,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     }
 
     // Classify events.
-    let mut rejected: Vec<Value> = Vec::new();
+    let mut rejected: Vec<RejectedItem> = Vec::new();
     let mut dispatched_commands = Vec::new();
     for event in body.events.iter() {
         if record_applet_mls_welcome_from_event(state.as_ref(), event) {
@@ -675,10 +675,11 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                         "arkret applet: encrypted inbound event rejected; crypto session decrypt is not wired"
                     );
                 }
-                rejected.push(json!({
-                    "event_id": event.event_id.as_str(),
-                    "reason_code": format!("{reason:?}"),
-                }));
+                rejected.push(RejectedItem {
+                    event_id: Some(event.event_id.clone()),
+                    reason_code: format!("{reason:?}"),
+                    retry_after_ms: None,
+                });
             }
         }
     }
@@ -1161,7 +1162,7 @@ async fn applet_actor(req: &mut Request, res: &mut Response) {
         exists: true,
         actor_id: Did::new(actor_id).ok(),
         display_name: None,
-        external_ref: Value::Null,
+        external_ref: None,
     };
     res.status_code(StatusCode::OK);
     res.render(Json(body));
@@ -1186,7 +1187,7 @@ async fn applet_realm(req: &mut Request, res: &mut Response) {
         exists: true,
         realm_id: arkret::RealmId::new(realm).ok(),
         title: None,
-        external_ref: Value::Null,
+        external_ref: None,
     };
     res.status_code(StatusCode::OK);
     res.render(Json(body));
@@ -1211,7 +1212,7 @@ async fn applet_protocol(req: &mut Request, res: &mut Response) {
         protocol: protocol.clone(),
         display_name: protocol,
         icon_blob_ref: None,
-        field_types: json!({}),
+        field_types: Default::default(),
         instances: vec![],
     };
     res.status_code(StatusCode::OK);

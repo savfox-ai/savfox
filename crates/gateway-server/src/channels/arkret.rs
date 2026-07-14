@@ -898,10 +898,21 @@ async fn publish_account_mls_key_packages(
         }
     }
 
-    let mut entries = records
+    let mut entries = match records
         .iter()
         .map(|record| key_package_upload_entry(record, None))
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()
+    {
+        Ok(entries) => entries,
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: failed to encode MLS KeyPackage upload entry: {err:#}"
+            );
+            return;
+        }
+    };
     let signature_value = match key_package_upload_signature_value(&principal, &device, &entries) {
         Ok(value) => value,
         Err(err) => {
@@ -969,12 +980,14 @@ async fn publish_account_mls_key_packages(
 fn key_package_upload_entry(
     record: &MlsKeyPackageRecord,
     device_signature: Option<arkret::KeyOperationSignature>,
-) -> KeyPackageUploadEntry {
-    KeyPackageUploadEntry {
+) -> anyhow::Result<KeyPackageUploadEntry> {
+    Ok(KeyPackageUploadEntry {
         keypackage_id: record.keypackage_id.clone(),
         keypackage_ref: record.keypackage_ref.as_str().to_owned(),
         keypackage_digest: record.keypackage_ref.clone(),
-        key_package: Value::String(record.key_package.clone()),
+        key_package: arkret::Base64UrlString::new(record.key_package.clone())
+            .map_err(anyhow::Error::msg)
+            .context("MLS KeyPackage must be unpadded base64url")?,
         cipher_suites: record.cipher_suites.clone(),
         capabilities: record.capabilities.clone(),
         expires_at: record
@@ -983,7 +996,7 @@ fn key_package_upload_entry(
         created_at: record.created_at,
         device_signature,
         last_resort: Some(record.last_resort),
-    }
+    })
 }
 
 fn key_package_upload_signature_value(

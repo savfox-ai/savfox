@@ -2,8 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use arkret::{AgentPairingBootstrap, DeviceId, Did};
-use chrono::{DateTime, SecondsFormat, Utc};
-use ed25519_dalek::Signer as _;
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -455,62 +454,18 @@ pub fn build_arkret_runtime_key_request_json(
                 account.id
             )
         })?;
-    let audience = account
-        .arkret_server_did
-        .as_deref()
-        .or(Some(bootstrap.service_id.as_str()))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Arkret agent '{}' missing serviceId/arkretServerDid for runtime key request audience",
-                account.id
-            )
-        })?;
-    let agent_id = Did::new(account.principal_id.clone())?;
     let signing_key = load_ed25519_signing_key(key_ref)?;
-    let public_key = serde_json::json!({
-        "kty": "OKP",
-        "kid": verification_method,
-        "alg": "Ed25519",
-        "key": arkret::base64url_encode(signing_key.verifying_key().to_bytes()),
-    });
-    let request_canonical_digest = arkret::agent_key_pair_proof_request_binding_digest(
-        &bootstrap.pairing_request_id,
-        &agent_id,
-        verification_method,
-        &public_key,
-        None,
-    )
-    .map_err(|err| anyhow::anyhow!("agent key pair proof request digest: {err}"))?;
-    let expires_at = bootstrap.pairing_expires_at;
-    let signing_input = arkret::agent::agent_key_pair_proof_signing_input(
-        verification_method.to_owned(),
-        bootstrap.pairing_request_id.clone(),
-        audience.to_owned(),
-        expires_at,
-        request_canonical_digest.clone(),
-    );
-    let signature = signing_key.sign(
-        &signing_input
-            .canonical_bytes()
-            .map_err(|err| anyhow::anyhow!("agent key pair proof canonical bytes: {err}"))?,
-    );
-    let signature = arkret::base64url_encode(signature.to_bytes());
-
-    Ok(serde_json::json!({
-        "pairing_request_id": bootstrap.pairing_request_id,
-        "agent_id": account.principal_id,
-        "verification_method": verification_method,
-        "public_key": public_key,
-        "proof_of_possession": {
-            "challenge": bootstrap.pairing_request_id,
-            "audience": audience,
-            "request_canonical_digest": request_canonical_digest.as_str(),
-            "expires_at": expires_at.to_rfc3339_opts(SecondsFormat::Millis, true),
-            "signature": signature,
-        },
-    }))
+    let request = arkret::agent::RuntimeKeyRequestBuilder::new(&signing_key, bootstrap.clone())
+        .verification_method(verification_method)
+        .build_approval_request()
+        .map_err(|err| anyhow::anyhow!("agent runtime key request: {err}"))?;
+    let mut request = serde_json::to_value(request.body)
+        .map_err(|err| anyhow::anyhow!("serialize agent runtime key request: {err}"))?;
+    request
+        .as_object_mut()
+        .expect("typed agent runtime key request serializes as an object")
+        .remove("pairing_code");
+    Ok(request)
 }
 
 /// Build the open runtime-key-request status poll body plus the digest of the
@@ -567,6 +522,7 @@ pub fn build_arkret_runtime_key_status_request_json(
 mod tests {
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD_NO_PAD;
+    use chrono::SecondsFormat;
     use savfox_core::config::channel_store::ChannelConfig;
     use serde_json::json;
 
@@ -1028,6 +984,58 @@ mod tests {
         assert!(!rendered.contains(&seed));
         assert!(request.get("keyRef").is_none());
         assert!(request.get("keyRef").is_none());
+    }
+
+    #[test]
+    fn runtime_key_request_with_submillisecond_expiry_has_a_verifiable_signature() {
+        use ed25519_dalek::Verifier as _;
+
+        let seed = STANDARD_NO_PAD.encode([7u8; 32]);
+        let cfg = make_channel_config(json!({
+            "mode": "agent",
+            "inksonBootstrap": {
+                "arkret_base_url": "https://arkret.example.org",
+                "service_id": "did:webvh:arkret.example.org",
+                "agent_id": "did:webvh:example.org:agents:support",
+                "pairing_request_id": "pair-123",
+                "pairing_code": "123456",
+                "pairing_expires_at": "2026-07-14T14:43:48.784473Z"
+            },
+            "keyRef": { "kind": "inline_seed_base64", "value": seed },
+            "verificationMethod": "did:webvh:example.org:agents:support#runtime-1"
+        }));
+        let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
+        let account = &parsed.accounts[0];
+        let request = build_arkret_runtime_key_request_json(account, Utc::now()).expect("request");
+        let proof = request["proof_of_possession"].as_object().unwrap();
+        let expires_at = proof["expires_at"]
+            .as_str()
+            .unwrap()
+            .parse::<DateTime<Utc>>()
+            .unwrap();
+        let request_digest = arkret::Hash::new(
+            proof["request_canonical_digest"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        )
+        .unwrap();
+        let signing_input = arkret::agent::agent_key_pair_proof_signing_input(
+            request["verification_method"].as_str().unwrap(),
+            proof["challenge"].as_str().unwrap(),
+            proof["audience"].as_str().unwrap(),
+            expires_at,
+            request_digest,
+        );
+        let signature = arkret::base64url_decode(proof["signature"].as_str().unwrap()).unwrap();
+        let signature = ed25519_dalek::Signature::from_slice(&signature).unwrap();
+        let signing_key = load_ed25519_signing_key(account.key_ref.as_ref().unwrap()).unwrap();
+
+        assert_eq!(proof["expires_at"], "2026-07-14T14:43:48.784Z");
+        signing_key
+            .verifying_key()
+            .verify(&signing_input.canonical_bytes().unwrap(), &signature)
+            .expect("signature must bind the serialized proof expiry");
     }
 
     #[test]

@@ -29,7 +29,7 @@ use garth::{
     SessionGrantStore, SessionGrantTransport, SessionRefreshOptions, SessionTransportProvider,
     TransportProvider,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 use url::Url;
 use uuid::Uuid;
 
@@ -156,11 +156,7 @@ pub fn sign_key_operation_value(
     signing_input.push(b'\n');
     signing_input.extend_from_slice(&canonical);
     let signature = signing_key.sign(&signing_input);
-    Ok(KeyOperationSignature {
-        kid: verification_method.to_owned(),
-        alg: Some("Ed25519".to_owned()),
-        sig: arkret::base64url_encode(signature.to_bytes()),
-    })
+    ed25519_key_operation_signature(verification_method, signature)
 }
 
 pub fn sign_mls_welcome_claim_envelope(
@@ -177,12 +173,21 @@ pub fn sign_mls_welcome_claim_envelope(
         .canonical_signing_bytes()
         .map_err(|err| anyhow::anyhow!("MLS Welcome claim signing input: {err}"))?;
     let signature = signing_key.sign(&signing_input);
-    envelope.signature = KeyOperationSignature {
-        kid: verification_method.to_owned(),
-        alg: Some("Ed25519".to_owned()),
-        sig: arkret::base64url_encode(signature.to_bytes()),
-    };
+    envelope.signature = ed25519_key_operation_signature(verification_method, signature)?;
     Ok(())
+}
+
+fn ed25519_key_operation_signature(
+    verification_method: &str,
+    signature: ed25519_dalek::Signature,
+) -> anyhow::Result<KeyOperationSignature> {
+    Ok(KeyOperationSignature {
+        kid: arkret::NonEmptyString::new(verification_method.to_owned())
+            .map_err(anyhow::Error::msg)?,
+        alg: Some(arkret::NonEmptyString::new("Ed25519").map_err(anyhow::Error::msg)?),
+        sig: arkret::Base64UrlString::new(arkret::base64url_encode(signature.to_bytes()))
+            .map_err(anyhow::Error::msg)?,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -326,10 +331,18 @@ impl ArkretHttpClient {
         let expires_at = Utc::now() + chrono::Duration::minutes(5);
         let challenge = format!("savfox-agent-session-{}", Uuid::now_v7());
         let nonce = Uuid::now_v7().to_string();
-        let agent_scope_request = if let Some(realm_id) = realm_id {
-            json!({ "realm_ids": [realm_id] })
-        } else {
-            json!({})
+        let agent_scope_request = arkret::SessionGrantAgentScopeRequest {
+            realm_ids: realm_id
+                .map(|realm_id| {
+                    RealmId::new(realm_id.to_owned()).with_context(|| {
+                        format!("invalid Arkret agent session Realm id '{realm_id}'")
+                    })
+                })
+                .transpose()?
+                .into_iter()
+                .collect(),
+            strand_ids: Vec::new(),
+            track_names: Vec::new(),
         };
         let dpop_binding_proof = SessionGrantDpopBindingProof {
             proof_jwt: binding_proof,
@@ -783,17 +796,18 @@ mod tests {
                 "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
             )
             .unwrap(),
-            claim_id: "ak:claim:test".to_owned(),
+            claim_id: arkret::NonEmptyString::new("ak:claim:test").unwrap(),
             requester_did: Did::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap(),
-            ssk_generation: None,
-            requester_device_id: Some("ak:device:01904100-0000-7000-8000-000000000001".to_owned()),
-            nonce: "nonce-1".to_owned(),
+            trust_binding: arkret::MlsRequesterTrustBinding::RequesterDeviceId(
+                DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned()).unwrap(),
+            ),
+            nonce: arkret::NonEmptyString::new("nonce-1").unwrap(),
             welcome_digest: arkret::Hash::new(format!("sha256:{}", "bb".repeat(32))).unwrap(),
             created_at: Utc::now(),
             signature: KeyOperationSignature {
-                kid: String::new(),
+                kid: arkret::NonEmptyString::new("pending").unwrap(),
                 alg: None,
-                sig: String::new(),
+                sig: arkret::Base64UrlString::new("cGVuZGluZw").unwrap(),
             },
         };
         let before = envelope
@@ -814,9 +828,10 @@ mod tests {
             .validate_signature_shape()
             .expect("signature shape should be valid");
 
-        let sig =
-            Signature::from_slice(&arkret::base64url_decode(&envelope.signature.sig).unwrap())
-                .expect("signature bytes");
+        let sig = Signature::from_slice(
+            &arkret::base64url_decode(envelope.signature.sig.as_str()).unwrap(),
+        )
+        .expect("signature bytes");
         signing_key()
             .verifying_key()
             .verify_strict(&after, &sig)

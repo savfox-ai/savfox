@@ -844,13 +844,18 @@ fn extract_mls_welcome_consume_binding_inner(
     remaining_depth: usize,
 ) -> Option<ArkretMlsWelcomeConsumeBinding> {
     if let Ok(payload) = serde_json::from_value::<MlsWelcomePayload>(value.clone()) {
+        let welcome_ref = payload
+            .carrier
+            .welcome_ref()
+            .or_else(|| payload.carrier.encrypted_welcome_ref())
+            .map(str::to_owned);
         return Some(ArkretMlsWelcomeConsumeBinding {
-            keypackage_ref: payload.keypackage_ref,
-            claim_id: payload.claim_id,
-            welcome_ref: payload.welcome_ref,
+            keypackage_ref: payload.keypackage_ref.to_string(),
+            claim_id: payload.claim_id.into_string(),
+            welcome_ref,
             realm_id: Some(payload.claim_envelope.intended_realm_id.as_str().to_owned()),
             strand_id: None,
-            mls_group_id: payload.mls_group_id,
+            mls_group_id: payload.mls_group_id.to_string(),
             epoch: payload.epoch,
         });
     }
@@ -1362,9 +1367,9 @@ mod tests {
             device_authorize_event_id: None,
             expires_at: Utc::now() + chrono::Duration::days(1),
             device_signature: KeyOperationSignature {
-                kid: format!("{bob_principal}#runtime-1"),
-                alg: Some("Ed25519".to_owned()),
-                sig: "c2ln".to_owned(),
+                kid: arkret::NonEmptyString::new(format!("{bob_principal}#runtime-1")).unwrap(),
+                alg: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
+                sig: arkret::Base64UrlString::new("c2ln").unwrap(),
             },
             revocation_status: Some("active".to_owned()),
             last_resort: Some(false),
