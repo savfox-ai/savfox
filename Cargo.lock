@@ -321,7 +321,6 @@ dependencies = [
  "arkret-core",
  "arkret-crypto",
  "arkret-ffi",
- "arkret-html",
  "arkret-http-client",
  "arkret-keystore",
  "arkret-server",
@@ -367,6 +366,7 @@ dependencies = [
  "chrono",
  "parking_lot",
  "reqwest 0.13.4",
+ "rustls 0.23.37",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -442,15 +442,6 @@ dependencies = [
 
 [[package]]
 name = "arkret-ffi"
-version = "0.3.0"
-dependencies = [
- "arkret-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "arkret-html"
 version = "0.3.0"
 dependencies = [
  "arkret-core",

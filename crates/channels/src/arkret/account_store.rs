@@ -71,7 +71,7 @@ fn safe_file_stem(scope_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use arkret::NotificationDelta;
+    use arkret::{NotificationDelta, NotificationDeltaAction, NotificationId, NotificationType};
     use garth::{ClientEvent, DurableInboxStore};
 
     use super::*;
@@ -102,9 +102,12 @@ mod tests {
                 scope,
                 Some("ak:cursor:restart".to_owned()),
                 vec![ClientEvent::Notification(NotificationDelta {
-                    id: "notification-1".to_owned(),
-                    notification_type: "mention".to_owned(),
-                    action: "add".to_owned(),
+                    id: NotificationId::new(
+                        "ak:notification:01904100-0000-7000-8000-000000000001".to_owned(),
+                    )
+                    .unwrap(),
+                    notification_type: NotificationType::Agent,
+                    action: NotificationDeltaAction::Remove,
                     data: None,
                 })],
             )

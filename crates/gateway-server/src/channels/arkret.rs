@@ -33,8 +33,8 @@ use savfox_channels::arkret::{
     ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent,
     ArkretMlsWelcomeConsumeBinding, FileArkretCryptoStore, MessageCreateRequest,
     account_allows_event_read, build_message_create_event, device_messages_scope,
-    open_account_store, parse_delta_frame_for_account, parse_notification_delta_for_account,
-    resolve_arkret_outbound_account, sign_key_operation_value,
+    open_account_store, parse_delta_frame_for_account, resolve_arkret_outbound_account,
+    sign_key_operation_value,
 };
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
@@ -1507,28 +1507,8 @@ async fn handle_sync_updates_for_account(
             .await?;
         }
     }
-    for notification in updates.notifications {
-        let notification_value = notification_delta_to_value(notification);
-        record_account_mls_welcome_from_value_tree(
-            crypto_store,
-            &notification_value,
-            channel,
-            account,
-            "notification",
-        );
-        let parsed = parse_notification_delta_for_account(&notification_value, account);
-        handle_parsed_account_events(
-            client,
-            parsed,
-            channel,
-            account,
-            account_store,
-            crypto_store,
-            gateway_channel,
-            session_store,
-        )
-        .await?;
-    }
+    // Typed account notifications carry Agent runtime-approval state. They are
+    // not Realm events and must not wake the channel's chat agent.
     match account_to_device_ack_plan(
         saw_to_device_messages,
         to_device_lost,
@@ -1967,33 +1947,6 @@ fn record_account_mls_welcome_from_value_tree_inner(
             .sum(),
         _ => 0,
     }
-}
-
-fn notification_delta_to_value(notification: arkret::NotificationDelta) -> Value {
-    let mut object = serde_json::Map::new();
-    object.insert(
-        "notification_id".to_owned(),
-        Value::String(notification.id.clone()),
-    );
-    object.insert("id".to_owned(), Value::String(notification.id));
-    object.insert(
-        "notification_type".to_owned(),
-        Value::String(notification.notification_type.clone()),
-    );
-    object.insert(
-        "type".to_owned(),
-        Value::String(notification.notification_type),
-    );
-    object.insert("action".to_owned(), Value::String(notification.action));
-    if let Some(data) = notification.data {
-        if let Value::Object(data_object) = &data {
-            for (key, value) in data_object {
-                object.entry(key.clone()).or_insert_with(|| value.clone());
-            }
-        }
-        object.insert("data".to_owned(), data);
-    }
-    Value::Array(vec![Value::Object(object)])
 }
 
 async fn handle_parsed_account_events(
@@ -2767,37 +2720,6 @@ mod tests {
             parsed.events[0].flow_id.as_deref(),
             Some("ak:strand:01904100-0000-7000-8000-000000000002")
         );
-    }
-
-    #[test]
-    fn sync_notification_flattens_data_for_existing_parser() {
-        let account = make_account();
-        let notification = arkret::NotificationDelta {
-            id: "ak:notification:01904100-0000-7000-8000-000000000001".to_owned(),
-            notification_type: "assignment".to_owned(),
-            action: "add".to_owned(),
-            data: Some(json!({
-                "realm_id": realm_id().as_str(),
-                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000004",
-                "source_event_id": "ak:event:01904100-0000-7000-8000-000000000005",
-                "source_actor_id": actor_id().as_str(),
-                "body": "Assigned to you"
-            })),
-        };
-
-        let parsed = parse_notification_delta_for_account(
-            &notification_delta_to_value(notification),
-            &account,
-        );
-
-        assert_eq!(parsed.skipped, Vec::new());
-        assert_eq!(parsed.events.len(), 1);
-        assert_eq!(parsed.events[0].realm_id, realm_id().as_str());
-        assert_eq!(
-            parsed.events[0].thread_root_id.as_deref(),
-            Some("ak:strand:01904100-0000-7000-8000-000000000004")
-        );
-        assert!(parsed.events[0].body.contains("assignment notification"));
     }
 
     #[test]
