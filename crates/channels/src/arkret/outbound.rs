@@ -7,16 +7,15 @@
 use anyhow::Context;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    ContentBlock, Did, Ed25519MoveSigner, Event, Hlc, MessageCreatePayload, OP_MESSAGE_CREATE,
-    OperationEnvelopeBuilder, OperationEventConversion, OperationId, OperationKindRegistry,
-    RealmId, StrandId, new_prefixed_uuid7,
+    ContentBlock, Did, Ed25519MoveSigner, Event, EventDraftKindRegistry, Hlc, MessageCreatePayload,
+    OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId, StrandId,
+    events::EventKind, new_prefixed_uuid7,
 };
-use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct MessageCreateRequest {
     pub realm_id: String,
-    pub flow_id: String,
+    pub strand_id: String,
     pub body: String,
     pub principal_id: String,
     pub actor_seq: u64,
@@ -33,8 +32,8 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     if req.realm_id.trim().is_empty() {
         anyhow::bail!("MessageCreateRequest missing realm_id");
     }
-    if req.flow_id.trim().is_empty() {
-        anyhow::bail!("MessageCreateRequest missing flow_id");
+    if req.strand_id.trim().is_empty() {
+        anyhow::bail!("MessageCreateRequest missing strand_id");
     }
     if req.body.trim().is_empty() {
         anyhow::bail!("MessageCreateRequest has empty body");
@@ -45,17 +44,9 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
         .with_context(|| format!("invalid principal DID: {}", req.principal_id))?;
     let hlc = current_hlc();
 
-    let (strand_id, legacy_flow_id) = match StrandId::new(req.flow_id.clone()) {
-        Ok(strand_id) => (strand_id, None),
-        Err(_) => (
-            StrandId::new(new_prefixed_uuid7("ak:strand:"))
-                .context("failed to generate message strand id")?,
-            Some(req.flow_id.as_str()),
-        ),
-    };
-    let content = ContentBlock::text(req.body.clone())
-        .to_value()
-        .map_err(|err| anyhow::anyhow!("failed to build text content block: {err}"))?;
+    let strand_id = StrandId::new(req.strand_id.clone())
+        .with_context(|| format!("invalid strand_id: {}", req.strand_id))?;
+    let content = ContentBlock::text(req.body.clone());
     let mut payload = MessageCreatePayload::with_content(strand_id, "discussion", content)
         .with_message_id(new_prefixed_uuid7("ak:message:"));
     if let Some(thread_root) = &req.thread_root_id {
@@ -66,7 +57,7 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
             .context("failed to generate message operation id")?,
         realm,
         actor,
-        OP_MESSAGE_CREATE,
+        EventKind::MESSAGE_CREATE,
         req.actor_seq,
         hlc,
     )
@@ -75,23 +66,11 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
             .to_value()
             .map_err(|err| anyhow::anyhow!("failed to build message-create payload: {err}"))?,
     )
-    .build(&OperationKindRegistry::default())
+    .build(&EventDraftKindRegistry::default())
     .map_err(|err| anyhow::anyhow!("failed to build message-create envelope: {err}"))?;
-    let mut event = envelope
+    envelope
         .into_event_envelope(OperationEventConversion::default())
-        .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))?;
-
-    if let Some(flow_id) = legacy_flow_id {
-        apply_legacy_flow_id(&mut event.payload, flow_id);
-    }
-    Ok(event)
-}
-
-fn apply_legacy_flow_id(payload: &mut Value, flow_id: &str) {
-    let Some(object) = payload.as_object_mut() else {
-        return;
-    };
-    object.insert("flow_id".to_owned(), Value::String(flow_id.to_owned()));
+        .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))
 }
 
 /// Phase 8 (T8.C): attach a detached-JWS [`Proof`] to an outbound event.
@@ -129,7 +108,7 @@ mod tests {
     fn valid_request() -> MessageCreateRequest {
         MessageCreateRequest {
             realm_id: "ak:realm:01904100-0000-7000-8000-000000000001".into(),
-            flow_id: "ak:flow:01904100-0000-7000-8000-000000000001".into(),
+            strand_id: "ak:strand:01904100-0000-7000-8000-000000000001".into(),
             body: "hello world".into(),
             principal_id: "did:webvh:example.org:agents:support".into(),
             actor_seq: 1,
@@ -152,32 +131,40 @@ mod tests {
             .unwrap_or("");
         assert_eq!(body, "hello world");
         assert_eq!(
-            event.payload.get("track_name").and_then(Value::as_str),
+            event
+                .payload
+                .get("track_name")
+                .and_then(serde_json::Value::as_str),
             Some("discussion")
         );
         assert_eq!(
-            event.payload.get("flow_id").and_then(Value::as_str),
-            Some(valid_request().flow_id.as_str())
+            event
+                .payload
+                .get("strand_id")
+                .and_then(serde_json::Value::as_str),
+            Some(valid_request().strand_id.as_str())
         );
         assert!(event.payload.get("track").is_none());
     }
 
     #[test]
-    fn uses_strand_flow_id_for_sdk_payload_when_supplied() {
+    fn uses_strand_id_for_sdk_payload() {
         let mut req = valid_request();
-        req.flow_id = "ak:strand:01904100-0000-7000-8000-000000000002".into();
+        req.strand_id = "ak:strand:01904100-0000-7000-8000-000000000002".into();
         let event = build_message_create_event(&req).expect("build");
         assert_eq!(
-            event.payload.get("strand_id").and_then(Value::as_str),
+            event
+                .payload
+                .get("strand_id")
+                .and_then(serde_json::Value::as_str),
             Some("ak:strand:01904100-0000-7000-8000-000000000002")
         );
-        assert!(event.payload.get("flow_id").is_none());
     }
 
     #[test]
-    fn rejects_missing_flow_id() {
+    fn rejects_missing_strand_id() {
         let mut req = valid_request();
-        req.flow_id = String::new();
+        req.strand_id = String::new();
         assert!(build_message_create_event(&req).is_err());
     }
 

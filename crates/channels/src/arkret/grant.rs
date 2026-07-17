@@ -19,9 +19,8 @@
 use std::path::Path;
 
 use anyhow::Context as _;
-use arkret::{CapabilityGrant, CapabilitySubject, Event};
+use arkret::{CapabilityGrantPayload, CapabilitySubject, Event};
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 
 /// Loaded capability grant ready for use as `authorization_ref` on
 /// outbound writes.
@@ -104,8 +103,15 @@ pub async fn load_and_verify_grant(
         .validate_proof_bindings()
         .map_err(|err| anyhow::anyhow!("grant proof binding invalid: {err}"))?;
 
-    let grant: CapabilityGrant = decode_capability_grant(event.payload.clone())
+    let payload: CapabilityGrantPayload = event
+        .payload_as()
         .with_context(|| format!("decode CapabilityGrant payload in {}", path.display()))?;
+    let grant = payload.grant.ok_or_else(|| {
+        anyhow::anyhow!(
+            "capability grant {}: payload.grant is required",
+            path.display()
+        )
+    })?;
 
     if event.actor_id.as_str() != grant.issuer.as_str() {
         anyhow::bail!(
@@ -178,14 +184,6 @@ pub async fn load_and_verify_grant(
     })
 }
 
-fn decode_capability_grant(content: Value) -> anyhow::Result<CapabilityGrant> {
-    if let Some(grant) = content.get("grant") {
-        return serde_json::from_value(grant.clone())
-            .context("decode wrapped capability_grant_payload.grant");
-    }
-    serde_json::from_value(content).context("decode legacy direct CapabilityGrant")
-}
-
 fn capability_subject_did(subject: &CapabilitySubject) -> Option<&str> {
     match subject {
         CapabilitySubject::Did(did) => Some(did.as_str()),
@@ -228,7 +226,7 @@ mod tests {
             "kind": "detached_jws",
             "alg": "EdDSA",
             "verification_method": "did:webvh:example.com:admin#grant-key-1",
-            "event_digest": format!("sha256:{}", "0".repeat(64)),
+            "payload_digest": format!("sha256:{}", "0".repeat(64)),
             "created_at": "2026-05-27T00:00:00Z",
             "jws": "grant.detached.signature"
         });
@@ -244,7 +242,10 @@ mod tests {
             grant.insert("realm_id".into(), json!(realm));
         }
         if let Some(exp) = expires {
-            grant.insert("expires_at".into(), json!(exp.to_rfc3339()));
+            grant.insert(
+                "expires_at".into(),
+                json!(exp.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            );
         }
         let mut content = serde_json::Map::new();
         content.insert("grant_id".into(), json!(grant_id));
@@ -343,7 +344,10 @@ mod tests {
         let err = load_and_verify_grant(&path, "did:webvh:example.org:agents:support", None)
             .await
             .expect_err("expired grant should fail");
-        assert!(err.to_string().contains("expired"));
+        assert!(
+            err.to_string().contains("expired"),
+            "unexpected error: {err:#}"
+        );
         let _ = tokio::fs::remove_file(&path).await;
     }
 
@@ -427,7 +431,7 @@ mod tests {
             expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
         };
         assert!(g.covers_action("ak.message.create"));
-        assert!(!g.covers_action("ak.flow.create"));
+        assert!(!g.covers_action("ak.message.redact"));
         assert!(g.is_active());
     }
 }

@@ -20,7 +20,7 @@ pub struct ArkretInboundEvent {
     pub account_id: String,
     pub event_id: String,
     pub realm_id: String,
-    pub flow_id: Option<String>,
+    pub strand_id: Option<String>,
     pub sender_did: String,
     pub body: String,
     pub thread_root_id: Option<String>,
@@ -44,6 +44,8 @@ pub struct ArkretInboundSkippedEvent {
     pub event_id: Option<String>,
     pub realm_id: Option<String>,
     pub sender_did: Option<String>,
+    pub strand_id: Option<String>,
+    pub reply_to: Option<String>,
     pub encrypted_payload: Option<arkret::EncryptedPayload>,
     pub reason: ArkretInboundSkipReason,
 }
@@ -121,24 +123,7 @@ pub fn classify_message_event(event: &Value, account_id: &str) -> ArkretInboundE
 }
 
 fn sdk_event_from_value(event: &Value) -> Result<arkret::Event, serde_json::Error> {
-    match serde_json::from_value::<arkret::Event>(event.clone()) {
-        Ok(event) => Ok(event),
-        Err(err) => legacy_content_envelope_as_payload(event)
-            .map(serde_json::from_value)
-            .transpose()?
-            .ok_or(err),
-    }
-}
-
-fn legacy_content_envelope_as_payload(event: &Value) -> Option<Value> {
-    if event.get("payload").is_some() {
-        return None;
-    }
-    let mut candidate = event.clone();
-    let object = candidate.as_object_mut()?;
-    let content = object.remove("content")?;
-    object.insert("payload".to_owned(), content);
-    Some(candidate)
+    serde_json::from_value(event.clone())
 }
 
 fn classify_sdk_message_create(
@@ -157,13 +142,7 @@ fn classify_sdk_message_create(
             ArkretInboundSkipReason::MissingRequiredField("content"),
         );
     };
-    let Some(content_kind) = content.get("kind").and_then(Value::as_str) else {
-        return skip_sdk_event(
-            event,
-            account_id,
-            ArkretInboundSkipReason::MissingRequiredField("content.kind"),
-        );
-    };
+    let content_kind = content.kind.as_str();
     if content_kind == "ak.content.encrypted" {
         return skip_encrypted_sdk_event(event, account_id);
     }
@@ -174,25 +153,16 @@ fn classify_sdk_message_create(
             ArkretInboundSkipReason::UnsupportedContentKind(content_kind.to_owned()),
         );
     }
-    let Some(body) = content.get("body").and_then(Value::as_str) else {
-        return skip_sdk_event(
-            event,
-            account_id,
-            ArkretInboundSkipReason::MissingRequiredField("content.body"),
-        );
-    };
-    let flow_id = Some(payload.strand_id.as_str().to_owned());
-    let thread_root_id = payload
-        .reply_to
-        .clone()
-        .or_else(|| legacy_thread_root_id(&event.payload, content));
+    let body = content.body.as_str();
+    let strand_id = Some(payload.strand_id.as_str().to_owned());
+    let thread_root_id = payload.reply_to.clone();
     let mentioned_actor_ids = structured_mention_actor_ids(content);
 
     ArkretInboundEventOutcome::Dispatchable(ArkretInboundEvent {
         account_id: account_id.to_owned(),
         event_id: event.event_id.as_str().to_owned(),
         realm_id: event.realm_id.as_str().to_owned(),
-        flow_id,
+        strand_id,
         sender_did: event.actor_id.as_str().to_owned(),
         body: body.to_owned(),
         thread_root_id,
@@ -200,8 +170,9 @@ fn classify_sdk_message_create(
     })
 }
 
-fn structured_mention_actor_ids(content: &Value) -> Vec<String> {
+fn structured_mention_actor_ids(content: &arkret::ContentBlock) -> Vec<String> {
     let mut actor_ids = content
+        .extra
         .get("mentions")
         .and_then(Value::as_array)
         .into_iter()
@@ -220,14 +191,6 @@ fn structured_mention_actor_ids(content: &Value) -> Vec<String> {
     actor_ids.sort_unstable();
     actor_ids.dedup();
     actor_ids
-}
-
-fn legacy_thread_root_id(payload: &Value, content: &Value) -> Option<String> {
-    content
-        .get("thread_root_id")
-        .and_then(Value::as_str)
-        .or_else(|| payload.get("thread_root_id").and_then(Value::as_str))
-        .map(str::to_owned)
 }
 
 fn classify_malformed_event(event: &Value, account_id: &str) -> ArkretInboundEventOutcome {
@@ -316,6 +279,8 @@ pub fn parse_delta_frame_for_account(
                             event_id: Some(parsed.event_id.clone()),
                             realm_id: Some(parsed.realm_id.clone()),
                             sender_did: Some(parsed.sender_did.clone()),
+                            strand_id: parsed.strand_id.clone(),
+                            reply_to: parsed.thread_root_id.clone(),
                             encrypted_payload: None,
                             reason,
                         });
@@ -358,6 +323,8 @@ pub fn parse_notification_delta_for_account(
                         event_id: Some(parsed.event_id.clone()),
                         realm_id: Some(parsed.realm_id.clone()),
                         sender_did: Some(parsed.sender_did.clone()),
+                        strand_id: parsed.strand_id.clone(),
+                        reply_to: parsed.thread_root_id.clone(),
                         encrypted_payload: None,
                         reason,
                     });
@@ -421,10 +388,10 @@ fn classify_notification_event(
         account_id: account_id.to_owned(),
         event_id,
         realm_id,
-        flow_id: None,
+        strand_id: notification_strand_id(notification),
         sender_did,
         body,
-        thread_root_id: notification_strand_id(notification),
+        thread_root_id: None,
         mentioned_actor_ids: Vec::new(),
     })
 }
@@ -526,6 +493,8 @@ fn skip_event(
             .get("actor_id")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        strand_id: None,
+        reply_to: None,
         encrypted_payload: None,
         reason,
     })
@@ -541,6 +510,8 @@ fn skip_sdk_event(
         event_id: Some(event.event_id.as_str().to_owned()),
         realm_id: Some(event.realm_id.as_str().to_owned()),
         sender_did: Some(event.actor_id.as_str().to_owned()),
+        strand_id: None,
+        reply_to: None,
         encrypted_payload: None,
         reason,
     })
@@ -559,17 +530,24 @@ fn skip_notification(
             notification,
             &["source_actor_id", "sender_actor_id", "sender", "actor_id"],
         ),
+        strand_id: notification_strand_id(notification),
+        reply_to: None,
         encrypted_payload: None,
         reason,
     })
 }
 
 fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretInboundEventOutcome {
+    let message = event.as_message_create().ok();
     ArkretInboundEventOutcome::Skip(ArkretInboundSkippedEvent {
         account_id: account_id.to_owned(),
         event_id: Some(event.event_id.as_str().to_owned()),
         realm_id: Some(event.realm_id.as_str().to_owned()),
         sender_did: Some(event.actor_id.as_str().to_owned()),
+        strand_id: message
+            .as_ref()
+            .map(|payload| payload.strand_id.as_str().to_owned()),
+        reply_to: message.and_then(|payload| payload.reply_to),
         encrypted_payload: extract_encrypted_payload_from_message_content(&event.payload),
         reason: ArkretInboundSkipReason::EncryptedContent,
     })
@@ -649,7 +627,7 @@ mod tests {
         let parsed = extract_message_event(&event, "support").expect("parse");
         assert_eq!(parsed.body, "hello");
         assert_eq!(parsed.realm_id, REALM_1);
-        assert_eq!(parsed.flow_id.as_deref(), Some(STRAND_1));
+        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1));
         assert_eq!(parsed.sender_did, "did:webvh:example.org:user-alice");
     }
 
@@ -658,7 +636,7 @@ mod tests {
         let event = sdk_message_event("did:webvh:z6mkfixture:alice.example", "hello sdk");
         let parsed = extract_message_event(&event, "support").expect("parse");
         assert_eq!(parsed.body, "hello sdk");
-        assert_eq!(parsed.flow_id.as_deref(), Some(STRAND_1));
+        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1));
         assert_eq!(parsed.sender_did, "did:webvh:z6mkfixture:alice.example");
     }
 
@@ -689,22 +667,9 @@ mod tests {
     }
 
     #[test]
-    fn accepts_legacy_content_envelope_adapter() {
-        let mut event = sdk_message_event("did:webvh:z6mkfixture:alice.example", "legacy shell");
-        let object = event.as_object_mut().unwrap();
-        let payload = object.remove("payload").unwrap();
-        object.insert("content".to_owned(), payload);
-
-        let parsed = extract_message_event(&event, "support").expect("parse");
-
-        assert_eq!(parsed.body, "legacy shell");
-        assert_eq!(parsed.flow_id.as_deref(), Some(STRAND_1));
-    }
-
-    #[test]
     fn ignores_non_message_kind() {
         let event = event_value(
-            "ak.flow.update",
+            "ak.strand.update",
             REALM_1,
             "did:webvh:z6mkfixture:alice.example",
             json!({}),
@@ -940,7 +905,8 @@ mod tests {
             event.sender_did,
             "did:webvh:example.org:user-alice".to_owned()
         );
-        assert_eq!(event.thread_root_id.as_deref(), Some("ak:strand:s1"));
+        assert_eq!(event.strand_id.as_deref(), Some("ak:strand:s1"));
+        assert_eq!(event.thread_root_id, None);
         assert!(event.body.contains("assignment notification"));
         assert!(event.body.contains("source_event_id: ak:event:rel1"));
     }
@@ -961,10 +927,8 @@ mod tests {
 
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].event_id, "ak:notification:n2");
-        assert_eq!(
-            result.events[0].thread_root_id.as_deref(),
-            Some("ak:strand:s2")
-        );
+        assert_eq!(result.events[0].strand_id.as_deref(), Some("ak:strand:s2"));
+        assert_eq!(result.events[0].thread_root_id, None);
         assert!(result.events[0].body.contains("schedule notification"));
     }
 

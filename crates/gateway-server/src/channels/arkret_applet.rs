@@ -35,10 +35,11 @@ use arkret::http_signature::{
     parse_signature_input, public_key_from_bytes, verify_signed_http_message,
 };
 use arkret::{
-    AppletActorView, AppletDescription, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
+    AppletActorView, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did, Hash,
     IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow,
-    MessageCreatePayload, RealmId, RejectedItem, StrandId, canonical, new_prefixed_uuid7,
+    MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe, ServiceOperationId, ServiceType,
+    StrandId, TypedTrustDomainId, canonical, new_prefixed_uuid7,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -48,7 +49,7 @@ use savfox_channels::arkret::applet::{
 };
 use savfox_channels::arkret::{
     AppletNamespacesExt, ArkretDecryptOutcome, ArkretEncryptOutcome, FileArkretCryptoStore,
-    extract_encrypted_payload_from_message_content,
+    UnableToDecryptReason, extract_encrypted_payload_from_message_content,
 };
 use serde_json::{Map, Value, json};
 use subtle::ConstantTimeEq;
@@ -368,39 +369,43 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
         return;
     };
     let cfg = &state.config;
-    let body = AppletDescription {
-        applet_id: cfg.applet_id.clone(),
-        // See `applet_ping`: service_id is validated before registration.
-        service_id: Did::new(cfg.service_id.clone())
-            .expect("service_id validated at channel registration"),
-        protocols: cfg.protocols.clone(),
-        namespaces: json!({
-            "actors": cfg.namespaces.actors,
-            "realms": cfg.namespaces.realms,
-            "handles": cfg.namespaces.handles,
-        }),
-        limits: json!({
-            "max_events_per_transaction": 100,
-            "max_body_bytes": 65_536,
-            "e2ee": {
-                "encrypted_content": "decrypt_when_local_group_state_exists",
-                "outbound_policy": "encrypt_when_realm_requires_e2ee",
-                "plaintext_fallback": "only_when_realm_policy_allows_plaintext",
-                "device_id_configured": cfg.device_id.is_some(),
-                "crypto_store": state.crypto_store.path().display().to_string(),
-            },
-        }),
-        auth: json!({
-            "type": "bearer",
-            "controller_id": cfg.controller_id,
-            "bot_actor_id": cfg.bot_actor_id,
-            "bot_device_id": cfg.device_id.as_deref(),
-            "http_message_signature": {
-                "required_when_trusted_keys_configured": true,
-                "trusted_verification_methods": cfg.trusted_verification_methods.len(),
-            },
-        }),
+    let Some(host) = url::Url::parse(&cfg.base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+    else {
+        render_error(
+            res,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid_applet_base_url",
+            "Arkret applet base_url has no trust-domain host",
+        );
+        return;
     };
+    let Ok(trust_domain) = TypedTrustDomainId::new(format!("ak:trust_domain:{host}")) else {
+        render_error(
+            res,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid_trust_domain",
+            "Arkret applet base_url host is not a valid trust domain",
+        );
+        return;
+    };
+    let mut body = ServiceDescribe::development(
+        Did::new(cfg.service_id.clone()).expect("service_id validated at channel registration"),
+        trust_domain,
+        ServiceType::AppletService,
+    );
+    body.supported_profiles = vec!["ak.profile.applet.v1".to_owned()];
+    body.supported_operations = vec![
+        ServiceOperationId::EDGE_APPLET_QUERY_PING.to_owned(),
+        ServiceOperationId::EDGE_APPLET_QUERY_DESCRIBE.to_owned(),
+        ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION.to_owned(),
+        ServiceOperationId::EDGE_APPLET_ACTOR_QUERY_RESOLVE.to_owned(),
+        ServiceOperationId::EDGE_APPLET_REALM_QUERY_RESOLVE.to_owned(),
+        ServiceOperationId::EDGE_APPLET_QUERY_PROTOCOL_METADATA.to_owned(),
+        ServiceOperationId::EDGE_APPLET_THIRD_PARTY_USERS_QUERY_LIST.to_owned(),
+        ServiceOperationId::EDGE_APPLET_THIRD_PARTY_LOCATIONS_QUERY_LIST.to_owned(),
+    ];
     res.status_code(StatusCode::OK);
     res.render(Json(body));
 }
@@ -558,7 +563,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     );
     let source_signature_evidence = if let Some(signature) = verified_http_signature.as_ref() {
         json!({
-            "operation_id": arkret::APPLET_TRANSACTION_OPERATION_ID,
+            "operation_id": ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION,
             "direction": IdempotencyDirection::NodeToApplet.as_str(),
             "source_service_id": &source_service_id,
             "destination_service_id": &signature.destination_service_id,
@@ -575,7 +580,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         })
     } else {
         json!({
-            "operation_id": arkret::APPLET_TRANSACTION_OPERATION_ID,
+            "operation_id": ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION,
             "direction": IdempotencyDirection::NodeToApplet.as_str(),
             "source_service_id": &source_service_id,
             "destination_service_id": state.config.service_id.clone(),
@@ -731,7 +736,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                     peer_id: Some(cmd.sender_did),
                     group_id: Some(cmd.realm_id),
                     thread_id: cmd.thread_root_id,
-                    reply_target: cmd.flow_id,
+                    reply_target: Some(cmd.strand_id),
                     chat_type: Some("group".to_owned()),
                     saved_channel_config_id: Some(cid),
                     ..runtime::StartThreadMeta::default()
@@ -957,7 +962,8 @@ fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error 
 }
 
 fn record_applet_mls_welcome_from_event(state: &AppletChannelState, event: &arkret::Event) -> bool {
-    record_applet_mls_welcome_from_value_tree(state, event, &event.payload, 6) > 0
+    let payload = Value::Object(event.payload.clone().into_iter().collect());
+    record_applet_mls_welcome_from_value_tree(state, event, &payload, 6) > 0
 }
 
 fn record_applet_mls_welcome_from_value_tree(
@@ -1015,6 +1021,9 @@ fn try_decrypt_applet_event(
     state: &AppletChannelState,
     event: &arkret::Event,
 ) -> Option<AppletInboundCommand> {
+    let message = event.as_message_create().ok()?;
+    let strand_id = message.strand_id.as_str().to_owned();
+    let reply_to = message.reply_to;
     let payload = extract_encrypted_payload_from_message_content(&event.payload)?;
     if let Some(device_id) = state.config.device_id.as_deref() {
         match state.crypto_store.plan_bootstrap_for_payload(
@@ -1050,18 +1059,10 @@ fn try_decrypt_applet_event(
             Some(AppletInboundCommand {
                 event_id: event.event_id.as_str().to_owned(),
                 realm_id: event.realm_id.as_str().to_owned(),
-                flow_id: event
-                    .payload
-                    .get("flow_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
+                strand_id,
                 sender_did: event.actor_id.as_str().to_owned(),
                 body,
-                thread_root_id: event
-                    .payload
-                    .get("thread_root_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
+                thread_root_id: reply_to,
             })
         }
         Ok(ArkretDecryptOutcome::MissingGroupState) => {
@@ -1069,7 +1070,7 @@ fn try_decrypt_applet_event(
                 state,
                 event,
                 payload,
-                arkret::crypto_protocol::UnableToDecryptReason::NoSession,
+                UnableToDecryptReason::NoSession,
             );
             None
         }
@@ -1084,7 +1085,7 @@ fn try_decrypt_applet_event(
                 state,
                 event,
                 payload,
-                arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
+                UnableToDecryptReason::BadCiphertext,
             );
             None
         }
@@ -1098,7 +1099,7 @@ fn try_decrypt_applet_event(
                 state,
                 event,
                 payload,
-                arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
+                UnableToDecryptReason::BadCiphertext,
             );
             None
         }
@@ -1109,7 +1110,7 @@ fn record_applet_unable_to_decrypt(
     state: &AppletChannelState,
     event: &arkret::Event,
     payload: arkret::EncryptedPayload,
-    reason: arkret::crypto_protocol::UnableToDecryptReason,
+    reason: UnableToDecryptReason,
 ) {
     if let Err(err) = state.crypto_store.record_unable_to_decrypt(
         event.event_id.as_str(),
@@ -1389,15 +1390,15 @@ async fn applet_third_party_locations(req: &mut Request, res: &mut Response) {
 /// can fall back to account-mode Arkret sending.
 pub(crate) async fn send_to_arkret_applet_for_realm(
     realm_id: &str,
-    flow_id: Option<&str>,
+    strand_id: Option<&str>,
     body: &str,
 ) -> anyhow::Result<bool> {
     let Some(state) = lookup_by_realm(realm_id)? else {
         return Ok(false);
     };
-    let flow_id = flow_id.ok_or_else(|| {
+    let strand_id = strand_id.ok_or_else(|| {
         anyhow::anyhow!(
-            "Arkret applet '{}' cannot reply to realm '{}' without a flow id",
+            "Arkret applet '{}' cannot reply to realm '{}' without a strand id",
             state.config.id,
             realm_id
         )
@@ -1405,7 +1406,7 @@ pub(crate) async fn send_to_arkret_applet_for_realm(
     let external_ref = json!({
         "protocol": "savfox",
         "network_id": state.config.id,
-        "external_id": format!("{realm_id}:{flow_id}"),
+        "external_id": format!("{realm_id}:{strand_id}"),
         "kind": "agent_reply",
     });
     // `actor_seq` is no longer derived from a wall-clock timestamp here — it
@@ -1414,7 +1415,7 @@ pub(crate) async fn send_to_arkret_applet_for_realm(
     send_via_applet(
         &state.config.id,
         realm_id,
-        flow_id,
+        strand_id,
         &state.config.bot_actor_id,
         body,
         external_ref,
@@ -1438,7 +1439,7 @@ pub(crate) async fn send_to_arkret_applet_for_realm(
 pub(crate) async fn send_via_applet(
     config_id: &str,
     realm_id: &str,
-    flow_id: &str,
+    strand_id: &str,
     ghost_actor_did: &str,
     body: &str,
     external_ref: Value,
@@ -1464,11 +1465,9 @@ pub(crate) async fn send_via_applet(
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
     let actor = Did::new(ghost_actor_did.to_owned())
         .with_context(|| format!("invalid ghost actor DID: {ghost_actor_did}"))?;
-    let strand = StrandId::new(flow_id.to_owned())
-        .with_context(|| format!("invalid strand_id: {flow_id}"))?;
-    let content = ContentBlock::text(body.to_owned())
-        .to_value()
-        .map_err(|err| anyhow::anyhow!("build applet text content: {err}"))?;
+    let strand = StrandId::new(strand_id.to_owned())
+        .with_context(|| format!("invalid strand_id: {strand_id}"))?;
+    let content = ContentBlock::text(body.to_owned());
     let payload = MessageCreatePayload::with_content(strand, "discussion", content)
         .with_message_id(new_prefixed_uuid7("ak:message:"));
     let mut event = edge
@@ -1481,7 +1480,11 @@ pub(crate) async fn send_via_applet(
         )
         .await
         .map_err(|err| anyhow::anyhow!("arkret edge mint: {err}"))?;
-    event.external_ref = Some(external_ref.clone());
+    let external_ref_object = external_ref
+        .as_object()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("Arkret external_ref must be an object"))?;
+    event.external_ref = Some(external_ref_object.into_iter().collect());
     apply_applet_outbound_encryption(&state.crypto_store, realm_id, &mut event)?;
     edge.resign_event(&mut event)
         .map_err(|err| anyhow::anyhow!("arkret edge sign: {err}"))?;
@@ -1508,7 +1511,7 @@ pub(crate) async fn send_via_applet(
             warn!(
                 config_id,
                 realm_id,
-                flow_id,
+                strand_id,
                 error = %err,
                 "arkret applet: send_via_applet submission failed — emitting bridge_error"
             );
@@ -1542,12 +1545,10 @@ fn apply_applet_outbound_encryption(
     match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
         ArkretEncryptOutcome::PlaintextAllowed => Ok(()),
         ArkretEncryptOutcome::Encrypted(encrypted_content) => {
-            let object = event
+            event.payload.remove("content");
+            event
                 .payload
-                .as_object_mut()
-                .ok_or_else(|| anyhow::anyhow!("Arkret applet message content is not an object"))?;
-            object.remove("content");
-            object.insert("encrypted_content".to_owned(), encrypted_content);
+                .insert("encrypted_content".to_owned(), encrypted_content);
             Ok(())
         }
         ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
@@ -1905,16 +1906,18 @@ mod tests {
             config: json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "did:web:bridge.example",
+                "serviceId": "did:webvh:bridge.example",
                 "controllerId": "did:webvh:example.com:admin",
                 "baseUrl": "https://savfox.example/applet-test",
-                "botActorId": "did:web:bridge.example:bot",
+                "botActorId": "did:webvh:bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",
                 "arkretServerDid": "did:webvh:arkret.example.org",
                 "accessToken": "test-bearer",
+                "keyRef": {"kind": "env", "var": "SAVFOX_ARKRET_APPLET_TEST_KEY"},
+                "loginChallenge": "arkret-applet-test-login-challenge",
                 "protocols": ["slack"],
                 "namespaces": {
-                    "actors": [{"pattern": "did:web:bridge.example:ghost:*", "exclusive": true}],
+                    "actors": [{"pattern": "did:webvh:bridge.example:ghost:*", "exclusive": true}],
                     "realms": [{"pattern": "ak:realm:*", "exclusive": true}],
                     "handles": []
                 }
@@ -1965,7 +1968,7 @@ mod tests {
             ),
             (
                 DESTINATION_SERVICE_ID_HEADER.to_owned(),
-                "did:web:bridge.example".to_owned(),
+                "did:webvh:bridge.example".to_owned(),
             ),
             (
                 "content-digest".to_owned(),
@@ -2094,7 +2097,7 @@ mod tests {
         .expect("signature should verify")
         .expect("signature should be required");
         assert_eq!(verified.source_service_id, "did:webvh:arkret.example.org");
-        assert_eq!(verified.destination_service_id, "did:web:bridge.example");
+        assert_eq!(verified.destination_service_id, "did:webvh:bridge.example");
         assert_eq!(verified.key_id, "did:webvh:arkret.example.org#key-1");
         assert!(verified.content_digest.is_some());
     }

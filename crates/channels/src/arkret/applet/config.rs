@@ -543,7 +543,7 @@ mod tests {
                     { "pattern": "slack.acme.example/*", "exclusive": false }
                 ]
             },
-            "requestedScopes": ["ak.flow.create", "ak.message.create"]
+            "requestedScopes": ["ak.strand.create", "ak.message.create"]
         })
     }
 

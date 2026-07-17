@@ -19,8 +19,8 @@ pub struct AppletInboundCommand {
     pub event_id: String,
     /// Realm the event was emitted in.
     pub realm_id: String,
-    /// Discussion flow id, extracted from `content.flow_id` when present.
-    pub flow_id: Option<String>,
+    /// Discussion strand id from the typed `ak.message.create` payload.
+    pub strand_id: String,
     /// Sender DID (native human, native bot, or ghost actor — caller
     /// decides what to do; for an applet this will usually be a *native*
     /// user, since the Arkret server pushes traffic destined for the
@@ -88,47 +88,34 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
         return AppletEventOutcome::Skip(AppletDispatchSkip::RealmNotInNamespace);
     }
 
-    let content = &event.payload;
-    if message_content_has_encrypted_carrier(content) {
+    if message_content_has_encrypted_carrier(&event.payload) {
         return AppletEventOutcome::Skip(AppletDispatchSkip::EncryptedContent);
     }
-    let content_kind = content
-        .get("content")
-        .and_then(|c| c.get("kind"))
-        .and_then(|k| k.as_str());
-    if content_kind == Some("ak.content.encrypted") {
+    let Ok(payload) = event.as_message_create() else {
+        return AppletEventOutcome::Skip(AppletDispatchSkip::ContentKindUnsupported);
+    };
+    let Some(content) = payload.content else {
+        return AppletEventOutcome::Skip(AppletDispatchSkip::ContentKindUnsupported);
+    };
+    let content_kind = content.kind.as_str();
+    if content_kind == "ak.content.encrypted" {
         return AppletEventOutcome::Skip(AppletDispatchSkip::EncryptedContent);
     }
-    if content_kind != Some("ak.content.text") {
+    if content_kind != "ak.content.text" {
         return AppletEventOutcome::Skip(AppletDispatchSkip::ContentKindUnsupported);
     }
-    let body = content
-        .get("content")
-        .and_then(|c| c.get("body"))
-        .and_then(|b| b.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_owned();
+    let body = content.body.trim().to_owned();
     if body.is_empty() {
         return AppletEventOutcome::Skip(AppletDispatchSkip::EmptyBody);
     }
 
-    let flow_id = content
-        .get("flow_id")
-        .and_then(|v| v.as_str())
-        .map(str::to_owned);
-    let thread_root_id = content
-        .get("thread_root_id")
-        .and_then(|v| v.as_str())
-        .map(str::to_owned);
-
     AppletEventOutcome::Dispatch(AppletInboundCommand {
         event_id: event.event_id.as_str().to_owned(),
         realm_id: realm.to_owned(),
-        flow_id,
+        strand_id: payload.strand_id.into_string(),
         sender_did: actor.to_owned(),
         body,
-        thread_root_id,
+        thread_root_id: payload.reply_to,
     })
 }
 
@@ -201,8 +188,8 @@ mod tests {
     fn text_content(body: &str) -> serde_json::Value {
         json!({
             "message_id": new_prefixed_uuid7("ak:message:"),
-            "flow_id": "ak:flow:01904100-0000-7000-8000-000000000001",
-            "track": "discussion",
+            "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
+            "track_name": "discussion",
             "content": { "kind": "ak.content.text", "body": body },
         })
     }
@@ -226,8 +213,8 @@ mod tests {
                 assert_eq!(cmd.sender_did, "did:webvh:acme:alice");
                 assert_eq!(cmd.body, "hello");
                 assert_eq!(
-                    cmd.flow_id.as_deref(),
-                    Some("ak:flow:01904100-0000-7000-8000-000000000001")
+                    cmd.strand_id,
+                    "ak:strand:01904100-0000-7000-8000-000000000001"
                 );
             }
             other => panic!("expected Dispatch, got {other:?}"),
@@ -287,8 +274,8 @@ mod tests {
             "ak.message.create",
             json!({
                 "message_id": new_prefixed_uuid7("ak:message:"),
-                "flow_id": "ak:flow:1",
-                "track": "discussion",
+                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
+                "track_name": "discussion",
                 "content": { "kind": "ak.content.image", "ref": "ak:blob:..." }
             }),
         );
@@ -307,8 +294,8 @@ mod tests {
             "ak.message.create",
             json!({
                 "message_id": new_prefixed_uuid7("ak:message:"),
-                "flow_id": "ak:flow:1",
-                "track": "discussion",
+                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
+                "track_name": "discussion",
                 "content": { "kind": "ak.content.encrypted", "body": "" }
             }),
         );
@@ -327,8 +314,8 @@ mod tests {
             "ak.message.create",
             json!({
                 "message_id": new_prefixed_uuid7("ak:message:"),
-                "flow_id": "ak:flow:1",
-                "track": "discussion",
+                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
+                "track_name": "discussion",
                 "encrypted_content": {
                     "scheme": "mls-rfc9420",
                     "ciphertext": "..."
@@ -362,7 +349,7 @@ mod tests {
         let ev = make_event(
             "did:webvh:acme:alice",
             "ak:realm:01904100-0000-7000-8000-000000000456",
-            "ak.flow.create",
+            "ak.strand.create",
             json!({"title": "irrelevant"}),
         );
         let outcome = classify_inbound_event(&cfg(), &ev);

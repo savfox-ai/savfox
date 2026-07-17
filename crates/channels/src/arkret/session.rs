@@ -39,6 +39,8 @@ pub async fn login_with_signer(
     challenge: &str,
     audience: &str,
 ) -> anyhow::Result<ArkretSession> {
+    let audience = Did::new(audience.to_owned())
+        .with_context(|| format!("invalid Arkret service audience DID '{audience}'"))?;
     let mut auth = AuthManager::default();
     let session = auth
         .login_did_proof(
@@ -47,7 +49,7 @@ pub async fn login_with_signer(
             device_id.clone(),
             signer,
             challenge,
-            audience,
+            audience.clone(),
         )
         .await
         .map_err(|err| anyhow::anyhow!("login_did_proof failed: {err}"))

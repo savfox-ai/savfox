@@ -653,7 +653,6 @@ mod tests {
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
             "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
             "defaultRealmId": "ak:realm:01904100-0000-7000-8000-000000000001",
-            "defaultFlowId": "ak:flow:legacy",
             "agentId": "support"
         }));
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");

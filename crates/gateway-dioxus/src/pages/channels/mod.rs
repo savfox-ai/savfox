@@ -2078,7 +2078,6 @@ fn is_arkret_account_only_field(field_key: &str) -> bool {
         "inksonBootstrap"
             | "principalId"
             | "defaultRealmId"
-            | "defaultFlowId"
             | "agentId"
             | "externalAiEndpointConfig"
             | "listen"
@@ -2099,7 +2098,6 @@ fn is_arkret_agent_hidden_field(field_key: &str) -> bool {
             | "arkretServerDid"
             | "principalId"
             | "defaultRealmId"
-            | "defaultFlowId"
             | "agentId"
             | "externalAiEndpointConfig"
             | "listen"
@@ -2495,7 +2493,6 @@ fn clear_arkret_agent_obsolete_fields(patch: &mut Value) {
         "deviceId",
         "principalId",
         "defaultRealmId",
-        "defaultFlowId",
         "agentId",
         "externalAiEndpointConfig",
         "listen",
@@ -5628,7 +5625,6 @@ mod tests {
         assert!(!visible("accessToken"));
         assert!(!visible("loginChallenge"));
         assert!(!visible("defaultRealmId"));
-        assert!(!visible("defaultFlowId"));
         assert!(!visible("agentId"));
         assert!(!visible("listen"));
         assert!(!visible("send"));
@@ -5653,7 +5649,6 @@ mod tests {
         assert!(!visible("serviceId"));
         assert!(!visible("principalId"));
         assert!(!visible("defaultRealmId"));
-        assert!(!visible("defaultFlowId"));
         assert!(!visible("agentId"));
         assert!(!visible("externalAiEndpointConfig"));
         assert!(!visible("requestedScope"));
@@ -5882,10 +5877,6 @@ mod tests {
             field_value_key("arkret", "defaultRealmId"),
             "ak:realm:legacy".to_owned(),
         );
-        values.insert(
-            field_value_key("arkret", "defaultFlowId"),
-            "ak:flow:legacy".to_owned(),
-        );
         values.insert(field_value_key("arkret", "agentId"), "legacy".to_owned());
         values.insert(
             field_value_key("arkret", "externalAiEndpointConfig"),
@@ -5904,7 +5895,6 @@ mod tests {
         assert!(patch["send"].is_null());
         assert!(patch["deviceId"].is_null());
         assert!(patch["defaultRealmId"].is_null());
-        assert!(patch["defaultFlowId"].is_null());
         assert!(patch["agentId"].is_null());
         assert!(patch["requestedScope"].is_null());
         assert_eq!(

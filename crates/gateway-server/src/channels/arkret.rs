@@ -32,9 +32,9 @@ use savfox_channels::arkret::{
     ArkretDecryptDetailedOutcome, ArkretEncryptOutcome, ArkretHttpClient, ArkretInboundEvent,
     ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent,
     ArkretMlsWelcomeConsumeBinding, FileArkretCryptoStore, MessageCreateRequest,
-    account_allows_event_read, build_message_create_event, device_messages_scope,
-    open_account_store, parse_delta_frame_for_account, resolve_arkret_outbound_account,
-    sign_key_operation_value,
+    UnableToDecryptReason, account_allows_event_read, build_message_create_event,
+    device_messages_scope, open_account_store, parse_delta_frame_for_account,
+    resolve_arkret_outbound_account, sign_key_operation_value,
 };
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
@@ -629,7 +629,11 @@ async fn drain_pending_account_outbound(
                     "arkret: durable outbound worker completed queued event"
                 );
             }
-            Ok(OutboundEngineOutcome::Rejected(item) | OutboundEngineOutcome::Terminal(item)) => {
+            Ok(
+                OutboundEngineOutcome::Rejected { item, .. }
+                | OutboundEngineOutcome::Terminal { item, .. }
+                | OutboundEngineOutcome::Quarantined { item, .. },
+            ) => {
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
@@ -1084,9 +1088,10 @@ async fn drain_account_device_messages_from_cursor(
         };
 
         for message in &outcome.messages {
+            let content = Value::Object(message.content.clone().into_iter().collect());
             record_account_mls_welcome_from_value_tree(
                 crypto_store,
-                &message.content,
+                &content,
                 channel,
                 account,
                 "device_messages",
@@ -1474,18 +1479,20 @@ async fn handle_sync_updates_for_account(
     let to_device_limited = updates.to_device_limited;
     let to_device_next_cursor = updates.to_device_next_cursor.clone();
     for message in &updates.to_device {
+        let content = Value::Object(message.content.clone().into_iter().collect());
         record_account_mls_welcome_from_value_tree(
             crypto_store,
-            &message.content,
+            &content,
             channel,
             account,
             "to_device",
         );
     }
     for item in &updates.account_data {
+        let payload = Value::Object(item.payload.clone().into_iter().collect());
         record_account_mls_welcome_from_value_tree(
             crypto_store,
-            &item.content,
+            &payload,
             channel,
             account,
             "account_data",
@@ -1679,7 +1686,7 @@ struct AccountScanCatchupOutcome {
 fn account_scan_catchup_request_for_update(
     update: &arkret::RealmUpdate,
 ) -> Option<AccountScanCatchupRequest> {
-    let timeline = update.timeline.as_ref()?;
+    let timeline = update.entry.timeline.as_ref()?;
     if !timeline.limited {
         return None;
     }
@@ -1695,7 +1702,7 @@ async fn collect_account_scan_catchup<F, Fut>(
 ) -> anyhow::Result<AccountScanCatchupOutcome>
 where
     F: FnMut(arkret::RealmId, Option<String>, u32) -> Fut,
-    Fut: Future<Output = anyhow::Result<arkret::SyncBackfillOutcome>>,
+    Fut: Future<Output = anyhow::Result<arkret::EventsQueryOutcome>>,
 {
     let mut before = request.before;
     let mut events = Vec::new();
@@ -1711,7 +1718,7 @@ where
         )
         .await?;
         let next_before = outcome.prev_cursor.clone();
-        limited = outcome.limited;
+        limited = outcome.has_more;
         events.extend(outcome.events);
         match (limited, next_before) {
             (true, Some(cursor)) => before = Some(cursor),
@@ -1815,14 +1822,13 @@ fn parse_realm_update_for_account(
     update: arkret::RealmUpdate,
     account: &ArkretAccountConfig,
 ) -> ArkretInboundParseResult {
-    let Some(timeline) = update.timeline else {
-        return ArkretInboundParseResult::default();
+    let realm_id = update.realm_id.as_str().to_owned();
+    let entry = match serde_json::to_value(update.entry) {
+        Ok(entry) => entry,
+        Err(_) => return ArkretInboundParseResult::default(),
     };
     let mut realms = serde_json::Map::new();
-    realms.insert(
-        update.realm_id.as_str().to_owned(),
-        json!({ "timeline": timeline }),
-    );
+    realms.insert(realm_id, entry);
     parse_delta_frame_for_account(&Value::Object(realms), account)
 }
 
@@ -1831,19 +1837,18 @@ fn parse_backfill_events_for_account(
     events: Vec<arkret::Event>,
     account: &ArkretAccountConfig,
 ) -> ArkretInboundParseResult {
-    let events = events
-        .into_iter()
-        .filter_map(|event| serde_json::to_value(event).ok())
-        .collect();
     let update = arkret::RealmUpdate {
         realm_id: realm_id.clone(),
-        timeline: Some(arkret::SyncTimeline {
-            events,
-            limited: false,
-            prev_cursor: None,
-        }),
-        state: Vec::new(),
-        summary: Value::Null,
+        entry: arkret::RealmSyncEntry {
+            timeline: Some(arkret::Timeline {
+                events,
+                limited: false,
+                prev_cursor: None,
+                preview_only: None,
+                extra: Default::default(),
+            }),
+            ..Default::default()
+        },
     };
     parse_realm_update_for_account(update, account)
 }
@@ -1855,25 +1860,37 @@ fn record_account_mls_welcomes_from_realm_update(
     account: &ArkretAccountConfig,
 ) -> usize {
     let mut recorded = 0;
-    if let Some(timeline) = &update.timeline {
+    if let Some(timeline) = &update.entry.timeline {
         for event in &timeline.events {
-            recorded += record_account_mls_welcome_from_value_tree(
-                crypto_store,
-                event,
-                channel,
-                account,
-                "realm_timeline",
-            );
+            if let Ok(event) = serde_json::to_value(event) {
+                recorded += record_account_mls_welcome_from_value_tree(
+                    crypto_store,
+                    &event,
+                    channel,
+                    account,
+                    "realm_timeline",
+                );
+            }
         }
     }
-    for state_event in &update.state {
-        recorded += record_account_mls_welcome_from_value_tree(
-            crypto_store,
-            state_event,
-            channel,
-            account,
-            "realm_state",
-        );
+    for state in [
+        update.entry.state.as_ref(),
+        update.entry.state_after.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for state_event in &state.events {
+            if let Ok(state_event) = serde_json::to_value(state_event) {
+                recorded += record_account_mls_welcome_from_value_tree(
+                    crypto_store,
+                    &state_event,
+                    channel,
+                    account,
+                    "realm_state",
+                );
+            }
+        }
     }
     recorded
 }
@@ -2067,7 +2084,7 @@ async fn dispatch_to_agent(
     let config_id = channel.id.clone();
     let sender = event.sender_did.clone();
     let realm_id = event.realm_id.clone();
-    let flow_id = event.flow_id.clone();
+    let strand_id = event.strand_id.clone();
     let thread_id = event.thread_root_id.clone();
     let event_id = event.event_id.clone();
     let mentioned_actor_ids = event.mentioned_actor_ids.clone();
@@ -2085,7 +2102,7 @@ async fn dispatch_to_agent(
         peer_id: Some(sender.clone()),
         group_id: Some(realm_id.clone()),
         thread_id,
-        reply_target: flow_id,
+        reply_target: strand_id,
         chat_type: Some("group".to_owned()),
         saved_channel_config_id: Some(config_id.clone()),
         sender_kind,
@@ -2213,10 +2230,10 @@ async fn try_handle_encrypted_account_skip(
                     account_id: skipped.account_id.clone(),
                     event_id,
                     realm_id,
-                    flow_id: None,
+                    strand_id: skipped.strand_id.clone(),
                     sender_did,
                     body,
-                    thread_root_id: None,
+                    thread_root_id: skipped.reply_to.clone(),
                     mentioned_actor_ids: Vec::new(),
                 },
                 channel,
@@ -2232,7 +2249,7 @@ async fn try_handle_encrypted_account_skip(
                 crypto_store,
                 skipped,
                 payload.clone(),
-                arkret::crypto_protocol::UnableToDecryptReason::NoSession,
+                UnableToDecryptReason::NoSession,
             );
             Ok(false)
         }
@@ -2247,7 +2264,7 @@ async fn try_handle_encrypted_account_skip(
                 crypto_store,
                 skipped,
                 payload.clone(),
-                arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
+                UnableToDecryptReason::BadCiphertext,
             );
             Ok(false)
         }
@@ -2261,7 +2278,7 @@ async fn try_handle_encrypted_account_skip(
                 crypto_store,
                 skipped,
                 payload.clone(),
-                arkret::crypto_protocol::UnableToDecryptReason::BadCiphertext,
+                UnableToDecryptReason::BadCiphertext,
             );
             Ok(false)
         }
@@ -2272,7 +2289,7 @@ fn record_account_unable_to_decrypt(
     crypto_store: &FileArkretCryptoStore,
     skipped: &ArkretInboundSkippedEvent,
     payload: arkret::EncryptedPayload,
-    reason: arkret::crypto_protocol::UnableToDecryptReason,
+    reason: UnableToDecryptReason,
 ) {
     let (Some(event_id), Some(realm_id), Some(sender)) = (
         skipped.event_id.as_deref(),
@@ -2463,13 +2480,13 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
 /// Send a `ak.message.create` event as one of the channel's configured
 /// outbound accounts.
 ///
-/// `realm_id` selects the outbound Arkret realm. `flow_id` must come from the
+/// `realm_id` selects the outbound Arkret realm. `strand_id` must come from the
 /// inbound Arkret context that triggered the reply; it is not configured on the
 /// channel.
 pub(crate) async fn send_to_arkret_account(
     savfox_home: &std::path::PathBuf,
     realm_id: &str,
-    flow_id: Option<&str>,
+    strand_id: Option<&str>,
     body: &str,
 ) -> anyhow::Result<()> {
     let Some((channel, account)) = resolve_arkret_outbound_account(savfox_home, realm_id).await?
@@ -2482,9 +2499,9 @@ pub(crate) async fn send_to_arkret_account(
             account.id
         );
     }
-    let flow = flow_id.map(str::to_owned).ok_or_else(|| {
+    let strand_id = strand_id.map(str::to_owned).ok_or_else(|| {
         anyhow::anyhow!(
-            "Arkret account '{}' cannot send without an inbound Arkret flow id",
+            "Arkret account '{}' cannot send without an inbound Arkret strand id",
             account.id
         )
     })?;
@@ -2505,7 +2522,7 @@ pub(crate) async fn send_to_arkret_account(
         .map_err(|e| anyhow::anyhow!("arkret account seq alloc: {e}"))?;
     let request = MessageCreateRequest {
         realm_id: realm_id.to_owned(),
-        flow_id: flow,
+        strand_id,
         body: body.to_owned(),
         principal_id: account.principal_id.clone(),
         actor_seq,
@@ -2581,12 +2598,16 @@ pub(crate) async fn send_to_arkret_account(
                 );
             }
             OutboundEngineOutcome::RetryAt { .. } => continue,
-            OutboundEngineOutcome::Rejected(item) | OutboundEngineOutcome::Terminal(item)
+            OutboundEngineOutcome::Rejected { item, .. }
+            | OutboundEngineOutcome::Terminal { item, .. }
+            | OutboundEngineOutcome::Quarantined { item, .. }
                 if item.transaction_id == transaction_id =>
             {
                 anyhow::bail!("arkret: outbound event rejected (transaction={transaction_id})");
             }
-            OutboundEngineOutcome::Rejected(_) | OutboundEngineOutcome::Terminal(_) => continue,
+            OutboundEngineOutcome::Rejected { .. }
+            | OutboundEngineOutcome::Terminal { .. }
+            | OutboundEngineOutcome::Quarantined { .. } => continue,
             OutboundEngineOutcome::Idle => {
                 let snapshot = outbound.snapshot().await?;
                 if snapshot.items.iter().any(|item| {
@@ -2613,12 +2634,10 @@ fn apply_account_outbound_encryption(
     match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
         ArkretEncryptOutcome::PlaintextAllowed => Ok(()),
         ArkretEncryptOutcome::Encrypted(encrypted_content) => {
-            let object = event
+            event.payload.remove("content");
+            event
                 .payload
-                .as_object_mut()
-                .ok_or_else(|| anyhow::anyhow!("Arkret message content is not an object"))?;
-            object.remove("content");
-            object.insert("encrypted_content".to_owned(), encrypted_content);
+                .insert("encrypted_content".to_owned(), encrypted_content);
             Ok(())
         }
         ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
@@ -2680,10 +2699,10 @@ mod tests {
             json!({
                 "strand_id": "ak:strand:01904100-0000-7000-8000-000000000002",
                 "track_name": "discussion",
+                "reply_to": "ak:message:01904100-0000-7000-8000-000000000003",
                 "content": {
                     "kind": "ak.content.text",
-                    "body": body,
-                    "thread_root_id": "ak:strand:01904100-0000-7000-8000-000000000003"
+                    "body": body
                 }
             }),
         )
@@ -2713,13 +2732,16 @@ mod tests {
         let realm_id = realm_id();
         let update = arkret::RealmUpdate {
             realm_id: realm_id.clone(),
-            timeline: Some(arkret::SyncTimeline {
-                events: vec![serde_json::to_value(message_event("hello from engine")).unwrap()],
-                limited: false,
-                prev_cursor: None,
-            }),
-            state: Vec::new(),
-            summary: Value::Null,
+            entry: arkret::RealmSyncEntry {
+                timeline: Some(arkret::Timeline {
+                    events: vec![message_event("hello from engine")],
+                    limited: false,
+                    prev_cursor: None,
+                    preview_only: None,
+                    extra: Default::default(),
+                }),
+                ..Default::default()
+            },
         };
 
         let parsed = parse_realm_update_for_account(update, &account);
@@ -2730,7 +2752,7 @@ mod tests {
         assert_eq!(parsed.events[0].body, "hello from engine");
         assert_eq!(parsed.events[0].sender_did, actor_id().as_str());
         assert_eq!(
-            parsed.events[0].flow_id.as_deref(),
+            parsed.events[0].strand_id.as_deref(),
             Some("ak:strand:01904100-0000-7000-8000-000000000002")
         );
     }
@@ -2792,13 +2814,16 @@ mod tests {
     fn limited_account_timeline_builds_scan_catchup_request() {
         let update = arkret::RealmUpdate {
             realm_id: realm_id(),
-            timeline: Some(arkret::SyncTimeline {
-                events: vec![serde_json::to_value(message_event("window head")).unwrap()],
-                limited: true,
-                prev_cursor: Some("ak:cursor:older-1".to_owned()),
-            }),
-            state: Vec::new(),
-            summary: Value::Null,
+            entry: arkret::RealmSyncEntry {
+                timeline: Some(arkret::Timeline {
+                    events: vec![message_event("window head")],
+                    limited: true,
+                    prev_cursor: Some("ak:cursor:older-1".to_owned()),
+                    preview_only: None,
+                    extra: Default::default(),
+                }),
+                ..Default::default()
+            },
         };
 
         let request = account_scan_catchup_request_for_update(&update).unwrap();
@@ -2812,19 +2837,21 @@ mod tests {
         let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let responses =
             std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from([
-                arkret::SyncBackfillOutcome {
+                arkret::EventsQueryOutcome {
                     events: vec![message_event_with_seq("older one", 2)],
                     snapshot_bootstrap: None,
                     prev_cursor: Some("ak:cursor:older-2".to_owned()),
                     next_cursor: None,
-                    limited: true,
+                    has_more: true,
+                    range_completeness: None,
                 },
-                arkret::SyncBackfillOutcome {
+                arkret::EventsQueryOutcome {
                     events: vec![message_event_with_seq("older two", 3)],
                     snapshot_bootstrap: None,
                     prev_cursor: None,
                     next_cursor: None,
-                    limited: false,
+                    has_more: false,
+                    range_completeness: None,
                 },
             ])));
         let requests_for_fetch = std::sync::Arc::clone(&requests);
@@ -2890,24 +2917,30 @@ mod tests {
         let account = make_account();
         let crypto_store = FileArkretCryptoStore::for_account(tmp.path(), &channel.id, &account.id);
         let group_id = "group-account-welcome";
+        let welcome_event = arkret::Event::new(
+            "ak.mls.welcome",
+            realm_id(),
+            actor_id(),
+            7,
+            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
+            json!({
+                "kind": "ak.mls.welcome",
+                "content": mls_welcome_value(group_id)
+            }),
+        )
+        .unwrap();
         let update = arkret::RealmUpdate {
             realm_id: realm_id(),
-            timeline: Some(arkret::SyncTimeline {
-                events: vec![json!({
-                    "kind": "ak.mls.welcome",
-                    "event_id": "ak:event:01904100-0000-7000-8000-000000000007",
-                    "realm_id": realm_id().as_str(),
-                    "actor_id": actor_id().as_str(),
-                    "payload": {
-                        "kind": "ak.mls.welcome",
-                        "content": mls_welcome_value(group_id)
-                    }
-                })],
-                limited: false,
-                prev_cursor: None,
-            }),
-            state: Vec::new(),
-            summary: Value::Null,
+            entry: arkret::RealmSyncEntry {
+                timeline: Some(arkret::Timeline {
+                    events: vec![welcome_event],
+                    limited: false,
+                    prev_cursor: None,
+                    preview_only: None,
+                    extra: Default::default(),
+                }),
+                ..Default::default()
+            },
         };
 
         let recorded = record_account_mls_welcomes_from_realm_update(

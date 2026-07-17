@@ -1372,11 +1372,10 @@ impl GatewayChannel {
             }
             #[cfg(feature = "arkret")]
             "arkret" => {
-                let flow_id = non_empty_trimmed(reply_target).or_else(|| {
-                    non_empty_trimmed(session_id).filter(|value| value.starts_with("ak:flow:"))
-                });
+                let strand_id =
+                    non_empty_trimmed(reply_target).filter(|value| value.starts_with("ak:strand:"));
                 if crate::channels::arkret_applet::send_to_arkret_applet_for_realm(
-                    channel_id, flow_id, text,
+                    channel_id, strand_id, text,
                 )
                 .await?
                 {
@@ -1385,7 +1384,7 @@ impl GatewayChannel {
                 crate::channels::arkret::send_to_arkret_account(
                     savfox_home,
                     channel_id,
-                    flow_id,
+                    strand_id,
                     text,
                 )
                 .await?;

@@ -16,7 +16,7 @@ use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
     AccountSubscribeFrame, DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome,
     EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
-    KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServerDescription,
+    KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServiceDescribe,
     SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
 };
 use chrono::{DateTime, Utc};
@@ -299,6 +299,8 @@ impl ArkretHttpClient {
         realm_id: Option<&str>,
     ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
         validate_agent_key_ref(key_ref)?;
+        let audience = Did::new(audience.to_owned())
+            .with_context(|| format!("invalid Arkret service audience DID '{audience}'"))?;
         // Session grants can exceed the Windows Credential Manager 2560-byte
         // secret limit. Keep the short-lived grant in the provider's memory;
         // the long-lived runtime signing key remains keyring-backed.
@@ -356,7 +358,7 @@ impl ArkretHttpClient {
             verification_method.to_owned(),
             challenge.clone(),
             nonce.clone(),
-            audience.to_owned(),
+            audience.clone(),
             expires_at,
         )
         .map_err(|err| anyhow::anyhow!("agent_key_proof signing input: {err}"))?;
@@ -375,7 +377,7 @@ impl ArkretHttpClient {
             verification_method: verification_method.to_owned(),
             challenge,
             nonce,
-            audience: audience.to_owned(),
+            audience: audience.clone(),
             expires_at,
             signature,
         };
@@ -389,7 +391,7 @@ impl ArkretHttpClient {
             signing_key,
         };
         let refresh_options = SessionRefreshOptions {
-            audience: Some(audience.to_owned()),
+            audience: Some(audience.clone()),
             device_id,
             proof: None,
             expected_dpop_jkt: None,
@@ -501,9 +503,9 @@ impl ArkretHttpClient {
         Ok((Self { inner }, session))
     }
 
-    /// `GET /api/v1/server/describe` — used at startup to verify the target
+    /// `GET /_arkret/describe` — used at startup to verify the target
     /// server and pin the service DID.
-    pub async fn server_describe(&self) -> anyhow::Result<ServerDescription> {
+    pub async fn server_describe(&self) -> anyhow::Result<ServiceDescribe> {
         self.inner
             .describe()
             .await

@@ -9,7 +9,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use arkret::crypto_protocol::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity};
 use arkret::{
     CryptoStore, DeviceId, Did, EncryptedPayload, EncryptedPayloadScheme, EventId,
@@ -17,6 +16,7 @@ use arkret::{
     MlsKeyPackageState, MlsRecoveryAction, MlsWelcomeEnvelope, MlsWelcomePayload, RealmId,
     current_feature_safety_report,
 };
+use arkret_crypto::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -61,6 +61,8 @@ pub struct ArkretBootstrapRecord {
     pub group_id: String,
     pub required_epoch: u64,
     pub local_epoch: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_state_ref: Option<String>,
     pub action: MlsRecoveryAction,
     pub updated_at: DateTime<Utc>,
 }
@@ -116,6 +118,8 @@ pub struct ArkretMlsWelcomeConsumeBinding {
     pub strand_id: Option<String>,
     pub mls_group_id: String,
     pub epoch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_state_ref: Option<String>,
 }
 
 impl ArkretMlsWelcomeConsumeBinding {
@@ -439,6 +443,9 @@ impl FileArkretCryptoStore {
                 group_id: welcome.group_id,
                 required_epoch: welcome.epoch,
                 local_epoch,
+                group_state_ref: consume_binding
+                    .as_ref()
+                    .and_then(|binding| binding.group_state_ref.clone()),
                 action: MlsRecoveryAction::ConsumeWelcome,
                 updated_at: Utc::now(),
             },
@@ -512,6 +519,7 @@ impl FileArkretCryptoStore {
             group_id: plan.group_id,
             required_epoch: payload.epoch,
             local_epoch,
+            group_state_ref: None,
             action: plan.action,
             updated_at: Utc::now(),
         };
@@ -593,6 +601,14 @@ impl FileArkretCryptoStore {
                     group_id: updated.group_id,
                     required_epoch: updated.epoch,
                     local_epoch: Some(updated.epoch),
+                    group_state_ref: state
+                        .mls_welcome_consume_bindings
+                        .values()
+                        .find(|binding| {
+                            binding.mls_group_id == payload.group_id
+                                && binding.epoch == updated.epoch
+                        })
+                        .and_then(|binding| binding.group_state_ref.clone()),
                     action: MlsRecoveryAction::ConsumeWelcome,
                     updated_at: Utc::now(),
                 },
@@ -628,6 +644,10 @@ impl FileArkretCryptoStore {
                 group_id: updated.group_id,
                 required_epoch: updated.epoch,
                 local_epoch: Some(updated.epoch),
+                group_state_ref: state
+                    .bootstrap
+                    .get(&payload.group_id)
+                    .and_then(|record| record.group_state_ref.clone()),
                 action: MlsRecoveryAction::UseLocalState,
                 updated_at: Utc::now(),
             },
@@ -674,17 +694,40 @@ impl FileArkretCryptoStore {
         };
         let mut group = ArkretMlsGroup::restore_from_state_record(&record)
             .map_err(|err| anyhow::anyhow!("restore Arkret MLS group: {err}"))?;
+        let group_state_ref = state
+            .bootstrap
+            .get(&group_id)
+            .filter(|bootstrap| bootstrap.local_epoch == Some(record.epoch))
+            .and_then(|bootstrap| bootstrap.group_state_ref.clone())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Arkret MLS group '{group_id}' epoch {} has no verified group_state_ref",
+                    record.epoch
+                )
+            })?;
+        let aad = arkret::EncryptedEnvelopeAad::hidden(
+            RealmId::new(realm_id.to_owned())
+                .with_context(|| format!("invalid Arkret realm id '{realm_id}'"))?,
+            arkret::events::EventKind::MESSAGE_CREATE,
+        );
         let plaintext = serde_json::to_vec(content)?;
         let payload = group
-            .encrypt_payload(CONTENT_BLOCK_JSON, &plaintext)
+            .encrypt_payload_with_aad(CONTENT_BLOCK_JSON, Some(aad.clone()), &plaintext)
             .map_err(|err| anyhow::anyhow!("encrypt Arkret MLS payload: {err}"))?;
+        let envelope = arkret::mls::encrypted_envelope_from_payload(
+            &payload,
+            aad,
+            arkret::EncryptedEnvelopeAadVisibility::Hidden,
+            group_state_ref,
+        )
+        .map_err(|err| anyhow::anyhow!("build Arkret encrypted envelope: {err}"))?;
         group
             .persist_state(&mut store)
             .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
         state.set_mls_store(&store)?;
         self.save(&state)?;
         Ok(ArkretEncryptOutcome::Encrypted(serde_json::to_value(
-            payload,
+            envelope,
         )?))
     }
 
@@ -780,43 +823,16 @@ pub fn applet_scope_id(config_id: &str) -> String {
     format!("applet:{config_id}")
 }
 
-pub fn extract_encrypted_payload_from_message_content(content: &Value) -> Option<EncryptedPayload> {
-    for key in ["encrypted_content", "encrypted_payload"] {
-        if let Some(value) = content.get(key)
-            && let Ok(payload) = serde_json::from_value::<EncryptedPayload>(value.clone())
-        {
-            return Some(payload);
-        }
-    }
-    let inner = content.get("content")?;
-    if inner
-        .get("kind")
-        .and_then(Value::as_str)
-        .is_some_and(|kind| kind == "ak.content.encrypted")
-    {
-        for key in ["payload", "encrypted_payload", "encrypted_content"] {
-            if let Some(value) = inner.get(key)
-                && let Ok(payload) = serde_json::from_value::<EncryptedPayload>(value.clone())
-            {
-                return Some(payload);
-            }
-        }
-        if let Ok(payload) = serde_json::from_value::<EncryptedPayload>(inner.clone()) {
-            return Some(payload);
-        }
-    }
-    None
+pub fn extract_encrypted_payload_from_message_content(
+    content: &BTreeMap<String, Value>,
+) -> Option<EncryptedPayload> {
+    let envelope = serde_json::from_value(content.get("encrypted_content")?.clone()).ok()?;
+    arkret::mls::encrypted_envelope_to_payload(&envelope).ok()
 }
 
 #[must_use]
-pub fn message_content_has_encrypted_carrier(content: &Value) -> bool {
+pub fn message_content_has_encrypted_carrier(content: &BTreeMap<String, Value>) -> bool {
     content.get("encrypted_content").is_some()
-        || content.get("encrypted_payload").is_some()
-        || content
-            .get("content")
-            .and_then(|content| content.get("kind"))
-            .and_then(Value::as_str)
-            .is_some_and(|kind| kind == "ak.content.encrypted")
 }
 
 pub fn extract_mls_welcome_envelope(value: &Value) -> Option<MlsWelcomeEnvelope> {
@@ -857,6 +873,7 @@ fn extract_mls_welcome_consume_binding_inner(
             strand_id: None,
             mls_group_id: payload.mls_group_id.to_string(),
             epoch: payload.epoch,
+            group_state_ref: payload.commit_ref.map(|event_id| event_id.to_string()),
         });
     }
 
@@ -914,6 +931,7 @@ fn extract_mls_welcome_consume_binding_from_object(
             "encryptedWelcomeRef",
         ],
     );
+    let group_state_ref = string_field(object, &["commit_ref", "commitRef"]);
 
     Some(ArkretMlsWelcomeConsumeBinding {
         keypackage_ref,
@@ -923,6 +941,7 @@ fn extract_mls_welcome_consume_binding_from_object(
         strand_id,
         mls_group_id,
         epoch,
+        group_state_ref,
     })
 }
 
@@ -1125,8 +1144,8 @@ fn safe_file_stem(scope_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use arkret::crypto_protocol::UnableToDecryptReason;
     use arkret::{EncryptedPayloadScheme, Hash, KeyOperationSignature, KeyPackageClaimRecord};
+    use arkret_crypto::UnableToDecryptReason;
     use serde_json::json;
 
     use super::*;
@@ -1179,11 +1198,23 @@ mod tests {
 
     #[test]
     fn extracts_encrypted_payload_carriers() {
-        let payload = serde_json::to_value(encrypted_payload()).expect("payload should serialize");
-        let content = json!({
-            "message_id": "ak:message:1",
-            "encrypted_content": payload,
-        });
+        let aad = arkret::EncryptedEnvelopeAad::hidden(
+            RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001").unwrap(),
+            arkret::events::EventKind::MESSAGE_CREATE,
+        );
+        let mut payload = encrypted_payload();
+        payload.aad = Some(aad.clone());
+        let envelope = arkret::mls::encrypted_envelope_from_payload(
+            &payload,
+            aad,
+            arkret::EncryptedEnvelopeAadVisibility::Hidden,
+            "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        .expect("envelope");
+        let content = BTreeMap::from([(
+            "encrypted_content".to_owned(),
+            serde_json::to_value(envelope).expect("envelope should serialize"),
+        )]);
         assert!(message_content_has_encrypted_carrier(&content));
         let parsed = extract_encrypted_payload_from_message_content(&content).expect("payload");
         assert_eq!(parsed.group_id, "group1");
@@ -1427,6 +1458,7 @@ mod tests {
             strand_id: None,
             mls_group_id: add.welcome.group_id.clone(),
             epoch: add.welcome.epoch,
+            group_state_ref: Some("ak:event:01904100-0000-7000-8000-0000000000aa".to_owned()),
         };
         let welcome_carrier = json!({
             "keypackage_ref": expected_binding.keypackage_ref.as_str(),
@@ -1439,6 +1471,7 @@ mod tests {
             "welcome_ref": expected_binding.welcome_ref.as_deref().unwrap(),
             "mls_group_id": expected_binding.mls_group_id.as_str(),
             "epoch": expected_binding.epoch,
+            "commit_ref": expected_binding.group_state_ref.as_deref().unwrap(),
             "content": serde_json::to_value(&add.welcome).unwrap()
         });
         let recorded = bob_store
