@@ -14,6 +14,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::Context as _;
 use arkret::{Did, Ed25519MoveSigner};
@@ -135,6 +136,60 @@ pub fn generate_ed25519_key_ref_in_keyring(
     Ok(ArkretKeyRef::Keyring { service, account })
 }
 
+static KEYRING_GENERATION_LOCK: Mutex<()> = Mutex::new(());
+
+/// Return the existing Ed25519 runtime key reference, or create it once.
+///
+/// Channel configuration can be deleted while an Arkret pairing request is
+/// still pending. The credential-vault entry intentionally outlives that
+/// configuration, so recreating the channel must reuse the pending key rather
+/// than overwrite it with a different seed.
+pub fn get_or_generate_ed25519_key_ref_in_keyring(
+    service: impl Into<String>,
+    account: impl Into<String>,
+) -> anyhow::Result<ArkretKeyRef> {
+    let _guard = KEYRING_GENERATION_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    get_or_generate_ed25519_key_ref_in_store(
+        &savfox_keyring_store::DefaultKeyringStore,
+        service.into(),
+        account.into(),
+    )
+}
+
+fn get_or_generate_ed25519_key_ref_in_store(
+    store: &impl savfox_keyring_store::KeyringStore,
+    service: String,
+    account: String,
+) -> anyhow::Result<ArkretKeyRef> {
+    if let Some(mut encoded) = store.load(&service, &account).with_context(|| {
+        format!("arkret signer: load platform keyring entry {service}/{account}")
+    })? {
+        let mut seed = decode_base64_no_pad(&encoded, "platform keyring value")?;
+        encoded.zeroize();
+        if seed.len() != 32 {
+            let len = seed.len();
+            seed.zeroize();
+            anyhow::bail!(
+                "arkret signer: existing platform keyring seed must be 32 bytes, got {len}"
+            );
+        }
+        seed.zeroize();
+        return Ok(ArkretKeyRef::Keyring { service, account });
+    }
+
+    let mut seed: [u8; 32] = rand::random();
+    let mut encoded = STANDARD_NO_PAD.encode(seed);
+    let save_result = store
+        .save(&service, &account, &encoded)
+        .with_context(|| format!("arkret signer: save platform keyring entry {service}/{account}"));
+    seed.zeroize();
+    encoded.zeroize();
+    save_result?;
+    Ok(ArkretKeyRef::Keyring { service, account })
+}
+
 pub(crate) fn load_ed25519_signing_key(key_ref: &ArkretKeyRef) -> anyhow::Result<SigningKey> {
     let mut seed = load_seed_array(key_ref)?;
     let signing_key = SigningKey::from_bytes(&seed);
@@ -242,6 +297,8 @@ fn decode_base64_no_pad(text: &str, source: &str) -> anyhow::Result<Vec<u8>> {
 mod tests {
     use arkret::MoveSigner;
     use base64::engine::general_purpose::STANDARD_NO_PAD;
+    use savfox_keyring_store::KeyringStore as _;
+    use savfox_keyring_store::tests::MockKeyringStore;
 
     use super::*;
 
@@ -382,5 +439,66 @@ mod tests {
         assert_eq!(json["kind"], "file");
         let back: ArkretKeyRef = serde_json::from_value(json).expect("de");
         assert_eq!(back, key_ref);
+    }
+
+    #[test]
+    fn get_or_generate_keyring_ref_preserves_existing_pending_runtime_key() {
+        let store = MockKeyringStore::default();
+        let original = seed_b64();
+        store
+            .save("savfox-arkret", "runtime-agent", &original)
+            .expect("seed existing pending runtime key");
+
+        let key_ref = get_or_generate_ed25519_key_ref_in_store(
+            &store,
+            "savfox-arkret".to_owned(),
+            "runtime-agent".to_owned(),
+        )
+        .expect("reuse existing key");
+
+        assert_eq!(
+            key_ref,
+            ArkretKeyRef::Keyring {
+                service: "savfox-arkret".to_owned(),
+                account: "runtime-agent".to_owned(),
+            }
+        );
+        assert_eq!(
+            store.saved_value("runtime-agent").as_deref(),
+            Some(original.as_str())
+        );
+    }
+
+    #[test]
+    fn get_or_generate_keyring_ref_is_idempotent_after_creation() {
+        let store = MockKeyringStore::default();
+        let first = get_or_generate_ed25519_key_ref_in_store(
+            &store,
+            "savfox-arkret".to_owned(),
+            "runtime-agent".to_owned(),
+        )
+        .expect("generate key");
+        let generated = store
+            .saved_value("runtime-agent")
+            .expect("generated keyring value");
+
+        let second = get_or_generate_ed25519_key_ref_in_store(
+            &store,
+            "savfox-arkret".to_owned(),
+            "runtime-agent".to_owned(),
+        )
+        .expect("reuse generated key");
+
+        assert_eq!(second, first);
+        assert_eq!(
+            store.saved_value("runtime-agent").as_deref(),
+            Some(generated.as_str())
+        );
+        assert_eq!(
+            decode_base64_no_pad(&generated, "test generated key")
+                .expect("decode generated key")
+                .len(),
+            32
+        );
     }
 }

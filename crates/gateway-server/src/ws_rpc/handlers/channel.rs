@@ -2573,7 +2573,7 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
             keyring_account,
         )
         .map_err(|err| (INTERNAL_ERROR, err.to_string()))?,
-        None => savfox_channels::arkret::generate_ed25519_key_ref_in_keyring(
+        None => savfox_channels::arkret::get_or_generate_ed25519_key_ref_in_keyring(
             "savfox-arkret",
             keyring_account,
         )

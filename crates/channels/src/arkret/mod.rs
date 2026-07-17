@@ -72,5 +72,6 @@ pub use outbound::{MessageCreateRequest, build_message_create_event, sign_outbou
 pub use session::{ArkretSession, login_with_signer};
 pub use signer::{
     ArkretKeyRef, ed25519_runtime_public_key_digest, generate_ed25519_key_ref_in_keyring,
-    load_ed25519_seed_hex, load_ed25519_signer, migrate_ed25519_key_ref_to_keyring,
+    get_or_generate_ed25519_key_ref_in_keyring, load_ed25519_seed_hex, load_ed25519_signer,
+    migrate_ed25519_key_ref_to_keyring,
 };
