@@ -5405,9 +5405,13 @@ fn render_add_modal(
                                             saving.set(false);
                                             match result {
                                                 Ok(_) => {
-                                                    save_msg.set(Some(
-                                                        "Configuration saved successfully!".into(),
-                                                    ));
+                                                    show_add_modal.set(false);
+                                                    add_channel_search.set(String::new());
+                                                    selected_channel.set(None);
+                                                    config_values.write().clear();
+                                                    revealed.write().clear();
+                                                    channel_name.set(String::new());
+                                                    save_msg.set(None);
                                                     refresh_tick += 1;
                                                 }
                                                 Err(e) => {
