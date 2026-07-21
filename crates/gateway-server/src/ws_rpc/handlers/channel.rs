@@ -3814,17 +3814,19 @@ mod tests {
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "did:web:slack-bridge.example",
+                "serviceId": "did:webvh:slack-bridge.example",
                 "controllerId": "did:webvh:example.com:admin",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "botActorId": "did:web:slack-bridge.example:bot",
+                "botActorId": "did:webvh:slack-bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",
                 "arkretServerDid": "did:webvh:arkret.example.org",
                 "accessToken": "applet-bearer-1",
+                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" },
+                "loginChallenge": "applet-login-challenge-1234",
                 "protocols": ["slack"],
                 "namespaces": {
                     "actors": [
-                        { "pattern": "did:web:slack-bridge.example:ghost:*", "exclusive": true }
+                        { "pattern": "did:webvh:slack-bridge.example:ghost:*", "exclusive": true }
                     ],
                     "realms": [
                         { "pattern": "slack:team:*:channel:*", "exclusive": true }
@@ -3840,10 +3842,10 @@ mod tests {
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "did:web:slack-bridge.example",
+                "serviceId": "did:webvh:slack-bridge.example",
                 "controllerId": "did:webvh:example.com:admin",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "botActorId": "did:web:slack-bridge.example:bot",
+                "botActorId": "did:webvh:slack-bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",
                 "accessToken": "applet-bearer-1",
                 "protocols": ["slack"]

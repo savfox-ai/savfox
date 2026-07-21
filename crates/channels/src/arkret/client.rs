@@ -75,7 +75,12 @@ impl SessionGrantTransport for AgentSessionGrantTransport {
         &'a self,
         request: arkret::SessionGrantRequestBody,
     ) -> BoxSessionFuture<'a, arkret::SessionGrantOutcome> {
-        Box::pin(async move { self.bootstrap.auth_issue_session_grant(&request).await })
+        Box::pin(async move {
+            self.bootstrap
+                .auth_issue_session_grant(&request)
+                .await
+                .map_err(garth::Error::from)
+        })
     }
 
     fn refresh_session_grant<'a>(
@@ -88,7 +93,10 @@ impl SessionGrantTransport for AgentSessionGrantTransport {
                 Arc::clone(&self.signing_key),
                 request.grant_jwt.clone(),
             )?;
-            client.auth_refresh_session_grant(&request).await
+            client
+                .auth_refresh_session_grant(&request)
+                .await
+                .map_err(garth::Error::from)
         })
     }
 }
@@ -103,7 +111,7 @@ pub struct AgentAuthenticatedTransportFactory {
 impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
     type Transport = Client;
 
-    fn build(&self, state: &SessionGrantState) -> arkret::Result<Self::Transport> {
+    fn build(&self, state: &SessionGrantState) -> garth::Result<Self::Transport> {
         build_dpop_client(
             self.base_url.clone(),
             Arc::clone(&self.signing_key),
@@ -115,7 +123,7 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
         &self,
         state: &SessionGrantState,
         fallback: &SessionRefreshOptions,
-    ) -> arkret::Result<SessionRefreshOptions> {
+    ) -> garth::Result<SessionRefreshOptions> {
         Ok(SessionRefreshOptions {
             audience: Some(state.audience.clone()),
             device_id: state
@@ -320,7 +328,7 @@ impl ArkretHttpClient {
                         || request.htu != expected_htu
                         || request.access_token.is_some()
                     {
-                        return Err(arkret::Error::Protocol(
+                        return Err(arkret::http_client::Error::Protocol(
                             "unexpected DPoP kickoff request shape".to_owned(),
                         ));
                     }
@@ -349,7 +357,7 @@ impl ArkretHttpClient {
         let dpop_binding_proof = SessionGrantDpopBindingProof {
             proof_jwt: binding_proof,
         };
-        let signing_input = arkret::agent::agent_key_proof_signing_input_for_session_grant(
+        let signing_input = arkret::session_grant::agent_key_proof_signing_input_for_session_grant(
             &principal_did,
             &requested_scope,
             agent_key_authorization_ref,
@@ -400,7 +408,7 @@ impl ArkretHttpClient {
             session_transport.clone(),
             factory.clone(),
             refresh_options.clone(),
-            grant_store.clone(),
+            grant_store,
         )
         .map_err(|error| anyhow::anyhow!("restore agent session grant: {error}"))?;
         if let Some(state) = restored.session().current_state() {
@@ -598,9 +606,9 @@ impl ArkretHttpClient {
     }
 }
 
-fn agent_session_exchange_error(error: arkret::Error) -> anyhow::Error {
+fn agent_session_exchange_error(error: garth::Error) -> anyhow::Error {
     let reason = match &error {
-        arkret::Error::Api { error, .. } => error
+        garth::Error::Api { error, .. } => error
             .details()
             .get("reason_code")
             .and_then(serde_json::Value::as_str)
@@ -640,16 +648,18 @@ fn build_dpop_client(
     base_url: Url,
     signing_key: Arc<SigningKey>,
     access_token: String,
-) -> arkret::Result<Client> {
+) -> garth::Result<Client> {
     ClientBuilder::new(base_url)
         .auth(Auth::Dpop(DpopAuth::with_access_token(
             access_token,
             move |request| {
                 arkret::dpop::build_dpop_proof(&request, &signing_key)
                     .map(|proof| proof.header_value)
+                    .map_err(arkret::http_client::Error::from)
             },
         )))
         .build()
+        .map_err(garth::Error::from)
 }
 
 fn build_dpop_header(
@@ -662,7 +672,7 @@ fn build_dpop_header(
     if let Some(access_token) = access_token {
         request = request.access_token(access_token.to_owned());
     }
-    arkret::dpop::build_dpop_proof(&request, signing_key).map(|proof| proof.header_value)
+    Ok(arkret::dpop::build_dpop_proof(&request, signing_key).map(|proof| proof.header_value)?)
 }
 
 fn joined_htu(base_url: &Url, path: &str) -> anyhow::Result<String> {
@@ -866,7 +876,7 @@ mod tests {
         ] {
             let envelope = arkret::ErrorEnvelope::new("failed_precondition", "rejected")
                 .with_detail("reason_code", serde_json::json!(reason));
-            let rendered = agent_session_exchange_error(arkret::Error::Api {
+            let rendered = agent_session_exchange_error(garth::Error::Api {
                 status: 412,
                 error: Box::new(envelope),
             })

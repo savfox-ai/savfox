@@ -7,7 +7,7 @@
 //! This module owns the host-dispatch boundary: given an SDK Event or a
 //! Notification projection, decide whether Savfox should dispatch and how.
 
-use arkret::{DecodedInbound, InboundDecoder};
+use arkret::{DecodedInbound, EventPayloadExt as _, InboundDecoder};
 use serde_json::Value;
 
 use super::config::ArkretAccountConfig;

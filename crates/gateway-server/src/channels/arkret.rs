@@ -781,10 +781,47 @@ async fn handle_account_client_event(
                 account,
                 account_store,
                 crypto_store,
+            )
+            .await?;
+        }
+        ClientEvent::RealmDelta { update, .. } => {
+            let scan_request = account_scan_catchup_request_for_update(&update);
+            record_account_mls_welcomes_from_realm_update(&update, crypto_store, channel, account);
+            let parsed = parse_realm_update_for_account(update, account);
+            handle_parsed_account_events(
+                client,
+                parsed,
+                channel,
+                account,
+                account_store,
+                crypto_store,
                 gateway_channel,
                 session_store,
             )
             .await?;
+            if let Some(scan_request) = scan_request {
+                scan_limited_realm_timeline_for_account(
+                    client,
+                    scan_request,
+                    channel,
+                    account,
+                    account_store,
+                    crypto_store,
+                    gateway_channel,
+                    session_store,
+                )
+                .await?;
+            }
+        }
+        ClientEvent::ToDevice(message) => {
+            let content = Value::Object(message.content.into_iter().collect());
+            record_account_mls_welcome_from_value_tree(
+                crypto_store,
+                &content,
+                channel,
+                account,
+                "to_device",
+            );
         }
         other => {
             debug!(
@@ -1111,8 +1148,11 @@ async fn drain_account_device_messages_from_cursor(
                 &account.device_id,
             );
             if let Err(err) = match clear {
-                Ok(scope) => account_store.clear(scope).await,
-                Err(err) => Err(err),
+                Ok(scope) => account_store
+                    .clear(scope)
+                    .await
+                    .map_err(anyhow::Error::from),
+                Err(err) => Err(anyhow::Error::from(err)),
             } {
                 warn!(
                     channel_id = %channel.id,
@@ -1143,8 +1183,11 @@ async fn drain_account_device_messages_from_cursor(
                 &account.device_id,
             );
             if let Err(err) = match save {
-                Ok(scope) => account_store.save(scope, next_cursor.clone()).await,
-                Err(err) => Err(err),
+                Ok(scope) => account_store
+                    .save(scope, next_cursor.clone())
+                    .await
+                    .map_err(anyhow::Error::from),
+                Err(err) => Err(anyhow::Error::from(err)),
             } {
                 warn!(
                     channel_id = %channel.id,
@@ -1465,29 +1508,17 @@ async fn remember_account_event(
 
 async fn handle_sync_updates_for_account(
     client: &ArkretHttpClient,
-    updates: arkret::SyncUpdates,
+    updates: garth::AccountUpdateContext,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
-    gateway_channel: &Arc<GatewayChannel>,
-    session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
     let to_device_lost = updates.to_device_lost;
-    let saw_to_device_messages = !updates.to_device.is_empty();
+    let saw_to_device_messages = updates.to_device_ack_token.is_some();
     let to_device_ack_token = updates.to_device_ack_token.clone();
     let to_device_limited = updates.to_device_limited;
     let to_device_next_cursor = updates.to_device_next_cursor.clone();
-    for message in &updates.to_device {
-        let content = Value::Object(message.content.clone().into_iter().collect());
-        record_account_mls_welcome_from_value_tree(
-            crypto_store,
-            &content,
-            channel,
-            account,
-            "to_device",
-        );
-    }
     for item in &updates.account_data {
         let payload = Value::Object(item.payload.clone().into_iter().collect());
         record_account_mls_welcome_from_value_tree(
@@ -1497,35 +1528,6 @@ async fn handle_sync_updates_for_account(
             account,
             "account_data",
         );
-    }
-    for update in updates.realm_updates {
-        let scan_request = account_scan_catchup_request_for_update(&update);
-        record_account_mls_welcomes_from_realm_update(&update, crypto_store, channel, account);
-        let parsed = parse_realm_update_for_account(update, account);
-        handle_parsed_account_events(
-            client,
-            parsed,
-            channel,
-            account,
-            account_store,
-            crypto_store,
-            gateway_channel,
-            session_store,
-        )
-        .await?;
-        if let Some(scan_request) = scan_request {
-            scan_limited_realm_timeline_for_account(
-                client,
-                scan_request,
-                channel,
-                account,
-                account_store,
-                crypto_store,
-                gateway_channel,
-                session_store,
-            )
-            .await?;
-        }
     }
     // Typed account notifications carry Agent runtime-approval state. They are
     // not Realm events and must not wake the channel's chat agent.
@@ -2444,11 +2446,11 @@ struct AccountOutboundSubmitter {
 impl OutboundSubmitter for AccountOutboundSubmitter {
     fn submit<'a>(
         &'a self,
-        item: arkret::sync_client::SendQueueItem,
+        item: garth::sync_client::SendQueueItem,
     ) -> garth::outbound::BoxOutboundFuture<'a, OutboundSubmitOutcome> {
         Box::pin(async move {
             let event: arkret::Event = serde_json::from_value(item.content).map_err(|error| {
-                arkret::Error::Protocol(format!("decode queued Arkret event: {error}"))
+                garth::Error::Protocol(format!("decode queued Arkret event: {error}"))
             })?;
             let response = match self.client.submit_event(&event).await {
                 Ok(response) => response,
@@ -2572,7 +2574,7 @@ pub(crate) async fn send_to_arkret_account(
         .enqueue(
             Some(transaction_id.clone()),
             realm_id_typed,
-            arkret::sync_client::SendQueueItemKind::Message,
+            garth::sync_client::SendQueueItemKind::Message,
             serde_json::to_value(event)?,
             Vec::new(),
         )

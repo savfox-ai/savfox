@@ -256,7 +256,7 @@ mod tests {
             "realm_id": realm.unwrap_or("ak:realm:01904100-0000-7000-8000-000000000001"),
             "actor_id": issuer,
             "actor_seq": 1,
-            "created_at": "2026-05-27T00:00:00Z",
+            "created_at": "2026-05-27T00:00:00.000Z",
             "hlc": "000000000000-0000-00000000",
             "prev_refs": [],
             "refs": [],
@@ -270,7 +270,7 @@ mod tests {
             "alg": "EdDSA",
             "verification_method": "did:webvh:example.com:admin#key-1",
             "event_digest": digest.as_str(),
-            "created_at": "2026-05-27T00:00:00Z",
+            "created_at": "2026-05-27T00:00:00.000Z",
             "jws": "test.detached.signature"
         }]);
         event

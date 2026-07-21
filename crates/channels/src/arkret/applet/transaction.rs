@@ -6,7 +6,7 @@
 //! contained Event into a savfox-side [`AppletInboundCommand`] when it
 //! matches the configured namespaces and looks dispatchable.
 
-use arkret::Event;
+use arkret::{Event, EventPayloadExt as _};
 
 use super::super::crypto_state::message_content_has_encrypted_carrier;
 use super::config::ArkretAppletConfig;

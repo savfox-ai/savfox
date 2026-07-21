@@ -15,6 +15,7 @@ pub fn open_account_store(
         account_store_path(savfox_home, channel_id, account_id),
         event_cache_capacity,
     )
+    .map_err(|error| arkret::Error::Protocol(error.to_string()))
 }
 
 pub(super) fn account_store_path(

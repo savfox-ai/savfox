@@ -36,10 +36,10 @@ use arkret::http_signature::{
 };
 use arkret::{
     AppletActorView, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
-    AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did, Hash,
-    IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow,
-    MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe, ServiceOperationId, ServiceType,
-    StrandId, TypedTrustDomainId, canonical, new_prefixed_uuid7,
+    AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did,
+    EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity,
+    IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe,
+    ServiceOperationId, ServiceType, StrandId, TypedTrustDomainId, canonical, new_prefixed_uuid7,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -955,7 +955,9 @@ fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error 
             anyhow::anyhow!("HTTP signature validity window is invalid")
         }
         HttpMessageVerificationError::Policy(
-            SignaturePolicyError::CreatedInFuture | SignaturePolicyError::Expired,
+            SignaturePolicyError::CreatedInFuture
+            | SignaturePolicyError::CreatedTooOld
+            | SignaturePolicyError::Expired,
         ) => anyhow::anyhow!("HTTP signature timestamp is outside the accepted window"),
         HttpMessageVerificationError::Signature(err) => anyhow::anyhow!("{err}"),
     }

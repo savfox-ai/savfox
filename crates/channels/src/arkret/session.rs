@@ -4,6 +4,7 @@
 //! must not call this path.
 
 use anyhow::Context as _;
+use arkret::auth::AuthManagerLoginExt as _;
 use arkret::http_client::Client;
 use arkret::{AuthManager, DeviceId, Did, Ed25519MoveSigner};
 use chrono::{DateTime, Utc};
