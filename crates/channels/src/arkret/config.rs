@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use arkret::{AgentPairingBootstrap, DeviceId, Did};
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -335,19 +335,7 @@ fn parse_account_entry(
 }
 
 fn parse_inkson_bootstrap(value: Option<&Value>) -> Option<AgentPairingBootstrap> {
-    let mut value = value?.clone();
-    let pairing_expires_at = value
-        .get("pairing_expires_at")
-        .and_then(Value::as_str)
-        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-        .map(|value| value.to_utc().to_rfc3339_opts(SecondsFormat::Secs, true));
-    if let (Some(object), Some(pairing_expires_at)) = (value.as_object_mut(), pairing_expires_at) {
-        object.insert(
-            "pairing_expires_at".to_owned(),
-            Value::String(pairing_expires_at),
-        );
-    }
-    serde_json::from_value(value).ok()
+    serde_json::from_value(value?.clone()).ok()
 }
 
 /// Derive a stable protocol-valid Arkret device id for a locally managed
@@ -568,7 +556,7 @@ mod tests {
             "agent_id": agent_id,
             "pairing_request_id": pairing_request_id,
             "pairing_code": pairing_code,
-            "pairing_expires_at": "2026-07-06T12:00:00Z"
+            "pairing_expires_at": "2026-07-06T12:00:00.000Z"
         })
     }
 
@@ -658,7 +646,7 @@ mod tests {
                 "agent_id": "did:webvh:example.org:agents:support",
                 "pairing_request_id": "pair-123",
                 "pairing_code": "123456",
-                "pairing_expires_at": "2026-07-06T12:00:00Z"
+                "pairing_expires_at": "2026-07-06T12:00:00.000Z"
             },
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
@@ -690,12 +678,26 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(
-            account.inkson_bootstrap.as_ref().map(|bootstrap| bootstrap
-                .pairing_expires_at
-                .to_rfc3339_opts(SecondsFormat::Secs, true)),
-            Some("2026-07-06T12:00:00Z".to_owned())
+            account.inkson_bootstrap.as_ref().map(|bootstrap| {
+                arkret::canonical::format_timestamp_canonical(bootstrap.pairing_expires_at)
+            }),
+            Some("2026-07-06T12:00:00.000Z".to_owned())
         );
         parsed.validate().expect("validate");
+    }
+
+    #[test]
+    fn rejects_noncanonical_pairing_expiry_precision() {
+        let mut bootstrap = sdk_inkson_bootstrap(
+            "https://arkret.example.org",
+            "did:webvh:arkret.example.org",
+            "did:webvh:example.org:agents:support",
+            "pair-123",
+            "123456",
+        );
+        bootstrap["pairing_expires_at"] = json!("2026-07-06T12:00:00.000123Z");
+
+        assert!(parse_inkson_bootstrap(Some(&bootstrap)).is_none());
     }
 
     #[test]
@@ -997,7 +999,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_key_request_normalizes_subsecond_expiry_and_has_a_verifiable_signature() {
+    fn runtime_key_request_preserves_canonical_millisecond_expiry_and_signature() {
         use ed25519_dalek::Verifier as _;
 
         let seed = STANDARD_NO_PAD.encode([7u8; 32]);
@@ -1009,7 +1011,7 @@ mod tests {
                 "agent_id": "did:webvh:example.org:agents:support",
                 "pairing_request_id": "pair-123",
                 "pairing_code": "123456",
-                "pairing_expires_at": "2026-07-14T14:43:48.784473Z"
+                "pairing_expires_at": "2026-07-14T14:43:48.784Z"
             },
             "keyRef": { "kind": "inline_seed_base64", "value": seed },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1"
@@ -1041,7 +1043,7 @@ mod tests {
         let signature = ed25519_dalek::Signature::from_slice(&signature).unwrap();
         let signing_key = load_ed25519_signing_key(account.key_ref.as_ref().unwrap()).unwrap();
 
-        assert_eq!(proof["expires_at"], "2026-07-14T14:43:48.000Z");
+        assert_eq!(proof["expires_at"], "2026-07-14T14:43:48.784Z");
         signing_key
             .verifying_key()
             .verify(&signing_input.canonical_bytes().unwrap(), &signature)

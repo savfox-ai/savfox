@@ -3575,7 +3575,7 @@ mod tests {
             "agent_id": "did:webvh:example.org:agents:support",
             "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
             "pairing_code": "12345678",
-            "pairing_expires_at": "2999-01-01T00:00:00Z"
+            "pairing_expires_at": "2999-01-01T00:00:00.000Z"
         })
     }
 

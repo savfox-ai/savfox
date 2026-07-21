@@ -5538,7 +5538,7 @@ mod tests {
             "agent_id": "did:webvh:example.org:agents:support",
             "pairing_request_id": "pair-123",
             "pairing_code": "123456",
-            "pairing_expires_at": "2026-07-06T12:00:00Z"
+            "pairing_expires_at": "2026-07-06T12:00:00.000Z"
         })
     }
 
