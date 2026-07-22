@@ -920,11 +920,20 @@ async fn publish_account_mls_key_packages(
     };
 
     let mut records = Vec::with_capacity(2);
+    let Some(key_ref) = account.key_ref.as_ref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage upload requires the authorized runtime key"
+        );
+        return;
+    };
     for last_resort in [false, true] {
-        match crypto_store.ensure_mls_key_package(
+        match crypto_store.ensure_agent_mls_key_package(
             &account.principal_id,
             &account.device_id,
             last_resort,
+            key_ref,
         ) {
             Ok(record) => records.push(record),
             Err(err) => {
@@ -1904,6 +1913,33 @@ fn record_account_mls_welcome_from_value_tree(
     account: &ArkretAccountConfig,
     source: &'static str,
 ) -> usize {
+    let Some(authorized_event_ref) = account.authorized_event_ref.as_deref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            source,
+            "arkret: refusing MLS Welcome without current Agent key authorization"
+        );
+        return 0;
+    };
+    match crypto_store.validate_agent_mls_welcome_value_tree(
+        value,
+        &account.principal_id,
+        &account.device_id,
+        authorized_event_ref,
+    ) {
+        Ok(true) => {}
+        Ok(false) => return 0,
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                source,
+                "arkret: refusing MLS Welcome with invalid Agent claim binding: {err:#}"
+            );
+            return 0;
+        }
+    }
     record_account_mls_welcome_from_value_tree_inner(
         crypto_store,
         value,

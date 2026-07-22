@@ -8,8 +8,8 @@
 //!   Ghost Actor minting and Ed25519 event signing (see the [`applet`] and [`signer`] submodules).
 //!
 //! Principal provisioning is performed by Inkson/Arkret; this adapter consumes the resulting
-//! bootstrap and runtime-key authorization. MLS/E2EE membership for agent runtimes remains a
-//! separate integration path.
+//! bootstrap and runtime-key authorization. Native Agent MLS identities reuse that authorized
+//! runtime key so KeyPackage claims bind to the same accepted `ak.agent.key.authorize` chain.
 //!
 //! Layered like the other channel modules:
 //!

@@ -12,6 +12,11 @@ const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
     "ak.self.events.query.scan",
     "ak.self.events.command.submit",
+    "ak.self.keys.keypackages.upload.create",
+    "ak.self.keys.keypackages.command.consume",
+    "ak.self.device_messages.query.list",
+    "ak.self.device_messages.command.ack",
+    "ak.event.read",
     "ak.message.create",
 ];
 
@@ -677,6 +682,18 @@ mod tests {
                 .map(|scope| (*scope).to_owned())
                 .collect::<Vec<_>>()
         );
+        for required_scope in [
+            "ak.self.keys.keypackages.upload.create",
+            "ak.self.keys.keypackages.command.consume",
+            "ak.self.device_messages.query.list",
+            "ak.self.device_messages.command.ack",
+            "ak.event.read",
+        ] {
+            assert!(
+                account.has_requested_scope(required_scope),
+                "default Arkret Agent runtime scope must include {required_scope}"
+            );
+        }
         assert_eq!(
             account.inkson_bootstrap.as_ref().map(|bootstrap| {
                 arkret::canonical::format_timestamp_canonical(bootstrap.pairing_expires_at)

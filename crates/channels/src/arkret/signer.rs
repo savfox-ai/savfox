@@ -216,7 +216,7 @@ pub fn ed25519_runtime_public_key_digest(
         .map_err(|error| anyhow::anyhow!("arkret signer: public-key digest: {error}"))
 }
 
-fn load_seed_array(key_ref: &ArkretKeyRef) -> anyhow::Result<[u8; 32]> {
+pub(super) fn load_seed_array(key_ref: &ArkretKeyRef) -> anyhow::Result<[u8; 32]> {
     let mut seed_bytes = load_seed_bytes(key_ref)?;
     if seed_bytes.len() != 32 {
         let len = seed_bytes.len();
