@@ -232,6 +232,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_get(
 pub(in crate::ws_rpc) async fn handle_channels_config_save(
     params: &Value,
     channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
 ) -> RpcResult {
     use savfox_core::config::channel_store;
 
@@ -350,9 +351,44 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     )
     .await
     {
-        Ok(config) => Ok(
-            json!({ "config": channel_store::channel_config_to_json(&config), "status": "saved" }),
-        ),
+        Ok(config) => {
+            let mut runtime = Value::Null;
+            if channel_kind.eq_ignore_ascii_case("arkret") {
+                // An enabled Arkret listener captures its parsed account config
+                // when the task starts. Persisting a repaired pairing alone
+                // therefore leaves the old listener retrying stale credentials.
+                // Reconcile this exact instance immediately after the durable
+                // write, then let the regular login path start every enabled,
+                // ready Arkret config that is not already running.
+                #[cfg(feature = "arkret")]
+                {
+                    crate::channels::arkret::stop_arkret_account_listeners(&config.id);
+                    crate::channels::arkret_applet::remove_arkret_applet_channel(&config.id)
+                        .map_err(|error| {
+                            (
+                                INTERNAL_ERROR,
+                                format!(
+                                    "saved Arkret channel '{}' but failed to stop its stale runtime: {error}",
+                                    config.id
+                                ),
+                            )
+                        })?;
+                    if config.enabled {
+                        runtime = super::super::handle_channels_login(
+                            &json!({ "platform": "arkret" }),
+                            channel,
+                            session_store,
+                        )
+                        .await?;
+                    }
+                }
+            }
+            Ok(json!({
+                "config": channel_store::channel_config_to_json(&config),
+                "status": "saved",
+                "runtime": runtime,
+            }))
+        }
         Err(e) => Err((
             INTERNAL_ERROR,
             format!("failed to save channel config: {e}"),

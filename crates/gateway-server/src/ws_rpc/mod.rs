@@ -214,7 +214,9 @@ pub(crate) async fn dispatch_rpc(
         "channels.nostr.relays.set" => handle_channels_nostr_relays_set(&params, channel).await,
         "channels.config.list" => handle_channels_config_list(channel).await,
         "channels.config.get" => handle_channels_config_get(&params, channel).await,
-        "channels.config.save" => handle_channels_config_save(&params, channel).await,
+        "channels.config.save" => {
+            handle_channels_config_save(&params, channel, session_store).await
+        }
         "channels.config.delete" => handle_channels_config_delete(&params, channel).await,
 
         // ── Directory service ────────────────────────────────────────
