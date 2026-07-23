@@ -10242,6 +10242,7 @@ dependencies = [
  "arkret",
  "arkret-bridge-runtime",
  "arkret-crypto",
+ "arkret-signatures",
  "async-trait",
  "base64",
  "bytes",

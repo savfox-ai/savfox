@@ -235,7 +235,7 @@ pub fn ed25519_runtime_public_key_digest(
         "key": base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(signing_key.verifying_key().as_bytes()),
     });
-    arkret::agent_runtime_public_key_digest(&public_key)
+    arkret_signatures::agent::agent_runtime_public_key_digest(&public_key)
         .map(|digest| digest.as_str().to_owned())
         .map_err(|error| anyhow::anyhow!("arkret signer: public-key digest: {error}"))
 }

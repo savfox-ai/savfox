@@ -23,6 +23,7 @@ feishu = ["dep:feishu-sdk"]
 arkret = [
     "dep:arkret",
     "dep:arkret-crypto",
+    "dep:arkret-signatures",
     "dep:garth",
     "dep:arkret-bridge-runtime",
     "dep:savfox-keyring-store",
@@ -61,5 +62,6 @@ url = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 arkret = { workspace = true, optional = true }
 arkret-crypto = { workspace = true, optional = true }
+arkret-signatures = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
 arkret-bridge-runtime = { workspace = true, optional = true }
