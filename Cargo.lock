@@ -342,7 +342,6 @@ dependencies = [
  "arkret-state",
  "arkret-wire",
  "chrono",
- "ed25519-dalek",
  "reqwest 0.13.4",
  "salvo 0.95.0",
  "serde",
@@ -350,7 +349,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -396,6 +394,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "arkret",
+ "arkret-event-draft",
  "arkret-models-collaboration",
  "arkret-models-discovery",
  "arkret-models-integration",
@@ -4315,7 +4314,6 @@ dependencies = [
  "getrandom 0.4.3",
  "hkdf 0.13.0",
  "parking_lot",
- "reqwest 0.13.4",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -10244,6 +10242,7 @@ dependencies = [
  "arkret",
  "arkret-bridge-runtime",
  "arkret-crypto",
+ "arkret-signatures",
  "async-trait",
  "base64",
  "bytes",

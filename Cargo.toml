@@ -338,7 +338,6 @@ dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-
 # local protocol/runtime co-development across the sibling Arkret workspace.
 arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk", default-features = false, features = [
     "client",
-    "applet-runtime",
     "device-runtime",
     "full-surface",
     "mls",
@@ -346,6 +345,7 @@ arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk", default-feature
 ] }
 arkret-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/crypto", default-features = false }
 arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-collaboration", default-features = false }
+arkret-signatures = { path = "../../arkret-org/arkret-rust-sdk/crates/signatures", default-features = false, features = ["protocol"] }
 garth = { path = "../../arkret-org/garth", default-features = false, features = ["native"] }
 arkret-bridge-runtime = { path = "../../arkret-org/bridges/crates/runtime", default-features = false, features = ["edge"] }
 

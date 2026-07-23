@@ -460,10 +460,11 @@ pub fn build_arkret_runtime_key_request_json(
             )
         })?;
     let signing_key = load_ed25519_signing_key(key_ref)?;
-    let request = arkret::agent::RuntimeKeyRequestBuilder::new(&signing_key, bootstrap.clone())
-        .verification_method(verification_method)
-        .build_approval_request()
-        .map_err(|err| anyhow::anyhow!("agent runtime key request: {err}"))?;
+    let request =
+        arkret_signatures::agent::RuntimeKeyRequestBuilder::new(&signing_key, bootstrap.clone())
+            .verification_method(verification_method)
+            .build_approval_request()
+            .map_err(|err| anyhow::anyhow!("agent runtime key request: {err}"))?;
     let mut request = serde_json::to_value(request.body)
         .map_err(|err| anyhow::anyhow!("serialize agent runtime key request: {err}"))?;
     request
@@ -511,8 +512,9 @@ pub fn build_arkret_runtime_key_status_request_json(
         "alg": "Ed25519",
         "key": arkret::base64url_encode(signing_key.verifying_key().to_bytes()),
     });
-    let local_public_key_digest = arkret::agent_runtime_public_key_digest(&public_key)
-        .map_err(|err| anyhow::anyhow!("agent runtime public key digest: {err}"))?;
+    let local_public_key_digest =
+        arkret_signatures::agent::agent_runtime_public_key_digest(&public_key)
+            .map_err(|err| anyhow::anyhow!("agent runtime public key digest: {err}"))?;
     Ok((
         serde_json::json!({
             "pairing_request_id": bootstrap.pairing_request_id,
@@ -1049,7 +1051,7 @@ mod tests {
                 .to_owned(),
         )
         .unwrap();
-        let signing_input = arkret::agent::agent_key_pair_proof_signing_input(
+        let signing_input = arkret_signatures::agent::agent_key_pair_proof_signing_input(
             request["verification_method"].as_str().unwrap(),
             proof["challenge"].as_str().unwrap(),
             proof["audience"].as_str().unwrap(),
@@ -1107,7 +1109,8 @@ mod tests {
         )
         .expect("submit request");
         let expected_digest =
-            arkret::agent_runtime_public_key_digest(&submit["public_key"]).expect("digest");
+            arkret_signatures::agent::agent_runtime_public_key_digest(&submit["public_key"])
+                .expect("digest");
         assert_eq!(local_digest, expected_digest.as_str());
     }
 }
