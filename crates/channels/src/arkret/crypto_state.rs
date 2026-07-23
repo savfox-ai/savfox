@@ -929,6 +929,19 @@ pub fn extract_encrypted_payload_from_message_content(
     arkret::mls::encrypted_envelope_to_payload(&envelope).ok()
 }
 
+/// Extract the `encrypted_metadata` carrier of a message payload, if any.
+///
+/// The envelope shape is identical to `encrypted_content`
+/// (`encrypted-envelope.schema.json`); only the payload plaintext differs —
+/// `message_metadata` JSON instead of a content block. Decryption goes
+/// through the same MLS group as the content carrier.
+pub fn extract_encrypted_metadata_payload_from_message_content(
+    content: &BTreeMap<String, Value>,
+) -> Option<EncryptedPayload> {
+    let envelope = serde_json::from_value(content.get("encrypted_metadata")?.clone()).ok()?;
+    arkret::mls::encrypted_envelope_to_payload(&envelope).ok()
+}
+
 #[must_use]
 pub fn message_content_has_encrypted_carrier(content: &BTreeMap<String, Value>) -> bool {
     content.get("encrypted_content").is_some()
@@ -1436,6 +1449,113 @@ mod tests {
                 realm_id: "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
                 group_id: "group1".to_owned()
             }
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Outbound Sidecar reply metadata: the binding plaintext built by
+    /// `build_user_facing_response_metadata` must round-trip through the same
+    /// MLS group used for `encrypted_content`, and the resulting envelope is a
+    /// ciphertext carrier whose plaintext parses back into a valid
+    /// `user_facing_response` binding.
+    #[test]
+    fn sidecar_reply_metadata_encrypts_and_round_trips_through_group() {
+        use super::super::sidecar::{
+            SidecarExchangeContext, build_user_facing_response_metadata,
+            sidecar_binding_from_metadata_plaintext,
+        };
+
+        let home = temp_home("sidecar-metadata-encrypt");
+        let realm_id = "ak:realm:01904100-0000-7000-8000-000000000001";
+        let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
+        let bob_key_package = bob_store
+            .ensure_mls_key_package(
+                "did:webvh:z6mkfixture:bob.example",
+                "ak:device:01904100-0000-7000-8000-00000000000e",
+                false,
+            )
+            .expect("Bob KeyPackage should be stored");
+
+        let alice = ArkretMlsIdentity::new_basic(
+            Did::new("did:webvh:z6mkfixture:alice.example").unwrap(),
+            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
+        )
+        .unwrap();
+        let mut alice_group = alice.create_group(realm_id.as_bytes()).unwrap();
+        let add = alice_group.add_member(&bob_key_package).unwrap();
+        let welcome_carrier = json!({
+            "keypackage_ref": bob_key_package.keypackage_ref.as_str(),
+            "claim_ref": { "claim_id": "ak:claim:sidecar-metadata" },
+            "claim_envelope": { "intended_realm_id": realm_id },
+            "welcome_ref": "ak:welcome:sidecar-metadata",
+            "mls_group_id": add.welcome.group_id.as_str(),
+            "epoch": add.welcome.epoch,
+            "commit_ref": "ak:event:01904100-0000-7000-8000-0000000000aa",
+            "content": serde_json::to_value(&add.welcome).unwrap()
+        });
+        bob_store
+            .record_mls_welcome_from_value(&welcome_carrier)
+            .expect("welcome carrier should persist")
+            .expect("welcome should be extracted");
+
+        // Bob joins by decrypting one inbound payload, which also seeds the
+        // bootstrap record (group_state_ref) that outbound encryption needs.
+        let inbound = alice_group
+            .encrypt_payload(
+                CONTENT_BLOCK_JSON,
+                &serde_json::to_vec(&json!({"kind":"ak.content.text","body":"request"})).unwrap(),
+            )
+            .unwrap();
+        let ArkretDecryptDetailedOutcome::Decrypted { .. } = bob_store
+            .try_decrypt_content_block_detailed(&inbound)
+            .expect("bob should join and decrypt")
+        else {
+            panic!("stored Welcome should admit bob");
+        };
+        bob_store
+            .upsert_realm_policy(ArkretRealmCryptoPolicy {
+                realm_id: realm_id.to_owned(),
+                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+                encryption_profile: Some("mls".to_owned()),
+                mls_group_id: Some(add.welcome.group_id.clone()),
+                source: "test".to_owned(),
+                updated_at: Utc::now(),
+            })
+            .expect("policy should persist");
+
+        let context = SidecarExchangeContext {
+            exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
+            request_event_id: "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+        };
+        let metadata_plaintext = build_user_facing_response_metadata(&context).expect("metadata");
+        let ArkretEncryptOutcome::Encrypted(envelope_value) = bob_store
+            .encrypt_content_block_for_realm(realm_id, &metadata_plaintext)
+            .expect("encryption should complete")
+        else {
+            panic!("sidecar metadata must be encrypted, never plaintext");
+        };
+
+        // The wire envelope is ciphertext only: no binding key leaks.
+        assert!(
+            !serde_json::to_string(&envelope_value)
+                .unwrap()
+                .contains("sidecar_exchange_binding")
+        );
+
+        // Alice (same MLS group) decrypts the carrier back to the binding.
+        let envelope = serde_json::from_value(envelope_value).expect("envelope shape");
+        let payload =
+            arkret::mls::encrypted_envelope_to_payload(&envelope).expect("payload conversion");
+        let plaintext_bytes = alice_group
+            .decrypt_payload(&payload)
+            .expect("group member should decrypt metadata carrier");
+        let plaintext: Value = serde_json::from_slice(&plaintext_bytes).expect("plaintext json");
+        let binding =
+            sidecar_binding_from_metadata_plaintext(&plaintext).expect("binding round-trips");
+        assert_eq!(binding.exchange_id.as_str(), context.exchange_id);
+        assert_eq!(
+            binding.request_event_id.as_ref().map(|id| id.as_str()),
+            Some(context.request_event_id.as_str())
         );
         let _ = std::fs::remove_dir_all(&home);
     }

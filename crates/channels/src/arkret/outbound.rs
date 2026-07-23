@@ -8,10 +8,12 @@ use anyhow::Context;
 use arkret::events::EventKind;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    ContentBlock, Did, Ed25519MoveSigner, Event, EventDraftKindRegistry, Hlc, MessageCreatePayload,
-    OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId, StrandId,
-    new_prefixed_uuid7,
+    ContentBlock, Did, Ed25519MoveSigner, Event, EventDraftKindRegistry, EventId, EventRef, Hlc,
+    MessageCreatePayload, OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId,
+    StrandId, new_prefixed_uuid7,
 };
+
+use super::sidecar::{EVENT_REF_ROLE_AFTER, SidecarExchangeContext};
 
 #[derive(Debug, Clone)]
 pub struct MessageCreateRequest {
@@ -21,6 +23,13 @@ pub struct MessageCreateRequest {
     pub principal_id: String,
     pub actor_seq: u64,
     pub thread_root_id: Option<String>,
+    /// When replying inside an Agent Sidecar exchange, the verified exchange
+    /// identity from the inbound request Event. The built Event carries a
+    /// top-level `refs[role=after]` to the request Event id
+    /// (`zh/models/sidecar.md` §7.2.1 item 2); the encrypted
+    /// `role=user_facing_response` binding itself is mounted at encryption
+    /// time (`encrypted_metadata`), never in plaintext payload fields.
+    pub sidecar_exchange: Option<SidecarExchangeContext>,
 }
 
 /// Build an unsigned `ak.message.create` Event Envelope ready to be POSTed to
@@ -69,8 +78,19 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     )
     .build(&EventDraftKindRegistry::default())
     .map_err(|err| anyhow::anyhow!("failed to build message-create envelope: {err}"))?;
+    let mut conversion = OperationEventConversion::default();
+    if let Some(exchange) = &req.sidecar_exchange {
+        // Sidecar exchange Events MUST reference the accepted request Event
+        // via a top-level `refs[role=after]` (zh/models/sidecar.md §7.2.1).
+        let request_event_id = EventId::new(exchange.request_event_id.clone())
+            .map_err(|err| anyhow::anyhow!("invalid Sidecar request Event id: {err}"))?;
+        conversion.refs.push(EventRef::new(
+            request_event_id.to_string(),
+            EVENT_REF_ROLE_AFTER,
+        ));
+    }
     envelope
-        .into_event_envelope(OperationEventConversion::default())
+        .into_event_envelope(conversion)
         .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))
 }
 
@@ -114,6 +134,7 @@ mod tests {
             principal_id: "did:webvh:example.org:agents:support".into(),
             actor_seq: 1,
             thread_root_id: None,
+            sidecar_exchange: None,
         }
     }
 
@@ -187,6 +208,39 @@ mod tests {
     fn rejects_empty_body() {
         let mut req = valid_request();
         req.body = "   ".into();
+        assert!(build_message_create_event(&req).is_err());
+    }
+
+    #[test]
+    fn sidecar_exchange_adds_after_ref_to_request_event() {
+        let request_event_id = "ak:event:01904100-0000-7000-8000-000000000031";
+        let mut req = valid_request();
+        req.sidecar_exchange = Some(SidecarExchangeContext {
+            exchange_id: "01904100-0000-7000-8000-0000000000aa".into(),
+            request_event_id: request_event_id.into(),
+        });
+        let event = build_message_create_event(&req).expect("build");
+        assert!(
+            event
+                .refs
+                .iter()
+                .any(|r| r.role == EVENT_REF_ROLE_AFTER && r.id == request_event_id),
+            "expected refs[role=after] -> request event id, got {:?}",
+            event.refs
+        );
+        // The binding itself is mounted only into encrypted_metadata at
+        // encryption time; the plaintext payload must not carry it.
+        assert!(event.payload.get("metadata").is_none());
+        assert!(event.payload.get("encrypted_metadata").is_none());
+    }
+
+    #[test]
+    fn sidecar_exchange_rejects_invalid_request_event_id() {
+        let mut req = valid_request();
+        req.sidecar_exchange = Some(SidecarExchangeContext {
+            exchange_id: "01904100-0000-7000-8000-0000000000aa".into(),
+            request_event_id: "not-an-event-id".into(),
+        });
         assert!(build_message_create_event(&req).is_err());
     }
 

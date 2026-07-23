@@ -13,8 +13,10 @@ use serde_json::Value;
 
 use super::config::ArkretAccountConfig;
 use super::crypto_state::{
+    extract_encrypted_metadata_payload_from_message_content,
     extract_encrypted_payload_from_message_content, message_content_has_encrypted_carrier,
 };
+use super::sidecar::SidecarExchangeContext;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArkretInboundEvent {
@@ -31,6 +33,12 @@ pub struct ArkretInboundEvent {
     /// personal-agent runtime can explain whether the event explicitly
     /// addressed its Arkret principal instead of routing on body text alone.
     pub mentioned_actor_ids: Vec<String>,
+    /// Verified Agent Sidecar exchange identity (`zh/models/sidecar.md`
+    /// §7.2.1–§7.2.2), present only when this event carried a valid
+    /// `role=request` binding addressed to this runtime's principal and the
+    /// exchange passed the durable idempotency gate. `None` means the event is
+    /// an ordinary (non-exchange) message.
+    pub sidecar_exchange: Option<SidecarExchangeContext>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -48,6 +56,10 @@ pub struct ArkretInboundSkippedEvent {
     pub strand_id: Option<String>,
     pub reply_to: Option<String>,
     pub encrypted_payload: Option<arkret::EncryptedPayload>,
+    /// Parallel `encrypted_metadata` carrier (same envelope shape as
+    /// `encrypted_content`); its plaintext may hold the Sidecar exchange
+    /// binding (`message_metadata.sidecar_exchange_binding`).
+    pub encrypted_metadata_payload: Option<arkret::EncryptedPayload>,
     pub reason: ArkretInboundSkipReason,
 }
 
@@ -61,6 +73,10 @@ pub enum ArkretInboundSkipReason {
     LoopbackFromAccount,
     ContentReadNotGranted,
     EmptyBody,
+    /// A valid Sidecar `role=request` binding whose `addressed_agent_ids`
+    /// does not contain this account's principal: the request is treated as
+    /// nonexistent — no execution, no error (`zh/models/sidecar.md` §7.2.2).
+    SidecarNotAddressed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,6 +184,7 @@ fn classify_sdk_message_create(
         body: body.to_owned(),
         thread_root_id,
         mentioned_actor_ids,
+        sidecar_exchange: None,
     })
 }
 
@@ -283,6 +300,7 @@ pub fn parse_delta_frame_for_account(
                             strand_id: parsed.strand_id.clone(),
                             reply_to: parsed.thread_root_id.clone(),
                             encrypted_payload: None,
+                            encrypted_metadata_payload: None,
                             reason,
                         });
                     } else {
@@ -327,6 +345,7 @@ pub fn parse_notification_delta_for_account(
                         strand_id: parsed.strand_id.clone(),
                         reply_to: parsed.thread_root_id.clone(),
                         encrypted_payload: None,
+                        encrypted_metadata_payload: None,
                         reason,
                     });
                 } else {
@@ -394,6 +413,7 @@ fn classify_notification_event(
         body,
         thread_root_id: None,
         mentioned_actor_ids: Vec::new(),
+        sidecar_exchange: None,
     })
 }
 
@@ -497,6 +517,7 @@ fn skip_event(
         strand_id: None,
         reply_to: None,
         encrypted_payload: None,
+        encrypted_metadata_payload: None,
         reason,
     })
 }
@@ -514,6 +535,7 @@ fn skip_sdk_event(
         strand_id: None,
         reply_to: None,
         encrypted_payload: None,
+        encrypted_metadata_payload: None,
         reason,
     })
 }
@@ -534,6 +556,7 @@ fn skip_notification(
         strand_id: notification_strand_id(notification),
         reply_to: None,
         encrypted_payload: None,
+        encrypted_metadata_payload: None,
         reason,
     })
 }
@@ -550,6 +573,9 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
             .map(|payload| payload.strand_id.as_str().to_owned()),
         reply_to: message.and_then(|payload| payload.reply_to),
         encrypted_payload: extract_encrypted_payload_from_message_content(&event.payload),
+        encrypted_metadata_payload: extract_encrypted_metadata_payload_from_message_content(
+            &event.payload,
+        ),
         reason: ArkretInboundSkipReason::EncryptedContent,
     })
 }

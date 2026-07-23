@@ -52,7 +52,7 @@ pub fn device_messages_scope(
     })
 }
 
-fn safe_file_stem(scope_id: &str) -> String {
+pub(super) fn safe_file_stem(scope_id: &str) -> String {
     let value: String = scope_id
         .chars()
         .map(|ch| {

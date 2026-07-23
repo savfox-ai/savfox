@@ -959,6 +959,12 @@ fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error 
             | SignaturePolicyError::CreatedTooOld
             | SignaturePolicyError::Expired,
         ) => anyhow::anyhow!("HTTP signature timestamp is outside the accepted window"),
+        HttpMessageVerificationError::ContentEncodingNotAllowed => {
+            anyhow::anyhow!("signed applet transaction must not use Content-Encoding")
+        }
+        HttpMessageVerificationError::NonCanonicalJson(detail) => {
+            anyhow::anyhow!("signed applet transaction body is not canonical JSON: {detail}")
+        }
         HttpMessageVerificationError::Signature(err) => anyhow::anyhow!("{err}"),
     }
 }

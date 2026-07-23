@@ -1372,12 +1372,29 @@ impl GatewayChannel {
             }
             #[cfg(feature = "arkret")]
             "arkret" => {
-                let strand_id =
-                    non_empty_trimmed(reply_target).filter(|value| value.starts_with("ak:strand:"));
-                if crate::channels::arkret_applet::send_to_arkret_applet_for_realm(
-                    channel_id, strand_id, text,
-                )
-                .await?
+                // `reply_target` is either a plain strand id or a strand id
+                // with an encoded Sidecar exchange context appended by the
+                // inbound dispatch (see `encode_sidecar_reply_target`).
+                let (strand_id, sidecar_exchange) =
+                    match non_empty_trimmed(reply_target)
+                        .filter(|value| value.starts_with("ak:strand:"))
+                    {
+                        Some(value) => {
+                            let (strand, context) =
+                                savfox_channels::arkret::split_sidecar_reply_target(value);
+                            (Some(strand), context)
+                        }
+                        None => (None, None),
+                    };
+                let strand_id = strand_id.as_deref();
+                // Sidecar exchange replies must carry the encrypted
+                // `user_facing_response` binding, which only the account path
+                // can attach; the applet path would silently drop it.
+                if sidecar_exchange.is_none()
+                    && crate::channels::arkret_applet::send_to_arkret_applet_for_realm(
+                        channel_id, strand_id, text,
+                    )
+                    .await?
                 {
                     return Ok(());
                 }
@@ -1386,6 +1403,7 @@ impl GatewayChannel {
                     channel_id,
                     strand_id,
                     text,
+                    sidecar_exchange.as_ref(),
                 )
                 .await?;
             }

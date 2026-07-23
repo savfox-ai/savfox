@@ -33,6 +33,7 @@ mod grant;
 mod inbound_adapter;
 mod outbound;
 mod session;
+mod sidecar;
 mod signer;
 
 pub use account_store::{device_messages_scope, open_account_store};
@@ -57,6 +58,7 @@ pub use crypto_state::{
     ArkretDecryptDetailedOutcome, ArkretDecryptOutcome, ArkretEncryptOutcome, ArkretKeyBackupState,
     ArkretMlsIdentityStateRecord, ArkretMlsWelcomeConsumeBinding, ArkretRealmCryptoPolicy,
     FileArkretCryptoStore, account_scope_id, applet_scope_id,
+    extract_encrypted_metadata_payload_from_message_content,
     extract_encrypted_payload_from_message_content, extract_mls_welcome_consume_binding,
     extract_mls_welcome_envelope, message_content_has_encrypted_carrier,
     mls_key_package_record_from_claim,
@@ -70,6 +72,12 @@ pub use inbound_adapter::{
 };
 pub use outbound::{MessageCreateRequest, build_message_create_event, sign_outbound_event};
 pub use session::{ArkretSession, login_with_signer};
+pub use sidecar::{
+    EVENT_REF_ROLE_AFTER, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
+    SidecarRequestGate, build_user_facing_response_metadata, encode_sidecar_reply_target,
+    gate_inbound_request_binding, sidecar_binding_from_metadata_plaintext,
+    split_sidecar_reply_target,
+};
 pub use signer::{
     ArkretKeyRef, ed25519_runtime_public_key_digest, generate_ed25519_key_ref_in_keyring,
     get_or_generate_ed25519_key_ref_in_keyring, load_ed25519_seed_hex, load_ed25519_signer,

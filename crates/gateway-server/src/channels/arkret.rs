@@ -32,10 +32,12 @@ use savfox_channels::arkret::{
     ArkretDecryptDetailedOutcome, ArkretEncryptOutcome, ArkretHttpClient, ArkretInboundEvent,
     ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent, ArkretKeyRef,
     ArkretMlsWelcomeConsumeBinding, FileArkretCryptoStore, MessageCreateRequest,
+    SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore, SidecarRequestGate,
     UnableToDecryptReason, account_allows_event_read, build_message_create_event,
-    device_messages_scope, open_account_store, parse_delta_frame_for_account,
-    resolve_arkret_outbound_account, sign_keypackages_consume_request,
-    sign_keypackages_upload_request,
+    build_user_facing_response_metadata, device_messages_scope, encode_sidecar_reply_target,
+    gate_inbound_request_binding, open_account_store, parse_delta_frame_for_account,
+    resolve_arkret_outbound_account, sidecar_binding_from_metadata_plaintext,
+    sign_keypackages_consume_request, sign_keypackages_upload_request,
 };
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
@@ -2045,6 +2047,7 @@ async fn dispatch_to_agent(
     let thread_id = event.thread_root_id.clone();
     let event_id = event.event_id.clone();
     let mentioned_actor_ids = event.mentioned_actor_ids.clone();
+    let sidecar_exchange = event.sidecar_exchange.clone();
     let body = event.body;
     // DIDs carry no external-bot localpart convention, but we can at least mark
     // the account's own DID as SelfBot so the runtime never replies to its own
@@ -2055,14 +2058,23 @@ async fn dispatch_to_agent(
         runtime::SenderKind::Human
     };
 
+    // A verified Sidecar exchange request addressed to this principal is an
+    // explicit call: mark the runtime as mentioned and thread the exchange
+    // identity through `reply_target` so the user-visible reply can carry the
+    // `role=user_facing_response` binding (zh/models/sidecar.md §7.2.1).
+    let reply_target = match (&sidecar_exchange, &strand_id) {
+        (Some(context), Some(strand)) => Some(encode_sidecar_reply_target(strand, context)),
+        _ => strand_id.clone(),
+    };
     let mut start_meta = runtime::StartThreadMeta {
         peer_id: Some(sender.clone()),
         group_id: Some(realm_id.clone()),
         thread_id,
-        reply_target: strand_id,
+        reply_target,
         chat_type: Some("group".to_owned()),
         saved_channel_config_id: Some(config_id.clone()),
         sender_kind,
+        is_mentioned: sidecar_exchange.is_some(),
         ..runtime::StartThreadMeta::default()
     };
     let local_agent_id = runtime::resolve_start_thread_agent(
@@ -2182,6 +2194,18 @@ async fn try_handle_encrypted_account_skip(
             let Some(sender_did) = skipped.sender_did.clone() else {
                 return Ok(false);
             };
+            let sidecar_exchange = match consume_sidecar_exchange_binding(
+                skipped,
+                crypto_store,
+                channel,
+                account,
+                gateway_channel,
+                &event_id,
+            )? {
+                SidecarConsumeOutcome::NoBinding => None,
+                SidecarConsumeOutcome::Execute(context) => Some(context),
+                SidecarConsumeOutcome::DropSilently => return Ok(true),
+            };
             dispatch_to_agent(
                 ArkretInboundEvent {
                     account_id: skipped.account_id.clone(),
@@ -2192,6 +2216,7 @@ async fn try_handle_encrypted_account_skip(
                     body,
                     thread_root_id: skipped.reply_to.clone(),
                     mentioned_actor_ids: Vec::new(),
+                    sidecar_exchange,
                 },
                 channel,
                 account,
@@ -2238,6 +2263,102 @@ async fn try_handle_encrypted_account_skip(
                 UnableToDecryptReason::BadCiphertext,
             );
             Ok(false)
+        }
+    }
+}
+
+/// Disposition of one decrypted inbound Event with respect to the Agent
+/// Sidecar exchange consumption gate (`zh/models/sidecar.md` §7.2.1–§7.2.2).
+enum SidecarConsumeOutcome {
+    /// No (valid) exchange binding: handle as an ordinary private message.
+    NoBinding,
+    /// A valid `role=request` binding addressed to this principal whose
+    /// exchange id passed the durable idempotency gate: execute exactly once.
+    Execute(SidecarExchangeContext),
+    /// The request must be treated as nonexistent or already consumed: do not
+    /// execute, do not surface an error (the Event stays acknowledged).
+    DropSilently,
+}
+
+/// Decrypt the `encrypted_metadata` carrier (same MLS group as the content
+/// carrier), extract the exchange binding fail-closed, and apply the §7.2.2
+/// consumption gate: role/request-context validation, addressed-principal
+/// membership, and the durable `exchange_id → request_event_id` idempotency
+/// map. The runtime obtains exchange identity only from this binding — never
+/// from `reply_to`, message bodies or arrival order.
+fn consume_sidecar_exchange_binding(
+    skipped: &ArkretInboundSkippedEvent,
+    crypto_store: &FileArkretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    gateway_channel: &Arc<GatewayChannel>,
+    event_id: &str,
+) -> anyhow::Result<SidecarConsumeOutcome> {
+    let Some(metadata_payload) = skipped.encrypted_metadata_payload.as_ref() else {
+        return Ok(SidecarConsumeOutcome::NoBinding);
+    };
+    let metadata_plaintext = match crypto_store.try_decrypt_content_block_detailed(metadata_payload)
+    {
+        Ok(ArkretDecryptDetailedOutcome::Decrypted { content, .. }) => content,
+        Ok(_) | Err(_) => {
+            // Fail closed to "no binding": the message is handled as an
+            // ordinary private message and never as an exchange participant.
+            debug!(
+                account_id = %account.id,
+                event_id,
+                "arkret: encrypted_metadata carrier could not be decrypted; treating event as non-exchange"
+            );
+            return Ok(SidecarConsumeOutcome::NoBinding);
+        }
+    };
+    let Some(binding) = sidecar_binding_from_metadata_plaintext(&metadata_plaintext) else {
+        return Ok(SidecarConsumeOutcome::NoBinding);
+    };
+    match gate_inbound_request_binding(&binding, event_id, &account.principal_id) {
+        SidecarRequestGate::NotARequest => Ok(SidecarConsumeOutcome::NoBinding),
+        SidecarRequestGate::NotAddressed => {
+            // §7.2.2: a non-addressed member treats the request as
+            // nonexistent even though it can decrypt it.
+            debug!(
+                account_id = %account.id,
+                event_id,
+                reason = ?ArkretInboundSkipReason::SidecarNotAddressed,
+                "arkret: Sidecar request not addressed to this principal; treating request as nonexistent"
+            );
+            Ok(SidecarConsumeOutcome::DropSilently)
+        }
+        SidecarRequestGate::Addressed(context) => {
+            let store = SidecarExchangeStore::for_account(
+                &gateway_channel.config().savfox_home,
+                &channel.id,
+                &account.id,
+            );
+            match store.admit(&context.exchange_id, &context.request_event_id)? {
+                SidecarExchangeAdmission::Recorded => Ok(SidecarConsumeOutcome::Execute(context)),
+                SidecarExchangeAdmission::AlreadyConsumed => {
+                    debug!(
+                        account_id = %account.id,
+                        event_id,
+                        exchange_id = %context.exchange_id,
+                        "arkret: Sidecar exchange already consumed; skipping duplicate request"
+                    );
+                    Ok(SidecarConsumeOutcome::DropSilently)
+                }
+                SidecarExchangeAdmission::Conflict {
+                    existing_request_event_id,
+                } => {
+                    // §7.2.1: the same exchange id with a different request
+                    // Event id MUST fail closed — never execute a second time.
+                    warn!(
+                        account_id = %account.id,
+                        event_id,
+                        exchange_id = %context.exchange_id,
+                        existing_request_event_id = %existing_request_event_id,
+                        "arkret: Sidecar exchange id maps to a different request event; failing closed"
+                    );
+                    Ok(SidecarConsumeOutcome::DropSilently)
+                }
+            }
         }
     }
 }
@@ -2445,6 +2566,7 @@ pub(crate) async fn send_to_arkret_account(
     realm_id: &str,
     strand_id: Option<&str>,
     body: &str,
+    sidecar_exchange: Option<&SidecarExchangeContext>,
 ) -> anyhow::Result<()> {
     let Some((channel, account)) = resolve_arkret_outbound_account(savfox_home, realm_id).await?
     else {
@@ -2484,10 +2606,11 @@ pub(crate) async fn send_to_arkret_account(
         principal_id: account.principal_id.clone(),
         actor_seq,
         thread_root_id: None,
+        sidecar_exchange: sidecar_exchange.cloned(),
     };
     let mut event = build_message_create_event(&request)?;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
-    apply_account_outbound_encryption(&crypto_store, realm_id, &mut event)?;
+    apply_account_outbound_encryption(&crypto_store, realm_id, &mut event, sidecar_exchange)?;
 
     // Phase 8 (T8.E): attach capability grant event_id when configured.
     if let Some(grant_path) = &account.grant_event_path {
@@ -2597,22 +2720,52 @@ fn apply_account_outbound_encryption(
     crypto_store: &FileArkretCryptoStore,
     realm_id: &str,
     event: &mut arkret::Event,
+    sidecar_exchange: Option<&SidecarExchangeContext>,
 ) -> anyhow::Result<()> {
-    let Some(content_block) = event.payload.get("content").cloned() else {
+    if let Some(content_block) = event.payload.get("content").cloned() {
+        match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
+            ArkretEncryptOutcome::PlaintextAllowed => {}
+            ArkretEncryptOutcome::Encrypted(encrypted_content) => {
+                event.payload.remove("content");
+                event
+                    .payload
+                    .insert("encrypted_content".to_owned(), encrypted_content);
+            }
+            ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
+                anyhow::bail!(
+                    "Arkret realm '{realm_id}' requires E2EE but no local MLS group state exists for group '{group_id}'"
+                );
+            }
+        }
+    }
+    let Some(context) = sidecar_exchange else {
         return Ok(());
     };
-    match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
-        ArkretEncryptOutcome::PlaintextAllowed => Ok(()),
-        ArkretEncryptOutcome::Encrypted(encrypted_content) => {
-            event.payload.remove("content");
+    // The `role=user_facing_response` exchange binding lives only in
+    // `encrypted_metadata` plaintext, encrypted with the same MLS group as
+    // `encrypted_content`; carrying it in plaintext `metadata` is a
+    // `schema_violation` (zh/models/sidecar.md §7.2.1, forbidden-wire-fields
+    // `sidecar_exchange_binding`). A realm without mandatory E2EE therefore
+    // cannot carry an exchange reply at all — fail closed instead of leaking.
+    let metadata_plaintext = build_user_facing_response_metadata(context)?;
+    match crypto_store.encrypt_content_block_for_realm(realm_id, &metadata_plaintext)? {
+        ArkretEncryptOutcome::Encrypted(encrypted_metadata) => {
+            // Defense in depth: the binding must never surface in plaintext
+            // metadata alongside the encrypted carrier.
+            event.payload.remove("metadata");
             event
                 .payload
-                .insert("encrypted_content".to_owned(), encrypted_content);
+                .insert("encrypted_metadata".to_owned(), encrypted_metadata);
             Ok(())
+        }
+        ArkretEncryptOutcome::PlaintextAllowed => {
+            anyhow::bail!(
+                "Arkret realm '{realm_id}' does not require E2EE; refusing to send a Sidecar exchange binding outside encrypted_metadata"
+            );
         }
         ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
             anyhow::bail!(
-                "Arkret realm '{realm_id}' requires E2EE but no local MLS group state exists for group '{group_id}'"
+                "Arkret realm '{realm_id}' requires E2EE but no local MLS group state exists for group '{group_id}' (Sidecar exchange reply)"
             );
         }
     }
@@ -2651,6 +2804,56 @@ mod tests {
 
     fn realm_id() -> arkret::RealmId {
         arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001").unwrap()
+    }
+
+    /// A Sidecar exchange reply must never mount the binding outside
+    /// `encrypted_metadata`: when the realm does not enforce E2EE the send
+    /// fails closed instead of emitting the binding in plaintext
+    /// (zh/models/sidecar.md §7.2.1, forbidden-wire-fields).
+    #[test]
+    fn sidecar_reply_fails_closed_without_e2ee_realm() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-arkret-sidecar-plaintext-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        let crypto_store = FileArkretCryptoStore::for_account(&home, "c1", "support");
+        let context = SidecarExchangeContext {
+            exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
+            request_event_id: "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+        };
+        let request = MessageCreateRequest {
+            realm_id: realm_id().to_string(),
+            strand_id: "ak:strand:01904100-0000-7000-8000-000000000011".to_owned(),
+            body: "final user-visible reply".to_owned(),
+            principal_id: "did:webvh:z6mkfixture:agent.example".to_owned(),
+            actor_seq: 1,
+            thread_root_id: None,
+            sidecar_exchange: Some(context.clone()),
+        };
+        let mut event = build_message_create_event(&request).expect("build");
+
+        // No realm policy is registered, so content would be plaintext-allowed;
+        // the Sidecar binding must fail closed rather than ship unencrypted.
+        let err = apply_account_outbound_encryption(
+            &crypto_store,
+            realm_id().as_str(),
+            &mut event,
+            Some(&context),
+        )
+        .expect_err("plaintext realm must reject Sidecar exchange replies");
+        assert!(
+            err.to_string().contains("Sidecar exchange binding"),
+            "unexpected error: {err:#}"
+        );
+        assert!(event.payload.get("encrypted_metadata").is_none());
+        assert!(
+            !serde_json::to_string(&event.payload)
+                .unwrap()
+                .contains("sidecar_exchange_binding"),
+            "binding must never appear in plaintext payload"
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     fn actor_id() -> Did {
