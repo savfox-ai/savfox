@@ -20,8 +20,8 @@
 //!   the Arkret SDK (`AccountSubscribeFrame::from_ndjson_line`).
 //! * [`client`] — thin wrapper around [`arkret::http_client::Client`]. Agent mode must use a
 //!   DPoP-bound client.
-//! * [`outbound`] — build a `ak.message.create` Event from `(realm_id, strand_id, body, actor)`. When
-//!   the account/applet has an `ed25519` `key_ref`, the event is signed via [`signer`].
+//! * [`outbound`] — build a `ak.message.create` Event from `(realm_id, strand_id, body, actor)`.
+//!   When the account/applet has an `ed25519` `key_ref`, the event is signed via [`signer`].
 //! * [`signer`] — load an Ed25519 signing key and attach detached-JWS proofs to outbound events.
 
 mod account_store;

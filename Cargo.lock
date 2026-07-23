@@ -323,13 +323,22 @@ dependencies = [
  "arkret-core",
  "arkret-crypto",
  "arkret-egress-policy",
+ "arkret-event-draft",
+ "arkret-hlc",
  "arkret-http-client",
+ "arkret-identifiers",
  "arkret-identity",
  "arkret-keystore",
  "arkret-lattice-registry",
  "arkret-mls",
+ "arkret-models",
+ "arkret-models-collaboration",
  "arkret-models-crypto",
+ "arkret-models-discovery",
+ "arkret-models-identity",
+ "arkret-models-integration",
  "arkret-policy",
+ "arkret-schema",
  "arkret-server",
  "arkret-signatures",
  "arkret-state",
@@ -351,6 +360,7 @@ dependencies = [
  "subtle",
  "thiserror 2.0.18",
  "tokio",
+ "url",
  "uuid",
  "x25519-dalek",
  "zeroize",
@@ -436,14 +446,9 @@ version = "0.3.0"
 dependencies = [
  "arkret-auth",
  "arkret-canonical",
- "arkret-crypto",
  "arkret-event-draft",
- "arkret-hlc",
- "arkret-http-client",
  "arkret-identifiers",
  "arkret-identity",
- "arkret-keystore",
- "arkret-mls",
  "arkret-models-collaboration",
  "arkret-models-crypto",
  "arkret-models-discovery",
@@ -454,22 +459,6 @@ dependencies = [
  "arkret-signatures",
  "arkret-state",
  "arkret-wire",
- "chrono",
- "chrono-tz",
- "getrandom 0.4.3",
- "hex",
- "hmac 0.13.0",
- "regex",
- "salvo 0.95.0",
- "salvo-oapi",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "subtle",
- "thiserror 2.0.18",
- "unicode-normalization",
- "url",
- "zeroize",
 ]
 
 [[package]]
@@ -516,6 +505,7 @@ dependencies = [
  "arkret-identifiers",
  "arkret-models-collaboration",
  "arkret-models-crypto",
+ "arkret-models-identity",
  "arkret-models-integration",
  "arkret-wire",
  "chrono",
@@ -636,6 +626,7 @@ dependencies = [
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
+ "openmls_traits",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -643,6 +634,17 @@ dependencies = [
  "tls_codec",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "arkret-models"
+version = "0.3.0"
+dependencies = [
+ "arkret-models-collaboration",
+ "arkret-models-crypto",
+ "arkret-models-discovery",
+ "arkret-models-identity",
+ "arkret-models-integration",
 ]
 
 [[package]]
@@ -787,6 +789,7 @@ version = "0.3.0"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
+ "arkret-models-crypto",
  "arkret-models-discovery",
  "arkret-models-identity",
  "arkret-wire",

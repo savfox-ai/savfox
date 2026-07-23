@@ -227,7 +227,7 @@ mod tests {
             "alg": "EdDSA",
             "verification_method": "did:webvh:example.com:admin#grant-key-1",
             "payload_digest": format!("sha256:{}", "0".repeat(64)),
-            "created_at": "2026-05-27T00:00:00Z",
+            "created_at": "2026-05-27T00:00:00.000Z",
             "jws": "grant.detached.signature"
         });
         grant.insert("id".into(), json!(grant_id));
@@ -236,7 +236,7 @@ mod tests {
         grant.insert("subject".into(), json!(subject));
         grant.insert("actions".into(), json!([action]));
         grant.insert("resources".into(), json!([{"kind": "*"}]));
-        grant.insert("issued_at".into(), json!("2026-05-27T00:00:00Z"));
+        grant.insert("issued_at".into(), json!("2026-05-27T00:00:00.000Z"));
         grant.insert("proofs".into(), json!([proof]));
         if let Some(realm) = realm {
             grant.insert("realm_id".into(), json!(realm));
@@ -244,7 +244,7 @@ mod tests {
         if let Some(exp) = expires {
             grant.insert(
                 "expires_at".into(),
-                json!(exp.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+                json!(exp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
             );
         }
         let mut content = serde_json::Map::new();

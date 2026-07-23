@@ -5,11 +5,12 @@
 //! Production servers are expected to reject unsigned writes.
 
 use anyhow::Context;
+use arkret::events::EventKind;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
     ContentBlock, Did, Ed25519MoveSigner, Event, EventDraftKindRegistry, Hlc, MessageCreatePayload,
     OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId, StrandId,
-    events::EventKind, new_prefixed_uuid7,
+    new_prefixed_uuid7,
 };
 
 #[derive(Debug, Clone)]

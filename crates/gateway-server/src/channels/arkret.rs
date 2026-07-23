@@ -641,6 +641,9 @@ async fn drain_pending_account_outbound(
                     "arkret: durable outbound worker reached terminal event state"
                 );
             }
+            Ok(OutboundEngineOutcome::Prepared(_) | OutboundEngineOutcome::Superseded { .. }) => {
+                continue;
+            }
             Ok(OutboundEngineOutcome::Idle | OutboundEngineOutcome::RetryAt { .. }) => return,
             Err(error) => {
                 warn!(
@@ -2418,7 +2421,7 @@ async fn construct_account_provider(
         authorization_ref,
         account.requested_scope.clone(),
         &audience,
-        Some(device_id),
+        device_id,
         None,
     )
     .await?;
@@ -2603,7 +2606,7 @@ pub(crate) async fn send_to_arkret_account(
         savfox_channels::arkret::sign_outbound_event(&mut event, &signer, &vm)?;
     }
 
-    let transaction_id = event.event_id.to_string();
+    let mut transaction_id = event.event_id.to_string();
     let realm_id_typed = RealmId::new(realm_id.to_owned())?;
     let outbound = OutboundEngine::new(outbound_store);
     outbound
@@ -2628,6 +2631,19 @@ pub(crate) async fn send_to_arkret_account(
                 return Ok(());
             }
             OutboundEngineOutcome::Accepted(_) | OutboundEngineOutcome::Duplicate(_) => continue,
+            OutboundEngineOutcome::Prepared(_) => continue,
+            OutboundEngineOutcome::Superseded {
+                previous,
+                replacement,
+            } if previous.transaction_id == transaction_id => {
+                debug!(
+                    previous_transaction_id = %previous.transaction_id,
+                    replacement_transaction_id = %replacement.transaction_id,
+                    "arkret: durable outbound event superseded before acceptance"
+                );
+                transaction_id = replacement.transaction_id;
+            }
+            OutboundEngineOutcome::Superseded { .. } => continue,
             OutboundEngineOutcome::RetryAt { item, at }
                 if item.transaction_id == transaction_id =>
             {

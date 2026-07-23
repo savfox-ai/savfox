@@ -303,7 +303,7 @@ impl ArkretHttpClient {
         agent_key_authorization_ref: &str,
         requested_scope: Vec<String>,
         audience: &str,
-        device_id: Option<DeviceId>,
+        device_id: DeviceId,
         realm_id: Option<&str>,
     ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
         validate_agent_key_ref(key_ref)?;
@@ -319,7 +319,7 @@ impl ArkretHttpClient {
         let signing_key = Arc::new(load_ed25519_signing_key(key_ref)?);
         let grant_htu = joined_htu(&grant_base_url, SESSION_GRANT_PATH)?;
         let binding_proof = build_dpop_header(&signing_key, "POST", grant_htu.clone(), None)?;
-        let bootstrap = ClientBuilder::new(grant_base_url.clone())
+        let bootstrap = personal_agent_client_builder(grant_base_url.clone())
             .auth(Auth::Dpop(DpopAuth::proof_only({
                 let expected_htu = grant_htu.clone();
                 let proof_jwt = binding_proof.clone();
@@ -359,6 +359,7 @@ impl ArkretHttpClient {
         };
         let signing_input = arkret::session_grant::agent_key_proof_signing_input_for_session_grant(
             &principal_did,
+            &device_id,
             &requested_scope,
             agent_key_authorization_ref,
             &agent_scope_request,
@@ -378,6 +379,7 @@ impl ArkretHttpClient {
         let signature = arkret::base64url_encode(signature.to_bytes());
         let login = AgentKeyProofLogin {
             principal_id: principal_did.clone(),
+            device_id: device_id.clone(),
             requested_scope,
             agent_key_authorization_ref: agent_key_authorization_ref.to_owned(),
             agent_scope_request,
@@ -400,7 +402,7 @@ impl ArkretHttpClient {
         };
         let refresh_options = SessionRefreshOptions {
             audience: Some(audience.clone()),
-            device_id,
+            device_id: Some(device_id),
             proof: None,
             expected_dpop_jkt: None,
         };
@@ -455,6 +457,7 @@ impl ArkretHttpClient {
         agent_key_authorization_ref: &str,
         requested_scope: Vec<String>,
         audience: &str,
+        device_id: DeviceId,
         realm_id: Option<&str>,
     ) -> anyhow::Result<(Self, ArkretSession)> {
         let (provider, session) = Self::login_agent_provider(
@@ -465,7 +468,7 @@ impl ArkretHttpClient {
             agent_key_authorization_ref,
             requested_scope,
             audience,
-            None,
+            device_id,
             realm_id,
         )
         .await?;
@@ -649,7 +652,7 @@ fn build_dpop_client(
     signing_key: Arc<SigningKey>,
     access_token: String,
 ) -> garth::Result<Client> {
-    ClientBuilder::new(base_url)
+    personal_agent_client_builder(base_url)
         .auth(Auth::Dpop(DpopAuth::with_access_token(
             access_token,
             move |request| {
@@ -685,7 +688,7 @@ fn joined_htu(base_url: &Url, path: &str) -> anyhow::Result<String> {
 }
 
 async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Result<Url> {
-    let discovery = ClientBuilder::new(resource_url.clone())
+    let discovery = personal_agent_client_builder(resource_url.clone())
         .build()
         .map_err(|error| anyhow::anyhow!("Arkret service discovery client: {error}"))?;
     let description = discovery
@@ -717,6 +720,13 @@ async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Resu
         );
     }
     Ok(authority_url)
+}
+
+fn personal_agent_client_builder(base_url: Url) -> ClientBuilder {
+    // Personal-agent conformance stacks run the resource and account authority
+    // on loopback. The SDK keeps plaintext HTTP rejected for every non-loopback
+    // host, including when this opt-in is enabled.
+    ClientBuilder::new(base_url).allow_insecure_localhost()
 }
 
 #[cfg(test)]
@@ -860,6 +870,22 @@ mod tests {
                 account: "agent-1".to_owned(),
             })
             .is_ok()
+        );
+    }
+
+    #[test]
+    fn personal_agent_client_allows_only_insecure_loopback() {
+        for url in ["http://127.0.0.1:8787", "http://localhost:8787"] {
+            personal_agent_client_builder(Url::parse(url).unwrap())
+                .build()
+                .expect("loopback HTTP should be available for local conformance stacks");
+        }
+
+        assert!(
+            personal_agent_client_builder(Url::parse("http://accounts.example:8787").unwrap())
+                .build()
+                .is_err(),
+            "non-loopback HTTP must remain rejected"
         );
     }
 
