@@ -24,7 +24,7 @@ pub mod webhook;
 pub mod whatsapp;
 pub mod zalo;
 
-use arkret_core::AgentPairingBootstrap;
+use arkret_models_collaboration::agent_operations::AgentPairingBootstrap;
 use dioxus::prelude::*;
 use lucide_dioxus::{Activity, Braces, Power, Settings, SlidersHorizontal, Trash2};
 use savfox_utils::string::normalize_slug;

@@ -320,7 +320,6 @@ dependencies = [
  "arkret-auth",
  "arkret-bootstrap",
  "arkret-canonical",
- "arkret-core",
  "arkret-crypto",
  "arkret-egress-policy",
  "arkret-event-draft",
@@ -409,6 +408,9 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "arkret",
+ "arkret-models-collaboration",
+ "arkret-models-discovery",
+ "arkret-models-integration",
  "async-trait",
  "chrono",
  "parking_lot",
@@ -438,27 +440,6 @@ dependencies = [
  "sha2 0.11.0",
  "thiserror 2.0.18",
  "unicode-normalization",
-]
-
-[[package]]
-name = "arkret-core"
-version = "0.3.0"
-dependencies = [
- "arkret-auth",
- "arkret-canonical",
- "arkret-event-draft",
- "arkret-identifiers",
- "arkret-identity",
- "arkret-models-collaboration",
- "arkret-models-crypto",
- "arkret-models-discovery",
- "arkret-models-identity",
- "arkret-models-integration",
- "arkret-policy",
- "arkret-schema",
- "arkret-signatures",
- "arkret-state",
- "arkret-wire",
 ]
 
 [[package]]
@@ -10632,7 +10613,7 @@ dependencies = [
 name = "savfox-gateway-dioxus"
 version = "0.3.1"
 dependencies = [
- "arkret-core",
+ "arkret-models-collaboration",
  "base64",
  "chrono",
  "console_error_panic_hook",

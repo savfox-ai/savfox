@@ -4,9 +4,8 @@
 //! must not call this path.
 
 use anyhow::Context as _;
-use arkret::auth::AuthManagerLoginExt as _;
-use arkret::http_client::Client;
-use arkret::{AuthManager, DeviceId, Did, Ed25519MoveSigner};
+use arkret::http_client::{Client, login_did_proof};
+use arkret::{DeviceId, Did, Ed25519MoveSigner};
 use chrono::{DateTime, Utc};
 
 /// One-shot session state produced by [`login_with_signer`].
@@ -29,7 +28,7 @@ impl ArkretSession {
     }
 }
 
-/// Run applet `AuthManager::login_did_proof` against the given HTTP client.
+/// Run the Arkret DID-proof login flow against the given HTTP client.
 ///
 /// `audience` is the Arkret server's service DID.
 pub async fn login_with_signer(
@@ -42,25 +41,23 @@ pub async fn login_with_signer(
 ) -> anyhow::Result<ArkretSession> {
     let audience = Did::new(audience.to_owned())
         .with_context(|| format!("invalid Arkret service audience DID '{audience}'"))?;
-    let mut auth = AuthManager::default();
-    let session = auth
-        .login_did_proof(
-            http,
-            principal_did.clone(),
-            device_id.clone(),
-            signer,
-            challenge,
-            audience.clone(),
+    let session = login_did_proof(
+        http,
+        principal_did.clone(),
+        device_id.clone(),
+        signer,
+        challenge,
+        audience.clone(),
+    )
+    .await
+    .map_err(|err| anyhow::anyhow!("login_did_proof failed: {err}"))
+    .with_context(|| {
+        format!(
+            "arkret login_did_proof: principal={} audience={}",
+            principal_did.as_str(),
+            audience
         )
-        .await
-        .map_err(|err| anyhow::anyhow!("login_did_proof failed: {err}"))
-        .with_context(|| {
-            format!(
-                "arkret login_did_proof: principal={} audience={}",
-                principal_did.as_str(),
-                audience
-            )
-        })?;
+    })?;
     Ok(ArkretSession {
         session_grant: session.session_grant,
         expires_at: session.expires_at,

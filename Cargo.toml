@@ -344,8 +344,8 @@ arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk", default-feature
     "mls",
     "signer",
 ] }
-arkret-core = { path = "../../arkret-org/arkret-rust-sdk/crates/core", default-features = false }
 arkret-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/crypto", default-features = false }
+arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-collaboration", default-features = false }
 garth = { path = "../../arkret-org/garth", default-features = false, features = ["native"] }
 arkret-bridge-runtime = { path = "../../arkret-org/bridges/crates/runtime", default-features = false, features = ["edge"] }
 
