@@ -1842,9 +1842,7 @@ pub(crate) async fn start_arkret_applet_channel(
     // per-applet (`config.id`) so multiple applets don't share a counter.
     let savfox_home = channel.config().savfox_home.clone();
     let crypto_store = FileArkretCryptoStore::for_applet(&savfox_home, &applet_cfg.id);
-    if let Err(err) =
-        FileArkretCryptoStore::feature_report().and_then(|_| crypto_store.ensure_created())
-    {
+    if let Err(err) = crypto_store.ensure_created() {
         warn!(
             "arkret: applet '{}' crypto state unavailable at {}: {err:#}",
             applet_cfg.id,

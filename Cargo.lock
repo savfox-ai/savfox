@@ -316,7 +316,6 @@ dependencies = [
 name = "arkret"
 version = "0.3.0"
 dependencies = [
- "argon2",
  "arkret-auth",
  "arkret-bootstrap",
  "arkret-canonical",
@@ -342,27 +341,16 @@ dependencies = [
  "arkret-signatures",
  "arkret-state",
  "arkret-wire",
- "base64",
- "chacha20poly1305",
  "chrono",
  "ed25519-dalek",
- "getrandom 0.4.3",
- "hex",
- "hkdf 0.13.0",
- "hmac 0.13.0",
- "parking_lot",
  "reqwest 0.13.4",
  "salvo 0.95.0",
  "serde",
  "serde_json",
- "sha2 0.11.0",
- "subtle",
  "thiserror 2.0.18",
  "tokio",
  "url",
  "uuid",
- "x25519-dalek",
- "zeroize",
 ]
 
 [[package]]
@@ -460,13 +448,12 @@ dependencies = [
  "hkdf 0.13.0",
  "hmac 0.13.0",
  "hpke",
- "rand_core 0.9.5",
  "regex",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "subtle",
  "thiserror 2.0.18",
- "x25519-dalek",
  "zeroize",
 ]
 

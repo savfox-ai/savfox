@@ -11,9 +11,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity};
 use arkret::{
-    DeviceId, Did, EncryptedPayload, EncryptedPayloadScheme, EventId, FeatureSafetyReport,
-    MlsKeyPackageRecord, MlsKeyPackageState, MlsWelcomeEnvelope, MlsWelcomePayload, RealmId,
-    current_feature_safety_report,
+    DeviceId, Did, EncryptedPayload, EncryptedPayloadScheme, EventId, MlsKeyPackageRecord,
+    MlsKeyPackageState, MlsWelcomeEnvelope, MlsWelcomePayload, RealmId,
 };
 use arkret_crypto::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
 use chrono::{DateTime, Utc};
@@ -136,7 +135,6 @@ impl ArkretMlsWelcomeConsumeBinding {
 pub struct ArkretCryptoStateFile {
     pub version: String,
     pub scope_id: String,
-    pub sdk_features: Vec<String>,
     pub binding: CryptoStoreBinding,
     pub mls_store_json: String,
     #[serde(default)]
@@ -159,7 +157,6 @@ impl ArkretCryptoStateFile {
         Ok(Self {
             version: STATE_VERSION.to_owned(),
             scope_id,
-            sdk_features: current_feature_safety_report().enabled_features,
             binding: CryptoStoreBinding::default(),
             mls_store_json: store
                 .export_backup_json()
@@ -222,19 +219,11 @@ impl FileArkretCryptoStore {
         &self.path
     }
 
-    pub fn feature_report() -> anyhow::Result<FeatureSafetyReport> {
-        let report = current_feature_safety_report();
-        report
-            .validate()
-            .map_err(|err| anyhow::anyhow!("arkret crypto feature set is unsafe: {err}"))?;
-        Ok(report)
-    }
-
     pub fn load(&self) -> anyhow::Result<ArkretCryptoStateFile> {
         match std::fs::read(&self.path) {
             Ok(bytes) if bytes.is_empty() => ArkretCryptoStateFile::new(self.scope_id.clone()),
             Ok(bytes) => {
-                let mut state: ArkretCryptoStateFile = serde_json::from_slice(&bytes)
+                let state: ArkretCryptoStateFile = serde_json::from_slice(&bytes)
                     .with_context(|| format!("parse {}", self.path.display()))?;
                 if state.version != STATE_VERSION {
                     anyhow::bail!(
@@ -250,7 +239,6 @@ impl FileArkretCryptoStore {
                         state.scope_id
                     );
                 }
-                state.sdk_features = current_feature_safety_report().enabled_features;
                 Ok(state)
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {

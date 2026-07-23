@@ -396,9 +396,7 @@ async fn run_account_listener(
         }
     };
     let crypto_store = FileArkretCryptoStore::for_account(&savfox_home, &channel.id, &account.id);
-    if let Err(err) =
-        FileArkretCryptoStore::feature_report().and_then(|_| crypto_store.ensure_created())
-    {
+    if let Err(err) = crypto_store.ensure_created() {
         warn!(
             "arkret: account '{}' crypto state unavailable at {}: {err:#}",
             account.id,
