@@ -30,16 +30,16 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context as _;
+use arkret::http_signature::{
+    Component, HttpMessageVerificationError, SignaturePolicyError, SignatureVerificationPolicy,
+    parse_signature_input, public_key_from_bytes, verify_signed_http_message,
+};
 use arkret::{
     AppletActorView, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did,
     EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity,
     IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe,
     ServiceOperationId, ServiceType, StrandId, TypedTrustDomainId, canonical, new_prefixed_uuid7,
-};
-use arkret_signatures::http_signature::{
-    Component, HttpMessageVerificationError, SignaturePolicyError, SignatureVerificationPolicy,
-    parse_signature_input, public_key_from_bytes, verify_signed_http_message,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -1573,13 +1573,18 @@ async fn emit_bridge_error(
     message: &str,
     external_ref: Option<Value>,
 ) -> anyhow::Result<()> {
-    use arkret::{AppletBridgeErrorBuilder, AppletBridgeErrorClass, AppletBridgeErrorVisibility};
+    use arkret::{
+        AppletBridgeErrorBuilder, AppletBridgeErrorClass, AppletBridgeVisibilityScope, AppletId,
+        AppletIdentifier,
+    };
 
     let cfg = &state.config;
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
     let actor = Did::new(cfg.bot_actor_id.clone())
         .with_context(|| format!("invalid bot DID: {}", cfg.bot_actor_id))?;
+    let applet_id = AppletId::new(cfg.applet_id.clone())
+        .with_context(|| format!("invalid applet_id: {}", cfg.applet_id))?;
     // SDK S-13 reshaped the payload: `severity` → `error_class` /
     // `error_code` / `retriable` / `visibility_scope` /
     // `failed_transaction_ref`. An outbound submit failure has no inbound
@@ -1590,13 +1595,13 @@ async fn emit_bridge_error(
     let retriable = !matches!(code, "external_rejected");
     let mut builder = AppletBridgeErrorBuilder::new(
         realm.clone(),
-        cfg.applet_id.clone(),
+        AppletIdentifier::Cx(applet_id),
         actor,
         failed_transaction_ref,
         AppletBridgeErrorClass::ExternalNetwork,
         code,
         retriable,
-        AppletBridgeErrorVisibility::RealmAdmins,
+        AppletBridgeVisibilityScope::RealmAdmins,
     )
     .with_message(message);
     if let Some(ext) = external_ref {
@@ -1886,11 +1891,11 @@ pub(crate) async fn log_arkret_applet_configs(savfox_home: &std::path::PathBuf) 
 
 #[cfg(test)]
 mod tests {
-    use arkret::signatures::PublicKeyMaterial;
-    use arkret_signatures::http_signature::{
+    use arkret::http_signature::{
         Component, ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
         parse_signature_input, sign_message, signing_key_from_seed,
     };
+    use arkret::signatures::PublicKeyMaterial;
     use savfox_channels::arkret::applet::ArkretAppletTrustedVerificationMethod;
     use savfox_core::config::channel_store::ChannelConfig;
 
