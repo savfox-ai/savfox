@@ -17,8 +17,8 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arkret::{
-    DeviceId, DeviceMessagesAckRequestBody, Did, KeyPackageUploadEntry,
-    KeyPackagesConsumeRequestBody, KeyPackagesUploadRequestBody, MlsKeyPackageRecord, RealmId,
+    DeviceId, DeviceMessagesAckRequestBody, Did, KeyPackagesConsumeUnsignedRequest,
+    KeyPackagesUploadRequestBody, KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord, RealmId,
     StrandId,
 };
 use chrono::Utc;
@@ -30,11 +30,12 @@ use garth::{
 use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
     ArkretDecryptDetailedOutcome, ArkretEncryptOutcome, ArkretHttpClient, ArkretInboundEvent,
-    ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent,
+    ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent, ArkretKeyRef,
     ArkretMlsWelcomeConsumeBinding, FileArkretCryptoStore, MessageCreateRequest,
     UnableToDecryptReason, account_allows_event_read, build_message_create_event,
     device_messages_scope, open_account_store, parse_delta_frame_for_account,
-    resolve_arkret_outbound_account, sign_key_operation_value,
+    resolve_arkret_outbound_account, sign_keypackages_consume_request,
+    sign_keypackages_upload_request,
 };
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
@@ -929,6 +930,14 @@ async fn publish_account_mls_key_packages(
         );
         return;
     };
+    let Some(verification_method) = account.verification_method.as_deref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage upload requires the authorized verification method"
+        );
+        return;
+    };
     for last_resort in [false, true] {
         match crypto_store.ensure_agent_mls_key_package(
             &account.principal_id,
@@ -949,55 +958,22 @@ async fn publish_account_mls_key_packages(
         }
     }
 
-    let mut entries = match records
-        .iter()
-        .map(|record| key_package_upload_entry(record, None))
-        .collect::<anyhow::Result<Vec<_>>>()
-    {
-        Ok(entries) => entries,
+    let request = match build_signed_keypackage_upload_request(
+        principal,
+        device,
+        &records,
+        key_ref,
+        verification_method,
+    ) {
+        Ok(request) => request,
         Err(err) => {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "arkret: failed to encode MLS KeyPackage upload entry: {err:#}"
+                "arkret: failed to build canonical MLS KeyPackage upload request: {err:#}"
             );
             return;
         }
-    };
-    let signature_value = match key_package_upload_signature_value(&principal, &device, &entries) {
-        Ok(value) => value,
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                "arkret: failed to build MLS KeyPackage upload signature payload: {err:#}"
-            );
-            return;
-        }
-    };
-    let signature =
-        match sign_account_key_operation(account, KEYPACKAGES_UPLOAD_SCOPE, &signature_value) {
-            Ok(signature) => signature,
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    "arkret: failed to sign MLS KeyPackage upload request: {err:#}"
-                );
-                return;
-            }
-        };
-    for entry in &mut entries {
-        entry.device_signature = Some(signature.clone());
-    }
-    let request = KeyPackagesUploadRequestBody {
-        principal_id: principal,
-        device_id: device,
-        key_packages: entries,
-        device_signature: signature,
-        expires_at: None,
-        strand_id: None,
-        mls_group_id: None,
     };
 
     match client.inner().keypackages_upload(&request).await {
@@ -1028,39 +1004,30 @@ async fn publish_account_mls_key_packages(
     }
 }
 
-fn key_package_upload_entry(
-    record: &MlsKeyPackageRecord,
-    device_signature: Option<arkret::KeyOperationSignature>,
-) -> anyhow::Result<KeyPackageUploadEntry> {
-    Ok(KeyPackageUploadEntry {
-        keypackage_id: record.keypackage_id.clone(),
-        keypackage_ref: record.keypackage_ref.as_str().to_owned(),
-        keypackage_digest: record.keypackage_ref.clone(),
-        key_package: arkret::Base64UrlString::new(record.key_package.clone())
-            .map_err(anyhow::Error::msg)
-            .context("MLS KeyPackage must be unpadded base64url")?,
-        cipher_suites: record.cipher_suites.clone(),
-        capabilities: record.capabilities.clone(),
-        expires_at: record
-            .expires_at
-            .unwrap_or_else(|| record.created_at + chrono::Duration::days(7)),
-        created_at: record.created_at,
-        device_signature,
-        last_resort: Some(record.last_resort),
-    })
-}
-
-fn key_package_upload_signature_value(
-    principal: &Did,
-    device: &DeviceId,
-    entries: &[KeyPackageUploadEntry],
-) -> anyhow::Result<Value> {
-    let key_packages = serde_json::to_value(entries)?;
-    Ok(json!({
-        "principal_id": principal.as_str(),
-        "device_id": device.as_str(),
-        "key_packages": key_packages,
-    }))
+fn build_signed_keypackage_upload_request(
+    principal_id: Did,
+    device_id: DeviceId,
+    records: &[MlsKeyPackageRecord],
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+) -> anyhow::Result<KeyPackagesUploadRequestBody> {
+    let key_packages = records
+        .iter()
+        .map(arkret::mls_key_package_record_upload_entry)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(anyhow::Error::msg)
+        .context("project canonical MLS KeyPackage upload entries")?;
+    let unsigned = KeyPackagesUploadUnsignedRequest {
+        principal_id,
+        device_id,
+        key_packages,
+        expires_at: None,
+        strand_id: None,
+        mls_group_id: None,
+    };
+    let device_signature =
+        sign_keypackages_upload_request(key_ref, verification_method, &unsigned)?;
+    Ok(unsigned.into_signed(device_signature))
 }
 
 async fn drain_account_device_messages_from_cursor(
@@ -1306,6 +1273,22 @@ async fn consume_account_mls_key_packages(
             return;
         }
     };
+    let Some(key_ref) = account.key_ref.as_ref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage consume requires the authorized runtime key"
+        );
+        return;
+    };
+    let Some(verification_method) = account.verification_method.as_deref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage consume requires the authorized verification method"
+        );
+        return;
+    };
 
     for binding in bindings {
         let realm_id = match optional_realm_id(binding.realm_id.as_deref()) {
@@ -1332,25 +1315,9 @@ async fn consume_account_mls_key_packages(
                 continue;
             }
         };
-        let unsigned_value =
-            key_package_consume_signature_value(binding, &consumer_device, &realm_id, &strand_id);
-        let signature =
-            match sign_account_key_operation(account, KEYPACKAGES_CONSUME_SCOPE, &unsigned_value) {
-                Ok(signature) => signature,
-                Err(err) => {
-                    warn!(
-                        channel_id = %channel.id,
-                        account_id = %account.id,
-                        keypackage_ref = %binding.keypackage_ref,
-                        "arkret: failed to sign MLS KeyPackage consume request: {err:#}"
-                    );
-                    continue;
-                }
-            };
-        let request = KeyPackagesConsumeRequestBody {
+        let unsigned = KeyPackagesConsumeUnsignedRequest {
             key_package_refs: vec![binding.keypackage_ref.clone()],
             consumer_device_id: consumer_device.clone(),
-            signature,
             claim_ids: vec![binding.claim_id.clone()],
             welcome_ref: binding.welcome_ref.clone(),
             realm_id,
@@ -1358,6 +1325,20 @@ async fn consume_account_mls_key_packages(
             mls_group_id: Some(binding.mls_group_id.clone()),
             epoch: Some(binding.epoch),
         };
+        let signature =
+            match sign_keypackages_consume_request(key_ref, verification_method, &unsigned) {
+                Ok(signature) => signature,
+                Err(err) => {
+                    warn!(
+                        channel_id = %channel.id,
+                        account_id = %account.id,
+                        keypackage_ref = %binding.keypackage_ref,
+                        "arkret: failed to sign canonical MLS KeyPackage consume request: {err:#}"
+                    );
+                    continue;
+                }
+            };
+        let request = unsigned.into_signed(signature);
         match client.inner().keypackages_consume(&request).await {
             Ok(outcome) if outcome.failures.is_empty() => {
                 if let Err(err) =
@@ -1405,51 +1386,6 @@ async fn consume_account_mls_key_packages(
     }
 }
 
-fn key_package_consume_signature_value(
-    binding: &ArkretMlsWelcomeConsumeBinding,
-    consumer_device: &DeviceId,
-    realm_id: &Option<RealmId>,
-    strand_id: &Option<StrandId>,
-) -> Value {
-    let mut object = serde_json::Map::new();
-    object.insert(
-        "key_package_refs".to_owned(),
-        Value::Array(vec![Value::String(binding.keypackage_ref.clone())]),
-    );
-    object.insert(
-        "consumer_device_id".to_owned(),
-        Value::String(consumer_device.as_str().to_owned()),
-    );
-    object.insert(
-        "claim_ids".to_owned(),
-        Value::Array(vec![Value::String(binding.claim_id.clone())]),
-    );
-    if let Some(welcome_ref) = &binding.welcome_ref {
-        object.insert("welcome_ref".to_owned(), Value::String(welcome_ref.clone()));
-    }
-    if let Some(realm_id) = realm_id {
-        object.insert(
-            "realm_id".to_owned(),
-            Value::String(realm_id.as_str().to_owned()),
-        );
-    }
-    if let Some(strand_id) = strand_id {
-        object.insert(
-            "strand_id".to_owned(),
-            Value::String(strand_id.as_str().to_owned()),
-        );
-    }
-    object.insert(
-        "mls_group_id".to_owned(),
-        Value::String(binding.mls_group_id.clone()),
-    );
-    object.insert(
-        "epoch".to_owned(),
-        Value::Number(serde_json::Number::from(binding.epoch)),
-    );
-    Value::Object(object)
-}
-
 fn optional_realm_id(value: Option<&str>) -> anyhow::Result<Option<RealmId>> {
     value
         .map(|value| RealmId::new(value.to_owned()).map_err(anyhow::Error::from))
@@ -1460,24 +1396,6 @@ fn optional_strand_id(value: Option<&str>) -> anyhow::Result<Option<StrandId>> {
     value
         .map(|value| StrandId::new(value.to_owned()).map_err(anyhow::Error::from))
         .transpose()
-}
-
-fn sign_account_key_operation(
-    account: &ArkretAccountConfig,
-    context: &str,
-    value: &Value,
-) -> anyhow::Result<arkret::KeyOperationSignature> {
-    let key_ref = account
-        .key_ref
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Arkret account '{}' missing keyRef", account.id))?;
-    let verification_method = account.verification_method.as_deref().ok_or_else(|| {
-        anyhow::anyhow!(
-            "Arkret account '{}' missing authorized verificationMethod",
-            account.id
-        )
-    })?;
-    sign_key_operation_value(key_ref, verification_method, context, value)
 }
 
 async fn account_event_seen(
@@ -2702,6 +2620,8 @@ fn apply_account_outbound_encryption(
 
 #[cfg(test)]
 mod tests {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 
     use super::*;
 
@@ -2735,6 +2655,94 @@ mod tests {
 
     fn actor_id() -> Did {
         Did::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap()
+    }
+
+    fn keypackage_record(
+        principal_id: &Did,
+        device_id: &DeviceId,
+        marker: u8,
+        last_resort: bool,
+    ) -> MlsKeyPackageRecord {
+        let key_package_bytes = vec![marker; 16];
+        MlsKeyPackageRecord {
+            keypackage_id: format!("ak:mls:kp:01904100-0000-7000-8000-0000000000{marker:02x}"),
+            principal_id: principal_id.clone(),
+            device_id: device_id.clone(),
+            key_package: URL_SAFE_NO_PAD.encode(&key_package_bytes),
+            keypackage_ref: arkret::Hash::new(arkret::canonical::sha256_digest(&key_package_bytes))
+                .unwrap(),
+            cipher_suites: vec!["MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519".to_owned()],
+            capabilities: vec!["ak.mls.rfc9420".to_owned()],
+            state: arkret::MlsKeyPackageState::Published,
+            claim_id: None,
+            created_at: Utc::now(),
+            expires_at: None,
+            device_signature: None,
+            last_resort,
+        }
+    }
+
+    #[test]
+    fn keypackage_upload_uses_sdk_batch_transcript_without_entry_signatures() {
+        let principal_id = Did::new("did:webvh:z6mkfixture:agent.example".to_owned()).unwrap();
+        let device_id =
+            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned()).unwrap();
+        let verification_method = format!("{}#runtime-1", principal_id.as_str());
+        let seed = [7_u8; 32];
+        let key_ref = ArkretKeyRef::InlineSeedBase64 {
+            value: STANDARD_NO_PAD.encode(seed),
+        };
+        let records = [
+            keypackage_record(&principal_id, &device_id, 1, false),
+            keypackage_record(&principal_id, &device_id, 2, true),
+        ];
+
+        let request = build_signed_keypackage_upload_request(
+            principal_id.clone(),
+            device_id.clone(),
+            &records,
+            &key_ref,
+            &verification_method,
+        )
+        .unwrap();
+
+        assert!(
+            request
+                .key_packages
+                .iter()
+                .all(|entry| entry.device_signature.is_none())
+        );
+        assert_eq!(request.key_packages[0].last_resort, None);
+        assert_eq!(request.key_packages[1].last_resort, Some(true));
+        let unsigned = request.unsigned();
+        let batch_input = arkret::keypackages_upload_signing_input(&unsigned).unwrap();
+        let public_key = ed25519_dalek::SigningKey::from_bytes(&seed)
+            .verifying_key()
+            .to_bytes();
+        arkret::verify_keypackage_signing_input(
+            &public_key,
+            &verification_method,
+            &batch_input,
+            &request.device_signature,
+        )
+        .unwrap();
+
+        let entry_input = arkret::keypackage_upload_entry_signing_input(
+            &principal_id,
+            &device_id,
+            &request.key_packages[0],
+        )
+        .unwrap();
+        assert_ne!(batch_input, entry_input);
+        assert!(
+            arkret::verify_keypackage_signing_input(
+                &public_key,
+                &verification_method,
+                &entry_input,
+                &request.device_signature,
+            )
+            .is_err()
+        );
     }
 
     fn message_event(body: &str) -> arkret::Event {

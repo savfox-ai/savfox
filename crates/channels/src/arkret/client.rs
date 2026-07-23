@@ -142,31 +142,6 @@ pub type ArkretAgentSessionProvider = SessionTransportProvider<
     NoopSessionGrantStore,
 >;
 
-pub fn sign_key_operation_value(
-    key_ref: &ArkretKeyRef,
-    verification_method: &str,
-    context: &str,
-    value: &Value,
-) -> anyhow::Result<KeyOperationSignature> {
-    let verification_method = verification_method.trim();
-    if verification_method.is_empty() {
-        anyhow::bail!("Arkret key operation signature missing verification method");
-    }
-    let context = context.trim();
-    if context.is_empty() {
-        anyhow::bail!("Arkret key operation signature missing context");
-    }
-    let signing_key = load_ed25519_signing_key(key_ref)?;
-    let canonical = arkret::canonical::canonical_json_bytes(value)
-        .map_err(|err| anyhow::anyhow!("Arkret key operation canonical JSON: {err}"))?;
-    let mut signing_input = Vec::with_capacity(context.len() + 1 + canonical.len());
-    signing_input.extend_from_slice(context.as_bytes());
-    signing_input.push(b'\n');
-    signing_input.extend_from_slice(&canonical);
-    let signature = signing_key.sign(&signing_input);
-    ed25519_key_operation_signature(verification_method, signature)
-}
-
 pub fn sign_mls_welcome_claim_envelope(
     key_ref: &ArkretKeyRef,
     verification_method: &str,

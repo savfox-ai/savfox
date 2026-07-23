@@ -197,6 +197,30 @@ pub(crate) fn load_ed25519_signing_key(key_ref: &ArkretKeyRef) -> anyhow::Result
     Ok(signing_key)
 }
 
+/// Sign the canonical typed MLS KeyPackage upload request with the runtime key.
+pub fn sign_keypackages_upload_request(
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+    unsigned: &arkret::KeyPackagesUploadUnsignedRequest,
+) -> anyhow::Result<arkret::KeyOperationSignature> {
+    let mut seed = load_seed_array(key_ref)?;
+    let result = arkret::sign_keypackages_upload_request(unsigned, verification_method, &seed);
+    seed.zeroize();
+    result.context("arkret signer: sign canonical KeyPackage upload request")
+}
+
+/// Sign the canonical typed MLS KeyPackage consume request with the runtime key.
+pub fn sign_keypackages_consume_request(
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+    unsigned: &arkret::KeyPackagesConsumeUnsignedRequest,
+) -> anyhow::Result<arkret::KeyOperationSignature> {
+    let mut seed = load_seed_array(key_ref)?;
+    let result = arkret::sign_keypackages_consume_request(unsigned, verification_method, &seed);
+    seed.zeroize();
+    result.context("arkret signer: sign canonical KeyPackage consume request")
+}
+
 /// Return the canonical public-key digest for diagnostics and authorization
 /// binding checks. No seed or private-key material leaves this function.
 pub fn ed25519_runtime_public_key_digest(
@@ -416,6 +440,31 @@ mod tests {
         let key_ref = ArkretKeyRef::InlineSeedBase64 { value: seed_b64() };
         let signer = load_ed25519_signer(&key_ref, TEST_DID, TEST_VM).expect("load");
         assert_eq!(signer.verification_method_id(), TEST_VM);
+    }
+
+    #[test]
+    fn keypackage_consume_signer_uses_sdk_canonical_input() {
+        let key_ref = ArkretKeyRef::InlineSeedBase64 { value: seed_b64() };
+        let unsigned = arkret::KeyPackagesConsumeUnsignedRequest {
+            key_package_refs: vec!["ak:mls:kp:01904100-0000-7000-8000-000000000001".to_owned()],
+            consumer_device_id: arkret::DeviceId::new(
+                "ak:device:01904100-0000-7000-8000-000000000001".to_owned(),
+            )
+            .unwrap(),
+            claim_ids: vec!["ak:claim:fixture".to_owned()],
+            welcome_ref: Some("ak:event:01904100-0000-7000-8000-000000000002".to_owned()),
+            realm_id: None,
+            strand_id: None,
+            mls_group_id: Some("mls-group-fixture".to_owned()),
+            epoch: Some(3),
+        };
+
+        let signature = sign_keypackages_consume_request(&key_ref, TEST_VM, &unsigned).unwrap();
+        let input = arkret::keypackages_consume_signing_input(&unsigned).unwrap();
+        let public_key = SigningKey::from_bytes(&TEST_SEED)
+            .verifying_key()
+            .to_bytes();
+        arkret::verify_keypackage_signing_input(&public_key, TEST_VM, &input, &signature).unwrap();
     }
 
     #[test]

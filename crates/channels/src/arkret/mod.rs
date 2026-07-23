@@ -45,7 +45,7 @@ pub use arkret_crypto::UnableToDecryptReason;
 pub use client::{
     ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretFrameStream, ArkretHttpClient,
     SavfoxArkretClientCore, SavfoxDurableArkretClientCore, build_mls_key_packages_claim_request,
-    sign_key_operation_value, sign_mls_welcome_claim_envelope,
+    sign_mls_welcome_claim_envelope,
 };
 pub use config::{
     ArkretAccountConfig, ArkretAccountMode, ArkretChannelConfig,
@@ -73,5 +73,6 @@ pub use session::{ArkretSession, login_with_signer};
 pub use signer::{
     ArkretKeyRef, ed25519_runtime_public_key_digest, generate_ed25519_key_ref_in_keyring,
     get_or_generate_ed25519_key_ref_in_keyring, load_ed25519_seed_hex, load_ed25519_signer,
-    migrate_ed25519_key_ref_to_keyring,
+    migrate_ed25519_key_ref_to_keyring, sign_keypackages_consume_request,
+    sign_keypackages_upload_request,
 };
