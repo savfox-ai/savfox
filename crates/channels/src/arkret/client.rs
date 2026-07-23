@@ -29,7 +29,6 @@ use garth::{
     SessionGrantStore, SessionGrantTransport, SessionRefreshOptions, SessionTransportProvider,
     TransportProvider,
 };
-use serde_json::Value;
 use url::Url;
 use uuid::Uuid;
 
