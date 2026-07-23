@@ -338,8 +338,6 @@ dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-
 # local protocol/runtime co-development across the sibling Arkret workspace.
 arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk", default-features = false, features = [
     "client",
-    "device-runtime",
-    "full-surface",
     "mls",
     "signer",
 ] }

@@ -30,16 +30,16 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context as _;
-use arkret::http_signature::{
-    Component, HttpMessageVerificationError, SignaturePolicyError, SignatureVerificationPolicy,
-    parse_signature_input, public_key_from_bytes, verify_signed_http_message,
-};
 use arkret::{
     AppletActorView, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did,
     EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity,
     IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe,
     ServiceOperationId, ServiceType, StrandId, TypedTrustDomainId, canonical, new_prefixed_uuid7,
+};
+use arkret_signatures::http_signature::{
+    Component, HttpMessageVerificationError, SignaturePolicyError, SignatureVerificationPolicy,
+    parse_signature_input, public_key_from_bytes, verify_signed_http_message,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -1886,11 +1886,11 @@ pub(crate) async fn log_arkret_applet_configs(savfox_home: &std::path::PathBuf) 
 
 #[cfg(test)]
 mod tests {
-    use arkret::http_signature::{
+    use arkret::signatures::PublicKeyMaterial;
+    use arkret_signatures::http_signature::{
         Component, ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
         parse_signature_input, sign_message, signing_key_from_seed,
     };
-    use arkret::signatures::PublicKeyMaterial;
     use savfox_channels::arkret::applet::ArkretAppletTrustedVerificationMethod;
     use savfox_core::config::channel_store::ChannelConfig;
 
