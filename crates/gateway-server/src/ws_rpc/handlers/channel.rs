@@ -18,6 +18,16 @@ use crate::session::{SessionEntry, SessionStore};
 pub(crate) async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
     let channel_id = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
     let text = params.get("text").and_then(|v| v.as_str()).unwrap_or("");
+    let thread_id = params
+        .get("thread_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let reply_target = params
+        .get("reply_target")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
 
     if channel_id.is_empty() || text.is_empty() {
         return Err((
@@ -27,7 +37,15 @@ pub(crate) async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -
     }
 
     match channel
-        .send_platform_message(channel_id, text, None, None, None)
+        .send_platform_message_with_context(
+            channel_id,
+            text,
+            None,
+            None,
+            None,
+            thread_id,
+            reply_target,
+        )
         .await
     {
         Ok(()) => Ok(json!({ "status": "sent" })),

@@ -1375,17 +1375,16 @@ impl GatewayChannel {
                 // `reply_target` is either a plain strand id or a strand id
                 // with an encoded Sidecar exchange context appended by the
                 // inbound dispatch (see `encode_sidecar_reply_target`).
-                let (strand_id, sidecar_exchange) =
-                    match non_empty_trimmed(reply_target)
-                        .filter(|value| value.starts_with("ak:strand:"))
-                    {
-                        Some(value) => {
-                            let (strand, context) =
-                                savfox_channels::arkret::split_sidecar_reply_target(value);
-                            (Some(strand), context)
-                        }
-                        None => (None, None),
-                    };
+                let (strand_id, sidecar_exchange) = match non_empty_trimmed(reply_target)
+                    .filter(|value| value.starts_with("ak:strand:"))
+                {
+                    Some(value) => {
+                        let (strand, context) =
+                            savfox_channels::arkret::split_sidecar_reply_target(value);
+                        (Some(strand), context)
+                    }
+                    None => (None, None),
+                };
                 let strand_id = strand_id.as_deref();
                 // Sidecar exchange replies must carry the encrypted
                 // `user_facing_response` binding, which only the account path

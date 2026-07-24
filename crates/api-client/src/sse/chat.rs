@@ -152,6 +152,7 @@ pub async fn process_chat_sse<S>(
             continue;
         };
 
+        let mut tool_calls_finished = false;
         for choice in choices {
             if let Some(delta) = choice.get("delta") {
                 // Check both "reasoning" (OpenAI) and "reasoning_content" (ZhiPu, DeepSeek)
@@ -289,6 +290,7 @@ pub async fn process_chat_sse<S>(
             }
 
             if finish_reason == Some("tool_calls") {
+                tool_calls_finished = true;
                 if let Some(reasoning) = reasoning_item.take() {
                     let _ = tx_event
                         .send(Ok(ResponseEvent::OutputItemDone(reasoning)))
@@ -318,6 +320,21 @@ pub async fn process_chat_sse<S>(
                     let _ = tx_event.send(Ok(ResponseEvent::OutputItemDone(item))).await;
                 }
             }
+        }
+
+        // `finish_reason` is the protocol-level terminal signal for this Chat
+        // Completions response. Some compatible providers omit `[DONE]` or keep
+        // the HTTP connection alive after a tool call. Complete immediately so
+        // the orchestrator can execute the emitted tool calls instead of
+        // waiting for the stream idle timeout.
+        if tool_calls_finished {
+            let _ = tx_event
+                .send(Ok(ResponseEvent::Completed {
+                    response_id: String::new(),
+                    token_usage: None,
+                }))
+                .await;
+            return;
         }
     }
 }
@@ -495,6 +512,56 @@ mod tests {
                 ResponseEvent::OutputItemDone(ResponseItem::FunctionCall { call_id, name, arguments, .. }),
                 ResponseEvent::Completed { .. }
             ] if call_id == "call_a" && name == "do_a" && arguments == "{ \"foo\":1}"
+        );
+    }
+
+    #[tokio::test]
+    async fn completes_tool_call_when_provider_keeps_stream_open() {
+        use futures::stream;
+
+        let finish = json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "id": "call_a",
+                        "index": 0,
+                        "function": { "name": "do_a", "arguments": "{}" }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let body = build_body(&[finish]);
+        let first = stream::once(async move {
+            Ok::<_, savfox_http_client::TransportError>(bytes::Bytes::from(body))
+        });
+        let never_closes =
+            stream::pending::<Result<bytes::Bytes, savfox_http_client::TransportError>>();
+        let (tx, mut rx) = mpsc::channel::<Result<ResponseEvent, ApiError>>(16);
+
+        tokio::spawn(process_chat_sse(
+            Box::pin(first.chain(never_closes)),
+            tx,
+            Duration::from_secs(30),
+            None,
+        ));
+
+        let events = tokio::time::timeout(Duration::from_secs(1), async move {
+            let mut out = Vec::new();
+            while let Some(event) = rx.recv().await {
+                out.push(event.expect("stream error"));
+            }
+            out
+        })
+        .await
+        .expect("tool-call finish_reason should complete without waiting for stream close");
+
+        assert_matches!(
+            &events[..],
+            [
+                ResponseEvent::OutputItemDone(ResponseItem::FunctionCall { call_id, name, arguments, .. }),
+                ResponseEvent::Completed { .. }
+            ] if call_id == "call_a" && name == "do_a" && arguments == "{}"
         );
     }
 

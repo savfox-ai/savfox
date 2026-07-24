@@ -23,6 +23,11 @@ pub struct ArkretInboundEvent {
     pub account_id: String,
     pub event_id: String,
     pub realm_id: String,
+    /// Host-facing conversation type derived from the containing Realm sync
+    /// projection. Event envelopes do not carry the Realm role themselves.
+    pub chat_type: Option<String>,
+    /// Joined participant count from the containing Realm sync projection.
+    pub participant_count: Option<u32>,
     pub strand_id: Option<String>,
     pub sender_did: String,
     pub body: String,
@@ -52,6 +57,8 @@ pub struct ArkretInboundSkippedEvent {
     pub account_id: String,
     pub event_id: Option<String>,
     pub realm_id: Option<String>,
+    pub chat_type: Option<String>,
+    pub participant_count: Option<u32>,
     pub sender_did: Option<String>,
     pub strand_id: Option<String>,
     pub reply_to: Option<String>,
@@ -179,6 +186,8 @@ fn classify_sdk_message_create(
         account_id: account_id.to_owned(),
         event_id: event.event_id.as_str().to_owned(),
         realm_id: event.realm_id.as_str().to_owned(),
+        chat_type: None,
+        participant_count: None,
         strand_id,
         sender_did: event.actor_id.as_str().to_owned(),
         body: body.to_owned(),
@@ -296,6 +305,8 @@ pub fn parse_delta_frame_for_account(
                             account_id: parsed.account_id.clone(),
                             event_id: Some(parsed.event_id.clone()),
                             realm_id: Some(parsed.realm_id.clone()),
+                            chat_type: parsed.chat_type.clone(),
+                            participant_count: parsed.participant_count,
                             sender_did: Some(parsed.sender_did.clone()),
                             strand_id: parsed.strand_id.clone(),
                             reply_to: parsed.thread_root_id.clone(),
@@ -341,6 +352,8 @@ pub fn parse_notification_delta_for_account(
                         account_id: parsed.account_id.clone(),
                         event_id: Some(parsed.event_id.clone()),
                         realm_id: Some(parsed.realm_id.clone()),
+                        chat_type: parsed.chat_type.clone(),
+                        participant_count: parsed.participant_count,
                         sender_did: Some(parsed.sender_did.clone()),
                         strand_id: parsed.strand_id.clone(),
                         reply_to: parsed.thread_root_id.clone(),
@@ -408,6 +421,8 @@ fn classify_notification_event(
         account_id: account_id.to_owned(),
         event_id,
         realm_id,
+        chat_type: None,
+        participant_count: None,
         strand_id: notification_strand_id(notification),
         sender_did,
         body,
@@ -510,6 +525,8 @@ fn skip_event(
             .get("realm_id")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        chat_type: None,
+        participant_count: None,
         sender_did: event
             .get("actor_id")
             .and_then(Value::as_str)
@@ -531,6 +548,8 @@ fn skip_sdk_event(
         account_id: account_id.to_owned(),
         event_id: Some(event.event_id.as_str().to_owned()),
         realm_id: Some(event.realm_id.as_str().to_owned()),
+        chat_type: None,
+        participant_count: None,
         sender_did: Some(event.actor_id.as_str().to_owned()),
         strand_id: None,
         reply_to: None,
@@ -549,6 +568,8 @@ fn skip_notification(
         account_id: account_id.to_owned(),
         event_id: notification_identity(notification),
         realm_id: notification_string(notification, &["realm_id"]),
+        chat_type: None,
+        participant_count: None,
         sender_did: notification_string(
             notification,
             &["source_actor_id", "sender_actor_id", "sender", "actor_id"],
@@ -567,6 +588,8 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
         account_id: account_id.to_owned(),
         event_id: Some(event.event_id.as_str().to_owned()),
         realm_id: Some(event.realm_id.as_str().to_owned()),
+        chat_type: None,
+        participant_count: None,
         sender_did: Some(event.actor_id.as_str().to_owned()),
         strand_id: message
             .as_ref()

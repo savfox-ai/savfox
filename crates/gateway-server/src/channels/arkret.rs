@@ -17,15 +17,16 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arkret::{
-    DeviceId, DeviceMessagesAckRequestBody, Did, KeyPackagesConsumeUnsignedRequest,
-    KeyPackagesRevokeUnsignedRequest, KeyPackagesUploadRequestBody, KeyPackagesUploadUnsignedRequest,
-    MlsKeyPackageRecord, RealmId, StrandId,
+    DeviceId, DeviceMessagesAckRequestBody, Did, EventId, KeyPackagesConsumeUnsignedRequest,
+    KeyPackagesRevokeUnsignedRequest, KeyPackagesUploadRequestBody,
+    KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord, RealmId, StrandId,
 };
 use chrono::Utc;
 use garth::{
     ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, OutboundEngine,
-    OutboundEngineOutcome, OutboundSubmitOutcome, OutboundSubmitter, RunOptions, RunStopReason,
-    SyncLoopControl, TransportProvider,
+    OutboundEngineOutcome, OutboundGenerationFence, OutboundGenerationFenceDecision,
+    OutboundSubmitOutcome, OutboundSubmitter, RunOptions, RunStopReason, SyncLoopControl,
+    TransportProvider,
 };
 use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
@@ -40,6 +41,7 @@ use savfox_channels::arkret::{
     sign_keypackages_consume_request, sign_keypackages_revoke_request,
     sign_keypackages_upload_request,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
 
@@ -121,6 +123,13 @@ const KEYPACKAGES_CONSUME_SCOPE: &str = "ak.self.keys.keypackages.command.consum
 const KEYPACKAGES_REVOKE_SCOPE: &str = "ak.self.keys.keypackages.command.revoke";
 const DEVICE_MESSAGES_LIST_SCOPE: &str = "ak.self.device_messages.query.list";
 const DEVICE_MESSAGES_ACK_SCOPE: &str = "ak.self.device_messages.command.ack";
+
+/// Session-scope tokens the runtime requests by default but that older Agent
+/// provisioning ceilings (Inkson before the SecureMessaging preset carried
+/// `keypackages.command.revoke`) do not include. The ceiling is immutable
+/// (key-management §4.5), so a legacy Agent can never be granted these; the
+/// session login drops them on a `proof_invalid` rejection and retries once.
+const CEILING_OPTIONAL_SESSION_SCOPE: &[&str] = &[KEYPACKAGES_REVOKE_SCOPE];
 
 fn runtime_state() -> &'static StdMutex<ArkretRuntimeState> {
     static STATE: OnceLock<StdMutex<ArkretRuntimeState>> = OnceLock::new();
@@ -609,7 +618,7 @@ async fn process_durable_account_work(
         session_store,
     )
     .await;
-    drain_pending_account_outbound(&client, account_store, channel, account).await;
+    drain_pending_account_outbound(&client, account_store, channel, account, crypto_store).await;
 }
 
 async fn drain_pending_account_outbound(
@@ -617,13 +626,32 @@ async fn drain_pending_account_outbound(
     account_store: &garth::FileStore,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
 ) {
+    let savfox_home = match savfox_utils::home_dir::find_savfox_home() {
+        Ok(path) => path,
+        Err(error) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: cannot inspect the outbound actor chain without SAVFOX_HOME: {error}"
+            );
+            return;
+        }
+    };
     let outbound = OutboundEngine::new(account_store.clone());
     let submitter = AccountOutboundSubmitter {
         client: client.clone(),
     };
+    let fence = AccountOutboundEncryptionFence {
+        crypto_store: crypto_store.clone(),
+        actor_chain_path: account_actor_chain_path(&savfox_home, &account.id),
+    };
     loop {
-        match outbound.submit_next(&submitter, Utc::now()).await {
+        match outbound
+            .submit_next_with_fence(&submitter, &fence, Utc::now())
+            .await
+        {
             Ok(OutboundEngineOutcome::Accepted(item) | OutboundEngineOutcome::Duplicate(item)) => {
                 debug!(
                     channel_id = %channel.id,
@@ -792,6 +820,7 @@ async fn handle_account_client_event(
         }
         ClientEvent::RealmDelta { update, .. } => {
             let scan_request = account_scan_catchup_request_for_update(&update);
+            record_account_realm_crypto_policy_from_update(&update, crypto_store, channel, account);
             record_account_mls_welcomes_from_realm_update(&update, crypto_store, channel, account);
             let parsed = parse_realm_update_for_account(update, account);
             handle_parsed_account_events(
@@ -1958,13 +1987,128 @@ fn parse_realm_update_for_account(
     account: &ArkretAccountConfig,
 ) -> ArkretInboundParseResult {
     let realm_id = update.realm_id.as_str().to_owned();
+    let chat_type = realm_sync_chat_type(&update.entry);
+    let participant_count = realm_sync_participant_count(&update.entry);
     let entry = match serde_json::to_value(update.entry) {
         Ok(entry) => entry,
         Err(_) => return ArkretInboundParseResult::default(),
     };
     let mut realms = serde_json::Map::new();
     realms.insert(realm_id, entry);
-    parse_delta_frame_for_account(&Value::Object(realms), account)
+    let mut parsed = parse_delta_frame_for_account(&Value::Object(realms), account);
+    for event in &mut parsed.events {
+        event.chat_type.clone_from(&chat_type);
+        event.participant_count = participant_count;
+    }
+    for skipped in &mut parsed.skipped {
+        skipped.chat_type.clone_from(&chat_type);
+        skipped.participant_count = participant_count;
+    }
+    parsed
+}
+
+fn record_account_realm_crypto_policy_from_update(
+    update: &arkret::RealmUpdate,
+    crypto_store: &FileArkretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> usize {
+    let entry = match serde_json::to_value(&update.entry) {
+        Ok(entry) => entry,
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                realm_id = %update.realm_id.as_str(),
+                "arkret: failed to serialize account realm policy projection: {err}"
+            );
+            return 0;
+        }
+    };
+    let realms = Value::Object(serde_json::Map::from_iter([(
+        update.realm_id.as_str().to_owned(),
+        entry,
+    )]));
+    match crypto_store.update_realm_policies_from_sync(&realms) {
+        Ok(updated) => updated,
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                realm_id = %update.realm_id.as_str(),
+                "arkret: failed to persist account realm crypto policy: {err:#}"
+            );
+            0
+        }
+    }
+}
+
+fn realm_sync_chat_type(entry: &arkret::RealmSyncEntry) -> Option<String> {
+    if let Some(window_start) = entry.state_at_window_start.as_ref() {
+        let is_direct = window_start
+            .realm_metadata
+            .collaboration_role
+            .as_ref()
+            .is_some_and(|role| {
+                serde_json::to_value(role).ok().is_some_and(|value| {
+                    value
+                        .as_str()
+                        .is_some_and(|role| role.eq_ignore_ascii_case("direct_conversation"))
+                })
+            });
+        return Some(if is_direct { "dm" } else { "group" }.to_owned());
+    }
+
+    let realm_create = entry
+        .timeline
+        .iter()
+        .flat_map(|container| &container.events)
+        .chain(
+            entry
+                .state
+                .iter()
+                .chain(entry.state_after.iter())
+                .flat_map(|container| &container.events),
+        )
+        .find(|event| event.kind.as_str() == "ak.realm.create")?;
+    Some(
+        if event_declares_direct_conversation_realm(realm_create) {
+            "dm"
+        } else {
+            "group"
+        }
+        .to_owned(),
+    )
+}
+
+fn event_declares_direct_conversation_realm(event: &arkret::Event) -> bool {
+    if event.kind.as_str() != "ak.realm.create" {
+        return false;
+    }
+    let object = event.payload.get("object");
+    object
+        .and_then(|value| value.get("fields"))
+        .and_then(|value| value.get("collaboration_role"))
+        .and_then(Value::as_str)
+        .is_some_and(|role| role.eq_ignore_ascii_case("direct_conversation"))
+        || object
+            .and_then(|value| value.get("schema_refs"))
+            .and_then(Value::as_array)
+            .is_some_and(|refs| {
+                refs.iter().any(|value| {
+                    value
+                        .as_str()
+                        .is_some_and(|profile| profile == "ak.profile.direct_conversation_realm.v1")
+                })
+            })
+}
+
+fn realm_sync_participant_count(entry: &arkret::RealmSyncEntry) -> Option<u32> {
+    entry
+        .summary
+        .as_ref()
+        .and_then(|summary| summary.joined_member_count)
+        .and_then(|count| u32::try_from(count).ok())
 }
 
 fn parse_backfill_events_for_account(
@@ -2251,6 +2395,8 @@ async fn dispatch_to_agent(
     let event_id = event.event_id.clone();
     let mentioned_actor_ids = event.mentioned_actor_ids.clone();
     let sidecar_exchange = event.sidecar_exchange.clone();
+    let chat_type = event.chat_type;
+    let participant_count = event.participant_count;
     let body = event.body;
     // DIDs carry no external-bot localpart convention, but we can at least mark
     // the account's own DID as SelfBot so the runtime never replies to its own
@@ -2271,13 +2417,14 @@ async fn dispatch_to_agent(
     };
     let mut start_meta = runtime::StartThreadMeta {
         peer_id: Some(sender.clone()),
-        group_id: Some(realm_id.clone()),
+        group_id: (!matches!(chat_type.as_deref(), Some("dm"))).then(|| realm_id.clone()),
         thread_id,
         reply_target,
-        chat_type: Some("group".to_owned()),
+        chat_type,
         saved_channel_config_id: Some(config_id.clone()),
         sender_kind,
         is_mentioned: sidecar_exchange.is_some(),
+        participant_count,
         ..runtime::StartThreadMeta::default()
     };
     let local_agent_id = runtime::resolve_start_thread_agent(
@@ -2414,6 +2561,8 @@ async fn try_handle_encrypted_account_skip(
                     account_id: skipped.account_id.clone(),
                     event_id,
                     realm_id,
+                    chat_type: skipped.chat_type.clone(),
+                    participant_count: skipped.participant_count,
                     strand_id: skipped.strand_id.clone(),
                     sender_did,
                     body,
@@ -2653,18 +2802,69 @@ async fn construct_account_provider(
         runtime_public_key_digest,
         "arkret: constructing agent session provider"
     );
-    let (provider, session) = ArkretHttpClient::login_agent_provider(
+    let (provider, session) = match ArkretHttpClient::login_agent_provider(
         &channel.base_url,
         key_ref,
-        principal,
+        principal.clone(),
         verification_method,
         authorization_ref,
         account.requested_scope.clone(),
         &audience,
-        device_id,
+        device_id.clone(),
         None,
     )
-    .await?;
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            // The Agent `requested_scope` fixed at provisioning is an immutable
+            // global ceiling (key-management §4.5): a session grant requesting
+            // any action outside it fails closed as `proof_invalid`. Agents
+            // provisioned before the ceiling included
+            // `ak.self.keys.keypackages.command.revoke` can therefore never be
+            // granted the revoke surface. Retry once without the
+            // ceiling-optional tokens so a legacy-ceiling Agent still gets its
+            // core session instead of hard-failing the whole runtime.
+            let reduced_scope: Vec<String> = account
+                .requested_scope
+                .iter()
+                .filter(|scope| !CEILING_OPTIONAL_SESSION_SCOPE.contains(&scope.as_str()))
+                .cloned()
+                .collect();
+            let detail = format!("{error:#}");
+            if !detail.contains("reason_code=proof_invalid")
+                || reduced_scope.len() == account.requested_scope.len()
+                || reduced_scope.is_empty()
+            {
+                return Err(error);
+            }
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                dropped = ?account
+                    .requested_scope
+                    .iter()
+                    .filter(|scope| CEILING_OPTIONAL_SESSION_SCOPE.contains(&scope.as_str()))
+                    .collect::<Vec<_>>(),
+                "arkret: session grant rejected as proof_invalid; retrying without \
+                 ceiling-optional scope. If this succeeds, the Agent's immutable \
+                 requested_scope ceiling predates these actions — re-provision the \
+                 Agent to enable them (e.g. KeyPackage pool revoke on unbind)."
+            );
+            ArkretHttpClient::login_agent_provider(
+                &channel.base_url,
+                key_ref,
+                principal,
+                verification_method,
+                authorization_ref,
+                reduced_scope,
+                &audience,
+                device_id,
+                None,
+            )
+            .await?
+        }
+    };
     info!(
         "arkret: agent '{}' obtained DPoP-bound session; audience='{}' expires_at='{}'",
         account.id, audience, session.expires_at
@@ -2685,19 +2885,32 @@ async fn construct_account_client(
     Ok(ArkretHttpClient::from_inner(inner))
 }
 
-/// Build the restart-safe monotonic `actor_seq` allocator for an outbound
-/// account, mirroring the applet allocator. The backing file store lives under
-/// `{savfox_home}/gateway/arkret-account-seq/{account_id}.seq`, keyed
-/// `account:{account_id}:actor_seq`, so each account has an independent
-/// monotonic counter that survives restarts (the previous `timestamp_millis()`
-/// source was neither monotonic across rapid sends nor restart-safe).
-fn build_account_seq_allocator(
-    savfox_home: &std::path::Path,
-    account_id: &str,
-) -> anyhow::Result<arkret_bridge_runtime::SeqAllocator> {
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct AccountActorChains {
+    #[serde(default)]
+    realms: HashMap<String, AccountActorChainHead>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct AccountActorChainHead {
+    next_seq: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_event_id: Option<String>,
+}
+
+fn account_actor_chain_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+/// Arkret actor chains are Realm-scoped and contiguous: the first Event uses
+/// sequence 0, and each later Event names the preceding Event in `prev_refs`.
+/// Persist both pieces together so a restart cannot turn a valid sequence into
+/// an unreferenced high-water mark.
+fn account_actor_chain_path(savfox_home: &std::path::Path, account_id: &str) -> PathBuf {
     let dir = savfox_home
         .join(savfox_utils::home_dir::GATEWAY_SUBDIR)
-        .join("arkret-account-seq");
+        .join("arkret-account-chain");
     let safe_id: String = account_id
         .chars()
         .map(|c| {
@@ -2708,16 +2921,129 @@ fn build_account_seq_allocator(
             }
         })
         .collect();
-    let path = dir.join(format!("{safe_id}.seq"));
-    let store = arkret_bridge_runtime::FileSeqStore::shared(path)
-        .map_err(|e| anyhow::anyhow!("arkret account seq store: {e}"))?;
-    Ok(arkret_bridge_runtime::SeqAllocator::new(
-        store,
-        format!("account:{account_id}:actor_seq"),
-    ))
+    dir.join(format!("{safe_id}.json"))
+}
+
+async fn load_account_actor_chains(path: &std::path::Path) -> anyhow::Result<AccountActorChains> {
+    match tokio::fs::read(path).await {
+        Ok(bytes) if bytes.is_empty() => Ok(AccountActorChains::default()),
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .with_context(|| format!("parse Arkret actor chain state {}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(AccountActorChains::default())
+        }
+        Err(error) => {
+            Err(error).with_context(|| format!("read Arkret actor chain state {}", path.display()))
+        }
+    }
+}
+
+async fn save_account_actor_chains(
+    path: &std::path::Path,
+    chains: &AccountActorChains,
+) -> anyhow::Result<()> {
+    let bytes = serde_json::to_vec_pretty(chains).context("serialize Arkret actor chain state")?;
+    savfox_utils::fs::write_atomically_async(path, bytes, Some(0o600))
+        .await
+        .with_context(|| format!("persist Arkret actor chain state {}", path.display()))
+}
+
+fn load_account_actor_chain_head(
+    path: &std::path::Path,
+    realm_id: &str,
+) -> anyhow::Result<Option<AccountActorChainHead>> {
+    match std::fs::read(path) {
+        Ok(bytes) if bytes.is_empty() => Ok(None),
+        Ok(bytes) => {
+            let state: AccountActorChains = serde_json::from_slice(&bytes)
+                .with_context(|| format!("parse Arkret actor chain state {}", path.display()))?;
+            Ok(state.realms.get(realm_id).cloned())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => {
+            Err(error).with_context(|| format!("read Arkret actor chain state {}", path.display()))
+        }
+    }
 }
 
 /// Maps one durable Garth queue item onto the Arkret submit endpoint.
+struct AccountOutboundEncryptionFence {
+    crypto_store: FileArkretCryptoStore,
+    actor_chain_path: PathBuf,
+}
+
+impl OutboundGenerationFence for AccountOutboundEncryptionFence {
+    fn evaluate(
+        &self,
+        item: &garth::sync_client::SendQueueItem,
+    ) -> garth::Result<OutboundGenerationFenceDecision> {
+        let requires_e2ee = self
+            .crypto_store
+            .realm_requires_e2ee(item.realm_id.as_str())
+            .map_err(|error| {
+                garth::Error::Protocol(format!(
+                    "load Arkret realm encryption policy before submit: {error:#}"
+                ))
+            })?;
+        let is_message = item
+            .content
+            .get("kind")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind == "ak.message.create");
+        let is_encrypted = item
+            .content
+            .get("payload")
+            .and_then(|payload| payload.get("encrypted_content"))
+            .is_some();
+        let has_agent_context = item
+            .content
+            .get("payload")
+            .and_then(|payload| payload.get("agent_context"))
+            .is_some();
+
+        if is_message && !has_agent_context {
+            return Ok(OutboundGenerationFenceDecision::Quarantine {
+                reason: format!(
+                    "queued Agent message lacks the required auditable agent_context for {}",
+                    item.realm_id.as_str()
+                ),
+            });
+        }
+
+        let actor_seq = item.content.get("actor_seq").and_then(Value::as_u64);
+        let chain_head = load_account_actor_chain_head(
+            &self.actor_chain_path,
+            item.realm_id.as_str(),
+        )
+        .map_err(|error| {
+            garth::Error::Protocol(format!("load Arkret actor chain before submit: {error:#}"))
+        })?;
+        let belongs_to_current_actor_chain = match (actor_seq, chain_head) {
+            (Some(0), None) => true,
+            (Some(seq), Some(head)) => seq < head.next_seq,
+            _ => false,
+        };
+        if !belongs_to_current_actor_chain {
+            return Ok(OutboundGenerationFenceDecision::Quarantine {
+                reason: format!(
+                    "queued Event does not belong to the current contiguous actor chain for {}",
+                    item.realm_id.as_str()
+                ),
+            });
+        }
+
+        if requires_e2ee && is_message && !is_encrypted {
+            return Ok(OutboundGenerationFenceDecision::Quarantine {
+                reason: format!(
+                    "queued plaintext message violates the current E2EE-required policy for {}",
+                    item.realm_id.as_str()
+                ),
+            });
+        }
+        Ok(OutboundGenerationFenceDecision::Current)
+    }
+}
+
 struct AccountOutboundSubmitter {
     client: ArkretHttpClient,
 }
@@ -2734,6 +3060,11 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
             let response = match self.client.submit_event(&event).await {
                 Ok(response) => response,
                 Err(error) => {
+                    warn!(
+                        transaction_id = %item.transaction_id,
+                        error = %error,
+                        "arkret: outbound event submission failed; scheduling retry"
+                    );
                     return Ok(OutboundSubmitOutcome::RetryAfter {
                         delay: Duration::from_secs(1),
                         reason: error.to_string(),
@@ -2747,6 +3078,11 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
                 return Ok(OutboundSubmitOutcome::Duplicate { event_id });
             }
             if !response.rejected.is_empty() {
+                warn!(
+                    transaction_id = %item.transaction_id,
+                    rejected = ?response.rejected,
+                    "arkret: outbound event submission was rejected"
+                );
                 return Ok(OutboundSubmitOutcome::Rejected {
                     reason: format!("{:?}", response.rejected),
                 });
@@ -2798,10 +3134,16 @@ pub(crate) async fn send_to_arkret_account(
         ACCOUNT_EVENT_DEDUPE_MAX,
     )?;
     outbound_store.ensure_created().await?;
-    // Monotonic, restart-safe actor sequence (parity with the applet path).
-    let actor_seq = build_account_seq_allocator(savfox_home, &account.id)?
-        .alloc()
-        .map_err(|e| anyhow::anyhow!("arkret account seq alloc: {e}"))?;
+    let actor_chain_path = account_actor_chain_path(savfox_home, &account.id);
+    let actor_chain_guard = account_actor_chain_lock().lock().await;
+    let mut actor_chains = load_account_actor_chains(&actor_chain_path).await?;
+    let previous_actor_chains = actor_chains.clone();
+    let actor_chain_head = actor_chains
+        .realms
+        .get(realm_id)
+        .cloned()
+        .unwrap_or_default();
+    let actor_seq = actor_chain_head.next_seq;
     let request = MessageCreateRequest {
         realm_id: realm_id.to_owned(),
         strand_id,
@@ -2812,6 +3154,21 @@ pub(crate) async fn send_to_arkret_account(
         sidecar_exchange: sidecar_exchange.cloned(),
     };
     let mut event = build_message_create_event(&request)?;
+    event.payload.insert(
+        "agent_context".to_owned(),
+        json!({
+            "agent_id": account.principal_id,
+            "operator_or_controller": "derived_from_direct_conversation_binding",
+            "execution_purpose": "direct_conversation_reply",
+            "authorization_ref": realm_id,
+        }),
+    );
+    if let Some(previous_event_id) = actor_chain_head.last_event_id {
+        event.prev_refs.push(
+            EventId::new(previous_event_id)
+                .context("persisted Arkret actor chain contains an invalid Event id")?,
+        );
+    }
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     apply_account_outbound_encryption(&crypto_store, realm_id, &mut event, sidecar_exchange)?;
 
@@ -2849,9 +3206,24 @@ pub(crate) async fn send_to_arkret_account(
     }
 
     let mut transaction_id = event.event_id.to_string();
+    let next_actor_seq = actor_seq
+        .checked_add(1)
+        .context("Arkret actor sequence exhausted")?;
+    actor_chains.realms.insert(
+        realm_id.to_owned(),
+        AccountActorChainHead {
+            next_seq: next_actor_seq,
+            last_event_id: Some(transaction_id.clone()),
+        },
+    );
+    save_account_actor_chains(&actor_chain_path, &actor_chains).await?;
     let realm_id_typed = RealmId::new(realm_id.to_owned())?;
     let outbound = OutboundEngine::new(outbound_store);
-    outbound
+    let fence = AccountOutboundEncryptionFence {
+        crypto_store: crypto_store.clone(),
+        actor_chain_path: actor_chain_path.clone(),
+    };
+    if let Err(error) = outbound
         .enqueue(
             Some(transaction_id.clone()),
             realm_id_typed,
@@ -2859,10 +3231,18 @@ pub(crate) async fn send_to_arkret_account(
             serde_json::to_value(event)?,
             Vec::new(),
         )
-        .await?;
+        .await
+    {
+        save_account_actor_chains(&actor_chain_path, &previous_actor_chains).await?;
+        return Err(error.into());
+    }
+    drop(actor_chain_guard);
     let submitter = AccountOutboundSubmitter { client };
     loop {
-        match outbound.submit_next(&submitter, Utc::now()).await? {
+        match outbound
+            .submit_next_with_fence(&submitter, &fence, Utc::now())
+            .await?
+        {
             OutboundEngineOutcome::Accepted(item) | OutboundEngineOutcome::Duplicate(item)
                 if item.transaction_id == transaction_id =>
             {
@@ -3221,6 +3601,126 @@ mod tests {
             parsed.events[0].strand_id.as_deref(),
             Some("ak:strand:01904100-0000-7000-8000-000000000002")
         );
+    }
+
+    #[test]
+    fn sync_realm_delta_marks_direct_conversation_messages_as_dm() {
+        let account = make_account();
+        let update = arkret::RealmUpdate {
+            realm_id: realm_id(),
+            entry: arkret::RealmSyncEntry {
+                timeline: Some(arkret::Timeline {
+                    events: vec![message_event("hello direct agent")],
+                    limited: false,
+                    prev_cursor: None,
+                    preview_only: None,
+                    extra: Default::default(),
+                }),
+                summary: Some(
+                    serde_json::from_value(json!({
+                        "joined_member_count": 2
+                    }))
+                    .unwrap(),
+                ),
+                state_at_window_start: Some(
+                    serde_json::from_value(json!({
+                        "actor_profiles": {},
+                        "realm_metadata": {
+                            "title": "Direct conversation",
+                            "collaboration_role": "direct_conversation"
+                        },
+                        "e2ee_epoch": null
+                    }))
+                    .unwrap(),
+                ),
+                ..Default::default()
+            },
+        };
+
+        let parsed = parse_realm_update_for_account(update, &account);
+
+        assert_eq!(parsed.events.len(), 1);
+        assert_eq!(parsed.events[0].chat_type.as_deref(), Some("dm"));
+        assert_eq!(parsed.events[0].participant_count, Some(2));
+    }
+
+    #[test]
+    fn sync_realm_delta_records_direct_conversation_e2ee_policy() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let channel = ArkretChannelConfig {
+            id: "c1".to_owned(),
+            base_url: "https://arkret.example".to_owned(),
+            service_id: None,
+            accounts: Vec::new(),
+        };
+        let account = make_account();
+        let crypto_store = FileArkretCryptoStore::for_account(tmp.path(), &channel.id, &account.id);
+        let update = arkret::RealmUpdate {
+            realm_id: realm_id(),
+            entry: arkret::RealmSyncEntry {
+                state_at_window_start: Some(
+                    serde_json::from_value(json!({
+                        "actor_profiles": {},
+                        "realm_metadata": {
+                            "title": "Direct conversation",
+                            "collaboration_role": "direct_conversation"
+                        },
+                        "e2ee_epoch": null
+                    }))
+                    .unwrap(),
+                ),
+                ..Default::default()
+            },
+        };
+
+        assert_eq!(
+            record_account_realm_crypto_policy_from_update(
+                &update,
+                &crypto_store,
+                &channel,
+                &account,
+            ),
+            1
+        );
+        let state = crypto_store.load().expect("crypto state should load");
+        let policy = state
+            .realm_policies
+            .get(realm_id().as_str())
+            .expect("direct-conversation E2EE policy should persist");
+        assert!(policy.requires_e2ee());
+        assert_eq!(policy.group_id_for_realm(), realm_id().as_str());
+    }
+
+    #[test]
+    fn realm_create_profile_marks_scan_catchup_as_direct_conversation() {
+        let direct_realm_create = arkret::Event::new(
+            "ak.realm.create",
+            realm_id(),
+            actor_id(),
+            0,
+            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
+            json!({
+                "object": {
+                    "id": realm_id().as_str(),
+                    "schema": "ak.schema.realm.v1",
+                    "schema_refs": ["ak.profile.direct_conversation_realm.v1"],
+                    "fields": {"collaboration_role": "direct_conversation"}
+                }
+            }),
+        )
+        .unwrap();
+        let entry = arkret::RealmSyncEntry {
+            timeline: Some(arkret::Timeline {
+                events: vec![direct_realm_create],
+                limited: false,
+                prev_cursor: None,
+                preview_only: None,
+                extra: Default::default(),
+            }),
+            ..Default::default()
+        };
+
+        assert_eq!(realm_sync_chat_type(&entry).as_deref(), Some("dm"));
     }
 
     #[test]

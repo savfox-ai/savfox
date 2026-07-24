@@ -133,7 +133,10 @@ impl SidecarExchangeStore {
         let path = savfox_home
             .join("gateway")
             .join("arkret-account-state")
-            .join(format!("{}-sidecar-exchanges.json", safe_file_stem(&scope_id)));
+            .join(format!(
+                "{}-sidecar-exchanges.json",
+                safe_file_stem(&scope_id)
+            ));
         Self { path }
     }
 
