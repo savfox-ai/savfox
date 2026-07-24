@@ -4296,6 +4296,13 @@ fn render_single_field(
             .filter(|value| !value.is_empty());
         let key_for_unbind = key.clone();
         let ws_unbind = ws.clone();
+        // Cleared from the in-memory form on success so the next "Request
+        // approval" regenerates a fresh runtime key and re-requests approval
+        // instead of reusing the just-unbound Agent's stale keyRef/authorization.
+        // verificationMethod is kept: it identifies the same agent and is only
+        // re-derived from a raw pairing link, not from resolved bootstrap JSON.
+        let key_ref_key_for_unbind = field_value_key(ch_id, "keyRef");
+        let authorized_event_ref_key_for_unbind = field_value_key(ch_id, "authorizedEventRef");
         drop(value_map);
         let hint = if !status.is_empty() {
             status
@@ -4323,6 +4330,9 @@ fn render_single_field(
                         onclick: move |_| {
                             let key = key_for_unbind.clone();
                             let ws = ws_unbind.clone();
+                            let key_ref_key = key_ref_key_for_unbind.clone();
+                            let authorized_event_ref_key =
+                                authorized_event_ref_key_for_unbind.clone();
                             values
                                 .write()
                                 .insert(key.clone(), "Unbinding current Agent…".to_string());
@@ -4339,7 +4349,16 @@ fn render_single_field(
                                             .get("message")
                                             .and_then(serde_json::Value::as_str)
                                             .unwrap_or("Unbound Agent runtime");
-                                        values.write().insert(key, message.to_string());
+                                        {
+                                            let mut values = values.write();
+                                            // Drop the stale key/authorization from
+                                            // the open form so re-pairing generates
+                                            // a fresh runtime key instead of reusing
+                                            // the just-unbound Agent's.
+                                            values.remove(&key_ref_key);
+                                            values.remove(&authorized_event_ref_key);
+                                            values.insert(key, message.to_string());
+                                        }
                                     }
                                     Err(err) => {
                                         values
