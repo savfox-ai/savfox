@@ -460,6 +460,49 @@ impl FileArkretCryptoStore {
         })
     }
 
+    pub fn mark_mls_key_package_revoked(
+        &self,
+        keypackage_ref_or_id: &str,
+    ) -> anyhow::Result<Option<MlsKeyPackageRecord>> {
+        self.update_cached_mls_key_package(keypackage_ref_or_id, |record| {
+            record.state = MlsKeyPackageState::Revoked;
+            Ok(())
+        })
+    }
+
+    /// Server KeyPackage ids (the durable row primary key) for every
+    /// locally-tracked pool KeyPackage that has not already been consumed or
+    /// revoked. Used to revoke the published pool when an Agent runtime is
+    /// unbound so the old pool fails closed before the binding is replaced.
+    pub fn revocable_keypackage_ids(&self) -> anyhow::Result<Vec<String>> {
+        let state = self.load()?;
+        let mut ids = Vec::new();
+        for record in state.mls_key_packages.values() {
+            if matches!(
+                record.state,
+                MlsKeyPackageState::Consumed | MlsKeyPackageState::Revoked
+            ) {
+                continue;
+            }
+            if !ids.contains(&record.keypackage_id) {
+                ids.push(record.keypackage_id.clone());
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Delete the persisted crypto-state file for this account. Used by unbind
+    /// to purge the Agent's MLS identity and private KeyPackage material after
+    /// the server-side pool has been revoked. Removing a missing file is a
+    /// no-op, not an error.
+    pub fn delete_persisted(&self) -> std::io::Result<()> {
+        match std::fs::remove_file(self.path()) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(err),
+        }
+    }
+
     pub fn record_mls_welcome(&self, welcome: MlsWelcomeEnvelope) -> anyhow::Result<()> {
         self.record_mls_welcome_inner(welcome, None)
     }

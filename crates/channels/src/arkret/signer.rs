@@ -221,6 +221,21 @@ pub fn sign_keypackages_consume_request(
     result.context("arkret signer: sign canonical KeyPackage consume request")
 }
 
+/// Sign the canonical typed MLS KeyPackage revoke request with the runtime key.
+///
+/// Used when an Agent runtime is unbound: the still-current authorization signs
+/// the revoke so the old pool fails closed before the binding is replaced.
+pub fn sign_keypackages_revoke_request(
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+    unsigned: &arkret::KeyPackagesRevokeUnsignedRequest,
+) -> anyhow::Result<arkret::KeyOperationSignature> {
+    let mut seed = load_seed_array(key_ref)?;
+    let result = arkret::sign_keypackages_revoke_request(unsigned, verification_method, &seed);
+    seed.zeroize();
+    result.context("arkret signer: sign canonical KeyPackage revoke request")
+}
+
 /// Return the canonical public-key digest for diagnostics and authorization
 /// binding checks. No seed or private-key material leaves this function.
 pub fn ed25519_runtime_public_key_digest(

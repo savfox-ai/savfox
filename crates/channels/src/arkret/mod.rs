@@ -36,7 +36,7 @@ mod session;
 mod sidecar;
 mod signer;
 
-pub use account_store::{device_messages_scope, open_account_store};
+pub use account_store::{delete_account_store, device_messages_scope, open_account_store};
 pub use applet::{
     AppletDispatchSkip, AppletEventOutcome, AppletInboundCommand, AppletNamespaces,
     AppletNamespacesExt, ArkretAppletConfig, NamespacePattern, NamespacePatternExt,
@@ -82,5 +82,5 @@ pub use signer::{
     ArkretKeyRef, ed25519_runtime_public_key_digest, generate_ed25519_key_ref_in_keyring,
     get_or_generate_ed25519_key_ref_in_keyring, load_ed25519_seed_hex, load_ed25519_signer,
     migrate_ed25519_key_ref_to_keyring, sign_keypackages_consume_request,
-    sign_keypackages_upload_request,
+    sign_keypackages_revoke_request, sign_keypackages_upload_request,
 };

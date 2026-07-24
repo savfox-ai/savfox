@@ -30,6 +30,22 @@ pub(super) fn account_store_path(
         .join(format!("{}.json", safe_file_stem(&scope_id)))
 }
 
+/// Delete the durable account subscribe/inbox state file for one (channel,
+/// account) pair. Used by unbind so an Agent's cursors, dedupe set and pending
+/// deliveries do not survive into the next binding. Removing a missing file is
+/// a no-op, not an error.
+pub fn delete_account_store(
+    savfox_home: &Path,
+    channel_id: &str,
+    account_id: &str,
+) -> std::io::Result<()> {
+    match std::fs::remove_file(account_store_path(savfox_home, channel_id, account_id)) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
 pub fn device_messages_scope(
     service_id: Option<&str>,
     actor_id: &str,

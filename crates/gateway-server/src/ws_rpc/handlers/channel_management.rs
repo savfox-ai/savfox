@@ -343,6 +343,56 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
         }
     }
 
+    // Fail-closed rebind guard: a single Arkret runtime channel binds exactly
+    // one Agent. Refuse to persist a pairing for a *different* Agent while the
+    // channel is still bound — silently overwriting the binding orphaned the
+    // previous Agent's KeyPackage pool (empty pool → `direct_conversation_
+    // unavailable`). The operator must explicitly unbind first
+    // (`channels.arkret.unbind`), which revokes the old pool and purges local
+    // state. Progression saves for the *same* Agent, and saves that clear the
+    // binding (unbind), carry no differing agent id and pass through.
+    #[cfg(feature = "arkret")]
+    if channel_kind.eq_ignore_ascii_case("arkret")
+        && let Some(incoming_agent) = arkret_patch_agent_id(&patch)
+    {
+        let existing = channel_store::list_channel_configs(&channel.config().savfox_home)
+            .await
+            .unwrap_or_default();
+        for cfg in &existing {
+            if !cfg.kind.eq_ignore_ascii_case("arkret") {
+                continue;
+            }
+            let Some(parsed) =
+                savfox_channels::arkret::ArkretChannelConfig::from_channel_config(cfg)
+            else {
+                continue;
+            };
+            for account in &parsed.accounts {
+                let bound = account
+                    .authorized_event_ref
+                    .as_deref()
+                    .is_some_and(|reference| !reference.trim().is_empty());
+                let bound_agent = account
+                    .inkson_bootstrap
+                    .as_ref()
+                    .map(|bootstrap| bootstrap.agent_id.to_string())
+                    .unwrap_or_else(|| account.principal_id.clone());
+                if bound && bound_agent.trim() != incoming_agent.trim() {
+                    return Err((
+                        INVALID_REQUEST,
+                        format!(
+                            "Arkret channel '{}' is already bound to Agent {bound_agent}. \
+                             Unbind the current Agent (channels.arkret.unbind) before pairing \
+                             {incoming_agent}; rebinding without unbinding would orphan the \
+                             current Agent's KeyPackage pool.",
+                            cfg.id
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
     match channel_store::merge_channel_config(
         &channel.config().savfox_home,
         channel_kind,
@@ -465,5 +515,138 @@ pub(in crate::ws_rpc) async fn handle_channels_config_delete(
             INTERNAL_ERROR,
             format!("failed to delete channel config: {e}"),
         )),
+    }
+}
+
+/// Agent DID a channel-save patch is trying to bind, if any. Used by the
+/// rebind guard and reads the same fields `ArkretChannelConfig` parses.
+#[cfg(feature = "arkret")]
+fn arkret_patch_agent_id(patch: &Value) -> Option<String> {
+    patch
+        .get("inksonBootstrap")
+        .and_then(|bootstrap| {
+            bootstrap
+                .get("agent_id")
+                .or_else(|| bootstrap.get("agentId"))
+        })
+        .or_else(|| patch.get("principalId"))
+        .or_else(|| patch.get("principal_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+/// Explicitly unbind the Agent runtime currently bound to the Arkret channel.
+///
+/// Single-Agent-per-runtime is intentional; switching Agents is an explicit
+/// operation, not a silent overwrite. This revokes the bound Agent's published
+/// KeyPackage pool (with its still-current runtime key), stops the listener,
+/// purges local Agent MLS identity / durable state, and clears the persisted
+/// binding so a new Agent can be paired.
+pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    #[cfg(not(feature = "arkret"))]
+    {
+        let _ = (params, channel);
+        Err((
+            INVALID_REQUEST,
+            "Arkret support is not enabled in this build".to_owned(),
+        ))
+    }
+    #[cfg(feature = "arkret")]
+    {
+        use savfox_core::config::channel_store;
+
+        let home = channel.config().savfox_home.clone();
+        let selector = params
+            .get("channel")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("arkret");
+        let Some(config) = channel_store::get_channel_config(&home, selector)
+            .await
+            .map_err(|e| {
+                (
+                    INTERNAL_ERROR,
+                    format!("failed to load Arkret channel config before unbind: {e}"),
+                )
+            })?
+        else {
+            return Ok(json!({
+                "platform": "arkret",
+                "ok": true,
+                "unbound": false,
+                "message": "no Arkret channel config to unbind",
+            }));
+        };
+        let Some(parsed) =
+            savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&config)
+        else {
+            return Ok(json!({
+                "platform": "arkret",
+                "ok": true,
+                "unbound": false,
+                "channel": config.id,
+                "message": "Arkret channel has no bound Agent runtime",
+            }));
+        };
+        let account_id = params
+            .get("account_id")
+            .or_else(|| params.get("accountId"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let Some(account) = (if let Some(account_id) = account_id {
+            parsed
+                .accounts
+                .iter()
+                .find(|account| account.id == account_id)
+        } else {
+            parsed.accounts.first()
+        }) else {
+            return Ok(json!({
+                "platform": "arkret",
+                "ok": true,
+                "unbound": false,
+                "channel": config.id,
+                "message": "Arkret channel has no runtime account to unbind",
+            }));
+        };
+
+        let report = crate::channels::arkret::unbind_arkret_account(&home, &parsed, account).await;
+
+        // Return the channel to an unbound state so a new Agent can be paired.
+        let clear_patch = json!({
+            "id": config.id,
+            "keyRef": Value::Null,
+            "verificationMethod": Value::Null,
+            "authorizedEventRef": Value::Null,
+            "inksonBootstrap": Value::Null,
+        });
+        if let Err(e) =
+            channel_store::merge_channel_config(&home, &config.kind, &config.name, &clear_patch)
+                .await
+        {
+            return Err((
+                INTERNAL_ERROR,
+                format!("unbound Agent runtime but failed to clear the channel binding: {e}"),
+            ));
+        }
+
+        Ok(json!({
+            "platform": "arkret",
+            "ok": true,
+            "unbound": true,
+            "channel": config.id,
+            "principal_id": report.principal_id,
+            "device_id": report.device_id,
+            "listeners_stopped": report.listeners_stopped,
+            "pool_revoke_attempted": report.revoke_attempted,
+            "message": "Unbound Agent runtime: revoked KeyPackage pool, purged local state, and cleared the binding",
+        }))
     }
 }
