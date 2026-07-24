@@ -4899,6 +4899,13 @@ async fn arkret_poll_runtime_key_approval(
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned();
+        // Runtime readiness axis (key-management.md §3.6.1): pairing_expired now
+        // lives on runtime_state, not the lifecycle status.
+        let runtime_state = payload
+            .get("runtime_state")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
         if approved {
             if let Some(event_ref) = payload
                 .get("authorized_event_ref")
@@ -4924,19 +4931,19 @@ async fn arkret_poll_runtime_key_approval(
             );
             return;
         }
-        match status.as_str() {
+        if status == "deactivated" {
+            values.write().insert(
+                status_key,
+                "Agent was deactivated before pairing completed.".to_owned(),
+            );
+            return;
+        }
+        match runtime_state.as_str() {
             "pairing_expired" => {
                 values.write().insert(
                     status_key,
                     "Pairing request expired before approval. Create a new pairing in Inkson and try again."
                         .to_owned(),
-                );
-                return;
-            }
-            "deactivated" => {
-                values.write().insert(
-                    status_key,
-                    "Agent was deactivated before pairing completed.".to_owned(),
                 );
                 return;
             }

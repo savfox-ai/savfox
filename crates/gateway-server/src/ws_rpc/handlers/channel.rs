@@ -2244,8 +2244,16 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
     let outcome = poll_arkret_runtime_key_status(channel.http_client(), account, request)
         .await
         .map_err(|err| (INVALID_REQUEST, err))?;
+    // Two orthogonal axes (key-management.md §3.6.1): `status` is the lifecycle
+    // intent (active/paused/deactivated); `runtime_state` is the derived runtime
+    // readiness (pending_runtime_key/ready/replacing/pairing_expired).
     let status = outcome
         .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let runtime_state = outcome
+        .get("runtime_state")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
@@ -2262,11 +2270,12 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
         "Runtime key approved, but the agent is paused; resume it in Inkson before starting Savfox"
     } else if paired_by_other_runtime {
         "Pairing was completed by a different runtime key; this Savfox key was not authorized"
+    } else if status == "deactivated" {
+        "Agent was deactivated"
     } else {
-        match status.as_str() {
+        match runtime_state.as_str() {
             "pending_runtime_key" => "Waiting for Inkson approval",
             "pairing_expired" => "Pairing request expired before approval",
-            "deactivated" => "Agent was deactivated",
             _ => "Unknown pairing status",
         }
     };
@@ -2276,6 +2285,7 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
         "mode": "agent",
         "account_id": account.id.as_str(),
         "status": status,
+        "runtime_state": runtime_state,
         "approved": approved,
         "ready": ready,
         "key_digest_matches": key_digest_matches,
