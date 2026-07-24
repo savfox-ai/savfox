@@ -818,6 +818,15 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Internal compatibility slot for an authorization event returned by Inkson after approval.",
                 },
                 ConfigField {
+                    key: "unbind".into(),
+                    label: "Bound agent".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: String::new(),
+                    secret: false,
+                    required: false,
+                    help: "A runtime binds exactly one Agent. Unbind revokes the current Agent's KeyPackage pool, purges its local runtime state, and clears the binding so a different Agent can be paired.",
+                },
+                ConfigField {
                     key: "grantEventPath".into(),
                     label: "Grant Event Path".into(),
                     field_type: FieldType::Text,
@@ -2086,6 +2095,7 @@ fn is_arkret_account_only_field(field_key: &str) -> bool {
             | "authorizedEventRef"
             | "authorizationResult"
             | "runtimeKeyRequest"
+            | "unbind"
     )
 }
 
@@ -2143,6 +2153,7 @@ fn is_arkret_helper_field(field_key: &str) -> bool {
             | "namespaceHandles"
             | "authorizationResult"
             | "runtimeKeyRequest"
+            | "unbind"
     )
 }
 
@@ -4270,6 +4281,78 @@ fn render_single_field(
                         span { class: "mono", "{pairing_code}" }
                     }
                 }
+            }
+        };
+    }
+    if ch_id == "arkret" && field.key == "unbind" {
+        let status = current_val.trim().to_owned();
+        let is_bound = value_map
+            .get(&field_value_key(ch_id, "authorizedEventRef"))
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+        let bound_agent = value_map
+            .get(&field_value_key(ch_id, "verificationMethod"))
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        let key_for_unbind = key.clone();
+        let ws_unbind = ws.clone();
+        drop(value_map);
+        let hint = if !status.is_empty() {
+            status
+        } else if is_bound {
+            match bound_agent {
+                Some(agent) => format!("Bound to {agent}"),
+                None => "An Agent runtime is bound to this channel.".to_owned(),
+            }
+        } else {
+            "No Agent runtime is bound.".to_owned()
+        };
+        return rsx! {
+            div { class: "channels-cfg__field",
+                label { class: "channels-field__label",
+                    "{display_label}"
+                    if !help_text.is_empty() {
+                        HelpTip { text: help_text.clone() }
+                    }
+                }
+                div { class: "channels-cfg__row-actions",
+                    button {
+                        class: "channels-action-btn channels-action-btn--danger",
+                        r#type: "button",
+                        disabled: !is_bound,
+                        onclick: move |_| {
+                            let key = key_for_unbind.clone();
+                            let ws = ws_unbind.clone();
+                            values
+                                .write()
+                                .insert(key.clone(), "Unbinding current Agent…".to_string());
+                            spawn(async move {
+                                let result = ws
+                                    .call::<serde_json::Value>(
+                                        "channels.arkret.unbind",
+                                        Some(json!({ "platform": "arkret" })),
+                                    )
+                                    .await;
+                                match result {
+                                    Ok(payload) => {
+                                        let message = payload
+                                            .get("message")
+                                            .and_then(serde_json::Value::as_str)
+                                            .unwrap_or("Unbound Agent runtime");
+                                        values.write().insert(key, message.to_string());
+                                    }
+                                    Err(err) => {
+                                        values
+                                            .write()
+                                            .insert(key, format!("Unbind failed: {err}"));
+                                    }
+                                }
+                            });
+                        },
+                        "Unbind agent"
+                    }
+                }
+                div { class: "channels-field__hint", "{hint}" }
             }
         };
     }

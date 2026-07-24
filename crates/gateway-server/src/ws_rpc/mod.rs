@@ -22,8 +22,8 @@ mod handlers;
 mod types;
 mod utils;
 use self::handlers::channel_management::{
-    handle_channels_config_delete, handle_channels_config_get, handle_channels_config_list,
-    handle_channels_config_save, handle_channels_nostr_profile_export,
+    handle_channels_arkret_unbind, handle_channels_config_delete, handle_channels_config_get,
+    handle_channels_config_list, handle_channels_config_save, handle_channels_nostr_profile_export,
     handle_channels_nostr_profile_get, handle_channels_nostr_profile_import,
     handle_channels_nostr_profile_set, handle_channels_nostr_relays_get,
     handle_channels_nostr_relays_set, handle_web_login_start, handle_web_login_wait,
@@ -191,6 +191,7 @@ pub(crate) async fn dispatch_rpc(
         "channels.arkret.generate_runtime_key_ref" => {
             handle_channels_arkret_generate_runtime_key_ref(&params, channel).await
         }
+        "channels.arkret.unbind" => handle_channels_arkret_unbind(&params, channel).await,
         "channels.matrix.invites" => handle_channels_matrix_invites(&params, channel).await,
         "channels.matrix.invite.accept" => {
             handle_channels_matrix_invite_accept(&params, channel).await
