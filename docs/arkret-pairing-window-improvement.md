@@ -177,15 +177,26 @@ Arkret Agent 配置目前把协议输入、异步配对、普通配置保存和�
 9. 已有两个 Arkret 实例时，打开 `Add Channel → Arkret` 必须显示全新未配对表单。
 10. 同类型多个实例分别显示、编辑、测试和启停；任何动作不得选择同类型的其他实例。
 11. 已配对但监听器认证失败时显示 `Needs attention`，不得显示 Active 或 Connected。
+12. Agent 配置只接受 canonical flat DTO、keyring runtime key、canonical
+    millisecond timestamp 和 registry 中存在的显式 `requestedScope`；旧字段和旧
+    action 不迁移。
+13. `agent_requested_scope_commitment_invalid` 显示为
+    `Re-provision required` 并停止重试。
+14. 平台卡片显示实例计数；一个实例失败不得覆盖另一个 ready 实例。
+15. 所有 Arkret outbound 必须携带精确 saved Channel ID，缺失时 fail closed。
 
 ## 7. 实施结果
 
 - `cargo check -p savfox-gateway-dioxus`：通过。
-- `cargo test -p savfox-gateway-dioxus`：49 项测试全部通过。
+- `cargo test -p savfox-gateway-dioxus`：50 项测试全部通过。
 - `cargo test -p savfox-config channel_store`：10 项 Channel Store 测试全部通过。
-- `cargo check -p savfox-gateway-server --features arkret`：通过。
-- `cargo test -p savfox-gateway-server --features arkret arkret_ --lib`：19 项 Arkret 相关 Gateway 测试全部通过。
+- `cargo test -p savfox-channels --features arkret --all-targets`：195 项库测试与
+  4 项 Arkret guard 测试全部通过。
+- `cargo test -p savfox-gateway-server --features arkret --all-targets`：全部通过
+  （412 项库测试及各集成测试目标）。
 - `cargo clippy -p savfox-gateway-dioxus --all-targets --no-deps -- -D warnings`：通过。
+- `cargo clippy -p savfox-channels --features arkret --lib --no-deps -- -D warnings`：通过。
+- `cargo clippy -p savfox-gateway-server --features arkret --lib --no-deps -- -D warnings`：通过。
 - `cargo fmt --all -- --check`：通过。
 - `scripts/build-web.ps1`：Web 客户端构建成功，并同步到 `gateway-dioxus/dist` 与 `gateway-server/static`。
 - Dioxus CLI 仍报告既有的版本提示（`dx 0.8.0-alpha.0` 与 `dioxus 0.7.4`），但构建和打包成功。

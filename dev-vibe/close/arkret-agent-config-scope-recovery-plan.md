@@ -1,4 +1,35 @@
-# Arkret Agent 配置、Scope 承诺与旧实例恢复方案
+# Arkret Agent 配置、Scope 承诺与旧实例恢复（已完成）
+
+> 完成日期：2026-07-25
+>
+> 最终实现采用严格重建策略。任务原稿中关于 alias 自动迁移、旧配置保留、
+> scope 降级重试和 legacy profile 的建议已被 operator 要求覆盖：Savfox 不保留
+> 这些兼容代码；启动时发现非 canonical Arkret 配置会直接删除；历史 action、
+> 旧字段、旧 key source 和错误 timestamp 均拒绝保存。
+
+## 完成结果
+
+- `requestedScope` 必须是显式的字符串数组，并通过 Arkret SDK 内嵌 canonical
+  capability-action 与 service-operation registry 校验；未知 action、历史
+  alias、重复 action 和缺失运行必需 action 均 fail closed。
+- Agent 配置只接受 canonical flat DTO：`mode=agent`、typed
+  `inksonBootstrap`、keyring `keyRef`、`verificationMethod`、
+  `authorizedEventRef` 和 `requestedScope`。不再解析多 account、bearer、
+  snake_case alias、旧 mode 或额外字段。
+- 保存采用 preview → typed parse/validate → persist，错误配置不会先落盘。
+  Gateway 启动会删除遗留的非 canonical Arkret 配置。
+- service 接受 session 后持久化非敏感 verified runtime scope，并绑定精确实例、
+  Agent principal、authorization Event 与当前 runtime public-key digest；后续
+  scope 扩大与该权威接受结果比较，任一绑定失配均 fail closed。
+- `agent_requested_scope_commitment_invalid` 进入终止态
+  `migration_required`，不再高频重试；旧 `proof_invalid` scope 删除后重试逻辑
+  已删除。
+- `channels.status`、`channels.test`、login/logout 和
+  `channels.arkret.inspect` 支持精确实例 ID；平台聚合返回 ready/retrying/
+  migration-required/failed 计数，任一 ready 实例不会被另一个失败实例覆盖。
+- Arkret outbound resolver 强制要求 `saved_channel_config_id`。普通/命令/审批/
+  错误回复、stream sink、idle reply、WebSocket `send` 和 dead-letter 均保留
+  实例 identity；缺失 identity 时不再回退到第一个 enabled Agent。
 
 ## 1. 背景与本次现场结论
 

@@ -28,9 +28,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(feature = "arkret")]
+use anyhow::Context as _;
 use salvo::http::StatusCode;
 use salvo::prelude::*;
 pub(crate) use savfox_core::channel::{Channel, RichMessage};
+#[cfg(feature = "arkret")]
+use serde_json::Value;
 use serde_json::json;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -203,6 +207,50 @@ pub(crate) async fn initialize_and_start_channels(
     info!("Initializing channel instances");
 
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
+    #[cfg(feature = "arkret")]
+    let all_configs = {
+        let mut retained = Vec::with_capacity(all_configs.len());
+        for config in all_configs {
+            if !config.kind.eq_ignore_ascii_case("arkret") {
+                retained.push(config);
+                continue;
+            }
+            let mode = config.config.get("mode").and_then(Value::as_str);
+            let validation = match mode {
+                Some("agent") => {
+                    savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&config)
+                        .map(|_| ())
+                }
+                Some("applet") => {
+                    let mut enabled = config.clone();
+                    enabled.enabled = true;
+                    savfox_channels::arkret::applet::ArkretAppletConfig::from_channel_config(
+                        &enabled,
+                    )
+                    .ok_or_else(|| anyhow::anyhow!("invalid Arkret applet config"))
+                    .and_then(|parsed| parsed.validate())
+                }
+                Some(other) => Err(anyhow::anyhow!(
+                    "unsupported Arkret mode '{other}'; expected 'agent' or 'applet'"
+                )),
+                None => Err(anyhow::anyhow!("missing Arkret mode")),
+            };
+            if let Err(error) = validation {
+                warn!(
+                    channel_id = %config.id,
+                    "Deleting invalid Arkret config instead of loading legacy data: {error:#}"
+                );
+                savfox_core::config::channel_store::delete_channel_config(savfox_home, &config.id)
+                    .await
+                    .with_context(|| {
+                        format!("delete invalid Arkret channel config '{}'", config.id)
+                    })?;
+                continue;
+            }
+            retained.push(config);
+        }
+        retained
+    };
 
     let reports = channel.channel_recovery_registry();
     recovery::recover_channel_configs(&all_configs, &reports, |config| {
@@ -253,43 +301,40 @@ pub(crate) async fn start_saved_channel(
     info!("Starting channel '{}' of type '{}'", channel_id, kind);
 
     let result = match kind.as_str() {
-        "matrix" => start_matrix_channel(&config, &registry, channel, session_store).await,
+        "matrix" => start_matrix_channel(config, registry, channel, session_store).await,
         #[cfg(feature = "arkret")]
         "arkret" => {
-            // Branch on the inner `mode` discriminator: `"applet"` runs as
-            // a registered Applet (≈ Matrix Appservice), anything else
-            // (default `"agent"`, plus legacy `"account"`) runs through
-            // the personal-agent/legacy account listener path.
             let mode = config
                 .config
                 .get("mode")
                 .and_then(|v| v.as_str())
-                .map(|m| m.to_ascii_lowercase())
-                .unwrap_or_else(|| "agent".to_owned());
+                .ok_or_else(|| anyhow::anyhow!("Arkret config is missing mode"))?;
             if mode == "applet" {
                 crate::channels::arkret_applet::start_arkret_applet_channel(
-                    &config,
+                    config,
+                    channel,
+                    session_store,
+                )
+                .await
+            } else if mode == "agent" {
+                crate::channels::arkret::start_arkret_channel(
+                    config,
+                    registry,
                     channel,
                     session_store,
                 )
                 .await
             } else {
-                crate::channels::arkret::start_arkret_channel(
-                    &config,
-                    &registry,
-                    channel,
-                    session_store,
-                )
-                .await
+                anyhow::bail!("unsupported Arkret mode '{mode}'")
             }
         }
-        "dingtalk" => start_dingtalk_channel(&config, channel, session_store).await,
-        "discord" => start_discord_channel(&config, &registry, channel, session_store).await,
-        "telegram" => start_telegram_channel(&config, &registry, channel, session_store).await,
-        "slack" => start_slack_channel(&config, &registry, channel).await,
+        "dingtalk" => start_dingtalk_channel(config, channel, session_store).await,
+        "discord" => start_discord_channel(config, registry, channel, session_store).await,
+        "telegram" => start_telegram_channel(config, registry, channel, session_store).await,
+        "slack" => start_slack_channel(config, registry, channel).await,
         "mattermost" | "googlechat" | "line" | "whatsapp" | "qq" | "wechat" | "msteams"
-        | "signal" | "irc" | "zalo" | "webhook" => start_webhook_only_channel(&config).await,
-        "feishu" | "lark" => start_feishu_channel(&config, &registry, channel, session_store).await,
+        | "signal" | "irc" | "zalo" | "webhook" => start_webhook_only_channel(config).await,
+        "feishu" | "lark" => start_feishu_channel(config, registry, channel, session_store).await,
         _ => {
             anyhow::bail!("channel type '{kind}' has no supported gateway runtime");
         }

@@ -22,6 +22,7 @@ dingtalk = ["dep:dingtalk-sdk"]
 feishu = ["dep:feishu-sdk"]
 arkret = [
     "dep:arkret",
+    "dep:arkret-schema",
     "dep:arkret-crypto",
     "dep:arkret-signatures",
     "dep:garth",
@@ -47,6 +48,7 @@ hmac = { workspace = true }
 reqwest = { workspace = true }
 savfox-core = { workspace = true }
 savfox-keyring-store = { workspace = true, optional = true }
+savfox-utils = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 zeroize = { workspace = true }
@@ -61,6 +63,7 @@ tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 arkret = { workspace = true, optional = true }
+arkret-schema = { workspace = true, optional = true }
 arkret-crypto = { workspace = true, optional = true }
 arkret-signatures = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }

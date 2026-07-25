@@ -8,6 +8,72 @@ use super::super::utils::require_str;
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
+#[cfg(feature = "arkret")]
+async fn validate_arkret_config_before_save(
+    savfox_home: &std::path::Path,
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> Result<(), String> {
+    let raw = config
+        .config
+        .as_object()
+        .ok_or_else(|| "Arkret config must be a JSON object".to_owned())?;
+    let mode = raw
+        .get("mode")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Arkret config requires mode='agent' or mode='applet'".to_owned())?;
+    if mode == "applet" {
+        let mut enabled = config.clone();
+        enabled.enabled = true;
+        let parsed =
+            savfox_channels::arkret::applet::ArkretAppletConfig::from_channel_config(&enabled)
+                .ok_or_else(|| "Arkret applet config is invalid".to_owned())?;
+        return parsed.validate().map_err(|error| error.to_string());
+    }
+    if mode != "agent" {
+        return Err(format!(
+            "Arkret mode '{mode}' is invalid; only 'agent' and 'applet' are accepted"
+        ));
+    }
+
+    let parsed = savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(config)
+        .map_err(|error| error.to_string())?;
+    let account = &parsed.accounts[0];
+    let key_ref = account
+        .key_ref
+        .as_ref()
+        .ok_or_else(|| "Arkret agent config is missing keyRef".to_owned())?;
+    let verification_method = account
+        .verification_method
+        .as_deref()
+        .ok_or_else(|| "Arkret agent config is missing verificationMethod".to_owned())?;
+    let runtime_public_key_digest =
+        savfox_channels::arkret::ed25519_runtime_public_key_digest(key_ref, verification_method)
+            .map_err(|error| error.to_string())?;
+    if account.authorized_event_ref.is_some()
+        && let Some(verified) = savfox_channels::arkret::load_verified_runtime_scope(
+            savfox_home,
+            &config.id,
+            account,
+            &runtime_public_key_digest,
+        )
+        .await
+        .map_err(|error| error.to_string())?
+        && !verified.permits(&account.requested_scope)
+    {
+        let excess = account
+            .requested_scope
+            .iter()
+            .filter(|action| !verified.actions.contains(action))
+            .cloned()
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "requestedScope exceeds the last service-accepted Agent authorization scope: {}",
+            excess.join(", ")
+        ));
+    }
+    Ok(())
+}
+
 pub(in crate::ws_rpc) async fn handle_web_login_start(
     params: &Value,
     channel: &Arc<GatewayChannel>,
@@ -367,8 +433,8 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
             if !arkret_save_targets_config(cfg, target_id, channel_name) {
                 continue;
             }
-            let Some(parsed) =
-                savfox_channels::arkret::ArkretChannelConfig::from_channel_config(cfg)
+            let Ok(parsed) =
+                savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(cfg)
             else {
                 continue;
             };
@@ -396,6 +462,26 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
                 }
             }
         }
+    }
+
+    #[cfg(feature = "arkret")]
+    if channel_kind.eq_ignore_ascii_case("arkret") {
+        let candidate = channel_store::preview_merged_channel_config(
+            &channel.config().savfox_home,
+            channel_kind,
+            channel_name,
+            &patch,
+        )
+        .await
+        .map_err(|error| {
+            (
+                INVALID_REQUEST,
+                format!("failed to validate Arkret config patch: {error}"),
+            )
+        })?;
+        validate_arkret_config_before_save(&channel.config().savfox_home, &candidate)
+            .await
+            .map_err(|error| (INVALID_REQUEST, error))?;
     }
 
     match channel_store::merge_channel_config(
@@ -559,8 +645,8 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
                 "message": "no Arkret channel config to unbind",
             }));
         };
-        let Some(parsed) =
-            savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&config)
+        let Ok(parsed) =
+            savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&config)
         else {
             return Ok(json!({
                 "platform": "arkret",

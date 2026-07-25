@@ -162,6 +162,7 @@ async fn write_dead_letter(
     error: &str,
     thread_id: Option<&str>,
     reply_target: Option<&str>,
+    saved_channel_config_id: Option<&str>,
     attempts: usize,
 ) {
     let dir = policy_cfg.dead_letter_path(&gateway_channel.config().savfox_home);
@@ -178,6 +179,7 @@ async fn write_dead_letter(
         "channel": channel_id,
         "thread_id": thread_id,
         "reply_target": reply_target,
+        "saved_channel_config_id": saved_channel_config_id,
         "attempts": attempts,
         "error": error,
         "text": text,
@@ -291,6 +293,7 @@ pub(super) async fn send_with_retry(
                             &chunk_error,
                             scoped_thread_id,
                             scoped_reply_target,
+                            saved_channel_config_id,
                             attempt,
                         )
                         .await;
@@ -319,6 +322,7 @@ pub(super) async fn send_with_retry(
                             &chunk_error,
                             scoped_thread_id,
                             scoped_reply_target,
+                            saved_channel_config_id,
                             attempt,
                         )
                         .await;

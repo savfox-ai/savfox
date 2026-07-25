@@ -451,7 +451,7 @@ pub async fn delete_channel_config(savfox_home: &PathBuf, selector: &str) -> std
     Ok(true)
 }
 
-pub async fn merge_channel_config(
+pub async fn preview_merged_channel_config(
     savfox_home: &PathBuf,
     channel_kind: &str,
     channel_name: &str,
@@ -584,6 +584,17 @@ pub async fn merge_channel_config(
     }
     config.updated_at = Some(now);
 
+    Ok(config)
+}
+
+pub async fn merge_channel_config(
+    savfox_home: &PathBuf,
+    channel_kind: &str,
+    channel_name: &str,
+    patch: &Value,
+) -> std::io::Result<ChannelConfig> {
+    let config =
+        preview_merged_channel_config(savfox_home, channel_kind, channel_name, patch).await?;
     save_channel_config(savfox_home, &config).await?;
     Ok(config)
 }

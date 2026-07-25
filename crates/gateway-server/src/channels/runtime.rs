@@ -592,6 +592,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                         session_id: tracked.session_id.clone(),
                         outbound_channel: outbound_channel.clone(),
                         platform: platform.to_owned(),
+                        saved_channel_config_id: start_meta.saved_channel_config_id.clone(),
                         agent_id: routed_agent.clone(),
                         thread_id: tracked.thread_id.clone(),
                         reply_target: tracked.reply_target.clone(),

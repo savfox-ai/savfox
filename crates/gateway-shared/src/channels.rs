@@ -60,6 +60,12 @@ pub struct ChannelInstanceStatusSnapshot {
     pub startup_updated_at: Option<String>,
     pub runtime_phase: Option<String>,
     pub runtime_attempts: Option<u32>,
+    pub runtime_ready: Option<bool>,
+    pub last_reason_code: Option<String>,
+    pub authority_status: Option<String>,
+    pub local_requested_scope: Option<Vec<String>>,
+    pub verified_authorization_scope: Option<Vec<String>>,
+    pub missing_required_actions: Option<Vec<String>>,
     #[serde(alias = "lastError")]
     pub last_error: Option<String>,
 }
@@ -211,6 +217,12 @@ pub struct ArkretStatus {
     pub bot_actor_id: Option<String>,
     pub protocol_count: Option<u32>,
     pub namespace_count: Option<u32>,
+    pub instance_count: Option<u32>,
+    pub ready_count: Option<u32>,
+    pub retrying_count: Option<u32>,
+    pub migration_required_count: Option<u32>,
+    pub failed_count: Option<u32>,
+    pub health_state: Option<String>,
     pub last_activity: Option<i64>,
     pub last_error: Option<String>,
 }

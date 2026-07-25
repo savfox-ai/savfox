@@ -573,13 +573,25 @@ async fn load_saved_channel_config(
 ) -> Option<ChannelConfig> {
     let savfox_home = savfox_home.to_path_buf();
 
-    if let Some(config_id) = saved_channel_config_id
-        && let Ok(Some(config)) =
-            savfox_core::config::channel_store::get_channel_config(&savfox_home, config_id).await
-        && config.enabled
-        && channel_kind_matches(&config.kind, platform)
-    {
-        return Some(config);
+    if let Some(config_id) = saved_channel_config_id {
+        return match savfox_core::config::channel_store::get_channel_config(&savfox_home, config_id)
+            .await
+        {
+            Ok(Some(config)) if config.enabled && channel_kind_matches(&config.kind, platform) => {
+                Some(config)
+            }
+            Ok(_) => None,
+            Err(err) => {
+                warn!(
+                    platform,
+                    channel_id,
+                    saved_channel_config_id = config_id,
+                    error = %err,
+                    "failed to resolve exact saved channel config"
+                );
+                None
+            }
+        };
     }
 
     if platform.eq_ignore_ascii_case("matrix")
@@ -631,6 +643,12 @@ pub(super) async fn check_channel_policies(
             .await
         {
             Some(config) => config,
+            None if saved_channel_config_id.is_some() => {
+                return PolicyDecision::Block(
+                "the routed channel instance is missing, disabled, or belongs to another platform"
+                    .to_owned(),
+            );
+            }
             None => return PolicyDecision::Allow,
         };
 
@@ -749,8 +767,36 @@ mod tests {
 
     use super::{
         AgentTriggerConfig, ChannelReplyRouteContext, GroupActivation, load_agent_trigger_config,
-        parse_group_activation_str, resolve_text_target_match,
+        load_saved_channel_config, parse_group_activation_str, resolve_text_target_match,
     };
+
+    #[tokio::test]
+    async fn exact_instance_lookup_never_falls_back_to_platform_default() {
+        let home = tempdir().expect("tempdir");
+        let savfox_home = home.path().to_path_buf();
+        let default = savfox_core::config::channel_store::ChannelConfig {
+            id: "discord".to_owned(),
+            kind: "discord".to_owned(),
+            slug: "discord".to_owned(),
+            name: "Discord".to_owned(),
+            enabled: true,
+            config: serde_json::json!({}),
+            router: None,
+            dm_policy: None,
+            group_policy: None,
+            created_at: None,
+            updated_at: None,
+        };
+        savfox_core::config::channel_store::save_channel_config(&savfox_home, &default)
+            .await
+            .expect("save platform default");
+
+        let resolved =
+            load_saved_channel_config(home.path(), "discord", "room-1", Some("discord-missing"))
+                .await;
+
+        assert!(resolved.is_none());
+    }
 
     #[tokio::test]
     async fn text_target_match_uses_agent_aliases() {

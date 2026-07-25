@@ -1027,6 +1027,8 @@ impl GatewayChannel {
         let runtime = self.runtime_channel_secrets.read().await.clone();
         let (platform, channel_id) = channel.split_once(':').unwrap_or(("webhook", channel));
         let savfox_home = &self.config.savfox_home;
+        #[cfg(not(feature = "arkret"))]
+        let _ = saved_channel_config_id;
 
         match platform {
             "discord" => {

@@ -1497,6 +1497,7 @@ fn arkret_runtime_phase_label(phase: &str) -> String {
         "subscribing" => "Listening".to_owned(),
         "dispatching" => "Dispatching".to_owned(),
         "retry_wait" => "Retrying".to_owned(),
+        "migration_required" => "Re-provision required".to_owned(),
         "stopped" => "Stopped".to_owned(),
         other => other.to_owned(),
     }
@@ -2615,6 +2616,16 @@ fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
         );
     }
     if patch
+        .pointer("/keyRef/kind")
+        .and_then(Value::as_str)
+        .is_none_or(|kind| kind != "keyring")
+    {
+        return Err(
+            "Arkret agent runtime keys must use the platform credential vault (kind='keyring'). Generate a new local runtime key before saving."
+                .to_string(),
+        );
+    }
+    if patch
         .get("verificationMethod")
         .and_then(Value::as_str)
         .map(str::trim)
@@ -2627,6 +2638,19 @@ fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
     }
     Ok(())
 }
+
+const ARKRET_AGENT_RUNTIME_SCOPE: &[&str] = &[
+    "ak.self.events.stream.subscribe",
+    "ak.self.events.query.scan",
+    "ak.self.events.command.submit",
+    "ak.self.keys.keypackages.upload.create",
+    "ak.self.keys.keypackages.command.consume",
+    "ak.self.keys.keypackages.command.revoke",
+    "ak.self.device_messages.query.list",
+    "ak.self.device_messages.command.ack",
+    "ak.event.read",
+    "ak.message.create",
+];
 
 fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
     let Some(bootstrap_value) = patch.get("inksonBootstrap").cloned() else {
@@ -2646,7 +2670,7 @@ fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
         patch["principalId"] = Value::Null;
     }
     if patch_value_empty(patch.get("requestedScope")) {
-        patch["requestedScope"] = Value::Null;
+        patch["requestedScope"] = json!(ARKRET_AGENT_RUNTIME_SCOPE);
     }
     let agent_id = bootstrap.agent_id.to_string();
     let existing_verification_method = patch
@@ -3442,7 +3466,10 @@ fn render_channel_card(
         (ChipVariant::Muted, "Disabled")
     } else if recovery_phase == Some("unsupported_runtime") {
         (ChipVariant::Danger, "Unsupported runtime")
-    } else if matches!(recovery_phase, Some("failed" | "retrying")) {
+    } else if matches!(
+        recovery_phase,
+        Some("failed" | "retrying" | "migration_required")
+    ) {
         (ChipVariant::Danger, "Needs attention")
     } else if recovery_phase == Some("stopped") {
         (ChipVariant::Danger, "Stopped")
@@ -3454,9 +3481,8 @@ fn render_channel_card(
         (ChipVariant::Success, "Listening")
     } else if health_state == Some("configured") {
         (ChipVariant::Info, "Configured")
-    } else if health_state == Some("degraded") {
-        (ChipVariant::Danger, "Needs attention")
-    } else if last_error.is_some()
+    } else if health_state == Some("degraded")
+        || last_error.is_some()
         || (ch_type.id == "arkret" && arkret_runtime_phase.as_deref() == Some("retry_wait"))
     {
         (ChipVariant::Danger, "Needs attention")
@@ -3479,7 +3505,7 @@ fn render_channel_card(
         || health_state == Some("degraded")
         || matches!(
             recovery_phase,
-            Some("failed" | "retrying" | "stopped" | "unsupported_runtime")
+            Some("failed" | "retrying" | "migration_required" | "stopped" | "unsupported_runtime")
         )
     {
         "channels-card channels-card--error"
@@ -6667,7 +6693,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
 
         assert!(arkret_runtime_key_request_can_request("arkret", &values));
@@ -6684,7 +6711,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
 
         assert!(arkret_runtime_key_request_can_request("arkret", &values));
@@ -6781,7 +6809,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
         values.insert(
             field_value_key("arkret", "authorizationResult"),
@@ -6815,14 +6844,18 @@ mod tests {
         assert!(patch["deviceId"].is_null());
         assert!(patch["defaultRealmId"].is_null());
         assert!(patch["agentId"].is_null());
-        assert!(patch["requestedScope"].is_null());
+        assert_eq!(patch["requestedScope"], json!(ARKRET_AGENT_RUNTIME_SCOPE));
         assert_eq!(
             patch["inksonBootstrap"]["pairing_request_id"],
             json!("pair-123")
         );
         assert_eq!(
             patch["keyRef"],
-            json!({"kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY"})
+            json!({
+                "kind": "keyring",
+                "service": "savfox-arkret",
+                "account": "runtime-support"
+            })
         );
         assert!(patch["externalAiEndpointConfig"].is_null());
         assert!(patch["runtimeKeyRequest"].is_null());
@@ -6848,7 +6881,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
         values.insert(
             field_value_key("arkret", "externalAiEndpointConfig"),
@@ -6861,7 +6895,7 @@ mod tests {
     }
 
     #[test]
-    fn arkret_bootstrap_defaults_fill_runtime_verification_method() {
+    fn arkret_agent_patch_rejects_legacy_runtime_key_sources() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
         values.insert(
@@ -6873,12 +6907,32 @@ mod tests {
             r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
         );
 
+        let error =
+            build_channel_patch("arkret", &fields, &values).expect_err("legacy key must fail");
+
+        assert!(error.contains("kind='keyring'"));
+    }
+
+    #[test]
+    fn arkret_bootstrap_defaults_fill_runtime_verification_method() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
+        values.insert(
+            field_value_key("arkret", "inksonBootstrap"),
+            sdk_inkson_bootstrap_json(),
+        );
+        values.insert(
+            field_value_key("arkret", "keyRef"),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
+        );
+
         let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert!(patch["baseUrl"].is_null());
         assert!(patch["serviceId"].is_null());
         assert!(patch["principalId"].is_null());
-        assert!(patch["requestedScope"].is_null());
+        assert_eq!(patch["requestedScope"], json!(ARKRET_AGENT_RUNTIME_SCOPE));
         assert_eq!(
             patch["verificationMethod"],
             json!("did:webvh:example.org:agents:support#runtime-1")
@@ -6895,7 +6949,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
         values.insert(
             field_value_key("arkret", "verificationMethod"),

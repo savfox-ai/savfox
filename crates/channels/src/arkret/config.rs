@@ -1,14 +1,16 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::Context;
 use arkret::{AgentPairingBootstrap, DeviceId, Did};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
-const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
+pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
     "ak.self.events.query.scan",
     "ak.self.events.command.submit",
@@ -20,6 +22,42 @@ const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.event.read",
     "ak.message.create",
 ];
+
+const REQUIRED_LISTEN_SCOPE: &[&str] = &[
+    "ak.self.events.stream.subscribe",
+    "ak.self.events.query.scan",
+    "ak.self.keys.keypackages.upload.create",
+    "ak.self.keys.keypackages.command.consume",
+    "ak.self.keys.keypackages.command.revoke",
+    "ak.self.device_messages.query.list",
+    "ak.self.device_messages.command.ack",
+    "ak.event.read",
+];
+
+const REQUIRED_SEND_SCOPE: &[&str] = &["ak.self.events.command.submit", "ak.message.create"];
+const VERIFIED_SCOPE_SCHEMA: &str = "savfox.arkret.verified_runtime_scope.v1";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VerifiedArkretRuntimeScope {
+    pub schema: String,
+    pub channel_id: String,
+    pub account_id: String,
+    pub principal_id: String,
+    pub authorization_ref: String,
+    pub runtime_public_key_digest: String,
+    pub actions: Vec<String>,
+    pub verified_at: DateTime<Utc>,
+}
+
+impl VerifiedArkretRuntimeScope {
+    #[must_use]
+    pub fn permits(&self, requested: &[String]) -> bool {
+        requested
+            .iter()
+            .all(|action| self.actions.iter().any(|allowed| allowed == action))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArkretAccountMode {
@@ -43,24 +81,12 @@ pub struct ArkretAccountConfig {
     pub id: String,
     pub principal_id: String,
     pub device_id: String,
-    /// Reject-only stale field. Personal-agent mode must not store bearer
-    /// tokens; applet bearer config lives in the applet config.
-    pub access_token: String,
     /// Local Ed25519 runtime key reference. In personal-agent mode this is the
     /// savfox-owned runtime key authorized by Inkson/controller.
     pub key_ref: Option<ArkretKeyRef>,
     /// Authorized runtime verification method id for agent_key_proof and event
     /// signing.
     pub verification_method: Option<String>,
-    /// Arkret service DID / agent_key_proof audience.
-    pub arkret_server_did: Option<String>,
-    /// Reject-only stale field. Personal-agent runtime uses agent_key_proof,
-    /// not DID-proof login.
-    pub login_challenge: Option<String>,
-    /// Path to a pre-signed `ak.capability.grant` Event JSON.
-    /// When set, the event_id is attached as `authorization_ref` on every
-    /// outbound write.
-    pub grant_event_path: Option<PathBuf>,
     /// Inkson pairing/bootstrap metadata consumed by savfox. This never
     /// contains a private key.
     pub inkson_bootstrap: Option<AgentPairingBootstrap>,
@@ -82,6 +108,102 @@ pub struct ArkretChannelConfig {
 }
 
 impl ArkretChannelConfig {
+    pub fn from_strict_agent_config(
+        config: &savfox_core::config::channel_store::ChannelConfig,
+    ) -> anyhow::Result<Self> {
+        let raw = config
+            .config
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("Arkret agent config must be a JSON object"))?;
+        let mode = raw
+            .get("mode")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("Arkret agent config is missing mode='agent'"))?;
+        if mode != "agent" {
+            anyhow::bail!("Arkret agent config mode must be exactly 'agent'");
+        }
+        const FIELDS: &[&str] = &[
+            "mode",
+            "inksonBootstrap",
+            "keyRef",
+            "verificationMethod",
+            "authorizedEventRef",
+            "requestedScope",
+        ];
+        let unknown = raw
+            .keys()
+            .filter(|key| !FIELDS.contains(&key.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unknown.is_empty() {
+            anyhow::bail!(
+                "Arkret agent config contains unsupported fields: {}",
+                unknown.join(", ")
+            );
+        }
+        let mut enabled = config.clone();
+        enabled.enabled = true;
+        let parsed = Self::from_channel_config(&enabled).ok_or_else(|| {
+            anyhow::anyhow!("Arkret agent config must contain a canonical inksonBootstrap object")
+        })?;
+        if parsed.accounts.len() != 1 {
+            anyhow::bail!("Arkret agent config must contain exactly one account");
+        }
+        let account = &parsed.accounts[0];
+        let key_ref = raw
+            .get("keyRef")
+            .and_then(Value::as_object)
+            .ok_or_else(|| anyhow::anyhow!("Arkret agent keyRef must be an object"))?;
+        let key_ref_fields = key_ref.keys().map(String::as_str).collect::<HashSet<_>>();
+        let expected_key_ref_fields = HashSet::from(["kind", "service", "account"]);
+        if key_ref_fields != expected_key_ref_fields
+            || key_ref.get("kind").and_then(Value::as_str) != Some("keyring")
+        {
+            anyhow::bail!(
+                "Arkret agent keyRef must contain exactly kind='keyring', service, and account"
+            );
+        }
+        if key_ref
+            .get("service")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .is_none_or(str::is_empty)
+            || key_ref
+                .get("account")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .is_none_or(str::is_empty)
+        {
+            anyhow::bail!("Arkret agent keyRef service and account must be non-empty strings");
+        }
+        if !matches!(account.key_ref, Some(ArkretKeyRef::Keyring { .. })) {
+            anyhow::bail!("Arkret agent keyRef is invalid");
+        }
+        let duplicates = duplicate_requested_scope_actions(&account.requested_scope);
+        if !duplicates.is_empty() {
+            anyhow::bail!(
+                "requestedScope contains duplicate actions: {}",
+                duplicates.join(", ")
+            );
+        }
+        let unknown = unknown_requested_scope_actions(&account.requested_scope)?;
+        if !unknown.is_empty() {
+            anyhow::bail!(
+                "requestedScope contains unknown canonical actions: {}",
+                unknown.join(", ")
+            );
+        }
+        let missing =
+            missing_required_scope_actions(&account.requested_scope, account.listen, account.send);
+        if !missing.is_empty() {
+            anyhow::bail!(
+                "requestedScope is missing required runtime actions: {}",
+                missing.join(", ")
+            );
+        }
+        Ok(parsed)
+    }
+
     #[must_use]
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
@@ -91,25 +213,38 @@ impl ArkretChannelConfig {
         }
 
         let raw = config.config.as_object()?;
+        if raw.get("mode").and_then(Value::as_str) != Some("agent") {
+            return None;
+        }
         let bootstrap = parse_inkson_bootstrap(raw.get("inksonBootstrap"));
-        let base_url = first_non_empty(raw, &["baseUrl"]).or_else(|| {
-            bootstrap
-                .as_ref()
-                .map(|value| value.arkret_base_url.clone())
-        })?;
-        let service_id = first_non_empty(raw, &["serviceId"])
-            .or_else(|| bootstrap.as_ref().map(|value| value.service_id.to_string()));
-
-        let accounts = match raw.get("accounts") {
-            Some(value) => parse_accounts(value, raw, &config.id, bootstrap.as_ref()),
-            None => parse_accounts(&Value::Null, raw, &config.id, bootstrap.as_ref()),
+        let bootstrap = bootstrap?;
+        let principal_id = bootstrap.agent_id.to_string();
+        let id = config.id.clone();
+        let account = ArkretAccountConfig {
+            mode: ArkretAccountMode::Agent,
+            id: id.clone(),
+            principal_id: principal_id.clone(),
+            device_id: derive_arkret_device_id(&[&config.id, &id, &principal_id]),
+            key_ref: raw.get("keyRef").and_then(ArkretKeyRef::from_value),
+            verification_method: raw
+                .get("verificationMethod")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            inkson_bootstrap: Some(bootstrap.clone()),
+            authorized_event_ref: raw
+                .get("authorizedEventRef")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            requested_scope: parse_string_list(raw.get("requestedScope")),
+            listen: true,
+            send: true,
         };
 
         Some(Self {
             id: config.id.clone(),
-            base_url,
-            service_id,
-            accounts,
+            base_url: bootstrap.arkret_base_url,
+            service_id: Some(bootstrap.service_id.to_string()),
+            accounts: vec![account],
         })
     }
 
@@ -196,12 +331,6 @@ impl ArkretAccountConfig {
     }
 
     fn validate_agent_runtime(&self) -> anyhow::Result<()> {
-        if !self.access_token.trim().is_empty() {
-            anyhow::bail!(
-                "Arkret agent '{}' must not store accessToken; use Inkson bootstrap, keyRef, and agent_key_proof + DPoP",
-                self.id
-            );
-        }
         if self.inkson_bootstrap.is_none() {
             anyhow::bail!(
                 "Arkret agent '{}' missing inksonBootstrap; paste the Inkson pairing link or resolved bootstrap instead of a static session grant",
@@ -214,130 +343,221 @@ impl ArkretAccountConfig {
                 self.id
             );
         }
-        if self
+        let verification_method = self
             .verification_method
             .as_deref()
             .map(str::trim)
-            .is_none_or(str::is_empty)
-        {
-            anyhow::bail!(
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
                 "Arkret agent '{}' missing authorized verificationMethod from the completed agent-key pairing",
                 self.id
+            )
+            })?;
+        if !verification_method
+            .split_once('#')
+            .is_some_and(|(controller, fragment)| {
+                controller == self.principal_id && !fragment.is_empty()
+            })
+        {
+            anyhow::bail!(
+                "Arkret agent '{}' verificationMethod must be controlled by principal_id '{}'",
+                self.id,
+                self.principal_id
             );
         }
-        if self
+        let authorization_ref = self
             .authorized_event_ref
             .as_deref()
             .map(str::trim)
-            .is_none_or(str::is_empty)
-        {
-            anyhow::bail!(
-                "Arkret agent '{}' missing authorizedEventRef for ak.agent.key.authorize; pairing must complete before the channel can run",
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Arkret agent '{}' missing authorizedEventRef for ak.agent.key.authorize; pairing must complete before the channel can run",
+                    self.id
+                )
+            })?;
+        arkret::EventId::new(authorization_ref.to_owned()).map_err(|error| {
+            anyhow::anyhow!(
+                "Arkret agent '{}' authorizedEventRef must be a valid Arkret Event id: {error}",
                 self.id
-            );
-        }
+            )
+        })?;
         if self.requested_scope.is_empty() {
             anyhow::bail!(
-                "Arkret agent '{}' missing requestedScope; include service scopes such as ak.self.events.stream.subscribe",
+                "Arkret agent '{}' missing requestedScope; the canonical runtime scope must be persisted explicitly",
                 self.id
             );
         }
-        if self.listen && !self.has_requested_scope("ak.self.events.stream.subscribe") {
+        let duplicate_actions = duplicate_requested_scope_actions(&self.requested_scope);
+        if !duplicate_actions.is_empty() {
             anyhow::bail!(
-                "Arkret agent '{}' listen=true requires service scope ak.self.events.stream.subscribe; content grants alone must not open the subscribe endpoint",
-                self.id
+                "Arkret agent '{}' requestedScope contains duplicate actions: {}",
+                self.id,
+                duplicate_actions.join(", ")
             );
         }
-        if self.send && !self.has_requested_scope("ak.self.events.command.submit") {
+        let unknown_actions = unknown_requested_scope_actions(&self.requested_scope)?;
+        if !unknown_actions.is_empty() {
             anyhow::bail!(
-                "Arkret agent '{}' send=true requires service scope ak.self.events.command.submit; content grants alone must not call the submit endpoint",
-                self.id
+                "Arkret agent '{}' requestedScope contains unknown canonical actions: {}",
+                self.id,
+                unknown_actions.join(", ")
+            );
+        }
+        let missing_actions =
+            missing_required_scope_actions(&self.requested_scope, self.listen, self.send);
+        if !missing_actions.is_empty() {
+            anyhow::bail!(
+                "Arkret agent '{}' requestedScope is missing required runtime actions: {}",
+                self.id,
+                missing_actions.join(", ")
             );
         }
         Ok(())
     }
 }
 
-fn parse_accounts(
-    accounts_value: &Value,
-    parent_raw: &serde_json::Map<String, Value>,
-    channel_id: &str,
-    bootstrap: Option<&AgentPairingBootstrap>,
-) -> Vec<ArkretAccountConfig> {
-    match accounts_value {
-        Value::Array(items) => items
-            .iter()
-            .filter_map(|item| {
-                let object = item.as_object()?;
-                let item_bootstrap = parse_inkson_bootstrap(object.get("inksonBootstrap"));
-                parse_account_entry(object, channel_id, item_bootstrap.as_ref().or(bootstrap))
-            })
-            .collect(),
-        Value::Object(_) | Value::Null => {
-            // Allow single-account flat form, but the personal-agent runtime
-            // must still carry a Inkson bootstrap.
-            if let Some(account) = parse_account_entry(parent_raw, channel_id, bootstrap) {
-                vec![account]
-            } else {
-                Vec::new()
-            }
+#[must_use]
+pub fn duplicate_requested_scope_actions(actions: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut duplicates = Vec::new();
+    for action in actions {
+        if !seen.insert(action.as_str()) && !duplicates.iter().any(|item| item == action) {
+            duplicates.push(action.clone());
         }
-        _ => Vec::new(),
     }
+    duplicates
 }
 
-fn parse_account_entry(
-    map: &serde_json::Map<String, Value>,
+pub fn unknown_requested_scope_actions(actions: &[String]) -> anyhow::Result<Vec<String>> {
+    let mut unknown = Vec::new();
+    for action in actions {
+        let canonical = action.trim();
+        // requestedScope contains both content capabilities and Arkret service
+        // operations, so validate against both SDK-owned canonical registries.
+        let is_capability_action = arkret_schema::embedded_capability_action(canonical)
+            .map_err(|error| anyhow::anyhow!("load Arkret action registry: {error}"))?
+            .is_some();
+        let is_service_operation = arkret::ServiceOperationId::from_wire(canonical).is_some();
+        if canonical != action
+            || canonical.is_empty()
+            || (!is_capability_action && !is_service_operation)
+        {
+            unknown.push(action.clone());
+        }
+    }
+    Ok(unknown)
+}
+
+#[must_use]
+pub fn missing_required_scope_actions(actions: &[String], listen: bool, send: bool) -> Vec<String> {
+    let required = REQUIRED_LISTEN_SCOPE
+        .iter()
+        .copied()
+        .filter(|_| listen)
+        .chain(REQUIRED_SEND_SCOPE.iter().copied().filter(|_| send));
+    required
+        .filter(|required| !actions.iter().any(|action| action == required))
+        .map(str::to_owned)
+        .collect()
+}
+
+fn verified_scope_path(
+    savfox_home: &std::path::Path,
     channel_id: &str,
-    bootstrap: Option<&AgentPairingBootstrap>,
-) -> Option<ArkretAccountConfig> {
-    let principal_id = first_non_empty(map, &["principalId"])
-        .or_else(|| bootstrap.map(|value| value.agent_id.to_string()))?;
-    let access_token = first_non_empty(map, &["accessToken"]).unwrap_or_default();
-    let key_ref = map.get("keyRef").and_then(ArkretKeyRef::from_value);
-    let mode = ArkretAccountMode::Agent;
-    // Caller must have at least one usable path or bootstrap. Reject parse for
-    // entries that are not actionable; `validate()` reports the precise error
-    // for incomplete bootstrap/pairing entries.
-    if bootstrap.is_none() && key_ref.is_none() && access_token.is_empty() {
-        return None;
-    }
-    let id = first_non_empty(map, &["id"]).unwrap_or_else(|| principal_id.clone());
-    let device_id = first_non_empty(map, &["deviceId"])
-        .unwrap_or_else(|| derive_arkret_device_id(&[channel_id, &id, &principal_id]));
-    let verification_method = first_non_empty(map, &["verificationMethod"]);
-    let arkret_server_did = first_non_empty(map, &["arkretServerDid"]);
-    let login_challenge = first_non_empty(map, &["loginChallenge"]);
-    let grant_event_path = first_non_empty(map, &["grantEventPath"]).map(PathBuf::from);
-    let authorized_event_ref = first_non_empty(map, &["authorizedEventRef"]);
+    account_id: &str,
+) -> PathBuf {
+    let mut hasher = Sha256::new();
+    hasher.update(channel_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(account_id.as_bytes());
+    let name = format!("{}.json", hex::encode(hasher.finalize()));
+    savfox_home
+        .join(savfox_utils::home_dir::GATEWAY_SUBDIR)
+        .join("arkret-authority")
+        .join(name)
+}
 
-    let listen = map.get("listen").and_then(Value::as_bool).unwrap_or(true);
-    let send = map.get("send").and_then(Value::as_bool).unwrap_or(true);
-    let mut requested_scope = parse_string_list(map.get("requestedScope"));
-    if requested_scope.is_empty() {
-        requested_scope = DEFAULT_AGENT_RUNTIME_SCOPE
-            .iter()
-            .map(|scope| (*scope).to_owned())
-            .collect();
-    }
+pub async fn save_verified_runtime_scope(
+    savfox_home: &std::path::Path,
+    channel_id: &str,
+    account: &ArkretAccountConfig,
+    runtime_public_key_digest: String,
+) -> anyhow::Result<VerifiedArkretRuntimeScope> {
+    let authorization_ref = account
+        .authorized_event_ref
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("missing authorizedEventRef"))?
+        .to_owned();
+    let state = VerifiedArkretRuntimeScope {
+        schema: VERIFIED_SCOPE_SCHEMA.to_owned(),
+        channel_id: channel_id.to_owned(),
+        account_id: account.id.clone(),
+        principal_id: account.principal_id.clone(),
+        authorization_ref,
+        runtime_public_key_digest,
+        actions: account.requested_scope.clone(),
+        verified_at: Utc::now(),
+    };
+    let path = verified_scope_path(savfox_home, channel_id, &account.id);
+    let bytes = serde_json::to_vec_pretty(&state).context("serialize verified Arkret scope")?;
+    savfox_utils::fs::write_atomically_async(&path, bytes, Some(0o600))
+        .await
+        .with_context(|| format!("persist verified Arkret scope {}", path.display()))?;
+    Ok(state)
+}
 
-    Some(ArkretAccountConfig {
-        mode,
-        id,
-        principal_id,
-        device_id,
-        access_token,
-        key_ref,
-        verification_method,
-        arkret_server_did,
-        login_challenge,
-        grant_event_path,
-        inkson_bootstrap: bootstrap.cloned(),
-        authorized_event_ref,
-        requested_scope,
-        listen,
-        send,
-    })
+pub async fn load_verified_runtime_scope(
+    savfox_home: &std::path::Path,
+    channel_id: &str,
+    account: &ArkretAccountConfig,
+    runtime_public_key_digest: &str,
+) -> anyhow::Result<Option<VerifiedArkretRuntimeScope>> {
+    let path = verified_scope_path(savfox_home, channel_id, &account.id);
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("read verified Arkret scope {}", path.display()));
+        }
+    };
+    let state = serde_json::from_slice::<VerifiedArkretRuntimeScope>(&bytes);
+    let valid = state.as_ref().is_ok_and(|state| {
+        let actions_are_canonical = duplicate_requested_scope_actions(&state.actions).is_empty()
+            && unknown_requested_scope_actions(&state.actions)
+                .is_ok_and(|unknown| unknown.is_empty());
+        state.schema == VERIFIED_SCOPE_SCHEMA
+            && state.channel_id == channel_id
+            && state.account_id == account.id
+            && state.principal_id == account.principal_id
+            && account.authorized_event_ref.as_deref() == Some(state.authorization_ref.as_str())
+            && state.runtime_public_key_digest == runtime_public_key_digest
+            && actions_are_canonical
+    });
+    if !valid {
+        tokio::fs::remove_file(&path)
+            .await
+            .with_context(|| format!("delete invalid verified Arkret scope {}", path.display()))?;
+        return Ok(None);
+    }
+    Ok(state.ok())
+}
+
+pub async fn delete_verified_runtime_scope(
+    savfox_home: &std::path::Path,
+    channel_id: &str,
+    account_id: &str,
+) -> anyhow::Result<()> {
+    let path = verified_scope_path(savfox_home, channel_id, account_id);
+    match tokio::fs::remove_file(&path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => {
+            Err(error).with_context(|| format!("delete verified Arkret scope {}", path.display()))
+        }
+    }
 }
 
 fn parse_inkson_bootstrap(value: Option<&Value>) -> Option<AgentPairingBootstrap> {
@@ -362,39 +582,15 @@ pub fn derive_arkret_device_id(parts: &[&str]) -> String {
     format!("ak:device:{}", uuid::Uuid::from_bytes(bytes))
 }
 
-fn first_non_empty(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| {
-        map.get(*key).and_then(|value| {
-            let text = value.as_str()?.trim();
-            if text.is_empty() {
-                None
-            } else {
-                Some(text.to_owned())
-            }
-        })
-    })
-}
-
 fn parse_string_list(value: Option<&Value>) -> Vec<String> {
-    let Some(value) = value else {
-        return Vec::new();
-    };
     match value {
-        Value::String(text) => text
-            .split([',', '\n'])
-            .map(str::trim)
-            .filter(|part| !part.is_empty())
-            .map(str::to_owned)
-            .collect(),
-        Value::Array(items) => items
+        None => Vec::new(),
+        Some(Value::Array(items)) if items.iter().all(Value::is_string) => items
             .iter()
             .filter_map(Value::as_str)
-            .map(str::trim)
-            .filter(|part| !part.is_empty())
             .map(str::to_owned)
             .collect(),
-        Value::Object(map) => parse_string_list(map.get("actions")),
-        _ => Vec::new(),
+        Some(_) => vec!["<invalid requestedScope representation>".to_owned()],
     }
 }
 
@@ -405,71 +601,53 @@ pub async fn load_arkret_channel_configs(
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home)
         .await
         .context("failed to load channel configs for arkret")?;
-    Ok(all_configs
-        .iter()
-        .filter_map(ArkretChannelConfig::from_channel_config)
-        .collect())
-}
-
-/// Resolve an outbound (send) account for a realm.
-///
-/// Iterates configured Arkret channels and returns the first
-/// `(channel, account)` pair whose [`ArkretChannelConfig::select_send_account`]
-/// matches the realm.
-pub async fn resolve_arkret_outbound_account(
-    savfox_home: &PathBuf,
-    realm_id: &str,
-) -> anyhow::Result<Option<(ArkretChannelConfig, ArkretAccountConfig)>> {
-    resolve_arkret_outbound_account_for_config(savfox_home, realm_id, None).await
+    let mut parsed = Vec::new();
+    for config in all_configs.iter().filter(|config| {
+        config.enabled
+            && config.kind.eq_ignore_ascii_case("arkret")
+            && config.config.get("mode").and_then(Value::as_str) == Some("agent")
+    }) {
+        parsed.push(
+            ArkretChannelConfig::from_strict_agent_config(config)
+                .with_context(|| format!("invalid Arkret Agent config '{}'", config.id))?,
+        );
+    }
+    Ok(parsed)
 }
 
 /// Resolve an outbound account, preserving the saved channel instance that
-/// accepted the inbound event when one is available.
+/// accepted the inbound event.
 ///
-/// Arkret account channels are principal-bound. Falling back to the first
-/// enabled Arkret config for a reply can therefore sign with a different
-/// Agent and request a session against the wrong immutable scope commitment.
+/// Arkret account channels are principal-bound, so an exact saved config ID is
+/// mandatory. A type-level fallback could sign with a different Agent.
 pub async fn resolve_arkret_outbound_account_for_config(
     savfox_home: &PathBuf,
     realm_id: &str,
     saved_channel_config_id: Option<&str>,
 ) -> anyhow::Result<Option<(ArkretChannelConfig, ArkretAccountConfig)>> {
-    if let Some(config_id) = saved_channel_config_id
+    let config_id = saved_channel_config_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-    {
-        let Some(raw) =
-            savfox_core::config::channel_store::get_channel_config(savfox_home, config_id)
-                .await
-                .with_context(|| {
-                    format!("failed to load routed Arkret channel config '{config_id}'")
-                })?
-        else {
-            return Ok(None);
-        };
-        let Some(channel) = ArkretChannelConfig::from_channel_config(&raw) else {
-            return Ok(None);
-        };
-        channel
-            .validate()
-            .with_context(|| format!("routed Arkret channel config '{config_id}' is invalid"))?;
-        let Some(account) = channel.select_send_account(realm_id).cloned() else {
-            return Ok(None);
-        };
-        return Ok(Some((channel, account)));
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Arkret outbound routing requires saved_channel_config_id; platform-level account fallback is disabled"
+            )
+        })?;
+    let Some(raw) = savfox_core::config::channel_store::get_channel_config(savfox_home, config_id)
+        .await
+        .with_context(|| format!("failed to load routed Arkret channel config '{config_id}'"))?
+    else {
+        return Ok(None);
+    };
+    if !raw.enabled {
+        return Ok(None);
     }
-
-    let channels = load_arkret_channel_configs(savfox_home).await?;
-    for channel in channels {
-        if channel.validate().is_err() {
-            continue;
-        }
-        if let Some(account) = channel.select_send_account(realm_id) {
-            let account = account.clone();
-            return Ok(Some((channel, account)));
-        }
-    }
-    Ok(None)
+    let channel = ArkretChannelConfig::from_strict_agent_config(&raw)
+        .with_context(|| format!("routed Arkret channel config '{config_id}' is invalid"))?;
+    let Some(account) = channel.select_send_account(realm_id).cloned() else {
+        return Ok(None);
+    };
+    Ok(Some((channel, account)))
 }
 
 pub fn build_arkret_runtime_key_request_json(
@@ -566,6 +744,201 @@ pub fn build_arkret_runtime_key_status_request_json(
 }
 
 #[cfg(test)]
+mod strict_tests {
+    use savfox_core::config::channel_store::ChannelConfig;
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    fn canonical_config(scope: Value) -> ChannelConfig {
+        ChannelConfig {
+            id: "arkret-agent".to_owned(),
+            kind: "arkret".to_owned(),
+            slug: "agent".to_owned(),
+            name: "Agent".to_owned(),
+            enabled: true,
+            config: json!({
+                "mode": "agent",
+                "inksonBootstrap": {
+                    "arkret_base_url": "https://arkret.example.org",
+                    "service_id": "did:webvh:arkret.example.org",
+                    "agent_id": "did:webvh:example.org:agents:bb",
+                    "pairing_request_id": "pair-bb",
+                    "pairing_code": "123456",
+                    "pairing_expires_at": "2026-07-25T09:05:35.700Z"
+                },
+                "keyRef": {
+                    "kind": "keyring",
+                    "service": "savfox-arkret",
+                    "account": "runtime-bb"
+                },
+                "verificationMethod": "did:webvh:example.org:agents:bb#runtime-1",
+                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
+                "requestedScope": scope
+            }),
+            router: None,
+            dm_policy: None,
+            group_policy: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    fn default_scope() -> Value {
+        json!(DEFAULT_AGENT_RUNTIME_SCOPE)
+    }
+
+    #[test]
+    fn canonical_agent_config_is_accepted() {
+        let parsed =
+            ArkretChannelConfig::from_strict_agent_config(&canonical_config(default_scope()))
+                .expect("canonical config");
+        assert_eq!(parsed.accounts.len(), 1);
+        assert_eq!(
+            parsed.accounts[0].principal_id,
+            "did:webvh:example.org:agents:bb"
+        );
+    }
+
+    #[test]
+    fn historical_action_alias_is_rejected_without_migration() {
+        let mut scope = DEFAULT_AGENT_RUNTIME_SCOPE
+            .iter()
+            .map(|action| (*action).to_owned())
+            .collect::<Vec<_>>();
+        scope[1] = "ak.self.events.scan".to_owned();
+        let error = ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
+            .expect_err("historical alias must fail");
+        assert!(error.to_string().contains("unknown canonical actions"));
+    }
+
+    #[test]
+    fn missing_required_action_is_rejected() {
+        let scope = DEFAULT_AGENT_RUNTIME_SCOPE
+            .iter()
+            .filter(|action| **action != "ak.self.events.command.submit")
+            .copied()
+            .collect::<Vec<_>>();
+        let error = ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
+            .expect_err("missing action must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("missing required runtime actions")
+        );
+    }
+
+    #[test]
+    fn keyring_reference_rejects_empty_and_extra_fields() {
+        let mut empty = canonical_config(default_scope());
+        empty.config["keyRef"]["service"] = json!("");
+        let error = ArkretChannelConfig::from_strict_agent_config(&empty)
+            .expect_err("empty keyring service must fail");
+        assert!(error.to_string().contains("must be non-empty"));
+
+        let mut extra = canonical_config(default_scope());
+        extra.config["keyRef"]["legacy"] = json!(true);
+        let error = ArkretChannelConfig::from_strict_agent_config(&extra)
+            .expect_err("extra keyring field must fail");
+        assert!(error.to_string().contains("must contain exactly"));
+    }
+
+    #[test]
+    fn noncanonical_pairing_timestamp_is_rejected() {
+        let mut config = canonical_config(default_scope());
+        config.config["inksonBootstrap"]["pairing_expires_at"] = json!("2026-07-25T09:05:35.7Z");
+        let error = ArkretChannelConfig::from_strict_agent_config(&config)
+            .expect_err("timestamp must be canonical");
+        assert!(error.to_string().contains("canonical inksonBootstrap"));
+    }
+
+    #[tokio::test]
+    async fn outbound_resolution_requires_exact_instance_id() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-arkret-strict-route-{}",
+            uuid::Uuid::now_v7()
+        ));
+        let error = resolve_arkret_outbound_account_for_config(
+            &home,
+            "ak:realm:01904100-0000-7000-8000-000000000001",
+            None,
+        )
+        .await
+        .expect_err("type-level fallback must fail");
+        assert!(error.to_string().contains("saved_channel_config_id"));
+    }
+
+    #[tokio::test]
+    async fn outbound_resolution_rejects_noncanonical_routed_config() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-arkret-strict-route-{}",
+            uuid::Uuid::now_v7()
+        ));
+        let mut config = canonical_config(default_scope());
+        config.id = "arkret-agent".to_owned();
+        config.config["legacyField"] = json!(true);
+        savfox_core::config::channel_store::save_channel_config(&home, &config)
+            .await
+            .expect("save noncanonical config");
+
+        let error = resolve_arkret_outbound_account_for_config(
+            &home,
+            "ak:realm:01904100-0000-7000-8000-000000000001",
+            Some("arkret-agent"),
+        )
+        .await
+        .expect_err("noncanonical routed config must fail");
+
+        assert!(format!("{error:#}").contains("unsupported fields"));
+        let _ = tokio::fs::remove_dir_all(home).await;
+    }
+
+    #[tokio::test]
+    async fn verified_scope_is_invalidated_when_runtime_key_changes() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-arkret-authority-test-{}",
+            uuid::Uuid::now_v7()
+        ));
+        let parsed =
+            ArkretChannelConfig::from_strict_agent_config(&canonical_config(default_scope()))
+                .expect("canonical config");
+        let account = &parsed.accounts[0];
+        save_verified_runtime_scope(
+            &home,
+            &parsed.id,
+            account,
+            "sha256:original-runtime-key".to_owned(),
+        )
+        .await
+        .expect("save verified scope");
+
+        let verified =
+            load_verified_runtime_scope(&home, &parsed.id, account, "sha256:original-runtime-key")
+                .await
+                .expect("load matching verified scope");
+        assert!(verified.is_some());
+
+        let stale = load_verified_runtime_scope(
+            &home,
+            &parsed.id,
+            account,
+            "sha256:replacement-runtime-key",
+        )
+        .await
+        .expect("invalidate stale verified scope");
+        assert!(stale.is_none());
+
+        let removed =
+            load_verified_runtime_scope(&home, &parsed.id, account, "sha256:original-runtime-key")
+                .await
+                .expect("stale state remains deleted");
+        assert!(removed.is_none());
+
+        let _ = tokio::fs::remove_dir_all(home).await;
+    }
+}
+
+#[cfg(all(test, any()))]
 mod tests {
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD_NO_PAD;
