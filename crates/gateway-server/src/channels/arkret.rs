@@ -69,6 +69,7 @@ struct ArkretListenerDiagnostic {
     last_local_agent_id: Option<String>,
     received_events: u64,
     dispatched_events: u64,
+    baselined_events: u64,
     skipped_events: u64,
     updated_at: chrono::DateTime<Utc>,
 }
@@ -87,6 +88,7 @@ impl ArkretListenerDiagnostic {
             last_local_agent_id: None,
             received_events: 0,
             dispatched_events: 0,
+            baselined_events: 0,
             skipped_events: 0,
             updated_at: Utc::now(),
         }
@@ -106,6 +108,7 @@ impl ArkretListenerDiagnostic {
             "last_local_agent_id": self.last_local_agent_id,
             "received_events": self.received_events,
             "dispatched_events": self.dispatched_events,
+            "baselined_events": self.baselined_events,
             "skipped_events": self.skipped_events,
             "updated_at": self.updated_at,
         })
@@ -115,6 +118,8 @@ impl ArkretListenerDiagnostic {
 const ACCOUNT_EVENT_DEDUPE_MAX: usize = 4096;
 const ACCOUNT_SCAN_CATCHUP_LIMIT: u32 = 100;
 const ACCOUNT_SCAN_CATCHUP_MAX_PAGES: usize = 64;
+const ACCOUNT_DURABLE_WORK_POLL: Duration = Duration::from_millis(250);
+const ACCOUNT_AUTH_WARNING_INTERVAL: Duration = Duration::from_secs(30);
 const DEVICE_MESSAGES_PULL_LIMIT: u32 = 100;
 const DEVICE_MESSAGES_PULL_MAX_PAGES: usize = 16;
 
@@ -504,6 +509,27 @@ enum AccountEngineOutcome {
     Retry { error: anyhow::Error },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AccountInboundMode {
+    Live,
+    InitialCatchup,
+}
+
+impl AccountInboundMode {
+    fn suppresses_agent_dispatch(self) -> bool {
+        self == Self::InitialCatchup
+    }
+}
+
+fn account_inbound_mode(events: &[ClientEvent]) -> AccountInboundMode {
+    match events.first() {
+        Some(ClientEvent::AccountUpdates(updates)) if updates.initial_catchup => {
+            AccountInboundMode::InitialCatchup
+        }
+        _ => AccountInboundMode::Live,
+    }
+}
+
 async fn drive_account_subscription_engine(
     provider: &ArkretAgentSessionProvider,
     channel: &ArkretChannelConfig,
@@ -553,8 +579,9 @@ async fn drive_account_subscription_engine(
         },
     );
     tokio::pin!(run);
-    let mut delivery_poll = tokio::time::interval(Duration::from_millis(50));
+    let mut delivery_poll = tokio::time::interval(ACCOUNT_DURABLE_WORK_POLL);
     delivery_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_auth_warning = None;
 
     loop {
         tokio::select! {
@@ -567,6 +594,7 @@ async fn drive_account_subscription_engine(
                     &crypto_store,
                     &gateway_channel,
                     &session_store,
+                    &mut last_auth_warning,
                 )
                 .await;
                 return account_engine_outcome_from_result(result);
@@ -580,6 +608,7 @@ async fn drive_account_subscription_engine(
                     &crypto_store,
                     &gateway_channel,
                     &session_store,
+                    &mut last_auth_warning,
                 )
                 .await;
             }
@@ -596,15 +625,58 @@ async fn process_durable_account_work(
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
+    last_auth_warning: &mut Option<tokio::time::Instant>,
 ) {
-    let client = match provider.provide().await {
-        Ok(client) => ArkretHttpClient::from_inner(client),
+    let now_ms = Utc::now().timestamp_millis();
+    let inbox_due = match account_store.pending(1).await {
+        Ok(deliveries) => deliveries.first().is_some_and(|delivery| {
+            delivery
+                .next_attempt_at_ms
+                .is_none_or(|next_at| next_at <= now_ms)
+        }),
         Err(error) => {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "arkret: cannot drain durable inbox without an authenticated client: {error}"
+                "arkret: failed to preflight durable account inbox: {error}"
             );
+            return;
+        }
+    };
+    let outbound_active = match account_store.has_active_outbound() {
+        Ok(active) => active,
+        Err(error) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: failed to preflight durable account outbound queue: {error}"
+            );
+            return;
+        }
+    };
+    if !inbox_due && !outbound_active {
+        return;
+    }
+
+    let client = match provider.provide().await {
+        Ok(client) => {
+            *last_auth_warning = None;
+            ArkretHttpClient::from_inner(client)
+        }
+        Err(error) => {
+            let now = tokio::time::Instant::now();
+            let warning_due = last_auth_warning
+                .is_none_or(|last| now.duration_since(last) >= ACCOUNT_AUTH_WARNING_INTERVAL);
+            if warning_due {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    inbox_due,
+                    outbound_active,
+                    "arkret: cannot drain durable account work without an authenticated client: {error}"
+                );
+                *last_auth_warning = Some(now);
+            }
             return;
         }
     };
@@ -724,11 +796,22 @@ async fn process_durable_account_inbox(
                 // head item after its persisted retry deadline.
                 return;
             }
+            let inbound_mode = account_inbound_mode(&delivery.events);
+            if inbound_mode == AccountInboundMode::InitialCatchup {
+                info!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    delivery_id = delivery.id.get(),
+                    events = delivery.events.len(),
+                    "arkret: processing initial account catch-up as a history baseline"
+                );
+            }
             let mut processing_error = None;
             for event in delivery.events {
                 if let Err(error) = handle_account_client_event(
                     client,
                     event,
+                    inbound_mode,
                     channel,
                     account,
                     account_store,
@@ -799,6 +882,7 @@ fn account_engine_outcome_from_result(
 async fn handle_account_client_event(
     client: &ArkretHttpClient,
     event: ClientEvent,
+    inbound_mode: AccountInboundMode,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
@@ -826,6 +910,7 @@ async fn handle_account_client_event(
             handle_parsed_account_events(
                 client,
                 parsed,
+                inbound_mode,
                 channel,
                 account,
                 account_store,
@@ -838,6 +923,7 @@ async fn handle_account_client_event(
                 scan_limited_realm_timeline_for_account(
                     client,
                     scan_request,
+                    inbound_mode,
                     channel,
                     account,
                     account_store,
@@ -1900,6 +1986,7 @@ where
 async fn scan_limited_realm_timeline_for_account(
     client: &ArkretHttpClient,
     request: AccountScanCatchupRequest,
+    inbound_mode: AccountInboundMode,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
@@ -1961,6 +2048,7 @@ async fn scan_limited_realm_timeline_for_account(
     handle_parsed_account_events(
         client,
         parsed,
+        inbound_mode,
         channel,
         account,
         account_store,
@@ -2288,6 +2376,7 @@ fn record_account_mls_welcome_from_value_tree_inner(
 async fn handle_parsed_account_events(
     client: &ArkretHttpClient,
     parsed: ArkretInboundParseResult,
+    inbound_mode: AccountInboundMode,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
@@ -2311,6 +2400,7 @@ async fn handle_parsed_account_events(
                 let decrypted = try_handle_encrypted_account_skip(
                     client,
                     &skipped,
+                    inbound_mode,
                     crypto_store,
                     channel,
                     account,
@@ -2321,6 +2411,12 @@ async fn handle_parsed_account_events(
                 if decrypted {
                     if let Some(event_id) = skipped.event_id.as_deref() {
                         remember_account_event(account_store, event_id).await?;
+                    }
+                    if inbound_mode.suppresses_agent_dispatch() {
+                        update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+                            diagnostic.baselined_events =
+                                diagnostic.baselined_events.saturating_add(1);
+                        });
                     }
                     continue;
                 }
@@ -2367,6 +2463,19 @@ async fn handle_parsed_account_events(
             continue;
         }
         let event_id = event.event_id.clone();
+        if inbound_mode.suppresses_agent_dispatch() {
+            remember_account_event(account_store, &event_id).await?;
+            update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+                diagnostic.baselined_events = diagnostic.baselined_events.saturating_add(1);
+            });
+            debug!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                event_id = %event_id,
+                "arkret: recorded initial catch-up event without agent dispatch"
+            );
+            continue;
+        }
         dispatch_to_agent(
             event,
             channel,
@@ -2478,12 +2587,21 @@ async fn dispatch_to_agent(
 async fn try_handle_encrypted_account_skip(
     client: &ArkretHttpClient,
     skipped: &ArkretInboundSkippedEvent,
+    inbound_mode: AccountInboundMode,
     crypto_store: &FileArkretCryptoStore,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<bool> {
+    if arkret_sender_is_account_principal(skipped.sender_did.as_deref(), account) {
+        debug!(
+            account_id = %account.id,
+            event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
+            "arkret: ignored the Agent's own encrypted event echo before MLS decrypt"
+        );
+        return Ok(true);
+    }
     let Some(payload) = skipped.encrypted_payload.as_ref() else {
         return Ok(false);
     };
@@ -2527,6 +2645,15 @@ async fn try_handle_encrypted_account_skip(
                 &consume_bindings,
             )
             .await;
+            if inbound_mode.suppresses_agent_dispatch() {
+                debug!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
+                    "arkret: decrypted initial catch-up event for MLS progression without agent dispatch"
+                );
+                return Ok(true);
+            }
             let Some(body) = decrypted_text_body(&content) else {
                 warn!(
                     account_id = %account.id,
@@ -2713,6 +2840,13 @@ fn consume_sidecar_exchange_binding(
             }
         }
     }
+}
+
+fn arkret_sender_is_account_principal(
+    sender_did: Option<&str>,
+    account: &ArkretAccountConfig,
+) -> bool {
+    sender_did.is_some_and(|sender| sender.eq_ignore_ascii_case(account.principal_id.trim()))
 }
 
 fn record_account_unable_to_decrypt(
@@ -3383,6 +3517,54 @@ mod tests {
             listen: true,
             send: true,
         }
+    }
+
+    #[test]
+    fn encrypted_account_self_echo_is_identified_before_mls_decrypt() {
+        let account = make_account();
+
+        assert!(arkret_sender_is_account_principal(
+            Some("did:webvh:z6mkfixture:agent.example"),
+            &account,
+        ));
+        assert!(arkret_sender_is_account_principal(
+            Some("DID:WEBVH:Z6MKFIXTURE:AGENT.EXAMPLE"),
+            &account,
+        ));
+        assert!(!arkret_sender_is_account_principal(
+            Some("did:webvh:z6mkfixture:controller.example"),
+            &account,
+        ));
+        assert!(!arkret_sender_is_account_principal(None, &account));
+    }
+
+    #[test]
+    fn initial_account_catchup_selects_history_baseline_mode() {
+        let initial = ClientEvent::AccountUpdates(garth::AccountUpdateContext {
+            initial_catchup: true,
+            malformed_realms: Vec::new(),
+            to_device_ack_token: None,
+            to_device_limited: false,
+            to_device_next_cursor: None,
+            to_device_lost: false,
+            device_lists: arkret::AccountSubscribeDeviceListChanges {
+                changed: Vec::new(),
+                left: Vec::new(),
+            },
+            presence: Vec::new(),
+            account_data: Vec::new(),
+            partial: false,
+        });
+        let ClientEvent::AccountUpdates(mut live_context) = initial.clone() else {
+            unreachable!();
+        };
+        live_context.initial_catchup = false;
+        let live = ClientEvent::AccountUpdates(live_context);
+
+        let initial_mode = account_inbound_mode(&[initial]);
+        assert_eq!(initial_mode, AccountInboundMode::InitialCatchup);
+        assert!(initial_mode.suppresses_agent_dispatch());
+        assert_eq!(account_inbound_mode(&[live]), AccountInboundMode::Live);
     }
 
     fn realm_id() -> arkret::RealmId {
