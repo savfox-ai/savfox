@@ -420,6 +420,45 @@ pub async fn resolve_arkret_outbound_account(
     savfox_home: &PathBuf,
     realm_id: &str,
 ) -> anyhow::Result<Option<(ArkretChannelConfig, ArkretAccountConfig)>> {
+    resolve_arkret_outbound_account_for_config(savfox_home, realm_id, None).await
+}
+
+/// Resolve an outbound account, preserving the saved channel instance that
+/// accepted the inbound event when one is available.
+///
+/// Arkret account channels are principal-bound. Falling back to the first
+/// enabled Arkret config for a reply can therefore sign with a different
+/// Agent and request a session against the wrong immutable scope commitment.
+pub async fn resolve_arkret_outbound_account_for_config(
+    savfox_home: &PathBuf,
+    realm_id: &str,
+    saved_channel_config_id: Option<&str>,
+) -> anyhow::Result<Option<(ArkretChannelConfig, ArkretAccountConfig)>> {
+    if let Some(config_id) = saved_channel_config_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let Some(raw) =
+            savfox_core::config::channel_store::get_channel_config(savfox_home, config_id)
+                .await
+                .with_context(|| {
+                    format!("failed to load routed Arkret channel config '{config_id}'")
+                })?
+        else {
+            return Ok(None);
+        };
+        let Some(channel) = ArkretChannelConfig::from_channel_config(&raw) else {
+            return Ok(None);
+        };
+        channel
+            .validate()
+            .with_context(|| format!("routed Arkret channel config '{config_id}' is invalid"))?;
+        let Some(account) = channel.select_send_account(realm_id).cloned() else {
+            return Ok(None);
+        };
+        return Ok(Some((channel, account)));
+    }
+
     let channels = load_arkret_channel_configs(savfox_home).await?;
     for channel in channels {
         if channel.validate().is_err() {
@@ -945,6 +984,65 @@ mod tests {
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
         let chosen = parsed.select_send_account("ak:realm:2").expect("match");
         assert_eq!(chosen.id, "a");
+    }
+
+    #[tokio::test]
+    async fn outbound_resolution_preserves_routed_channel_instance() {
+        let savfox_home =
+            std::env::temp_dir().join(format!("savfox-arkret-route-test-{}", uuid::Uuid::now_v7()));
+        let mut first = make_channel_config(json!({
+            "mode": "agent",
+            "inksonBootstrap": sdk_inkson_bootstrap(
+                "https://arkret.example.org",
+                "did:webvh:arkret.example.org",
+                "did:webvh:example.org:agents:first",
+                "pair-first",
+                "111111"
+            ),
+            "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_FIRST_KEY" },
+            "verificationMethod": "did:webvh:example.org:agents:first#runtime-1",
+            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-0000000000a1"
+        }));
+        first.id = "arkret-first".into();
+        first.slug = "first".into();
+        first.name = "First".into();
+        let mut second = make_channel_config(json!({
+            "mode": "agent",
+            "inksonBootstrap": sdk_inkson_bootstrap(
+                "https://arkret.example.org",
+                "did:webvh:arkret.example.org",
+                "did:webvh:example.org:agents:second",
+                "pair-second",
+                "222222"
+            ),
+            "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_SECOND_KEY" },
+            "verificationMethod": "did:webvh:example.org:agents:second#runtime-1",
+            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-0000000000b2"
+        }));
+        second.id = "arkret-second".into();
+        second.slug = "second".into();
+        second.name = "Second".into();
+
+        savfox_core::config::channel_store::save_channel_config(&savfox_home, &first)
+            .await
+            .expect("save first channel");
+        savfox_core::config::channel_store::save_channel_config(&savfox_home, &second)
+            .await
+            .expect("save second channel");
+
+        let (channel, account) = resolve_arkret_outbound_account_for_config(
+            &savfox_home,
+            "ak:realm:01904100-0000-7000-8000-000000000001",
+            Some("arkret-second"),
+        )
+        .await
+        .expect("resolve routed channel")
+        .expect("routed channel exists");
+
+        assert_eq!(channel.id, "arkret-second");
+        assert_eq!(account.principal_id, "did:webvh:example.org:agents:second");
+
+        let _ = tokio::fs::remove_dir_all(savfox_home).await;
     }
 
     #[test]

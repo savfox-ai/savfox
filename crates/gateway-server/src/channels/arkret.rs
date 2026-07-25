@@ -37,7 +37,7 @@ use savfox_channels::arkret::{
     UnableToDecryptReason, account_allows_event_read, build_message_create_event,
     build_user_facing_response_metadata, device_messages_scope, encode_sidecar_reply_target,
     gate_inbound_request_binding, open_account_store, parse_delta_frame_for_account,
-    resolve_arkret_outbound_account, sidecar_binding_from_metadata_plaintext,
+    resolve_arkret_outbound_account_for_config, sidecar_binding_from_metadata_plaintext,
     sign_keypackages_consume_request, sign_keypackages_revoke_request,
     sign_keypackages_upload_request,
 };
@@ -3266,10 +3266,16 @@ pub(crate) async fn send_to_arkret_account(
     strand_id: Option<&str>,
     body: &str,
     sidecar_exchange: Option<&SidecarExchangeContext>,
+    saved_channel_config_id: Option<&str>,
 ) -> anyhow::Result<()> {
-    let Some((channel, account)) = resolve_arkret_outbound_account(savfox_home, realm_id).await?
+    let Some((channel, account)) =
+        resolve_arkret_outbound_account_for_config(savfox_home, realm_id, saved_channel_config_id)
+            .await?
     else {
-        anyhow::bail!("no Arkret channel configured for realm {realm_id}");
+        anyhow::bail!(
+            "no Arkret channel configured for realm {realm_id} and routed config {:?}",
+            saved_channel_config_id
+        );
     };
     if !account.has_requested_scope("ak.self.events.command.submit") {
         anyhow::bail!(

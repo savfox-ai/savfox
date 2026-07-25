@@ -348,7 +348,7 @@ garth = { path = "../../arkret-org/garth", default-features = false, features = 
 arkret-bridge-runtime = { path = "../../arkret-org/bridges/crates/runtime", default-features = false, features = ["edge"] }
 
 # WASM dependencies for gateway-dioxus
-dioxus = { version = "0.7", default-features = false, features = [
+dioxus = { version = "=0.7.9", default-features = false, features = [
     "web",
     "router",
     "lib",

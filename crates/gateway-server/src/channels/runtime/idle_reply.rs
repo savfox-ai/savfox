@@ -529,6 +529,7 @@ async fn fire_idle_reply(
         None,
         send_thread_id,
         send_reply_target,
+        None,
     )
     .await?;
 

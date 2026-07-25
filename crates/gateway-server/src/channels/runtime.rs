@@ -306,6 +306,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             Some(1),
             None,
             None,
+            meta.as_ref()
+                .and_then(|value| value.saved_channel_config_id.as_deref()),
         )
         .await;
         return;
@@ -686,6 +688,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 None,
                 tracked.thread_id.as_deref(),
                 tracked.reply_target.as_deref(),
+                start_meta.saved_channel_config_id.as_deref(),
             )
             .await
             {
@@ -788,6 +791,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     let approval_channel = outbound_channel.clone();
     let approval_thread_id = tracked.thread_id.clone();
     let approval_reply_target = tracked.reply_target.clone();
+    let approval_saved_channel_config_id = start_meta.saved_channel_config_id.clone();
     let approval_task = tokio::spawn(async move {
         while let Some(msg) = approval_rx.recv().await {
             let _ = send_with_retry(
@@ -797,6 +801,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 Some(1),
                 approval_thread_id.as_deref(),
                 approval_reply_target.as_deref(),
+                approval_saved_channel_config_id.as_deref(),
             )
             .await;
         }
@@ -902,6 +907,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                     None,
                     tracked.thread_id.as_deref(),
                     tracked.reply_target.as_deref(),
+                    start_meta.saved_channel_config_id.as_deref(),
                 )
                 .await
                 {
@@ -962,6 +968,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 None,
                 tracked.thread_id.as_deref(),
                 tracked.reply_target.as_deref(),
+                start_meta.saved_channel_config_id.as_deref(),
             )
             .await
             {

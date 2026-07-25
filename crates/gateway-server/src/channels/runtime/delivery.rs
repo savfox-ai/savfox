@@ -194,6 +194,7 @@ pub(super) async fn send_with_retry(
     attempt_override: Option<usize>,
     thread_id: Option<&str>,
     reply_target: Option<&str>,
+    saved_channel_config_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let policy_cfg = SendPolicyConfig::load(&gateway_channel.config().savfox_home).await;
     let policy = policy_cfg.resolve(channel_id);
@@ -252,6 +253,7 @@ pub(super) async fn send_with_retry(
                     None,
                     scoped_thread_id,
                     scoped_reply_target,
+                    saved_channel_config_id,
                 ),
             )
             .await;
