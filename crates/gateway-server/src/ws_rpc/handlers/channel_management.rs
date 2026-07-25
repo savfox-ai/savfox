@@ -355,11 +355,16 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     if channel_kind.eq_ignore_ascii_case("arkret")
         && let Some(incoming_agent) = arkret_patch_agent_id(&patch)
     {
+        let target_id = patch
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let existing = channel_store::list_channel_configs(&channel.config().savfox_home)
             .await
             .unwrap_or_default();
         for cfg in &existing {
-            if !cfg.kind.eq_ignore_ascii_case("arkret") {
+            if !arkret_save_targets_config(cfg, target_id, channel_name) {
                 continue;
             }
             let Some(parsed) =
@@ -425,7 +430,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
                         })?;
                     if config.enabled {
                         runtime = super::super::handle_channels_login(
-                            &json!({ "platform": "arkret" }),
+                            &json!({ "platform": "arkret", "id": config.id }),
                             channel,
                             session_store,
                         )
@@ -535,6 +540,19 @@ fn arkret_patch_agent_id(patch: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
+}
+
+#[cfg(feature = "arkret")]
+fn arkret_save_targets_config(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+    target_id: Option<&str>,
+    target_name: &str,
+) -> bool {
+    config.kind.eq_ignore_ascii_case("arkret")
+        && target_id.map_or_else(
+            || config.name.trim().eq_ignore_ascii_case(target_name.trim()),
+            |id| config.id.eq_ignore_ascii_case(id),
+        )
 }
 
 /// Explicitly unbind the Agent runtime currently bound to the Arkret channel.
@@ -648,5 +666,54 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             "pool_revoke_attempted": report.revoke_attempted,
             "message": "Unbound Agent runtime: revoked KeyPackage pool, purged local state, and cleared the binding",
         }))
+    }
+}
+
+#[cfg(all(test, feature = "arkret"))]
+mod tests {
+    use savfox_core::config::channel_store::ChannelConfig;
+
+    use super::*;
+
+    fn arkret_config(id: &str, name: &str) -> ChannelConfig {
+        ChannelConfig {
+            id: id.to_owned(),
+            kind: "arkret".to_owned(),
+            slug: name.to_ascii_lowercase().replace(' ', "-"),
+            name: name.to_owned(),
+            enabled: true,
+            config: json!({}),
+            router: None,
+            dm_policy: None,
+            group_policy: None,
+            created_at: Some(1),
+            updated_at: Some(1),
+        }
+    }
+
+    #[test]
+    fn arkret_rebind_guard_targets_only_the_exact_instance_id() {
+        let support = arkret_config("arkret-support", "Support");
+        let sales = arkret_config("arkret-sales", "Sales");
+
+        assert!(arkret_save_targets_config(
+            &support,
+            Some("arkret-support"),
+            "Renamed support"
+        ));
+        assert!(!arkret_save_targets_config(
+            &sales,
+            Some("arkret-support"),
+            "Renamed support"
+        ));
+    }
+
+    #[test]
+    fn arkret_new_save_falls_back_to_exact_name_without_an_id() {
+        let support = arkret_config("arkret-support", "Support");
+        let sales = arkret_config("arkret-sales", "Sales");
+
+        assert!(arkret_save_targets_config(&support, None, "Support"));
+        assert!(!arkret_save_targets_config(&sales, None, "Support"));
     }
 }

@@ -219,12 +219,19 @@ fn resolve_id(slug: &str, kind: &str) -> String {
     format!("{kind}-{slug}")
 }
 
+fn resolve_instance_id(raw_id: &str, slug: &str, kind: &str) -> String {
+    let generated = resolve_id(slug, kind);
+    normalize_slug(raw_id)
+        .filter(|id| id != kind)
+        .unwrap_or(generated)
+}
+
 fn normalize_config(config: &mut ChannelConfig) {
     let kind = resolve_kind(&config.kind, Some(&config.id));
     config.kind = kind.clone();
     config.name = resolve_name(&config.name);
     config.slug = resolve_slug(&config.name);
-    config.id = resolve_id(&config.slug, &kind);
+    config.id = resolve_instance_id(&config.id, &config.slug, &kind);
 }
 
 fn normalized_selector(selector: &str) -> String {
@@ -571,17 +578,13 @@ pub async fn merge_channel_config(
     }
     config.name = resolve_name(&config.name);
     config.slug = resolve_slug(&config.name);
-    let resolved_id = resolve_id(&config.slug, &config.kind);
-    if config.id.trim().is_empty() {
-        config.id = resolved_id.clone();
-    }
+    config.id = resolve_instance_id(&config.id, &config.slug, &config.kind);
     if config.created_at.is_none() {
         config.created_at = Some(now);
     }
     config.updated_at = Some(now);
 
     save_channel_config(savfox_home, &config).await?;
-    config.id = resolved_id;
     Ok(config)
 }
 
@@ -674,7 +677,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn save_channel_renames_file_when_generated_id_changes() {
+    async fn save_channel_preserves_instance_id_when_name_changes() {
         let home =
             std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::new_v4()));
         let channels = home.join(CHANNELS_SUBDIR);
@@ -729,14 +732,53 @@ mod tests {
             .and_then(|name| name.to_str())
             .unwrap_or_default()
             .to_owned();
-        assert_eq!(second_name, "matrix-renamed-matrix.json");
+        assert_eq!(second_name, "matrix-primary-matrix.json");
 
         let loaded = get_channel_config(&home, "matrix")
             .await
             .expect("lookup by kind")
             .expect("config should exist");
-        assert_eq!(loaded.id, "matrix-renamed-matrix");
+        assert_eq!(loaded.id, "matrix-primary-matrix");
         assert_eq!(loaded.name, "Renamed Matrix");
+
+        let _ = tokio::fs::remove_dir_all(&home).await;
+    }
+
+    #[tokio::test]
+    async fn merge_channel_preserves_instance_id_when_name_changes() {
+        let home =
+            std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::new_v4()));
+        let first = merge_channel_config(
+            &home,
+            "Matrix",
+            "Primary Matrix",
+            &json!({ "homeserver": "http://127.0.0.1:6006" }),
+        )
+        .await
+        .expect("merge first");
+
+        let renamed = merge_channel_config(
+            &home,
+            "Matrix",
+            "Renamed Matrix",
+            &json!({
+                "id": first.id,
+                "name": "Renamed Matrix",
+                "homeserver": "http://127.0.0.1:6006"
+            }),
+        )
+        .await
+        .expect("merge rename");
+
+        assert_eq!(renamed.id, "matrix-primary-matrix");
+        assert_eq!(renamed.slug, "renamed-matrix");
+        assert_eq!(renamed.name, "Renamed Matrix");
+        let files = list_json_files(&home.join(CHANNELS_SUBDIR)).await;
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            files[0].file_name().and_then(|name| name.to_str()),
+            Some("matrix-primary-matrix.json")
+        );
 
         let _ = tokio::fs::remove_dir_all(&home).await;
     }
