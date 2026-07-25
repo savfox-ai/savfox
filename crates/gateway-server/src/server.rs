@@ -561,7 +561,20 @@ pub(crate) async fn start_server(
     info!("gateway server starting on {bind_addr}");
 
     let acceptor = TcpListener::new(bind_addr).bind().await;
-    Server::new(acceptor).serve(router).await;
+    let server = Server::new(acceptor);
+    let shutdown_handle = server.handle();
+    tokio::spawn(async move {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {
+                info!("gateway shutdown signal received");
+                shutdown_handle.stop_graceful(std::time::Duration::from_secs(10));
+            }
+            Err(err) => {
+                warn!(error = %err, "failed to install gateway shutdown signal");
+            }
+        }
+    });
+    server.serve(router).await;
 
     Ok(())
 }
@@ -1069,11 +1082,40 @@ fn expand_env_string(input: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use salvo::prelude::{Listener, Router, Server};
     use serde_json::json;
 
     use super::{
         expand_env_string, is_protected_api_path, is_public_anonymous_path, substitute_env_vars,
     };
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn graceful_stop_releases_port_for_same_config_restart() {
+        let reservation =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("reserve an ephemeral port");
+        let address = reservation.local_addr().expect("reserved local address");
+        drop(reservation);
+
+        let acceptor = salvo::conn::TcpListener::new(address).bind().await;
+        let server = Server::new(acceptor);
+        let handle = server.handle();
+        let serving = tokio::spawn(server.serve(Router::new()));
+
+        tokio::net::TcpStream::connect(address)
+            .await
+            .expect("server should accept connections");
+        handle.stop_graceful(std::time::Duration::from_secs(1));
+        tokio::time::timeout(std::time::Duration::from_secs(3), serving)
+            .await
+            .expect("server should stop before the graceful timeout")
+            .expect("server task should join");
+
+        let rebound = std::net::TcpListener::bind(address)
+            .expect("the same gateway address should be reusable after shutdown");
+        drop(rebound);
+    }
 
     #[test]
     fn anonymous_paths_skip_auth_hoop() {

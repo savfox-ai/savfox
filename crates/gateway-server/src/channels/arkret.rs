@@ -297,6 +297,19 @@ pub(crate) fn arkret_account_listener_count(channel_id: &str) -> usize {
         .count()
 }
 
+pub(crate) fn arkret_account_listener_task_count(channel_id: &str) -> usize {
+    let prefix = format!("{channel_id}::");
+    let Ok(state) = runtime_state().lock() else {
+        warn!("arkret: runtime state mutex poisoned; cannot inspect tasks for '{channel_id}'");
+        return 0;
+    };
+    state
+        .handles
+        .iter()
+        .filter(|(key, handle)| key.starts_with(&prefix) && !handle.is_finished())
+        .count()
+}
+
 fn spawn_account_listener(
     savfox_home: PathBuf,
     channel: ArkretChannelConfig,
@@ -314,17 +327,7 @@ fn spawn_account_listener(
     let diagnostic_channel_id = channel.id.clone();
     let diagnostic_account_id = account.id.clone();
     let handle = tokio::spawn(async move {
-        let mut attempt = 0_u64;
-        loop {
-            attempt = attempt.saturating_add(1);
-            update_listener_diagnostic(
-                &diagnostic_channel_id,
-                &diagnostic_account_id,
-                |diagnostic| {
-                    diagnostic.phase = "starting";
-                    diagnostic.attempt = attempt;
-                },
-            );
+        run_account_listener_retry_loop(diagnostic_channel_id, diagnostic_account_id, move || {
             run_account_listener(
                 savfox_home.clone(),
                 channel.clone(),
@@ -332,22 +335,8 @@ fn spawn_account_listener(
                 Arc::clone(&gateway_channel),
                 Arc::clone(&session_store),
             )
-            .await;
-            let retry_delay = Duration::from_secs(attempt.min(6).pow(2));
-            update_listener_diagnostic(
-                &diagnostic_channel_id,
-                &diagnostic_account_id,
-                |diagnostic| diagnostic.phase = "retry_wait",
-            );
-            warn!(
-                channel_id = %diagnostic_channel_id,
-                account_id = %diagnostic_account_id,
-                attempt,
-                retry_delay_ms = retry_delay.as_millis(),
-                "arkret: listener attempt ended; retrying instead of leaving a stale connected task"
-            );
-            tokio::time::sleep(retry_delay).await;
-        }
+        })
+        .await;
     });
     let Ok(mut state) = runtime_state().lock() else {
         warn!("arkret: runtime state mutex poisoned; aborting listener task '{key}'");
@@ -356,6 +345,43 @@ fn spawn_account_listener(
     };
     if let Some(prev) = state.handles.insert(key, handle) {
         prev.abort();
+    }
+}
+
+async fn run_account_listener_retry_loop<F, Fut>(
+    diagnostic_channel_id: String,
+    diagnostic_account_id: String,
+    mut run: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let mut attempt = 0_u64;
+    loop {
+        attempt = attempt.saturating_add(1);
+        update_listener_diagnostic(
+            &diagnostic_channel_id,
+            &diagnostic_account_id,
+            |diagnostic| {
+                diagnostic.phase = "starting";
+                diagnostic.attempt = attempt;
+            },
+        );
+        run().await;
+        let retry_delay = Duration::from_secs(attempt.min(6).pow(2));
+        update_listener_diagnostic(
+            &diagnostic_channel_id,
+            &diagnostic_account_id,
+            |diagnostic| diagnostic.phase = "retry_wait",
+        );
+        warn!(
+            channel_id = %diagnostic_channel_id,
+            account_id = %diagnostic_account_id,
+            attempt,
+            retry_delay_ms = retry_delay.as_millis(),
+            "arkret: listener attempt ended; retrying instead of leaving a stale connected task"
+        );
+        tokio::time::sleep(retry_delay).await;
     }
 }
 
@@ -3517,6 +3543,104 @@ mod tests {
             listen: true,
             send: true,
         }
+    }
+
+    #[tokio::test]
+    async fn controlled_listener_auth_failure_retries_and_recovers() {
+        let channel = ArkretChannelConfig {
+            id: "fake-recovery-channel".to_owned(),
+            base_url: "http://127.0.0.1:1".to_owned(),
+            service_id: None,
+            accounts: Vec::new(),
+        };
+        let account = make_account();
+        let key = task_key(&channel.id, &account.id);
+        runtime_state()
+            .lock()
+            .expect("runtime state lock")
+            .diagnostics
+            .insert(
+                key.clone(),
+                ArkretListenerDiagnostic::new(&channel, &account),
+            );
+        let attempts = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let attempts_for_run = Arc::clone(&attempts);
+        let channel_for_run = channel.clone();
+        let account_for_run = account.clone();
+        let task = tokio::spawn(run_account_listener_retry_loop(
+            channel.id.clone(),
+            account.id.clone(),
+            move || {
+                let attempt =
+                    attempts_for_run.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let channel = channel_for_run.clone();
+                let account = account_for_run.clone();
+                async move {
+                    if attempt == 1 {
+                        record_listener_failure(
+                            &channel,
+                            &account,
+                            "authentication_error",
+                            "fake service rejected credentials",
+                        );
+                    } else {
+                        record_listener_phase(&channel, &account, "subscribing");
+                        std::future::pending::<()>().await;
+                    }
+                }
+            },
+        ));
+
+        let retry_observed = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            loop {
+                if arkret_account_runtime_diagnostics(&channel.id)
+                    .iter()
+                    .any(|diagnostic| {
+                        diagnostic.get("phase").and_then(Value::as_str) == Some("retry_wait")
+                            && diagnostic
+                                .get("last_error")
+                                .and_then(Value::as_str)
+                                .is_some_and(|error| error.contains("fake service"))
+                    })
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        assert!(
+            retry_observed.is_ok(),
+            "authentication retry was not reported"
+        );
+
+        let recovered = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if arkret_account_runtime_diagnostics(&channel.id)
+                    .iter()
+                    .any(|diagnostic| {
+                        diagnostic.get("phase").and_then(Value::as_str) == Some("subscribing")
+                            && diagnostic.get("attempt").and_then(Value::as_u64) == Some(2)
+                            && diagnostic.get("last_error").is_some_and(Value::is_null)
+                    })
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        task.abort();
+        runtime_state()
+            .lock()
+            .expect("runtime state lock")
+            .diagnostics
+            .remove(&key);
+
+        assert!(
+            recovered.is_ok(),
+            "listener did not recover on the next attempt"
+        );
     }
 
     #[test]

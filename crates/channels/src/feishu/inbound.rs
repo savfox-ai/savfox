@@ -206,5 +206,13 @@ pub async fn stop_feishu_stream(channel_id: &str) -> bool {
 }
 
 pub async fn is_feishu_stream_running(channel_id: &str) -> bool {
-    stream_handles().lock().await.contains_key(channel_id)
+    let mut handles = stream_handles().lock().await;
+    if handles
+        .get(channel_id)
+        .is_some_and(|entry| entry.handle.is_finished())
+    {
+        handles.remove(channel_id);
+        return false;
+    }
+    handles.contains_key(channel_id)
 }

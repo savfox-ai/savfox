@@ -3355,6 +3355,12 @@ fn render_channel_card(
         .and_then(|c| c.get("lastError").or_else(|| c.get("last_error")))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let recovery_phase = channel_data
+        .and_then(|c| c.get("recovery_phase"))
+        .and_then(|v| v.as_str());
+    let health_state = channel_data
+        .and_then(|c| c.get("health_state"))
+        .and_then(|v| v.as_str());
 
     let last_activity_str = channel_data
         .and_then(|c| c.get("lastActivity"))
@@ -3432,10 +3438,24 @@ fn render_channel_card(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let (status_variant, status_text) = if is_running && is_connected {
+    let (status_variant, status_text) = if has_saved_config && !is_enabled {
+        (ChipVariant::Muted, "Disabled")
+    } else if recovery_phase == Some("unsupported_runtime") {
+        (ChipVariant::Danger, "Unsupported runtime")
+    } else if matches!(recovery_phase, Some("failed" | "retrying")) {
+        (ChipVariant::Danger, "Needs attention")
+    } else if recovery_phase == Some("stopped") {
+        (ChipVariant::Danger, "Stopped")
+    } else if recovery_phase == Some("starting") {
+        (ChipVariant::Warning, "Starting")
+    } else if health_state == Some("connected") || (is_running && is_connected) {
         (ChipVariant::Success, "Connected")
-    } else if is_running {
-        (ChipVariant::Warning, "Running")
+    } else if health_state == Some("listening") || is_running {
+        (ChipVariant::Success, "Listening")
+    } else if health_state == Some("configured") {
+        (ChipVariant::Info, "Configured")
+    } else if health_state == Some("degraded") {
+        (ChipVariant::Danger, "Needs attention")
     } else if last_error.is_some()
         || (ch_type.id == "arkret" && arkret_runtime_phase.as_deref() == Some("retry_wait"))
     {
@@ -3453,12 +3473,20 @@ fn render_channel_card(
         (ChipVariant::Muted, "Not configured")
     };
 
-    let border_class = if is_running && is_connected {
-        "channels-card channels-card--connected"
-    } else if is_running {
-        "channels-card channels-card--running"
-    } else if last_error.is_some() {
+    let border_class = if has_saved_config && !is_enabled {
+        "channels-card channels-card--disabled"
+    } else if last_error.is_some()
+        || health_state == Some("degraded")
+        || matches!(
+            recovery_phase,
+            Some("failed" | "retrying" | "stopped" | "unsupported_runtime")
+        )
+    {
         "channels-card channels-card--error"
+    } else if health_state == Some("connected") || (is_running && is_connected) {
+        "channels-card channels-card--connected"
+    } else if health_state == Some("listening") || is_running {
+        "channels-card channels-card--running"
     } else if is_configured {
         "channels-card channels-card--configured"
     } else {

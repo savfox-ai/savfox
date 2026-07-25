@@ -287,4 +287,23 @@ mod tests {
         assert_eq!(config.inbound_mode, DingtalkInboundMode::Webhook);
         assert!(!config.stream_enabled());
     }
+
+    #[test]
+    fn same_type_instances_keep_their_own_credentials() {
+        let first = DingtalkChannelConfig::from_channel_config(&channel_config(json!({
+            "clientId": "first-client",
+            "clientSecret": "first-secret"
+        })))
+        .expect("first config should parse");
+        let second = DingtalkChannelConfig::from_channel_config(&channel_config(json!({
+            "clientId": "second-client",
+            "clientSecret": "second-secret"
+        })))
+        .expect("second config should parse");
+
+        assert_eq!(first.client_id.as_deref(), Some("first-client"));
+        assert_eq!(first.client_secret.as_deref(), Some("first-secret"));
+        assert_eq!(second.client_id.as_deref(), Some("second-client"));
+        assert_eq!(second.client_secret.as_deref(), Some("second-secret"));
+    }
 }

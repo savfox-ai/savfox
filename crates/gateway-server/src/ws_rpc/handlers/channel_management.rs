@@ -407,37 +407,11 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     .await
     {
         Ok(config) => {
-            let mut runtime = Value::Null;
-            if channel_kind.eq_ignore_ascii_case("arkret") {
-                // An enabled Arkret listener captures its parsed account config
-                // when the task starts. Persisting a repaired pairing alone
-                // therefore leaves the old listener retrying stale credentials.
-                // Reconcile this exact instance immediately after the durable
-                // write, then let the regular login path start every enabled,
-                // ready Arkret config that is not already running.
-                #[cfg(feature = "arkret")]
-                {
-                    crate::channels::arkret::stop_arkret_account_listeners(&config.id);
-                    crate::channels::arkret_applet::remove_arkret_applet_channel(&config.id)
-                        .map_err(|error| {
-                            (
-                                INTERNAL_ERROR,
-                                format!(
-                                    "saved Arkret channel '{}' but failed to stop its stale runtime: {error}",
-                                    config.id
-                                ),
-                            )
-                        })?;
-                    if config.enabled {
-                        runtime = super::super::handle_channels_login(
-                            &json!({ "platform": "arkret", "id": config.id }),
-                            channel,
-                            session_store,
-                        )
-                        .await?;
-                    }
-                }
-            }
+            // Reconcile only the immutable ID returned by the durable save.
+            // This applies mode validation/capability reporting uniformly and
+            // prevents edits to one instance from broadcasting to its type.
+            let runtime =
+                crate::channels::reconcile_channel_instance(&config, channel, session_store).await;
             Ok(json!({
                 "config": channel_store::channel_config_to_json(&config),
                 "status": "saved",
@@ -473,49 +447,33 @@ pub(in crate::ws_rpc) async fn handle_channels_config_delete(
     // Runtime instances are keyed by the persisted config ID. Stop that exact
     // instance before removing its credentials so deletion cannot leave an
     // orphaned listener running until the gateway is restarted.
-    let stopped = match config.kind.to_ascii_lowercase().as_str() {
-        "discord" => u32::from(savfox_channels::discord::stop_discord_stream(&config.id).await),
-        "telegram" => u32::from(savfox_channels::telegram::stop_telegram_polling(&config.id).await),
-        "feishu" | "lark" => {
-            u32::from(savfox_channels::feishu::stop_feishu_stream(&config.id).await)
-        }
-        "matrix" => {
-            let registry = channel.channel_registry();
-            let removed_registry = registry.write().await.remove(&config.id).is_some();
-            let had_appservice =
-                crate::channels::matrix::matrix_appservice_channel_for(&config.id).is_some();
-            crate::channels::matrix::remove_matrix_appservice_channel(&config.id);
-            u32::from(removed_registry || had_appservice)
-        }
-        "arkret" => {
-            #[cfg(feature = "arkret")]
-            {
-                let listeners = crate::channels::arkret::stop_arkret_account_listeners(&config.id);
-                let removed_applet =
-                    crate::channels::arkret_applet::remove_arkret_applet_channel(&config.id)
-                        .map_err(|e| {
-                            (
-                                INTERNAL_ERROR,
-                                format!("failed to stop Arkret channel '{}': {e}", config.id),
-                            )
-                        })?;
-                u32::from(listeners > 0 || removed_applet)
-            }
-            #[cfg(not(feature = "arkret"))]
-            {
-                0
-            }
-        }
-        _ => 0,
-    };
+    let stopped = u32::from(
+        crate::channels::stop_channel_instance(&config, channel)
+            .await
+            .map_err(|e| {
+                (
+                    INTERNAL_ERROR,
+                    format!("failed to stop channel '{}': {e}", config.id),
+                )
+            })?,
+    );
 
     match channel_store::delete_channel_config(&channel.config().savfox_home, &config.id).await {
-        Ok(deleted) => Ok(json!({
-            "deleted": deleted,
-            "channel": config.id,
-            "platform": config.kind,
-            "stopped": stopped,
-        })),
+        Ok(deleted) => {
+            if deleted {
+                crate::channels::recovery::remove_channel_report(
+                    &channel.channel_recovery_registry(),
+                    &config.id,
+                )
+                .await;
+            }
+            Ok(json!({
+                "deleted": deleted,
+                "channel": config.id,
+                "platform": config.kind,
+                "stopped": stopped,
+            }))
+        }
         Err(e) => Err((
             INTERNAL_ERROR,
             format!("failed to delete channel config: {e}"),

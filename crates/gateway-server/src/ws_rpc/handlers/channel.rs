@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-#[cfg(feature = "arkret")]
 use std::sync::Arc;
 
 #[cfg(feature = "arkret")]
@@ -280,6 +279,38 @@ fn arkret_saved_config_running(config: &savfox_core::config::channel_store::Chan
             crate::channels::arkret_applet::is_arkret_applet_registered(&config.id)
         } else {
             crate::channels::arkret::arkret_account_listener_count(&config.id) > 0
+        }
+    }
+}
+
+fn arkret_saved_config_connected(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> bool {
+    #[cfg(not(feature = "arkret"))]
+    {
+        let _ = config;
+        false
+    }
+    #[cfg(feature = "arkret")]
+    {
+        let Some(raw) = config.config.as_object() else {
+            return false;
+        };
+        if arkret_mode_from_config_obj(raw) == "applet" {
+            crate::channels::arkret_applet::is_arkret_applet_registered(&config.id)
+        } else {
+            crate::channels::arkret::arkret_account_runtime_diagnostics(&config.id)
+                .iter()
+                .any(|diagnostic| {
+                    diagnostic
+                        .get("running")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                        && diagnostic
+                            .get("phase")
+                            .and_then(Value::as_str)
+                            .is_some_and(|phase| matches!(phase, "subscribing" | "dispatching"))
+                })
         }
     }
 }
@@ -938,10 +969,10 @@ pub(crate) async fn handle_channels_status(
         if saved_channel_stream_enabled(config) {
             savfox_channels::telegram::is_telegram_polling_running(&config.id).await
         } else {
-            telegram_configured
+            false
         }
     } else {
-        telegram_configured
+        false
     };
     let slack_configured =
         channel_is_configured("slack", &runtime, &saved_configs, nostr_configured);
@@ -983,6 +1014,10 @@ pub(crate) async fn handle_channels_status(
         .config
         .as_ref()
         .is_some_and(arkret_saved_config_running);
+    let arkret_connected = arkret_saved
+        .config
+        .as_ref()
+        .is_some_and(arkret_saved_config_connected);
     let whatsapp_configured =
         channel_is_configured("whatsapp", &runtime, &saved_configs, nostr_configured);
     let signal_configured =
@@ -999,10 +1034,12 @@ pub(crate) async fn handle_channels_status(
     let dingtalk_saved = saved_channel_state(&saved_configs, "dingtalk");
     let dingtalk_configured =
         runtime_channel_configured("dingtalk", &runtime) || dingtalk_saved.ready;
-    let dingtalk_running = dingtalk_saved
-        .config
-        .as_ref()
-        .is_some_and(saved_channel_stream_enabled);
+    let dingtalk_running = if let Some(config) = dingtalk_saved.config.as_ref() {
+        saved_channel_stream_enabled(config)
+            && savfox_channels::dingtalk::is_dingtalk_stream_running(&config.id).await
+    } else {
+        false
+    };
     let feishu_saved = saved_channel_state(&saved_configs, "feishu");
     let feishu_configured = runtime_channel_configured("feishu", &runtime) || feishu_saved.ready;
     let feishu_running = if let Some(config) = feishu_saved.config.as_ref() {
@@ -1034,7 +1071,7 @@ pub(crate) async fn handle_channels_status(
         "slack": {
             "configured": slack_configured,
             "running": slack_configured,
-            "connected": slack_configured,
+            "connected": false,
         },
         "matrix": {
             "configured": matrix_configured,
@@ -1045,12 +1082,12 @@ pub(crate) async fn handle_channels_status(
         "arkret": {
             "configured": arkret_configured,
             "running": arkret_running,
-            "connected": arkret_running,
+            "connected": arkret_connected,
         },
         "whatsapp": {
             "configured": whatsapp_configured,
             "running": whatsapp_configured,
-            "connected": whatsapp_configured,
+            "connected": false,
             "linked": false,
             "qr_data_url": Value::Null,
         },
@@ -1062,17 +1099,17 @@ pub(crate) async fn handle_channels_status(
         "mattermost": {
             "configured": mattermost_configured,
             "running": mattermost_configured,
-            "connected": mattermost_configured,
+            "connected": false,
         },
         "googlechat": {
             "configured": googlechat_configured,
             "running": googlechat_configured,
-            "connected": googlechat_configured,
+            "connected": false,
         },
         "webhook": {
             "configured": webhook_configured,
             "running": webhook_configured,
-            "connected": webhook_configured,
+            "connected": false,
         },
         "irc": {
             "configured": irc_configured,
@@ -1082,17 +1119,17 @@ pub(crate) async fn handle_channels_status(
         "line": {
             "configured": line_configured,
             "running": line_configured,
-            "connected": line_configured,
+            "connected": false,
         },
         "qq": {
             "configured": qq_configured,
             "running": qq_configured,
-            "connected": qq_configured,
+            "connected": false,
         },
         "wechat": {
             "configured": wechat_configured,
             "running": wechat_configured,
-            "connected": wechat_configured,
+            "connected": false,
         },
         "dingtalk": {
             "configured": dingtalk_configured,
@@ -1349,6 +1386,8 @@ pub(crate) async fn handle_channels_status(
             .cloned()
             .collect::<HashSet<_>>()
     };
+    let recovery_reports = channel.channel_recovery_registry().read().await.clone();
+    let dingtalk_runtime_states = savfox_channels::dingtalk::dingtalk_stream_state_snapshot();
     let mut instances = serde_json::Map::new();
     for saved in &saved_configs {
         let platform = canonical_channel_platform(&saved.kind);
@@ -1375,17 +1414,20 @@ pub(crate) async fn handle_channels_status(
             }
             "arkret" => {
                 let running = arkret_saved_config_running(saved);
-                (running, running)
+                (running, arkret_saved_config_connected(saved))
             }
             "feishu" => {
                 let running = savfox_channels::feishu::is_feishu_stream_running(&saved.id).await;
                 (running, running)
             }
-            "dingtalk" => (saved.enabled && saved_channel_stream_enabled(saved), false),
+            "dingtalk" => (
+                savfox_channels::dingtalk::is_dingtalk_stream_running(&saved.id).await,
+                false,
+            ),
             "webhook" | "slack" | "mattermost" | "googlechat" | "line" | "whatsapp" | "qq"
             | "wechat" => {
                 let active = saved.enabled && ready;
-                (active, active)
+                (active, false)
             }
             _ => (false, false),
         };
@@ -1394,6 +1436,34 @@ pub(crate) async fn handle_channels_status(
         info.insert("configured".to_owned(), json!(ready));
         info.insert("running".to_owned(), json!(running));
         info.insert("connected".to_owned(), json!(connected));
+        if let Some(report) = recovery_reports.get(&saved.id)
+            && let Ok(Value::Object(report_value)) = serde_json::to_value(report)
+        {
+            for (key, value) in report_value {
+                let response_key = match key.as_str() {
+                    "phase" => "recovery_phase",
+                    "capability" => "runtime_capability",
+                    "attempts" => "startup_attempts",
+                    "updated_at" => "startup_updated_at",
+                    other => other,
+                };
+                info.insert(response_key.to_owned(), value);
+            }
+        }
+        if let Some(state) = dingtalk_runtime_states.get(&saved.id) {
+            info.insert("runtime_phase".to_owned(), json!(state.phase));
+            info.insert("runtime_attempts".to_owned(), json!(state.attempt_count));
+            info.insert(
+                "runtime_updated_at_ms".to_owned(),
+                json!(state.updated_at_ms),
+            );
+            if let Some(error) = state.last_error.as_deref() {
+                info.insert("last_error".to_owned(), json!(error));
+                info.insert("lastError".to_owned(), json!(error));
+                info.insert("recovery_phase".to_owned(), json!("failed"));
+                info.insert("health_state".to_owned(), json!("degraded"));
+            }
+        }
         if let Some(platform_info) = channels.get(&platform).and_then(Value::as_object) {
             for key in [
                 "last_message_time",
@@ -1430,6 +1500,28 @@ pub(crate) async fn handle_channels_status(
             config: Some(saved.clone()),
         };
         insert_saved_channel_metadata(&mut info, &platform, &saved_state);
+        if connected {
+            info.insert("health_state".to_owned(), json!("connected"));
+        } else if running
+            && recovery_reports.get(&saved.id).is_some_and(|report| {
+                report.capability == crate::channels::recovery::ChannelRuntimeCapability::Persistent
+            })
+        {
+            info.insert("health_state".to_owned(), json!("listening"));
+        }
+        if platform == "arkret" {
+            match info.get("runtime_phase").and_then(Value::as_str) {
+                Some("retry_wait") => {
+                    info.insert("recovery_phase".to_owned(), json!("retrying"));
+                    info.insert("health_state".to_owned(), json!("degraded"));
+                }
+                Some("subscribing" | "dispatching") => {
+                    info.insert("recovery_phase".to_owned(), json!("ready"));
+                    info.insert("health_state".to_owned(), json!("connected"));
+                }
+                _ => {}
+            }
+        }
         instances.insert(saved.id.clone(), Value::Object(info));
     }
 
@@ -1542,6 +1634,7 @@ pub(crate) async fn handle_channels_login(
                         format!("failed to start Discord stream '{}': {err}", saved.id),
                     )
                 })?;
+            crate::channels::note_channel_started(saved, channel, session_store).await;
             started = started.saturating_add(1);
         }
 
@@ -1626,6 +1719,7 @@ pub(crate) async fn handle_channels_login(
                         format!("failed to start Matrix channel '{}': {err}", saved.id),
                     )
                 })?;
+            crate::channels::note_channel_started(saved, channel, session_store).await;
             started = started.saturating_add(1);
         }
 
@@ -1745,6 +1839,7 @@ pub(crate) async fn handle_channels_login(
                     })?;
                 }
 
+                crate::channels::note_channel_started(saved, channel, session_store).await;
                 started = started.saturating_add(1);
             }
 
@@ -1819,6 +1914,7 @@ pub(crate) async fn handle_channels_login(
             let sink = crate::channels::feishu::feishu_sink(
                 Arc::clone(channel),
                 Arc::clone(session_store),
+                Some(saved.id.clone()),
             );
             savfox_channels::feishu::start_feishu_stream(&saved.id, &parsed, sink)
                 .await
@@ -1828,6 +1924,7 @@ pub(crate) async fn handle_channels_login(
                         format!("failed to start Feishu stream '{}': {err}", saved.id),
                     )
                 })?;
+            crate::channels::note_channel_started(saved, channel, session_store).await;
             started = started.saturating_add(1);
         }
 
@@ -1900,6 +1997,7 @@ pub(crate) async fn handle_channels_login(
             let sink = crate::channels::telegram::telegram_sink(
                 Arc::clone(channel),
                 Arc::clone(session_store),
+                saved.id.clone(),
             );
             savfox_channels::telegram::start_telegram_polling(&saved.id, &parsed, sink)
                 .await
@@ -1909,6 +2007,7 @@ pub(crate) async fn handle_channels_login(
                         format!("failed to start Telegram polling '{}': {err}", saved.id),
                     )
                 })?;
+            crate::channels::note_channel_started(saved, channel, session_store).await;
             started = started.saturating_add(1);
         }
 
@@ -2044,6 +2143,16 @@ pub(crate) async fn handle_channels_logout(
                 }
             }
         }
+        "dingtalk" => {
+            for saved in load_saved_channel_configs(channel).await {
+                if channel_platform_matches_kind(&saved.kind, "dingtalk")
+                    && request_matches_channel_instance(params, &saved)
+                    && savfox_channels::dingtalk::stop_dingtalk_stream(&saved.id).await
+                {
+                    stopped = stopped.saturating_add(1);
+                }
+            }
+        }
         "arkret" => {
             #[cfg(feature = "arkret")]
             {
@@ -2067,8 +2176,8 @@ pub(crate) async fn handle_channels_logout(
                 }
             }
         }
-        "whatsapp" | "signal" | "mattermost" | "googlechat" | "irc" | "line" | "dingtalk"
-        | "zalo" | "nextcloud" | "twitch" | "tlon" | "qq" | "wechat" => {
+        "whatsapp" | "signal" | "mattermost" | "googlechat" | "irc" | "line" | "zalo"
+        | "nextcloud" | "twitch" | "tlon" | "qq" | "wechat" => {
             // These platforms may not have runtime secrets yet
         }
         _ => {
@@ -2076,12 +2185,36 @@ pub(crate) async fn handle_channels_logout(
         }
     }
     channel.set_runtime_channel_secrets(secrets).await;
+    let reports = channel.channel_recovery_registry();
+    for saved in load_saved_channel_configs(channel).await {
+        if channel_platform_matches_kind(&saved.kind, &platform)
+            && request_matches_channel_instance(params, &saved)
+            && crate::channels::recovery::runtime_capability(&saved)
+                == crate::channels::recovery::ChannelRuntimeCapability::Persistent
+        {
+            // Login/logout handlers historically stop the transport directly.
+            // Also use the common instance stop path so an explicit logout
+            // cancels its recovery supervisor instead of being restarted.
+            if crate::channels::stop_channel_instance(&saved, channel)
+                .await
+                .map_err(|error| {
+                    (
+                        INTERNAL_ERROR,
+                        format!("failed to stop channel '{}': {error}", saved.id),
+                    )
+                })?
+            {
+                stopped = stopped.saturating_add(1);
+            }
+            crate::channels::recovery::mark_channel_stopped(&reports, &saved, false).await;
+        }
+    }
 
     Ok(json!({
         "platform": platform,
-        "status": if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "arkret") && stopped > 0 {
+        "status": if matches!(platform.as_str(), "discord" | "telegram" | "dingtalk" | "feishu" | "matrix" | "arkret") && stopped > 0 {
             "stopped"
-        } else if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "arkret") {
+        } else if matches!(platform.as_str(), "discord" | "telegram" | "dingtalk" | "feishu" | "matrix" | "arkret") {
             "already_stopped"
         } else {
             "logged_out"

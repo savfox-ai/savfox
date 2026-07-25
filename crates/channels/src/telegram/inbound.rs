@@ -228,5 +228,13 @@ pub async fn stop_telegram_polling(channel_id: &str) -> bool {
 }
 
 pub async fn is_telegram_polling_running(channel_id: &str) -> bool {
-    polling_handles().lock().await.contains_key(channel_id)
+    let mut handles = polling_handles().lock().await;
+    if handles
+        .get(channel_id)
+        .is_some_and(|entry| entry.handle.is_finished())
+    {
+        handles.remove(channel_id);
+        return false;
+    }
+    handles.contains_key(channel_id)
 }
