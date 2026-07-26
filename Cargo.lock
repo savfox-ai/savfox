@@ -318,7 +318,6 @@ dependencies = [
  "arkret-keystore",
  "arkret-lattice-registry",
  "arkret-mls",
- "arkret-models",
  "arkret-models-collaboration",
  "arkret-models-crypto",
  "arkret-models-discovery",
@@ -331,11 +330,8 @@ dependencies = [
  "arkret-signatures",
  "arkret-state",
  "arkret-wire",
- "chrono",
- "reqwest 0.13.4",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
  "url",
 ]
 
@@ -580,17 +576,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arkret-models"
-version = "0.3.0"
-dependencies = [
- "arkret-models-collaboration",
- "arkret-models-crypto",
- "arkret-models-discovery",
- "arkret-models-identity",
- "arkret-models-integration",
-]
-
-[[package]]
 name = "arkret-models-collaboration"
 version = "0.3.0"
 dependencies = [
@@ -740,6 +725,7 @@ dependencies = [
  "arkret-models-crypto",
  "arkret-models-discovery",
  "arkret-models-identity",
+ "arkret-state",
  "arkret-wire",
  "base64",
  "chrono",
@@ -4232,7 +4218,6 @@ dependencies = [
  "arkret-models-discovery",
  "arkret-models-identity",
  "arkret-models-integration",
- "arkret-policy",
  "arkret-schema",
  "arkret-signatures",
  "arkret-state",
@@ -4242,7 +4227,6 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hkdf 0.13.0",
- "parking_lot",
  "serde",
  "serde_json",
  "sha2 0.11.0",
