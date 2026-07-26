@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-#[cfg(feature = "arkret")]
 use std::sync::Arc;
 
 #[cfg(feature = "arkret")]
@@ -28,6 +27,7 @@ pub(crate) async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    let saved_channel_config_id = requested_channel_instance_id(params);
 
     if channel_id.is_empty() || text.is_empty() {
         return Err((
@@ -45,6 +45,7 @@ pub(crate) async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -
             None,
             thread_id,
             reply_target,
+            saved_channel_config_id,
         )
         .await
     {
@@ -128,6 +129,23 @@ fn channel_platform_matches_kind(kind: &str, platform: &str) -> bool {
     canonical_channel_platform(kind) == canonical_channel_platform(platform)
 }
 
+fn requested_channel_instance_id(params: &Value) -> Option<&str> {
+    params
+        .get("id")
+        .or_else(|| params.get("config_id"))
+        .or_else(|| params.get("configId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn request_matches_channel_instance(
+    params: &Value,
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> bool {
+    requested_channel_instance_id(params).is_none_or(|requested_id| config.id == requested_id)
+}
+
 fn first_non_empty_channel_config_string(
     map: &serde_json::Map<String, Value>,
     keys: &[&str],
@@ -175,15 +193,10 @@ fn channel_config_collection_len(
 }
 
 fn arkret_mode_from_config_obj(map: &serde_json::Map<String, Value>) -> String {
-    match first_non_empty_channel_config_string(map, &["mode"])
-        .map(|value| value.to_ascii_lowercase())
-        .as_deref()
-    {
+    match first_non_empty_channel_config_string(map, &["mode"]).as_deref() {
         Some("applet") => "applet".to_owned(),
-        Some("agent" | "personal_agent" | "personal-agent" | "account") | None => {
-            "agent".to_owned()
-        }
-        Some(_) => "agent".to_owned(),
+        Some("agent") => "agent".to_owned(),
+        Some(_) | None => "invalid".to_owned(),
     }
 }
 
@@ -195,6 +208,57 @@ fn arkret_namespace_count(map: &serde_json::Map<String, Value>) -> Option<u32> {
         .map(|items| items.len() as u32)
         .sum::<u32>();
     (count > 0).then_some(count)
+}
+
+#[cfg(feature = "arkret")]
+fn insert_arkret_listener_summary(
+    info: &mut serde_json::Map<String, Value>,
+    diagnostics: Vec<Value>,
+) {
+    let ready = diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .get("running")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            && diagnostic
+                .get("phase")
+                .and_then(Value::as_str)
+                .is_some_and(|phase| matches!(phase, "subscribing" | "dispatching"))
+    });
+    let phase = if ready {
+        diagnostics
+            .iter()
+            .filter_map(|diagnostic| diagnostic.get("phase").and_then(Value::as_str))
+            .find(|phase| matches!(*phase, "dispatching" | "subscribing"))
+            .unwrap_or("subscribing")
+    } else {
+        diagnostics
+            .iter()
+            .filter_map(|diagnostic| diagnostic.get("phase").and_then(Value::as_str))
+            .find(|phase| *phase == "retry_wait")
+            .or_else(|| {
+                diagnostics
+                    .iter()
+                    .filter_map(|diagnostic| diagnostic.get("phase").and_then(Value::as_str))
+                    .next()
+            })
+            .unwrap_or("stopped")
+    };
+    let last_error = diagnostics.iter().find_map(|diagnostic| {
+        diagnostic
+            .get("last_error")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|error| !error.is_empty())
+    });
+
+    info.insert("runtime_ready".to_owned(), json!(ready));
+    info.insert("runtime_phase".to_owned(), json!(phase));
+    if let Some(error) = last_error {
+        info.insert("lastError".to_owned(), json!(error));
+        info.insert("last_error".to_owned(), json!(error));
+    }
+    info.insert("listener_diagnostics".to_owned(), json!(diagnostics));
 }
 
 fn arkret_saved_config_running(config: &savfox_core::config::channel_store::ChannelConfig) -> bool {
@@ -212,6 +276,38 @@ fn arkret_saved_config_running(config: &savfox_core::config::channel_store::Chan
             crate::channels::arkret_applet::is_arkret_applet_registered(&config.id)
         } else {
             crate::channels::arkret::arkret_account_listener_count(&config.id) > 0
+        }
+    }
+}
+
+fn arkret_saved_config_connected(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> bool {
+    #[cfg(not(feature = "arkret"))]
+    {
+        let _ = config;
+        false
+    }
+    #[cfg(feature = "arkret")]
+    {
+        let Some(raw) = config.config.as_object() else {
+            return false;
+        };
+        if arkret_mode_from_config_obj(raw) == "applet" {
+            crate::channels::arkret_applet::is_arkret_applet_registered(&config.id)
+        } else {
+            crate::channels::arkret::arkret_account_runtime_diagnostics(&config.id)
+                .iter()
+                .any(|diagnostic| {
+                    diagnostic
+                        .get("running")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                        && diagnostic
+                            .get("phase")
+                            .and_then(Value::as_str)
+                            .is_some_and(|phase| matches!(phase, "subscribing" | "dispatching"))
+                })
         }
     }
 }
@@ -705,7 +801,7 @@ fn insert_saved_channel_metadata(
                                 .as_deref()
                                 .is_some_and(|value| !value.trim().is_empty())
                         {
-                            "active"
+                            "paired"
                         } else if account.key_ref.is_some() {
                             "pending_authorization"
                         } else {
@@ -726,11 +822,9 @@ fn insert_saved_channel_metadata(
                         };
                         info.insert("runtime_scope_count".to_owned(), json!(runtime_scope_count));
                     }
-                    info.insert(
-                        "listener_diagnostics".to_owned(),
-                        json!(crate::channels::arkret::arkret_account_runtime_diagnostics(
-                            &config.id
-                        )),
+                    insert_arkret_listener_summary(
+                        info,
+                        crate::channels::arkret::arkret_account_runtime_diagnostics(&config.id),
                     );
                 }
             }
@@ -872,10 +966,10 @@ pub(crate) async fn handle_channels_status(
         if saved_channel_stream_enabled(config) {
             savfox_channels::telegram::is_telegram_polling_running(&config.id).await
         } else {
-            telegram_configured
+            false
         }
     } else {
-        telegram_configured
+        false
     };
     let slack_configured =
         channel_is_configured("slack", &runtime, &saved_configs, nostr_configured);
@@ -912,11 +1006,13 @@ pub(crate) async fn handle_channels_status(
         .unwrap_or(matrix_running);
     let arkret_configured =
         channel_is_configured("arkret", &runtime, &saved_configs, nostr_configured);
-    let arkret_saved = saved_channel_state(&saved_configs, "arkret");
-    let arkret_running = arkret_saved
-        .config
-        .as_ref()
-        .is_some_and(arkret_saved_config_running);
+    let arkret_running = saved_configs.iter().any(|config| {
+        channel_platform_matches_kind(&config.kind, "arkret") && arkret_saved_config_running(config)
+    });
+    let arkret_connected = saved_configs.iter().any(|config| {
+        channel_platform_matches_kind(&config.kind, "arkret")
+            && arkret_saved_config_connected(config)
+    });
     let whatsapp_configured =
         channel_is_configured("whatsapp", &runtime, &saved_configs, nostr_configured);
     let signal_configured =
@@ -933,10 +1029,12 @@ pub(crate) async fn handle_channels_status(
     let dingtalk_saved = saved_channel_state(&saved_configs, "dingtalk");
     let dingtalk_configured =
         runtime_channel_configured("dingtalk", &runtime) || dingtalk_saved.ready;
-    let dingtalk_running = dingtalk_saved
-        .config
-        .as_ref()
-        .is_some_and(saved_channel_stream_enabled);
+    let dingtalk_running = if let Some(config) = dingtalk_saved.config.as_ref() {
+        saved_channel_stream_enabled(config)
+            && savfox_channels::dingtalk::is_dingtalk_stream_running(&config.id).await
+    } else {
+        false
+    };
     let feishu_saved = saved_channel_state(&saved_configs, "feishu");
     let feishu_configured = runtime_channel_configured("feishu", &runtime) || feishu_saved.ready;
     let feishu_running = if let Some(config) = feishu_saved.config.as_ref() {
@@ -968,7 +1066,7 @@ pub(crate) async fn handle_channels_status(
         "slack": {
             "configured": slack_configured,
             "running": slack_configured,
-            "connected": slack_configured,
+            "connected": false,
         },
         "matrix": {
             "configured": matrix_configured,
@@ -979,12 +1077,12 @@ pub(crate) async fn handle_channels_status(
         "arkret": {
             "configured": arkret_configured,
             "running": arkret_running,
-            "connected": arkret_running,
+            "connected": arkret_connected,
         },
         "whatsapp": {
             "configured": whatsapp_configured,
             "running": whatsapp_configured,
-            "connected": whatsapp_configured,
+            "connected": false,
             "linked": false,
             "qr_data_url": Value::Null,
         },
@@ -996,17 +1094,17 @@ pub(crate) async fn handle_channels_status(
         "mattermost": {
             "configured": mattermost_configured,
             "running": mattermost_configured,
-            "connected": mattermost_configured,
+            "connected": false,
         },
         "googlechat": {
             "configured": googlechat_configured,
             "running": googlechat_configured,
-            "connected": googlechat_configured,
+            "connected": false,
         },
         "webhook": {
             "configured": webhook_configured,
             "running": webhook_configured,
-            "connected": webhook_configured,
+            "connected": false,
         },
         "irc": {
             "configured": irc_configured,
@@ -1016,17 +1114,17 @@ pub(crate) async fn handle_channels_status(
         "line": {
             "configured": line_configured,
             "running": line_configured,
-            "connected": line_configured,
+            "connected": false,
         },
         "qq": {
             "configured": qq_configured,
             "running": qq_configured,
-            "connected": qq_configured,
+            "connected": false,
         },
         "wechat": {
             "configured": wechat_configured,
             "running": wechat_configured,
-            "connected": wechat_configured,
+            "connected": false,
         },
         "dingtalk": {
             "configured": dingtalk_configured,
@@ -1274,12 +1372,306 @@ pub(crate) async fn handle_channels_status(
         }
     }
 
+    let registry_started_channel_ids = {
+        let registry = channel.channel_registry();
+        registry
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>()
+    };
+    let recovery_reports = channel.channel_recovery_registry().read().await.clone();
+    let dingtalk_runtime_states = savfox_channels::dingtalk::dingtalk_stream_state_snapshot();
+    let mut instances = serde_json::Map::new();
+    for saved in &saved_configs {
+        let platform = canonical_channel_platform(&saved.kind);
+        let ready = saved_channel_config_ready(saved);
+        let (running, connected) = match platform.as_str() {
+            "discord" => {
+                let running = savfox_channels::discord::is_discord_stream_running(&saved.id).await;
+                let connected = discord_runtime_states
+                    .get(&saved.id)
+                    .map(|state| state.connected)
+                    .unwrap_or(running);
+                (running, connected)
+            }
+            "telegram" => {
+                let running =
+                    savfox_channels::telegram::is_telegram_polling_running(&saved.id).await;
+                (running, running)
+            }
+            "matrix" => {
+                let runtime = matrix_runtime_states.get(&saved.id);
+                let running = runtime.is_some() || registry_started_channel_ids.contains(&saved.id);
+                let connected = runtime.map(|state| state.connected).unwrap_or(running);
+                (running, connected)
+            }
+            "arkret" => {
+                let running = arkret_saved_config_running(saved);
+                (running, arkret_saved_config_connected(saved))
+            }
+            "feishu" => {
+                let running = savfox_channels::feishu::is_feishu_stream_running(&saved.id).await;
+                (running, running)
+            }
+            "dingtalk" => (
+                savfox_channels::dingtalk::is_dingtalk_stream_running(&saved.id).await,
+                false,
+            ),
+            "webhook" | "slack" | "mattermost" | "googlechat" | "line" | "whatsapp" | "qq"
+            | "wechat" => {
+                let active = saved.enabled && ready;
+                (active, false)
+            }
+            _ => (false, false),
+        };
+        let mut info = serde_json::Map::new();
+        info.insert("platform".to_owned(), json!(&platform));
+        info.insert("configured".to_owned(), json!(ready));
+        info.insert("running".to_owned(), json!(running));
+        info.insert("connected".to_owned(), json!(connected));
+        if let Some(report) = recovery_reports.get(&saved.id)
+            && let Ok(Value::Object(report_value)) = serde_json::to_value(report)
+        {
+            for (key, value) in report_value {
+                let response_key = match key.as_str() {
+                    "phase" => "recovery_phase",
+                    "capability" => "runtime_capability",
+                    "attempts" => "startup_attempts",
+                    "updated_at" => "startup_updated_at",
+                    other => other,
+                };
+                info.insert(response_key.to_owned(), value);
+            }
+        }
+        if let Some(state) = dingtalk_runtime_states.get(&saved.id) {
+            info.insert("runtime_phase".to_owned(), json!(state.phase));
+            info.insert("runtime_attempts".to_owned(), json!(state.attempt_count));
+            info.insert(
+                "runtime_updated_at_ms".to_owned(),
+                json!(state.updated_at_ms),
+            );
+            if let Some(error) = state.last_error.as_deref() {
+                info.insert("last_error".to_owned(), json!(error));
+                info.insert("lastError".to_owned(), json!(error));
+                info.insert("recovery_phase".to_owned(), json!("failed"));
+                info.insert("health_state".to_owned(), json!("degraded"));
+            }
+        }
+        if let Some(platform_info) = channels.get(&platform).and_then(Value::as_object) {
+            for key in [
+                "last_message_time",
+                "last_event_time",
+                "reconnect_attempt_count",
+                "probe_status",
+                "connection_uptime_ms",
+                "error_rate",
+                "messages_total",
+                "messages_failed",
+                "last_activity",
+                "last_probe_at",
+                "probe",
+                "lastMessageTime",
+                "lastEventTime",
+                "reconnectAttemptCount",
+                "probeStatus",
+                "uptimeMs",
+                "errorRate",
+                "lastProbeAt",
+                "lastActivity",
+            ] {
+                if let Some(value) = platform_info.get(key) {
+                    info.insert(key.to_owned(), value.clone());
+                }
+            }
+        }
+        let saved_state = SavedChannelState {
+            exists: true,
+            enabled: saved.enabled,
+            ready,
+            channel_name: Some(saved.name.clone()),
+            channel_slug: Some(saved.slug.clone()),
+            config: Some(saved.clone()),
+        };
+        insert_saved_channel_metadata(&mut info, &platform, &saved_state);
+        if connected {
+            info.insert("health_state".to_owned(), json!("connected"));
+        } else if running
+            && recovery_reports.get(&saved.id).is_some_and(|report| {
+                report.capability == crate::channels::recovery::ChannelRuntimeCapability::Persistent
+            })
+        {
+            info.insert("health_state".to_owned(), json!("listening"));
+        }
+        if platform == "arkret" {
+            match info.get("runtime_phase").and_then(Value::as_str) {
+                Some("migration_required") => {
+                    info.insert("recovery_phase".to_owned(), json!("migration_required"));
+                    info.insert("health_state".to_owned(), json!("migration_required"));
+                }
+                Some("retry_wait") => {
+                    info.insert("recovery_phase".to_owned(), json!("retrying"));
+                    info.insert("health_state".to_owned(), json!("degraded"));
+                }
+                Some("subscribing" | "dispatching") => {
+                    info.insert("recovery_phase".to_owned(), json!("ready"));
+                    info.insert("health_state".to_owned(), json!("connected"));
+                }
+                _ => {}
+            }
+            #[cfg(feature = "arkret")]
+            {
+                let mut enabled = saved.clone();
+                enabled.enabled = true;
+                if let Ok(parsed) =
+                    savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&enabled)
+                {
+                    let account = &parsed.accounts[0];
+                    info.insert(
+                        "local_requested_scope".to_owned(),
+                        json!(&account.requested_scope),
+                    );
+                    let missing = savfox_channels::arkret::missing_required_scope_actions(
+                        &account.requested_scope,
+                        account.listen,
+                        account.send,
+                    );
+                    info.insert("missing_required_actions".to_owned(), json!(missing));
+                    let runtime_public_key_digest = account
+                        .key_ref
+                        .as_ref()
+                        .zip(account.verification_method.as_deref())
+                        .and_then(|(key_ref, verification_method)| {
+                            savfox_channels::arkret::ed25519_runtime_public_key_digest(
+                                key_ref,
+                                verification_method,
+                            )
+                            .ok()
+                        });
+                    let Some(runtime_public_key_digest) = runtime_public_key_digest else {
+                        info.insert("authority_status".to_owned(), json!("error"));
+                        info.insert(
+                            "authority_error".to_owned(),
+                            json!("failed to resolve the configured Arkret runtime key"),
+                        );
+                        instances.insert(saved.id.clone(), Value::Object(info));
+                        continue;
+                    };
+                    match savfox_channels::arkret::load_verified_runtime_scope(
+                        &channel.config().savfox_home,
+                        &saved.id,
+                        account,
+                        &runtime_public_key_digest,
+                    )
+                    .await
+                    {
+                        Ok(Some(verified)) => {
+                            info.insert("authority_status".to_owned(), json!("verified"));
+                            info.insert(
+                                "verified_authorization_scope".to_owned(),
+                                json!(verified.actions),
+                            );
+                            info.insert(
+                                "runtime_public_key_digest".to_owned(),
+                                json!(runtime_public_key_digest),
+                            );
+                        }
+                        Ok(None) => {
+                            info.insert("authority_status".to_owned(), json!("pending_session"));
+                        }
+                        Err(error) => {
+                            info.insert("authority_status".to_owned(), json!("error"));
+                            info.insert("authority_error".to_owned(), json!(error.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+        instances.insert(saved.id.clone(), Value::Object(info));
+    }
+
+    if let Some(arkret) = channels.get_mut("arkret").and_then(Value::as_object_mut) {
+        let arkret_instances = instances
+            .values()
+            .filter(|instance| instance.get("platform").and_then(Value::as_str) == Some("arkret"))
+            .collect::<Vec<_>>();
+        let ready_count = arkret_instances
+            .iter()
+            .filter(|instance| {
+                instance
+                    .get("runtime_phase")
+                    .and_then(Value::as_str)
+                    .is_some_and(|phase| matches!(phase, "subscribing" | "dispatching"))
+            })
+            .count();
+        let retrying_count = arkret_instances
+            .iter()
+            .filter(|instance| {
+                instance.get("runtime_phase").and_then(Value::as_str) == Some("retry_wait")
+            })
+            .count();
+        let migration_required_count = arkret_instances
+            .iter()
+            .filter(|instance| {
+                instance.get("runtime_phase").and_then(Value::as_str) == Some("migration_required")
+            })
+            .count();
+        let failed_count = arkret_instances.len().saturating_sub(
+            ready_count
+                .saturating_add(retrying_count)
+                .saturating_add(migration_required_count),
+        );
+        arkret.insert("instance_count".to_owned(), json!(arkret_instances.len()));
+        arkret.insert("ready_count".to_owned(), json!(ready_count));
+        arkret.insert("retrying_count".to_owned(), json!(retrying_count));
+        arkret.insert(
+            "migration_required_count".to_owned(),
+            json!(migration_required_count),
+        );
+        arkret.insert("failed_count".to_owned(), json!(failed_count));
+        arkret.insert(
+            "running".to_owned(),
+            json!(ready_count + retrying_count > 0),
+        );
+        arkret.insert("connected".to_owned(), json!(ready_count > 0));
+        arkret.insert(
+            "health_state".to_owned(),
+            json!(if ready_count > 0 {
+                "connected"
+            } else if migration_required_count > 0 {
+                "migration_required"
+            } else if retrying_count > 0 {
+                "degraded"
+            } else {
+                "stopped"
+            }),
+        );
+        arkret.remove("last_error");
+        arkret.remove("lastError");
+    }
+
     let requested_channel = params
         .get("channel")
         .or_else(|| params.get("platform"))
         .and_then(|v| v.as_str())
         .map(canonical_channel_platform);
     if let Some(channel) = requested_channel.as_deref() {
+        if let Some(requested_id) = requested_channel_instance_id(params) {
+            let instance = instances.get(requested_id).ok_or_else(|| {
+                (
+                    INVALID_REQUEST,
+                    format!("unknown {channel} channel instance: {requested_id}"),
+                )
+            })?;
+            if instance.get("platform").and_then(Value::as_str) != Some(channel) {
+                return Err((
+                    INVALID_REQUEST,
+                    format!("channel instance '{requested_id}' is not a {channel} instance"),
+                ));
+            }
+            return Ok(instance.clone());
+        }
         if let Some(entry) = channels.get(channel) {
             let mut payload = entry.clone();
             if let Some(obj) = payload.as_object_mut() {
@@ -1290,7 +1682,10 @@ pub(crate) async fn handle_channels_status(
         return Err((INVALID_REQUEST, format!("unknown channel: {channel}")));
     }
 
-    Ok(json!({ "channels": channels }))
+    Ok(json!({
+        "channels": channels,
+        "instances": instances,
+    }))
 }
 
 pub(crate) async fn handle_channels_login(
@@ -1315,8 +1710,16 @@ pub(crate) async fn handle_channels_login(
         .get("private_key")
         .and_then(|v| v.as_str())
         .is_some_and(|v| !v.trim().is_empty());
-    let is_configured =
-        channel_is_configured(&platform, &runtime, &saved_configs, nostr_configured);
+    let is_configured = if requested_channel_instance_id(params).is_some() {
+        saved_configs.iter().any(|config| {
+            channel_platform_matches_kind(&config.kind, &platform)
+                && request_matches_channel_instance(params, config)
+                && config.enabled
+                && saved_channel_config_ready(config)
+        })
+    } else {
+        channel_is_configured(&platform, &runtime, &saved_configs, nostr_configured)
+    };
 
     if platform == "discord" {
         if !is_configured {
@@ -1334,7 +1737,10 @@ pub(crate) async fn handle_channels_login(
         let mut ready_configs = 0_u32;
 
         for saved in &saved_configs {
-            if !channel_platform_matches_kind(&saved.kind, "discord") || !saved.enabled {
+            if !channel_platform_matches_kind(&saved.kind, "discord")
+                || !request_matches_channel_instance(params, saved)
+                || !saved.enabled
+            {
                 continue;
             }
             let Some(parsed) =
@@ -1369,6 +1775,7 @@ pub(crate) async fn handle_channels_login(
                         format!("failed to start Discord stream '{}': {err}", saved.id),
                     )
                 })?;
+            crate::channels::note_channel_started(saved, channel, session_store).await;
             started = started.saturating_add(1);
         }
 
@@ -1432,6 +1839,7 @@ pub(crate) async fn handle_channels_login(
 
         for saved in &saved_configs {
             if !channel_platform_matches_kind(&saved.kind, "matrix")
+                || !request_matches_channel_instance(params, saved)
                 || !saved.enabled
                 || !saved_channel_config_ready(saved)
             {
@@ -1452,6 +1860,7 @@ pub(crate) async fn handle_channels_login(
                         format!("failed to start Matrix channel '{}': {err}", saved.id),
                     )
                 })?;
+            crate::channels::note_channel_started(saved, channel, session_store).await;
             started = started.saturating_add(1);
         }
 
@@ -1512,6 +1921,7 @@ pub(crate) async fn handle_channels_login(
 
             for saved in &saved_configs {
                 if !channel_platform_matches_kind(&saved.kind, "arkret")
+                    || !request_matches_channel_instance(params, saved)
                     || !saved.enabled
                     || !saved_channel_config_ready(saved)
                 {
@@ -1570,6 +1980,7 @@ pub(crate) async fn handle_channels_login(
                     })?;
                 }
 
+                crate::channels::note_channel_started(saved, channel, session_store).await;
                 started = started.saturating_add(1);
             }
 
@@ -1621,7 +2032,10 @@ pub(crate) async fn handle_channels_login(
         let mut already_running = 0_u32;
         let mut stream_disabled = 0_u32;
         for saved in &saved_configs {
-            if !channel_platform_matches_kind(&saved.kind, "feishu") || !saved.enabled {
+            if !channel_platform_matches_kind(&saved.kind, "feishu")
+                || !request_matches_channel_instance(params, saved)
+                || !saved.enabled
+            {
                 continue;
             }
             let Some(parsed) =
@@ -1641,6 +2055,7 @@ pub(crate) async fn handle_channels_login(
             let sink = crate::channels::feishu::feishu_sink(
                 Arc::clone(channel),
                 Arc::clone(session_store),
+                Some(saved.id.clone()),
             );
             savfox_channels::feishu::start_feishu_stream(&saved.id, &parsed, sink)
                 .await
@@ -1650,6 +2065,7 @@ pub(crate) async fn handle_channels_login(
                         format!("failed to start Feishu stream '{}': {err}", saved.id),
                     )
                 })?;
+            crate::channels::note_channel_started(saved, channel, session_store).await;
             started = started.saturating_add(1);
         }
 
@@ -1699,7 +2115,10 @@ pub(crate) async fn handle_channels_login(
         let mut already_running = 0_u32;
         let mut polling_disabled = 0_u32;
         for saved in &saved_configs {
-            if !channel_platform_matches_kind(&saved.kind, "telegram") || !saved.enabled {
+            if !channel_platform_matches_kind(&saved.kind, "telegram")
+                || !request_matches_channel_instance(params, saved)
+                || !saved.enabled
+            {
                 continue;
             }
             let Some(parsed) =
@@ -1719,6 +2138,7 @@ pub(crate) async fn handle_channels_login(
             let sink = crate::channels::telegram::telegram_sink(
                 Arc::clone(channel),
                 Arc::clone(session_store),
+                saved.id.clone(),
             );
             savfox_channels::telegram::start_telegram_polling(&saved.id, &parsed, sink)
                 .await
@@ -1728,6 +2148,7 @@ pub(crate) async fn handle_channels_login(
                         format!("failed to start Telegram polling '{}': {err}", saved.id),
                     )
                 })?;
+            crate::channels::note_channel_started(saved, channel, session_store).await;
             started = started.saturating_add(1);
         }
 
@@ -1791,11 +2212,15 @@ pub(crate) async fn handle_channels_logout(
 
     let mut secrets = channel.runtime_channel_secrets().await;
     let mut stopped = 0_u32;
+    let instance_scoped = requested_channel_instance_id(params).is_some();
     match platform.as_str() {
         "discord" => {
-            secrets.discord_bot_token = None;
+            if !instance_scoped {
+                secrets.discord_bot_token = None;
+            }
             for saved in load_saved_channel_configs(channel).await {
                 if channel_platform_matches_kind(&saved.kind, "discord")
+                    && request_matches_channel_instance(params, &saved)
                     && savfox_channels::discord::stop_discord_stream(&saved.id).await
                 {
                     stopped = stopped.saturating_add(1);
@@ -1803,9 +2228,12 @@ pub(crate) async fn handle_channels_logout(
             }
         }
         "telegram" => {
-            secrets.telegram_bot_token = None;
+            if !instance_scoped {
+                secrets.telegram_bot_token = None;
+            }
             for saved in load_saved_channel_configs(channel).await {
                 if channel_platform_matches_kind(&saved.kind, "telegram")
+                    && request_matches_channel_instance(params, &saved)
                     && savfox_channels::telegram::stop_telegram_polling(&saved.id).await
                 {
                     stopped = stopped.saturating_add(1);
@@ -1813,10 +2241,16 @@ pub(crate) async fn handle_channels_logout(
             }
         }
         "slack" => {
-            secrets.slack_bot_token = None;
-            secrets.slack_signing_secret = None;
+            if !instance_scoped {
+                secrets.slack_bot_token = None;
+                secrets.slack_signing_secret = None;
+            }
         }
-        "webhook" => secrets.webhook_secret = None,
+        "webhook" => {
+            if !instance_scoped {
+                secrets.webhook_secret = None;
+            }
+        }
         "nostr" => {
             let mut profile = load_nostr_profile(channel).await;
             profile["private_key"] = json!("");
@@ -1826,6 +2260,7 @@ pub(crate) async fn handle_channels_logout(
         "feishu" => {
             for saved in load_saved_channel_configs(channel).await {
                 if channel_platform_matches_kind(&saved.kind, "feishu")
+                    && request_matches_channel_instance(params, &saved)
                     && savfox_channels::feishu::stop_feishu_stream(&saved.id).await
                 {
                     stopped = stopped.saturating_add(1);
@@ -1836,7 +2271,9 @@ pub(crate) async fn handle_channels_logout(
             let registry = channel.channel_registry();
             let mut registry = registry.write().await;
             for saved in load_saved_channel_configs(channel).await {
-                if channel_platform_matches_kind(&saved.kind, "matrix") {
+                if channel_platform_matches_kind(&saved.kind, "matrix")
+                    && request_matches_channel_instance(params, &saved)
+                {
                     let removed_registry = registry.remove(&saved.id).is_some();
                     let had_appservice =
                         crate::channels::matrix::matrix_appservice_channel_for(&saved.id).is_some();
@@ -1847,11 +2284,23 @@ pub(crate) async fn handle_channels_logout(
                 }
             }
         }
+        "dingtalk" => {
+            for saved in load_saved_channel_configs(channel).await {
+                if channel_platform_matches_kind(&saved.kind, "dingtalk")
+                    && request_matches_channel_instance(params, &saved)
+                    && savfox_channels::dingtalk::stop_dingtalk_stream(&saved.id).await
+                {
+                    stopped = stopped.saturating_add(1);
+                }
+            }
+        }
         "arkret" => {
             #[cfg(feature = "arkret")]
             {
                 for saved in load_saved_channel_configs(channel).await {
-                    if !channel_platform_matches_kind(&saved.kind, "arkret") {
+                    if !channel_platform_matches_kind(&saved.kind, "arkret")
+                        || !request_matches_channel_instance(params, &saved)
+                    {
                         continue;
                     }
                     // Account mode: abort long-poll listener tasks.
@@ -1868,8 +2317,8 @@ pub(crate) async fn handle_channels_logout(
                 }
             }
         }
-        "whatsapp" | "signal" | "mattermost" | "googlechat" | "irc" | "line" | "dingtalk"
-        | "zalo" | "nextcloud" | "twitch" | "tlon" | "qq" | "wechat" => {
+        "whatsapp" | "signal" | "mattermost" | "googlechat" | "irc" | "line" | "zalo"
+        | "nextcloud" | "twitch" | "tlon" | "qq" | "wechat" => {
             // These platforms may not have runtime secrets yet
         }
         _ => {
@@ -1877,12 +2326,36 @@ pub(crate) async fn handle_channels_logout(
         }
     }
     channel.set_runtime_channel_secrets(secrets).await;
+    let reports = channel.channel_recovery_registry();
+    for saved in load_saved_channel_configs(channel).await {
+        if channel_platform_matches_kind(&saved.kind, &platform)
+            && request_matches_channel_instance(params, &saved)
+            && crate::channels::recovery::runtime_capability(&saved)
+                == crate::channels::recovery::ChannelRuntimeCapability::Persistent
+        {
+            // Login/logout handlers historically stop the transport directly.
+            // Also use the common instance stop path so an explicit logout
+            // cancels its recovery supervisor instead of being restarted.
+            if crate::channels::stop_channel_instance(&saved, channel)
+                .await
+                .map_err(|error| {
+                    (
+                        INTERNAL_ERROR,
+                        format!("failed to stop channel '{}': {error}", saved.id),
+                    )
+                })?
+            {
+                stopped = stopped.saturating_add(1);
+            }
+            crate::channels::recovery::mark_channel_stopped(&reports, &saved, false).await;
+        }
+    }
 
     Ok(json!({
         "platform": platform,
-        "status": if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "arkret") && stopped > 0 {
+        "status": if matches!(platform.as_str(), "discord" | "telegram" | "dingtalk" | "feishu" | "matrix" | "arkret") && stopped > 0 {
             "stopped"
-        } else if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "arkret") {
+        } else if matches!(platform.as_str(), "discord" | "telegram" | "dingtalk" | "feishu" | "matrix" | "arkret") {
             "already_stopped"
         } else {
             "logged_out"
@@ -1912,7 +2385,21 @@ pub(crate) async fn handle_channels_test(
         .get("private_key")
         .and_then(|v| v.as_str())
         .is_some_and(|v| !v.trim().is_empty());
-    let configured = channel_is_configured(&platform, &runtime, &saved_configs, nostr_configured);
+    let requested_id = params
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let configured = if let Some(requested_id) = requested_id {
+        saved_configs
+            .iter()
+            .find(|config| {
+                config.id == requested_id && channel_platform_matches_kind(&config.kind, &platform)
+            })
+            .is_some_and(saved_channel_config_ready)
+    } else {
+        channel_is_configured(&platform, &runtime, &saved_configs, nostr_configured)
+    };
 
     if platform == "matrix" {
         return handle_matrix_channel_test(params, channel, &saved_configs).await;
@@ -1929,6 +2416,108 @@ pub(crate) async fn handle_channels_test(
         } else {
             format!("{platform} is not configured. Please add configuration in the channel settings.")
         }
+    }))
+}
+
+#[cfg(not(feature = "arkret"))]
+pub(crate) async fn handle_channels_arkret_inspect(
+    _params: &Value,
+    _channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    Err((
+        INVALID_REQUEST,
+        "Arkret support is not enabled in this build".to_owned(),
+    ))
+}
+
+#[cfg(feature = "arkret")]
+pub(crate) async fn handle_channels_arkret_inspect(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let config_id = requested_channel_instance_id(params).ok_or_else(|| {
+        (
+            INVALID_REQUEST,
+            "channels.arkret.inspect requires an exact channel instance id".to_owned(),
+        )
+    })?;
+    let raw = savfox_core::config::channel_store::get_channel_config(
+        &channel.config().savfox_home,
+        config_id,
+    )
+    .await
+    .map_err(|error| (INTERNAL_ERROR, error.to_string()))?
+    .ok_or_else(|| {
+        (
+            INVALID_REQUEST,
+            format!("Arkret channel instance '{config_id}' was not found"),
+        )
+    })?;
+    if !raw.kind.eq_ignore_ascii_case("arkret") {
+        return Err((
+            INVALID_REQUEST,
+            format!("channel instance '{config_id}' is not an Arkret config"),
+        ));
+    }
+    let parsed = savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&raw)
+        .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
+    let account = &parsed.accounts[0];
+    let verification_method = account.verification_method.as_deref().ok_or_else(|| {
+        (
+            INVALID_REQUEST,
+            "Arkret agent config is missing verificationMethod".to_owned(),
+        )
+    })?;
+    let key_ref = account.key_ref.as_ref().ok_or_else(|| {
+        (
+            INVALID_REQUEST,
+            "Arkret agent config is missing keyRef".to_owned(),
+        )
+    })?;
+    let key_digest =
+        savfox_channels::arkret::ed25519_runtime_public_key_digest(key_ref, verification_method)
+            .map_err(|error| (INTERNAL_ERROR, error.to_string()))?;
+    let diagnostics = crate::channels::arkret::arkret_account_runtime_diagnostics(config_id);
+    let runtime_phase = diagnostics
+        .iter()
+        .find_map(|diagnostic| diagnostic.get("phase").and_then(Value::as_str))
+        .unwrap_or("stopped");
+    let reason_code = diagnostics
+        .iter()
+        .find_map(|diagnostic| diagnostic.get("last_reason_code").and_then(Value::as_str));
+    let verified = savfox_channels::arkret::load_verified_runtime_scope(
+        &channel.config().savfox_home,
+        config_id,
+        account,
+        &key_digest,
+    )
+    .await
+    .map_err(|error| (INTERNAL_ERROR, error.to_string()))?;
+    let (authority_status, verified_scope, excess_scope) = if let Some(verified) = verified {
+        let excess = account
+            .requested_scope
+            .iter()
+            .filter(|action| !verified.actions.contains(action))
+            .cloned()
+            .collect::<Vec<_>>();
+        ("verified", json!(verified.actions), json!(excess))
+    } else {
+        ("pending_session", Value::Null, Value::Null)
+    };
+    Ok(json!({
+        "platform": "arkret",
+        "instance_id": config_id,
+        "agent_id": account.principal_id,
+        "account_id": account.id,
+        "runtime_public_key_digest": key_digest,
+        "authorization_ref": account.authorized_event_ref,
+        "local_requested_scope": account.requested_scope,
+        "verified_authorization_scope": verified_scope,
+        "excess_scope": excess_scope,
+        "authority_status": authority_status,
+        "runtime_phase": runtime_phase,
+        "last_reason_code": reason_code,
+        "listener_diagnostics": diagnostics,
     }))
 }
 
@@ -1962,6 +2551,20 @@ fn arkret_test_channel_config(
             created_at: None,
             updated_at: None,
         });
+    }
+
+    if let Some(requested_id) = params
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return saved_configs
+            .iter()
+            .find(|config| {
+                config.id == requested_id && channel_platform_matches_kind(&config.kind, "arkret")
+            })
+            .cloned();
     }
 
     saved_configs
@@ -2054,14 +2657,9 @@ async fn handle_arkret_channel_test(
         }));
     }
 
-    let parsed = savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&raw_config)
-        .ok_or_else(|| {
-            (
-                INVALID_REQUEST,
-                "Arkret agent channel config must include a Inkson bootstrap plus completed runtime key pairing"
-                    .to_owned(),
-            )
-        })?;
+    let parsed =
+        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&raw_config)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
     parsed
         .validate()
         .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
@@ -2100,14 +2698,9 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
             "Arkret agent channel config is required".to_owned(),
         ));
     };
-    let parsed = savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&raw_config)
-        .ok_or_else(|| {
-            (
-                INVALID_REQUEST,
-                "Arkret agent channel config must include a Inkson bootstrap and runtime key ref"
-                    .to_owned(),
-            )
-        })?;
+    let parsed =
+        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&raw_config)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
     let account_id = params
         .get("account_id")
         .or_else(|| params.get("accountId"))
@@ -2228,14 +2821,9 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
             "Arkret agent channel config is required".to_owned(),
         ));
     };
-    let parsed = savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&raw_config)
-        .ok_or_else(|| {
-            (
-                INVALID_REQUEST,
-                "Arkret agent channel config must include a Inkson bootstrap and runtime key ref"
-                    .to_owned(),
-            )
-        })?;
+    let parsed =
+        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&raw_config)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
     let account_id = params
         .get("account_id")
         .or_else(|| params.get("accountId"))
@@ -2595,12 +3183,13 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
         Some(savfox_channels::arkret::ArkretKeyRef::Keyring { service, account }) => {
             savfox_channels::arkret::ArkretKeyRef::Keyring { service, account }
         }
-        Some(source) => savfox_channels::arkret::migrate_ed25519_key_ref_to_keyring(
-            &source,
-            "savfox-arkret",
-            keyring_account,
-        )
-        .map_err(|err| (INTERNAL_ERROR, err.to_string()))?,
+        Some(_) => {
+            return Err((
+                INVALID_REQUEST,
+                "Arkret agent runtime keys must already use kind='keyring'; legacy key sources are not migrated"
+                    .to_owned(),
+            ));
+        }
         None => savfox_channels::arkret::get_or_generate_ed25519_key_ref_in_keyring(
             "savfox-arkret",
             keyring_account,
@@ -2669,6 +3258,20 @@ fn matrix_test_channel_config(
             created_at: None,
             updated_at: None,
         });
+    }
+
+    if let Some(requested_id) = params
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return saved_configs
+            .iter()
+            .find(|config| {
+                config.id == requested_id && channel_platform_matches_kind(&config.kind, "matrix")
+            })
+            .cloned();
     }
 
     saved_configs
@@ -3555,12 +4158,15 @@ pub(crate) async fn handle_directory_groups_members(
 mod tests {
     use serde_json::json;
 
-    use super::saved_channel_config_ready;
     #[cfg(feature = "arkret")]
     use super::{
         SavedChannelState, arkret_pairing_resolve_target, arkret_runtime_key_status_flags,
-        insert_saved_channel_metadata, sanitize_arkret_runtime_key_label,
-        validate_arkret_pairing_bootstrap_value,
+        insert_arkret_listener_summary, insert_saved_channel_metadata,
+        sanitize_arkret_runtime_key_label, validate_arkret_pairing_bootstrap_value,
+    };
+    use super::{
+        arkret_test_channel_config, matrix_test_channel_config, request_matches_channel_instance,
+        saved_channel_config_ready,
     };
 
     #[cfg(feature = "arkret")]
@@ -3593,6 +4199,37 @@ mod tests {
             created_at: None,
             updated_at: None,
         }
+    }
+
+    #[test]
+    fn channel_test_selects_the_requested_instance() {
+        let mut arkret_one = channel_config("arkret", json!({"mode": "agent"}));
+        arkret_one.id = "arkret-one".to_owned();
+        let mut arkret_two = channel_config("arkret", json!({"mode": "agent"}));
+        arkret_two.id = "arkret-two".to_owned();
+        let mut matrix_one = channel_config("matrix", json!({"homeserver": "one"}));
+        matrix_one.id = "matrix-one".to_owned();
+        let saved = vec![arkret_one, arkret_two, matrix_one];
+
+        assert_eq!(
+            arkret_test_channel_config(&json!({"id": "arkret-two"}), &saved)
+                .map(|config| config.id),
+            Some("arkret-two".to_owned())
+        );
+        assert_eq!(
+            matrix_test_channel_config(&json!({"id": "matrix-one"}), &saved)
+                .map(|config| config.id),
+            Some("matrix-one".to_owned())
+        );
+        assert!(arkret_test_channel_config(&json!({"id": "arkret-missing"}), &saved).is_none());
+        assert!(request_matches_channel_instance(
+            &json!({"id": "arkret-two"}),
+            &saved[1]
+        ));
+        assert!(!request_matches_channel_instance(
+            &json!({"id": "arkret-two"}),
+            &saved[0]
+        ));
     }
 
     #[cfg(feature = "arkret")]
@@ -3739,8 +4376,15 @@ mod tests {
                 "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
                 "requestedScope": [
                     "ak.self.events.stream.subscribe",
+                    "ak.self.events.query.scan",
                     "ak.self.events.command.submit",
-                    "ak.event.read"
+                    "ak.self.keys.keypackages.upload.create",
+                    "ak.self.keys.keypackages.command.consume",
+                    "ak.self.keys.keypackages.command.revoke",
+                    "ak.self.device_messages.query.list",
+                    "ak.self.device_messages.command.ack",
+                    "ak.event.read",
+                    "ak.message.create"
                 ]
             }),
         );
@@ -3791,7 +4435,7 @@ mod tests {
 
     #[cfg(feature = "arkret")]
     #[test]
-    fn arkret_metadata_exposes_active_runtime_pairing() {
+    fn arkret_metadata_separates_pairing_from_runtime_readiness() {
         let config = channel_config(
             "arkret",
             json!({
@@ -3805,8 +4449,15 @@ mod tests {
                 "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
                 "requestedScope": [
                     "ak.self.events.stream.subscribe",
+                    "ak.self.events.query.scan",
                     "ak.self.events.command.submit",
-                    "ak.event.read"
+                    "ak.self.keys.keypackages.upload.create",
+                    "ak.self.keys.keypackages.command.consume",
+                    "ak.self.keys.keypackages.command.revoke",
+                    "ak.self.device_messages.query.list",
+                    "ak.self.device_messages.command.ack",
+                    "ak.event.read",
+                    "ak.message.create"
                 ]
             }),
         );
@@ -3822,7 +4473,9 @@ mod tests {
 
         insert_saved_channel_metadata(&mut info, "arkret", &state);
 
-        assert_eq!(info["runtime_pairing_state"], "active");
+        assert_eq!(info["runtime_pairing_state"], "paired");
+        assert_eq!(info["runtime_phase"], "stopped");
+        assert_eq!(info["runtime_ready"], false);
         assert_eq!(
             info["authorized_event_ref"],
             "ak:event:01904100-0000-7000-8000-000000000099"
@@ -3831,7 +4484,28 @@ mod tests {
             info["verification_method"],
             "did:webvh:example.org:agents:support#runtime-1"
         );
-        assert_eq!(info["runtime_scope_count"], 3);
+        assert_eq!(
+            info["runtime_scope_count"],
+            savfox_channels::arkret::DEFAULT_AGENT_RUNTIME_SCOPE.len()
+        );
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_listener_summary_surfaces_retry_failure() {
+        let mut info = serde_json::Map::new();
+        insert_arkret_listener_summary(
+            &mut info,
+            vec![json!({
+                "running": true,
+                "phase": "retry_wait",
+                "last_error": "session authentication failed"
+            })],
+        );
+
+        assert_eq!(info["runtime_ready"], false);
+        assert_eq!(info["runtime_phase"], "retry_wait");
+        assert_eq!(info["lastError"], "session authentication failed");
     }
 
     #[cfg(feature = "arkret")]

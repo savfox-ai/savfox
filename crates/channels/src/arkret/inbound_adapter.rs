@@ -88,8 +88,8 @@ pub enum ArkretInboundSkipReason {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArkretInboundEventOutcome {
-    Dispatchable(ArkretInboundEvent),
-    Skip(ArkretInboundSkippedEvent),
+    Dispatchable(Box<ArkretInboundEvent>),
+    Skip(Box<ArkretInboundSkippedEvent>),
 }
 
 /// Extract a `ak.message.create` Event payload into a savfox inbound command.
@@ -99,7 +99,7 @@ pub enum ArkretInboundEventOutcome {
 #[must_use]
 pub fn extract_message_event(event: &Value, account_id: &str) -> Option<ArkretInboundEvent> {
     match classify_message_event(event, account_id) {
-        ArkretInboundEventOutcome::Dispatchable(event) => Some(event),
+        ArkretInboundEventOutcome::Dispatchable(event) => Some(*event),
         ArkretInboundEventOutcome::Skip(_) => None,
     }
 }
@@ -182,7 +182,7 @@ fn classify_sdk_message_create(
     let thread_root_id = payload.reply_to.clone();
     let mentioned_actor_ids = structured_mention_actor_ids(content);
 
-    ArkretInboundEventOutcome::Dispatchable(ArkretInboundEvent {
+    ArkretInboundEventOutcome::Dispatchable(Box::new(ArkretInboundEvent {
         account_id: account_id.to_owned(),
         event_id: event.event_id.as_str().to_owned(),
         realm_id: event.realm_id.as_str().to_owned(),
@@ -194,7 +194,7 @@ fn classify_sdk_message_create(
         thread_root_id,
         mentioned_actor_ids,
         sidecar_exchange: None,
-    })
+    }))
 }
 
 fn structured_mention_actor_ids(content: &arkret::ContentBlock) -> Vec<String> {
@@ -315,10 +315,10 @@ pub fn parse_delta_frame_for_account(
                             reason,
                         });
                     } else {
-                        events.push(parsed);
+                        events.push(*parsed);
                     }
                 }
-                ArkretInboundEventOutcome::Skip(event) => skipped.push(event),
+                ArkretInboundEventOutcome::Skip(event) => skipped.push(*event),
             }
         }
     }
@@ -362,10 +362,10 @@ pub fn parse_notification_delta_for_account(
                         reason,
                     });
                 } else {
-                    events.push(parsed);
+                    events.push(*parsed);
                 }
             }
-            ArkretInboundEventOutcome::Skip(event) => skipped.push(event),
+            ArkretInboundEventOutcome::Skip(event) => skipped.push(*event),
         }
     }
     ArkretInboundParseResult { events, skipped }
@@ -417,7 +417,7 @@ fn classify_notification_event(
     };
     let body = notification_body(notification_type, notification);
     let sender_did = notification_sender(notification, principal_id);
-    ArkretInboundEventOutcome::Dispatchable(ArkretInboundEvent {
+    ArkretInboundEventOutcome::Dispatchable(Box::new(ArkretInboundEvent {
         account_id: account_id.to_owned(),
         event_id,
         realm_id,
@@ -429,7 +429,7 @@ fn classify_notification_event(
         thread_root_id: None,
         mentioned_actor_ids: Vec::new(),
         sidecar_exchange: None,
-    })
+    }))
 }
 
 fn notification_kind(notification: &Value) -> Option<&str> {
@@ -515,7 +515,7 @@ fn skip_event(
     account_id: &str,
     reason: ArkretInboundSkipReason,
 ) -> ArkretInboundEventOutcome {
-    ArkretInboundEventOutcome::Skip(ArkretInboundSkippedEvent {
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
         account_id: account_id.to_owned(),
         event_id: event
             .get("event_id")
@@ -536,7 +536,7 @@ fn skip_event(
         encrypted_payload: None,
         encrypted_metadata_payload: None,
         reason,
-    })
+    }))
 }
 
 fn skip_sdk_event(
@@ -544,7 +544,7 @@ fn skip_sdk_event(
     account_id: &str,
     reason: ArkretInboundSkipReason,
 ) -> ArkretInboundEventOutcome {
-    ArkretInboundEventOutcome::Skip(ArkretInboundSkippedEvent {
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
         account_id: account_id.to_owned(),
         event_id: Some(event.event_id.as_str().to_owned()),
         realm_id: Some(event.realm_id.as_str().to_owned()),
@@ -556,7 +556,7 @@ fn skip_sdk_event(
         encrypted_payload: None,
         encrypted_metadata_payload: None,
         reason,
-    })
+    }))
 }
 
 fn skip_notification(
@@ -564,7 +564,7 @@ fn skip_notification(
     account_id: &str,
     reason: ArkretInboundSkipReason,
 ) -> ArkretInboundEventOutcome {
-    ArkretInboundEventOutcome::Skip(ArkretInboundSkippedEvent {
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
         account_id: account_id.to_owned(),
         event_id: notification_identity(notification),
         realm_id: notification_string(notification, &["realm_id"]),
@@ -579,12 +579,12 @@ fn skip_notification(
         encrypted_payload: None,
         encrypted_metadata_payload: None,
         reason,
-    })
+    }))
 }
 
 fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretInboundEventOutcome {
     let message = event.as_message_create().ok();
-    ArkretInboundEventOutcome::Skip(ArkretInboundSkippedEvent {
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
         account_id: account_id.to_owned(),
         event_id: Some(event.event_id.as_str().to_owned()),
         realm_id: Some(event.realm_id.as_str().to_owned()),
@@ -600,7 +600,7 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
             &event.payload,
         ),
         reason: ArkretInboundSkipReason::EncryptedContent,
-    })
+    }))
 }
 
 #[cfg(test)]
@@ -615,12 +615,8 @@ mod tests {
             id: "support".into(),
             principal_id: "did:webvh:example.org:agents:support".into(),
             device_id: "ak:device:01".into(),
-            access_token: String::new(),
             key_ref: None,
             verification_method: None,
-            arkret_server_did: None,
-            login_challenge: None,
-            grant_event_path: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
             requested_scope: vec!["ak.event.read".into()],

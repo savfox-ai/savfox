@@ -233,6 +233,8 @@ pub async fn run_main(
     let auth = Arc::new(GatewayAuth::single_token(token.clone()));
     let session_mgr = Arc::new(GatewaySessionManager::new());
     let channel_registry = channels::create_channel_registry();
+    let channel_recovery_registry = channels::recovery::create_channel_recovery_registry();
+    let channel_recovery_supervisors = channels::recovery::create_channel_recovery_supervisors();
     let session_store = Arc::new(SessionStore::from_home(&config.savfox_home));
     info!("session store initialized");
 
@@ -249,6 +251,8 @@ pub async fn run_main(
         websocket_manager: (*session_mgr).clone(),
         outgoing_tx,
         channel_registry: channel_registry.clone(),
+        channel_recovery_registry,
+        channel_recovery_supervisors,
     }));
 
     info!("gateway channel created");
@@ -402,12 +406,14 @@ pub async fn run_main(
         &gateway_config,
         auth,
         session_mgr,
-        channel,
+        Arc::clone(&channel),
         session_store,
         cron_service,
         config.savfox_home.clone(),
     )
     .await;
+
+    channels::shutdown_all_channel_instances(&config.savfox_home, &channel).await;
 
     // On graceful shutdown, reap any managed PTY subprocesses so they are not
     // left orphaned. Best-effort: log and continue regardless of outcome.

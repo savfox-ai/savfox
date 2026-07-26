@@ -306,6 +306,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             Some(1),
             None,
             None,
+            meta.as_ref()
+                .and_then(|value| value.saved_channel_config_id.as_deref()),
         )
         .await;
         return;
@@ -590,6 +592,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                         session_id: tracked.session_id.clone(),
                         outbound_channel: outbound_channel.clone(),
                         platform: platform.to_owned(),
+                        saved_channel_config_id: start_meta.saved_channel_config_id.clone(),
                         agent_id: routed_agent.clone(),
                         thread_id: tracked.thread_id.clone(),
                         reply_target: tracked.reply_target.clone(),
@@ -686,6 +689,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 None,
                 tracked.thread_id.as_deref(),
                 tracked.reply_target.as_deref(),
+                start_meta.saved_channel_config_id.as_deref(),
             )
             .await
             {
@@ -761,6 +765,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         peer_id: start_meta.peer_id.as_deref(),
         thread_id: start_meta.thread_id.as_deref(),
         chat_type: start_meta.chat_type.as_deref(),
+        saved_channel_config_id: start_meta.saved_channel_config_id.as_deref(),
     };
     let (stream_tx, stream_handle) = if let Some(sink) = create_stream_sink(
         platform,
@@ -787,6 +792,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     let approval_channel = outbound_channel.clone();
     let approval_thread_id = tracked.thread_id.clone();
     let approval_reply_target = tracked.reply_target.clone();
+    let approval_saved_channel_config_id = start_meta.saved_channel_config_id.clone();
     let approval_task = tokio::spawn(async move {
         while let Some(msg) = approval_rx.recv().await {
             let _ = send_with_retry(
@@ -796,6 +802,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 Some(1),
                 approval_thread_id.as_deref(),
                 approval_reply_target.as_deref(),
+                approval_saved_channel_config_id.as_deref(),
             )
             .await;
         }
@@ -901,6 +908,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                     None,
                     tracked.thread_id.as_deref(),
                     tracked.reply_target.as_deref(),
+                    start_meta.saved_channel_config_id.as_deref(),
                 )
                 .await
                 {
@@ -961,6 +969,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 None,
                 tracked.thread_id.as_deref(),
                 tracked.reply_target.as_deref(),
+                start_meta.saved_channel_config_id.as_deref(),
             )
             .await
             {

@@ -341,6 +341,7 @@ arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk", default-feature
     "mls",
     "signer",
 ] }
+arkret-schema = { path = "../../arkret-org/arkret-rust-sdk/crates/schema", default-features = false, features = ["embedded-artifacts"] }
 arkret-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/crypto", default-features = false }
 arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-collaboration", default-features = false }
 arkret-signatures = { path = "../../arkret-org/arkret-rust-sdk/crates/signatures", default-features = false, features = ["collaboration"] }
@@ -348,7 +349,7 @@ garth = { path = "../../arkret-org/garth", default-features = false, features = 
 arkret-bridge-runtime = { path = "../../arkret-org/bridges/crates/runtime", default-features = false, features = ["edge"] }
 
 # WASM dependencies for gateway-dioxus
-dioxus = { version = "0.7", default-features = false, features = [
+dioxus = { version = "=0.7.9", default-features = false, features = [
     "web",
     "router",
     "lib",

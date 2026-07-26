@@ -14,7 +14,7 @@
 //! Layered like the other channel modules:
 //!
 //! * [`config`] — typed wrapper for the saved `ChannelConfig` JSON, plus
-//!   `load_arkret_channel_configs` + `resolve_arkret_outbound_account`.
+//!   `load_arkret_channel_configs` + `resolve_arkret_outbound_account_for_config`.
 //! * [`inbound_adapter`] — adapt Arkret SDK-decoded inbound Events and account notification deltas
 //!   into a savfox `ArkretInboundEvent` ready for the agent pipeline. Frame parsing itself lives in
 //!   the Arkret SDK (`AccountSubscribeFrame::from_ndjson_line`).
@@ -49,9 +49,13 @@ pub use client::{
     sign_mls_welcome_claim_envelope,
 };
 pub use config::{
-    ArkretAccountConfig, ArkretAccountMode, ArkretChannelConfig,
-    build_arkret_runtime_key_request_json, build_arkret_runtime_key_status_request_json,
-    derive_arkret_device_id, load_arkret_channel_configs, resolve_arkret_outbound_account,
+    ArkretAccountConfig, ArkretAccountMode, ArkretChannelConfig, DEFAULT_AGENT_RUNTIME_SCOPE,
+    VerifiedArkretRuntimeScope, build_arkret_runtime_key_request_json,
+    build_arkret_runtime_key_status_request_json, delete_verified_runtime_scope,
+    derive_arkret_device_id, duplicate_requested_scope_actions, load_arkret_channel_configs,
+    load_verified_runtime_scope, missing_required_scope_actions,
+    resolve_arkret_outbound_account_for_config, save_verified_runtime_scope,
+    unknown_requested_scope_actions,
 };
 pub use crypto_state::{
     ArkretBootstrapRecord, ArkretContentEncryptionFloor, ArkretCryptoStateFile,
@@ -81,6 +85,6 @@ pub use sidecar::{
 pub use signer::{
     ArkretKeyRef, ed25519_runtime_public_key_digest, generate_ed25519_key_ref_in_keyring,
     get_or_generate_ed25519_key_ref_in_keyring, load_ed25519_seed_hex, load_ed25519_signer,
-    migrate_ed25519_key_ref_to_keyring, sign_keypackages_consume_request,
-    sign_keypackages_revoke_request, sign_keypackages_upload_request,
+    sign_keypackages_consume_request, sign_keypackages_revoke_request,
+    sign_keypackages_upload_request,
 };

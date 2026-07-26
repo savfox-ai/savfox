@@ -19,6 +19,7 @@ pub struct ChannelsResponse {
 pub struct ChannelsStatusSnapshot {
     pub ts: Option<i64>,
     pub channels: Option<HashMap<String, ChannelStatusSnapshot>>,
+    pub instances: Option<HashMap<String, ChannelInstanceStatusSnapshot>>,
 }
 
 /// Common status fields returned for each platform by `channels.status`.
@@ -40,6 +41,33 @@ pub struct ChannelStatusSnapshot {
     #[serde(alias = "lastError")]
     pub last_error: Option<String>,
     pub accounts: Option<Vec<ChannelAccountSnapshot>>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ChannelInstanceStatusSnapshot {
+    pub platform: String,
+    pub configured: Option<bool>,
+    pub running: Option<bool>,
+    pub connected: Option<bool>,
+    pub enabled: Option<bool>,
+    pub id: Option<String>,
+    pub channel_name: Option<String>,
+    pub slug: Option<String>,
+    pub runtime_capability: Option<String>,
+    pub recovery_phase: Option<String>,
+    pub health_state: Option<String>,
+    pub startup_attempts: Option<u32>,
+    pub startup_updated_at: Option<String>,
+    pub runtime_phase: Option<String>,
+    pub runtime_attempts: Option<u32>,
+    pub runtime_ready: Option<bool>,
+    pub last_reason_code: Option<String>,
+    pub authority_status: Option<String>,
+    pub local_requested_scope: Option<Vec<String>>,
+    pub verified_authorization_scope: Option<Vec<String>>,
+    pub missing_required_actions: Option<Vec<String>>,
+    #[serde(alias = "lastError")]
+    pub last_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -189,6 +217,12 @@ pub struct ArkretStatus {
     pub bot_actor_id: Option<String>,
     pub protocol_count: Option<u32>,
     pub namespace_count: Option<u32>,
+    pub instance_count: Option<u32>,
+    pub ready_count: Option<u32>,
+    pub retrying_count: Option<u32>,
+    pub migration_required_count: Option<u32>,
+    pub failed_count: Option<u32>,
+    pub health_state: Option<String>,
     pub last_activity: Option<i64>,
     pub last_error: Option<String>,
 }
@@ -272,11 +306,26 @@ mod tests {
                     "configured": true,
                     "lastError": "legacy error"
                 }
+            },
+            "instances": {
+                "discord-main": {
+                    "platform": "discord",
+                    "configured": true,
+                    "running": true,
+                    "connected": false,
+                    "runtime_capability": "persistent",
+                    "recovery_phase": "ready",
+                    "health_state": "listening",
+                    "startup_attempts": 1
+                }
             }
         }))
         .expect("channel status should deserialize");
 
-        let channels = snapshot.channels.expect("channels should be present");
+        let channels = snapshot
+            .channels
+            .as_ref()
+            .expect("channels should be present");
         let discord = channels.get("discord").expect("discord should be present");
         assert_eq!(discord.connected, Some(false));
         assert_eq!(discord.id.as_deref(), Some("discord-main"));
@@ -287,5 +336,12 @@ mod tests {
                 .and_then(|status| status.last_error.as_deref()),
             Some("legacy error")
         );
+        let instance = snapshot
+            .instances
+            .as_ref()
+            .and_then(|instances| instances.get("discord-main"))
+            .expect("instance status should be present");
+        assert_eq!(instance.recovery_phase.as_deref(), Some("ready"));
+        assert_eq!(instance.health_state.as_deref(), Some("listening"));
     }
 }

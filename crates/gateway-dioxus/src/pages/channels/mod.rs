@@ -26,7 +26,10 @@ pub mod zalo;
 
 use arkret_models_collaboration::agent_operations::AgentPairingBootstrap;
 use dioxus::prelude::*;
-use lucide_dioxus::{Activity, Braces, Power, Settings, SlidersHorizontal, Trash2};
+use lucide_dioxus::{
+    Activity, Braces, CircleCheck, Copy, Link2, LoaderCircle, Power, Settings, SlidersHorizontal,
+    Trash2, TriangleAlert, Unplug,
+};
 use savfox_utils::string::normalize_slug;
 use serde_json::{Value, json};
 
@@ -64,6 +67,14 @@ struct ConfigField {
     help: &'static str,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SavedChannelSummary {
+    kind: String,
+    id: String,
+    name: String,
+    enabled: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum FieldType {
     Text,
@@ -72,6 +83,83 @@ enum FieldType {
     Textarea,
     Toggle,
     Select(Vec<String>),
+}
+
+fn saved_channel_summaries(configs: Option<&Value>) -> Vec<SavedChannelSummary> {
+    configs
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|config| {
+            let kind = config
+                .get("kind")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    config
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .and_then(|raw| raw.split('-').next())
+                })?
+                .trim()
+                .to_ascii_lowercase();
+            let id = config
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?
+                .to_owned();
+            let name = config
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(&id)
+                .to_owned();
+            let enabled = config
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            Some(SavedChannelSummary {
+                kind,
+                id,
+                name,
+                enabled,
+            })
+        })
+        .collect()
+}
+
+fn next_available_channel_name(
+    kind: &str,
+    base_name: &str,
+    configs: &[SavedChannelSummary],
+) -> String {
+    let id_is_available = |name: &str| {
+        let candidate = compute_channel_id(name, kind);
+        configs
+            .iter()
+            .all(|config| !config.id.eq_ignore_ascii_case(&candidate))
+    };
+    if id_is_available(base_name) {
+        return base_name.to_owned();
+    }
+    for suffix in 2.. {
+        let candidate = format!("{base_name} {suffix}");
+        if id_is_available(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("an unused channel name suffix must exist")
+}
+
+fn new_channel_form_values(
+    channel_id: &str,
+    fields: &[ConfigField],
+    channel_name: String,
+) -> std::collections::HashMap<String, String> {
+    let mut values = default_channel_values(channel_id, fields);
+    values.insert(channel_name_key(channel_id), channel_name);
+    values
 }
 
 /// Cached channel metadata. The full set of channel descriptors is fully
@@ -567,12 +655,12 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 },
                 ConfigField {
                     key: "inksonBootstrap".into(),
-                    label: "Inkson Pairing Link / Bootstrap JSON".into(),
-                    field_type: FieldType::Textarea,
+                    label: "Inkson pairing link".into(),
+                    field_type: FieldType::Text,
                     placeholder: "https://arkret.example.org/_arkret/open/agent-pairing/resolve#token=...".into(),
                     secret: false,
                     required: false,
-                    help: "Paste the short Inkson pairing link or resolved CKP-0008 bootstrap JSON. Request approval resolves links automatically. The stored bootstrap carries pairing metadata only, not scopes, private keys, or session grants.",
+                    help: "Paste the short pairing link from Inkson. Savfox resolves and stores the protocol bootstrap without showing its internal JSON.",
                 },
                 ConfigField {
                     key: "baseUrl".into(),
@@ -1335,9 +1423,13 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
 fn compute_health_counts(
     channels_status: Option<&serde_json::Value>,
 ) -> (usize, usize, usize, usize) {
-    let map = channels_status
-        .and_then(|s| s.get("channels"))
-        .and_then(|c| c.as_object());
+    let map = channels_status.and_then(|status| {
+        status
+            .get("instances")
+            .and_then(Value::as_object)
+            .filter(|instances| !instances.is_empty())
+            .or_else(|| status.get("channels").and_then(Value::as_object))
+    });
 
     let Some(m) = map else {
         return (0, 0, 0, 0);
@@ -1387,6 +1479,27 @@ fn format_uptime_compact(ms: u64) -> String {
         format!("{hours}h {minutes}m")
     } else {
         format!("{minutes}m")
+    }
+}
+
+fn arkret_pairing_state_label(state: &str) -> String {
+    match state {
+        "paired" | "active" => "Paired".to_owned(),
+        "pending_authorization" => "Pending authorization".to_owned(),
+        "pending_runtime_key" => "Pending runtime key".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+fn arkret_runtime_phase_label(phase: &str) -> String {
+    match phase {
+        "scheduled" | "starting" => "Starting".to_owned(),
+        "subscribing" => "Listening".to_owned(),
+        "dispatching" => "Dispatching".to_owned(),
+        "retry_wait" => "Retrying".to_owned(),
+        "migration_required" => "Re-provision required".to_owned(),
+        "stopped" => "Stopped".to_owned(),
+        other => other.to_owned(),
     }
 }
 
@@ -1474,9 +1587,38 @@ fn channel_name_key(channel_id: &str) -> String {
     format!("{channel_id}.__name")
 }
 
+fn arkret_pairing_link_input_key(channel_id: &str) -> String {
+    format!("{channel_id}.__pairing_link_input")
+}
+
+fn arkret_pairing_state_key(channel_id: &str) -> String {
+    format!("{channel_id}.__pairing_state")
+}
+
+fn saved_channel_id_key(channel_id: &str) -> String {
+    format!("{channel_id}.__saved_channel_id")
+}
+
+fn arkret_unbind_confirm_key(channel_id: &str) -> String {
+    format!("{channel_id}.__unbind_confirm")
+}
+
 fn compute_channel_id(name: &str, kind: &str) -> String {
     let slug = normalize_slug(name).unwrap_or_else(|| "default".to_string());
     format!("{kind}-{slug}")
+}
+
+fn channel_form_id(
+    channel_id: &str,
+    channel_name: &str,
+    values: &std::collections::HashMap<String, String>,
+) -> String {
+    values
+        .get(&saved_channel_id_key(channel_id))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| compute_channel_id(channel_name, channel_id))
 }
 
 fn router_mode_key(channel_id: &str) -> String {
@@ -1850,6 +1992,39 @@ fn build_group_policy(
         .map(|v| v.as_str())
         .unwrap_or("");
     build_policy_value(mode, list)
+}
+
+async fn persist_channel_form(
+    ws: &WsRpc,
+    channel_id: &str,
+    fields: &[ConfigField],
+    values: &std::collections::HashMap<String, String>,
+) -> Result<Value, String> {
+    let channel_name = values
+        .get(&channel_name_key(channel_id))
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| "default".to_string());
+    let channel_computed_id = channel_form_id(channel_id, &channel_name, values);
+    let patch = build_channel_patch(channel_id, fields, values)?;
+    let router = build_router_value(channel_id, values)?;
+    let dm_policy = build_dm_policy(channel_id, values);
+    let group_policy = build_group_policy(channel_id, values);
+
+    ws.call::<Value>(
+        "channels.config.save",
+        Some(json!({
+            "channel": channel_id,
+            "id": channel_computed_id,
+            "name": channel_name,
+            "config": patch,
+            "router": router,
+            "dm_policy": dm_policy,
+            "group_policy": group_policy,
+        })),
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 
 fn build_appservice_registration_from_values(
@@ -2441,6 +2616,16 @@ fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
         );
     }
     if patch
+        .pointer("/keyRef/kind")
+        .and_then(Value::as_str)
+        .is_none_or(|kind| kind != "keyring")
+    {
+        return Err(
+            "Arkret agent runtime keys must use the platform credential vault (kind='keyring'). Generate a new local runtime key before saving."
+                .to_string(),
+        );
+    }
+    if patch
         .get("verificationMethod")
         .and_then(Value::as_str)
         .map(str::trim)
@@ -2453,6 +2638,19 @@ fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
     }
     Ok(())
 }
+
+const ARKRET_AGENT_RUNTIME_SCOPE: &[&str] = &[
+    "ak.self.events.stream.subscribe",
+    "ak.self.events.query.scan",
+    "ak.self.events.command.submit",
+    "ak.self.keys.keypackages.upload.create",
+    "ak.self.keys.keypackages.command.consume",
+    "ak.self.keys.keypackages.command.revoke",
+    "ak.self.device_messages.query.list",
+    "ak.self.device_messages.command.ack",
+    "ak.event.read",
+    "ak.message.create",
+];
 
 fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
     let Some(bootstrap_value) = patch.get("inksonBootstrap").cloned() else {
@@ -2472,7 +2670,7 @@ fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
         patch["principalId"] = Value::Null;
     }
     if patch_value_empty(patch.get("requestedScope")) {
-        patch["requestedScope"] = Value::Null;
+        patch["requestedScope"] = json!(ARKRET_AGENT_RUNTIME_SCOPE);
     }
     let agent_id = bootstrap.agent_id.to_string();
     let existing_verification_method = patch
@@ -2668,6 +2866,7 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
     let mut config_modal_channel = use_signal(move || initial_edit);
     let mut add_channel_search = use_signal(String::new);
     let mut add_channel_name = use_signal(String::new);
+    let mut initialized_add_channel = use_signal(|| Option::<String>::None);
     let mut modal_revealed: Signal<std::collections::HashSet<String>> =
         use_signal(|| std::collections::HashSet::new());
     let mut open_channel_menu = use_signal(|| Option::<String>::None);
@@ -2695,13 +2894,39 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
 
     let channel_types = get_channel_types();
 
-    let ws_config_get = ws.clone();
+    let ws_list = ws.clone();
+    let channels_data = use_resource(move || {
+        let _c = ws_connected();
+        let _t = refresh_tick();
+        let ws = ws_list.clone();
+        async move {
+            ws.wait_connected().await;
+            ws.call::<serde_json::Value>("channels.status", Some(json!({ "probe": false })))
+                .await
+                .ok()
+        }
+    });
+
+    let ws_configs = ws.clone();
+    let channel_configs_data = use_resource(move || {
+        let _c = ws_connected();
+        let _t = refresh_tick();
+        let ws = ws_configs.clone();
+        async move {
+            ws.wait_connected().await;
+            ws.call::<serde_json::Value>("channels.config.list", None)
+                .await
+                .ok()
+        }
+    });
+
     let modal_channel_types = channel_types;
     use_effect(move || {
         let modal_open = show_add_modal();
         let selected = selected_channel();
         if !modal_open {
             add_channel_name.set(String::new());
+            initialized_add_channel.set(None);
             modal_revealed.write().clear();
             return;
         }
@@ -2709,47 +2934,40 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
         let Some(channel_id) = selected else {
             config_values.write().clear();
             add_channel_name.set(String::new());
+            initialized_add_channel.set(None);
             modal_revealed.write().clear();
             return;
         };
+        if initialized_add_channel().as_deref() == Some(channel_id.as_str()) {
+            return;
+        }
         let default_name = modal_channel_types
             .iter()
             .find(|channel_type| channel_type.id == channel_id)
             .map(|channel_type| channel_type.name.clone())
             .unwrap_or_else(|| channel_id.clone());
+        let config_summaries = {
+            let configs_read = channel_configs_data.read();
+            let Some(configs_result) = configs_read.as_ref() else {
+                return;
+            };
+            let configs = configs_result.as_ref();
+            saved_channel_summaries(configs)
+        };
+        let default_name =
+            next_available_channel_name(&channel_id, &default_name, &config_summaries);
         let selected_fields = modal_channel_types
             .iter()
             .find(|channel_type| channel_type.id == channel_id)
             .map(|channel_type| channel_type.config_fields.clone())
             .unwrap_or_default();
-        add_channel_name.set(default_name);
-        config_values.set(default_channel_values(&channel_id, &selected_fields));
-
-        let ws = ws_config_get.clone();
-        spawn(async move {
-            let result = ws
-                .call::<serde_json::Value>(
-                    "channels.config.get",
-                    Some(json!({ "channel": channel_id })),
-                )
-                .await;
-            let Ok(payload) = result else {
-                return;
-            };
-            let Some(saved) = payload.get("config") else {
-                return;
-            };
-            if saved.is_null() {
-                return;
-            }
-
-            let mut restored = default_channel_values(&channel_id, &selected_fields);
-            restored.extend(restore_channel_values(&channel_id, &selected_fields, saved));
-            if let Some(name) = saved.get("name").and_then(Value::as_str) {
-                add_channel_name.set(name.to_string());
-            }
-            config_values.set(restored);
-        });
+        add_channel_name.set(default_name.clone());
+        config_values.set(new_channel_form_values(
+            &channel_id,
+            &selected_fields,
+            default_name,
+        ));
+        initialized_add_channel.set(Some(channel_id));
     });
 
     // Auto-refresh every 30s when enabled (uses spawn to avoid leaked closures)
@@ -2776,64 +2994,9 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
         });
     });
 
-    let ws_list = ws.clone();
-    let channels_data = use_resource(move || {
-        let _c = ws_connected();
-        let _t = refresh_tick();
-        let ws = ws_list.clone();
-        async move {
-            ws.wait_connected().await;
-            ws.call::<serde_json::Value>("channels.status", Some(json!({ "probe": false })))
-                .await
-                .ok()
-        }
-    });
-
-    let ws_configs = ws.clone();
-    let channel_configs_data = use_resource(move || {
-        let _c = ws_connected();
-        let _t = refresh_tick();
-        let ws = ws_configs.clone();
-        async move {
-            ws.wait_connected().await;
-            ws.call::<serde_json::Value>("channels.config.list", None)
-                .await
-                .ok()
-        }
-    });
     let configs_read = channel_configs_data.read();
     let configs_ref = configs_read.as_ref().and_then(|c| c.as_ref());
-    let channel_configs: std::collections::HashMap<String, (String, String, bool)> = configs_ref
-        .and_then(|d| {
-            d.as_array().map(|arr| {
-                arr.iter()
-                    .filter_map(|c| {
-                        let key = c
-                            .get("kind")
-                            .and_then(|v| v.as_str())
-                            .or_else(|| {
-                                c.get("id")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|raw| raw.split('-').next())
-                            })?
-                            .to_ascii_lowercase();
-                        let id = c
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(&key)
-                            .to_string();
-                        let name = c
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(&key)
-                            .to_string();
-                        let enabled = c.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-                        Some((key, (id, name, enabled)))
-                    })
-                    .collect()
-            })
-        })
-        .unwrap_or_default();
+    let saved_channel_configs = saved_channel_summaries(configs_ref);
 
     let is_loading = channels_data.read().is_none() || channel_configs_data.read().is_none();
 
@@ -2847,30 +3010,44 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
     let status_channels = channels_status
         .and_then(|s| s.get("channels"))
         .and_then(|c| c.as_object());
-    let configured_channel_types: Vec<&ChannelTypeInfo> = channel_types
-        .iter()
-        .filter(|ch_type| {
-            let has_saved = channel_configs.contains_key(ch_type.id.as_str());
-            let Some(channel) =
-                status_channels.and_then(|channels| channels.get(ch_type.id.as_str()))
-            else {
-                return has_saved;
-            };
-            let is_configured = channel
-                .get("configured")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let is_running = channel
+    let mut configured_channel_cards: Vec<(&ChannelTypeInfo, Option<&SavedChannelSummary>)> =
+        saved_channel_configs
+            .iter()
+            .filter_map(|config| {
+                channel_types
+                    .iter()
+                    .find(|channel_type| channel_type.id == config.kind)
+                    .map(|channel_type| (channel_type, Some(config)))
+            })
+            .collect();
+    for channel_type in channel_types {
+        let already_has_saved_instance = saved_channel_configs
+            .iter()
+            .any(|config| config.kind == channel_type.id);
+        if already_has_saved_instance {
+            continue;
+        }
+        let Some(channel) =
+            status_channels.and_then(|channels| channels.get(channel_type.id.as_str()))
+        else {
+            continue;
+        };
+        let has_runtime_state = channel
+            .get("configured")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || channel
                 .get("running")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let is_connected = channel
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            || channel
                 .get("connected")
-                .and_then(|v| v.as_bool())
+                .and_then(Value::as_bool)
                 .unwrap_or(false);
-            is_configured || is_running || is_connected || has_saved
-        })
-        .collect();
+        if has_runtime_state {
+            configured_channel_cards.push((channel_type, None));
+        }
+    }
 
     let total_configured = connected_count + running_count + disconnected_count;
 
@@ -2956,20 +3133,20 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
                 div { class: "channels-empty",
                     SkeletonCard {}
                 }
-            } else if configured_channel_types.is_empty() {
+            } else if configured_channel_cards.is_empty() {
                 div { class: "channels-empty", "No channels configured yet. Click + Add Channel to configure one." }
             } else {
                 div { class: "channels-grid",
-                    for ch_type in configured_channel_types.into_iter() {
+                    for (ch_type, config_entry) in configured_channel_cards.into_iter() {
                         { render_channel_card(
                             ch_type,
+                            config_entry,
                             channels_status,
                             ws.clone(),
                             refresh_tick,
                             show_raw_json,
                             testing_channel,
                             test_result,
-                            &channel_configs,
                             config_modal_channel,
                             open_channel_menu,
                             confirm_card_delete,
@@ -2984,8 +3161,16 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
         if let Some(ref ch_id) = show_raw_json() {
             {
                 let channel_data = channels_status
-                    .and_then(|s| s.get("channels"))
-                    .and_then(|c| c.get(ch_id.as_str()));
+                    .and_then(|status| {
+                        status
+                            .get("instances")
+                            .and_then(|instances| instances.get(ch_id.as_str()))
+                            .or_else(|| {
+                                status
+                                    .get("channels")
+                                    .and_then(|channels| channels.get(ch_id.as_str()))
+                            })
+                    });
                 let raw_json = channel_data
                     .map(|v| serde_json::to_string_pretty(v).unwrap_or_default())
                     .unwrap_or_else(|| "No data available".to_string());
@@ -3014,7 +3199,11 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
                     ("channels-health-dot channels-health-dot--disconnected", "Disconnected")
                 };
 
-                let reconnect_ch_id = ch_id.clone();
+                let reconnect_ch_id = channel_data
+                    .and_then(|data| data.get("platform"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(ch_id)
+                    .to_owned();
                 let ws_reconnect = ws.clone();
 
                 rsx! {
@@ -3028,10 +3217,10 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
                                 div { class: "channels-modal__header-left",
                                     h3 { class: "channels-modal__title",
                                         "Health: {ch_id_clone}"
-                                        if let Some((cfg_id, cfg_name, _)) = channel_configs.get(ch_id) {
+                                        if let Some(config) = saved_channel_configs.iter().find(|config| config.id == *ch_id || config.kind == *ch_id) {
                                             span { style: "font-size:13px;font-weight:400;color:var(--text-muted);margin-left:8px;",
-                                                "({cfg_name}"
-                                                span { style: "margin-left:4px;font-size:11px;color:var(--text-muted);opacity:0.7;", "{cfg_id}" }
+                                                "({config.name}"
+                                                span { style: "margin-left:4px;font-size:11px;color:var(--text-muted);opacity:0.7;", "{config.id}" }
                                                 ")"
                                             }
                                         }
@@ -3100,14 +3289,23 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
         }
 
         // ---- Channel Config Modal ----
-        if let Some(ref modal_ch_id) = config_modal_channel() {
+        if let Some(ref modal_selector) = config_modal_channel() {
             {
-                let ch_type = channel_types.iter().find(|ct| ct.id == *modal_ch_id);
+                let selected_config = saved_channel_configs
+                    .iter()
+                    .find(|config| config.id == *modal_selector);
+                let channel_kind = selected_config
+                    .map(|config| config.kind.as_str())
+                    .unwrap_or(modal_selector.as_str());
+                let ch_type = channel_types.iter().find(|ct| ct.id == channel_kind);
                 if let Some(ct) = ch_type {
                     rsx! {
                         ChannelConfigModal {
                             channel_id: ct.id.clone(),
-                            channel_name: ct.name.clone(),
+                            config_selector: modal_selector.clone(),
+                            channel_name: selected_config
+                                .map(|config| config.name.clone())
+                                .unwrap_or_else(|| ct.name.clone()),
                             fields: ct.config_fields.clone(),
                             ws: ws.clone(),
                             refresh_tick,
@@ -3126,27 +3324,38 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
 
 fn render_channel_card(
     ch_type: &ChannelTypeInfo,
+    config_entry: Option<&SavedChannelSummary>,
     channels_status: Option<&serde_json::Value>,
     ws: WsRpc,
     mut refresh_tick: Signal<u32>,
     mut show_raw_json: Signal<Option<String>>,
     mut testing_channel: Signal<Option<String>>,
     mut test_result: Signal<Option<(String, bool, String)>>,
-    channel_configs: &std::collections::HashMap<String, (String, String, bool)>,
     mut config_modal_channel: Signal<Option<String>>,
     mut open_channel_menu: Signal<Option<String>>,
     mut confirm_card_delete: Signal<Option<String>>,
     mut deleting_channel: Signal<Option<String>>,
 ) -> Element {
-    let channel_data = channels_status
-        .and_then(|s| s.get("channels"))
-        .and_then(|c| c.get(&ch_type.id));
+    let config_id = config_entry.map(|config| config.id.clone());
+    let config_name = config_entry.map(|config| config.name.clone());
+    let channel_data = config_id
+        .as_deref()
+        .and_then(|instance_id| {
+            channels_status
+                .and_then(|status| status.get("instances"))
+                .and_then(|instances| instances.get(instance_id))
+        })
+        .or_else(|| {
+            channels_status
+                .and_then(|status| status.get("channels"))
+                .and_then(|channels| channels.get(&ch_type.id))
+        });
 
     let status_configured = channel_data
         .and_then(|c| c.get("configured"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let has_saved_config = channel_configs.contains_key(&ch_type.id);
+    let has_saved_config = config_entry.is_some();
     let is_configured = status_configured || has_saved_config;
 
     let is_running = channel_data
@@ -3159,17 +3368,23 @@ fn render_channel_card(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let config_entry = channel_configs.get(&ch_type.id);
     let is_enabled = config_entry
-        .map(|(_, _, enabled)| *enabled)
+        .map(|config| config.enabled)
         .unwrap_or(is_running || is_connected);
-    let config_id = config_entry.map(|(id, ..)| id.clone());
-    let config_name = config_entry.map(|(_, name, _)| name.clone());
+    let card_key = config_id
+        .clone()
+        .unwrap_or_else(|| format!("{}-runtime", ch_type.id));
 
     let last_error = channel_data
-        .and_then(|c| c.get("lastError"))
+        .and_then(|c| c.get("lastError").or_else(|| c.get("last_error")))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let recovery_phase = channel_data
+        .and_then(|c| c.get("recovery_phase"))
+        .and_then(|v| v.as_str());
+    let health_state = channel_data
+        .and_then(|c| c.get("health_state"))
+        .and_then(|v| v.as_str());
 
     let last_activity_str = channel_data
         .and_then(|c| c.get("lastActivity"))
@@ -3228,12 +3443,16 @@ fn render_channel_card(
         .and_then(|c| c.get("runtime_pairing_state"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let arkret_pairing_label = arkret_pairing_state.as_deref().map(|state| match state {
-        "active" => "Active".to_owned(),
-        "pending_authorization" => "Pending authorization".to_owned(),
-        "pending_runtime_key" => "Pending runtime key".to_owned(),
-        other => other.to_owned(),
-    });
+    let arkret_pairing_label = arkret_pairing_state
+        .as_deref()
+        .map(arkret_pairing_state_label);
+    let arkret_runtime_phase = channel_data
+        .and_then(|c| c.get("runtime_phase"))
+        .and_then(|v| v.as_str())
+        .map(|phase| phase.to_owned());
+    let arkret_runtime_label = arkret_runtime_phase
+        .as_deref()
+        .map(arkret_runtime_phase_label);
     let arkret_authorized_event_ref = channel_data
         .and_then(|c| c.get("authorized_event_ref"))
         .and_then(|v| v.as_str())
@@ -3243,24 +3462,57 @@ fn render_channel_card(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let (status_variant, status_text) = if is_running && is_connected {
+    let (status_variant, status_text) = if has_saved_config && !is_enabled {
+        (ChipVariant::Muted, "Disabled")
+    } else if recovery_phase == Some("unsupported_runtime") {
+        (ChipVariant::Danger, "Unsupported runtime")
+    } else if matches!(
+        recovery_phase,
+        Some("failed" | "retrying" | "migration_required")
+    ) {
+        (ChipVariant::Danger, "Needs attention")
+    } else if recovery_phase == Some("stopped") {
+        (ChipVariant::Danger, "Stopped")
+    } else if recovery_phase == Some("starting") {
+        (ChipVariant::Warning, "Starting")
+    } else if health_state == Some("connected") || (is_running && is_connected) {
         (ChipVariant::Success, "Connected")
-    } else if is_running {
-        (ChipVariant::Warning, "Running")
-    } else if ch_type.id == "arkret" && arkret_pairing_state.as_deref() == Some("active") {
-        (ChipVariant::Success, "Active")
+    } else if health_state == Some("listening") || is_running {
+        (ChipVariant::Success, "Listening")
+    } else if health_state == Some("configured") {
+        (ChipVariant::Info, "Configured")
+    } else if health_state == Some("degraded")
+        || last_error.is_some()
+        || (ch_type.id == "arkret" && arkret_runtime_phase.as_deref() == Some("retry_wait"))
+    {
+        (ChipVariant::Danger, "Needs attention")
+    } else if ch_type.id == "arkret"
+        && matches!(
+            arkret_runtime_phase.as_deref(),
+            Some("scheduled" | "starting")
+        )
+    {
+        (ChipVariant::Warning, "Starting")
     } else if is_configured {
         (ChipVariant::Info, "Configured")
     } else {
         (ChipVariant::Muted, "Not configured")
     };
 
-    let border_class = if is_running && is_connected {
-        "channels-card channels-card--connected"
-    } else if is_running {
-        "channels-card channels-card--running"
-    } else if last_error.is_some() {
+    let border_class = if has_saved_config && !is_enabled {
+        "channels-card channels-card--disabled"
+    } else if last_error.is_some()
+        || health_state == Some("degraded")
+        || matches!(
+            recovery_phase,
+            Some("failed" | "retrying" | "migration_required" | "stopped" | "unsupported_runtime")
+        )
+    {
         "channels-card channels-card--error"
+    } else if health_state == Some("connected") || (is_running && is_connected) {
+        "channels-card channels-card--connected"
+    } else if health_state == Some("listening") || is_running {
+        "channels-card channels-card--running"
     } else if is_configured {
         "channels-card channels-card--configured"
     } else {
@@ -3268,12 +3520,14 @@ fn render_channel_card(
     };
 
     let platform = ch_type.id.clone();
-    let platform_health = ch_type.id.clone();
+    let platform_health = config_id.clone().unwrap_or_else(|| ch_type.id.clone());
     let platform_test = ch_type.id.clone();
-    let platform_test_name = ch_type.name.clone();
+    let platform_test_name = config_name.clone().unwrap_or_else(|| ch_type.name.clone());
     let platform_test_quick = ch_type.id.clone();
-    let platform_test_quick_name = ch_type.name.clone();
+    let platform_test_quick_name = config_name.clone().unwrap_or_else(|| ch_type.name.clone());
     let platform_toggle_menu = ch_type.id.clone();
+    let instance_test_menu = config_id.clone();
+    let instance_test_quick = config_id.clone();
     let config_id_toggle_menu = config_id.clone();
     let config_name_toggle_menu = config_name.clone();
     let config_id_toggle_quick = config_id.clone();
@@ -3284,9 +3538,11 @@ fn render_channel_card(
     let ws_test_quick = ws.clone();
     let ws_delete = ws.clone();
 
-    let is_testing = testing_channel().as_deref() == Some(ch_type.id.as_str());
-    let platform_config = ch_type.id.clone();
-    let menu_is_open = open_channel_menu().as_deref() == Some(ch_type.id.as_str());
+    let is_testing = testing_channel().as_deref() == Some(card_key.as_str());
+    let config_selector = config_id.clone().unwrap_or_else(|| ch_type.id.clone());
+    let menu_is_open = open_channel_menu().as_deref() == Some(card_key.as_str());
+    let testing_key_menu = card_key.clone();
+    let testing_key_quick = card_key.clone();
     let delete_is_confirming = config_id
         .as_deref()
         .is_some_and(|id| confirm_card_delete().as_deref() == Some(id));
@@ -3296,7 +3552,7 @@ fn render_channel_card(
 
     rsx! {
         div {
-            key: "{ch_type.id}",
+            key: "{card_key}",
             class: "{border_class}",
 
             // ---- Card header ----
@@ -3326,7 +3582,7 @@ fn render_channel_card(
                             title: "Channel actions",
                             aria_label: "Channel actions for {ch_type.name}",
                             onclick: {
-                                let menu_id = ch_type.id.clone();
+                                let menu_id = card_key.clone();
                                 move |_| {
                                     if open_channel_menu().as_deref() == Some(menu_id.as_str()) {
                                         open_channel_menu.set(None);
@@ -3363,12 +3619,18 @@ fn render_channel_card(
                                             if new_enabled {
                                                 let _ = ws.call::<serde_json::Value>(
                                                     "channels.login",
-                                                    Some(json!({ "platform": platform })),
+                                                    Some(json!({
+                                                        "platform": platform,
+                                                        "id": config_id,
+                                                    })),
                                                 ).await;
                                             } else {
                                                 let _ = ws.call::<serde_json::Value>(
                                                     "channels.logout",
-                                                    Some(json!({ "platform": platform })),
+                                                    Some(json!({
+                                                        "platform": platform,
+                                                        "id": config_id,
+                                                    })),
                                                 ).await;
                                             }
                                             refresh_tick += 1;
@@ -3381,7 +3643,7 @@ fn render_channel_card(
                                     class: "channels-card__menu-item",
                                     onclick: move |_| {
                                         open_channel_menu.set(None);
-                                        config_modal_channel.set(Some(platform_config.clone()));
+                                        config_modal_channel.set(Some(config_selector.clone()));
                                     },
                                     SlidersHorizontal { size: 14 }
                                     span { "Settings" }
@@ -3392,14 +3654,18 @@ fn render_channel_card(
                                     onclick: move |_| {
                                         let ws = ws_test.clone();
                                         let platform = platform_test.clone();
+                                        let instance_id = instance_test_menu.clone();
                                         let name = platform_test_name.clone();
                                         open_channel_menu.set(None);
-                                        testing_channel.set(Some(platform.clone()));
+                                        testing_channel.set(Some(testing_key_menu.clone()));
                                         test_result.set(None);
                                         spawn(async move {
                                             let result = ws.call::<serde_json::Value>(
                                                 "channels.test",
-                                                Some(json!({ "platform": platform })),
+                                                Some(json!({
+                                                    "platform": platform,
+                                                    "id": instance_id,
+                                                })),
                                             ).await;
                                             testing_channel.set(None);
                                             let (ok, msg) = match result {
@@ -3501,6 +3767,7 @@ fn render_channel_card(
                     || matrix_user_id.is_some() || room_count.is_some()
                     || nostr_public_key.is_some() || relay_count.is_some()
                     || arkret_pairing_label.is_some()
+                    || arkret_runtime_label.is_some()
                     || arkret_authorized_event_ref.is_some()
                     || arkret_verification_method.is_some();
                 rsx! {
@@ -3545,6 +3812,12 @@ fn render_channel_card(
                             if let Some(label) = arkret_pairing_label {
                                 span { class: "channels-card__pinfo-item",
                                     span { class: "channels-card__pinfo-label", "Pairing" }
+                                    span { class: "channels-card__pinfo-value", "{label}" }
+                                }
+                            }
+                            if let Some(label) = arkret_runtime_label {
+                                span { class: "channels-card__pinfo-item",
+                                    span { class: "channels-card__pinfo-label", "Runtime" }
                                     span { class: "channels-card__pinfo-value", "{label}" }
                                 }
                             }
@@ -3634,12 +3907,18 @@ fn render_channel_card(
                             if new_enabled {
                                 let _ = ws.call::<serde_json::Value>(
                                     "channels.login",
-                                    Some(json!({ "platform": platform })),
+                                    Some(json!({
+                                        "platform": platform,
+                                        "id": config_id,
+                                    })),
                                 ).await;
                             } else {
                                 let _ = ws.call::<serde_json::Value>(
                                     "channels.logout",
-                                    Some(json!({ "platform": platform })),
+                                    Some(json!({
+                                        "platform": platform,
+                                        "id": config_id,
+                                    })),
                                 ).await;
                             }
                             refresh_tick += 1;
@@ -3662,13 +3941,17 @@ fn render_channel_card(
                     onclick: move |_| {
                         let ws = ws_test_quick.clone();
                         let platform = platform_test_quick.clone();
+                        let instance_id = instance_test_quick.clone();
                         let name = platform_test_quick_name.clone();
-                        testing_channel.set(Some(platform.clone()));
+                        testing_channel.set(Some(testing_key_quick.clone()));
                         test_result.set(None);
                         spawn(async move {
                             let result = ws.call::<serde_json::Value>(
                                 "channels.test",
-                                Some(json!({ "platform": platform })),
+                                Some(json!({
+                                    "platform": platform,
+                                    "id": instance_id,
+                                })),
                             ).await;
                             testing_channel.set(None);
                             let (ok, msg) = match result {
@@ -3703,9 +3986,13 @@ fn render_channel_card(
 
                 // Inline test result for this card.
                 {
-                    let card_ch_id = ch_type.id.clone();
+                    let card_ch_id = card_key.clone();
+                    let card_config_name = config_name.clone();
                     let card_result = test_result().and_then(|(ref id, ok, ref msg)| {
-                        if id == &ch_type.name || id == &card_ch_id {
+                        if id == &ch_type.name
+                            || id == &card_ch_id
+                            || card_config_name.as_ref().is_some_and(|name| id == name)
+                        {
                             Some((ok, msg.clone()))
                         } else {
                             None
@@ -3741,6 +4028,7 @@ fn render_channel_card(
 #[component]
 fn ChannelConfigModal(
     channel_id: String,
+    config_selector: String,
     channel_name: String,
     fields: Vec<ConfigField>,
     ws: WsRpc,
@@ -3766,16 +4054,21 @@ fn ChannelConfigModal(
     let ws_test = ws.clone();
     let ws_delete = ws.clone();
     let ws_load = ws.clone();
+    let load_selector = config_selector;
     let load_ch_id = ch_id.clone();
     let load_fields = fields_vec.clone();
 
     use_effect(move || {
         let ws = ws_load.clone();
         let ch_id = load_ch_id.clone();
+        let selector = load_selector.clone();
         let fields = load_fields.clone();
         spawn(async move {
             let result = ws
-                .call::<serde_json::Value>("channels.config.get", Some(json!({ "channel": ch_id })))
+                .call::<serde_json::Value>(
+                    "channels.config.get",
+                    Some(json!({ "channel": selector })),
+                )
                 .await;
             let Ok(payload) = result else {
                 return;
@@ -3787,14 +4080,16 @@ fn ChannelConfigModal(
                 saved_channel_id.set(None);
                 return;
             }
-            saved_channel_id.set(
-                saved
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned),
-            );
+            let restored_channel_id = saved
+                .get("id")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            saved_channel_id.set(restored_channel_id.clone());
             let mut restored = default_channel_values(&ch_id, &fields);
             restored.extend(restore_channel_values(&ch_id, &fields, saved));
+            if let Some(restored_channel_id) = restored_channel_id {
+                restored.insert(saved_channel_id_key(&ch_id), restored_channel_id);
+            }
             inline_values.set(restored);
         });
     });
@@ -3827,7 +4122,10 @@ fn ChannelConfigModal(
                 {
                     let name_key = channel_name_key(&ch_id);
                     let current_name = inline_values.read().get(&name_key).cloned().unwrap_or_else(|| "default".to_string());
-                    let computed_id = compute_channel_id(&current_name, &ch_id);
+                    let displayed_id = {
+                        let values = inline_values.read();
+                        channel_form_id(&ch_id, &current_name, &values)
+                    };
                     let name_key_input = name_key.clone();
                     rsx! {
                         div { class: "channels-cfg__field",
@@ -3849,7 +4147,7 @@ fn ChannelConfigModal(
                             }
                             input {
                                 r#type: "text",
-                                value: "{computed_id}",
+                                value: "{displayed_id}",
                                 readonly: true,
                                 class: "channels-field__input channels-field__input--readonly",
                             }
@@ -3858,7 +4156,14 @@ fn ChannelConfigModal(
                 }
 
                 // Render fields
-                { render_config_fields(&ch_id, &fields_vec, inline_values, revealed, ws.clone()) }
+                { render_config_fields(
+                    &ch_id,
+                    &fields_vec,
+                    inline_values,
+                    revealed,
+                    ws.clone(),
+                    refresh_tick,
+                ) }
 
                 // Discord callback URL section
                 if ch_id == "discord" {
@@ -3870,76 +4175,65 @@ fn ChannelConfigModal(
 
                 // Action row
                 div { class: "channels-cfg__actions",
-                    // Save button
-                    button {
-                        onclick: {
-                            let ws = ws_save.clone();
-                            let ch_id = ch_id.clone();
-                            let fields = fields_vec.clone();
-                            move |_| {
-                                let ws = ws.clone();
-                                let ch_id = ch_id.clone();
-                                let fields = fields.clone();
-                                let vals = inline_values.read();
-                                let channel_name = vals
-                                    .get(&channel_name_key(&ch_id))
-                                    .filter(|v| !v.trim().is_empty())
-                                    .cloned()
-                                    .unwrap_or_else(|| "default".to_string());
-                                let channel_computed_id = compute_channel_id(&channel_name, &ch_id);
-                                let patch = match build_channel_patch(&ch_id, &fields, &vals) {
-                                    Ok(patch) => patch,
-                                    Err(err) => {
-                                        inline_msg.set(Some((false, err)));
-                                        return;
-                                    }
-                                };
-                                let router = match build_router_value(&ch_id, &vals) {
-                                    Ok(router) => router,
-                                    Err(err) => {
-                                        inline_msg.set(Some((false, err)));
-                                        return;
-                                    }
-                                };
-                                let dm_policy = build_dm_policy(&ch_id, &vals);
-                                let group_policy = build_group_policy(&ch_id, &vals);
-                                let persist_patch = patch.clone();
-                                let persist_router = router.clone();
-                                let persist_channel = ch_id.clone();
-
-                                inline_saving.set(true);
-                                spawn(async move {
-                                    let persist_result = ws
-                                        .call::<serde_json::Value>(
-                                            "channels.config.save",
-                                            Some(json!({
-                                                "channel": persist_channel,
-                                                "id": channel_computed_id,
-                                                "name": channel_name,
-                                                "config": persist_patch,
-                                                "router": persist_router,
-                                                "dm_policy": dm_policy,
-                                                "group_policy": group_policy,
-                                            })),
-                                        )
-                                        .await;
-                                    match persist_result {
-                                        Ok(_) => {
-                                            inline_saving.set(false);
-                                            config_modal_channel.set(None);
-                                            refresh_tick += 1;
+                    {
+                        let show_general_save = {
+                            let values = inline_values.read();
+                            ch_id != "arkret"
+                                || current_arkret_mode(&ch_id, &values) == "applet"
+                                || arkret_agent_is_bound(&ch_id, &values)
+                        };
+                        if show_general_save {
+                            rsx! {
+                                button {
+                                    onclick: {
+                                        let ws = ws_save.clone();
+                                        let ch_id = ch_id.clone();
+                                        let fields = fields_vec.clone();
+                                        move |_| {
+                                            let ws = ws.clone();
+                                            let ch_id = ch_id.clone();
+                                            let fields = fields.clone();
+                                            let values = inline_values.read().clone();
+                                            inline_saving.set(true);
+                                            spawn(async move {
+                                                match persist_channel_form(
+                                                    &ws,
+                                                    &ch_id,
+                                                    &fields,
+                                                    &values,
+                                                )
+                                                .await
+                                                {
+                                                    Ok(_) => {
+                                                        inline_saving.set(false);
+                                                        config_modal_channel.set(None);
+                                                        refresh_tick += 1;
+                                                    }
+                                                    Err(error) => {
+                                                        inline_saving.set(false);
+                                                        inline_msg.set(Some((
+                                                            false,
+                                                            format!("Save failed: {error}"),
+                                                        )));
+                                                    }
+                                                }
+                                            });
                                         }
-                                        Err(e) => {
-                                            inline_saving.set(false);
-                                            inline_msg.set(Some((false, format!("Save failed: {e}"))));
-                                        }
-                                    }
-                                });
+                                    },
+                                    disabled: inline_saving(),
+                                    class: "channels-action-btn channels-action-btn--primary",
+                                    if inline_saving() { "Saving..." } else { "Save changes" }
+                                }
                             }
-                        },
+                        } else {
+                            rsx! {}
+                        }
+                    }
+                    button {
+                        onclick: move |_| config_modal_channel.set(None),
                         disabled: inline_saving(),
-                        class: "channels-action-btn channels-action-btn--primary",
-                        if inline_saving() { "Saving..." } else { "Save" }
+                        class: "channels-action-btn",
+                        "Cancel"
                     }
 
                     // Test Connection button (TASK-014: enhanced with spinner + inline result)
@@ -3973,7 +4267,8 @@ fn ChannelConfigModal(
                                                 .filter(|v| !v.trim().is_empty())
                                                 .cloned()
                                                 .unwrap_or_else(|| "default".to_string());
-                                            let channel_computed_id = compute_channel_id(&channel_name, &platform);
+                                            let channel_computed_id =
+                                                channel_form_id(&platform, &channel_name, &vals);
                                             let config_patch = match build_channel_patch(&platform, &fields, &vals) {
                                                 Ok(patch) => patch,
                                                 Err(err) => {
@@ -4220,11 +4515,20 @@ fn render_config_fields(
     mut values: Signal<std::collections::HashMap<String, String>>,
     mut revealed: Signal<std::collections::HashSet<String>>,
     ws: WsRpc,
+    refresh_tick: Signal<u32>,
 ) -> Element {
     rsx! {
         div { class: "channels-cfg__fields",
             for field in fields.iter() {
-                { render_single_field(ch_id, field, fields, values, revealed, ws.clone()) }
+                { render_single_field(
+                    ch_id,
+                    field,
+                    fields,
+                    values,
+                    revealed,
+                    ws.clone(),
+                    refresh_tick,
+                ) }
             }
         }
     }
@@ -4238,6 +4542,7 @@ fn render_single_field(
     mut values: Signal<std::collections::HashMap<String, String>>,
     mut revealed: Signal<std::collections::HashSet<String>>,
     ws: WsRpc,
+    refresh_tick: Signal<u32>,
 ) -> Element {
     let value_map = values.read();
     let should_render = field_is_visible(ch_id, field, &value_map);
@@ -4252,12 +4557,37 @@ fn render_single_field(
     let help_text = field_display_help(ch_id, field, &value_map);
     let is_required = field_display_required(ch_id, field, &value_map);
     if ch_id == "arkret" && field.key == "inksonBootstrap" {
+        if arkret_agent_is_bound(ch_id, &value_map) {
+            drop(value_map);
+            return rsx! {};
+        }
         let pairing_code = arkret_pairing_code_from_bootstrap_text(&current_val);
+        let pairing_expires_at = arkret_pairing_expiry_from_bootstrap_text(&current_val);
+        let pairing_link_key = arkret_pairing_link_input_key(ch_id);
+        let pairing_link = value_map
+            .get(&pairing_link_key)
+            .cloned()
+            .unwrap_or_else(|| {
+                if current_val.trim_start().starts_with('{') {
+                    String::new()
+                } else {
+                    current_val.clone()
+                }
+            });
+        let pairing_busy = value_map
+            .get(&arkret_pairing_state_key(ch_id))
+            .is_some_and(|state| matches!(state.as_str(), "starting" | "waiting" | "finalizing"));
         let key_for_input = key.clone();
+        let pairing_link_key_for_input = pairing_link_key.clone();
+        let key_ref_key_for_input = field_value_key(ch_id, "keyRef");
+        let verification_method_key_for_input = field_value_key(ch_id, "verificationMethod");
+        let authorized_event_ref_key_for_input = field_value_key(ch_id, "authorizedEventRef");
+        let pairing_state_key_for_input = arkret_pairing_state_key(ch_id);
         drop(value_map);
         return rsx! {
             div { class: "channels-cfg__field",
                 label { class: "channels-field__label",
+                    Link2 { size: 14 }
                     "{display_label}"
                     if is_required {
                         span { class: "channels-field__required", " *" }
@@ -4266,19 +4596,58 @@ fn render_single_field(
                         HelpTip { text: help_text.clone() }
                     }
                 }
-                textarea {
+                input {
+                    r#type: "url",
                     placeholder: "{display_placeholder}",
-                    value: "{current_val}",
+                    value: "{pairing_link}",
+                    disabled: pairing_busy,
                     oninput: move |e| {
-                        values.write().insert(key_for_input.clone(), e.value());
+                        let input = e.value();
+                        let mut values = values.write();
+                        values.insert(key_for_input.clone(), input.clone());
+                        values.insert(pairing_link_key_for_input.clone(), input);
+                        values.remove(&key_ref_key_for_input);
+                        values.remove(&verification_method_key_for_input);
+                        values.remove(&authorized_event_ref_key_for_input);
+                        values.remove(&pairing_state_key_for_input);
                     },
-                    class: "channels-field__input channels-cfg__textarea",
-                    rows: "6",
+                    class: "channels-field__input",
                 }
                 if let Some(pairing_code) = pairing_code.as_ref() {
-                    div { class: "channels-field__hint",
-                        "Pairing code: "
-                        span { class: "mono", "{pairing_code}" }
+                    {
+                        let pairing_code_for_copy = pairing_code.clone();
+                        let display_code = format_arkret_pairing_code(pairing_code);
+                        rsx! {
+                            div { class: "arkret-pairing-code",
+                                div { class: "arkret-pairing-code__content",
+                                    span { class: "arkret-pairing-code__label",
+                                        "Confirm this code in Inkson"
+                                    }
+                                    strong { class: "arkret-pairing-code__value", "{display_code}" }
+                                    span { class: "arkret-pairing-code__hint",
+                                        "Make sure Inkson shows the same code before approving."
+                                    }
+                                    if let Some(expires_at) = pairing_expires_at.as_ref() {
+                                        span { class: "arkret-pairing-code__expiry",
+                                            "Expires at {expires_at}"
+                                        }
+                                    }
+                                }
+                                button {
+                                    class: "channels-action-btn arkret-pairing-code__copy",
+                                    r#type: "button",
+                                    aria_label: "Copy pairing code",
+                                    onclick: move |_| {
+                                        let text = pairing_code_for_copy.clone();
+                                        spawn(async move {
+                                            copy_text_to_clipboard(text).await;
+                                        });
+                                    },
+                                    Copy { size: 14 }
+                                    "Copy"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -4286,96 +4655,179 @@ fn render_single_field(
     }
     if ch_id == "arkret" && field.key == "unbind" {
         let status = current_val.trim().to_owned();
-        let is_bound = value_map
-            .get(&field_value_key(ch_id, "authorizedEventRef"))
-            .map(|value| !value.trim().is_empty())
-            .unwrap_or(false);
-        let bound_agent = value_map
-            .get(&field_value_key(ch_id, "verificationMethod"))
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty());
+        let is_bound = arkret_agent_is_bound(ch_id, &value_map);
+        if !is_bound {
+            drop(value_map);
+            return rsx! {};
+        }
+        let bootstrap_summary = value_map
+            .get(&field_value_key(ch_id, "inksonBootstrap"))
+            .and_then(|value| arkret_bootstrap_summary_from_text(value));
+        let bound_agent = bootstrap_summary
+            .as_ref()
+            .map(|summary| summary.0.clone())
+            .or_else(|| {
+                value_map
+                    .get(&field_value_key(ch_id, "verificationMethod"))
+                    .map(|value| value.trim().to_owned())
+                    .filter(|value| !value.is_empty())
+            })
+            .unwrap_or_else(|| "Paired Arkret agent".to_owned());
+        let arkret_base_url = bootstrap_summary.map(|summary| summary.1);
+        let confirm_key = arkret_unbind_confirm_key(ch_id);
+        let confirm_unbind = value_map
+            .get(&confirm_key)
+            .is_some_and(|value| value == "true");
+        let saved_channel_id = value_map
+            .get(&saved_channel_id_key(ch_id))
+            .cloned()
+            .unwrap_or_else(|| ch_id.to_owned());
         let key_for_unbind = key.clone();
         let ws_unbind = ws.clone();
-        // Cleared from the in-memory form on success so the next "Request
-        // approval" regenerates a fresh runtime key and re-requests approval
-        // instead of reusing the just-unbound Agent's stale keyRef/authorization.
-        // verificationMethod is kept: it identifies the same agent and is only
-        // re-derived from a raw pairing link, not from resolved bootstrap JSON.
         let key_ref_key_for_unbind = field_value_key(ch_id, "keyRef");
+        let bootstrap_key_for_unbind = field_value_key(ch_id, "inksonBootstrap");
+        let verification_method_key_for_unbind = field_value_key(ch_id, "verificationMethod");
         let authorized_event_ref_key_for_unbind = field_value_key(ch_id, "authorizedEventRef");
+        let pairing_link_key_for_unbind = arkret_pairing_link_input_key(ch_id);
+        let pairing_state_key_for_unbind = arkret_pairing_state_key(ch_id);
+        let runtime_status_key_for_unbind = field_value_key(ch_id, "runtimeKeyRequest");
+        let confirm_key_for_cancel = confirm_key.clone();
+        let confirm_key_for_start = confirm_key.clone();
+        let confirm_key_for_unbind = confirm_key.clone();
+        let mut refresh_after_unbind = refresh_tick;
         drop(value_map);
-        let hint = if !status.is_empty() {
-            status
-        } else if is_bound {
-            match bound_agent {
-                Some(agent) => format!("Bound to {agent}"),
-                None => "An Agent runtime is bound to this channel.".to_owned(),
-            }
-        } else {
-            "No Agent runtime is bound.".to_owned()
-        };
         return rsx! {
-            div { class: "channels-cfg__field",
-                label { class: "channels-field__label",
-                    "{display_label}"
-                    if !help_text.is_empty() {
-                        HelpTip { text: help_text.clone() }
+            div { class: "channels-cfg__field arkret-connection",
+                div { class: "arkret-connection__header",
+                    div { class: "arkret-connection__status",
+                        CircleCheck { size: 16 }
+                        span { "Paired agent" }
+                    }
+                    span { class: "arkret-connection__badge", "Paired" }
+                }
+                div { class: "arkret-connection__details",
+                    div { class: "arkret-connection__detail",
+                        span { class: "arkret-connection__detail-label", "Agent" }
+                        span { class: "arkret-connection__detail-value mono", title: "{bound_agent}", "{bound_agent}" }
+                    }
+                    if let Some(base_url) = arkret_base_url.as_ref() {
+                        div { class: "arkret-connection__detail",
+                            span { class: "arkret-connection__detail-label", "Arkret server" }
+                            span { class: "arkret-connection__detail-value", title: "{base_url}", "{base_url}" }
+                        }
                     }
                 }
-                div { class: "channels-cfg__row-actions",
-                    button {
-                        class: "channels-action-btn channels-action-btn--danger",
-                        r#type: "button",
-                        disabled: !is_bound,
-                        onclick: move |_| {
-                            let key = key_for_unbind.clone();
-                            let ws = ws_unbind.clone();
-                            let key_ref_key = key_ref_key_for_unbind.clone();
-                            let authorized_event_ref_key =
-                                authorized_event_ref_key_for_unbind.clone();
-                            values
-                                .write()
-                                .insert(key.clone(), "Unbinding current Agent…".to_string());
-                            spawn(async move {
-                                let result = ws
-                                    .call::<serde_json::Value>(
-                                        "channels.arkret.unbind",
-                                        Some(json!({ "platform": "arkret" })),
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(payload) => {
-                                        let message = payload
-                                            .get("message")
-                                            .and_then(serde_json::Value::as_str)
-                                            .unwrap_or("Unbound Agent runtime");
-                                        {
-                                            let mut values = values.write();
-                                            // Drop the stale key/authorization from
-                                            // the open form so re-pairing generates
-                                            // a fresh runtime key instead of reusing
-                                            // the just-unbound Agent's.
-                                            values.remove(&key_ref_key);
-                                            values.remove(&authorized_event_ref_key);
-                                            values.insert(key, message.to_string());
-                                        }
-                                    }
-                                    Err(err) => {
-                                        values
-                                            .write()
-                                            .insert(key, format!("Unbind failed: {err}"));
+                if !status.is_empty() {
+                    div { class: "channels-field__hint", "{status}" }
+                }
+                div { class: "arkret-connection__management",
+                    if confirm_unbind {
+                        div { class: "arkret-disconnect-confirm",
+                            div { class: "arkret-disconnect-confirm__message",
+                                TriangleAlert { size: 16 }
+                                div {
+                                    strong { "Disconnect this agent?" }
+                                    p {
+                                        "This revokes its runtime KeyPackages, stops the connection, and removes local pairing state."
                                     }
                                 }
-                            });
-                        },
-                        "Unbind agent"
+                            }
+                            div { class: "channels-cfg__row-actions",
+                                button {
+                                    class: "channels-action-btn",
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        values.write().remove(&confirm_key_for_cancel);
+                                    },
+                                    "Cancel"
+                                }
+                                button {
+                                    class: "channels-action-btn channels-action-btn--danger",
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let key = key_for_unbind.clone();
+                                        let ws = ws_unbind.clone();
+                                        let channel = saved_channel_id.clone();
+                                        let key_ref_key = key_ref_key_for_unbind.clone();
+                                        let bootstrap_key = bootstrap_key_for_unbind.clone();
+                                        let verification_method_key =
+                                            verification_method_key_for_unbind.clone();
+                                        let authorized_event_ref_key =
+                                            authorized_event_ref_key_for_unbind.clone();
+                                        let pairing_link_key = pairing_link_key_for_unbind.clone();
+                                        let pairing_state_key = pairing_state_key_for_unbind.clone();
+                                        let runtime_status_key =
+                                            runtime_status_key_for_unbind.clone();
+                                        let confirm_key = confirm_key_for_unbind.clone();
+                                        values.write().insert(
+                                            key.clone(),
+                                            "Disconnecting current agent…".to_owned(),
+                                        );
+                                        spawn(async move {
+                                            let result = ws
+                                                .call::<Value>(
+                                                    "channels.arkret.unbind",
+                                                    Some(json!({
+                                                        "platform": "arkret",
+                                                        "channel": channel,
+                                                    })),
+                                                )
+                                                .await;
+                                            match result {
+                                                Ok(_) => {
+                                                    let mut values = values.write();
+                                                    values.remove(&key_ref_key);
+                                                    values.remove(&bootstrap_key);
+                                                    values.remove(&verification_method_key);
+                                                    values.remove(&authorized_event_ref_key);
+                                                    values.remove(&pairing_link_key);
+                                                    values.remove(&pairing_state_key);
+                                                    values.remove(&confirm_key);
+                                                    values.remove(&key);
+                                                    values.insert(
+                                                        runtime_status_key,
+                                                        "Agent disconnected. Paste a new Inkson pairing link to connect another agent."
+                                                            .to_owned(),
+                                                    );
+                                                    drop(values);
+                                                    refresh_after_unbind += 1;
+                                                }
+                                                Err(error) => {
+                                                    values.write().insert(
+                                                        key,
+                                                        format!("Disconnect failed: {error}"),
+                                                    );
+                                                }
+                                            }
+                                        });
+                                    },
+                                    Unplug { size: 14 }
+                                    "Disconnect agent"
+                                }
+                            }
+                        }
+                    } else {
+                        button {
+                            class: "channels-action-btn channels-action-btn--muted",
+                            r#type: "button",
+                            onclick: move |_| {
+                                values
+                                    .write()
+                                    .insert(confirm_key_for_start.clone(), "true".to_owned());
+                            },
+                            Unplug { size: 14 }
+                            "Disconnect agent…"
+                        }
                     }
                 }
-                div { class: "channels-field__hint", "{hint}" }
             }
         };
     }
     if ch_id == "arkret" && field.key == "runtimeKeyRequest" {
+        if arkret_agent_is_bound(ch_id, &value_map) {
+            drop(value_map);
+            return rsx! {};
+        }
         let current_result = current_val.trim().to_owned();
         let has_generated_request = current_result.trim_start().starts_with('{');
         let display_status = if has_generated_request {
@@ -4385,35 +4837,73 @@ fn render_single_field(
         } else {
             current_result.clone()
         };
-        let can_request_approval = arkret_runtime_key_request_can_request(ch_id, &value_map);
+        let pairing_state_key = arkret_pairing_state_key(ch_id);
+        let pairing_state = value_map
+            .get(&pairing_state_key)
+            .map(String::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let retry_save = pairing_state == "save_failed";
+        let pairing_busy = matches!(
+            pairing_state.as_str(),
+            "starting" | "waiting" | "finalizing"
+        );
+        let can_request_approval =
+            retry_save || arkret_runtime_key_request_can_request(ch_id, &value_map);
         let ch_id_for_generate = ch_id.to_owned();
         let fields_for_generate = fields.to_vec();
         let key_for_generate = key.clone();
+        let pairing_state_key_for_generate = pairing_state_key.clone();
         let key_ref_key_for_generate = field_value_key(ch_id, "keyRef");
         let bootstrap_key_for_generate = field_value_key(ch_id, "inksonBootstrap");
         let base_url_key_for_generate = field_value_key(ch_id, "baseUrl");
         let verification_method_key_for_generate = field_value_key(ch_id, "verificationMethod");
         let authorized_event_ref_key_for_generate = field_value_key(ch_id, "authorizedEventRef");
+        let unbind_status_key_for_generate = field_value_key(ch_id, "unbind");
         let ws_generate = ws.clone();
+        let mut refresh_after_pairing = refresh_tick;
         drop(value_map);
         return rsx! {
-            div { class: "channels-cfg__field",
+            div { class: "channels-cfg__field arkret-pairing-action",
                 div { class: "channels-cfg__row-actions",
                     button {
                         class: "channels-action-btn channels-action-btn--primary",
                         r#type: "button",
-                        disabled: !can_request_approval,
+                        disabled: !can_request_approval || pairing_busy,
                         onclick: move |_| {
                             let ch_id = ch_id_for_generate.clone();
                             let fields = fields_for_generate.clone();
                             let key = key_for_generate.clone();
+                            let pairing_state_key = pairing_state_key_for_generate.clone();
                             let key_ref_key = key_ref_key_for_generate.clone();
                             let bootstrap_key = bootstrap_key_for_generate.clone();
                             let base_url_key = base_url_key_for_generate.clone();
                             let verification_method_key = verification_method_key_for_generate.clone();
                             let authorized_event_ref_key = authorized_event_ref_key_for_generate.clone();
+                            let unbind_status_key = unbind_status_key_for_generate.clone();
                             let ws = ws_generate.clone();
                             let mut snapshot = values.read().clone();
+                            if snapshot
+                                .get(&pairing_state_key)
+                                .is_some_and(|state| state == "save_failed")
+                            {
+                                spawn(async move {
+                                    finalize_arkret_pairing(
+                                        &ws,
+                                        values,
+                                        &ch_id,
+                                        &fields,
+                                        &key,
+                                        &unbind_status_key,
+                                        refresh_after_pairing,
+                                    )
+                                    .await;
+                                });
+                                return;
+                            }
+                            values
+                                .write()
+                                .insert(pairing_state_key.clone(), "starting".to_owned());
                             spawn(async move {
                                 let bootstrap_input = snapshot
                                     .get(&bootstrap_key)
@@ -4424,6 +4914,9 @@ fn render_single_field(
                                         key,
                                         "Pairing input is required.".to_string(),
                                     );
+                                    values
+                                        .write()
+                                        .insert(pairing_state_key, "error".to_owned());
                                     return;
                                 }
                                 if !bootstrap_input.trim_start().starts_with('{') {
@@ -4483,6 +4976,9 @@ fn render_single_field(
                                                 key,
                                                 format!("Pairing link resolve failed: {err}"),
                                             );
+                                            values
+                                                .write()
+                                                .insert(pairing_state_key, "error".to_owned());
                                             return;
                                         }
                                     }
@@ -4530,6 +5026,9 @@ fn render_single_field(
                                                 key,
                                                 format!("Local runtime key generation failed: {err}"),
                                             );
+                                            values
+                                                .write()
+                                                .insert(pairing_state_key, "error".to_owned());
                                             return;
                                         }
                                     }
@@ -4541,6 +5040,9 @@ fn render_single_field(
                                             key,
                                             format!("Runtime key request generation failed: {err}"),
                                         );
+                                        values
+                                            .write()
+                                            .insert(pairing_state_key, "error".to_owned());
                                         return;
                                     }
                                 };
@@ -4573,6 +5075,9 @@ fn render_single_field(
                                                 ),
                                             ),
                                         );
+                                        values
+                                            .write()
+                                            .insert(pairing_state_key.clone(), "waiting".to_owned());
                                         arkret_poll_runtime_key_approval(
                                             ws,
                                             values,
@@ -4580,6 +5085,10 @@ fn render_single_field(
                                             authorized_event_ref_key,
                                             patch,
                                             pairing_code,
+                                            ch_id,
+                                            fields,
+                                            unbind_status_key,
+                                            refresh_after_pairing,
                                         )
                                         .await;
                                     }
@@ -4588,15 +5097,37 @@ fn render_single_field(
                                             key,
                                             format!("Runtime key request generation failed: {err}"),
                                         );
+                                        values
+                                            .write()
+                                            .insert(pairing_state_key, "error".to_owned());
                                     }
                                 }
                             });
                         },
-                        "Request approval"
+                        if pairing_busy {
+                            LoaderCircle { size: 14, class: "channels-spin" }
+                        }
+                        if retry_save {
+                            "Retry saving"
+                        } else if pairing_state == "waiting" {
+                            "Waiting for Inkson…"
+                        } else if pairing_state == "finalizing" {
+                            "Saving connection…"
+                        } else {
+                            "Start pairing"
+                        }
                     }
                 }
                 if !display_status.is_empty() {
-                    div { class: "channels-field__hint", "{display_status}" }
+                    div {
+                        class: if pairing_state == "save_failed" || pairing_state == "error" {
+                            "arkret-pairing-status arkret-pairing-status--error"
+                        } else {
+                            "arkret-pairing-status"
+                        },
+                        aria_live: "polite",
+                        "{display_status}"
+                    }
                 }
             }
         };
@@ -4906,6 +5437,89 @@ fn render_single_field(
     }
 }
 
+fn arkret_agent_is_bound(
+    channel_id: &str,
+    values: &std::collections::HashMap<String, String>,
+) -> bool {
+    let has_authorization = values
+        .get(&field_value_key(channel_id, "authorizedEventRef"))
+        .is_some_and(|value| !value.trim().is_empty());
+    let finalization_incomplete = values
+        .get(&arkret_pairing_state_key(channel_id))
+        .is_some_and(|state| matches!(state.as_str(), "finalizing" | "save_failed"));
+    has_authorization && !finalization_incomplete
+}
+
+fn arkret_bootstrap_summary_from_text(input: &str) -> Option<(String, String)> {
+    let bootstrap = serde_json::from_str::<Value>(input.trim())
+        .ok()
+        .and_then(|value| parse_arkret_agent_pairing_bootstrap(value).ok())?;
+    Some((bootstrap.agent_id.to_string(), bootstrap.arkret_base_url))
+}
+
+fn format_arkret_pairing_code(code: &str) -> String {
+    let characters = code.trim().chars().collect::<Vec<_>>();
+    if characters.len() <= 4 {
+        return characters.into_iter().collect();
+    }
+    characters
+        .chunks(4)
+        .map(|chunk| chunk.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+async fn finalize_arkret_pairing(
+    ws: &WsRpc,
+    mut values: Signal<std::collections::HashMap<String, String>>,
+    channel_id: &str,
+    fields: &[ConfigField],
+    status_key: &str,
+    connected_status_key: &str,
+    mut refresh_tick: Signal<u32>,
+) {
+    let pairing_state_key = arkret_pairing_state_key(channel_id);
+    {
+        let mut values = values.write();
+        values.insert(pairing_state_key.clone(), "finalizing".to_owned());
+        values.insert(
+            status_key.to_owned(),
+            "Approved by Inkson. Finalizing and saving the Savfox connection…".to_owned(),
+        );
+    }
+    let snapshot = values.read().clone();
+    match persist_channel_form(ws, channel_id, fields, &snapshot).await {
+        Ok(payload) => {
+            let saved_channel_id = payload
+                .get("config")
+                .and_then(|config| config.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let mut values = values.write();
+            values.remove(&pairing_state_key);
+            values.insert(
+                connected_status_key.to_owned(),
+                "Agent paired and channel saved.".to_owned(),
+            );
+            if let Some(saved_channel_id) = saved_channel_id {
+                values.insert(saved_channel_id_key(channel_id), saved_channel_id);
+            }
+            drop(values);
+            refresh_tick += 1;
+        }
+        Err(error) => {
+            let mut values = values.write();
+            values.insert(pairing_state_key, "save_failed".to_owned());
+            values.insert(
+                status_key.to_owned(),
+                format!(
+                    "Approved in Inkson, but Savfox could not save the connection: {error}. Retry saving to finish."
+                ),
+            );
+        }
+    }
+}
+
 fn arkret_runtime_key_request_can_request(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
@@ -4926,6 +5540,20 @@ fn arkret_pairing_code_from_bootstrap_text(input: &str) -> Option<String> {
         .and_then(|value| parse_arkret_agent_pairing_bootstrap(value).ok())
         .map(|bootstrap| bootstrap.pairing_code)
         .filter(|value| !value.trim().is_empty())
+}
+
+fn arkret_pairing_expiry_from_bootstrap_text(input: &str) -> Option<String> {
+    serde_json::from_str::<Value>(input.trim())
+        .ok()
+        .and_then(|value| {
+            value
+                .get("pairing_expires_at")
+                .or_else(|| value.get("pairingExpiresAt"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        })
 }
 
 /// Waiting-state status line for the pairing approval poll. Repeats the
@@ -4955,6 +5583,10 @@ async fn arkret_poll_runtime_key_approval(
     authorized_event_ref_key: String,
     config_patch: Value,
     pairing_code: Option<String>,
+    channel_id: String,
+    fields: Vec<ConfigField>,
+    connected_status_key: String,
+    refresh_tick: Signal<u32>,
 ) {
     use std::sync::atomic::Ordering;
 
@@ -5009,24 +5641,39 @@ async fn arkret_poll_runtime_key_approval(
             .unwrap_or_default()
             .to_owned();
         if approved {
-            if let Some(event_ref) = payload
+            let event_ref = payload
                 .get("authorized_event_ref")
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-            {
-                values
-                    .write()
-                    .insert(authorized_event_ref_key.clone(), event_ref.to_owned());
-            }
-            values.write().insert(
-                status_key,
-                "Approved by Inkson. Agent is active — save the channel to finish.".to_owned(),
-            );
+                .map(str::to_owned);
+            let Some(event_ref) = event_ref else {
+                let mut values = values.write();
+                values.insert(arkret_pairing_state_key(&channel_id), "error".to_owned());
+                values.insert(
+                    status_key,
+                    "Inkson approved the request but did not return an authorization reference."
+                        .to_owned(),
+                );
+                return;
+            };
+            values.write().insert(authorized_event_ref_key, event_ref);
+            finalize_arkret_pairing(
+                &ws,
+                values,
+                &channel_id,
+                &fields,
+                &status_key,
+                &connected_status_key,
+                refresh_tick,
+            )
+            .await;
             return;
         }
         if paired_by_other_runtime {
-            values.write().insert(
+            let mut values = values.write();
+            values.insert(arkret_pairing_state_key(&channel_id), "error".to_owned());
+            values.insert(
                 status_key,
                 "Pairing was completed by a different runtime key. Create a new pairing in Inkson and try again."
                     .to_owned(),
@@ -5034,7 +5681,9 @@ async fn arkret_poll_runtime_key_approval(
             return;
         }
         if status == "deactivated" {
-            values.write().insert(
+            let mut values = values.write();
+            values.insert(arkret_pairing_state_key(&channel_id), "error".to_owned());
+            values.insert(
                 status_key,
                 "Agent was deactivated before pairing completed.".to_owned(),
             );
@@ -5042,7 +5691,9 @@ async fn arkret_poll_runtime_key_approval(
         }
         match runtime_state.as_str() {
             "pairing_expired" => {
-                values.write().insert(
+                let mut values = values.write();
+                values.insert(arkret_pairing_state_key(&channel_id), "error".to_owned());
+                values.insert(
                     status_key,
                     "Pairing request expired before approval. Create a new pairing in Inkson and try again."
                         .to_owned(),
@@ -5057,9 +5708,11 @@ async fn arkret_poll_runtime_key_approval(
             }
         }
     }
-    values.write().insert(
+    let mut values = values.write();
+    values.insert(arkret_pairing_state_key(&channel_id), "error".to_owned());
+    values.insert(
         status_key,
-        "Timed out waiting for Inkson approval. Click Request approval to retry.".to_owned(),
+        "Timed out waiting for Inkson approval. Start pairing again to retry.".to_owned(),
     );
 }
 
@@ -5435,6 +6088,7 @@ fn render_add_modal(
                         {
                             let current_name = channel_name();
                             let id_preview = auto_channel_id(&ch_type.id, &current_name);
+                            let name_key = channel_name_key(&ch_type.id);
                             rsx! {
                                 div { class: "channels-field",
                                     label { class: "channels-field__label", "Name" }
@@ -5442,7 +6096,11 @@ fn render_add_modal(
                                         r#type: "text",
                                         placeholder: "My Channel",
                                         value: "{current_name}",
-                                        oninput: move |e| channel_name.set(e.value()),
+                                        oninput: move |e| {
+                                            let name = e.value();
+                                            channel_name.set(name.clone());
+                                            config_values.write().insert(name_key.clone(), name);
+                                        },
                                         class: "channels-field__input",
                                     }
                                     div { class: "channels-field__hint",
@@ -5451,7 +6109,14 @@ fn render_add_modal(
                                 }
                             }
                         }
-                        { render_config_fields(&ch_type.id, &ch_type.config_fields, config_values, revealed, ws.clone()) }
+                        { render_config_fields(
+                            &ch_type.id,
+                            &ch_type.config_fields,
+                            config_values,
+                            revealed,
+                            ws.clone(),
+                            refresh_tick,
+                        ) }
                         { render_router_fields(&ch_type.id, config_values) }
                         { render_policy_fields(&ch_type.id, config_values) }
 
@@ -5466,76 +6131,109 @@ fn render_add_modal(
                                 class: "channels-action-btn",
                                 "Back"
                             }
-                            button {
-                                onclick: {
-                                    let ws = ws.clone();
-                                    let ch_id = ch_type.id.clone();
-                                    let fields = ch_type.config_fields.clone();
-                                    move |_| {
-                                        let ws = ws.clone();
-                                        let ch_id = ch_id.clone();
-                                        let fields = fields.clone();
-                                        let name = channel_name().trim().to_string();
-                                        if name.is_empty() {
-                                            save_msg.set(Some("Name is required.".to_string()));
-                                            return;
+                            {
+                                let (arkret_agent_mode, arkret_bound) = {
+                                    let values = config_values.read();
+                                    (
+                                        ch_type.id == "arkret"
+                                            && current_arkret_mode(&ch_type.id, &values) == "agent",
+                                        arkret_agent_is_bound(&ch_type.id, &values),
+                                    )
+                                };
+                                if arkret_agent_mode && arkret_bound {
+                                    rsx! {
+                                        button {
+                                            onclick: move |_| {
+                                                show_add_modal.set(false);
+                                                add_channel_search.set(String::new());
+                                                selected_channel.set(None);
+                                                config_values.write().clear();
+                                                revealed.write().clear();
+                                                channel_name.set(String::new());
+                                                save_msg.set(None);
+                                                refresh_tick += 1;
+                                            },
+                                            class: "channels-action-btn channels-action-btn--primary",
+                                            "Done"
                                         }
-                                        let config = config_values.read();
-                                        let patch = match build_channel_patch(&ch_id, &fields, &config) {
-                                            Ok(patch) => patch,
-                                            Err(err) => {
-                                                save_msg.set(Some(err));
-                                                return;
-                                            }
-                                        };
-                                        let router = match build_router_value(&ch_id, &config) {
-                                            Ok(router) => router,
-                                            Err(err) => {
-                                                save_msg.set(Some(err));
-                                                return;
-                                            }
-                                        };
-                                        let dm_policy = build_dm_policy(&ch_id, &config);
-                                        let group_policy = build_group_policy(&ch_id, &config);
-                                        saving.set(true);
-                                        spawn(async move {
-                                            let params = json!({
-                                                "channel": ch_id,
-                                                "name": name,
-                                                "config": patch,
-                                                "router": router,
-                                                "dm_policy": dm_policy,
-                                                "group_policy": group_policy,
-                                            });
-                                            let result = ws.call::<serde_json::Value>(
-                                                "channels.config.save",
-                                                Some(params),
-                                            ).await;
-                                            saving.set(false);
-                                            match result {
-                                                Ok(_) => {
-                                                    show_add_modal.set(false);
-                                                    add_channel_search.set(String::new());
-                                                    selected_channel.set(None);
-                                                    config_values.write().clear();
-                                                    revealed.write().clear();
-                                                    channel_name.set(String::new());
-                                                    save_msg.set(None);
-                                                    refresh_tick += 1;
-                                                }
-                                                Err(e) => {
-                                                    save_msg.set(Some(format!(
-                                                        "Failed to save: {}",
-                                                        e
-                                                    )));
-                                                }
-                                            }
-                                        });
                                     }
-                                },
-                                disabled: saving(),
-                                class: "channels-action-btn channels-action-btn--primary",
-                                if saving() { "Saving..." } else { "Save" }
+                                } else if arkret_agent_mode {
+                                    rsx! {}
+                                } else {
+                                    rsx! {
+                                        button {
+                                            onclick: {
+                                                let ws = ws.clone();
+                                                let ch_id = ch_type.id.clone();
+                                                let fields = ch_type.config_fields.clone();
+                                                move |_| {
+                                                    let ws = ws.clone();
+                                                    let ch_id = ch_id.clone();
+                                                    let fields = fields.clone();
+                                                    let name = channel_name().trim().to_string();
+                                                    if name.is_empty() {
+                                                        save_msg.set(Some("Name is required.".to_string()));
+                                                        return;
+                                                    }
+                                                    let config = config_values.read();
+                                                    let patch = match build_channel_patch(&ch_id, &fields, &config) {
+                                                        Ok(patch) => patch,
+                                                        Err(err) => {
+                                                            save_msg.set(Some(err));
+                                                            return;
+                                                        }
+                                                    };
+                                                    let router = match build_router_value(&ch_id, &config) {
+                                                        Ok(router) => router,
+                                                        Err(err) => {
+                                                            save_msg.set(Some(err));
+                                                            return;
+                                                        }
+                                                    };
+                                                    let dm_policy = build_dm_policy(&ch_id, &config);
+                                                    let group_policy = build_group_policy(&ch_id, &config);
+                                                    saving.set(true);
+                                                    spawn(async move {
+                                                        let params = json!({
+                                                            "channel": ch_id,
+                                                            "name": name,
+                                                            "config": patch,
+                                                            "router": router,
+                                                            "dm_policy": dm_policy,
+                                                            "group_policy": group_policy,
+                                                        });
+                                                        let result = ws.call::<serde_json::Value>(
+                                                            "channels.config.save",
+                                                            Some(params),
+                                                        ).await;
+                                                        saving.set(false);
+                                                        match result {
+                                                            Ok(_) => {
+                                                                show_add_modal.set(false);
+                                                                add_channel_search.set(String::new());
+                                                                selected_channel.set(None);
+                                                                config_values.write().clear();
+                                                                revealed.write().clear();
+                                                                channel_name.set(String::new());
+                                                                save_msg.set(None);
+                                                                refresh_tick += 1;
+                                                            }
+                                                            Err(e) => {
+                                                                save_msg.set(Some(format!(
+                                                                    "Failed to save: {}",
+                                                                    e
+                                                                )));
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                            },
+                                            disabled: saving(),
+                                            class: "channels-action-btn channels-action-btn--primary",
+                                            if saving() { "Saving..." } else { "Save" }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -5702,6 +6400,144 @@ mod tests {
     }
 
     #[test]
+    fn saved_channel_summaries_preserve_same_kind_instances() {
+        let configs = json!([
+            {
+                "kind": "arkret",
+                "id": "arkret-support",
+                "name": "Support",
+                "enabled": true
+            },
+            {
+                "kind": "arkret",
+                "id": "arkret-sales",
+                "name": "Sales",
+                "enabled": false
+            }
+        ]);
+
+        let summaries = saved_channel_summaries(Some(&configs));
+
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].id, "arkret-support");
+        assert_eq!(summaries[1].id, "arkret-sales");
+        assert!(summaries[0].enabled);
+        assert!(!summaries[1].enabled);
+    }
+
+    #[test]
+    fn new_channel_name_does_not_reuse_an_existing_instance_id() {
+        let configs = saved_channel_summaries(Some(&json!([
+            {
+                "kind": "arkret",
+                "id": "arkret-arkret",
+                "name": "Arkret"
+            },
+            {
+                "kind": "arkret",
+                "id": "arkret-arkret-2",
+                "name": "Arkret 2"
+            }
+        ])));
+
+        assert_eq!(
+            next_available_channel_name("arkret", "Arkret", &configs),
+            "Arkret 3"
+        );
+    }
+
+    #[test]
+    fn new_arkret_form_does_not_restore_an_existing_binding() {
+        let fields = arkret_fields();
+        let values = new_channel_form_values("arkret", &fields, "Arkret 2".to_owned());
+
+        assert_eq!(
+            values.get(&channel_name_key("arkret")).map(String::as_str),
+            Some("Arkret 2")
+        );
+        assert!(!values.contains_key(&saved_channel_id_key("arkret")));
+        assert!(
+            values
+                .get(&field_value_key("arkret", "authorizedEventRef"))
+                .is_none_or(String::is_empty)
+        );
+    }
+
+    #[test]
+    fn editing_a_channel_preserves_its_exact_instance_id() {
+        let mut values = std::collections::HashMap::new();
+        values.insert(saved_channel_id_key("arkret"), "arkret-support".to_owned());
+
+        assert_eq!(
+            channel_form_id("arkret", "Renamed support", &values),
+            "arkret-support"
+        );
+        assert_eq!(
+            channel_form_id("arkret", "New support", &std::collections::HashMap::new()),
+            "arkret-new-support"
+        );
+    }
+
+    #[test]
+    fn arkret_pairing_link_uses_single_line_input() {
+        let field = arkret_fields()
+            .into_iter()
+            .find(|field| field.key == "inksonBootstrap")
+            .expect("Inkson pairing link field");
+
+        assert_eq!(field.label, "Inkson pairing link");
+        assert_eq!(field.field_type, FieldType::Text);
+    }
+
+    #[test]
+    fn arkret_pairing_code_is_grouped_for_comparison() {
+        assert_eq!(format_arkret_pairing_code("82294626"), "8229 4626");
+        assert_eq!(format_arkret_pairing_code("1234"), "1234");
+        assert_eq!(format_arkret_pairing_code("123456"), "1234 56");
+        assert_eq!(
+            arkret_pairing_expiry_from_bootstrap_text(&sdk_inkson_bootstrap_json()).as_deref(),
+            Some("2026-07-06T12:00:00.000Z")
+        );
+    }
+
+    #[test]
+    fn arkret_status_labels_separate_pairing_from_runtime() {
+        assert_eq!(arkret_pairing_state_label("paired"), "Paired");
+        assert_eq!(arkret_pairing_state_label("active"), "Paired");
+        assert_eq!(arkret_runtime_phase_label("subscribing"), "Listening");
+        assert_eq!(arkret_runtime_phase_label("retry_wait"), "Retrying");
+    }
+
+    #[test]
+    fn arkret_bound_state_waits_for_local_finalization() {
+        let mut values = std::collections::HashMap::new();
+        values.insert(
+            field_value_key("arkret", "authorizedEventRef"),
+            "ak:event:01904100-0000-7000-8000-000000000099".to_owned(),
+        );
+
+        assert!(arkret_agent_is_bound("arkret", &values));
+
+        values.insert(arkret_pairing_state_key("arkret"), "finalizing".to_owned());
+        assert!(!arkret_agent_is_bound("arkret", &values));
+
+        values.insert(arkret_pairing_state_key("arkret"), "save_failed".to_owned());
+        assert!(!arkret_agent_is_bound("arkret", &values));
+
+        values.remove(&arkret_pairing_state_key("arkret"));
+        assert!(arkret_agent_is_bound("arkret", &values));
+    }
+
+    #[test]
+    fn arkret_bootstrap_summary_exposes_only_connection_identity() {
+        let summary = arkret_bootstrap_summary_from_text(&sdk_inkson_bootstrap_json())
+            .expect("bootstrap summary");
+
+        assert_eq!(summary.0, "did:webvh:example.org:agents:support");
+        assert_eq!(summary.1, "https://arkret.example.org");
+    }
+
+    #[test]
     fn arkret_bootstrap_parser_rejects_old_scope_payload_fields() {
         let mut value = sdk_inkson_bootstrap_value();
         value["requested_scope"] = json!({"actions": ["ak.event.read"]});
@@ -5840,11 +6676,7 @@ mod tests {
 
         let restored = restore_channel_values("arkret", &fields, &saved);
 
-        assert!(
-            restored
-                .get(&field_value_key("arkret", "advanced"))
-                .is_none()
-        );
+        assert!(!restored.contains_key(&field_value_key("arkret", "advanced")));
         assert_eq!(
             restored.get(&field_value_key("arkret", "keyRef")),
             Some(&"{\n  \"kind\": \"env\",\n  \"var\": \"SAVFOX_ARKRET_AGENT_KEY\"\n}".to_owned())
@@ -5861,7 +6693,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
 
         assert!(arkret_runtime_key_request_can_request("arkret", &values));
@@ -5878,7 +6711,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
 
         assert!(arkret_runtime_key_request_can_request("arkret", &values));
@@ -5975,7 +6809,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
         values.insert(
             field_value_key("arkret", "authorizationResult"),
@@ -6009,14 +6844,18 @@ mod tests {
         assert!(patch["deviceId"].is_null());
         assert!(patch["defaultRealmId"].is_null());
         assert!(patch["agentId"].is_null());
-        assert!(patch["requestedScope"].is_null());
+        assert_eq!(patch["requestedScope"], json!(ARKRET_AGENT_RUNTIME_SCOPE));
         assert_eq!(
             patch["inksonBootstrap"]["pairing_request_id"],
             json!("pair-123")
         );
         assert_eq!(
             patch["keyRef"],
-            json!({"kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY"})
+            json!({
+                "kind": "keyring",
+                "service": "savfox-arkret",
+                "account": "runtime-support"
+            })
         );
         assert!(patch["externalAiEndpointConfig"].is_null());
         assert!(patch["runtimeKeyRequest"].is_null());
@@ -6042,7 +6881,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
         values.insert(
             field_value_key("arkret", "externalAiEndpointConfig"),
@@ -6055,7 +6895,7 @@ mod tests {
     }
 
     #[test]
-    fn arkret_bootstrap_defaults_fill_runtime_verification_method() {
+    fn arkret_agent_patch_rejects_legacy_runtime_key_sources() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
         values.insert(
@@ -6067,12 +6907,32 @@ mod tests {
             r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
         );
 
+        let error =
+            build_channel_patch("arkret", &fields, &values).expect_err("legacy key must fail");
+
+        assert!(error.contains("kind='keyring'"));
+    }
+
+    #[test]
+    fn arkret_bootstrap_defaults_fill_runtime_verification_method() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
+        values.insert(
+            field_value_key("arkret", "inksonBootstrap"),
+            sdk_inkson_bootstrap_json(),
+        );
+        values.insert(
+            field_value_key("arkret", "keyRef"),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
+        );
+
         let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert!(patch["baseUrl"].is_null());
         assert!(patch["serviceId"].is_null());
         assert!(patch["principalId"].is_null());
-        assert!(patch["requestedScope"].is_null());
+        assert_eq!(patch["requestedScope"], json!(ARKRET_AGENT_RUNTIME_SCOPE));
         assert_eq!(
             patch["verificationMethod"],
             json!("did:webvh:example.org:agents:support#runtime-1")
@@ -6089,7 +6949,8 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "keyRef"),
-            r#"{"kind":"env","var":"SAVFOX_ARKRET_AGENT_KEY"}"#.to_owned(),
+            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
+                .to_owned(),
         );
         values.insert(
             field_value_key("arkret", "verificationMethod"),
@@ -6732,6 +7593,10 @@ const CHANNELS_STYLES: &str = r#"
 
     .channels-action-btn {
         flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
         padding: 8px 16px;
         background: transparent;
         color: var(--text-secondary);
@@ -6817,6 +7682,7 @@ const CHANNELS_STYLES: &str = r#"
     }
 
     .channels-modal {
+        position: relative;
         background: var(--bg-primary);
         border: 1px solid var(--border);
         border-radius: var(--radius-lg);
@@ -6832,10 +7698,16 @@ const CHANNELS_STYLES: &str = r#"
     }
 
     .channels-modal__header {
+        position: sticky;
+        top: -24px;
+        z-index: 10;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px;
+        margin: -24px -24px 20px;
+        padding: 24px 24px 12px;
+        background: var(--bg-primary);
+        border-bottom: 1px solid var(--border);
     }
 
     .channels-modal__title {
@@ -6964,9 +7836,16 @@ const CHANNELS_STYLES: &str = r#"
     }
 
     .channels-modal__form-actions {
+        position: sticky;
+        bottom: -24px;
+        z-index: 10;
         display: flex;
         gap: 8px;
-        margin-top: 20px;
+        margin: 20px -24px -24px;
+        padding: 12px 24px 24px;
+        border-top: 1px solid var(--border);
+        background: var(--bg-primary);
+        box-shadow: 0 -10px 18px rgba(0, 0, 0, 0.12);
     }
 
     .channels-field {
@@ -7185,6 +8064,178 @@ const CHANNELS_STYLES: &str = r#"
         margin-top: 8px;
     }
 
+    .arkret-pairing-code {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        margin-top: 12px;
+        padding: 16px;
+        border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+        border-radius: var(--radius-lg);
+        background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+    }
+
+    .arkret-pairing-code__content {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .arkret-pairing-code__label {
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .arkret-pairing-code__value {
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: 28px;
+        line-height: 1.2;
+        letter-spacing: 0.12em;
+    }
+
+    .arkret-pairing-code__hint {
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.45;
+    }
+
+    .arkret-pairing-code__expiry {
+        color: var(--text-muted);
+        font-family: var(--font-mono);
+        font-size: 10px;
+    }
+
+    .arkret-pairing-code__copy {
+        flex-shrink: 0;
+    }
+
+    .arkret-pairing-action {
+        margin-top: -2px;
+    }
+
+    .arkret-pairing-status {
+        margin-top: 9px;
+        padding: 9px 11px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.45;
+    }
+
+    .arkret-pairing-status--error {
+        border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+        background: color-mix(in srgb, var(--danger) 8%, var(--bg-secondary));
+        color: var(--danger);
+    }
+
+    .arkret-connection {
+        padding: 16px;
+        border: 1px solid color-mix(in srgb, var(--success) 55%, var(--border));
+        border-radius: var(--radius-lg);
+        background: color-mix(in srgb, var(--success) 7%, var(--bg-secondary));
+    }
+
+    .arkret-connection__header,
+    .arkret-connection__status {
+        display: flex;
+        align-items: center;
+    }
+
+    .arkret-connection__header {
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .arkret-connection__status {
+        gap: 7px;
+        color: var(--text-primary);
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .arkret-connection__status svg {
+        color: var(--success);
+    }
+
+    .arkret-connection__badge {
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--success) 14%, transparent);
+        color: var(--success);
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .arkret-connection__details {
+        display: grid;
+        gap: 8px;
+        margin-top: 14px;
+    }
+
+    .arkret-connection__detail {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 12px;
+        font-size: 12px;
+    }
+
+    .arkret-connection__detail-label {
+        color: var(--text-muted);
+    }
+
+    .arkret-connection__detail-value {
+        overflow: hidden;
+        color: var(--text-secondary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .arkret-connection__management {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+    }
+
+    .arkret-disconnect-confirm {
+        padding: 12px;
+        border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--border));
+        border-radius: var(--radius);
+        background: color-mix(in srgb, var(--danger) 8%, var(--bg-primary));
+    }
+
+    .arkret-disconnect-confirm__message {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        color: var(--danger);
+        font-size: 12px;
+    }
+
+    .arkret-disconnect-confirm__message svg {
+        flex-shrink: 0;
+        margin-top: 1px;
+    }
+
+    .arkret-disconnect-confirm__message p {
+        margin: 4px 0 0;
+        color: var(--text-secondary);
+        line-height: 1.45;
+    }
+
+    .channels-spin {
+        animation: channels-spin 0.8s linear infinite;
+    }
+
+    @keyframes channels-spin {
+        to { transform: rotate(360deg); }
+    }
+
     /* ---- Select ---- */
     .channels-cfg__select {
         appearance: none;
@@ -7264,10 +8315,17 @@ const CHANNELS_STYLES: &str = r#"
 
     /* ---- Config action row ---- */
     .channels-cfg__actions {
+        position: sticky;
+        bottom: -24px;
+        z-index: 10;
         display: flex;
         align-items: center;
         gap: 8px;
-        margin-top: 8px;
+        margin: 8px -24px -24px;
+        padding: 12px 24px 24px;
+        border-top: 1px solid var(--border);
+        background: var(--bg-primary);
+        box-shadow: 0 -10px 18px rgba(0, 0, 0, 0.12);
     }
 
     .channels-cfg__delete-action {
@@ -7336,6 +8394,20 @@ const CHANNELS_STYLES: &str = r#"
 
         .channels-cfg__actions {
             flex-wrap: wrap;
+        }
+
+        .arkret-pairing-code {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .arkret-pairing-code__copy {
+            width: 100%;
+        }
+
+        .arkret-connection__detail {
+            grid-template-columns: 1fr;
+            gap: 3px;
         }
 
         .channels-cfg__delete-confirm {

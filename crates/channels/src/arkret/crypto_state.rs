@@ -624,8 +624,8 @@ impl FileArkretCryptoStore {
         }
         let state = self.load()?;
         let local_keypackage = state.mls_key_packages.values().find(|record| {
-            record.keypackage_ref.as_str() == payload.keypackage_ref.to_string()
-                || record.keypackage_id == payload.keypackage_ref.to_string()
+            record.keypackage_ref.as_str() == payload.keypackage_ref.as_str()
+                || record.keypackage_id == payload.keypackage_ref.as_str()
         });
         let Some(local_keypackage) = local_keypackage else {
             anyhow::bail!("MLS Welcome references no locally held Agent KeyPackage");
@@ -1004,6 +1004,7 @@ pub fn applet_scope_id(config_id: &str) -> String {
     format!("applet:{config_id}")
 }
 
+#[must_use]
 pub fn extract_encrypted_payload_from_message_content(
     content: &BTreeMap<String, Value>,
 ) -> Option<EncryptedPayload> {
@@ -1017,6 +1018,7 @@ pub fn extract_encrypted_payload_from_message_content(
 /// (`encrypted-envelope.schema.json`); only the payload plaintext differs —
 /// `message_metadata` JSON instead of a content block. Decryption goes
 /// through the same MLS group as the content carrier.
+#[must_use]
 pub fn extract_encrypted_metadata_payload_from_message_content(
     content: &BTreeMap<String, Value>,
 ) -> Option<EncryptedPayload> {
@@ -1029,6 +1031,7 @@ pub fn message_content_has_encrypted_carrier(content: &BTreeMap<String, Value>) 
     content.get("encrypted_content").is_some()
 }
 
+#[must_use]
 pub fn extract_mls_welcome_envelope(value: &Value) -> Option<MlsWelcomeEnvelope> {
     if let Ok(welcome) = serde_json::from_value::<MlsWelcomeEnvelope>(value.clone()) {
         return Some(welcome);
@@ -1061,6 +1064,7 @@ pub fn extract_mls_welcome_envelope(value: &Value) -> Option<MlsWelcomeEnvelope>
     None
 }
 
+#[must_use]
 pub fn extract_mls_welcome_consume_binding(
     value: &Value,
 ) -> Option<ArkretMlsWelcomeConsumeBinding> {
@@ -1105,7 +1109,7 @@ fn extract_mls_welcome_consume_binding_inner(
             .or_else(|| payload.carrier.encrypted_welcome_ref())
             .map(str::to_owned);
         return Some(ArkretMlsWelcomeConsumeBinding {
-            keypackage_ref: payload.keypackage_ref.to_string(),
+            keypackage_ref: payload.keypackage_ref.clone(),
             claim_id: payload.claim_id.into_string(),
             welcome_ref,
             realm_id: Some(payload.claim_envelope.intended_realm_id.as_str().to_owned()),
@@ -1208,7 +1212,7 @@ fn try_consume_stored_welcome_for_payload(
                 .map(|welcome| (identity_record.clone(), welcome)),
         );
     }
-    candidates.sort_by(|(_, left), (_, right)| right.epoch.cmp(&left.epoch));
+    candidates.sort_by_key(|(_, welcome)| std::cmp::Reverse(welcome.epoch));
 
     let mut last_error = None;
     for (identity_record, welcome) in candidates {

@@ -85,6 +85,10 @@ pub(crate) struct GatewayChannel {
     runtime_channel_secrets: Arc<RwLock<RuntimeBridgeSecrets>>,
     /// Started channel instances keyed by saved channel config ID.
     channel_registry: crate::channels::ChannelRegistry,
+    /// Per-instance startup/recovery reports keyed by immutable config ID.
+    channel_recovery_registry: crate::channels::recovery::ChannelRecoveryRegistry,
+    /// Restart supervisors for persistent channel instances.
+    channel_recovery_supervisors: crate::channels::recovery::ChannelRecoverySupervisors,
     /// Active login attempt (browser OAuth or device code).
     active_login: Arc<Mutex<Option<ActiveLogin>>>,
     /// Logical gateway session IDs mapped to active core session IDs.
@@ -141,6 +145,8 @@ pub(crate) struct GatewayBridgeArgs {
     pub(crate) websocket_manager: GatewaySessionManager,
     pub(crate) outgoing_tx: mpsc::Sender<BridgeOutgoing>,
     pub(crate) channel_registry: crate::channels::ChannelRegistry,
+    pub(crate) channel_recovery_registry: crate::channels::recovery::ChannelRecoveryRegistry,
+    pub(crate) channel_recovery_supervisors: crate::channels::recovery::ChannelRecoverySupervisors,
 }
 
 impl GatewayChannel {
@@ -186,6 +192,8 @@ impl GatewayChannel {
             http_client,
             runtime_channel_secrets: Arc::new(RwLock::new(RuntimeBridgeSecrets::default())),
             channel_registry: args.channel_registry,
+            channel_recovery_registry: args.channel_recovery_registry,
+            channel_recovery_supervisors: args.channel_recovery_supervisors,
             active_login: Arc::new(Mutex::new(None)),
             logical_session_threads: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -243,6 +251,20 @@ impl GatewayChannel {
     #[must_use]
     pub(crate) fn channel_registry(&self) -> crate::channels::ChannelRegistry {
         Arc::clone(&self.channel_registry)
+    }
+
+    #[must_use]
+    pub(crate) fn channel_recovery_registry(
+        &self,
+    ) -> crate::channels::recovery::ChannelRecoveryRegistry {
+        Arc::clone(&self.channel_recovery_registry)
+    }
+
+    #[must_use]
+    pub(crate) fn channel_recovery_supervisors(
+        &self,
+    ) -> crate::channels::recovery::ChannelRecoverySupervisors {
+        Arc::clone(&self.channel_recovery_supervisors)
     }
 
     /// Get a receiver for thread-created events from the SessionManager.

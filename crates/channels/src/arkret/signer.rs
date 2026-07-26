@@ -90,31 +90,6 @@ pub fn load_ed25519_seed_hex(key_ref: &ArkretKeyRef) -> anyhow::Result<String> {
     Ok(encoded)
 }
 
-/// Copy an existing runtime signing seed into the platform credential vault.
-///
-/// This is the one-way upgrade path for personal-agent configurations created
-/// before the session provider required `kind=keyring`. The caller must persist
-/// the returned reference before removing any legacy file/env source.
-pub fn migrate_ed25519_key_ref_to_keyring(
-    source: &ArkretKeyRef,
-    service: impl Into<String>,
-    account: impl Into<String>,
-) -> anyhow::Result<ArkretKeyRef> {
-    use savfox_keyring_store::KeyringStore as _;
-
-    let service = service.into();
-    let account = account.into();
-    let mut seed = load_seed_array(source)?;
-    let mut encoded = STANDARD_NO_PAD.encode(seed);
-    let save_result = savfox_keyring_store::DefaultKeyringStore
-        .save(&service, &account, &encoded)
-        .with_context(|| format!("arkret signer: save platform keyring entry {service}/{account}"));
-    seed.zeroize();
-    encoded.zeroize();
-    save_result?;
-    Ok(ArkretKeyRef::Keyring { service, account })
-}
-
 /// Generate a fresh Ed25519 runtime seed directly in the platform credential
 /// vault without materializing a plaintext key file.
 pub fn generate_ed25519_key_ref_in_keyring(

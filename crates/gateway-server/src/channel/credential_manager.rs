@@ -1007,11 +1007,12 @@ impl GatewayChannel {
             slack_token,
             None,
             None,
+            None,
         )
         .await
     }
 
-    /// Send a message with optional thread and reply context.
+    /// Send a message with optional thread, reply, and saved-instance context.
     pub(crate) async fn send_platform_message_with_context(
         &self,
         channel: &str,
@@ -1021,10 +1022,13 @@ impl GatewayChannel {
         slack_token: Option<&str>,
         session_id: Option<&str>,
         reply_target: Option<&str>,
+        saved_channel_config_id: Option<&str>,
     ) -> anyhow::Result<()> {
         let runtime = self.runtime_channel_secrets.read().await.clone();
         let (platform, channel_id) = channel.split_once(':').unwrap_or(("webhook", channel));
         let savfox_home = &self.config.savfox_home;
+        #[cfg(not(feature = "arkret"))]
+        let _ = saved_channel_config_id;
 
         match platform {
             "discord" => {
@@ -1403,6 +1407,7 @@ impl GatewayChannel {
                     strand_id,
                     text,
                     sidecar_exchange.as_ref(),
+                    saved_channel_config_id,
                 )
                 .await?;
             }

@@ -37,7 +37,7 @@ use savfox_channels::arkret::{
     UnableToDecryptReason, account_allows_event_read, build_message_create_event,
     build_user_facing_response_metadata, device_messages_scope, encode_sidecar_reply_target,
     gate_inbound_request_binding, open_account_store, parse_delta_frame_for_account,
-    resolve_arkret_outbound_account, sidecar_binding_from_metadata_plaintext,
+    resolve_arkret_outbound_account_for_config, sidecar_binding_from_metadata_plaintext,
     sign_keypackages_consume_request, sign_keypackages_revoke_request,
     sign_keypackages_upload_request,
 };
@@ -64,11 +64,13 @@ struct ArkretListenerDiagnostic {
     phase: &'static str,
     attempt: u64,
     last_error: Option<String>,
+    last_reason_code: Option<String>,
     last_event_id: Option<String>,
     last_realm_id: Option<String>,
     last_local_agent_id: Option<String>,
     received_events: u64,
     dispatched_events: u64,
+    baselined_events: u64,
     skipped_events: u64,
     updated_at: chrono::DateTime<Utc>,
 }
@@ -82,11 +84,13 @@ impl ArkretListenerDiagnostic {
             phase: "scheduled",
             attempt: 0,
             last_error: None,
+            last_reason_code: None,
             last_event_id: None,
             last_realm_id: None,
             last_local_agent_id: None,
             received_events: 0,
             dispatched_events: 0,
+            baselined_events: 0,
             skipped_events: 0,
             updated_at: Utc::now(),
         }
@@ -101,11 +105,13 @@ impl ArkretListenerDiagnostic {
             "running": running,
             "attempt": self.attempt,
             "last_error": self.last_error,
+            "last_reason_code": self.last_reason_code,
             "last_event_id": self.last_event_id,
             "last_realm_id": self.last_realm_id,
             "last_local_agent_id": self.last_local_agent_id,
             "received_events": self.received_events,
             "dispatched_events": self.dispatched_events,
+            "baselined_events": self.baselined_events,
             "skipped_events": self.skipped_events,
             "updated_at": self.updated_at,
         })
@@ -115,6 +121,8 @@ impl ArkretListenerDiagnostic {
 const ACCOUNT_EVENT_DEDUPE_MAX: usize = 4096;
 const ACCOUNT_SCAN_CATCHUP_LIMIT: u32 = 100;
 const ACCOUNT_SCAN_CATCHUP_MAX_PAGES: usize = 64;
+const ACCOUNT_DURABLE_WORK_POLL: Duration = Duration::from_millis(250);
+const ACCOUNT_AUTH_WARNING_INTERVAL: Duration = Duration::from_secs(30);
 const DEVICE_MESSAGES_PULL_LIMIT: u32 = 100;
 const DEVICE_MESSAGES_PULL_MAX_PAGES: usize = 16;
 
@@ -123,13 +131,6 @@ const KEYPACKAGES_CONSUME_SCOPE: &str = "ak.self.keys.keypackages.command.consum
 const KEYPACKAGES_REVOKE_SCOPE: &str = "ak.self.keys.keypackages.command.revoke";
 const DEVICE_MESSAGES_LIST_SCOPE: &str = "ak.self.device_messages.query.list";
 const DEVICE_MESSAGES_ACK_SCOPE: &str = "ak.self.device_messages.command.ack";
-
-/// Session-scope tokens the runtime requests by default but that older Agent
-/// provisioning ceilings (Inkson before the SecureMessaging preset carried
-/// `keypackages.command.revoke`) do not include. The ceiling is immutable
-/// (key-management §4.5), so a legacy Agent can never be granted these; the
-/// session login drops them on a `proof_invalid` rejection and retries once.
-const CEILING_OPTIONAL_SESSION_SCOPE: &[&str] = &[KEYPACKAGES_REVOKE_SCOPE];
 
 fn runtime_state() -> &'static StdMutex<ArkretRuntimeState> {
     static STATE: OnceLock<StdMutex<ArkretRuntimeState>> = OnceLock::new();
@@ -168,6 +169,7 @@ fn record_listener_failure(
     let error = error.to_string();
     update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
         diagnostic.phase = phase;
+        diagnostic.last_reason_code = arkret_reason_code(&error);
         diagnostic.last_error = Some(error);
     });
 }
@@ -180,7 +182,18 @@ fn record_listener_phase(
     update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
         diagnostic.phase = phase;
         diagnostic.last_error = None;
+        diagnostic.last_reason_code = None;
     });
+}
+
+fn arkret_reason_code(error: &str) -> Option<String> {
+    let marker = "reason_code=";
+    let start = error.find(marker)? + marker.len();
+    let code = error[start..]
+        .split(|ch: char| !(ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_'))
+        .next()
+        .unwrap_or_default();
+    (!code.is_empty()).then(|| code.to_owned())
 }
 
 pub(crate) fn arkret_account_runtime_diagnostics(channel_id: &str) -> Vec<Value> {
@@ -214,8 +227,7 @@ pub(crate) async fn start_arkret_channel(
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    let arkret_config = ArkretChannelConfig::from_channel_config(config)
-        .ok_or_else(|| anyhow::anyhow!("Arkret channel config must be an object"))?;
+    let arkret_config = ArkretChannelConfig::from_strict_agent_config(config)?;
     arkret_config
         .validate()
         .with_context(|| format!("Arkret channel '{}' config validation failed", config.id))?;
@@ -292,6 +304,19 @@ pub(crate) fn arkret_account_listener_count(channel_id: &str) -> usize {
         .count()
 }
 
+pub(crate) fn arkret_account_listener_task_count(channel_id: &str) -> usize {
+    let prefix = format!("{channel_id}::");
+    let Ok(state) = runtime_state().lock() else {
+        warn!("arkret: runtime state mutex poisoned; cannot inspect tasks for '{channel_id}'");
+        return 0;
+    };
+    state
+        .handles
+        .iter()
+        .filter(|(key, handle)| key.starts_with(&prefix) && !handle.is_finished())
+        .count()
+}
+
 fn spawn_account_listener(
     savfox_home: PathBuf,
     channel: ArkretChannelConfig,
@@ -309,17 +334,7 @@ fn spawn_account_listener(
     let diagnostic_channel_id = channel.id.clone();
     let diagnostic_account_id = account.id.clone();
     let handle = tokio::spawn(async move {
-        let mut attempt = 0_u64;
-        loop {
-            attempt = attempt.saturating_add(1);
-            update_listener_diagnostic(
-                &diagnostic_channel_id,
-                &diagnostic_account_id,
-                |diagnostic| {
-                    diagnostic.phase = "starting";
-                    diagnostic.attempt = attempt;
-                },
-            );
+        run_account_listener_retry_loop(diagnostic_channel_id, diagnostic_account_id, move || {
             run_account_listener(
                 savfox_home.clone(),
                 channel.clone(),
@@ -327,22 +342,8 @@ fn spawn_account_listener(
                 Arc::clone(&gateway_channel),
                 Arc::clone(&session_store),
             )
-            .await;
-            let retry_delay = Duration::from_secs(attempt.min(6).pow(2));
-            update_listener_diagnostic(
-                &diagnostic_channel_id,
-                &diagnostic_account_id,
-                |diagnostic| diagnostic.phase = "retry_wait",
-            );
-            warn!(
-                channel_id = %diagnostic_channel_id,
-                account_id = %diagnostic_account_id,
-                attempt,
-                retry_delay_ms = retry_delay.as_millis(),
-                "arkret: listener attempt ended; retrying instead of leaving a stale connected task"
-            );
-            tokio::time::sleep(retry_delay).await;
-        }
+        })
+        .await;
     });
     let Ok(mut state) = runtime_state().lock() else {
         warn!("arkret: runtime state mutex poisoned; aborting listener task '{key}'");
@@ -351,6 +352,67 @@ fn spawn_account_listener(
     };
     if let Some(prev) = state.handles.insert(key, handle) {
         prev.abort();
+    }
+}
+
+async fn run_account_listener_retry_loop<F, Fut>(
+    diagnostic_channel_id: String,
+    diagnostic_account_id: String,
+    mut run: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let mut attempt = 0_u64;
+    loop {
+        attempt = attempt.saturating_add(1);
+        update_listener_diagnostic(
+            &diagnostic_channel_id,
+            &diagnostic_account_id,
+            |diagnostic| {
+                diagnostic.phase = "starting";
+                diagnostic.attempt = attempt;
+            },
+        );
+        run().await;
+        let migration_required = runtime_state()
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state
+                    .diagnostics
+                    .get(&task_key(&diagnostic_channel_id, &diagnostic_account_id))
+                    .and_then(|diagnostic| diagnostic.last_reason_code.as_deref())
+                    .map(|reason| reason == "agent_requested_scope_commitment_invalid")
+            })
+            .unwrap_or(false);
+        if migration_required {
+            update_listener_diagnostic(
+                &diagnostic_channel_id,
+                &diagnostic_account_id,
+                |diagnostic| diagnostic.phase = "migration_required",
+            );
+            warn!(
+                channel_id = %diagnostic_channel_id,
+                account_id = %diagnostic_account_id,
+                "arkret: immutable requested-scope commitment is invalid; listener stopped until the Agent is re-provisioned"
+            );
+            break;
+        }
+        let retry_delay = Duration::from_secs(attempt.min(6).pow(2));
+        update_listener_diagnostic(
+            &diagnostic_channel_id,
+            &diagnostic_account_id,
+            |diagnostic| diagnostic.phase = "retry_wait",
+        );
+        warn!(
+            channel_id = %diagnostic_channel_id,
+            account_id = %diagnostic_account_id,
+            attempt,
+            retry_delay_ms = retry_delay.as_millis(),
+            "arkret: listener attempt ended; retrying instead of leaving a stale connected task"
+        );
+        tokio::time::sleep(retry_delay).await;
     }
 }
 
@@ -418,7 +480,7 @@ async fn run_account_listener(
         );
     }
 
-    let provider = match construct_account_provider(&channel, &account).await {
+    let provider = match construct_account_provider(&savfox_home, &channel, &account).await {
         Ok(provider) => provider,
         Err(err) => {
             warn!(
@@ -504,6 +566,27 @@ enum AccountEngineOutcome {
     Retry { error: anyhow::Error },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AccountInboundMode {
+    Live,
+    InitialCatchup,
+}
+
+impl AccountInboundMode {
+    fn suppresses_agent_dispatch(self) -> bool {
+        self == Self::InitialCatchup
+    }
+}
+
+fn account_inbound_mode(events: &[ClientEvent]) -> AccountInboundMode {
+    match events.first() {
+        Some(ClientEvent::AccountUpdates(updates)) if updates.initial_catchup => {
+            AccountInboundMode::InitialCatchup
+        }
+        _ => AccountInboundMode::Live,
+    }
+}
+
 async fn drive_account_subscription_engine(
     provider: &ArkretAgentSessionProvider,
     channel: &ArkretChannelConfig,
@@ -553,8 +636,9 @@ async fn drive_account_subscription_engine(
         },
     );
     tokio::pin!(run);
-    let mut delivery_poll = tokio::time::interval(Duration::from_millis(50));
+    let mut delivery_poll = tokio::time::interval(ACCOUNT_DURABLE_WORK_POLL);
     delivery_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_auth_warning = None;
 
     loop {
         tokio::select! {
@@ -567,6 +651,7 @@ async fn drive_account_subscription_engine(
                     &crypto_store,
                     &gateway_channel,
                     &session_store,
+                    &mut last_auth_warning,
                 )
                 .await;
                 return account_engine_outcome_from_result(result);
@@ -580,6 +665,7 @@ async fn drive_account_subscription_engine(
                     &crypto_store,
                     &gateway_channel,
                     &session_store,
+                    &mut last_auth_warning,
                 )
                 .await;
             }
@@ -596,15 +682,58 @@ async fn process_durable_account_work(
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
+    last_auth_warning: &mut Option<tokio::time::Instant>,
 ) {
-    let client = match provider.provide().await {
-        Ok(client) => ArkretHttpClient::from_inner(client),
+    let now_ms = Utc::now().timestamp_millis();
+    let inbox_due = match account_store.pending(1).await {
+        Ok(deliveries) => deliveries.first().is_some_and(|delivery| {
+            delivery
+                .next_attempt_at_ms
+                .is_none_or(|next_at| next_at <= now_ms)
+        }),
         Err(error) => {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "arkret: cannot drain durable inbox without an authenticated client: {error}"
+                "arkret: failed to preflight durable account inbox: {error}"
             );
+            return;
+        }
+    };
+    let outbound_active = match account_store.has_active_outbound() {
+        Ok(active) => active,
+        Err(error) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: failed to preflight durable account outbound queue: {error}"
+            );
+            return;
+        }
+    };
+    if !inbox_due && !outbound_active {
+        return;
+    }
+
+    let client = match provider.provide().await {
+        Ok(client) => {
+            *last_auth_warning = None;
+            ArkretHttpClient::from_inner(client)
+        }
+        Err(error) => {
+            let now = tokio::time::Instant::now();
+            let warning_due = last_auth_warning
+                .is_none_or(|last| now.duration_since(last) >= ACCOUNT_AUTH_WARNING_INTERVAL);
+            if warning_due {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    inbox_due,
+                    outbound_active,
+                    "arkret: cannot drain durable account work without an authenticated client: {error}"
+                );
+                *last_auth_warning = Some(now);
+            }
             return;
         }
     };
@@ -672,9 +801,7 @@ async fn drain_pending_account_outbound(
                     "arkret: durable outbound worker reached terminal event state"
                 );
             }
-            Ok(OutboundEngineOutcome::Prepared(_) | OutboundEngineOutcome::Superseded { .. }) => {
-                continue;
-            }
+            Ok(OutboundEngineOutcome::Prepared(_) | OutboundEngineOutcome::Superseded { .. }) => {}
             Ok(OutboundEngineOutcome::Idle | OutboundEngineOutcome::RetryAt { .. }) => return,
             Err(error) => {
                 warn!(
@@ -724,11 +851,22 @@ async fn process_durable_account_inbox(
                 // head item after its persisted retry deadline.
                 return;
             }
+            let inbound_mode = account_inbound_mode(&delivery.events);
+            if inbound_mode == AccountInboundMode::InitialCatchup {
+                info!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    delivery_id = delivery.id.get(),
+                    events = delivery.events.len(),
+                    "arkret: processing initial account catch-up as a history baseline"
+                );
+            }
             let mut processing_error = None;
             for event in delivery.events {
                 if let Err(error) = handle_account_client_event(
                     client,
                     event,
+                    inbound_mode,
                     channel,
                     account,
                     account_store,
@@ -799,6 +937,7 @@ fn account_engine_outcome_from_result(
 async fn handle_account_client_event(
     client: &ArkretHttpClient,
     event: ClientEvent,
+    inbound_mode: AccountInboundMode,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
@@ -826,6 +965,7 @@ async fn handle_account_client_event(
             handle_parsed_account_events(
                 client,
                 parsed,
+                inbound_mode,
                 channel,
                 account,
                 account_store,
@@ -838,6 +978,7 @@ async fn handle_account_client_event(
                 scan_limited_realm_timeline_for_account(
                     client,
                     scan_request,
+                    inbound_mode,
                     channel,
                     account,
                     account_store,
@@ -872,16 +1013,12 @@ fn account_cursor_service_id(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
 ) -> Option<String> {
-    account
-        .arkret_server_did
-        .clone()
-        .or_else(|| channel.service_id.clone())
-        .or_else(|| {
-            account
-                .inkson_bootstrap
-                .as_ref()
-                .map(|bootstrap| bootstrap.service_id.to_string())
-        })
+    channel.service_id.clone().or_else(|| {
+        account
+            .inkson_bootstrap
+            .as_ref()
+            .map(|bootstrap| bootstrap.service_id.to_string())
+    })
 }
 
 fn account_subscription_service_id(
@@ -1184,7 +1321,7 @@ pub(crate) async fn unbind_arkret_account(
 
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     let mut revoke_attempted = false;
-    match construct_account_provider(channel, account).await {
+    match construct_account_provider(savfox_home, channel, account).await {
         Ok(provider) => match provider.provide().await {
             Ok(inner) => {
                 let client = ArkretHttpClient::from_inner(inner);
@@ -1218,6 +1355,19 @@ pub(crate) async fn unbind_arkret_account(
             channel_id = %channel.id,
             account_id = %account.id,
             "arkret: unbind failed to delete Agent account state: {err}"
+        );
+    }
+    if let Err(err) = savfox_channels::arkret::delete_verified_runtime_scope(
+        savfox_home,
+        &channel.id,
+        &account.id,
+    )
+    .await
+    {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: unbind failed to delete verified runtime scope: {err:#}"
         );
     }
 
@@ -1900,6 +2050,7 @@ where
 async fn scan_limited_realm_timeline_for_account(
     client: &ArkretHttpClient,
     request: AccountScanCatchupRequest,
+    inbound_mode: AccountInboundMode,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
@@ -1961,6 +2112,7 @@ async fn scan_limited_realm_timeline_for_account(
     handle_parsed_account_events(
         client,
         parsed,
+        inbound_mode,
         channel,
         account,
         account_store,
@@ -2288,6 +2440,7 @@ fn record_account_mls_welcome_from_value_tree_inner(
 async fn handle_parsed_account_events(
     client: &ArkretHttpClient,
     parsed: ArkretInboundParseResult,
+    inbound_mode: AccountInboundMode,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
@@ -2311,6 +2464,7 @@ async fn handle_parsed_account_events(
                 let decrypted = try_handle_encrypted_account_skip(
                     client,
                     &skipped,
+                    inbound_mode,
                     crypto_store,
                     channel,
                     account,
@@ -2321,6 +2475,12 @@ async fn handle_parsed_account_events(
                 if decrypted {
                     if let Some(event_id) = skipped.event_id.as_deref() {
                         remember_account_event(account_store, event_id).await?;
+                    }
+                    if inbound_mode.suppresses_agent_dispatch() {
+                        update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+                            diagnostic.baselined_events =
+                                diagnostic.baselined_events.saturating_add(1);
+                        });
                     }
                     continue;
                 }
@@ -2367,6 +2527,19 @@ async fn handle_parsed_account_events(
             continue;
         }
         let event_id = event.event_id.clone();
+        if inbound_mode.suppresses_agent_dispatch() {
+            remember_account_event(account_store, &event_id).await?;
+            update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+                diagnostic.baselined_events = diagnostic.baselined_events.saturating_add(1);
+            });
+            debug!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                event_id = %event_id,
+                "arkret: recorded initial catch-up event without agent dispatch"
+            );
+            continue;
+        }
         dispatch_to_agent(
             event,
             channel,
@@ -2478,12 +2651,21 @@ async fn dispatch_to_agent(
 async fn try_handle_encrypted_account_skip(
     client: &ArkretHttpClient,
     skipped: &ArkretInboundSkippedEvent,
+    inbound_mode: AccountInboundMode,
     crypto_store: &FileArkretCryptoStore,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<bool> {
+    if arkret_sender_is_account_principal(skipped.sender_did.as_deref(), account) {
+        debug!(
+            account_id = %account.id,
+            event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
+            "arkret: ignored the Agent's own encrypted event echo before MLS decrypt"
+        );
+        return Ok(true);
+    }
     let Some(payload) = skipped.encrypted_payload.as_ref() else {
         return Ok(false);
     };
@@ -2527,6 +2709,15 @@ async fn try_handle_encrypted_account_skip(
                 &consume_bindings,
             )
             .await;
+            if inbound_mode.suppresses_agent_dispatch() {
+                debug!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
+                    "arkret: decrypted initial catch-up event for MLS progression without agent dispatch"
+                );
+                return Ok(true);
+            }
             let Some(body) = decrypted_text_body(&content) else {
                 warn!(
                     account_id = %account.id,
@@ -2649,19 +2840,19 @@ fn consume_sidecar_exchange_binding(
     let Some(metadata_payload) = skipped.encrypted_metadata_payload.as_ref() else {
         return Ok(SidecarConsumeOutcome::NoBinding);
     };
-    let metadata_plaintext = match crypto_store.try_decrypt_content_block_detailed(metadata_payload)
-    {
-        Ok(ArkretDecryptDetailedOutcome::Decrypted { content, .. }) => content,
-        Ok(_) | Err(_) => {
-            // Fail closed to "no binding": the message is handled as an
-            // ordinary private message and never as an exchange participant.
-            debug!(
-                account_id = %account.id,
-                event_id,
-                "arkret: encrypted_metadata carrier could not be decrypted; treating event as non-exchange"
-            );
-            return Ok(SidecarConsumeOutcome::NoBinding);
-        }
+    let Ok(ArkretDecryptDetailedOutcome::Decrypted {
+        content: metadata_plaintext,
+        ..
+    }) = crypto_store.try_decrypt_content_block_detailed(metadata_payload)
+    else {
+        // Fail closed to "no binding": the message is handled as an
+        // ordinary private message and never as an exchange participant.
+        debug!(
+            account_id = %account.id,
+            event_id,
+            "arkret: encrypted_metadata carrier could not be decrypted; treating event as non-exchange"
+        );
+        return Ok(SidecarConsumeOutcome::NoBinding);
     };
     let Some(binding) = sidecar_binding_from_metadata_plaintext(&metadata_plaintext) else {
         return Ok(SidecarConsumeOutcome::NoBinding);
@@ -2715,6 +2906,13 @@ fn consume_sidecar_exchange_binding(
     }
 }
 
+fn arkret_sender_is_account_principal(
+    sender_did: Option<&str>,
+    account: &ArkretAccountConfig,
+) -> bool {
+    sender_did.is_some_and(|sender| sender.eq_ignore_ascii_case(account.principal_id.trim()))
+}
+
 fn record_account_unable_to_decrypt(
     crypto_store: &FileArkretCryptoStore,
     skipped: &ArkretInboundSkippedEvent,
@@ -2757,6 +2955,7 @@ fn decrypted_text_body(content: &Value) -> Option<String> {
 
 /// Build a shared session-backed transport provider for one agent runtime.
 async fn construct_account_provider(
+    savfox_home: &std::path::Path,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<ArkretAgentSessionProvider> {
@@ -2774,18 +2973,13 @@ async fn construct_account_provider(
         anyhow::anyhow!("Arkret agent '{}' missing authorizedEventRef", account.id)
     })?;
     let audience = account
-        .arkret_server_did
-        .clone()
+        .inkson_bootstrap
+        .as_ref()
+        .map(|bootstrap| bootstrap.service_id.to_string())
         .or_else(|| channel.service_id.clone())
-        .or_else(|| {
-            account
-                .inkson_bootstrap
-                .as_ref()
-                .map(|bootstrap| bootstrap.service_id.to_string())
-        })
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Arkret agent '{}' missing serviceId/arkretServerDid for agent_key_proof audience",
+                "Arkret agent '{}' missing serviceId for agent_key_proof audience",
                 account.id
             )
         })?;
@@ -2802,7 +2996,7 @@ async fn construct_account_provider(
         runtime_public_key_digest,
         "arkret: constructing agent session provider"
     );
-    let (provider, session) = match ArkretHttpClient::login_agent_provider(
+    let (provider, session) = ArkretHttpClient::login_agent_provider(
         &channel.base_url,
         key_ref,
         principal.clone(),
@@ -2813,58 +3007,14 @@ async fn construct_account_provider(
         device_id.clone(),
         None,
     )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            // The Agent `requested_scope` fixed at provisioning is an immutable
-            // global ceiling (key-management §4.5): a session grant requesting
-            // any action outside it fails closed as `proof_invalid`. Agents
-            // provisioned before the ceiling included
-            // `ak.self.keys.keypackages.command.revoke` can therefore never be
-            // granted the revoke surface. Retry once without the
-            // ceiling-optional tokens so a legacy-ceiling Agent still gets its
-            // core session instead of hard-failing the whole runtime.
-            let reduced_scope: Vec<String> = account
-                .requested_scope
-                .iter()
-                .filter(|scope| !CEILING_OPTIONAL_SESSION_SCOPE.contains(&scope.as_str()))
-                .cloned()
-                .collect();
-            let detail = format!("{error:#}");
-            if !detail.contains("reason_code=proof_invalid")
-                || reduced_scope.len() == account.requested_scope.len()
-                || reduced_scope.is_empty()
-            {
-                return Err(error);
-            }
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                dropped = ?account
-                    .requested_scope
-                    .iter()
-                    .filter(|scope| CEILING_OPTIONAL_SESSION_SCOPE.contains(&scope.as_str()))
-                    .collect::<Vec<_>>(),
-                "arkret: session grant rejected as proof_invalid; retrying without \
-                 ceiling-optional scope. If this succeeds, the Agent's immutable \
-                 requested_scope ceiling predates these actions — re-provision the \
-                 Agent to enable them (e.g. KeyPackage pool revoke on unbind)."
-            );
-            ArkretHttpClient::login_agent_provider(
-                &channel.base_url,
-                key_ref,
-                principal,
-                verification_method,
-                authorization_ref,
-                reduced_scope,
-                &audience,
-                device_id,
-                None,
-            )
-            .await?
-        }
-    };
+    .await?;
+    savfox_channels::arkret::save_verified_runtime_scope(
+        savfox_home,
+        &channel.id,
+        account,
+        runtime_public_key_digest.clone(),
+    )
+    .await?;
     info!(
         "arkret: agent '{}' obtained DPoP-bound session; audience='{}' expires_at='{}'",
         account.id, audience, session.expires_at
@@ -2874,10 +3024,11 @@ async fn construct_account_provider(
 
 /// Obtain a current authenticated client for one-shot outbound operations.
 async fn construct_account_client(
+    savfox_home: &std::path::Path,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<ArkretHttpClient> {
-    let provider = construct_account_provider(channel, account).await?;
+    let provider = construct_account_provider(savfox_home, channel, account).await?;
     let inner = provider
         .provide()
         .await
@@ -3106,10 +3257,15 @@ pub(crate) async fn send_to_arkret_account(
     strand_id: Option<&str>,
     body: &str,
     sidecar_exchange: Option<&SidecarExchangeContext>,
+    saved_channel_config_id: Option<&str>,
 ) -> anyhow::Result<()> {
-    let Some((channel, account)) = resolve_arkret_outbound_account(savfox_home, realm_id).await?
+    let Some((channel, account)) =
+        resolve_arkret_outbound_account_for_config(savfox_home, realm_id, saved_channel_config_id)
+            .await?
     else {
-        anyhow::bail!("no Arkret channel configured for realm {realm_id}");
+        anyhow::bail!(
+            "no Arkret channel configured for realm {realm_id} and routed config {saved_channel_config_id:?}"
+        );
     };
     if !account.has_requested_scope("ak.self.events.command.submit") {
         anyhow::bail!(
@@ -3126,7 +3282,7 @@ pub(crate) async fn send_to_arkret_account(
 
     // One-shot send restores the same keyring-backed session grant as the
     // listener and participates in the shared refresh/client rebuild path.
-    let client = construct_account_client(&channel, &account).await?;
+    let client = construct_account_client(savfox_home, &channel, &account).await?;
     let outbound_store = open_account_store(
         savfox_home,
         &channel.id,
@@ -3171,28 +3327,6 @@ pub(crate) async fn send_to_arkret_account(
     }
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     apply_account_outbound_encryption(&crypto_store, realm_id, &mut event, sidecar_exchange)?;
-
-    // Phase 8 (T8.E): attach capability grant event_id when configured.
-    if let Some(grant_path) = &account.grant_event_path {
-        let grant =
-            savfox_channels::arkret::load_and_verify_grant(grant_path, &account.principal_id, None)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Arkret account '{}' failed to load capability grant {}",
-                        account.id,
-                        grant_path.display()
-                    )
-                })?;
-        if !grant.covers_action("ak.message.create") {
-            anyhow::bail!(
-                "Arkret account '{}' capability grant {} does not cover ak.message.create",
-                account.id,
-                grant_path.display()
-            );
-        }
-        event.authorization_ref = Some(grant.event_id);
-    }
 
     // Phase 8 (T8.C): sign with the account's ed25519 key when key_ref is set.
     if let Some(key_ref) = &account.key_ref {
@@ -3252,8 +3386,8 @@ pub(crate) async fn send_to_arkret_account(
                 );
                 return Ok(());
             }
-            OutboundEngineOutcome::Accepted(_) | OutboundEngineOutcome::Duplicate(_) => continue,
-            OutboundEngineOutcome::Prepared(_) => continue,
+            OutboundEngineOutcome::Accepted(_) | OutboundEngineOutcome::Duplicate(_) => {}
+            OutboundEngineOutcome::Prepared(_) => {}
             OutboundEngineOutcome::Superseded {
                 previous,
                 replacement,
@@ -3265,7 +3399,7 @@ pub(crate) async fn send_to_arkret_account(
                 );
                 transaction_id = replacement.transaction_id;
             }
-            OutboundEngineOutcome::Superseded { .. } => continue,
+            OutboundEngineOutcome::Superseded { .. } => {}
             OutboundEngineOutcome::RetryAt { item, at }
                 if item.transaction_id == transaction_id =>
             {
@@ -3273,7 +3407,7 @@ pub(crate) async fn send_to_arkret_account(
                     "arkret: outbound event queued for retry at {at} (transaction={transaction_id})"
                 );
             }
-            OutboundEngineOutcome::RetryAt { .. } => continue,
+            OutboundEngineOutcome::RetryAt { .. } => {}
             OutboundEngineOutcome::Rejected { item, .. }
             | OutboundEngineOutcome::Terminal { item, .. }
             | OutboundEngineOutcome::Quarantined { item, .. }
@@ -3283,7 +3417,7 @@ pub(crate) async fn send_to_arkret_account(
             }
             OutboundEngineOutcome::Rejected { .. }
             | OutboundEngineOutcome::Terminal { .. }
-            | OutboundEngineOutcome::Quarantined { .. } => continue,
+            | OutboundEngineOutcome::Quarantined { .. } => {}
             OutboundEngineOutcome::Idle => {
                 let snapshot = outbound.snapshot().await?;
                 if snapshot.items.iter().any(|item| {
@@ -3367,12 +3501,8 @@ mod tests {
             id: "support".into(),
             principal_id: "did:webvh:z6mkfixture:agent.example".into(),
             device_id: "ak:device:01904100-0000-7000-8000-000000000001".into(),
-            access_token: String::new(),
             key_ref: None,
             verification_method: None,
-            arkret_server_did: None,
-            login_challenge: None,
-            grant_event_path: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
             requested_scope: vec![
@@ -3383,6 +3513,153 @@ mod tests {
             listen: true,
             send: true,
         }
+    }
+
+    #[tokio::test]
+    async fn controlled_listener_auth_failure_retries_and_recovers() {
+        let channel = ArkretChannelConfig {
+            id: "fake-recovery-channel".to_owned(),
+            base_url: "http://127.0.0.1:1".to_owned(),
+            service_id: None,
+            accounts: Vec::new(),
+        };
+        let account = make_account();
+        let key = task_key(&channel.id, &account.id);
+        runtime_state()
+            .lock()
+            .expect("runtime state lock")
+            .diagnostics
+            .insert(
+                key.clone(),
+                ArkretListenerDiagnostic::new(&channel, &account),
+            );
+        let attempts = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let attempts_for_run = Arc::clone(&attempts);
+        let channel_for_run = channel.clone();
+        let account_for_run = account.clone();
+        let task = tokio::spawn(run_account_listener_retry_loop(
+            channel.id.clone(),
+            account.id.clone(),
+            move || {
+                let attempt =
+                    attempts_for_run.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let channel = channel_for_run.clone();
+                let account = account_for_run.clone();
+                async move {
+                    if attempt == 1 {
+                        record_listener_failure(
+                            &channel,
+                            &account,
+                            "authentication_error",
+                            "fake service rejected credentials",
+                        );
+                    } else {
+                        record_listener_phase(&channel, &account, "subscribing");
+                        std::future::pending::<()>().await;
+                    }
+                }
+            },
+        ));
+
+        let retry_observed = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            loop {
+                if arkret_account_runtime_diagnostics(&channel.id)
+                    .iter()
+                    .any(|diagnostic| {
+                        diagnostic.get("phase").and_then(Value::as_str) == Some("retry_wait")
+                            && diagnostic
+                                .get("last_error")
+                                .and_then(Value::as_str)
+                                .is_some_and(|error| error.contains("fake service"))
+                    })
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        assert!(
+            retry_observed.is_ok(),
+            "authentication retry was not reported"
+        );
+
+        let recovered = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if arkret_account_runtime_diagnostics(&channel.id)
+                    .iter()
+                    .any(|diagnostic| {
+                        diagnostic.get("phase").and_then(Value::as_str) == Some("subscribing")
+                            && diagnostic.get("attempt").and_then(Value::as_u64) == Some(2)
+                            && diagnostic.get("last_error").is_some_and(Value::is_null)
+                    })
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        task.abort();
+        runtime_state()
+            .lock()
+            .expect("runtime state lock")
+            .diagnostics
+            .remove(&key);
+
+        assert!(
+            recovered.is_ok(),
+            "listener did not recover on the next attempt"
+        );
+    }
+
+    #[test]
+    fn encrypted_account_self_echo_is_identified_before_mls_decrypt() {
+        let account = make_account();
+
+        assert!(arkret_sender_is_account_principal(
+            Some("did:webvh:z6mkfixture:agent.example"),
+            &account,
+        ));
+        assert!(arkret_sender_is_account_principal(
+            Some("DID:WEBVH:Z6MKFIXTURE:AGENT.EXAMPLE"),
+            &account,
+        ));
+        assert!(!arkret_sender_is_account_principal(
+            Some("did:webvh:z6mkfixture:controller.example"),
+            &account,
+        ));
+        assert!(!arkret_sender_is_account_principal(None, &account));
+    }
+
+    #[test]
+    fn initial_account_catchup_selects_history_baseline_mode() {
+        let initial = ClientEvent::AccountUpdates(garth::AccountUpdateContext {
+            initial_catchup: true,
+            malformed_realms: Vec::new(),
+            to_device_ack_token: None,
+            to_device_limited: false,
+            to_device_next_cursor: None,
+            to_device_lost: false,
+            device_lists: arkret::AccountSubscribeDeviceListChanges {
+                changed: Vec::new(),
+                left: Vec::new(),
+            },
+            presence: Vec::new(),
+            account_data: Vec::new(),
+            agent_signer_evidence: Vec::new(),
+            partial: false,
+        });
+        let ClientEvent::AccountUpdates(mut live_context) = initial.clone() else {
+            unreachable!();
+        };
+        live_context.initial_catchup = false;
+        let live = ClientEvent::AccountUpdates(live_context);
+
+        let initial_mode = account_inbound_mode(&[initial]);
+        assert_eq!(initial_mode, AccountInboundMode::InitialCatchup);
+        assert!(initial_mode.suppresses_agent_dispatch());
+        assert_eq!(account_inbound_mode(&[live]), AccountInboundMode::Live);
     }
 
     fn realm_id() -> arkret::RealmId {
@@ -3688,7 +3965,10 @@ mod tests {
             .get(realm_id().as_str())
             .expect("direct-conversation E2EE policy should persist");
         assert!(policy.requires_e2ee());
-        assert_eq!(policy.group_id_for_realm(), realm_id().as_str());
+        assert_eq!(
+            policy.group_id_for_realm(),
+            URL_SAFE_NO_PAD.encode(realm_id().as_str())
+        );
     }
 
     #[test]
@@ -3872,7 +4152,7 @@ mod tests {
     }
 
     #[test]
-    fn account_realm_update_records_nested_mls_welcome() {
+    fn account_realm_update_rejects_unbound_nested_mls_welcome() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let channel = ArkretChannelConfig {
             id: "c1".to_owned(),
@@ -3916,8 +4196,8 @@ mod tests {
             &account,
         );
 
-        assert_eq!(recorded, 1);
+        assert_eq!(recorded, 0);
         let state = crypto_store.load().expect("crypto state should load");
-        assert!(state.bootstrap.contains_key(group_id));
+        assert!(!state.bootstrap.contains_key(group_id));
     }
 }

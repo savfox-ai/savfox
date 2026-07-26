@@ -179,6 +179,7 @@ pub(crate) async fn dispatch_rpc(
         "channels.login" => handle_channels_login(&params, channel, session_store).await,
         "channels.logout" => handle_channels_logout(&params, channel).await,
         "channels.test" => handle_channels_test(&params, channel).await,
+        "channels.arkret.inspect" => handle_channels_arkret_inspect(&params, channel).await,
         "channels.arkret.runtime_key_request" => {
             handle_channels_arkret_runtime_key_request(&params, channel).await
         }

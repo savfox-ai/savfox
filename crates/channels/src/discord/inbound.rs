@@ -359,8 +359,15 @@ pub async fn stop_discord_stream(channel_id: &str) -> bool {
 }
 
 pub async fn is_discord_stream_running(channel_id: &str) -> bool {
-    stream_handles()
-        .lock()
-        .map(|handles| handles.contains_key(channel_id))
-        .unwrap_or(false)
+    let Ok(mut handles) = stream_handles().lock() else {
+        return false;
+    };
+    if handles
+        .get(channel_id)
+        .is_some_and(|entry| entry.handle.is_finished())
+    {
+        handles.remove(channel_id);
+        return false;
+    }
+    handles.contains_key(channel_id)
 }

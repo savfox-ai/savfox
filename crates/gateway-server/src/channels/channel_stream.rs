@@ -760,6 +760,7 @@ pub(crate) struct StreamSinkContext<'a> {
     pub peer_id: Option<&'a str>,
     pub thread_id: Option<&'a str>,
     pub chat_type: Option<&'a str>,
+    pub saved_channel_config_id: Option<&'a str>,
 }
 
 /// Create a `StreamSink` for the given platform, resolving tokens as needed.
@@ -775,7 +776,19 @@ pub(crate) async fn create_stream_sink(
 
     match platform {
         "telegram" => {
-            let token = gw.resolve_telegram_bot_token().await?;
+            let token =
+                if let Some(config_id) = ctx.and_then(|context| context.saved_channel_config_id) {
+                    let saved = savfox_core::config::channel_store::get_channel_config(
+                        &gw.config().savfox_home,
+                        config_id,
+                    )
+                    .await
+                    .ok()??;
+                    savfox_channels::telegram::TelegramChannelConfig::from_channel_config(&saved)?
+                        .bot_token?
+                } else {
+                    gw.resolve_telegram_bot_token().await?
+                };
             Some(Box::new(TelegramSink::new(
                 client,
                 token,
@@ -784,7 +797,19 @@ pub(crate) async fn create_stream_sink(
             )))
         }
         "discord" => {
-            let token = gw.resolve_discord_bot_token().await?;
+            let token =
+                if let Some(config_id) = ctx.and_then(|context| context.saved_channel_config_id) {
+                    let saved = savfox_core::config::channel_store::get_channel_config(
+                        &gw.config().savfox_home,
+                        config_id,
+                    )
+                    .await
+                    .ok()??;
+                    savfox_channels::discord::DiscordChannelConfig::from_channel_config(&saved)?
+                        .bot_token?
+                } else {
+                    gw.resolve_discord_bot_token().await?
+                };
             Some(Box::new(DiscordSink::new(
                 client,
                 token,
@@ -813,12 +838,30 @@ pub(crate) async fn create_stream_sink(
         }
         "feishu" | "lark" => {
             // Feishu requires tenant token which may need runtime fetching.
-            // Try to resolve from saved configs.
-            let config =
+            // Instance-backed events must resolve the exact saved config ID.
+            let cfg = if let Some(config_id) =
+                ctx.and_then(|context| context.saved_channel_config_id)
+            {
+                let saved = savfox_core::config::channel_store::get_channel_config(
+                    &gw.config().savfox_home,
+                    config_id,
+                )
+                .await
+                .ok()??;
+                let cfg =
+                    savfox_channels::feishu::FeishuChannelConfig::from_channel_config(&saved)?;
+                savfox_channels::feishu::FeishuOutboundConfig {
+                    base_url: cfg.base_url,
+                    app_access_token: cfg.app_access_token,
+                    app_id: cfg.app_id,
+                    app_secret: cfg.app_secret,
+                    receive_id_type: cfg.receive_id_type,
+                }
+            } else {
                 crate::channels::feishu::resolve_feishu_outbound_config(&gw.config().savfox_home)
                     .await
-                    .ok()?;
-            let cfg = config?;
+                    .ok()??
+            };
 
             // Try direct tenant token first, then fetch via app_id/app_secret.
             let tenant_token = if let Some(t) = cfg
@@ -867,11 +910,21 @@ pub(crate) async fn create_stream_sink(
         "dingtalk" => {
             // DingTalk uses the Open API for send/recall. Requires client_id/client_secret
             // from the channel config to obtain an access token.
-            let config =
+            let cfg = if let Some(config_id) =
+                ctx.and_then(|context| context.saved_channel_config_id)
+            {
+                let saved = savfox_core::config::channel_store::get_channel_config(
+                    &gw.config().savfox_home,
+                    config_id,
+                )
+                .await
+                .ok()??;
+                savfox_channels::dingtalk::DingtalkChannelConfig::from_channel_config(&saved)?
+            } else {
                 savfox_channels::dingtalk::load_dingtalk_channel_config(&gw.config().savfox_home)
                     .await
-                    .ok()?;
-            let cfg = config?;
+                    .ok()??
+            };
             let client_id = cfg
                 .client_id
                 .as_deref()
