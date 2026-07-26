@@ -76,7 +76,7 @@ pub enum ArkretInboundSkipReason {
     MissingRequiredField(&'static str),
     EncryptedContent,
     UnsupportedContentKind(String),
-    UnsupportedNotificationType(String),
+    UnsupportedNotificationKind(String),
     LoopbackFromAccount,
     ContentReadNotGranted,
     EmptyBody,
@@ -387,18 +387,18 @@ fn classify_notification_event(
     account_id: &str,
     principal_id: &str,
 ) -> ArkretInboundEventOutcome {
-    let Some(notification_type) = notification_kind(notification) else {
+    let Some(notification_kind) = notification_kind(notification) else {
         return skip_notification(
             notification,
             account_id,
-            ArkretInboundSkipReason::MissingRequiredField("notification_type"),
+            ArkretInboundSkipReason::MissingRequiredField("notification_kind"),
         );
     };
-    if !matches!(notification_type, "assignment" | "schedule") {
+    if !matches!(notification_kind, "assignment" | "schedule") {
         return skip_notification(
             notification,
             account_id,
-            ArkretInboundSkipReason::UnsupportedNotificationType(notification_type.to_owned()),
+            ArkretInboundSkipReason::UnsupportedNotificationKind(notification_kind.to_owned()),
         );
     }
     let Some(event_id) = notification_identity(notification) else {
@@ -415,7 +415,7 @@ fn classify_notification_event(
             ArkretInboundSkipReason::MissingRequiredField("realm_id"),
         );
     };
-    let body = notification_body(notification_type, notification);
+    let body = notification_body(notification_kind, notification);
     let sender_did = notification_sender(notification, principal_id);
     ArkretInboundEventOutcome::Dispatchable(Box::new(ArkretInboundEvent {
         account_id: account_id.to_owned(),
@@ -433,10 +433,7 @@ fn classify_notification_event(
 }
 
 fn notification_kind(notification: &Value) -> Option<&str> {
-    notification_string_ref(
-        notification,
-        &["notification_type", "notification_kind", "kind", "type"],
-    )
+    notification_string_ref(notification, &["notification_kind", "kind"])
 }
 
 fn notification_identity(notification: &Value) -> Option<String> {
@@ -463,18 +460,18 @@ fn notification_strand_id(notification: &Value) -> Option<String> {
     })
 }
 
-fn notification_body(notification_type: &str, notification: &Value) -> String {
+fn notification_body(notification_kind: &str, notification: &Value) -> String {
     let mut parts = Vec::new();
     let summary = notification_string(notification, &["body", "preview", "title"])
         .filter(|value| !value.trim().is_empty());
-    match notification_type {
+    match notification_kind {
         "assignment" => {
             parts.push("Arkret assignment notification: you were assigned to a Strand.".to_owned())
         }
         "schedule" => parts.push(
             "Arkret schedule notification: a due date or calendar schedule changed.".to_owned(),
         ),
-        _ => parts.push(format!("Arkret {notification_type} notification.")),
+        _ => parts.push(format!("Arkret {notification_kind} notification.")),
     }
     if let Some(summary) = summary {
         parts.push(format!("Summary: {summary}"));
@@ -777,7 +774,7 @@ mod tests {
                 "strand_id": STRAND_1,
                 "track_name": "discussion",
                 "encrypted_content":{
-                    "scheme":"mls-rfc9420",
+                    "scheme":"mls_rfc9420",
                     "ciphertext":"..."
                 }
             }),
@@ -906,7 +903,7 @@ mod tests {
             json!({
                 "strand_id": STRAND_1,
                 "track_name": "discussion",
-                "encrypted_content":{"scheme":"mls-rfc9420","ciphertext":"..."}
+                "encrypted_content":{"scheme":"mls_rfc9420","ciphertext":"..."}
             }),
         );
         let realms = json!({
@@ -931,7 +928,7 @@ mod tests {
         let notifications = json!({
             "events": [{
                 "notification_id": "ak:notification:n1",
-                "notification_type": "assignment",
+                "notification_kind": "assignment",
                 "realm_id": "ak:realm:r1",
                 "strand_id": "ak:strand:s1",
                 "source_event_id": "ak:event:rel1",
@@ -984,7 +981,7 @@ mod tests {
         let notifications = json!({
             "events": [{
                 "notification_id": "ak:notification:n3",
-                "notification_type": "mention",
+                "notification_kind": "mention",
                 "realm_id": "ak:realm:r1",
                 "source_event_id": "ak:event:msg1"
             }]
@@ -996,7 +993,7 @@ mod tests {
         assert_eq!(result.skipped.len(), 1);
         assert_eq!(
             result.skipped[0].reason,
-            ArkretInboundSkipReason::UnsupportedNotificationType("mention".to_owned())
+            ArkretInboundSkipReason::UnsupportedNotificationKind("mention".to_owned())
         );
     }
 
@@ -1006,7 +1003,7 @@ mod tests {
         let notifications = json!({
             "events": [{
                 "notification_id": "ak:notification:n4",
-                "notification_type": "assignment",
+                "notification_kind": "assignment",
                 "realm_id": "ak:realm:other",
                 "strand_id": "ak:strand:s4",
                 "source_event_id": "ak:event:rel4"

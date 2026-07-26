@@ -317,7 +317,7 @@ mod tests {
                 "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
                 "track_name": "discussion",
                 "encrypted_content": {
-                    "scheme": "mls-rfc9420",
+                    "scheme": "mls_rfc9420",
                     "ciphertext": "..."
                 }
             }),

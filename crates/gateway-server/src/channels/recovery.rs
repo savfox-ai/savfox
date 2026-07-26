@@ -3,11 +3,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use savfox_core::config::channel_store::ChannelConfig;
 use serde::Serialize;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-
-use savfox_core::config::channel_store::ChannelConfig;
 
 pub(crate) type ChannelRecoveryRegistry = Arc<RwLock<HashMap<String, ChannelRecoveryReport>>>;
 pub(crate) type ChannelRecoverySupervisors =

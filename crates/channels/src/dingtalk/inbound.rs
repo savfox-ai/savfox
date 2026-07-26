@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use async_trait::async_trait;

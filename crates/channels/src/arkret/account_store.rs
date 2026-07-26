@@ -88,7 +88,7 @@ pub(super) fn safe_file_stem(scope_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use arkret::{NotificationDelta, NotificationDeltaAction, NotificationId, NotificationType};
+    use arkret::{NotificationDelta, NotificationDeltaAction, NotificationId, NotificationKind};
     use garth::{ClientEvent, DurableInboxStore};
 
     use super::*;
@@ -123,7 +123,7 @@ mod tests {
                         "ak:notification:01904100-0000-7000-8000-000000000001".to_owned(),
                     )
                     .unwrap(),
-                    notification_type: NotificationType::Agent,
+                    notification_kind: NotificationKind::Agent,
                     action: NotificationDeltaAction::Remove,
                     data: None,
                 })],
