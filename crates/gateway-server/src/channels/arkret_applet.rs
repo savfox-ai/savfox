@@ -38,8 +38,8 @@ use arkret::{
     AppletActorView, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did,
     EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity,
-    IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe,
-    ServiceOperationId, ServiceType, StrandId, TypedTrustDomainId, canonical, new_prefixed_uuid7,
+    IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe, ServiceKind,
+    ServiceOperationId, StrandId, TypedTrustDomainId, canonical, new_prefixed_uuid7,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -393,7 +393,7 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
     let mut body = ServiceDescribe::development(
         Did::new(cfg.service_id.clone()).expect("service_id validated at channel registration"),
         trust_domain,
-        ServiceType::AppletService,
+        ServiceKind::AppletService,
     );
     body.supported_profiles = vec!["ak.profile.applet.v1".to_owned()];
     body.supported_operations = vec![
@@ -1221,7 +1221,7 @@ async fn applet_protocol(req: &mut Request, res: &mut Response) {
         protocol: protocol.clone(),
         display_name: protocol,
         icon_blob_ref: None,
-        field_types: Default::default(),
+        field_definitions: Default::default(),
         instances: vec![],
     };
     res.status_code(StatusCode::OK);
