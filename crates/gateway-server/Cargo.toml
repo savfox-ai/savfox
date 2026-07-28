@@ -16,6 +16,7 @@ workspace = true
 default = []
 arkret = [
     "dep:arkret",
+    "dep:arkret-wire",
     "dep:garth",
     "dep:arkret-bridge-runtime",
     "savfox-channels/arkret",
@@ -84,6 +85,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v7"] }
 arkret = { workspace = true, optional = true }
+arkret-wire = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
 arkret-bridge-runtime = { workspace = true, optional = true }
 

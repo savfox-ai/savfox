@@ -654,7 +654,9 @@ mod tests {
     fn event_value(kind: &str, realm: &str, actor: &str, payload: Value) -> Value {
         let event = arkret::Event::new(
             kind,
-            arkret::RealmId::new(realm).unwrap(),
+            arkret::ScopeRef::Realm {
+                realm_id: arkret::RealmId::new(realm).unwrap(),
+            },
             arkret::Did::new(actor.to_owned()).unwrap(),
             1,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),

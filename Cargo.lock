@@ -380,6 +380,7 @@ dependencies = [
  "arkret-models-collaboration",
  "arkret-models-discovery",
  "arkret-models-integration",
+ "arkret-wire",
  "async-trait",
  "chrono",
  "parking_lot",
@@ -425,6 +426,7 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "getrandom 0.4.3",
+ "hex",
  "hkdf 0.13.0",
  "hpke",
  "regex",
@@ -476,6 +478,7 @@ name = "arkret-http-client"
 version = "0.3.0"
 dependencies = [
  "arkret-canonical",
+ "arkret-egress-policy",
  "arkret-identity",
  "arkret-models-collaboration",
  "arkret-models-crypto",
@@ -551,6 +554,7 @@ dependencies = [
 name = "arkret-mls"
 version = "0.3.0"
 dependencies = [
+ "aes-gcm",
  "arkret-canonical",
  "arkret-crypto",
  "arkret-identifiers",
@@ -558,7 +562,6 @@ dependencies = [
  "arkret-policy",
  "arkret-signatures",
  "arkret-wire",
- "chacha20poly1305",
  "chrono",
  "ed25519-dalek",
  "hkdf 0.13.0",
@@ -9928,6 +9931,7 @@ dependencies = [
  "arkret-crypto",
  "arkret-schema",
  "arkret-signatures",
+ "arkret-wire",
  "async-trait",
  "base64",
  "bytes",
@@ -10316,6 +10320,7 @@ dependencies = [
  "anyhow",
  "arkret",
  "arkret-bridge-runtime",
+ "arkret-wire",
  "async-trait",
  "base64",
  "bcrypt",

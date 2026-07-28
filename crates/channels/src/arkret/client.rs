@@ -14,11 +14,12 @@ use std::sync::Arc;
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
-    AccountSubscribeFrame, DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome,
+    AccountSubscribeFrame, DeviceId, Did, Ed25519PayloadSigner, Event, EventsSubmitOutcome,
     EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
     KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServiceDescribe,
     SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
 };
+use arkret_wire::EventInitialSubmission;
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::Stream;
@@ -41,6 +42,19 @@ const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 #[allow(missing_debug_implementations)]
 pub struct ArkretHttpClient {
     inner: Client,
+    initial_submission_provider: Option<Arc<dyn ArkretInitialSubmissionProvider>>,
+}
+
+/// Host-owned integration that obtains issuer-produced publication evidence
+/// for a fully-authored, fully-signed Event.
+///
+/// Implementations may call a local authority component or a remote authz
+/// service. They must return the exact Event supplied by Savfox inside an
+/// [`EventInitialSubmission`]; Savfox validates that invariant and the wrapper
+/// structure before enqueueing or sending it.
+#[async_trait::async_trait]
+pub trait ArkretInitialSubmissionProvider: Send + Sync + 'static {
+    async fn initial_submission(&self, event: &Event) -> anyhow::Result<EventInitialSubmission>;
 }
 
 /// Stream of [`EventsSubscribeFrame`] yielded by
@@ -237,7 +251,22 @@ impl ArkretHttpClient {
 
     #[must_use]
     pub fn from_inner(inner: Client) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            initial_submission_provider: None,
+        }
+    }
+
+    /// Install the authority integration used to obtain legal initial
+    /// publication wrappers. Without it, initial Event publication fails
+    /// closed before network I/O.
+    #[must_use]
+    pub fn with_initial_submission_provider(
+        mut self,
+        provider: Arc<dyn ArkretInitialSubmissionProvider>,
+    ) -> Self {
+        self.initial_submission_provider = Some(provider);
+        self
     }
 
     #[must_use]
@@ -263,7 +292,10 @@ impl ArkretHttpClient {
             .auth(Auth::Bearer(access_token.to_owned()))
             .build()
             .map_err(|err| anyhow::anyhow!("failed to build Arkret HTTP client: {err}"))?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            initial_submission_provider: None,
+        })
     }
 
     /// Construct a personal-agent HTTP client by exchanging a runtime-key
@@ -450,7 +482,13 @@ impl ArkretHttpClient {
             .provide()
             .await
             .map_err(|error| anyhow::anyhow!("build authenticated Arkret client: {error}"))?;
-        Ok((Self { inner }, session))
+        Ok((
+            Self {
+                inner,
+                initial_submission_provider: None,
+            },
+            session,
+        ))
     }
 
     /// Construct an applet HTTP client by running DID-proof login.
@@ -461,7 +499,7 @@ impl ArkretHttpClient {
     /// personal-agent runtime path.
     pub async fn login(
         base_url: &str,
-        signer: &Ed25519MoveSigner,
+        signer: &Ed25519PayloadSigner,
         principal_did: Did,
         device_id: DeviceId,
         challenge: &str,
@@ -485,7 +523,13 @@ impl ArkretHttpClient {
             .auth(Auth::Bearer(session.session_grant.clone()))
             .build()
             .map_err(|err| anyhow::anyhow!("authenticated HTTP client: {err}"))?;
-        Ok((Self { inner }, session))
+        Ok((
+            Self {
+                inner,
+                initial_submission_provider: None,
+            },
+            session,
+        ))
     }
 
     /// `GET /_arkret/describe` — used at startup to verify the target
@@ -564,12 +608,48 @@ impl ArkretHttpClient {
         )))
     }
 
-    /// `POST /api/v1/events` — submit one signed Event Envelope.
-    pub async fn submit_event(&self, event: &Event) -> anyhow::Result<EventsSubmitOutcome> {
+    /// Obtain issuer-produced publication evidence for an exact signed Event.
+    pub async fn prepare_initial_submission(
+        &self,
+        event: &Event,
+    ) -> anyhow::Result<EventInitialSubmission> {
+        let provider = self.initial_submission_provider.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Arkret initial publication requires an EventInitialSubmissionProvider; \
+                 the current session grant cannot mint an AuthorizationLease"
+            )
+        })?;
+        let submission = provider.initial_submission(event).await?;
+        if submission.event != *event {
+            anyhow::bail!(
+                "Arkret EventInitialSubmissionProvider replaced or mutated the signed Event"
+            );
+        }
+        submission
+            .validate_structural()
+            .map_err(|error| anyhow::anyhow!("invalid Arkret initial submission: {error}"))?;
+        Ok(submission)
+    }
+
+    /// Submit one caller-supplied initial publication wrapper.
+    pub async fn submit_initial(
+        &self,
+        submission: &EventInitialSubmission,
+    ) -> anyhow::Result<EventsSubmitOutcome> {
+        submission
+            .validate_structural()
+            .map_err(|error| anyhow::anyhow!("invalid Arkret initial submission: {error}"))?;
         self.inner
-            .events_submit(event)
+            .events_submit(submission)
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))
+    }
+
+    /// Prepare and submit one signed Event through the installed publication
+    /// evidence provider.
+    pub async fn submit_event(&self, event: &Event) -> anyhow::Result<EventsSubmitOutcome> {
+        let submission = self.prepare_initial_submission(event).await?;
+        self.submit_initial(&submission).await
     }
 
     pub async fn keypackages_claim(
