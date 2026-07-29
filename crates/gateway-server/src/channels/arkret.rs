@@ -3224,10 +3224,16 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
                 }
             };
             if let Some(event_id) = response.accepted.into_iter().next() {
-                return Ok(OutboundSubmitOutcome::Accepted { event_id });
+                return Ok(OutboundSubmitOutcome::Accepted {
+                    event_id,
+                    ingress_receipts: response.ingress_receipts,
+                });
             }
             if let Some(event_id) = response.duplicate.into_iter().next() {
-                return Ok(OutboundSubmitOutcome::Duplicate { event_id });
+                return Ok(OutboundSubmitOutcome::Duplicate {
+                    event_id,
+                    ingress_receipts: response.ingress_receipts,
+                });
             }
             if !response.rejected.is_empty() {
                 warn!(

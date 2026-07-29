@@ -39,7 +39,7 @@ use arkret::{
     AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did,
     EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity,
     IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe, ServiceKind,
-    ServiceOperationId, StrandId, TypedTrustDomainId, canonical, new_prefixed_uuid7,
+    ServiceOperationId, StrandId, TypedTrustDomainId, canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -1476,8 +1476,7 @@ pub(crate) async fn send_via_applet(
     let strand = StrandId::new(strand_id.to_owned())
         .with_context(|| format!("invalid strand_id: {strand_id}"))?;
     let content = ContentBlock::text(body.to_owned());
-    let payload = MessageCreatePayload::with_content(strand, "discussion", content)
-        .with_message_id(new_prefixed_uuid7("ak:message:"));
+    let payload = MessageCreatePayload::with_content(strand, "discussion", content);
     let mut event = edge
         .mint_event_as_unsigned_async(
             &actor,
