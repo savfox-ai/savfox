@@ -738,6 +738,7 @@ async fn process_durable_account_work(
         }
     };
     process_durable_account_inbox(
+        provider,
         &client,
         channel,
         account,
@@ -819,6 +820,7 @@ async fn drain_pending_account_outbound(
 /// A process exit before `ack` leaves the batch pending for the next listener.
 #[allow(clippy::too_many_arguments)]
 async fn process_durable_account_inbox(
+    provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
@@ -864,6 +866,7 @@ async fn process_durable_account_inbox(
             let mut processing_error = None;
             for event in delivery.events {
                 if let Err(error) = handle_account_client_event(
+                    provider,
                     client,
                     event,
                     inbound_mode,
@@ -935,6 +938,7 @@ fn account_engine_outcome_from_result(
 }
 
 async fn handle_account_client_event(
+    provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     event: ClientEvent,
     inbound_mode: AccountInboundMode,
@@ -963,6 +967,7 @@ async fn handle_account_client_event(
             record_account_mls_welcomes_from_realm_update(&update, crypto_store, channel, account);
             let parsed = parse_realm_update_for_account(update, account);
             handle_parsed_account_events(
+                provider,
                 client,
                 parsed,
                 inbound_mode,
@@ -976,6 +981,7 @@ async fn handle_account_client_event(
             .await?;
             if let Some(scan_request) = scan_request {
                 scan_limited_realm_timeline_for_account(
+                    provider,
                     client,
                     scan_request,
                     inbound_mode,
@@ -2048,6 +2054,7 @@ where
 }
 
 async fn scan_limited_realm_timeline_for_account(
+    provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     request: AccountScanCatchupRequest,
     inbound_mode: AccountInboundMode,
@@ -2110,6 +2117,7 @@ async fn scan_limited_realm_timeline_for_account(
     }
     let parsed = parse_backfill_events_for_account(&realm_id, outcome.events, account);
     handle_parsed_account_events(
+        provider,
         client,
         parsed,
         inbound_mode,
@@ -2439,6 +2447,7 @@ fn record_account_mls_welcome_from_value_tree_inner(
 }
 
 async fn handle_parsed_account_events(
+    provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     parsed: ArkretInboundParseResult,
     inbound_mode: AccountInboundMode,
@@ -2463,6 +2472,7 @@ async fn handle_parsed_account_events(
                     continue;
                 }
                 let decrypted = try_handle_encrypted_account_skip(
+                    provider,
                     client,
                     &skipped,
                     inbound_mode,
@@ -2650,6 +2660,7 @@ async fn dispatch_to_agent(
 }
 
 async fn try_handle_encrypted_account_skip(
+    provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     skipped: &ArkretInboundSkippedEvent,
     inbound_mode: AccountInboundMode,
@@ -2737,13 +2748,16 @@ async fn try_handle_encrypted_account_skip(
                 return Ok(false);
             };
             let sidecar_exchange = match consume_sidecar_exchange_binding(
+                provider,
                 skipped,
                 crypto_store,
                 channel,
                 account,
                 gateway_channel,
                 &event_id,
-            )? {
+            )
+            .await?
+            {
                 SidecarConsumeOutcome::NoBinding => None,
                 SidecarConsumeOutcome::Execute(context) => Some(context),
                 SidecarConsumeOutcome::DropSilently => return Ok(true),
@@ -2824,13 +2838,29 @@ enum SidecarConsumeOutcome {
     DropSilently,
 }
 
+fn refreshed_sidecar_grant_matches_account(
+    state: &garth::SessionGrantState,
+    account: &ArkretAccountConfig,
+) -> bool {
+    state.principal_id.as_str() == account.principal_id
+        && state
+            .device_id
+            .as_ref()
+            .is_some_and(|device_id| device_id.as_str() == account.device_id)
+        && state
+            .granted_scope
+            .iter()
+            .any(|scope| scope == "ak.event.read")
+}
+
 /// Decrypt the `encrypted_metadata` carrier (same MLS group as the content
 /// carrier), extract the exchange binding fail-closed, and apply the §7.2.2
 /// consumption gate: role/request-context validation, addressed-principal
 /// membership, and the durable `exchange_id → request_event_id` idempotency
 /// map. The runtime obtains exchange identity only from this binding — never
 /// from `reply_to`, message bodies or arrival order.
-fn consume_sidecar_exchange_binding(
+async fn consume_sidecar_exchange_binding(
+    provider: &ArkretAgentSessionProvider,
     skipped: &ArkretInboundSkippedEvent,
     crypto_store: &FileArkretCryptoStore,
     channel: &ArkretChannelConfig,
@@ -2872,6 +2902,26 @@ fn consume_sidecar_exchange_binding(
             Ok(SidecarConsumeOutcome::DropSilently)
         }
         SidecarRequestGate::Addressed(context) => {
+            if let Err(error) = provider.refresh_for_sensitive_action().await {
+                warn!(
+                    account_id = %account.id,
+                    event_id,
+                    %error,
+                    "arkret: Sidecar runtime grant freshness could not be revalidated; failing closed"
+                );
+                return Ok(SidecarConsumeOutcome::DropSilently);
+            }
+            let Some(fresh_state) = provider.session().current_state() else {
+                return Ok(SidecarConsumeOutcome::DropSilently);
+            };
+            if !refreshed_sidecar_grant_matches_account(&fresh_state, account) {
+                warn!(
+                    account_id = %account.id,
+                    event_id,
+                    "arkret: refreshed Sidecar runtime grant lost its identity or read scope; failing closed"
+                );
+                return Ok(SidecarConsumeOutcome::DropSilently);
+            }
             let store = SidecarExchangeStore::for_account(
                 &gateway_channel.config().savfox_home,
                 &channel.id,
@@ -3710,6 +3760,36 @@ mod tests {
         assert_eq!(initial_mode, AccountInboundMode::InitialCatchup);
         assert!(initial_mode.suppresses_agent_dispatch());
         assert_eq!(account_inbound_mode(&[live]), AccountInboundMode::Live);
+    }
+
+    #[test]
+    fn refreshed_sidecar_grant_must_preserve_exact_runtime_identity_and_read_scope() {
+        let account = make_account();
+        let mut state = garth::SessionGrantState {
+            principal_id: Did::new(account.principal_id.clone()).unwrap(),
+            device_id: Some(DeviceId::new(account.device_id.clone()).unwrap()),
+            grant_id: arkret::GrantId::new(
+                "ak:grant:01904100-0000-7000-8000-000000000001".to_owned(),
+            )
+            .unwrap(),
+            grant_jwt: "redacted-test-grant".to_owned(),
+            expires_at: Utc::now() + chrono::Duration::minutes(5),
+            audience: Did::new("did:webvh:z6mkfixture:service.example").unwrap(),
+            granted_scope: vec!["ak.event.read".to_owned()],
+            session_public_key: None,
+            dpop_jkt: Some("test-jkt".to_owned()),
+        };
+        assert!(refreshed_sidecar_grant_matches_account(&state, &account));
+
+        state.granted_scope.clear();
+        assert!(!refreshed_sidecar_grant_matches_account(&state, &account));
+        state.granted_scope.push("ak.event.read".to_owned());
+        state.device_id =
+            Some(DeviceId::new("ak:device:01904100-0000-7000-8000-000000000099").unwrap());
+        assert!(!refreshed_sidecar_grant_matches_account(&state, &account));
+        state.device_id = Some(DeviceId::new(account.device_id.clone()).unwrap());
+        state.principal_id = Did::new("did:webvh:z6mkfixture:other.example").unwrap();
+        assert!(!refreshed_sidecar_grant_matches_account(&state, &account));
     }
 
     fn realm_id() -> arkret::RealmId {
