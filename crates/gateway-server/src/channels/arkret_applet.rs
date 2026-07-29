@@ -38,8 +38,8 @@ use arkret::{
     AppletActorView, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did,
     EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity,
-    IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe,
-    ServiceOperationId, ServiceType, StrandId, TypedTrustDomainId, canonical, new_prefixed_uuid7,
+    IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe, ServiceKind,
+    ServiceOperationId, StrandId, TypedTrustDomainId, canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -393,7 +393,7 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
     let mut body = ServiceDescribe::development(
         Did::new(cfg.service_id.clone()).expect("service_id validated at channel registration"),
         trust_domain,
-        ServiceType::AppletService,
+        ServiceKind::AppletService,
     );
     body.supported_profiles = vec!["ak.profile.applet.v1".to_owned()];
     body.supported_operations = vec![
@@ -1221,7 +1221,7 @@ async fn applet_protocol(req: &mut Request, res: &mut Response) {
         protocol: protocol.clone(),
         display_name: protocol,
         icon_blob_ref: None,
-        field_types: Default::default(),
+        field_definitions: Default::default(),
         instances: vec![],
     };
     res.status_code(StatusCode::OK);
@@ -1476,8 +1476,7 @@ pub(crate) async fn send_via_applet(
     let strand = StrandId::new(strand_id.to_owned())
         .with_context(|| format!("invalid strand_id: {strand_id}"))?;
     let content = ContentBlock::text(body.to_owned());
-    let payload = MessageCreatePayload::with_content(strand, "discussion", content)
-        .with_message_id(new_prefixed_uuid7("ak:message:"));
+    let payload = MessageCreatePayload::with_content(strand, "discussion", content);
     let mut event = edge
         .mint_event_as_unsigned_async(
             &actor,
@@ -2070,7 +2069,10 @@ mod tests {
         let group_id = "group-applet-welcome";
         let event = arkret::Event::new(
             "ak.mls.welcome",
-            arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000123").unwrap(),
+            arkret::ScopeRef::Realm {
+                realm_id: arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000123")
+                    .unwrap(),
+            },
             Did::new("did:webvh:acme:alice".to_owned()).unwrap(),
             1,
             arkret::Hlc::new("000000000000-0000-00000000").unwrap(),

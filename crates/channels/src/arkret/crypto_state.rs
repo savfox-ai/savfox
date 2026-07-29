@@ -1466,6 +1466,8 @@ mod tests {
             )
             .expect("test digest should parse"),
             key_ref: None,
+            purpose: None,
+            aead_profile: None,
         }
     }
 
@@ -2045,12 +2047,15 @@ mod tests {
         };
         let frontier = EventId::new("ak:event:01904100-0000-7000-8000-000000000010".to_owned())
             .expect("frontier");
+        let covered_seal = arkret::SealId::new(format!("ak:seal:sha256:{}", "e".repeat(64)))
+            .expect("covered seal");
         let governance_binding = MlsGovernanceBindingPayload::realm(
             realm_id.clone(),
             add.welcome.group_id.clone(),
             0,
             add.welcome.epoch,
             vec![frontier],
+            vec![covered_seal],
             hash('a'),
             hash('b'),
             hash('c'),

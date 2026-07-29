@@ -177,8 +177,17 @@ mod tests {
     }
 
     fn make_event(actor: &str, realm_id: &str, kind: &str, content: serde_json::Value) -> Event {
-        let mut ev =
-            Event::new(kind, realm(realm_id), did(actor), 1, hlc(), content).expect("event new");
+        let mut ev = Event::new(
+            kind,
+            arkret::ScopeRef::Realm {
+                realm_id: realm(realm_id),
+            },
+            did(actor),
+            1,
+            hlc(),
+            content,
+        )
+        .expect("event new");
         // Replace event_id with a predictable one for tests by minting a fresh uuidv7.
         let ev_id_s = new_prefixed_uuid7("ak:event:");
         ev.event_id = arkret::EventId::new(ev_id_s).expect("event id");
@@ -187,7 +196,6 @@ mod tests {
 
     fn text_content(body: &str) -> serde_json::Value {
         json!({
-            "message_id": new_prefixed_uuid7("ak:message:"),
             "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
             "track_name": "discussion",
             "content": { "kind": "ak.content.text", "body": body },
@@ -273,7 +281,6 @@ mod tests {
             "ak:realm:01904100-0000-7000-8000-000000000456",
             "ak.message.create",
             json!({
-                "message_id": new_prefixed_uuid7("ak:message:"),
                 "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
                 "track_name": "discussion",
                 "content": { "kind": "ak.content.image", "ref": "ak:blob:..." }
@@ -293,7 +300,6 @@ mod tests {
             "ak:realm:01904100-0000-7000-8000-000000000456",
             "ak.message.create",
             json!({
-                "message_id": new_prefixed_uuid7("ak:message:"),
                 "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
                 "track_name": "discussion",
                 "content": { "kind": "ak.content.encrypted", "body": "" }
@@ -313,7 +319,6 @@ mod tests {
             "ak:realm:01904100-0000-7000-8000-000000000456",
             "ak.message.create",
             json!({
-                "message_id": new_prefixed_uuid7("ak:message:"),
                 "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
                 "track_name": "discussion",
                 "encrypted_content": {

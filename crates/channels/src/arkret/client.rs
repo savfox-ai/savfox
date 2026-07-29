@@ -12,12 +12,15 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::Context;
-use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
+use arkret::http_client::{Auth, Client, ClientBuilder, ClientRequestOptions, DpopAuth};
 use arkret::{
-    AccountSubscribeFrame, DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome,
+    AccountSubscribeFrame, DeviceId, Did, Ed25519PayloadSigner, Event, EventsSubmitOutcome,
     EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
     KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServiceDescribe,
     SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
+};
+use arkret_wire::{
+    AuthorizationLeaseIssueOutcome, AuthorizationLeaseIssueRequest, EventInitialSubmission,
 };
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -461,7 +464,7 @@ impl ArkretHttpClient {
     /// personal-agent runtime path.
     pub async fn login(
         base_url: &str,
-        signer: &Ed25519MoveSigner,
+        signer: &Ed25519PayloadSigner,
         principal_did: Did,
         device_id: DeviceId,
         challenge: &str,
@@ -564,10 +567,40 @@ impl ArkretHttpClient {
         )))
     }
 
-    /// `POST /api/v1/events` — submit one signed Event Envelope.
+    /// Acquire the authority-issued publication lease for one final signed
+    /// Event, then submit the typed initial-publication wrapper. The Event id
+    /// is also the stable lease-issuance idempotency key, so an uncertain
+    /// transport retry receives the byte-identical lease.
     pub async fn submit_event(&self, event: &Event) -> anyhow::Result<EventsSubmitOutcome> {
+        let request = AuthorizationLeaseIssueRequest {
+            events: vec![event.clone()],
+        };
+        let options = ClientRequestOptions::new().idempotency_key(event.event_id.to_string());
+        let mut outcome: AuthorizationLeaseIssueOutcome = self
+            .inner
+            .post_with_options("/_arkret/self/authorization-leases", &request, &options)
+            .await
+            .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        if outcome.authorization_leases.len() != 1 {
+            anyhow::bail!(
+                "Arkret authorization lease response cardinality mismatch: expected 1, received {}",
+                outcome.authorization_leases.len()
+            );
+        }
+        let submission = EventInitialSubmission {
+            event: event.clone(),
+            authorization_lease: outcome
+                .authorization_leases
+                .pop()
+                .expect("cardinality checked above"),
+            cba_proof_bundles: Vec::new(),
+            control_proposal_receipt: None,
+        };
+        submission
+            .validate_structural()
+            .map_err(|err| anyhow::anyhow!("invalid Arkret initial submission: {err}"))?;
         self.inner
-            .events_submit(event)
+            .events_submit(&submission)
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }

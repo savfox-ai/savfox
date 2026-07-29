@@ -2,7 +2,7 @@
 //!
 //! The 32-byte ed25519 seed is loaded from a [`ArkretKeyRef`] location (env
 //! var, file, or — debug only — inline base64). The resulting
-//! [`arkret::Ed25519MoveSigner`] is the savfox-owned runtime key in
+//! [`arkret::Ed25519PayloadSigner`] is the savfox-owned runtime key in
 //! personal-agent mode, and also supports applet signer flows:
 //!
 //! * **Applet DID-proof login** for applet outbound authentication.
@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Context as _;
-use arkret::{Did, Ed25519MoveSigner};
+use arkret::{Did, Ed25519PayloadSigner};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use ed25519_dalek::SigningKey;
@@ -58,7 +58,7 @@ impl ArkretKeyRef {
     }
 }
 
-/// Load a [`Ed25519MoveSigner`] from a [`ArkretKeyRef`].
+/// Load an [`Ed25519PayloadSigner`] from an [`ArkretKeyRef`].
 ///
 /// Returns `Err` on:
 /// * missing env var
@@ -71,12 +71,12 @@ pub fn load_ed25519_signer(
     key_ref: &ArkretKeyRef,
     did: &str,
     verification_method: &str,
-) -> anyhow::Result<Ed25519MoveSigner> {
+) -> anyhow::Result<Ed25519PayloadSigner> {
     let mut seed_arr = load_seed_array(key_ref)?;
 
     let did =
         Did::new(did.to_owned()).with_context(|| format!("arkret signer: invalid DID '{did}'"))?;
-    let signer = Ed25519MoveSigner::from_did_key_seed(seed_arr, did, verification_method);
+    let signer = Ed25519PayloadSigner::from_did_key_seed(seed_arr, did, verification_method);
     // `from_did_key_seed` copies the seed into a SigningKey; wipe ours.
     seed_arr.zeroize();
     Ok(signer)
@@ -309,7 +309,7 @@ fn decode_base64_no_pad(text: &str, source: &str) -> anyhow::Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use arkret::MoveSigner;
+    use arkret::PayloadSigner;
     use base64::engine::general_purpose::STANDARD_NO_PAD;
     use savfox_keyring_store::KeyringStore as _;
     use savfox_keyring_store::tests::MockKeyringStore;
@@ -343,7 +343,7 @@ mod tests {
     // (process-spawn). The workspace forbids unsafe code, and Rust 2024
     // marks `std::env::set_var` as unsafe — so we exercise env semantics
     // outside this unit-test module. Here we cover `File` + `InlineSeedBase64`
-    // + happy-path round-trip through `Ed25519MoveSigner::sign_payload`.
+    // + happy-path round-trip through `Ed25519PayloadSigner::sign_payload`.
 
     #[test]
     fn env_missing_returns_typed_error() {

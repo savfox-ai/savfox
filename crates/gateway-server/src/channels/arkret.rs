@@ -2276,6 +2276,7 @@ fn parse_backfill_events_for_account(
                 limited: false,
                 prev_cursor: None,
                 preview_only: None,
+                ordered_log_conflicts: Vec::new(),
                 extra: Default::default(),
             }),
             ..Default::default()
@@ -3223,10 +3224,16 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
                 }
             };
             if let Some(event_id) = response.accepted.into_iter().next() {
-                return Ok(OutboundSubmitOutcome::Accepted { event_id });
+                return Ok(OutboundSubmitOutcome::Accepted {
+                    event_id,
+                    ingress_receipts: response.ingress_receipts,
+                });
             }
             if let Some(event_id) = response.duplicate.into_iter().next() {
-                return Ok(OutboundSubmitOutcome::Duplicate { event_id });
+                return Ok(OutboundSubmitOutcome::Duplicate {
+                    event_id,
+                    ingress_receipts: response.ingress_receipts,
+                });
             }
             if !response.rejected.is_empty() {
                 warn!(
@@ -3267,6 +3274,12 @@ pub(crate) async fn send_to_arkret_account(
             "no Arkret channel configured for realm {realm_id} and routed config {saved_channel_config_id:?}"
         );
     };
+    if !account.has_requested_scope("ak.self.authorization_leases.command.issue") {
+        anyhow::bail!(
+            "Arkret account '{}' send=true but missing service scope ak.self.authorization_leases.command.issue; refusing to issue a publication lease",
+            account.id
+        );
+    }
     if !account.has_requested_scope("ak.self.events.command.submit") {
         anyhow::bail!(
             "Arkret account '{}' send=true but missing service scope ak.self.events.command.submit; refusing to call submit endpoint",
@@ -3645,7 +3658,6 @@ mod tests {
                 changed: Vec::new(),
                 left: Vec::new(),
             },
-            presence: Vec::new(),
             account_data: Vec::new(),
             agent_signer_evidence: Vec::new(),
             partial: false,
@@ -3815,7 +3827,9 @@ mod tests {
     fn message_event_with_seq(body: &str, actor_seq: u64) -> arkret::Event {
         arkret::Event::new(
             "ak.message.create",
-            realm_id(),
+            arkret::ScopeRef::Realm {
+                realm_id: realm_id(),
+            },
             actor_id(),
             actor_seq,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
@@ -3861,6 +3875,7 @@ mod tests {
                     limited: false,
                     prev_cursor: None,
                     preview_only: None,
+                    ordered_log_conflicts: Vec::new(),
                     extra: Default::default(),
                 }),
                 ..Default::default()
@@ -3891,6 +3906,7 @@ mod tests {
                     limited: false,
                     prev_cursor: None,
                     preview_only: None,
+                    ordered_log_conflicts: Vec::new(),
                     extra: Default::default(),
                 }),
                 summary: Some(
@@ -3975,7 +3991,9 @@ mod tests {
     fn realm_create_profile_marks_scan_catchup_as_direct_conversation() {
         let direct_realm_create = arkret::Event::new(
             "ak.realm.create",
-            realm_id(),
+            arkret::ScopeRef::Realm {
+                realm_id: realm_id(),
+            },
             actor_id(),
             0,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
@@ -3995,6 +4013,7 @@ mod tests {
                 limited: false,
                 prev_cursor: None,
                 preview_only: None,
+                ordered_log_conflicts: Vec::new(),
                 extra: Default::default(),
             }),
             ..Default::default()
@@ -4066,6 +4085,7 @@ mod tests {
                     limited: true,
                     prev_cursor: Some("ak:cursor:older-1".to_owned()),
                     preview_only: None,
+                    ordered_log_conflicts: Vec::new(),
                     extra: Default::default(),
                 }),
                 ..Default::default()
@@ -4165,7 +4185,9 @@ mod tests {
         let group_id = "group-account-welcome";
         let welcome_event = arkret::Event::new(
             "ak.mls.welcome",
-            realm_id(),
+            arkret::ScopeRef::Realm {
+                realm_id: realm_id(),
+            },
             actor_id(),
             7,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
@@ -4183,6 +4205,7 @@ mod tests {
                     limited: false,
                     prev_cursor: None,
                     preview_only: None,
+                    ordered_log_conflicts: Vec::new(),
                     extra: Default::default(),
                 }),
                 ..Default::default()

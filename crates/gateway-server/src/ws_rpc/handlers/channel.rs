@@ -4377,6 +4377,7 @@ mod tests {
                 "requestedScope": [
                     "ak.self.events.stream.subscribe",
                     "ak.self.events.query.scan",
+                    "ak.self.authorization_leases.command.issue",
                     "ak.self.events.command.submit",
                     "ak.self.keys.keypackages.upload.create",
                     "ak.self.keys.keypackages.command.consume",
@@ -4450,6 +4451,7 @@ mod tests {
                 "requestedScope": [
                     "ak.self.events.stream.subscribe",
                     "ak.self.events.query.scan",
+                    "ak.self.authorization_leases.command.issue",
                     "ak.self.events.command.submit",
                     "ak.self.keys.keypackages.upload.create",
                     "ak.self.keys.keypackages.command.consume",
