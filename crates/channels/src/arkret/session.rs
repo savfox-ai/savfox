@@ -5,7 +5,8 @@
 
 use anyhow::Context as _;
 use arkret::http_client::{Client, login_did_proof};
-use arkret::{DeviceId, Did, Ed25519MoveSigner};
+use arkret::{DeviceId, Did};
+use arkret_signatures::Ed25519PayloadSigner;
 use chrono::{DateTime, Utc};
 
 /// One-shot session state produced by [`login_with_signer`].
@@ -33,7 +34,7 @@ impl ArkretSession {
 /// `audience` is the Arkret server's service DID.
 pub async fn login_with_signer(
     http: &Client,
-    signer: &Ed25519MoveSigner,
+    signer: &Ed25519PayloadSigner,
     principal_did: Did,
     device_id: DeviceId,
     challenge: &str,

@@ -25,13 +25,17 @@ use super::crypto_state::account_scope_id;
 pub const EVENT_REF_ROLE_AFTER: &str = "after";
 
 /// Verified exchange identity carried from the inbound request Event to the
-/// reply pipeline. Both fields originate from the accepted request Event:
-/// `exchange_id` from its decrypted binding and `request_event_id` from the
-/// carrying Event's accepted Event id.
+/// reply pipeline. Exchange/request identity originates from the accepted
+/// request Event; the optional assignment id is present only when the same
+/// verified Event establishes this runtime as coordinator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SidecarExchangeContext {
     pub exchange_id: String,
     pub request_event_id: String,
+    /// Initial or reassigned coordinator assignment Event id when this
+    /// runtime is the verified coordinator. `None` keeps the reply visible
+    /// without requesting terminal close.
+    pub coordinator_assignment_event_id: Option<String>,
 }
 
 /// Fail-closed extraction of the exchange binding from decrypted
@@ -88,13 +92,19 @@ pub fn gate_inbound_request_binding(
     let addressed = request_context
         .addressed_agent_ids
         .iter()
-        .any(|did| did.as_str().eq_ignore_ascii_case(principal));
+        .any(|did| did.as_str() == principal);
     if !addressed {
         return SidecarRequestGate::NotAddressed;
     }
+    let coordinator_assignment_event_id = request_context
+        .effective_coordinator()
+        .ok()
+        .filter(|coordinator| coordinator.as_str() == principal)
+        .map(|_| request_event_id.to_owned());
     SidecarRequestGate::Addressed(SidecarExchangeContext {
         exchange_id: binding.exchange_id.as_str().to_owned(),
         request_event_id: request_event_id.to_owned(),
+        coordinator_assignment_event_id,
     })
 }
 
@@ -205,6 +215,7 @@ impl SidecarExchangeStore {
 
 const REPLY_TARGET_EXCHANGE_KEY: &str = "|sidecar_exchange=";
 const REPLY_TARGET_REQUEST_KEY: &str = "|request_event=";
+const REPLY_TARGET_COORDINATOR_ASSIGNMENT_KEY: &str = "|coordinator_assignment=";
 
 /// Encode the verified exchange context into the channel-runtime
 /// `reply_target` string so it travels with the message that started the
@@ -213,10 +224,15 @@ const REPLY_TARGET_REQUEST_KEY: &str = "|request_event=";
 /// strand id, an exchange id (`[A-Za-z0-9._~=-]`) or an Event id.
 #[must_use]
 pub fn encode_sidecar_reply_target(strand_id: &str, context: &SidecarExchangeContext) -> String {
-    format!(
+    let mut encoded = format!(
         "{strand_id}{REPLY_TARGET_EXCHANGE_KEY}{}{REPLY_TARGET_REQUEST_KEY}{}",
         context.exchange_id, context.request_event_id
-    )
+    );
+    if let Some(assignment) = context.coordinator_assignment_event_id.as_deref() {
+        encoded.push_str(REPLY_TARGET_COORDINATOR_ASSIGNMENT_KEY);
+        encoded.push_str(assignment);
+    }
+    encoded
 }
 
 /// Split a `reply_target` produced by [`encode_sidecar_reply_target`] back
@@ -227,9 +243,20 @@ pub fn split_sidecar_reply_target(value: &str) -> (String, Option<SidecarExchang
     let Some((strand_id, rest)) = value.split_once(REPLY_TARGET_EXCHANGE_KEY) else {
         return (value.to_owned(), None);
     };
-    let Some((exchange_id, request_event_id)) = rest.split_once(REPLY_TARGET_REQUEST_KEY) else {
+    let Some((exchange_id, request_and_assignment)) = rest.split_once(REPLY_TARGET_REQUEST_KEY)
+    else {
         return (strand_id.to_owned(), None);
     };
+    let (request_event_id, coordinator_assignment_event_id) =
+        match request_and_assignment.split_once(REPLY_TARGET_COORDINATOR_ASSIGNMENT_KEY) {
+            Some((request_event_id, assignment_event_id))
+                if !request_event_id.is_empty() && !assignment_event_id.is_empty() =>
+            {
+                (request_event_id, Some(assignment_event_id.to_owned()))
+            }
+            Some(_) => return (strand_id.to_owned(), None),
+            None => (request_and_assignment, None),
+        };
     if exchange_id.is_empty() || request_event_id.is_empty() {
         return (strand_id.to_owned(), None);
     }
@@ -238,6 +265,7 @@ pub fn split_sidecar_reply_target(value: &str) -> (String, Option<SidecarExchang
         Some(SidecarExchangeContext {
             exchange_id: exchange_id.to_owned(),
             request_event_id: request_event_id.to_owned(),
+            coordinator_assignment_event_id,
         }),
     )
 }
@@ -252,9 +280,6 @@ pub fn split_sidecar_reply_target(value: &str) -> (String, Option<SidecarExchang
 /// messages are ever sent to Arkret they MUST carry `role=internal` with the
 /// same `exchange_id`/`request_event_id` (§7.2.1 item 3).
 ///
-/// `completes_exchange`/`coordinator_assignment_event_id` (the coordinator
-/// completion request) is deliberately not attached in this phase.
-///
 /// Callers MUST encrypt the returned value into `encrypted_metadata` with the
 /// same MLS group as `encrypted_content`; the binding must never appear in
 /// plaintext `metadata` (forbidden-wire-fields `sidecar_exchange_binding`).
@@ -265,9 +290,16 @@ pub fn build_user_facing_response_metadata(
         .map_err(|err| anyhow::anyhow!("invalid Sidecar exchange id: {err}"))?;
     let request_event_id = EventId::new(context.request_event_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid Sidecar request Event id: {err}"))?;
-    let binding =
+    let mut binding =
         AgentSidecarEventExchangeBinding::user_facing_response(exchange_id, request_event_id)
             .map_err(|err| anyhow::anyhow!("build user_facing_response binding: {err}"))?;
+    if let Some(assignment_event_id) = context.coordinator_assignment_event_id.as_deref() {
+        binding = binding
+            .with_completion(EventId::new(assignment_event_id.to_owned()).map_err(|err| {
+                anyhow::anyhow!("invalid Sidecar coordinator assignment Event id: {err}")
+            })?)
+            .map_err(|err| anyhow::anyhow!("attach Sidecar completion request: {err}"))?;
+    }
     let mut metadata = MessageMetadata::default();
     metadata
         .set_sidecar_exchange_binding(&binding)
@@ -401,6 +433,29 @@ mod tests {
         };
         assert_eq!(context.exchange_id, EXCHANGE_ID);
         assert_eq!(context.request_event_id, REQUEST_EVENT_ID);
+        assert_eq!(context.coordinator_assignment_event_id, None);
+        let SidecarRequestGate::Addressed(coordinator_context) = gate_inbound_request_binding(
+            &request_binding(&[AGENT_DID]),
+            REQUEST_EVENT_ID,
+            AGENT_DID,
+        ) else {
+            panic!("expected coordinator gate");
+        };
+        assert_eq!(
+            coordinator_context
+                .coordinator_assignment_event_id
+                .as_deref(),
+            Some(REQUEST_EVENT_ID)
+        );
+        assert_eq!(
+            gate_inbound_request_binding(
+                &request_binding(&[AGENT_DID]),
+                REQUEST_EVENT_ID,
+                &AGENT_DID.to_ascii_uppercase(),
+            ),
+            SidecarRequestGate::NotAddressed,
+            "principal identity matching is bit-identical, never case-folded"
+        );
     }
 
     #[test]
@@ -458,6 +513,7 @@ mod tests {
         let context = SidecarExchangeContext {
             exchange_id: EXCHANGE_ID.to_owned(),
             request_event_id: REQUEST_EVENT_ID.to_owned(),
+            coordinator_assignment_event_id: Some(REQUEST_EVENT_ID.to_owned()),
         };
         let encoded = encode_sidecar_reply_target(STRAND_ID, &context);
         assert!(encoded.starts_with("ak:strand:"));
@@ -481,6 +537,7 @@ mod tests {
         let context = SidecarExchangeContext {
             exchange_id: EXCHANGE_ID.to_owned(),
             request_event_id: REQUEST_EVENT_ID.to_owned(),
+            coordinator_assignment_event_id: Some(REQUEST_EVENT_ID.to_owned()),
         };
         let plaintext = build_user_facing_response_metadata(&context).expect("metadata");
         let binding = sidecar_binding_from_metadata_plaintext(&plaintext).expect("binding");
@@ -493,7 +550,14 @@ mod tests {
             binding.request_event_id.as_ref().map(|id| id.as_str()),
             Some(REQUEST_EVENT_ID)
         );
-        assert_eq!(binding.completes_exchange, None);
+        assert_eq!(binding.completes_exchange, Some(true));
+        assert_eq!(
+            binding
+                .coordinator_assignment_event_id
+                .as_ref()
+                .map(EventId::as_str),
+            Some(REQUEST_EVENT_ID)
+        );
     }
 
     #[test]
@@ -501,6 +565,7 @@ mod tests {
         let bad = SidecarExchangeContext {
             exchange_id: "short".to_owned(),
             request_event_id: REQUEST_EVENT_ID.to_owned(),
+            coordinator_assignment_event_id: None,
         };
         assert!(build_user_facing_response_metadata(&bad).is_err());
     }

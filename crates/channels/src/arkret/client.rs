@@ -14,10 +14,14 @@ use std::sync::Arc;
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
-    AccountSubscribeFrame, DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome,
-    EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
-    KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServiceDescribe,
-    SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
+    AccountSubscribeFrame, DeviceId, Did, Event, EventsSubmitOutcome, EventsSubscribeFrame,
+    KeyOperationSignature, KeyPackagesClaimOutcome, KeyPackagesClaimRequestBody,
+    MlsWelcomeClaimEnvelope, RealmId, ServiceDescribe, SessionGrantDpopBindingProof, StrandId,
+    SyncRequestBody,
+};
+use arkret_signatures::Ed25519PayloadSigner;
+use arkret_wire::{
+    AuthorizationLeaseIssueOutcome, AuthorizationLeaseIssueRequest, EventInitialSubmission,
 };
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -461,7 +465,7 @@ impl ArkretHttpClient {
     /// personal-agent runtime path.
     pub async fn login(
         base_url: &str,
-        signer: &Ed25519MoveSigner,
+        signer: &Ed25519PayloadSigner,
         principal_did: Did,
         device_id: DeviceId,
         challenge: &str,
@@ -566,8 +570,34 @@ impl ArkretHttpClient {
 
     /// `POST /api/v1/events` — submit one signed Event Envelope.
     pub async fn submit_event(&self, event: &Event) -> anyhow::Result<EventsSubmitOutcome> {
+        let request = AuthorizationLeaseIssueRequest {
+            events: vec![event.clone()],
+        };
+        let request_id = Uuid::now_v7().to_string();
+        let outcome: AuthorizationLeaseIssueOutcome = self
+            .inner
+            .post_with_options(
+                "/_arkret/self/authorization-leases",
+                &request,
+                &arkret::http_client::ClientRequestOptions::new()
+                    .request_id(request_id.clone())
+                    .idempotency_key(request_id),
+            )
+            .await
+            .map_err(|err| anyhow::anyhow!("issue Arkret authorization lease: {err}"))?;
+        let authorization_lease = outcome
+            .authorization_leases
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("authorization lease response was empty"))?;
+        let submission = EventInitialSubmission {
+            event: event.clone(),
+            authorization_lease,
+            cba_proof_bundles: Vec::new(),
+            control_proposal_receipt: None,
+        };
         self.inner
-            .events_submit(event)
+            .events_submit(&submission)
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }

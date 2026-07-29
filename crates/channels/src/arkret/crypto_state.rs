@@ -1466,6 +1466,8 @@ mod tests {
             )
             .expect("test digest should parse"),
             key_ref: None,
+            purpose: None,
+            aead_profile: None,
         }
     }
 
@@ -1712,6 +1714,9 @@ mod tests {
         let context = SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
             request_event_id: "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+            coordinator_assignment_event_id: Some(
+                "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+            ),
         };
         let metadata_plaintext = build_user_facing_response_metadata(&context).expect("metadata");
         let ArkretEncryptOutcome::Encrypted(envelope_value) = bob_store
@@ -2051,6 +2056,10 @@ mod tests {
             0,
             add.welcome.epoch,
             vec![frontier],
+            vec![
+                arkret::SealId::new(format!("ak:seal:sha256:{}", "e".repeat(64)))
+                    .expect("covered seal"),
+            ],
             hash('a'),
             hash('b'),
             hash('c'),

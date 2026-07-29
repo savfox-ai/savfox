@@ -8,10 +8,11 @@ use anyhow::Context;
 use arkret::events::EventKind;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    ContentBlock, Did, Ed25519MoveSigner, Event, EventDraftKindRegistry, EventId, EventRef, Hlc,
-    MessageCreatePayload, OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId,
-    StrandId, new_prefixed_uuid7,
+    ContentBlock, Did, Event, EventDraftKindRegistry, EventId, EventRef, Hlc, MessageCreatePayload,
+    OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId, ScopeRef, StrandId,
+    new_prefixed_uuid7,
 };
+use arkret_signatures::Ed25519PayloadSigner;
 
 use super::sidecar::{EVENT_REF_ROLE_AFTER, SidecarExchangeContext};
 
@@ -57,15 +58,14 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     let strand_id = StrandId::new(req.strand_id.clone())
         .with_context(|| format!("invalid strand_id: {}", req.strand_id))?;
     let content = ContentBlock::text(req.body.clone());
-    let mut payload = MessageCreatePayload::with_content(strand_id, "discussion", content)
-        .with_message_id(new_prefixed_uuid7("ak:message:"));
+    let mut payload = MessageCreatePayload::with_content(strand_id, "discussion", content);
     if let Some(thread_root) = &req.thread_root_id {
         payload = payload.with_reply_to(thread_root.clone());
     }
     let envelope = OperationEnvelopeBuilder::new(
         OperationId::new(new_prefixed_uuid7("ak:operation:"))
             .context("failed to generate message operation id")?,
-        realm,
+        ScopeRef::Realm { realm_id: realm },
         actor,
         EventKind::MESSAGE_CREATE,
         req.actor_seq,
@@ -100,7 +100,7 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
 /// the applet-mode helper in [`super::applet::sign_outbound_event`].
 pub fn sign_outbound_event(
     event: &mut Event,
-    signer: &Ed25519MoveSigner,
+    signer: &Ed25519PayloadSigner,
     verification_method: &str,
 ) -> anyhow::Result<()> {
     sign_event(
@@ -218,6 +218,7 @@ mod tests {
         req.sidecar_exchange = Some(SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".into(),
             request_event_id: request_event_id.into(),
+            coordinator_assignment_event_id: None,
         });
         let event = build_message_create_event(&req).expect("build");
         assert!(
@@ -240,6 +241,7 @@ mod tests {
         req.sidecar_exchange = Some(SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".into(),
             request_event_id: "not-an-event-id".into(),
+            coordinator_assignment_event_id: None,
         });
         assert!(build_message_create_event(&req).is_err());
     }

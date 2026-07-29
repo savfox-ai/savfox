@@ -3681,6 +3681,7 @@ mod tests {
         let context = SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
             request_event_id: "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+            coordinator_assignment_event_id: None,
         };
         let request = MessageCreateRequest {
             realm_id: realm_id().to_string(),
