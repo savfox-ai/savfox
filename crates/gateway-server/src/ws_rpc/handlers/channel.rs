@@ -2733,11 +2733,8 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
         "ok": true,
         "mode": "agent",
         "account_id": account.id.as_str(),
-        "approval_request_id": approval
-            .get("approval_request_id")
-            .cloned()
-            .unwrap_or(Value::Null),
-        "status": approval.get("status").cloned().unwrap_or(Value::Null),
+        "approval_request_id": approval.approval_request_id,
+        "status": approval.status,
         "message": "Arkret runtime key approval request sent to Inkson",
     }))
 }
@@ -2747,7 +2744,7 @@ async fn submit_arkret_runtime_key_approval_request(
     client: &reqwest::Client,
     account: &savfox_channels::arkret::ArkretAccountConfig,
     request: Value,
-) -> Result<Value, String> {
+) -> Result<arkret::AgentRuntimeApprovalOutcome, String> {
     let bootstrap = account
         .inkson_bootstrap
         .as_ref()
@@ -2789,13 +2786,8 @@ async fn submit_arkret_runtime_key_approval_request(
             "Arkret runtime approval endpoint returned HTTP {status}: {detail}"
         ));
     }
-    let value = serde_json::from_slice::<Value>(&bytes)
-        .map_err(|err| format!("Arkret runtime approval endpoint returned invalid JSON: {err}"))?;
-    let _typed: arkret::AgentRuntimeApprovalOutcome = serde_json::from_value(value.clone())
-        .map_err(|err| {
-            format!("Arkret runtime approval endpoint returned invalid outcome: {err}")
-        })?;
-    Ok(value)
+    serde_json::from_slice::<arkret::AgentRuntimeApprovalOutcome>(&bytes)
+        .map_err(|err| format!("Arkret runtime approval endpoint returned invalid outcome: {err}"))
 }
 
 #[cfg(not(feature = "arkret"))]
@@ -2853,35 +2845,25 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
     // Two orthogonal axes (key-management.md §3.6.1): `status` is the lifecycle
     // intent (active/paused/deactivated); `runtime_state` is the derived runtime
     // readiness (pending_runtime_key/ready/replacing/pairing_expired).
-    let status = outcome
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    let runtime_state = outcome
-        .get("runtime_state")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    let authorized_public_key_digest = outcome
-        .get("authorized_public_key_digest")
-        .and_then(Value::as_str);
+    let status = outcome.status;
+    let runtime_state = outcome.runtime_state;
+    let authorized_public_key_digest = outcome.authorized_public_key_digest.as_deref();
     let key_digest_matches =
         authorized_public_key_digest.map(|digest| digest == local_public_key_digest);
     let (approved, ready, paired_by_other_runtime) =
-        arkret_runtime_key_status_flags(&status, key_digest_matches);
+        arkret_runtime_key_status_flags(status, key_digest_matches);
     let message = if ready {
         "Runtime key approved by Inkson; agent is active"
-    } else if status == "paused" && approved {
+    } else if status == arkret::AgentLifecycleState::Paused && approved {
         "Runtime key approved, but the agent is paused; resume it in Inkson before starting Savfox"
     } else if paired_by_other_runtime {
         "Pairing was completed by a different runtime key; this Savfox key was not authorized"
-    } else if status == "deactivated" {
+    } else if status == arkret::AgentLifecycleState::Deactivated {
         "Agent was deactivated"
     } else {
-        match runtime_state.as_str() {
-            "pending_runtime_key" => "Waiting for Inkson approval",
-            "pairing_expired" => "Pairing request expired before approval",
+        match runtime_state {
+            arkret::AgentRuntimeState::PendingRuntimeKey => "Waiting for Inkson approval",
+            arkret::AgentRuntimeState::PairingExpired => "Pairing request expired before approval",
             _ => "Unknown pairing status",
         }
     };
@@ -2890,25 +2872,28 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
         "ok": true,
         "mode": "agent",
         "account_id": account.id.as_str(),
-        "status": status,
-        "runtime_state": runtime_state,
+        "status": status.as_wire_str(),
+        "runtime_state": runtime_state.as_wire_str(),
         "approved": approved,
         "ready": ready,
         "key_digest_matches": key_digest_matches,
         "paired_by_other_runtime": paired_by_other_runtime,
-        "authorized_event_ref": outcome.get("authorized_event_ref").cloned().unwrap_or(Value::Null),
+        "authorized_event_ref": outcome.authorized_event_ref,
         "message": message,
     }))
 }
 
+#[cfg(feature = "arkret")]
 fn arkret_runtime_key_status_flags(
-    status: &str,
+    status: arkret::AgentLifecycleState,
     key_digest_matches: Option<bool>,
 ) -> (bool, bool, bool) {
-    let approved = matches!(status, "active" | "paused") && key_digest_matches == Some(true);
-    let ready = status == "active" && key_digest_matches == Some(true);
-    let paired_by_other_runtime =
-        matches!(status, "active" | "paused" | "deactivated") && key_digest_matches == Some(false);
+    let approved = matches!(
+        status,
+        arkret::AgentLifecycleState::Active | arkret::AgentLifecycleState::Paused
+    ) && key_digest_matches == Some(true);
+    let ready = status == arkret::AgentLifecycleState::Active && key_digest_matches == Some(true);
+    let paired_by_other_runtime = key_digest_matches == Some(false);
     (approved, ready, paired_by_other_runtime)
 }
 
@@ -2917,7 +2902,7 @@ async fn poll_arkret_runtime_key_status(
     client: &reqwest::Client,
     account: &savfox_channels::arkret::ArkretAccountConfig,
     request: Value,
-) -> Result<Value, String> {
+) -> Result<arkret::AgentRuntimeApprovalStatusOutcome, String> {
     let bootstrap = account
         .inkson_bootstrap
         .as_ref()
@@ -2951,14 +2936,9 @@ async fn poll_arkret_runtime_key_status(
             "Arkret runtime key status endpoint returned HTTP {status}: {detail}"
         ));
     }
-    let value = serde_json::from_slice::<Value>(&bytes).map_err(|err| {
-        format!("Arkret runtime key status endpoint returned invalid JSON: {err}")
-    })?;
-    let _typed: arkret::AgentRuntimeApprovalStatusOutcome = serde_json::from_value(value.clone())
-        .map_err(|err| {
+    serde_json::from_slice::<arkret::AgentRuntimeApprovalStatusOutcome>(&bytes).map_err(|err| {
         format!("Arkret runtime key status endpoint returned invalid outcome: {err}")
-    })?;
-    Ok(value)
+    })
 }
 
 #[cfg(not(feature = "arkret"))]
@@ -4173,11 +4153,11 @@ mod tests {
     #[test]
     fn paused_agent_key_is_approved_but_not_ready() {
         assert_eq!(
-            arkret_runtime_key_status_flags("paused", Some(true)),
+            arkret_runtime_key_status_flags(arkret::AgentLifecycleState::Paused, Some(true)),
             (true, false, false)
         );
         assert_eq!(
-            arkret_runtime_key_status_flags("active", Some(true)),
+            arkret_runtime_key_status_flags(arkret::AgentLifecycleState::Active, Some(true)),
             (true, true, false)
         );
     }

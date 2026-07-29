@@ -2276,6 +2276,7 @@ fn parse_backfill_events_for_account(
                 limited: false,
                 prev_cursor: None,
                 preview_only: None,
+                ordered_log_conflicts: Vec::new(),
                 extra: Default::default(),
             }),
             ..Default::default()
@@ -3862,6 +3863,7 @@ mod tests {
                     limited: false,
                     prev_cursor: None,
                     preview_only: None,
+                    ordered_log_conflicts: Vec::new(),
                     extra: Default::default(),
                 }),
                 ..Default::default()
@@ -3892,6 +3894,7 @@ mod tests {
                     limited: false,
                     prev_cursor: None,
                     preview_only: None,
+                    ordered_log_conflicts: Vec::new(),
                     extra: Default::default(),
                 }),
                 summary: Some(
@@ -3996,6 +3999,7 @@ mod tests {
                 limited: false,
                 prev_cursor: None,
                 preview_only: None,
+                ordered_log_conflicts: Vec::new(),
                 extra: Default::default(),
             }),
             ..Default::default()
@@ -4067,6 +4071,7 @@ mod tests {
                     limited: true,
                     prev_cursor: Some("ak:cursor:older-1".to_owned()),
                     preview_only: None,
+                    ordered_log_conflicts: Vec::new(),
                     extra: Default::default(),
                 }),
                 ..Default::default()
@@ -4184,6 +4189,7 @@ mod tests {
                     limited: false,
                     prev_cursor: None,
                     preview_only: None,
+                    ordered_log_conflicts: Vec::new(),
                     extra: Default::default(),
                 }),
                 ..Default::default()
