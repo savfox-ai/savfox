@@ -121,7 +121,7 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
 
 #[cfg(test)]
 mod tests {
-    use arkret::{Did, Hlc, RealmId, new_prefixed_uuid7};
+    use arkret::{Did, Hlc, RealmId, ScopeRef, new_prefixed_uuid7};
     use serde_json::json;
 
     use super::*;
@@ -179,7 +179,7 @@ mod tests {
     fn make_event(actor: &str, realm_id: &str, kind: &str, content: serde_json::Value) -> Event {
         let mut ev = Event::new(
             kind,
-            arkret::ScopeRef::Realm {
+            ScopeRef::Realm {
                 realm_id: realm(realm_id),
             },
             did(actor),

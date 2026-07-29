@@ -341,11 +341,11 @@ arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk", default-feature
     "mls",
     "signer",
 ] }
-arkret-wire = { path = "../../arkret-org/arkret-rust-sdk/crates/wire", default-features = false }
 arkret-schema = { path = "../../arkret-org/arkret-rust-sdk/crates/schema", default-features = false, features = ["embedded-artifacts"] }
 arkret-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/crypto", default-features = false }
 arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-collaboration", default-features = false }
 arkret-signatures = { path = "../../arkret-org/arkret-rust-sdk/crates/signatures", default-features = false, features = ["collaboration"] }
+arkret-wire = { path = "../../arkret-org/arkret-rust-sdk/crates/wire", default-features = false }
 garth = { path = "../../arkret-org/garth", default-features = false, features = ["native"] }
 arkret-bridge-runtime = { path = "../../arkret-org/bridges/crates/runtime", default-features = false, features = ["edge"] }
 

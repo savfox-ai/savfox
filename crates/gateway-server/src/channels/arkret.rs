@@ -25,21 +25,21 @@ use chrono::Utc;
 use garth::{
     ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, OutboundEngine,
     OutboundEngineOutcome, OutboundGenerationFence, OutboundGenerationFenceDecision,
-    OutboundSubmitOutcome, OutboundSubmitter, RunOptions, RunStopReason, SyncLoopControl,
-    TransportProvider,
+    OutboundQueueStore, OutboundSubmitOutcome, OutboundSubmitter, RunOptions, RunStopReason,
+    SyncLoopControl, TransportProvider,
 };
 use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
     ArkretDecryptDetailedOutcome, ArkretEncryptOutcome, ArkretHttpClient, ArkretInboundEvent,
     ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent, ArkretKeyRef,
-    ArkretMlsWelcomeConsumeBinding, FileArkretCryptoStore, MessageCreateRequest,
-    SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore, SidecarRequestGate,
-    UnableToDecryptReason, account_allows_event_read, build_message_create_event,
-    build_user_facing_response_metadata, device_messages_scope, encode_sidecar_reply_target,
-    gate_inbound_request_binding, open_account_store, parse_delta_frame_for_account,
-    resolve_arkret_outbound_account_for_config, sidecar_binding_from_metadata_plaintext,
-    sign_keypackages_consume_request, sign_keypackages_revoke_request,
-    sign_keypackages_upload_request,
+    ArkretMlsWelcomeConsumeBinding, EventInitialSubmission, FileArkretCryptoStore,
+    MessageCreateRequest, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
+    SidecarRequestGate, UnableToDecryptReason, account_allows_event_read,
+    build_message_create_event, build_user_facing_response_metadata, device_messages_scope,
+    encode_sidecar_reply_target, gate_inbound_request_binding, open_account_store,
+    parse_delta_frame_for_account, resolve_arkret_outbound_account_for_config,
+    sidecar_binding_from_metadata_plaintext, sign_keypackages_consume_request,
+    sign_keypackages_revoke_request, sign_keypackages_upload_request,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -3137,18 +3137,31 @@ impl OutboundGenerationFence for AccountOutboundEncryptionFence {
                     "load Arkret realm encryption policy before submit: {error:#}"
                 ))
             })?;
-        let is_message = item
-            .content
+        let Some(event) = item.content.get("event") else {
+            return Ok(OutboundGenerationFenceDecision::Quarantine {
+                reason: format!(
+                    "queued Arkret Event for {} lacks EventInitialSubmission publication evidence",
+                    item.realm_id.as_str()
+                ),
+            });
+        };
+        if item.authorization_lease.is_none() {
+            return Ok(OutboundGenerationFenceDecision::Quarantine {
+                reason: format!(
+                    "queued Arkret Event for {} has no bound AuthorizationLease",
+                    item.realm_id.as_str()
+                ),
+            });
+        }
+        let is_message = event
             .get("kind")
             .and_then(Value::as_str)
             .is_some_and(|kind| kind == "ak.message.create");
-        let is_encrypted = item
-            .content
+        let is_encrypted = event
             .get("payload")
             .and_then(|payload| payload.get("encrypted_content"))
             .is_some();
-        let has_agent_context = item
-            .content
+        let has_agent_context = event
             .get("payload")
             .and_then(|payload| payload.get("agent_context"))
             .is_some();
@@ -3162,7 +3175,7 @@ impl OutboundGenerationFence for AccountOutboundEncryptionFence {
             });
         }
 
-        let actor_seq = item.content.get("actor_seq").and_then(Value::as_u64);
+        let actor_seq = event.get("actor_seq").and_then(Value::as_u64);
         let chain_head = load_account_actor_chain_head(
             &self.actor_chain_path,
             item.realm_id.as_str(),
@@ -3206,10 +3219,19 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
         item: garth::sync_client::SendQueueItem,
     ) -> garth::outbound::BoxOutboundFuture<'a, OutboundSubmitOutcome> {
         Box::pin(async move {
-            let event: arkret::Event = serde_json::from_value(item.content).map_err(|error| {
-                garth::Error::Protocol(format!("decode queued Arkret event: {error}"))
-            })?;
-            let response = match self.client.submit_event(&event).await {
+            let submission: EventInitialSubmission =
+                serde_json::from_value(item.content).map_err(|error| {
+                    garth::Error::Protocol(format!(
+                        "decode queued Arkret initial submission: {error}"
+                    ))
+                })?;
+            if item.authorization_lease.as_ref() != Some(&submission.authorization_lease) {
+                return Err(garth::Error::Protocol(
+                    "queued Arkret submission does not match its bound AuthorizationLease"
+                        .to_owned(),
+                ));
+            }
+            let response = match self.client.submit_initial(&submission).await {
                 Ok(response) => response,
                 Err(error) => {
                     warn!(
@@ -3274,12 +3296,6 @@ pub(crate) async fn send_to_arkret_account(
             "no Arkret channel configured for realm {realm_id} and routed config {saved_channel_config_id:?}"
         );
     };
-    if !account.has_requested_scope("ak.self.authorization_leases.command.issue") {
-        anyhow::bail!(
-            "Arkret account '{}' send=true but missing service scope ak.self.authorization_leases.command.issue; refusing to issue a publication lease",
-            account.id
-        );
-    }
     if !account.has_requested_scope("ak.self.events.command.submit") {
         anyhow::bail!(
             "Arkret account '{}' send=true but missing service scope ak.self.events.command.submit; refusing to call submit endpoint",
@@ -3352,6 +3368,11 @@ pub(crate) async fn send_to_arkret_account(
         savfox_channels::arkret::sign_outbound_event(&mut event, &signer, &vm)?;
     }
 
+    // First publication requires authority-produced evidence outside the
+    // signed Event. Obtain and structurally validate the exact wrapper before
+    // advancing the actor chain or enqueueing durable work.
+    let submission = client.prepare_initial_submission(&event).await?;
+    let authorization_lease = submission.authorization_lease.clone();
     let mut transaction_id = event.event_id.to_string();
     let next_actor_seq = actor_seq
         .checked_add(1)
@@ -3365,19 +3386,30 @@ pub(crate) async fn send_to_arkret_account(
     );
     save_account_actor_chains(&actor_chain_path, &actor_chains).await?;
     let realm_id_typed = RealmId::new(realm_id.to_owned())?;
-    let outbound = OutboundEngine::new(outbound_store);
+    let outbound = OutboundEngine::new(outbound_store.clone());
     let fence = AccountOutboundEncryptionFence {
         crypto_store: crypto_store.clone(),
         actor_chain_path: actor_chain_path.clone(),
     };
-    if let Err(error) = outbound
-        .enqueue(
-            Some(transaction_id.clone()),
-            realm_id_typed,
-            garth::sync_client::SendQueueItemKind::Message,
-            serde_json::to_value(event)?,
-            Vec::new(),
-        )
+    let queued_transaction_id = transaction_id.clone();
+    let submission_value = serde_json::to_value(&submission)?;
+    if let Err(error) = outbound_store
+        .mutate_outbound(move |queue| {
+            let item = queue.enqueue(
+                Some(queued_transaction_id),
+                realm_id_typed,
+                garth::sync_client::SendQueueItemKind::Message,
+                submission_value,
+                Vec::new(),
+            )?;
+            queue.bind_authorization_lease(&item.transaction_id, authorization_lease)?;
+            queue.get(&item.transaction_id).cloned().ok_or_else(|| {
+                garth::Error::Protocol(
+                    "Arkret outbound queue lost the item while binding its AuthorizationLease"
+                        .to_owned(),
+                )
+            })
+        })
         .await
     {
         save_account_actor_chains(&actor_chain_path, &previous_actor_chains).await?;
@@ -3693,6 +3725,7 @@ mod tests {
         let context = SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
             request_event_id: "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+            coordinator_assignment_event_id: None,
         };
         let request = MessageCreateRequest {
             realm_id: realm_id().to_string(),

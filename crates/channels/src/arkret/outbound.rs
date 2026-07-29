@@ -217,6 +217,7 @@ mod tests {
         req.sidecar_exchange = Some(SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".into(),
             request_event_id: request_event_id.into(),
+            coordinator_assignment_event_id: None,
         });
         let event = build_message_create_event(&req).expect("build");
         assert!(
@@ -239,6 +240,7 @@ mod tests {
         req.sidecar_exchange = Some(SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".into(),
             request_event_id: "not-an-event-id".into(),
+            coordinator_assignment_event_id: None,
         });
         assert!(build_message_create_event(&req).is_err());
     }

@@ -22,10 +22,10 @@ dingtalk = ["dep:dingtalk-sdk"]
 feishu = ["dep:feishu-sdk"]
 arkret = [
     "dep:arkret",
-    "dep:arkret-wire",
     "dep:arkret-schema",
     "dep:arkret-crypto",
     "dep:arkret-signatures",
+    "dep:arkret-wire",
     "dep:garth",
     "dep:arkret-bridge-runtime",
     "dep:savfox-keyring-store",
@@ -64,9 +64,9 @@ tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 arkret = { workspace = true, optional = true }
-arkret-wire = { workspace = true, optional = true }
 arkret-schema = { workspace = true, optional = true }
 arkret-crypto = { workspace = true, optional = true }
 arkret-signatures = { workspace = true, optional = true }
+arkret-wire = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
 arkret-bridge-runtime = { workspace = true, optional = true }

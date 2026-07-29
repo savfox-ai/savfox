@@ -12,9 +12,9 @@
 - Detection: Sidecar producer completion-gate verification with
   `cargo test -p savfox-channels --features arkret sidecar`.
 - Resolution: migrate to `Ed25519PayloadSigner` and signed `ScopeRef`, remove the retired message
-  id field, acquire an authority-issued publication lease with stable Event-id idempotency, and
-  submit `EventInitialSubmission`.
+  id field, and submit through a host-owned `ArkretInitialSubmissionProvider` that returns an
+  issuer-produced `EventInitialSubmission`. The personal-agent session remains unable to mint its
+  own authorization lease.
 - Prevention dimension: every optional protocol integration feature must compile and run its
   focused producer tests whenever the shared wire SDK changes.
-- Status: resolved; verified by 13 Sidecar channel tests and 35 Arkret gateway tests with the
-  optional feature enabled.
+- Status: resolved; the post-merge focused verification results are recorded in the task handoff.
