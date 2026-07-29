@@ -13,6 +13,7 @@ use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
     "ak.self.events.query.scan",
+    "ak.self.authorization_leases.command.issue",
     "ak.self.events.command.submit",
     "ak.self.keys.keypackages.upload.create",
     "ak.self.keys.keypackages.command.consume",
@@ -34,7 +35,11 @@ const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     "ak.event.read",
 ];
 
-const REQUIRED_SEND_SCOPE: &[&str] = &["ak.self.events.command.submit", "ak.message.create"];
+const REQUIRED_SEND_SCOPE: &[&str] = &[
+    "ak.self.authorization_leases.command.issue",
+    "ak.self.events.command.submit",
+    "ak.message.create",
+];
 const VERIFIED_SCOPE_SCHEMA: &str = "savfox.arkret.verified_runtime_scope.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

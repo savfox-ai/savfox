@@ -58,7 +58,7 @@ impl ArkretKeyRef {
     }
 }
 
-/// Load a [`Ed25519PayloadSigner`] from a [`ArkretKeyRef`].
+/// Load an [`Ed25519PayloadSigner`] from an [`ArkretKeyRef`].
 ///
 /// Returns `Err` on:
 /// * missing env var
