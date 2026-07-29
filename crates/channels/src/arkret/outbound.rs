@@ -8,11 +8,10 @@ use anyhow::Context;
 use arkret::events::EventKind;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    ContentBlock, Did, Event, EventDraftKindRegistry, EventId, EventRef, Hlc, MessageCreatePayload,
-    OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId, ScopeRef, StrandId,
-    new_prefixed_uuid7,
+    ContentBlock, Did, Ed25519PayloadSigner, Event, EventDraftKindRegistry, EventId, EventRef, Hlc,
+    MessageCreatePayload, OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId,
+    ScopeRef, StrandId, new_prefixed_uuid7,
 };
-use arkret_signatures::Ed25519PayloadSigner;
 
 use super::sidecar::{EVENT_REF_ROLE_AFTER, SidecarExchangeContext};
 

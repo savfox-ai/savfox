@@ -10320,6 +10320,7 @@ dependencies = [
  "anyhow",
  "arkret",
  "arkret-bridge-runtime",
+ "arkret-wire",
  "async-trait",
  "base64",
  "bcrypt",

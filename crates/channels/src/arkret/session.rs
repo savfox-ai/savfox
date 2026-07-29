@@ -5,8 +5,7 @@
 
 use anyhow::Context as _;
 use arkret::http_client::{Client, login_did_proof};
-use arkret::{DeviceId, Did};
-use arkret_signatures::Ed25519PayloadSigner;
+use arkret::{DeviceId, Did, Ed25519PayloadSigner};
 use chrono::{DateTime, Utc};
 
 /// One-shot session state produced by [`login_with_signer`].

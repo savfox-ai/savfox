@@ -121,7 +121,7 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
 
 #[cfg(test)]
 mod tests {
-    use arkret::{Did, Hlc, RealmId, new_prefixed_uuid7};
+    use arkret::{Did, Hlc, RealmId, ScopeRef, new_prefixed_uuid7};
     use serde_json::json;
 
     use super::*;
@@ -179,7 +179,7 @@ mod tests {
     fn make_event(actor: &str, realm_id: &str, kind: &str, content: serde_json::Value) -> Event {
         let mut ev = Event::new(
             kind,
-            arkret::ScopeRef::Realm {
+            ScopeRef::Realm {
                 realm_id: realm(realm_id),
             },
             did(actor),
@@ -196,7 +196,6 @@ mod tests {
 
     fn text_content(body: &str) -> serde_json::Value {
         json!({
-            "message_id": new_prefixed_uuid7("ak:message:"),
             "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
             "track_name": "discussion",
             "content": { "kind": "ak.content.text", "body": body },
@@ -282,7 +281,6 @@ mod tests {
             "ak:realm:01904100-0000-7000-8000-000000000456",
             "ak.message.create",
             json!({
-                "message_id": new_prefixed_uuid7("ak:message:"),
                 "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
                 "track_name": "discussion",
                 "content": { "kind": "ak.content.image", "ref": "ak:blob:..." }
@@ -302,7 +300,6 @@ mod tests {
             "ak:realm:01904100-0000-7000-8000-000000000456",
             "ak.message.create",
             json!({
-                "message_id": new_prefixed_uuid7("ak:message:"),
                 "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
                 "track_name": "discussion",
                 "content": { "kind": "ak.content.encrypted", "body": "" }
@@ -322,7 +319,6 @@ mod tests {
             "ak:realm:01904100-0000-7000-8000-000000000456",
             "ak.message.create",
             json!({
-                "message_id": new_prefixed_uuid7("ak:message:"),
                 "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
                 "track_name": "discussion",
                 "encrypted_content": {

@@ -2,7 +2,7 @@
 //!
 //! The 32-byte ed25519 seed is loaded from a [`ArkretKeyRef`] location (env
 //! var, file, or — debug only — inline base64). The resulting
-//! [`arkret_signatures::Ed25519PayloadSigner`] is the savfox-owned runtime key in
+//! [`arkret::Ed25519PayloadSigner`] is the savfox-owned runtime key in
 //! personal-agent mode, and also supports applet signer flows:
 //!
 //! * **Applet DID-proof login** for applet outbound authentication.
@@ -17,8 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Context as _;
-use arkret::Did;
-use arkret_signatures::Ed25519PayloadSigner;
+use arkret::{Did, Ed25519PayloadSigner};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use ed25519_dalek::SigningKey;
@@ -59,7 +58,7 @@ impl ArkretKeyRef {
     }
 }
 
-/// Load an [`Ed25519PayloadSigner`] from an [`ArkretKeyRef`].
+/// Load a [`Ed25519PayloadSigner`] from a [`ArkretKeyRef`].
 ///
 /// Returns `Err` on:
 /// * missing env var

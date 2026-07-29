@@ -2020,7 +2020,7 @@ mod tests {
         use arkret::{
             Base64UrlString, EventId, MlsClaimTrustBinding, MlsGovernanceBindingPayload,
             MlsGroupId, MlsRequesterTrustBinding, MlsWelcomeCarrier, MlsWelcomeClaimEnvelope,
-            MlsWelcomePayloadClaimRef, NonEmptyString, RealmId,
+            MlsWelcomePayloadClaimRef, NonEmptyString, RealmId, SealId,
         };
 
         let home = temp_home("durable-welcome-payload");
@@ -2050,16 +2050,15 @@ mod tests {
         };
         let frontier = EventId::new("ak:event:01904100-0000-7000-8000-000000000010".to_owned())
             .expect("frontier");
+        let covered_seal =
+            SealId::new(format!("ak:seal:sha256:{}", "d".repeat(64))).expect("covered seal");
         let governance_binding = MlsGovernanceBindingPayload::realm(
             realm_id.clone(),
             add.welcome.group_id.clone(),
             0,
             add.welcome.epoch,
             vec![frontier],
-            vec![
-                arkret::SealId::new(format!("ak:seal:sha256:{}", "e".repeat(64)))
-                    .expect("covered seal"),
-            ],
+            vec![covered_seal],
             hash('a'),
             hash('b'),
             hash('c'),

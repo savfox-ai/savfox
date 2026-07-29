@@ -2069,7 +2069,10 @@ mod tests {
         let group_id = "group-applet-welcome";
         let event = arkret::Event::new(
             "ak.mls.welcome",
-            arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000123").unwrap(),
+            arkret::ScopeRef::Realm {
+                realm_id: arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000123")
+                    .unwrap(),
+            },
             Did::new("did:webvh:acme:alice".to_owned()).unwrap(),
             1,
             arkret::Hlc::new("000000000000-0000-00000000").unwrap(),

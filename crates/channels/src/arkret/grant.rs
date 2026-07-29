@@ -254,6 +254,10 @@ mod tests {
             "event_id": "ak:event:01904100-0000-7000-8000-000000000def",
             "kind": "ak.capability.grant",
             "realm_id": realm.unwrap_or("ak:realm:01904100-0000-7000-8000-000000000001"),
+            "scope_ref": {
+                "kind": "realm",
+                "realm_id": realm.unwrap_or("ak:realm:01904100-0000-7000-8000-000000000001")
+            },
             "actor_id": issuer,
             "actor_seq": 1,
             "created_at": "2026-05-27T00:00:00.000Z",
