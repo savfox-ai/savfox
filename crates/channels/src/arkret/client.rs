@@ -42,7 +42,7 @@ const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 #[allow(missing_debug_implementations)]
 pub struct ArkretHttpClient {
     inner: Client,
-    initial_submission_provider: Option<Arc<dyn ArkretInitialSubmissionProvider>>,
+    initial_submission_provider: Arc<dyn ArkretInitialSubmissionProvider>,
 }
 
 /// Host-owned integration that obtains issuer-produced publication evidence
@@ -55,6 +55,31 @@ pub struct ArkretHttpClient {
 #[async_trait::async_trait]
 pub trait ArkretInitialSubmissionProvider: Send + Sync + 'static {
     async fn initial_submission(&self, event: &Event) -> anyhow::Result<EventInitialSubmission>;
+}
+
+/// Production publication provider backed by the authenticated Principal
+/// Server's standard authorization-lease and proposal-receipt operations.
+#[derive(Clone)]
+#[allow(missing_debug_implementations)]
+pub struct PrincipalServerInitialSubmissionProvider {
+    client: Client,
+}
+
+impl PrincipalServerInitialSubmissionProvider {
+    #[must_use]
+    pub fn new(client: Client) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait::async_trait]
+impl ArkretInitialSubmissionProvider for PrincipalServerInitialSubmissionProvider {
+    async fn initial_submission(&self, event: &Event) -> anyhow::Result<EventInitialSubmission> {
+        self.client
+            .prepare_initial_submission(event)
+            .await
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
 }
 
 /// Stream of [`EventsSubscribeFrame`] yielded by
@@ -251,21 +276,22 @@ impl ArkretHttpClient {
 
     #[must_use]
     pub fn from_inner(inner: Client) -> Self {
+        let provider: Arc<dyn ArkretInitialSubmissionProvider> =
+            Arc::new(PrincipalServerInitialSubmissionProvider::new(inner.clone()));
         Self {
             inner,
-            initial_submission_provider: None,
+            initial_submission_provider: provider,
         }
     }
 
-    /// Install the authority integration used to obtain legal initial
-    /// publication wrappers. Without it, initial Event publication fails
-    /// closed before network I/O.
+    /// Override the default authenticated Principal Server publication
+    /// provider with another production authority transport.
     #[must_use]
     pub fn with_initial_submission_provider(
         mut self,
         provider: Arc<dyn ArkretInitialSubmissionProvider>,
     ) -> Self {
-        self.initial_submission_provider = Some(provider);
+        self.initial_submission_provider = provider;
         self
     }
 
@@ -292,10 +318,7 @@ impl ArkretHttpClient {
             .auth(Auth::Bearer(access_token.to_owned()))
             .build()
             .map_err(|err| anyhow::anyhow!("failed to build Arkret HTTP client: {err}"))?;
-        Ok(Self {
-            inner,
-            initial_submission_provider: None,
-        })
+        Ok(Self::from_inner(inner))
     }
 
     /// Construct a personal-agent HTTP client by exchanging a runtime-key
@@ -482,13 +505,7 @@ impl ArkretHttpClient {
             .provide()
             .await
             .map_err(|error| anyhow::anyhow!("build authenticated Arkret client: {error}"))?;
-        Ok((
-            Self {
-                inner,
-                initial_submission_provider: None,
-            },
-            session,
-        ))
+        Ok((Self::from_inner(inner), session))
     }
 
     /// Construct an applet HTTP client by running DID-proof login.
@@ -523,13 +540,7 @@ impl ArkretHttpClient {
             .auth(Auth::Bearer(session.session_grant.clone()))
             .build()
             .map_err(|err| anyhow::anyhow!("authenticated HTTP client: {err}"))?;
-        Ok((
-            Self {
-                inner,
-                initial_submission_provider: None,
-            },
-            session,
-        ))
+        Ok((Self::from_inner(inner), session))
     }
 
     /// `GET /_arkret/describe` — used at startup to verify the target
@@ -613,13 +624,10 @@ impl ArkretHttpClient {
         &self,
         event: &Event,
     ) -> anyhow::Result<EventInitialSubmission> {
-        let provider = self.initial_submission_provider.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "Arkret initial publication requires an EventInitialSubmissionProvider; \
-                 the current session grant cannot mint an AuthorizationLease"
-            )
-        })?;
-        let submission = provider.initial_submission(event).await?;
+        let submission = self
+            .initial_submission_provider
+            .initial_submission(event)
+            .await?;
         if submission.event != *event {
             anyhow::bail!(
                 "Arkret EventInitialSubmissionProvider replaced or mutated the signed Event"
@@ -631,7 +639,7 @@ impl ArkretHttpClient {
         Ok(submission)
     }
 
-    /// Submit one caller-supplied initial publication wrapper.
+    /// Submit one issuer-produced initial publication wrapper.
     pub async fn submit_initial(
         &self,
         submission: &EventInitialSubmission,

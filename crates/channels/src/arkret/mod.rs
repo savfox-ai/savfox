@@ -46,8 +46,9 @@ pub use arkret_crypto::UnableToDecryptReason;
 pub use arkret_wire::EventInitialSubmission;
 pub use client::{
     ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretFrameStream, ArkretHttpClient,
-    ArkretInitialSubmissionProvider, SavfoxArkretClientCore, SavfoxDurableArkretClientCore,
-    build_mls_key_packages_claim_request, sign_mls_welcome_claim_envelope,
+    ArkretInitialSubmissionProvider, PrincipalServerInitialSubmissionProvider,
+    SavfoxArkretClientCore, SavfoxDurableArkretClientCore, build_mls_key_packages_claim_request,
+    sign_mls_welcome_claim_envelope,
 };
 pub use config::{
     ArkretAccountConfig, ArkretAccountMode, ArkretChannelConfig, DEFAULT_AGENT_RUNTIME_SCOPE,
