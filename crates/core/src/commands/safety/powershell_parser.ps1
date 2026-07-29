@@ -36,6 +36,31 @@ if ($errors.Count -gt 0) {
     exit 0
 }
 
+# Top-level AST regions and collections outside the end-block statement list
+# can execute code that the command lowering below does not inspect.
+$cleanBlock = $ast.PSObject.Properties['CleanBlock']
+if (
+    $ast.ParamBlock -ne $null -or
+    $ast.DynamicParamBlock -ne $null -or
+    $ast.BeginBlock -ne $null -or
+    $ast.ProcessBlock -ne $null -or
+    ($cleanBlock -ne $null -and $cleanBlock.Value -ne $null) -or
+    $ast.UsingStatements.Count -gt 0 -or
+    $ast.EndBlock.Traps.Count -gt 0
+) {
+    Write-Output '{"status":"unsupported"}'
+    exit 0
+}
+
+# PowerShell's stop-parsing marker hands the remaining source text to native
+# commands with runtime argument handling that does not match the AST lowering.
+foreach ($token in $tokens) {
+    if ($token.Text -eq '--%') {
+        Write-Output '{"status":"unsupported"}'
+        exit 0
+    }
+}
+
 function Convert-CommandElement {
     param($element)
 
@@ -156,7 +181,9 @@ function Add-CommandsFromPipelineBase {
         return Add-CommandsFromPipelineAst $pipeline $commands
     }
 
-    if ($pipeline -is [System.Management.Automation.Language.PipelineChainAst]) {
+    # Windows PowerShell 5.1 does not define PipelineChainAst, so avoid a
+    # direct type reference and check the runtime type name.
+    if ($pipeline.GetType().FullName -eq 'System.Management.Automation.Language.PipelineChainAst') {
         return Add-CommandsFromPipelineChain $pipeline $commands
     }
 

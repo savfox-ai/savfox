@@ -22,14 +22,14 @@ use savfox_protocol::plan_tool::{
 };
 use savfox_protocol::protocol::{
     AgentStatus as CoreAgentStatus, AskForApproval as CoreAskForApproval,
-    CreditsSnapshot as CoreCreditsSnapshot, NetworkAccess as CoreNetworkAccess,
-    RateLimitSnapshot as CoreRateLimitSnapshot, RateLimitWindow as CoreRateLimitWindow,
-    SavfoxErrorInfo as CoreSavfoxErrorInfo, SessionSource as CoreSessionSource,
-    SkillDependencies as CoreSkillDependencies, SkillErrorInfo as CoreSkillErrorInfo,
-    SkillInterface as CoreSkillInterface, SkillMetadata as CoreSkillMetadata,
-    SkillScope as CoreSkillScope, SkillToolDependency as CoreSkillToolDependency,
-    SubAgentSource as CoreSubAgentSource, TokenUsage as CoreTokenUsage,
-    TokenUsageInfo as CoreTokenUsageInfo,
+    CreditsSnapshot as CoreCreditsSnapshot, GranularApprovalConfig as CoreGranularApprovalConfig,
+    NetworkAccess as CoreNetworkAccess, RateLimitSnapshot as CoreRateLimitSnapshot,
+    RateLimitWindow as CoreRateLimitWindow, SavfoxErrorInfo as CoreSavfoxErrorInfo,
+    SessionSource as CoreSessionSource, SkillDependencies as CoreSkillDependencies,
+    SkillErrorInfo as CoreSkillErrorInfo, SkillInterface as CoreSkillInterface,
+    SkillMetadata as CoreSkillMetadata, SkillScope as CoreSkillScope,
+    SkillToolDependency as CoreSkillToolDependency, SubAgentSource as CoreSubAgentSource,
+    TokenUsage as CoreTokenUsage, TokenUsageInfo as CoreTokenUsageInfo,
 };
 use savfox_protocol::user_input::{
     ByteRange as CoreByteRange, TextElement as CoreTextElement, UserInput as CoreUserInput,
@@ -156,7 +156,15 @@ pub enum AskForApproval {
     UnlessTrusted,
     OnFailure,
     OnRequest,
+    Granular(GranularApprovalConfig),
     Never,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
+#[ts(export_to = "v1/")]
+pub struct GranularApprovalConfig {
+    pub sandbox_approval: bool,
+    pub rules: bool,
 }
 
 impl AskForApproval {
@@ -166,6 +174,10 @@ impl AskForApproval {
             Self::UnlessTrusted => CoreAskForApproval::UnlessTrusted,
             Self::OnFailure => CoreAskForApproval::OnFailure,
             Self::OnRequest => CoreAskForApproval::OnRequest,
+            Self::Granular(config) => CoreAskForApproval::Granular(CoreGranularApprovalConfig {
+                sandbox_approval: config.sandbox_approval,
+                rules: config.rules,
+            }),
             Self::Never => CoreAskForApproval::Never,
         }
     }
@@ -177,6 +189,10 @@ impl From<CoreAskForApproval> for AskForApproval {
             CoreAskForApproval::UnlessTrusted => Self::UnlessTrusted,
             CoreAskForApproval::OnFailure => Self::OnFailure,
             CoreAskForApproval::OnRequest => Self::OnRequest,
+            CoreAskForApproval::Granular(config) => Self::Granular(GranularApprovalConfig {
+                sandbox_approval: config.sandbox_approval,
+                rules: config.rules,
+            }),
             CoreAskForApproval::Never => Self::Never,
         }
     }

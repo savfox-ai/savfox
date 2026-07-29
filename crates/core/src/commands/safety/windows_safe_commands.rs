@@ -6,7 +6,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::Deserialize;
 
-use crate::command_safety::is_dangerous_command::git_global_option_requires_prompt;
+use crate::command_safety::is_safe_command::is_safe_git_command;
 
 const POWERSHELL_PARSER_SCRIPT: &str = include_str!("powershell_parser.ps1");
 
@@ -261,7 +261,6 @@ fn is_safe_powershell_command(words: &[String]) -> bool {
 
     let command = words[0]
         .trim_matches(|c| c == '(' || c == ')')
-        .trim_start_matches('-')
         .to_ascii_lowercase();
     match command.as_str() {
         "echo" | "write-output" | "write-host" => true, // (no redirection allowed)
@@ -308,34 +307,6 @@ fn is_safe_ripgrep(words: &[String]) -> bool {
                 .iter()
                 .any(|opt| arg_lc == *opt || arg_lc.starts_with(&format!("{opt}=")))
     })
-}
-
-/// Ensures a Git command sticks to whitelisted read-only subcommands and flags.
-fn is_safe_git_command(words: &[String]) -> bool {
-    const SAFE_SUBCOMMANDS: &[&str] = &["status", "log", "show", "diff", "cat-file"];
-
-    for arg in words.iter().skip(1) {
-        let arg_lc = arg.to_ascii_lowercase();
-
-        if arg.starts_with('-') {
-            if git_global_option_requires_prompt(&arg_lc)
-                || arg.eq_ignore_ascii_case("--config")
-                || arg_lc.starts_with("--config=")
-            {
-                // Examples rejected here: "pwsh -Command 'git --git-dir=.evil-git diff'" and
-                // "pwsh -Command 'git -c core.pager=cat show HEAD:foo.rs'".
-                return false;
-            }
-
-            continue;
-        }
-
-        return SAFE_SUBCOMMANDS.contains(&arg_lc.as_str());
-    }
-
-    // Examples rejected here: "pwsh -Command 'git'" and "pwsh -Command 'git status --short |
-    // Remove-Item foo'".
-    false
 }
 
 #[cfg(all(test, windows))]
@@ -433,7 +404,7 @@ mod tests {
         assert!(is_safe_command_windows(&[
             pwsh.clone(),
             "-Command".to_owned(),
-            "-git cat-file -p HEAD:foo.rs".to_owned()
+            "git cat-file -p HEAD:foo.rs".to_owned()
         ]));
 
         assert!(is_safe_command_windows(&[
@@ -581,6 +552,57 @@ mod tests {
             "-Command",
             "''"
         ])));
+    }
+
+    #[test]
+    fn rejects_unlowered_powershell_ast_regions() {
+        for script in [
+            "param([string]$path = (Get-Location)) Write-Output test",
+            "begin { Set-Content poc.txt pwned } end { Get-Content Cargo.toml }",
+            "using module ./poc.psm1\nGet-Content Cargo.toml",
+            "trap { Set-Content poc.txt pwned; continue } Get-Content missing -ErrorAction Stop",
+        ] {
+            assert!(
+                !is_safe_command_windows(&vec_str(&[
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-Command",
+                    script,
+                ])),
+                "unlowered AST region must require approval: {script}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_powershell_stop_parsing_marker() {
+        assert!(!is_safe_command_windows(&vec_str(&[
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            "git log --% HEAD --output=poc.txt",
+        ])));
+    }
+
+    #[test]
+    fn powershell_git_uses_shared_read_only_option_policy() {
+        for script in [
+            "git diff --output poc.txt",
+            "git diff --ext-diff HEAD",
+            "git log --textconv -1",
+            "git show --output=poc.txt HEAD",
+            "git cat-file --filters HEAD:foo.rs",
+        ] {
+            assert!(
+                !is_safe_command_windows(&vec_str(&[
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-Command",
+                    script,
+                ])),
+                "side-effecting Git option must require approval: {script}"
+            );
+        }
     }
 
     #[test]

@@ -6,7 +6,7 @@ mod parse;
 
 pub use client::{
     delete_message, edit_message, resolve_bot_token, send_embed, send_message,
-    send_message_returning_id, verify_signature,
+    send_message_returning_id, send_message_with_components_returning_id, verify_signature,
 };
 pub use config::{DiscordChannelConfig, DiscordInboundMode, resolve_discord_outbound_token};
 pub use inbound::{

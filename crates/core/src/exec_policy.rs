@@ -9,6 +9,7 @@ use savfox_exec_policy::{
 };
 use savfox_protocol::approvals::ExecPolicyAmendment;
 use savfox_protocol::protocol::{AskForApproval, SandboxPolicy};
+use serde::Serialize;
 use shlex::try_join as shlex_try_join;
 use thiserror::Error;
 use tokio::fs;
@@ -72,6 +73,75 @@ pub enum ExecPolicyUpdateError {
 
     #[error("cannot append rule because rules feature is disabled")]
     FeatureDisabled,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ExecPolicySimulation {
+    pub decision: &'static str,
+    pub reason: Option<String>,
+    pub bypass_sandbox: bool,
+    pub proposed_rule: Option<Vec<String>>,
+    pub matched_rules: Vec<RuleMatch>,
+}
+
+/// Evaluate the effective layered execpolicy without executing a command.
+pub async fn simulate_exec_policy(
+    config: &crate::config::Config,
+    command: &[String],
+) -> Result<ExecPolicySimulation, ExecPolicyError> {
+    let manager = ExecPolicyManager::load(&config.features, &config.config_layer_stack).await?;
+    let policy = manager.current();
+    let commands = parse_shell_lc_plain_commands(command).unwrap_or_else(|| vec![command.to_vec()]);
+    let fallback = |cmd: &[String]| {
+        render_decision_for_unmatched_command(
+            *config.approval_policy.get(),
+            config.sandbox_policy.get(),
+            cmd,
+            SandboxPermissions::UseDefault,
+        )
+    };
+    let matched_rules = policy
+        .check_multiple(commands.iter(), &fallback)
+        .matched_rules;
+    let requirement = manager
+        .create_exec_approval_requirement_for_command(ExecApprovalRequest {
+            features: &config.features,
+            command,
+            approval_policy: *config.approval_policy.get(),
+            sandbox_policy: config.sandbox_policy.get(),
+            sandbox_permissions: SandboxPermissions::UseDefault,
+            prefix_rule: None,
+        })
+        .await;
+    Ok(match requirement {
+        ExecApprovalRequirement::Skip {
+            bypass_sandbox,
+            proposed_execpolicy_amendment,
+        } => ExecPolicySimulation {
+            decision: "allow",
+            reason: None,
+            bypass_sandbox,
+            proposed_rule: proposed_execpolicy_amendment.map(|amendment| amendment.command),
+            matched_rules,
+        },
+        ExecApprovalRequirement::NeedsApproval {
+            reason,
+            proposed_execpolicy_amendment,
+        } => ExecPolicySimulation {
+            decision: "ask",
+            reason,
+            bypass_sandbox: false,
+            proposed_rule: proposed_execpolicy_amendment.map(|amendment| amendment.command),
+            matched_rules,
+        },
+        ExecApprovalRequirement::Forbidden { reason } => ExecPolicySimulation {
+            decision: "deny",
+            reason: Some(reason),
+            bypass_sandbox: false,
+            proposed_rule: None,
+            matched_rules,
+        },
+    })
 }
 
 pub(crate) struct ExecPolicyManager {
@@ -146,7 +216,14 @@ impl ExecPolicyManager {
                 reason: derive_forbidden_reason(command, &evaluation),
             },
             Decision::Prompt => {
-                if matches!(approval_policy, AskForApproval::Never) {
+                let granular_denied = match approval_policy {
+                    AskForApproval::Granular(config) if evaluation.matched_rules.is_empty() => {
+                        !config.allows_sandbox_approval()
+                    }
+                    AskForApproval::Granular(config) => !config.allows_rules_approval(),
+                    _ => false,
+                };
+                if matches!(approval_policy, AskForApproval::Never) || granular_denied {
                     ExecApprovalRequirement::Forbidden {
                         reason: PROMPT_CONFLICT_REASON.to_owned(),
                     }
@@ -326,7 +403,7 @@ pub fn render_decision_for_unmatched_command(
             // returned false, so we must prompt.
             Decision::Prompt
         }
-        AskForApproval::OnRequest => {
+        AskForApproval::OnRequest | AskForApproval::Granular(_) => {
             match sandbox_policy {
                 SandboxPolicy::DangerFullAccess | SandboxPolicy::ExternalSandbox { .. } => {
                     // The user has indicated we should "just run" commands
@@ -923,6 +1000,52 @@ prefix_rule(
                 reason: PROMPT_CONFLICT_REASON.to_owned()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn granular_policy_distinguishes_rule_and_sandbox_approvals() {
+        use savfox_protocol::protocol::GranularApprovalConfig;
+
+        let policy_src = r#"prefix_rule(pattern=["rm"], decision="prompt")"#;
+        let mut parser = PolicyParser::new();
+        parser
+            .parse("test.rules", policy_src)
+            .expect("parse policy");
+        let manager = ExecPolicyManager::new(Arc::new(parser.build()));
+        let command = vec!["rm".to_owned()];
+
+        let denied = manager
+            .create_exec_approval_requirement_for_command(ExecApprovalRequest {
+                features: &Features::with_defaults(),
+                command: &command,
+                approval_policy: AskForApproval::Granular(GranularApprovalConfig {
+                    sandbox_approval: true,
+                    rules: false,
+                }),
+                sandbox_policy: &SandboxPolicy::DangerFullAccess,
+                sandbox_permissions: SandboxPermissions::UseDefault,
+                prefix_rule: None,
+            })
+            .await;
+        assert!(matches!(denied, ExecApprovalRequirement::Forbidden { .. }));
+
+        let allowed = manager
+            .create_exec_approval_requirement_for_command(ExecApprovalRequest {
+                features: &Features::with_defaults(),
+                command: &command,
+                approval_policy: AskForApproval::Granular(GranularApprovalConfig {
+                    sandbox_approval: false,
+                    rules: true,
+                }),
+                sandbox_policy: &SandboxPolicy::DangerFullAccess,
+                sandbox_permissions: SandboxPermissions::UseDefault,
+                prefix_rule: None,
+            })
+            .await;
+        assert!(matches!(
+            allowed,
+            ExecApprovalRequirement::NeedsApproval { .. }
+        ));
     }
 
     #[tokio::test]

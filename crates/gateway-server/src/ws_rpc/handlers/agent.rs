@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use savfox_gateway_shared::{AgentApprovalMode, AgentPermissionPolicy, AgentSandboxMode};
+use savfox_gateway_shared::{AgentExecutionPolicy, AgentPermissionPolicy};
 use savfox_utils::home_dir::AGENTS_SUBDIR;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -12,6 +12,7 @@ use super::channel::{channel_is_configured, load_saved_channel_configs};
 use super::channel_management::load_nostr_profile;
 use crate::channel::GatewayChannel;
 use crate::chat_session::validate_uuid_v7_session_id;
+use crate::security::execution_policy::{ApprovalClientCapabilities, resolve_execution_security};
 use crate::security::path_safety::safe_join;
 use crate::terminal_agent::{
     TerminalCommandResolver, TerminalCommandTemplate, TerminalTemplateValues, command_health,
@@ -1398,90 +1399,15 @@ fn validate_agent_shape(config: &Value) -> std::result::Result<(), String> {
             .map_err(|err| format!("invalid `permission_policy`: {err}"))?;
     }
 
+    if let Some(execution_policy) = config
+        .get("execution_policy")
+        .filter(|execution_policy| !execution_policy.is_null())
+    {
+        serde_json::from_value::<AgentExecutionPolicy>(execution_policy.clone())
+            .map_err(|err| format!("invalid `execution_policy`: {err}"))?;
+    }
+
     Ok(())
-}
-
-/// Load the agent's JSON config and apply its `permission_policy` to the
-/// session `Config` (sandbox, approval, and tool access).
-pub(crate) async fn apply_agent_permission_policy_to_config(
-    config: &mut savfox_core::config::Config,
-    channel: &GatewayChannel,
-    agent_ref: &str,
-) {
-    use savfox_protocol::protocol::ToolAccessPolicy;
-
-    // Resolve the agent config file. `resolve_agent_file_stem` already
-    // produces a sanitized stem; for the fallback path we re-validate via
-    // `safe_join` so a malformed `agent_ref` cannot escape `dir`.
-    let dir = agents_dir(channel);
-    let resolved_path = match resolve_agent_file_stem(channel, agent_ref).await {
-        Some(stem) => safe_join(&dir, &stem, ".json"),
-        None => safe_join(&dir, agent_ref, ".json"),
-    };
-    let Some(path) = resolved_path else {
-        return;
-    };
-
-    let agent_config = match read_agent_config(&path).await {
-        Some(cfg) => cfg,
-        None => return,
-    };
-
-    let Some(policy_val) = agent_config
-        .get("permission_policy")
-        .filter(|permission_policy| !permission_policy.is_null())
-    else {
-        return;
-    };
-    let policy = match serde_json::from_value::<AgentPermissionPolicy>(policy_val.clone()) {
-        Ok(policy) => policy,
-        Err(err) => {
-            tracing::warn!("ignoring invalid agent permission policy: {err}");
-            return;
-        }
-    };
-
-    // Apply sandbox policy.
-    if let Some(sandbox_mode) = policy.sandbox {
-        use savfox_core::protocol::SandboxPolicy;
-        let sandbox = match sandbox_mode {
-            AgentSandboxMode::ReadOnly => Some(SandboxPolicy::ReadOnly),
-            AgentSandboxMode::WorkspaceWrite => Some(SandboxPolicy::new_workspace_write_policy()),
-            AgentSandboxMode::DangerFullAccess => Some(SandboxPolicy::DangerFullAccess),
-            AgentSandboxMode::Other(_) => None,
-        };
-        if let Some(sb) = sandbox
-            && let Err(e) = config.sandbox_policy.set(sb)
-        {
-            tracing::warn!("agent permission policy sandbox rejected by constraints: {e}");
-        }
-    }
-
-    // Apply approval policy.
-    if let Some(approval_mode) = policy.approval {
-        use savfox_core::protocol::AskForApproval;
-        let approval = match approval_mode {
-            AgentApprovalMode::Untrusted => Some(AskForApproval::UnlessTrusted),
-            AgentApprovalMode::OnFailure => Some(AskForApproval::OnFailure),
-            AgentApprovalMode::OnRequest => Some(AskForApproval::OnRequest),
-            AgentApprovalMode::Never => Some(AskForApproval::Never),
-            AgentApprovalMode::Other(_) => None,
-        };
-        if let Some(ap) = approval
-            && let Err(e) = config.approval_policy.set(ap)
-        {
-            tracing::warn!("agent permission policy approval rejected by constraints: {e}");
-        }
-    }
-
-    // Apply tool access policy.
-    if let Some(tool_access) = policy.tool_access {
-        config.tool_access_policy = Some(ToolAccessPolicy {
-            allowed: tool_access.allowed,
-            denied: tool_access.denied,
-            tool_approval_overrides: tool_access.tool_approval_overrides.into_iter().collect(),
-        });
-    }
 }
 
 pub(crate) fn default_agent_config_from_source(config: &Value) -> Value {
@@ -1546,6 +1472,24 @@ async fn load_default_agent_config(channel: &GatewayChannel) -> Value {
         .unwrap_or_else(default_agent_stub);
     normalize_agent_config(&mut config, "default", true);
     config
+}
+
+async fn attach_effective_security(channel: &GatewayChannel, agent: &mut Value) {
+    let agent_id = agent.get("id").and_then(Value::as_str).unwrap_or("default");
+    let resolved = resolve_execution_security(
+        channel.config(),
+        &channel.config().savfox_home,
+        agent_id,
+        ApprovalClientCapabilities::interactive(),
+    )
+    .await;
+    agent["effective_security"] = json!({
+        "execution_mode": resolved.context.mode.as_str(),
+        "sandbox_policy": resolved.context.effective_sandbox,
+        "sandbox_enforcement": resolved.context.sandbox_enforcement,
+        "policy_fingerprint": resolved.context.policy_fingerprint,
+        "fallback_reason": resolved.context.fallback_reason,
+    });
 }
 
 async fn find_agent_name_conflict(
@@ -1740,6 +1684,7 @@ pub(crate) async fn handle_agents_list(channel: &Arc<GatewayChannel>) -> RpcResu
             agent["delegation_depth"] = json!(chain_json.len());
             agent["delegation_chain"] = json!(chain_json);
         }
+        attach_effective_security(channel, &mut agent).await;
         enriched.push(agent);
     }
 
@@ -1763,14 +1708,18 @@ pub(crate) async fn handle_agents_get(params: &Value, channel: &Arc<GatewayChann
     }
 
     if agent_ref.trim().eq_ignore_ascii_case("default") {
-        return Ok(load_default_agent_config(channel).await);
+        let mut config = load_default_agent_config(channel).await;
+        attach_effective_security(channel, &mut config).await;
+        return Ok(config);
     }
 
     let Some(file_stem) = resolve_agent_file_stem(channel, agent_ref).await else {
         return Err((INVALID_REQUEST, format!("agent not found: {agent_ref}")));
     };
     if file_stem.eq_ignore_ascii_case("default") {
-        return Ok(load_default_agent_config(channel).await);
+        let mut config = load_default_agent_config(channel).await;
+        attach_effective_security(channel, &mut config).await;
+        return Ok(config);
     }
     let Some(path) = safe_join(&agents_dir(channel), &file_stem, ".json") else {
         return Err((INVALID_REQUEST, format!("agent not found: {agent_ref}")));
@@ -1780,6 +1729,7 @@ pub(crate) async fn handle_agents_get(params: &Value, channel: &Arc<GatewayChann
     };
 
     normalize_agent_config(&mut config, &file_stem, false);
+    attach_effective_security(channel, &mut config).await;
 
     Ok(config)
 }
@@ -1902,6 +1852,7 @@ pub(crate) async fn handle_agents_create(
         "dm_scope",
         "identity",
         "permission_policy",
+        "execution_policy",
         "matrix_auto_user_channels",
     ] {
         if let Some(val) = params.get(*key) {
@@ -2045,6 +1996,7 @@ pub(crate) async fn handle_agents_update(
         "dm_scope",
         "identity",
         "permission_policy",
+        "execution_policy",
         "matrix_auto_user_channels",
     ] {
         if let Some(val) = params.get(*key) {

@@ -16,7 +16,7 @@ pub(crate) type ChannelHealthMetrics = delivery::ChannelHealthMetrics;
 pub(crate) use self::delivery::{
     channel_health_snapshot, record_channel_probe, send_metrics_snapshot, should_drop_duplicate,
 };
-use self::delivery::{record_channel_event, send_with_retry};
+use self::delivery::{record_channel_event, send_approval_with_retry, send_with_retry};
 pub(crate) use self::footer::set_response_footer_config;
 use self::footer::{append_footer, current_response_footer_config, format_model_footer};
 use self::idle_reply::{
@@ -66,6 +66,11 @@ use crate::channels::policy::{
     append_channel_tone_suffix, configured_channel_tone_suffix, configured_dm_scope,
 };
 use crate::log_store;
+use crate::security::approval_coordinator::{
+    ApprovalNotification, ChannelApprovalReplyOutcome, ChannelApprovalScope,
+    looks_like_channel_approval_reply, resolve_channel_approval_reply,
+};
+use crate::security::execution_policy::{ApprovalClientCapabilities, resolve_execution_security};
 use crate::session::{
     AmbientMessage, InboundSessionMeta, SessionOverrides, SessionStore, clear_ambient_messages,
     format_ambient_context, peek_ambient_messages, prepend_ambient_context, push_ambient_message,
@@ -95,24 +100,6 @@ fn command_result_message(
         return format!("Command error: {error}");
     }
     result.reply.clone().unwrap_or_else(|| fallback.to_owned())
-}
-
-fn looks_like_textual_approval_reply(text: &str) -> bool {
-    let normalized = text.trim();
-    matches!(normalized, "+" | "-")
-        || approval_command_id(normalized, "approve").is_some()
-        || approval_command_id(normalized, "deny").is_some()
-}
-
-fn approval_command_id<'a>(text: &'a str, command: &str) -> Option<&'a str> {
-    let (head, tail) = text.split_once(':')?;
-    if head.eq_ignore_ascii_case(command) {
-        let id = tail.trim();
-        if !id.is_empty() {
-            return Some(id);
-        }
-    }
-    None
 }
 
 async fn apply_command_action(
@@ -361,6 +348,36 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .agent_id
         .clone()
         .unwrap_or(default_routed_agent);
+    let execution_security = resolve_execution_security(
+        gateway_channel.config(),
+        &gateway_channel.config().savfox_home,
+        &routed_agent,
+        ApprovalClientCapabilities::for_channel_message(platform, start_meta.peer_id.as_deref()),
+    )
+    .await;
+    if let Some(reason) = execution_security.context.fallback_reason.as_deref() {
+        log_store::append_log(
+            "warn",
+            "channel/security",
+            format!(
+                "execution mode fell back to unattended: channel={outbound_channel}, agent={routed_agent}, reason={reason}"
+            ),
+        )
+        .await;
+    }
+    log_store::append_log(
+        "info",
+        "channel/security",
+        format!(
+            "resolved execution policy: channel={outbound_channel}, agent={routed_agent}, requested_mode={}, effective_mode={}, effective_sandbox={}, enforcement={}, policy_fingerprint={}",
+            execution_security.context.requested_mode.as_str(),
+            execution_security.context.mode.as_str(),
+            execution_security.context.effective_sandbox,
+            execution_security.context.sandbox_enforcement,
+            execution_security.context.policy_fingerprint,
+        ),
+    )
+    .await;
     let cleaned_prompt = text_target_match
         .stripped_prompt
         .filter(|value| !value.is_empty())
@@ -399,6 +416,32 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         },
     )
     .await;
+    let security_policy_changed = tracked.security_policy_fingerprint.as_deref()
+        != Some(execution_security.context.policy_fingerprint.as_str());
+    if security_policy_changed && tracked.security_policy_fingerprint.is_some() {
+        gateway_channel
+            .invalidate_logical_session_security(&tracked.session_id)
+            .await;
+        log_store::append_log(
+            "info",
+            "channel/security",
+            format!(
+                "invalidated active session after execution policy change: channel={outbound_channel}, session_id={}, policy_fingerprint={}",
+                tracked.session_id, execution_security.context.policy_fingerprint,
+            ),
+        )
+        .await;
+    }
+    let effective_execution_mode = execution_security.context.mode.as_str().to_owned();
+    let effective_policy_fingerprint = execution_security.context.policy_fingerprint.clone();
+    let sandbox_enforcement = execution_security.context.sandbox_enforcement.to_owned();
+    let _ = session_store
+        .update(&tracked.session_id, move |entry| {
+            entry.execution_mode = Some(effective_execution_mode);
+            entry.security_policy_fingerprint = Some(effective_policy_fingerprint);
+            entry.sandbox_enforcement = Some(sandbox_enforcement);
+        })
+        .await;
     log_store::append_log(
         "info",
         "channel/runtime",
@@ -410,65 +453,68 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     .await;
     let idle_generation =
         record_inbound_activity(&gateway_channel.config().savfox_home, &tracked.session_id).await;
+    let approval_scope = ChannelApprovalScope {
+        channel: outbound_channel.clone(),
+        channel_config_id: start_meta.saved_channel_config_id.clone(),
+        account_id: start_meta.account_id.clone(),
+        peer_id: start_meta.peer_id.clone().unwrap_or_default(),
+        logical_session_id: tracked.session_id.clone(),
+    };
 
-    if looks_like_textual_approval_reply(&cleaned_prompt) {
-        match gateway_channel
-            .resolve_agent_session(
-                gateway_channel.config().as_ref().clone(),
-                Some(&tracked.session_id),
-            )
-            .await
+    if looks_like_channel_approval_reply(&cleaned_prompt) {
+        let response = match resolve_channel_approval_reply(
+            &gateway_channel,
+            &approval_scope,
+            &cleaned_prompt,
+        )
+        .await
         {
-            Ok(resolved_session) => match gateway_channel
-                .session_manager()
-                .get_session(resolved_session.session_id)
-                .await
-            {
-                Ok(session) => match session.maybe_submit_textual_approval(&cleaned_prompt).await {
-                    Ok(true) => {
-                        log_store::append_log(
-                            "info",
-                            "channel/runtime",
-                            format!(
-                                "resolved pending approval from channel reply: channel={outbound_channel}, session_id={}",
-                                tracked.session_id
-                            ),
-                        )
-                        .await;
-                        return;
-                    }
-                    Ok(false) => {
-                        log_store::append_log(
-                            "info",
-                            "channel/runtime",
-                            format!(
-                                "approval-like reply did not match a pending approval: channel={outbound_channel}, session_id={}",
-                                tracked.session_id
-                            ),
-                        )
-                        .await;
-                    }
-                    Err(err) => {
-                        warn!(
-                            channel = %outbound_channel,
-                            "channel runtime: failed to submit approval reply: {err}"
-                        );
-                    }
-                },
-                Err(err) => {
-                    warn!(
-                        channel = %outbound_channel,
-                        "channel runtime: failed to load active session for approval reply: {err}"
-                    );
-                }
-            },
+            Ok(ChannelApprovalReplyOutcome::Resolved {
+                request_id,
+                decision,
+            }) => {
+                log_store::append_log(
+                    "info",
+                    "channel/security",
+                    format!(
+                        "resolved correlated approval: channel={outbound_channel}, session_id={}, request_id={request_id}, decision={decision}",
+                        tracked.session_id
+                    ),
+                )
+                .await;
+                format!("Approval {request_id} resolved: {decision}.")
+            }
+            Ok(ChannelApprovalReplyOutcome::Ambiguous) => {
+                "More than one approval is pending. Reply with a request ID, for example approve:<request-id>."
+                    .to_owned()
+            }
+            Ok(ChannelApprovalReplyOutcome::UnsupportedDecision) => {
+                "That decision is not available for this approval request.".to_owned()
+            }
+            Ok(ChannelApprovalReplyOutcome::NoMatch) => {
+                "No matching unexpired approval request was found for this conversation."
+                    .to_owned()
+            }
             Err(err) => {
                 warn!(
                     channel = %outbound_channel,
-                    "channel runtime: failed to resolve active session for approval reply: {err}"
+                    "channel runtime: failed to submit correlated approval reply: {err}"
                 );
+                "The approval could not be delivered. It remains pending; retry with the same request ID."
+                    .to_owned()
             }
-        }
+        };
+        let _ = send_with_retry(
+            &gateway_channel,
+            &outbound_channel,
+            &response,
+            Some(1),
+            start_meta.thread_id.as_deref(),
+            tracked.reply_target.as_deref(),
+            start_meta.saved_channel_config_id.as_deref(),
+        )
+        .await;
+        return;
     }
 
     let runtime_command = command_registry().has_command(&cleaned_prompt);
@@ -787,7 +833,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
     // Set up approval notification: when the agent needs tool approval,
     // send a message to the channel so the user can reply with + or -.
-    let (approval_tx, mut approval_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (approval_tx, mut approval_rx) =
+        tokio::sync::mpsc::unbounded_channel::<ApprovalNotification>();
     let approval_gw = Arc::clone(&gateway_channel);
     let approval_channel = outbound_channel.clone();
     let approval_thread_id = tracked.thread_id.clone();
@@ -795,7 +842,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     let approval_saved_channel_config_id = start_meta.saved_channel_config_id.clone();
     let approval_task = tokio::spawn(async move {
         while let Some(msg) = approval_rx.recv().await {
-            let _ = send_with_retry(
+            let _ = send_approval_with_retry(
                 &approval_gw,
                 &approval_channel,
                 &msg,
@@ -808,8 +855,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         }
     });
 
-    let on_approval: Box<dyn FnMut(&str) + Send> = Box::new(move |msg: &str| {
-        let _ = approval_tx.send(msg.to_owned());
+    let on_approval: Box<dyn FnMut(ApprovalNotification) + Send> = Box::new(move |msg| {
+        let _ = approval_tx.send(msg);
     });
 
     let delta_tx = stream_tx.clone();
@@ -818,6 +865,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             &effective_prompt,
             &effective_model,
             Some(&tracked.session_id),
+            execution_security,
+            approval_scope,
             move |delta: &str| {
                 if let Some(tx) = &delta_tx {
                     let _ = tx.send(StreamEvent::Delta(delta.to_owned()));

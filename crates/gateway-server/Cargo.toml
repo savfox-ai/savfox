@@ -30,6 +30,7 @@ bcrypt = { workspace = true }
 savfox-app-server-protocol = { workspace = true }
 savfox-common = { workspace = true, features = ["cli"] }
 savfox-core = { workspace = true }
+savfox-exec-policy = { workspace = true }
 savfox-keyring-store = { workspace = true }
 savfox-login-oauth = { workspace = true }
 savfox-feedback = { workspace = true }
@@ -66,6 +67,7 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sqlx = { workspace = true }
 sha2 = { workspace = true }
+shlex = { workspace = true }
 subtle = { workspace = true }
 thiserror = { workspace = true }
 tokio-stream = { workspace = true }

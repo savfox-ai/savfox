@@ -368,9 +368,34 @@ pub enum AskForApproval {
     #[default]
     OnRequest,
 
+    /// Fine-grained switches for individual approval flows. A disabled
+    /// category is rejected instead of being surfaced as an approval prompt.
+    #[strum(serialize = "granular")]
+    Granular(GranularApprovalConfig),
+
     /// Never ask the user to approve commands. Failures are immediately returned
     /// to the model, and never escalated to the user for approval.
     Never,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+pub struct GranularApprovalConfig {
+    /// Shell commands that need an expanded sandbox boundary.
+    pub sandbox_approval: bool,
+    /// Commands matched by an execpolicy `prompt` rule.
+    pub rules: bool,
+}
+
+impl GranularApprovalConfig {
+    #[must_use]
+    pub const fn allows_sandbox_approval(self) -> bool {
+        self.sandbox_approval
+    }
+
+    #[must_use]
+    pub const fn allows_rules_approval(self) -> bool {
+        self.rules
+    }
 }
 
 /// Represents whether outbound network access is available to the agent.

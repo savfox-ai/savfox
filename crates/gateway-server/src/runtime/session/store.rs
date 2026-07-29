@@ -172,6 +172,19 @@ pub struct SessionEntry {
     /// Label for UI display.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Fingerprint of the effective execution security policy last used for
+    /// this logical session. A changed fingerprint invalidates the in-memory
+    /// core session so stale session-scoped grants cannot survive a policy
+    /// change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security_policy_fingerprint: Option<String>,
+    /// Effective execution mode associated with
+    /// `security_policy_fingerprint`, for audit and support diagnostics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_mode: Option<String>,
+    /// Concrete sandbox backend (or fail-closed gate) used for the last turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox_enforcement: Option<String>,
 
     // ── Token usage metrics ─────────────────────────────────────────
     /// Cumulative input tokens.
@@ -310,6 +323,9 @@ impl Default for SessionEntry {
             provider: None,
             identity: None,
             label: None,
+            security_policy_fingerprint: None,
+            execution_mode: None,
+            sandbox_enforcement: None,
             input_tokens: 0,
             output_tokens: 0,
             total_tokens: 0,

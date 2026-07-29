@@ -4,6 +4,7 @@
 //! approval, and tool access settings in a single value.
 
 use savfox_core::protocol::{AskForApproval, SandboxPolicy};
+use savfox_gateway_shared::{AgentApprovalMode, AgentSandboxMode, agent_preset_boundary};
 use savfox_protocol::protocol::{PermissionPolicy, ToolAccessPolicy};
 
 /// A named permission preset pairing a display label with a full policy.
@@ -17,6 +18,32 @@ pub struct PermissionPreset {
     pub description: &'static str,
     /// The full permission policy this preset represents.
     pub policy: PermissionPolicy,
+}
+
+fn agent_policy(id: &str, tool_access: Option<ToolAccessPolicy>) -> PermissionPolicy {
+    let boundary = agent_preset_boundary(id).expect("built-in agent preset must have a boundary");
+    let sandbox = match boundary.sandbox {
+        AgentSandboxMode::ReadOnly => SandboxPolicy::ReadOnly,
+        AgentSandboxMode::WorkspaceWrite => SandboxPolicy::new_workspace_write_policy(),
+        AgentSandboxMode::DangerFullAccess => SandboxPolicy::DangerFullAccess,
+        AgentSandboxMode::Other(_) => {
+            unreachable!("built-in preset cannot use an unknown sandbox mode")
+        }
+    };
+    let approval = match boundary.approval {
+        AgentApprovalMode::Untrusted => AskForApproval::UnlessTrusted,
+        AgentApprovalMode::OnFailure => AskForApproval::OnFailure,
+        AgentApprovalMode::OnRequest | AgentApprovalMode::Granular => AskForApproval::OnRequest,
+        AgentApprovalMode::Never => AskForApproval::Never,
+        AgentApprovalMode::Other(_) => {
+            unreachable!("built-in preset cannot use an unknown approval mode")
+        }
+    };
+    PermissionPolicy {
+        sandbox,
+        approval,
+        tool_access,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -87,10 +114,9 @@ pub fn builtin_agent_presets() -> Vec<PermissionPreset> {
             id: "minimal",
             label: "Minimal",
             description: "Read-only access with memory.",
-            policy: PermissionPolicy {
-                sandbox: SandboxPolicy::ReadOnly,
-                approval: AskForApproval::OnRequest,
-                tool_access: Some(ToolAccessPolicy {
+            policy: agent_policy(
+                "minimal",
+                Some(ToolAccessPolicy {
                     allowed: vec![
                         "read_file".into(),
                         "list_dir".into(),
@@ -100,16 +126,15 @@ pub fn builtin_agent_presets() -> Vec<PermissionPreset> {
                     denied: vec![],
                     tool_approval_overrides: Default::default(),
                 }),
-            },
+            ),
         },
         PermissionPreset {
             id: "coding",
             label: "Coding",
             description: "File editing, shell, and code search.",
-            policy: PermissionPolicy {
-                sandbox: SandboxPolicy::new_workspace_write_policy(),
-                approval: AskForApproval::OnRequest,
-                tool_access: Some(ToolAccessPolicy {
+            policy: agent_policy(
+                "coding",
+                Some(ToolAccessPolicy {
                     allowed: vec![
                         "read_file".into(),
                         "write_file".into(),
@@ -121,16 +146,15 @@ pub fn builtin_agent_presets() -> Vec<PermissionPreset> {
                     denied: vec![],
                     tool_approval_overrides: Default::default(),
                 }),
-            },
+            ),
         },
         PermissionPreset {
             id: "messaging",
             label: "Messaging",
             description: "Read files, browse, search web, memory.",
-            policy: PermissionPolicy {
-                sandbox: SandboxPolicy::ReadOnly,
-                approval: AskForApproval::OnRequest,
-                tool_access: Some(ToolAccessPolicy {
+            policy: agent_policy(
+                "messaging",
+                Some(ToolAccessPolicy {
                     allowed: vec![
                         "read_file".into(),
                         "list_dir".into(),
@@ -142,27 +166,19 @@ pub fn builtin_agent_presets() -> Vec<PermissionPreset> {
                     denied: vec![],
                     tool_approval_overrides: Default::default(),
                 }),
-            },
+            ),
         },
         PermissionPreset {
             id: "full",
             label: "Full",
             description: "All tools, workspace write, approval for dangerous operations.",
-            policy: PermissionPolicy {
-                sandbox: SandboxPolicy::new_workspace_write_policy(),
-                approval: AskForApproval::OnRequest,
-                tool_access: None, // all tools
-            },
+            policy: agent_policy("full", None),
         },
         PermissionPreset {
             id: "unrestricted",
             label: "Unrestricted",
             description: "All tools, full disk access, no approval prompts.",
-            policy: PermissionPolicy {
-                sandbox: SandboxPolicy::DangerFullAccess,
-                approval: AskForApproval::Never,
-                tool_access: None,
-            },
+            policy: agent_policy("unrestricted", None),
         },
     ]
 }

@@ -8,6 +8,57 @@ use savfox_protocol::SessionId;
 use tracing::{debug, warn};
 
 use super::{AgentInvocationResult, GatewayChannel, ResolvedAgentSession};
+use crate::security::approval_coordinator::{
+    ApprovalNotification, ApprovalRequestMetadata, ChannelApprovalKind, ChannelApprovalScope,
+    PendingChannelApproval,
+};
+use crate::security::execution_policy::{ExecutionMode, ResolvedExecutionSecurity};
+
+#[derive(Clone, Copy)]
+enum PendingApprovalKind {
+    Exec,
+    Patch,
+}
+
+struct PendingApproval {
+    core_id: String,
+    request_id: Option<String>,
+    kind: PendingApprovalKind,
+    summary: String,
+}
+
+impl PendingApproval {
+    fn abort_op(&self) -> savfox_protocol::protocol::Op {
+        use savfox_protocol::protocol::{Op, ReviewDecision};
+
+        match self.kind {
+            PendingApprovalKind::Exec => Op::ExecApproval {
+                id: self.core_id.clone(),
+                decision: ReviewDecision::Abort,
+            },
+            PendingApprovalKind::Patch => Op::PatchApproval {
+                id: self.core_id.clone(),
+                decision: ReviewDecision::Abort,
+            },
+        }
+    }
+}
+
+fn approval_reply_instructions(pending: &PendingChannelApproval) -> String {
+    let mut actions = vec![
+        format!("approve:{}", pending.request_id),
+        format!("deny:{}", pending.request_id),
+        format!("abort:{}", pending.request_id),
+    ];
+    if pending.supports_session_grant() {
+        actions.insert(1, format!("approve-session:{}", pending.request_id));
+    }
+    if pending.supports_persisted_rule() {
+        let index = actions.len().saturating_sub(2);
+        actions.insert(index, format!("allow-rule:{}", pending.request_id));
+    }
+    format!("Reply with one of: {}.", actions.join(", "))
+}
 
 impl GatewayChannel {
     /// Invoke the agent with a text prompt and return the response text.
@@ -28,6 +79,8 @@ impl GatewayChannel {
                 |_| {},
                 None,
                 false,
+                None,
+                None,
             )
             .await?;
         Ok(result.reply)
@@ -48,6 +101,8 @@ impl GatewayChannel {
                 |_| {},
                 None,
                 false,
+                None,
+                None,
             )
             .await?;
         Ok(result.reply)
@@ -65,7 +120,7 @@ impl GatewayChannel {
         F: FnMut(&str) + Send,
     {
         self.invoke_agent_text_in_session_with_metadata_impl(
-            prompt, model, session_id, on_delta, None, false,
+            prompt, model, session_id, on_delta, None, false, None, None,
         )
         .await
     }
@@ -83,6 +138,8 @@ impl GatewayChannel {
             |_| {},
             None,
             false,
+            None,
+            None,
         )
         .await
     }
@@ -101,6 +158,8 @@ impl GatewayChannel {
             |_| {},
             None,
             false,
+            None,
+            None,
         )
         .await
     }
@@ -117,8 +176,10 @@ impl GatewayChannel {
         prompt: &str,
         model: &str,
         session_id: Option<&str>,
+        security: ResolvedExecutionSecurity,
+        approval_scope: ChannelApprovalScope,
         on_delta: F,
-        on_approval: Box<dyn FnMut(&str) + Send>,
+        on_approval: Box<dyn FnMut(ApprovalNotification) + Send>,
     ) -> anyhow::Result<AgentInvocationResult>
     where
         F: FnMut(&str) + Send,
@@ -130,6 +191,8 @@ impl GatewayChannel {
             on_delta,
             Some(on_approval),
             true, // concurrent_fork: channel messages use fork-on-busy
+            Some(security),
+            Some(approval_scope),
         )
         .await
     }
@@ -140,13 +203,15 @@ impl GatewayChannel {
         model: &str,
         session_id: Option<&str>,
         mut on_delta: F,
-        mut on_approval: Option<Box<dyn FnMut(&str) + Send>>,
+        mut on_approval: Option<Box<dyn FnMut(ApprovalNotification) + Send>>,
         concurrent_fork: bool,
+        security: Option<ResolvedExecutionSecurity>,
+        approval_scope: Option<ChannelApprovalScope>,
     ) -> anyhow::Result<AgentInvocationResult>
     where
         F: FnMut(&str) + Send,
     {
-        use savfox_protocol::protocol::{EventMsg, Op};
+        use savfox_protocol::protocol::{EventMsg, Op, ReviewDecision};
         use savfox_protocol::user_input::UserInput;
 
         // Strip "[user]:" prefix if present (some clients add this prefix)
@@ -155,7 +220,36 @@ impl GatewayChannel {
             .map(|s| s.trim())
             .unwrap_or(prompt.trim());
 
-        let mut config = (*self.config).clone();
+        let (
+            mut config,
+            execution_mode,
+            approval_capabilities,
+            approval_agent_id,
+            policy_fingerprint,
+        ) = match security {
+            Some(security) => (
+                security.config,
+                security.context.mode,
+                security.context.capabilities,
+                security.context.agent_id,
+                security.context.policy_fingerprint,
+            ),
+            None => (
+                (*self.config).clone(),
+                ExecutionMode::Unattended,
+                Default::default(),
+                String::new(),
+                String::new(),
+            ),
+        };
+        let execution_mode = if execution_mode == ExecutionMode::Interactive
+            && (on_approval.is_none() || approval_scope.is_none())
+        {
+            warn!("interactive execution requested without a correlated approval response channel");
+            ExecutionMode::Unattended
+        } else {
+            execution_mode
+        };
         let model = model.trim();
         // Only override the config model when a real model slug is provided.
         // The callers often pass "default" to mean "use the default agent",
@@ -163,6 +257,7 @@ impl GatewayChannel {
         if !model.is_empty() && model != "default" {
             config.model = Some(model.to_owned());
         }
+        let approval_cwd = config.cwd.clone();
 
         let requested_session_id = session_id
             .map(str::trim)
@@ -248,14 +343,21 @@ impl GatewayChannel {
         let mut saw_delta = false;
         let mut saw_content_delta_event = false;
         let mut last_token_usage: Option<savfox_protocol::protocol::TokenUsage> = None;
-        let mut pending_approval_summary: Option<String> = None;
+        let mut pending_approval: Option<PendingApproval> = None;
         let normal_timeout = tokio::time::Duration::from_secs(120);
-        let approval_timeout = tokio::time::Duration::from_secs(300);
+        let approval_timeout = tokio::time::Duration::from_secs(180);
         let mut deadline = tokio::time::Instant::now() + normal_timeout;
 
         loop {
             match tokio::time::timeout_at(deadline, session.next_event()).await {
                 Ok(Ok(event)) => {
+                    if let Some(pending) = pending_approval.as_ref()
+                        && let Some(request_id) = pending.request_id.as_deref()
+                        && !self.approval_coordinator().is_pending(request_id).await
+                    {
+                        pending_approval = None;
+                        deadline = tokio::time::Instant::now() + normal_timeout;
+                    }
                     match &event.msg {
                         EventMsg::TokenCount(token_count) => {
                             if let Some(info) = &token_count.info {
@@ -294,41 +396,189 @@ impl GatewayChannel {
                             on_delta(&delta.delta);
                         }
                         EventMsg::ExecApprovalRequest(req) => {
-                            pending_approval_summary =
-                                Some(format!("exec approval for turn {}", req.turn_id));
+                            let approval_id = if req.turn_id.trim().is_empty() {
+                                event.id.clone()
+                            } else {
+                                req.turn_id.clone()
+                            };
+                            if execution_mode == ExecutionMode::Unattended {
+                                warn!(
+                                    session_id = %session_id,
+                                    approval_id,
+                                    "denying exec boundary request for unattended entry point"
+                                );
+                                session
+                                    .submit(Op::ExecApproval {
+                                        id: approval_id,
+                                        decision: ReviewDecision::Denied,
+                                    })
+                                    .await
+                                    .map_err(|error| {
+                                        anyhow::anyhow!(
+                                            "failed to deny unattended exec approval: {error}"
+                                        )
+                                    })?;
+                                continue;
+                            }
+
+                            if let Some(previous) = pending_approval.take() {
+                                if let Some(request_id) = previous.request_id.as_deref() {
+                                    self.approval_coordinator().remove(request_id).await;
+                                }
+                                let _ = session.submit(previous.abort_op()).await;
+                            }
+                            let registered = match self
+                                .approval_coordinator()
+                                .register(
+                                    approval_id.clone(),
+                                    session_id,
+                                    approval_scope
+                                        .clone()
+                                        .expect("interactive mode requires approval scope"),
+                                    ChannelApprovalKind::Exec {
+                                        proposed_execpolicy_amendment: req
+                                            .proposed_execpolicy_amendment
+                                            .clone(),
+                                    },
+                                    approval_capabilities,
+                                    ApprovalRequestMetadata {
+                                        agent_id: approval_agent_id.clone(),
+                                        policy_fingerprint: policy_fingerprint.clone(),
+                                        cwd: req.cwd.clone(),
+                                        summary: req.command.join(" "),
+                                        command: Some(req.command.clone()),
+                                        reason: req.reason.clone(),
+                                    },
+                                )
+                                .await
+                            {
+                                Ok(registered) => registered,
+                                Err(error) => {
+                                    let _ = session
+                                        .submit(Op::ExecApproval {
+                                            id: approval_id,
+                                            decision: ReviewDecision::Denied,
+                                        })
+                                        .await;
+                                    return Err(anyhow::anyhow!(
+                                        "failed to register durable exec approval: {error}"
+                                    ));
+                                }
+                            };
+                            let request_id = registered.request_id.clone();
+                            pending_approval = Some(PendingApproval {
+                                core_id: approval_id,
+                                request_id: Some(request_id.clone()),
+                                kind: PendingApprovalKind::Exec,
+                                summary: format!("exec approval {request_id}"),
+                            });
                             if let Some(ref mut notify) = on_approval {
-                                let cmd = req.command.join(" ");
-                                let reason = req
+                                let cmd = &registered.envelope.redacted_summary;
+                                let reason = registered
+                                    .envelope
                                     .reason
                                     .as_deref()
                                     .map(|r| format!("\nReason: {r}"))
                                     .unwrap_or_default();
+                                let instructions = approval_reply_instructions(&registered);
                                 let msg = format!(
-                                    "[Approval Required]\nCommand: {cmd}{reason}\n\nReply + to approve, - to deny."
+                                    "[Approval Required]\nRequest: {request_id}\nCommand: {cmd}{reason}\n\n{instructions}"
                                 );
-                                notify(&msg);
+                                notify(registered.notification(msg));
                                 deadline = tokio::time::Instant::now() + approval_timeout;
                             }
                         }
                         EventMsg::ApplyPatchApprovalRequest(req) => {
-                            pending_approval_summary =
-                                Some(format!("patch approval for turn {}", req.turn_id));
+                            let approval_id = if req.turn_id.trim().is_empty() {
+                                event.id.clone()
+                            } else {
+                                req.turn_id.clone()
+                            };
+                            if execution_mode == ExecutionMode::Unattended {
+                                warn!(
+                                    session_id = %session_id,
+                                    approval_id,
+                                    "denying patch boundary request for unattended entry point"
+                                );
+                                session
+                                    .submit(Op::PatchApproval {
+                                        id: approval_id,
+                                        decision: ReviewDecision::Denied,
+                                    })
+                                    .await
+                                    .map_err(|error| {
+                                        anyhow::anyhow!(
+                                            "failed to deny unattended patch approval: {error}"
+                                        )
+                                    })?;
+                                continue;
+                            }
+
+                            if let Some(previous) = pending_approval.take() {
+                                if let Some(request_id) = previous.request_id.as_deref() {
+                                    self.approval_coordinator().remove(request_id).await;
+                                }
+                                let _ = session.submit(previous.abort_op()).await;
+                            }
+                            let registered = match self
+                                .approval_coordinator()
+                                .register(
+                                    approval_id.clone(),
+                                    session_id,
+                                    approval_scope
+                                        .clone()
+                                        .expect("interactive mode requires approval scope"),
+                                    ChannelApprovalKind::Patch,
+                                    approval_capabilities,
+                                    ApprovalRequestMetadata {
+                                        agent_id: approval_agent_id.clone(),
+                                        policy_fingerprint: policy_fingerprint.clone(),
+                                        cwd: approval_cwd.clone(),
+                                        summary: req
+                                            .changes
+                                            .keys()
+                                            .map(|path| path.display().to_string())
+                                            .collect::<Vec<_>>()
+                                            .join(", "),
+                                        command: None,
+                                        reason: req.reason.clone(),
+                                    },
+                                )
+                                .await
+                            {
+                                Ok(registered) => registered,
+                                Err(error) => {
+                                    let _ = session
+                                        .submit(Op::PatchApproval {
+                                            id: approval_id,
+                                            decision: ReviewDecision::Denied,
+                                        })
+                                        .await;
+                                    return Err(anyhow::anyhow!(
+                                        "failed to register durable patch approval: {error}"
+                                    ));
+                                }
+                            };
+                            let request_id = registered.request_id.clone();
+                            pending_approval = Some(PendingApproval {
+                                core_id: approval_id,
+                                request_id: Some(request_id.clone()),
+                                kind: PendingApprovalKind::Patch,
+                                summary: format!("patch approval {request_id}"),
+                            });
                             if let Some(ref mut notify) = on_approval {
-                                let files: Vec<_> = req
-                                    .changes
-                                    .keys()
-                                    .map(|p| p.display().to_string())
-                                    .collect();
-                                let reason = req
+                                let files = &registered.envelope.redacted_summary;
+                                let reason = registered
+                                    .envelope
                                     .reason
                                     .as_deref()
                                     .map(|r| format!("\nReason: {r}"))
                                     .unwrap_or_default();
+                                let instructions = approval_reply_instructions(&registered);
                                 let msg = format!(
-                                    "[Approval Required]\nFile changes: {}{reason}\n\nReply + to approve, - to deny.",
-                                    files.join(", ")
+                                    "[Approval Required]\nRequest: {request_id}\nFile changes: {files}{reason}\n\n{instructions}",
                                 );
-                                notify(&msg);
+                                notify(registered.notification(msg));
                                 deadline = tokio::time::Instant::now() + approval_timeout;
                             }
                         }
@@ -337,6 +587,9 @@ impl GatewayChannel {
                         }
                         EventMsg::Error(err) => {
                             if reply.is_empty() && fallback_agent_reply.is_empty() {
+                                self.approval_coordinator()
+                                    .remove_for_core_session(session_id)
+                                    .await;
                                 return Err(anyhow::anyhow!("agent error: {}", err.message));
                             }
                             break;
@@ -348,30 +601,51 @@ impl GatewayChannel {
                 }
                 Ok(Err(e)) => {
                     if reply.is_empty() && fallback_agent_reply.is_empty() {
+                        self.approval_coordinator()
+                            .remove_for_core_session(session_id)
+                            .await;
                         return Err(anyhow::anyhow!("thread error: {e}"));
                     }
                     break;
                 }
                 Err(_) => {
                     // Timeout.
-                    if reply.is_empty() && fallback_agent_reply.is_empty() {
-                        if let Some(summary) = pending_approval_summary.as_deref() {
-                            warn!(
-                                session_id = %session_id,
-                                pending_approval = %summary,
-                                "agent invocation timed out while waiting for approval"
-                            );
-                            return Err(anyhow::anyhow!(
-                                "agent invocation timed out while waiting for {summary}"
-                            ));
+                    if let Some(pending) = pending_approval.take() {
+                        warn!(
+                            session_id = %session_id,
+                            pending_approval = %pending.summary,
+                            "agent invocation timed out while waiting for approval"
+                        );
+                        if let Some(request_id) = pending.request_id.as_deref() {
+                            self.approval_coordinator().remove(request_id).await;
                         }
+                        let _ = session.submit(pending.abort_op()).await;
+                        return Err(anyhow::anyhow!(
+                            "agent invocation timed out while waiting for {}",
+                            pending.summary
+                        ));
+                    }
+                    if reply.is_empty() && fallback_agent_reply.is_empty() {
                         warn!(session_id = %session_id, "agent invocation timed out");
+                        self.approval_coordinator()
+                            .remove_for_core_session(session_id)
+                            .await;
                         return Err(anyhow::anyhow!("agent invocation timed out"));
                     }
                     break;
                 }
             }
         }
+
+        if let Some(pending) = pending_approval.take() {
+            if let Some(request_id) = pending.request_id.as_deref() {
+                self.approval_coordinator().remove(request_id).await;
+            }
+            let _ = session.submit(pending.abort_op()).await;
+        }
+        self.approval_coordinator()
+            .remove_for_core_session(session_id)
+            .await;
 
         if !saw_delta && !fallback_agent_reply.is_empty() {
             reply.push_str(&fallback_agent_reply);
@@ -414,6 +688,26 @@ impl GatewayChannel {
     ) -> anyhow::Result<ResolvedAgentSession> {
         self.resolve_agent_session_inner(config, logical_session_id, true)
             .await
+    }
+
+    /// Drop the active in-memory core session for a logical session after its
+    /// effective security policy changes. The rollout remains available and
+    /// will be resumed with the newly resolved config on the next invocation.
+    pub(crate) async fn invalidate_logical_session_security(&self, logical_session_id: &str) {
+        if let Some(core_session_id) = self
+            .resolve_active_logical_session_thread(logical_session_id)
+            .await
+        {
+            self.approval_coordinator()
+                .remove_for_core_session(core_session_id)
+                .await;
+            let _ = self.session_manager.remove_session(&core_session_id).await;
+        }
+
+        self.logical_session_threads
+            .lock()
+            .await
+            .remove(logical_session_id);
     }
 
     async fn resolve_agent_session_inner(

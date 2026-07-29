@@ -7,7 +7,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
+use crate::auth::{TokenInfo, TokenScope};
 use crate::channel::GatewayChannel;
+use crate::security::approval_coordinator::{
+    AuthenticatedApprovalOutcome, resolve_authenticated_approval,
+};
 use crate::session::GatewaySessionManager;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -25,6 +29,16 @@ fn approval_store_lock() -> &'static tokio::sync::Mutex<()> {
 
 fn approval_store_path(savfox_home: &Path) -> PathBuf {
     savfox_home.join(GATEWAY_SUBDIR).join("exec-approvals.json")
+}
+
+pub(crate) fn sanitized_approval_text(input: &str, max_chars: usize) -> String {
+    let redacted = crate::redaction::redact_text_always(input);
+    let mut chars = redacted.chars();
+    let mut output = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_some() {
+        output.push('…');
+    }
+    output
 }
 
 async fn load_store(path: &Path) -> ApprovalStore {
@@ -63,10 +77,8 @@ pub(crate) enum ResolveOutcome {
     /// The matching approval was on the pending list with a valid nonce
     /// and has now been moved to `resolved`. Returns `true`.
     Resolved,
-    /// The approval id was already resolved or was never on the pending
-    /// list. The resolution is still appended to `resolved` (legacy
-    /// behaviour) for audit, but the boolean caller signals "was
-    /// pending: false".
+    /// The approval id was already resolved or was never on the pending list.
+    /// The store is not mutated, preventing replay and audit-log poisoning.
     NotPending,
     /// The presented nonce did not match — refused without mutating.
     NonceMismatch,
@@ -88,7 +100,7 @@ pub(crate) async fn persist_resolved_approval(
     // and the presented nonce are required; everything else is rejected
     // before a write hits the disk.
     let pending_entry = store.pending.iter().find(|r| r.id == resolution.id);
-    let was_pending = match pending_entry {
+    match pending_entry {
         Some(entry) if entry.nonce.is_empty() => {
             return Ok(ResolveOutcome::LegacyMissingNonce);
         }
@@ -96,19 +108,18 @@ pub(crate) async fn persist_resolved_approval(
             if !bool::from(entry.nonce.as_bytes().ct_eq(resolution.nonce.as_bytes())) {
                 return Ok(ResolveOutcome::NonceMismatch);
             }
-            true
         }
-        None => false,
-    };
+        None => return Ok(ResolveOutcome::NotPending),
+    }
 
     store.pending.retain(|entry| entry.id != resolution.id);
-    store.resolved.push(resolution.clone());
+    let mut audit_resolution = resolution.clone();
+    // The nonce has served its single-use correlation purpose. Do not retain
+    // it in the resolved audit history.
+    audit_resolution.nonce.clear();
+    store.resolved.push(audit_resolution);
     save_store(&path, &store).await?;
-    Ok(if was_pending {
-        ResolveOutcome::Resolved
-    } else {
-        ResolveOutcome::NotPending
-    })
+    Ok(ResolveOutcome::Resolved)
 }
 
 pub(crate) async fn list_pending_approvals(
@@ -116,12 +127,41 @@ pub(crate) async fn list_pending_approvals(
 ) -> Result<Vec<ExecApprovalRequest>, String> {
     let _guard = approval_store_lock().lock().await;
     let path = approval_store_path(savfox_home);
-    let store = load_store(&path).await;
+    let mut store = load_store(&path).await;
+    let now_ms = crate::json_store::now_ms();
+    let mut expired = Vec::new();
+    store.pending.retain(|request| {
+        let is_expired = request.expires_at_ms != 0 && request.expires_at_ms <= now_ms;
+        if is_expired {
+            expired.push(ExecApprovalResolution {
+                id: request.id.clone(),
+                approved: false,
+                resolved_by: Some("gateway".to_owned()),
+                reason: Some("approval request expired".to_owned()),
+                nonce: String::new(),
+            });
+        }
+        !is_expired
+    });
+    if !expired.is_empty() {
+        store.resolved.extend(expired);
+        save_store(&path, &store).await?;
+    }
     Ok(store.pending)
 }
 
+pub(crate) async fn find_pending_approval(
+    savfox_home: &Path,
+    request_id: &str,
+) -> Result<Option<ExecApprovalRequest>, String> {
+    Ok(list_pending_approvals(savfox_home)
+        .await?
+        .into_iter()
+        .find(|request| request.id == request_id))
+}
+
 /// An exec approval request from an agent that needs human authorization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct ExecApprovalRequest {
     /// Unique ID for this approval request.
     pub id: String,
@@ -161,6 +201,34 @@ pub(crate) struct ExecApprovalRequest {
     /// different request — defends against replay.
     #[serde(default)]
     pub nonce: String,
+    /// Unified coordinator request kind (`exec`, `patch`, ...).
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub channel_instance_id: Option<String>,
+    #[serde(default)]
+    pub account_id: Option<String>,
+    #[serde(default)]
+    pub peer_id: Option<String>,
+    #[serde(default)]
+    pub logical_session_id: Option<String>,
+    #[serde(default)]
+    pub core_session_id: Option<String>,
+    #[serde(default)]
+    pub turn_id: Option<String>,
+    #[serde(default)]
+    pub environment_id: Option<String>,
+    #[serde(default)]
+    pub available_decisions: Vec<String>,
+    #[serde(default)]
+    pub policy_fingerprint: Option<String>,
+}
+
+impl ExecApprovalRequest {
+    #[must_use]
+    pub(crate) fn is_coordinator_owned(&self) -> bool {
+        self.kind.is_some() || self.core_session_id.is_some() || self.turn_id.is_some()
+    }
 }
 
 /// The resolution of an exec approval request.
@@ -399,7 +467,14 @@ pub(crate) async fn approval_request_handler(
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
-
+    let token_info = match depot.get_typed::<TokenInfo>() {
+        Ok(info) if info.has_scope(TokenScope::OperatorApprovalsRequest) => info,
+        _ => {
+            res.status_code(StatusCode::FORBIDDEN);
+            res.render(Json(json!({"error": "approval request scope required"})));
+            return;
+        }
+    };
     let body = match req.parse_json::<Value>().await {
         Ok(v) => v,
         Err(err) => {
@@ -420,19 +495,29 @@ pub(crate) async fn approval_request_handler(
         }
     };
     let mut request = request;
-    if request.id.trim().is_empty() {
-        request.id = uuid::Uuid::now_v7().to_string();
-    }
+    request.id = uuid::Uuid::now_v7().to_string();
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    if request.created_at_ms == 0 {
-        request.created_at_ms = now_ms;
-    }
-    if request.expires_at_ms == 0 {
-        request.expires_at_ms = now_ms + 300_000;
-    }
+    request.created_at_ms = now_ms;
+    request.expires_at_ms = now_ms.saturating_add(300_000);
+    request.command = sanitized_approval_text(&request.command, 2_048);
+    request.ask = request
+        .ask
+        .map(|reason| sanitized_approval_text(&reason, 512));
+    // The REST request endpoint creates legacy durable-only approvals. Core
+    // correlation fields are server-owned and cannot be injected by callers.
+    request.kind = None;
+    request.channel_instance_id = None;
+    request.account_id = None;
+    request.peer_id = None;
+    request.logical_session_id = None;
+    request.core_session_id = None;
+    request.turn_id = None;
+    request.environment_id = None;
+    request.available_decisions.clear();
+    request.policy_fingerprint = None;
     // S3: always overwrite caller-supplied nonce with a server-generated
     // one. Even if a malicious agent guesses an id, it cannot inject the
     // matching nonce because that field is regenerated here.
@@ -447,7 +532,11 @@ pub(crate) async fn approval_request_handler(
 
     forward_approval_to_chat(&channel, &session_mgr, &request, &config).await;
 
-    info!(approval_id = %request.id, "exec approval request received");
+    info!(
+        approval_id = %request.id,
+        requested_by = %token_info.label,
+        "exec approval request received"
+    );
     res.render(Json(json!({
         "status": "forwarded",
         "id": request.id,
@@ -474,6 +563,14 @@ pub(crate) async fn approval_resolve_handler(
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
+    let token_info = match depot.get_typed::<TokenInfo>() {
+        Ok(info) if info.has_scope(TokenScope::OperatorApprovalsResolve) => info,
+        _ => {
+            res.status_code(StatusCode::FORBIDDEN);
+            res.render(Json(json!({"error": "approval resolve scope required"})));
+            return;
+        }
+    };
 
     let body = match req.parse_json::<Value>().await {
         Ok(v) => v,
@@ -484,6 +581,10 @@ pub(crate) async fn approval_resolve_handler(
         }
     };
 
+    let requested_decision = body
+        .get("decision")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let resolution: ExecApprovalResolution = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(err) => {
@@ -492,27 +593,126 @@ pub(crate) async fn approval_resolve_handler(
             return;
         }
     };
-    // S3: nonce verification + persistence happen atomically inside
-    // `persist_resolved_approval`. Without a valid nonce, no write hits
-    // disk and the resolution is rejected with 400.
-    let outcome = match persist_resolved_approval(&channel.config().savfox_home, &resolution).await
+    let decision = requested_decision
+        .as_deref()
+        .unwrap_or(if resolution.approved {
+            "approve-once"
+        } else {
+            "deny"
+        });
+    let authenticated_subject = format!("token:{}", token_info.label);
+    let sanitized_reason = resolution
+        .reason
+        .as_deref()
+        .map(|reason| sanitized_approval_text(reason, 512));
+    match resolve_authenticated_approval(
+        &channel,
+        &resolution.id,
+        &resolution.nonce,
+        decision,
+        Some(authenticated_subject.clone()),
+        sanitized_reason.clone(),
+    )
+    .await
     {
-        Ok(o) => o,
-        Err(err) => {
-            warn!(
-                "failed to persist approval resolution {}: {}",
-                resolution.id, err
-            );
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        Ok(AuthenticatedApprovalOutcome::Resolved { decision }) => {
+            let canonical_resolution = ExecApprovalResolution {
+                id: resolution.id.clone(),
+                approved: decision.starts_with("approved"),
+                resolved_by: Some(authenticated_subject),
+                reason: sanitized_reason,
+                nonce: resolution.nonce.clone(),
+            };
+            let config = load_forwarding_config();
+            notify_approval_resolved(&channel, &session_mgr, &canonical_resolution, &config).await;
+            res.render(Json(json!({
+                "status": "resolved",
+                "id": resolution.id,
+                "decision": decision,
+                "resolved_pending": true,
+                "coordinated": true,
+            })));
+            return;
+        }
+        Ok(AuthenticatedApprovalOutcome::NonceMismatch) => {
+            res.status_code(StatusCode::BAD_REQUEST);
             res.render(Json(
-                json!({"error": "persist failed", "id": resolution.id}),
+                json!({"error": "nonce mismatch", "id": resolution.id}),
             ));
             return;
         }
+        Ok(AuthenticatedApprovalOutcome::UnsupportedDecision) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Json(
+                json!({"error": "unsupported decision", "id": resolution.id}),
+            ));
+            return;
+        }
+        Ok(AuthenticatedApprovalOutcome::NotCoordinated) => {}
+        Err(error) => {
+            warn!(approval_id = %resolution.id, %error, "failed to submit coordinated approval");
+            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+            res.render(Json(
+                json!({"error": "approval delivery failed", "id": resolution.id}),
+            ));
+            return;
+        }
+    }
+    match find_pending_approval(&channel.config().savfox_home, &resolution.id).await {
+        Ok(Some(request)) if request.is_coordinator_owned() => {
+            res.status_code(StatusCode::CONFLICT);
+            res.render(Json(json!({
+                "error": "approval coordinator is no longer active; re-issue the request",
+                "id": resolution.id,
+            })));
+            return;
+        }
+        Ok(_) => {}
+        Err(error) => {
+            warn!(approval_id = %resolution.id, %error, "failed to inspect pending approval");
+            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+            res.render(Json(
+                json!({"error": "approval lookup failed", "id": resolution.id}),
+            ));
+            return;
+        }
+    }
+    // S3: nonce verification + persistence happen atomically inside
+    // `persist_resolved_approval`. Without a valid nonce, no write hits
+    // disk and the resolution is rejected with 400.
+    let canonical_resolution = ExecApprovalResolution {
+        id: resolution.id.clone(),
+        approved: resolution.approved,
+        resolved_by: Some(authenticated_subject),
+        reason: sanitized_reason,
+        nonce: resolution.nonce.clone(),
     };
+    let outcome =
+        match persist_resolved_approval(&channel.config().savfox_home, &canonical_resolution).await
+        {
+            Ok(o) => o,
+            Err(err) => {
+                warn!(
+                    "failed to persist approval resolution {}: {}",
+                    resolution.id, err
+                );
+                res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+                res.render(Json(
+                    json!({"error": "persist failed", "id": resolution.id}),
+                ));
+                return;
+            }
+        };
     let resolved_pending = match outcome {
         ResolveOutcome::Resolved => true,
-        ResolveOutcome::NotPending => false,
+        ResolveOutcome::NotPending => {
+            res.status_code(StatusCode::NOT_FOUND);
+            res.render(Json(json!({
+                "error": "approval is not pending",
+                "id": resolution.id,
+            })));
+            return;
+        }
         ResolveOutcome::NonceMismatch => {
             warn!(
                 approval_id = %resolution.id,
@@ -541,7 +741,7 @@ pub(crate) async fn approval_resolve_handler(
 
     let config = load_forwarding_config();
 
-    notify_approval_resolved(&channel, &session_mgr, &resolution, &config).await;
+    notify_approval_resolved(&channel, &session_mgr, &canonical_resolution, &config).await;
 
     info!(
         approval_id = %resolution.id,
@@ -565,6 +765,14 @@ pub(crate) async fn approvals_list_handler(depot: &mut Depot, res: &mut Response
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
+    match depot.get_typed::<TokenInfo>() {
+        Ok(info) if info.has_scope(TokenScope::OperatorApprovalsRead) => {}
+        _ => {
+            res.status_code(StatusCode::FORBIDDEN);
+            res.render(Json(json!({"error": "approval read scope required"})));
+            return;
+        }
+    }
 
     match list_pending_approvals(&channel.config().savfox_home).await {
         Ok(approvals) => {
@@ -622,6 +830,7 @@ mod tests {
     }
 
     fn sample_request(id: &str, nonce: &str) -> ExecApprovalRequest {
+        let now_ms = crate::json_store::now_ms();
         ExecApprovalRequest {
             id: id.to_owned(),
             command: "echo hello".to_owned(),
@@ -631,9 +840,10 @@ mod tests {
             ask: Some("need approval".to_owned()),
             agent_id: Some("default".to_owned()),
             session_id: Some("0194f7b3-1d7b-7c40-ae3d-95b6ef93e140".to_owned()),
-            created_at_ms: 1,
-            expires_at_ms: 2,
+            created_at_ms: now_ms,
+            expires_at_ms: now_ms.saturating_add(60_000),
             nonce: nonce.to_owned(),
+            ..Default::default()
         }
     }
 
@@ -672,6 +882,12 @@ mod tests {
             .await
             .expect("list pending after resolve");
         assert!(pending_after.is_empty());
+        let store = load_store(&approval_store_path(&root)).await;
+        assert_eq!(store.resolved.len(), 1);
+        assert!(
+            store.resolved[0].nonce.is_empty(),
+            "consumed nonce must not remain in audit history"
+        );
 
         let _ = tokio::fs::remove_dir_all(&root).await;
     }
@@ -731,6 +947,12 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(outcome, ResolveOutcome::NotPending));
+        let store = load_store(&approval_store_path(&root)).await;
+        assert_eq!(
+            store.resolved.len(),
+            1,
+            "replay must not append a second audit entry"
+        );
 
         let _ = tokio::fs::remove_dir_all(&root).await;
     }
@@ -742,7 +964,20 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(outcome, ResolveOutcome::NotPending));
+        let store = load_store(&approval_store_path(&root)).await;
+        assert!(
+            store.resolved.is_empty(),
+            "unknown ids must not poison the resolved audit log"
+        );
         let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[test]
+    fn approval_text_is_redacted_and_bounded() {
+        let input = format!("token=super-secret-value {}", "x".repeat(3_000));
+        let sanitized = sanitized_approval_text(&input, 128);
+        assert!(!sanitized.contains("super-secret-value"));
+        assert!(sanitized.chars().count() <= 129);
     }
 
     #[test]
