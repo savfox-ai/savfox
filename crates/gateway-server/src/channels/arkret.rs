@@ -3298,12 +3298,6 @@ pub(crate) async fn send_to_arkret_account(
             "no Arkret channel configured for realm {realm_id} and routed config {saved_channel_config_id:?}"
         );
     };
-    if !account.has_requested_scope("ak.self.authorization_leases.command.issue") {
-        anyhow::bail!(
-            "Arkret account '{}' send=true but missing service scope ak.self.authorization_leases.command.issue; refusing to issue a publication lease",
-            account.id
-        );
-    }
     if !account.has_requested_scope("ak.self.events.command.submit") {
         anyhow::bail!(
             "Arkret account '{}' send=true but missing service scope ak.self.events.command.submit; refusing to call submit endpoint",

@@ -12,7 +12,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::Context;
-use arkret::http_client::{Auth, Client, ClientBuilder, ClientRequestOptions, DpopAuth};
+use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
     AccountSubscribeFrame, DeviceId, Did, Ed25519PayloadSigner, Event, EventsSubmitOutcome,
     EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,

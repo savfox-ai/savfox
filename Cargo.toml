@@ -341,7 +341,6 @@ arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk", default-feature
     "mls",
     "signer",
 ] }
-arkret-wire = { path = "../../arkret-org/arkret-rust-sdk/crates/wire", default-features = false }
 arkret-schema = { path = "../../arkret-org/arkret-rust-sdk/crates/schema", default-features = false, features = ["embedded-artifacts"] }
 arkret-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/crypto", default-features = false }
 arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-collaboration", default-features = false }
