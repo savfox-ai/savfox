@@ -1185,122 +1185,82 @@ async fn publish_account_mls_key_packages(
 /// Invoked during unbind while the Agent's `ak.agent.key.authorize` is still
 /// current, so the old runtime key can sign the canonical revoke and the pool
 /// fails closed before the binding is replaced (spec §3: quiesce old session,
-/// revoke old pool). Best-effort: a missing scope or network/authorization
-/// failure is logged, not fatal — the local Agent state is purged regardless,
-/// and a superseding pairing retires the old authorization independently.
+/// revoke old pool). Any inability to prove complete remote revocation aborts
+/// the unbind before local signing material or the persisted binding is erased.
 pub(crate) async fn revoke_account_mls_key_packages(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     crypto_store: &FileArkretCryptoStore,
-) {
+) -> anyhow::Result<Option<usize>> {
     if !account.has_requested_scope(KEYPACKAGES_REVOKE_SCOPE) {
-        warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            scope = KEYPACKAGES_REVOKE_SCOPE,
-            "arkret: unbind cannot revoke MLS KeyPackages without the standard revoke scope; leaving pool to authorization supersession/expiry"
+        anyhow::bail!(
+            "unbind cannot revoke MLS KeyPackages without scope {KEYPACKAGES_REVOKE_SCOPE}"
         );
-        return;
     }
-    let device = match DeviceId::new(account.device_id.clone()) {
-        Ok(device) => device,
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                "arkret: invalid device id for MLS KeyPackage revoke: {err}"
-            );
-            return;
-        }
-    };
-    let Some(key_ref) = account.key_ref.as_ref() else {
-        warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            "arkret: Agent MLS KeyPackage revoke requires the authorized runtime key"
-        );
-        return;
-    };
-    let Some(verification_method) = account.verification_method.as_deref() else {
-        warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            "arkret: Agent MLS KeyPackage revoke requires the authorized verification method"
-        );
-        return;
-    };
-    let key_package_refs = match crypto_store.revocable_keypackage_ids() {
-        Ok(refs) => refs,
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                "arkret: failed to enumerate local MLS KeyPackages to revoke: {err:#}"
-            );
-            return;
-        }
-    };
+    let device = DeviceId::new(account.device_id.clone())
+        .context("invalid device id for MLS KeyPackage revoke")?;
+    let key_ref = account
+        .key_ref
+        .as_ref()
+        .context("Agent MLS KeyPackage revoke requires the authorized runtime key")?;
+    let verification_method = account
+        .verification_method
+        .as_deref()
+        .context("Agent MLS KeyPackage revoke requires the authorized verification method")?;
+    let key_package_refs = crypto_store
+        .revocable_keypackage_refs()
+        .context("enumerate local MLS KeyPackages to revoke")?;
     if key_package_refs.is_empty() {
         debug!(
             channel_id = %channel.id,
             account_id = %account.id,
             "arkret: no local pool MLS KeyPackages to revoke on unbind"
         );
-        return;
+        return Ok(None);
     }
     let unsigned = KeyPackagesRevokeUnsignedRequest {
         key_package_refs: key_package_refs.clone(),
         device_id: device,
         reason: Some("agent runtime unbind".to_owned()),
     };
-    let signature = match sign_keypackages_revoke_request(key_ref, verification_method, &unsigned) {
-        Ok(signature) => signature,
-        Err(err) => {
+    let signature = sign_keypackages_revoke_request(key_ref, verification_method, &unsigned)
+        .context("sign canonical MLS KeyPackage revoke request")?;
+    let request = unsigned.into_signed(signature);
+    let outcome = client
+        .inner()
+        .keypackages_revoke(&request)
+        .await
+        .context("revoke MLS KeyPackage pool during unbind")?;
+    if !outcome.failures.is_empty()
+        || outcome.revoked.len() != key_package_refs.len()
+        || key_package_refs
+            .iter()
+            .any(|keypackage_ref| !outcome.revoked.contains(keypackage_ref))
+    {
+        anyhow::bail!(
+            "MLS KeyPackage revoke did not acknowledge the complete pool: revoked={:?}, failures={:?}",
+            outcome.revoked,
+            outcome.failures
+        );
+    }
+    for keypackage_ref in &key_package_refs {
+        if let Err(err) = crypto_store.mark_mls_key_package_revoked(keypackage_ref) {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "arkret: failed to sign canonical MLS KeyPackage revoke request: {err:#}"
+                keypackage_ref = %keypackage_ref,
+                "arkret: failed to mark local MLS KeyPackage revoked after server ack: {err:#}"
             );
-            return;
         }
-    };
-    let request = unsigned.into_signed(signature);
-    match client.inner().keypackages_revoke(&request).await {
-        Ok(outcome) => {
-            for keypackage_id in &key_package_refs {
-                if let Err(err) = crypto_store.mark_mls_key_package_revoked(keypackage_id) {
-                    warn!(
-                        channel_id = %channel.id,
-                        account_id = %account.id,
-                        keypackage_id = %keypackage_id,
-                        "arkret: failed to mark local MLS KeyPackage revoked after server ack: {err:#}"
-                    );
-                }
-            }
-            if !outcome.failures.is_empty() {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    revoked = outcome.revoked.len(),
-                    failures = ?outcome.failures,
-                    "arkret: MLS KeyPackage revoke returned failures during unbind"
-                );
-            } else {
-                info!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    revoked = outcome.revoked.len(),
-                    "arkret: revoked Agent MLS KeyPackage pool on unbind"
-                );
-            }
-        }
-        Err(err) => warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            "arkret: MLS KeyPackage revoke failed during unbind: {err}"
-        ),
     }
+    info!(
+        channel_id = %channel.id,
+        account_id = %account.id,
+        revoked = outcome.revoked.len(),
+        "arkret: revoked Agent MLS KeyPackage pool on unbind"
+    );
+    Ok(Some(outcome.revoked.len()))
 }
 
 /// Outcome of an explicit Agent runtime unbind, surfaced to the RPC caller.
@@ -1322,30 +1282,22 @@ pub(crate) async fn unbind_arkret_account(
     savfox_home: &std::path::Path,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-) -> ArkretUnbindReport {
+) -> anyhow::Result<ArkretUnbindReport> {
     let listeners_stopped = stop_arkret_account_listeners(&channel.id);
 
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
-    let mut revoke_attempted = false;
-    match construct_account_provider(savfox_home, channel, account).await {
-        Ok(provider) => match provider.provide().await {
-            Ok(inner) => {
-                let client = ArkretHttpClient::from_inner(inner);
-                revoke_account_mls_key_packages(&client, channel, account, &crypto_store).await;
-                revoke_attempted = true;
-            }
-            Err(err) => warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                "arkret: unbind could not build session client to revoke pool; purging local state anyway: {err:#}"
-            ),
-        },
-        Err(err) => warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            "arkret: unbind could not construct session provider to revoke pool; purging local state anyway: {err:#}"
-        ),
-    }
+    let provider = construct_account_provider(savfox_home, channel, account)
+        .await
+        .context("construct Agent session provider for unbind")?;
+    let inner = provider
+        .provide()
+        .await
+        .context("build Agent session client for unbind")?;
+    let client = ArkretHttpClient::from_inner(inner);
+    let revoke_attempted =
+        revoke_account_mls_key_packages(&client, channel, account, &crypto_store)
+            .await?
+            .is_some();
 
     if let Err(err) = crypto_store.delete_persisted() {
         warn!(
@@ -1386,12 +1338,12 @@ pub(crate) async fn unbind_arkret_account(
         "arkret: unbound Agent runtime; local state purged"
     );
 
-    ArkretUnbindReport {
+    Ok(ArkretUnbindReport {
         principal_id: account.principal_id.clone(),
         device_id: account.device_id.clone(),
         listeners_stopped,
         revoke_attempted,
-    }
+    })
 }
 
 fn build_signed_keypackage_upload_request(
