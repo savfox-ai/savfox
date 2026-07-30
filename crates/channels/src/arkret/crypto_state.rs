@@ -485,13 +485,15 @@ impl FileArkretCryptoStore {
         })
     }
 
-    /// Server KeyPackage ids (the durable row primary key) for every
-    /// locally-tracked pool KeyPackage that has not already been consumed or
-    /// revoked. Used to revoke the published pool when an Agent runtime is
-    /// unbound so the old pool fails closed before the binding is replaced.
-    pub fn revocable_keypackage_ids(&self) -> anyhow::Result<Vec<String>> {
+    /// Canonical KeyPackage refs for every locally-tracked pool KeyPackage that
+    /// has not already been consumed or revoked.
+    ///
+    /// The revoke endpoint resolves its signed targets by `keypackage_ref`,
+    /// not by the client-generated `keypackage_id` used as the durable row
+    /// primary key.
+    pub fn revocable_keypackage_refs(&self) -> anyhow::Result<Vec<String>> {
         let state = self.load()?;
-        let mut ids = Vec::new();
+        let mut refs = Vec::new();
         for record in state.mls_key_packages.values() {
             if matches!(
                 record.state,
@@ -499,11 +501,12 @@ impl FileArkretCryptoStore {
             ) {
                 continue;
             }
-            if !ids.contains(&record.keypackage_id) {
-                ids.push(record.keypackage_id.clone());
+            let keypackage_ref = record.keypackage_ref.as_str().to_owned();
+            if !refs.contains(&keypackage_ref) {
+                refs.push(keypackage_ref);
             }
         }
-        Ok(ids)
+        Ok(refs)
     }
 
     /// Delete the persisted crypto-state file for this account. Used by unbind
@@ -1798,6 +1801,34 @@ mod tests {
         assert_ne!(rotated.keypackage_id, first.keypackage_id);
         assert_eq!(rotated.state, MlsKeyPackageState::Published);
         assert!(!rotated.last_resort);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn revocable_pool_uses_wire_refs_instead_of_local_ids() {
+        let home = temp_home("kp-revoke-refs");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        let principal = "did:web:agent.example";
+        let device = "ak:device:01904100-0000-7000-8000-000000000001";
+        let record = store
+            .ensure_mls_key_package(principal, device, false)
+            .expect("KeyPackage should be created");
+
+        let refs = store
+            .revocable_keypackage_refs()
+            .expect("revocable refs should load");
+        assert_eq!(refs, vec![record.keypackage_ref.as_str().to_owned()]);
+        assert!(!refs.contains(&record.keypackage_id));
+
+        store
+            .mark_mls_key_package_revoked(record.keypackage_ref.as_str())
+            .expect("revoke marker should persist");
+        assert!(
+            store
+                .revocable_keypackage_refs()
+                .expect("revocable refs should reload")
+                .is_empty()
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 

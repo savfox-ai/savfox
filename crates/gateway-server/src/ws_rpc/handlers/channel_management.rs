@@ -679,7 +679,14 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             }));
         };
 
-        let report = crate::channels::arkret::unbind_arkret_account(&home, &parsed, account).await;
+        let report = crate::channels::arkret::unbind_arkret_account(&home, &parsed, account)
+            .await
+            .map_err(|error| {
+                (
+                    INTERNAL_ERROR,
+                    format!("Arkret Agent unbind stopped before local state was erased: {error:#}"),
+                )
+            })?;
 
         // Return the channel to an unbound state so a new Agent can be paired.
         let clear_patch = json!({

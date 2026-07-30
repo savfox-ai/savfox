@@ -12,9 +12,27 @@
 - Detection: Sidecar producer completion-gate verification with
   `cargo test -p savfox-channels --features arkret sidecar`.
 - Resolution: migrate to `Ed25519PayloadSigner` and signed `ScopeRef`, remove the retired message
-  id field, acquire an authority-issued publication lease with stable Event-id idempotency, and
-  submit `EventInitialSubmission`.
+  id field, and submit through a host-owned `ArkretInitialSubmissionProvider` that returns an
+  issuer-produced `EventInitialSubmission`. The personal-agent session remains unable to mint its
+  own authorization lease.
 - Prevention dimension: every optional protocol integration feature must compile and run its
   focused producer tests whenever the shared wire SDK changes.
-- Status: resolved; verified by 13 Sidecar channel tests and 35 Arkret gateway tests with the
-  optional feature enabled.
+- Status: resolved; the post-merge focused verification results are recorded in the task handoff.
+
+## 2026-07-30 — Agent unbind confused local KeyPackage ids with canonical refs
+
+- Surface: Arkret Agent replacement and explicit runtime unbind.
+- Regression: the crypto store returned its client-generated `keypackage_id` row keys to the
+  Principal Server revoke endpoint, whose signed target space is the canonical
+  `keypackage_ref`. The server correctly rejected every target. The unbind path then treated
+  session, signing, transport, and partial-revoke failures as warnings and erased the local signing
+  material and binding anyway.
+- Detection: the real two-Savfox replacement gate returned
+  `KeyPackage signature target is missing` after the first pairing.
+- Resolution: the store now enumerates canonical refs, the revoke caller verifies a complete
+  failure-free acknowledgement for the exact requested set, and unbind propagates every
+  pre-revocation error before local state or the persisted binding can be cleared.
+- Prevention dimension: use distinct types for local storage ids and protocol refs; destructive
+  teardown must cross its remote revocation barrier before committing local deletion.
+- Status: resolved; covered by the wire-ref regression, Arkret-feature gateway compile, and the
+  live Agent replacement gate.
