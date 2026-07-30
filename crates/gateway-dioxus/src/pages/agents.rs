@@ -5,10 +5,10 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
 use crate::api::types::{
-    AgentApprovalMode, AgentDetail, AgentEntry, AgentFile, AgentFilesResponse,
-    AgentIdleReplyConfig, AgentPermissionPolicy, AgentSandboxMode, AgentTerminalDelegateConfig,
+    AgentDetail, AgentEntry, AgentExecutionPolicy, AgentFile, AgentFilesResponse,
+    AgentIdleReplyConfig, AgentPermissionPolicy, AgentTerminalDelegateConfig,
     AgentToolAccessPolicy, AgentsResponse, AvailableModel, AvailableModelsResponse, SkillDetail,
-    SkillsBinsResponse, SkillsStatusResponse,
+    SkillsBinsResponse, SkillsStatusResponse, agent_preset_boundary,
 };
 use crate::api::ws::WsRpc;
 use crate::components::icon::Icon;
@@ -5316,6 +5316,12 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
     let mut passthrough_tools: Signal<std::collections::HashSet<String>> =
         use_signal(std::collections::HashSet::new);
     let mut loaded_tools_key = use_signal(|| None::<String>);
+    let mut simulation_command = use_signal(String::new);
+    let mut simulation_result = use_signal(|| None::<serde_json::Value>);
+    let mut simulation_pending = use_signal(|| false);
+    let mut rule_command = use_signal(String::new);
+    let mut rule_decision = use_signal(|| "allow".to_owned());
+    let mut security_refresh = use_signal(|| 0_u64);
 
     // Fetch current tools config
     let ws_get = ws.clone();
@@ -5327,6 +5333,17 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
         let name = agent_name.clone();
         async move {
             ws.call::<AgentDetail>("agents.get", Some(json!({ "id": name })))
+                .await
+                .ok()
+        }
+    });
+    let rules_ws = ws.clone();
+    let rules_data = use_resource(move || {
+        let _c = ws_connected();
+        let _r = security_refresh();
+        let ws = rules_ws.clone();
+        async move {
+            ws.call::<serde_json::Value>("security.rules.list", None)
                 .await
                 .ok()
         }
@@ -5373,8 +5390,175 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
         passthrough_tools.set(extra);
     });
 
+    let effective_security = tools_data
+        .read()
+        .as_ref()
+        .and_then(|detail| detail.as_ref())
+        .and_then(|detail| detail.effective_security.clone());
+
     rsx! {
         div { style: "padding:16px;display:flex;flex-direction:column;gap:16px;max-width:720px;",
+            if let Some(security) = effective_security {
+                div { class: "{SECTION_CARD}",
+                    h4 { class: "{SECTION_TITLE}", "Effective Enforcement" }
+                    div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;",
+                        div {
+                            div { style: "font-size:11px;color:var(--text-muted);", "Execution" }
+                            div { style: "font-size:13px;font-weight:600;", "{security.execution_mode}" }
+                        }
+                        div {
+                            div { style: "font-size:11px;color:var(--text-muted);", "Sandbox Policy" }
+                            div { style: "font-size:13px;font-weight:600;", "{security.sandbox_policy}" }
+                        }
+                        div {
+                            div { style: "font-size:11px;color:var(--text-muted);", "Backend" }
+                            div { style: "font-size:13px;font-weight:600;", "{security.sandbox_enforcement}" }
+                        }
+                    }
+                    if let Some(reason) = security.fallback_reason {
+                        div {
+                            style: "margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(245,158,11,.12);color:#b45309;font-size:12px;",
+                            "{reason}"
+                        }
+                    }
+                }
+            }
+            div { class: "{SECTION_CARD}",
+                h4 { class: "{SECTION_TITLE}", "Policy Simulator" }
+                div { style: "display:flex;gap:8px;align-items:center;",
+                    input {
+                        style: "flex:1;min-width:0;",
+                        placeholder: "Enter a command without running it",
+                        value: "{simulation_command}",
+                        oninput: move |event| simulation_command.set(event.value()),
+                    }
+                    button {
+                        class: "{TOOL_BTN}",
+                        disabled: simulation_pending(),
+                        onclick: {
+                            let ws = ws.clone();
+                            let agent = agent_id.clone();
+                            move |_| {
+                                let ws = ws.clone();
+                                let agent = agent.clone();
+                                let command = simulation_command();
+                                if command.trim().is_empty() {
+                                    return;
+                                }
+                                simulation_pending.set(true);
+                                spawn(async move {
+                                    match ws.call::<serde_json::Value>(
+                                        "security.policy.simulate",
+                                        Some(json!({ "agent": agent, "command": command })),
+                                    ).await {
+                                        Ok(value) => simulation_result.set(Some(value)),
+                                        Err(error) => toaster.error(format!("Simulation failed: {error}")),
+                                    }
+                                    simulation_pending.set(false);
+                                });
+                            }
+                        },
+                        if simulation_pending() { "Checking..." } else { "Simulate" }
+                    }
+                }
+                if let Some(result) = simulation_result() {
+                    div {
+                        style: "margin-top:10px;padding:10px;border-radius:6px;background:var(--surface-muted);font-size:12px;",
+                        div { style: "font-weight:700;", "Decision: {result.get(\"decision\").and_then(|v| v.as_str()).unwrap_or(\"unknown\")}" }
+                        div { "Mode: {result.get(\"execution_mode\").and_then(|v| v.as_str()).unwrap_or(\"unknown\")} · Sandbox: {result.get(\"sandbox\").and_then(|v| v.as_str()).unwrap_or(\"unknown\")}" }
+                        if let Some(reason) = result.get("reason").and_then(|v| v.as_str()) {
+                            div { style: "margin-top:4px;color:var(--text-muted);", "{reason}" }
+                        }
+                    }
+                }
+            }
+            div { class: "{SECTION_CARD}",
+                h4 { class: "{SECTION_TITLE}", "Core Execpolicy Rules" }
+                div { style: "display:flex;gap:8px;align-items:center;margin-bottom:10px;",
+                    input {
+                        style: "flex:1;min-width:0;",
+                        placeholder: "Command prefix, e.g. git status",
+                        value: "{rule_command}",
+                        oninput: move |event| rule_command.set(event.value()),
+                    }
+                    select {
+                        value: "{rule_decision}",
+                        onchange: move |event| rule_decision.set(event.value()),
+                        option { value: "allow", "Allow" }
+                        option { value: "ask", "Ask" }
+                        option { value: "deny", "Deny" }
+                    }
+                    button {
+                        class: "{TOOL_BTN}",
+                        onclick: {
+                            let ws = ws.clone();
+                            move |_| {
+                                let ws = ws.clone();
+                                let command = rule_command();
+                                let decision = rule_decision();
+                                if command.trim().is_empty() {
+                                    return;
+                                }
+                                spawn(async move {
+                                    match ws.call::<serde_json::Value>(
+                                        "security.rules.add",
+                                        Some(json!({ "command": command, "decision": decision })),
+                                    ).await {
+                                        Ok(_) => {
+                                            rule_command.set(String::new());
+                                            security_refresh += 1;
+                                        }
+                                        Err(error) => toaster.error(format!("Could not add rule: {error}")),
+                                    }
+                                });
+                            }
+                        },
+                        "Add"
+                    }
+                }
+                if let Some(Some(data)) = rules_data.read().as_ref() {
+                    div { style: "display:flex;flex-direction:column;gap:6px;",
+                        for rule in data.get("rules").and_then(|value| value.as_array()).cloned().unwrap_or_default() {
+                            {
+                                let command = rule.get("command").cloned().unwrap_or(serde_json::Value::Null);
+                                let decision = rule.get("decision").and_then(|value| value.as_str()).unwrap_or("unknown").to_owned();
+                                let rule_text = rule.get("rule").and_then(|value| value.as_str()).unwrap_or("").to_owned();
+                                let removable = command.is_array() && decision != "unknown";
+                                rsx! {
+                                    div { style: "display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;background:var(--surface-muted);",
+                                        code { style: "flex:1;font-size:11px;overflow-wrap:anywhere;", "{rule_text}" }
+                                        if removable {
+                                            button {
+                                                class: "{TOOL_BTN} tool-btn--sm",
+                                                onclick: {
+                                                    let ws = ws.clone();
+                                                    let command = command.clone();
+                                                    let decision = decision.clone();
+                                                    move |_| {
+                                                        let ws = ws.clone();
+                                                        let command = command.clone();
+                                                        let decision = decision.clone();
+                                                        spawn(async move {
+                                                            match ws.call::<serde_json::Value>(
+                                                                "security.rules.remove",
+                                                                Some(json!({ "command": command, "decision": decision })),
+                                                            ).await {
+                                                                Ok(_) => security_refresh += 1,
+                                                                Err(error) => toaster.error(format!("Could not remove rule: {error}")),
+                                                            }
+                                                        });
+                                                    }
+                                                },
+                                                "Remove"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // Profile selector (segmented control)
             div { class: "{SECTION_CARD}",
                 h4 { class: "{SECTION_TITLE}", "Tools Profile" }
@@ -5478,8 +5662,10 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                             let ws = ws.clone();
                             let id = id.clone();
                             let profile = selected_profile();
-                            let permission_policy = if profile.eq_ignore_ascii_case("inherit") {
-                                None
+                            let (permission_policy, execution_policy) = if profile
+                                .eq_ignore_ascii_case("inherit")
+                            {
+                                (None, None)
                             } else {
                                 let mut enabled: Vec<String> = tool_states
                                     .read()
@@ -5489,20 +5675,27 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                                 enabled.extend(passthrough_tools.read().iter().cloned());
                                 enabled.sort();
                                 enabled.dedup();
-                                // Build a permission_policy with the selected preset and tools.
-                                let sandbox = match profile.as_str() {
-                                    "minimal" | "messaging" => AgentSandboxMode::ReadOnly,
-                                    _ => AgentSandboxMode::WorkspaceWrite,
+                                let Some(boundary) = agent_preset_boundary(&profile) else {
+                                    toaster.error(format!(
+                                        "Unknown permission preset: {profile}"
+                                    ));
+                                    return;
                                 };
-                                Some(AgentPermissionPolicy {
-                                    preset_id: Some(profile),
-                                    sandbox: Some(sandbox),
-                                    approval: Some(AgentApprovalMode::OnRequest),
-                                    tool_access: Some(AgentToolAccessPolicy {
-                                        allowed: enabled,
-                                        ..AgentToolAccessPolicy::default()
+                                (
+                                    Some(AgentPermissionPolicy {
+                                        preset_id: Some(profile),
+                                        sandbox: Some(boundary.sandbox),
+                                        approval: Some(boundary.approval),
+                                        tool_access: Some(AgentToolAccessPolicy {
+                                            allowed: enabled,
+                                            ..AgentToolAccessPolicy::default()
+                                        }),
+                                        ..AgentPermissionPolicy::default()
                                     }),
-                                })
+                                    Some(AgentExecutionPolicy {
+                                        mode: boundary.execution_mode,
+                                    }),
+                                )
                             };
                             spawn(async move {
                                 let res = ws.call::<serde_json::Value>(
@@ -5510,6 +5703,7 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                                     Some(json!({
                                         "agent": id,
                                         "permission_policy": permission_policy,
+                                        "execution_policy": execution_policy,
                                     })),
                                 ).await;
                                 match res {

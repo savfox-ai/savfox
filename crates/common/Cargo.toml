@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 clap = { workspace = true, features = ["derive", "wrap_help"], optional = true }
 savfox-core = { workspace = true }
+savfox-gateway-shared = { workspace = true }
 savfox-lmstudio = { workspace = true }
 savfox-ollama = { workspace = true }
 savfox-protocol = { workspace = true }

@@ -134,8 +134,19 @@ mod tests {
     }
 
     #[test]
-    fn no_flags_means_no_sandbox() {
+    fn restricted_token_is_the_default() {
         let features = Features::with_defaults();
+
+        assert_eq!(
+            WindowsSandboxLevel::from_features(&features),
+            WindowsSandboxLevel::RestrictedToken
+        );
+    }
+
+    #[test]
+    fn restricted_token_can_be_explicitly_disabled() {
+        let mut features = Features::with_defaults();
+        features.disable(Feature::WindowsSandbox);
 
         assert_eq!(
             WindowsSandboxLevel::from_features(&features),

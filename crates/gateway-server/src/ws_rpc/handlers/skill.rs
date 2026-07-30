@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use base64::engine::general_purpose;
+use savfox_exec_policy::{Decision, blocking_append_prefix_rule, blocking_remove_prefix_rule};
 use savfox_skill_registry::package::SkillSourceType;
 use savfox_skill_registry::{SkillInstaller, SkillManifest, SkillPackage, SkillSource};
 use savfox_utils::home_dir::SKILLS_SUBDIR;
@@ -15,6 +16,10 @@ use crate::exec_approval::{
     forward_approval_to_chat, generate_approval_nonce, list_pending_approvals,
     notify_approval_resolved, persist_pending_approval, persist_resolved_approval,
 };
+use crate::security::approval_coordinator::{
+    AuthenticatedApprovalOutcome, resolve_authenticated_approval,
+};
+use crate::security::execution_policy::{ApprovalClientCapabilities, resolve_execution_security};
 use crate::session::GatewaySessionManager;
 use crate::{approval_policy_store, skills_store, tts_service};
 
@@ -299,7 +304,12 @@ pub(crate) async fn handle_exec_approvals_get(channel: &Arc<GatewayChannel>) -> 
     let count = approvals.len();
     Ok(json!({
         "mode": policy.get("mode").cloned().unwrap_or(Value::String("auto".to_owned())),
+        "execution_mode": policy.get("execution_mode").cloned().unwrap_or(Value::String("unattended".to_owned())),
         "rules": policy.get("rules").cloned().unwrap_or(Value::Array(Vec::new())),
+        "deprecated": policy.get("deprecated").cloned().unwrap_or(Value::Bool(true)),
+        "read_only": policy.get("read_only").cloned().unwrap_or(Value::Bool(true)),
+        "canonical_rule_source": policy.get("canonical_rule_source").cloned().unwrap_or(Value::String("rules/default.rules".to_owned())),
+        "migration": policy.get("migration").cloned().unwrap_or(Value::Null),
         "approvals": approvals,
         "count": count,
     }))
@@ -359,7 +369,7 @@ pub(crate) async fn handle_exec_approval_request(
     // here before persisting.
     let request = ExecApprovalRequest {
         id: uuid::Uuid::now_v7().to_string(),
-        command: command.to_owned(),
+        command: crate::exec_approval::sanitized_approval_text(command, 2_048),
         cwd: params
             .get("cwd")
             .and_then(|v| v.as_str())
@@ -375,7 +385,7 @@ pub(crate) async fn handle_exec_approval_request(
         ask: params
             .get("ask")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_owned()),
+            .map(|reason| crate::exec_approval::sanitized_approval_text(reason, 512)),
         agent_id: params
             .get("agent_id")
             .and_then(|v| v.as_str())
@@ -385,11 +395,9 @@ pub(crate) async fn handle_exec_approval_request(
             .and_then(|v| v.as_str())
             .map(|s| s.to_owned()),
         created_at_ms: now_ms,
-        expires_at_ms: params
-            .get("expires_at_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(now_ms + 300_000), // Default 5 min expiry
+        expires_at_ms: now_ms.saturating_add(300_000),
         nonce: generate_approval_nonce(),
+        ..Default::default()
     };
 
     if let Err(err) = persist_pending_approval(&channel.config().savfox_home, &request).await {
@@ -405,7 +413,7 @@ pub(crate) async fn handle_exec_approval_request(
 
     Ok(json!({
         "request_id": request.id,
-        "command": command,
+        "command": request.command,
         "status": "pending",
         "nonce": request.nonce,
     }))
@@ -415,22 +423,91 @@ pub(crate) async fn handle_exec_approval_resolve(
     params: &Value,
     channel: &Arc<GatewayChannel>,
     session_mgr: &Arc<GatewaySessionManager>,
+    authenticated_subject: &str,
 ) -> RpcResult {
     let request_id = require_str(params, "request_id")?;
-    let approved = opt_bool(params, "approved", false);
+    let legacy_approved = opt_bool(params, "approved", false);
+    let decision = params
+        .get("decision")
+        .and_then(Value::as_str)
+        .unwrap_or(if legacy_approved {
+            "approve-once"
+        } else {
+            "deny"
+        });
     let nonce = require_str(params, "nonce")?;
+    let resolved_by = Some(format!("token:{authenticated_subject}"));
+    let reason = params
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .map(|reason| crate::exec_approval::sanitized_approval_text(reason, 512));
+
+    match resolve_authenticated_approval(
+        channel,
+        request_id,
+        nonce,
+        decision,
+        resolved_by.clone(),
+        reason.clone(),
+    )
+    .await
+    .map_err(|error| {
+        (
+            INTERNAL_ERROR,
+            format!("failed to submit coordinated approval: {error}"),
+        )
+    })? {
+        AuthenticatedApprovalOutcome::Resolved { decision } => {
+            let approved = decision.starts_with("approved");
+            let resolution = ExecApprovalResolution {
+                id: request_id.to_owned(),
+                approved,
+                resolved_by,
+                reason,
+                nonce: nonce.to_owned(),
+            };
+            let config = load_approval_forwarding_config();
+            notify_approval_resolved(channel, session_mgr, &resolution, &config).await;
+            return Ok(json!({
+                "request_id": request_id,
+                "approved": approved,
+                "decision": decision,
+                "status": "resolved",
+                "resolved_pending": true,
+                "coordinated": true,
+            }));
+        }
+        AuthenticatedApprovalOutcome::NonceMismatch => {
+            return Err((
+                INVALID_REQUEST,
+                "approval nonce missing or invalid".to_owned(),
+            ));
+        }
+        AuthenticatedApprovalOutcome::UnsupportedDecision => {
+            return Err((
+                INVALID_REQUEST,
+                "decision is not available for this approval".to_owned(),
+            ));
+        }
+        AuthenticatedApprovalOutcome::NotCoordinated => {}
+    }
+    if let Some(request) =
+        crate::exec_approval::find_pending_approval(&channel.config().savfox_home, request_id)
+            .await
+            .map_err(|error| (INTERNAL_ERROR, error))?
+        && request.is_coordinator_owned()
+    {
+        return Err((
+            INVALID_REQUEST,
+            "approval coordinator is no longer active; re-issue the request".to_owned(),
+        ));
+    }
 
     let resolution = ExecApprovalResolution {
         id: request_id.to_owned(),
-        approved,
-        resolved_by: params
-            .get("resolved_by")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_owned()),
-        reason: params
-            .get("reason")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_owned()),
+        approved: legacy_approved,
+        resolved_by,
+        reason,
         nonce: nonce.to_owned(),
     };
 
@@ -447,7 +524,9 @@ pub(crate) async fn handle_exec_approval_resolve(
         })?;
     let resolved_pending = match outcome {
         ResolveOutcome::Resolved => true,
-        ResolveOutcome::NotPending => false,
+        ResolveOutcome::NotPending => {
+            return Err((INVALID_REQUEST, "approval is not pending".to_owned()));
+        }
         ResolveOutcome::NonceMismatch => {
             return Err((
                 INVALID_REQUEST,
@@ -468,9 +547,167 @@ pub(crate) async fn handle_exec_approval_resolve(
 
     Ok(json!({
         "request_id": request_id,
-        "approved": approved,
+        "approved": legacy_approved,
         "status": "resolved",
         "resolved_pending": resolved_pending,
+    }))
+}
+
+fn security_command_argv(params: &Value) -> Result<Vec<String>, (i64, String)> {
+    let command = params
+        .get("command")
+        .ok_or_else(|| (INVALID_PARAMS, "missing 'command' parameter".to_owned()))?;
+    let argv = match command {
+        Value::Array(items) => items
+            .iter()
+            .map(|item| {
+                item.as_str().map(str::to_owned).ok_or_else(|| {
+                    (
+                        INVALID_PARAMS,
+                        "command array entries must be strings".to_owned(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Value::String(command) => shlex::split(command)
+            .ok_or_else(|| (INVALID_PARAMS, "could not parse command".to_owned()))?,
+        _ => {
+            return Err((
+                INVALID_PARAMS,
+                "'command' must be a string or argv array".to_owned(),
+            ));
+        }
+    };
+    if argv.is_empty() {
+        return Err((INVALID_PARAMS, "command cannot be empty".to_owned()));
+    }
+    Ok(argv)
+}
+
+fn security_rule_decision(params: &Value) -> Result<Decision, (i64, String)> {
+    match require_str(params, "decision")? {
+        "allow" => Ok(Decision::Allow),
+        "ask" | "prompt" => Ok(Decision::Prompt),
+        "deny" | "forbidden" => Ok(Decision::Forbidden),
+        value => Err((INVALID_PARAMS, format!("unsupported decision '{value}'"))),
+    }
+}
+
+pub(crate) async fn handle_security_policy_simulate(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let argv = security_command_argv(params)?;
+    let agent = params
+        .get("agent")
+        .and_then(Value::as_str)
+        .unwrap_or("default");
+    let resolved = resolve_execution_security(
+        channel.config(),
+        &channel.config().savfox_home,
+        agent,
+        ApprovalClientCapabilities::interactive(),
+    )
+    .await;
+    let simulation = savfox_core::simulate_exec_policy(&resolved.config, &argv)
+        .await
+        .map_err(|error| (INTERNAL_ERROR, error.to_string()))?;
+    Ok(json!({
+        "command": argv,
+        "agent": agent,
+        "decision": simulation.decision,
+        "reason": simulation.reason,
+        "bypass_sandbox": simulation.bypass_sandbox,
+        "proposed_rule": simulation.proposed_rule,
+        "matched_rules": simulation.matched_rules,
+        "execution_mode": resolved.context.mode.as_str(),
+        "sandbox": resolved.context.effective_sandbox,
+        "enforcement": resolved.context.sandbox_enforcement,
+        "policy_fingerprint": resolved.context.policy_fingerprint,
+        "fallback_reason": resolved.context.fallback_reason,
+    }))
+}
+
+pub(crate) async fn handle_security_rules_list(channel: &Arc<GatewayChannel>) -> RpcResult {
+    let path = channel
+        .config()
+        .savfox_home
+        .join("rules")
+        .join("default.rules");
+    let contents = match tokio::fs::read_to_string(&path).await {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err((INTERNAL_ERROR, error.to_string())),
+    };
+    let rules = contents
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .map(|(index, line)| {
+            let parsed = line
+                .trim()
+                .strip_prefix("prefix_rule(pattern=")
+                .and_then(|body| body.split_once(", decision=\""))
+                .and_then(|(pattern, decision)| {
+                    let decision = decision.strip_suffix("\")")?;
+                    let command = serde_json::from_str::<Vec<String>>(pattern).ok()?;
+                    Some((command, decision))
+                });
+            json!({
+                "index": index,
+                "source": "user",
+                "path": path,
+                "rule": line,
+                "command": parsed.as_ref().map(|(command, _)| command),
+                "decision": parsed.as_ref().map(|(_, decision)| decision),
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({ "rules": rules, "count": rules.len(), "path": path }))
+}
+
+pub(crate) async fn handle_security_rules_add(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let argv = security_command_argv(params)?;
+    let decision = security_rule_decision(params)?;
+    let path = channel
+        .config()
+        .savfox_home
+        .join("rules")
+        .join("default.rules");
+    let command = argv.clone();
+    tokio::task::spawn_blocking(move || {
+        blocking_append_prefix_rule(&path, &command, decision).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| (INTERNAL_ERROR, error.to_string()))?
+    .map_err(|error| (INTERNAL_ERROR, error))?;
+    Ok(json!({ "status": "added", "command": argv }))
+}
+
+pub(crate) async fn handle_security_rules_remove(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let argv = security_command_argv(params)?;
+    let decision = security_rule_decision(params)?;
+    let path = channel
+        .config()
+        .savfox_home
+        .join("rules")
+        .join("default.rules");
+    let command = argv.clone();
+    let removed = tokio::task::spawn_blocking(move || {
+        blocking_remove_prefix_rule(&path, &command, decision).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| (INTERNAL_ERROR, error.to_string()))?
+    .map_err(|error| (INTERNAL_ERROR, error))?;
+    Ok(json!({
+        "status": if removed { "removed" } else { "not_found" },
+        "command": argv,
     }))
 }
 

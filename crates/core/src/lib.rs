@@ -46,6 +46,7 @@ pub mod error;
 pub mod exec;
 pub mod exec_env;
 mod exec_policy;
+pub use exec_policy::{ExecPolicySimulation, simulate_exec_policy};
 pub mod external_content;
 pub mod features;
 mod flags;

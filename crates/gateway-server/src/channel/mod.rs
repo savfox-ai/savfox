@@ -14,6 +14,7 @@ use tokio::sync::{Mutex, RwLock, broadcast, mpsc, oneshot};
 use toml::Value as TomlValue;
 use uuid::Uuid;
 
+use crate::security::approval_coordinator::ApprovalCoordinator;
 use crate::session::{GatewaySessionManager, SessionStore};
 
 mod auth;
@@ -60,8 +61,9 @@ pub(crate) enum BridgeOutgoing {
 /// 2. `pending_requests` (Mutex)
 /// 3. `active_login` (Mutex)
 /// 4. `logical_session_threads` (Mutex)
-/// 5. `GatewaySessionManager::sessions` (RwLock) — accessed via `websocket_manager`
-/// 6. `SessionStore::cache` (RwLock) — accessed via `session_store`
+/// 5. `approval_coordinator` (Mutex)
+/// 6. `GatewaySessionManager::sessions` (RwLock) — accessed via `websocket_manager`
+/// 7. `SessionStore::cache` (RwLock) — accessed via `session_store`
 ///
 /// Never acquire a higher-numbered lock while holding a lower-numbered one.
 pub(crate) struct GatewayChannel {
@@ -93,6 +95,8 @@ pub(crate) struct GatewayChannel {
     active_login: Arc<Mutex<Option<ActiveLogin>>>,
     /// Logical gateway session IDs mapped to active core session IDs.
     logical_session_threads: Arc<Mutex<HashMap<String, SessionId>>>,
+    /// Active Channel approvals mapped to their exact Core session/turn.
+    approval_coordinator: ApprovalCoordinator,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -175,6 +179,7 @@ impl GatewayChannel {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .unwrap_or_default();
+        let approval_coordinator = ApprovalCoordinator::new(args.config.savfox_home.clone());
 
         Self {
             auth_manager,
@@ -196,6 +201,7 @@ impl GatewayChannel {
             channel_recovery_supervisors: args.channel_recovery_supervisors,
             active_login: Arc::new(Mutex::new(None)),
             logical_session_threads: Arc::new(Mutex::new(HashMap::new())),
+            approval_coordinator,
         }
     }
 
@@ -234,6 +240,11 @@ impl GatewayChannel {
     #[must_use]
     pub(crate) fn config(&self) -> &Arc<Config> {
         &self.config
+    }
+
+    #[must_use]
+    pub(crate) fn approval_coordinator(&self) -> &ApprovalCoordinator {
+        &self.approval_coordinator
     }
 
     /// Replace runtime channel credentials from a hot config update.

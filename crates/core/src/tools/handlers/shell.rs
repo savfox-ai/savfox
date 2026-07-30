@@ -235,13 +235,17 @@ impl ShellHandler {
         }
 
         // Approval policy guard for explicit escalation in non-OnRequest modes.
+        let allows_explicit_escalation = match turn.approval_policy {
+            savfox_protocol::protocol::AskForApproval::OnRequest => true,
+            savfox_protocol::protocol::AskForApproval::Granular(config) => {
+                config.allows_sandbox_approval()
+            }
+            _ => false,
+        };
         if exec_params
             .sandbox_permissions
             .requires_escalated_permissions()
-            && !matches!(
-                turn.approval_policy,
-                savfox_protocol::protocol::AskForApproval::OnRequest
-            )
+            && !allows_explicit_escalation
         {
             let approval_policy = turn.approval_policy;
             return model_err(format!(

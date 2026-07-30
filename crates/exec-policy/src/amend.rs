@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use serde_json;
 use thiserror::Error;
 
+use crate::Decision;
+
 #[derive(Debug, Error)]
 pub enum AmendError {
     #[error("prefix rule requires at least one token")]
@@ -56,17 +58,20 @@ pub fn blocking_append_allow_prefix_rule(
     policy_path: &Path,
     prefix: &[String],
 ) -> Result<(), AmendError> {
-    if prefix.is_empty() {
-        return Err(AmendError::EmptyPrefix);
-    }
+    blocking_append_prefix_rule(policy_path, prefix, Decision::Allow)
+}
 
-    let tokens = prefix
-        .iter()
-        .map(serde_json::to_string)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| AmendError::SerializePrefix { source })?;
-    let pattern = format!("[{}]", tokens.join(", "));
-    let rule = format!(r#"prefix_rule(pattern={pattern}, decision="allow")"#);
+/// Appends one canonical prefix rule using the same locked, de-duplicating
+/// writer used for approval amendments.
+///
+/// Callers that migrate or manage rules should use this function instead of
+/// formatting the policy DSL independently.
+pub fn blocking_append_prefix_rule(
+    policy_path: &Path,
+    prefix: &[String],
+    decision: Decision,
+) -> Result<(), AmendError> {
+    let rule = format_prefix_rule(prefix, decision)?;
 
     let dir = policy_path
         .parent()
@@ -84,6 +89,77 @@ pub fn blocking_append_allow_prefix_rule(
         }
     }
     append_locked_line(policy_path, &rule)
+}
+
+/// Remove one exact canonical prefix rule. Returns `true` when a rule changed.
+pub fn blocking_remove_prefix_rule(
+    policy_path: &Path,
+    prefix: &[String],
+    decision: Decision,
+) -> Result<bool, AmendError> {
+    let rule = format_prefix_rule(prefix, decision)?;
+    if !policy_path.exists() {
+        return Ok(false);
+    }
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(policy_path)
+        .map_err(|source| AmendError::OpenPolicyFile {
+            path: policy_path.to_path_buf(),
+            source,
+        })?;
+    file.lock().map_err(|source| AmendError::LockPolicyFile {
+        path: policy_path.to_path_buf(),
+        source,
+    })?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|source| AmendError::ReadPolicyFile {
+            path: policy_path.to_path_buf(),
+            source,
+        })?;
+    let original_count = contents.lines().count();
+    let retained = contents
+        .lines()
+        .filter(|line| *line != rule)
+        .collect::<Vec<_>>();
+    if retained.len() == original_count {
+        return Ok(false);
+    }
+    let rewritten = if retained.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", retained.join("\n"))
+    };
+    file.set_len(0)
+        .and_then(|()| file.seek(SeekFrom::Start(0)).map(|_| ()))
+        .and_then(|()| file.write_all(rewritten.as_bytes()))
+        .map_err(|source| AmendError::WritePolicyFile {
+            path: policy_path.to_path_buf(),
+            source,
+        })?;
+    Ok(true)
+}
+
+fn format_prefix_rule(prefix: &[String], decision: Decision) -> Result<String, AmendError> {
+    if prefix.is_empty() {
+        return Err(AmendError::EmptyPrefix);
+    }
+    let tokens = prefix
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| AmendError::SerializePrefix { source })?;
+    let pattern = format!("[{}]", tokens.join(", "));
+    let decision = match decision {
+        Decision::Allow => "allow",
+        Decision::Prompt => "prompt",
+        Decision::Forbidden => "forbidden",
+    };
+    Ok(format!(
+        r#"prefix_rule(pattern={pattern}, decision="{decision}")"#
+    ))
 }
 
 fn append_locked_line(policy_path: &Path, line: &str) -> Result<(), AmendError> {
@@ -185,6 +261,28 @@ mod tests {
 prefix_rule(pattern=["echo", "Hello, world!"], decision="allow")
 "#
         );
+    }
+
+    #[test]
+    fn removes_only_the_exact_canonical_rule() {
+        let tmp = tempdir().expect("create temp dir");
+        let policy_path = tmp.path().join("rules").join("default.rules");
+        let git = vec!["git".to_owned(), "status".to_owned()];
+        let cargo = vec!["cargo".to_owned(), "test".to_owned()];
+        blocking_append_prefix_rule(&policy_path, &git, Decision::Allow).expect("append git");
+        blocking_append_prefix_rule(&policy_path, &cargo, Decision::Prompt).expect("append cargo");
+
+        assert!(
+            blocking_remove_prefix_rule(&policy_path, &git, Decision::Allow)
+                .expect("remove exact rule")
+        );
+        assert!(
+            !blocking_remove_prefix_rule(&policy_path, &git, Decision::Allow)
+                .expect("second removal is idempotent")
+        );
+        let contents = std::fs::read_to_string(policy_path).expect("read policy");
+        assert!(!contents.contains(r#"pattern=["git", "status"]"#));
+        assert!(contents.contains(r#"pattern=["cargo", "test"], decision="prompt""#));
     }
 
     #[test]

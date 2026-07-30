@@ -32,6 +32,19 @@ pub async fn send_message_returning_id(
     content: &str,
     reply_to: Option<&str>,
 ) -> anyhow::Result<Option<String>> {
+    send_message_with_components_returning_id(client, bot_token, channel_id, content, reply_to, &[])
+        .await
+}
+
+/// Send a Discord message with server-defined button components.
+pub async fn send_message_with_components_returning_id(
+    client: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    content: &str,
+    reply_to: Option<&str>,
+    actions: &[(String, String)],
+) -> anyhow::Result<Option<String>> {
     debug!(
         target: "savfox::channels::discord",
         channel_id,
@@ -48,6 +61,26 @@ pub async fn send_message_returning_id(
                 "message_id": trimmed,
             });
         }
+    }
+    if !actions.is_empty() {
+        body["components"] = serde_json::json!([{
+            "type": 1,
+            "components": actions.iter().map(|(label, custom_id)| {
+                let style = if custom_id.contains(":deny:") || custom_id.contains(":abort:") {
+                    4
+                } else if custom_id.contains(":allow-rule:") {
+                    3
+                } else {
+                    1
+                };
+                serde_json::json!({
+                    "type": 2,
+                    "style": style,
+                    "label": label,
+                    "custom_id": custom_id,
+                })
+            }).collect::<Vec<_>>(),
+        }]);
     }
 
     let response = client

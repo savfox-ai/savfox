@@ -302,8 +302,12 @@ pub(crate) async fn dispatch_rpc(
             handle_exec_approval_request(&params, channel, session_mgr).await
         }
         "exec.approval.resolve" => {
-            handle_exec_approval_resolve(&params, channel, session_mgr).await
+            handle_exec_approval_resolve(&params, channel, session_mgr, &token_info.label).await
         }
+        "security.policy.simulate" => handle_security_policy_simulate(&params, channel).await,
+        "security.rules.list" => handle_security_rules_list(channel).await,
+        "security.rules.add" => handle_security_rules_add(&params, channel).await,
+        "security.rules.remove" => handle_security_rules_remove(&params, channel).await,
 
         // ── Usage ───────────────────────────────────────────────────────
         "usage.status" => handle_usage_status(session_store).await,

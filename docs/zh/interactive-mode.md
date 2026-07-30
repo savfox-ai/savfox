@@ -56,7 +56,7 @@ savfox fork               # 选择一个会话进行分叉
 
 ```bash
 savfox --ask-for-approval unless-trusted   # 默认：除非命令在信任列表中，否则询问
-savfox --ask-for-approval never            # 自动批准所有操作（建议配合沙箱使用）
+savfox --ask-for-approval never            # 从不提示；越界请求直接拒绝
 savfox --ask-for-approval on-failure       # 仅在失败时询问
 ```
 

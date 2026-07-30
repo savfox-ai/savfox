@@ -51,6 +51,7 @@ pub fn assess_patch_safety(
         AskForApproval::OnFailure
         | AskForApproval::Never
         | AskForApproval::OnRequest
+        | AskForApproval::Granular(_)
         | AskForApproval::UnlessTrusted => {
             // Continue to the writable-paths + sandbox check.
         }
@@ -83,7 +84,12 @@ pub fn assess_patch_safety(
                 None => SafetyCheck::AskUser,
             }
         }
-    } else if policy == AskForApproval::Never {
+    } else if policy == AskForApproval::Never
+        || matches!(
+            policy,
+            AskForApproval::Granular(config) if !config.allows_sandbox_approval()
+        )
+    {
         SafetyCheck::Reject {
             reason: "writing outside of the project; rejected by user approval settings".to_owned(),
         }
@@ -308,5 +314,36 @@ mod tests {
             ),
             SafetyCheck::AskUser
         );
+    }
+
+    #[test]
+    fn granular_policy_rejects_out_of_boundary_patch_when_sandbox_approval_is_disabled() {
+        use savfox_protocol::protocol::GranularApprovalConfig;
+
+        let tmp = TempDir::new().unwrap();
+        let cwd = tmp.path().join("workspace");
+        std::fs::create_dir(&cwd).unwrap();
+        let add_outside =
+            ApplyPatchAction::new_add_for_test(&tmp.path().join("outside.txt"), "".to_owned());
+        let policy = SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![],
+            network_access: false,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
+        };
+
+        assert!(matches!(
+            assess_patch_safety(
+                &add_outside,
+                AskForApproval::Granular(GranularApprovalConfig {
+                    sandbox_approval: false,
+                    rules: true,
+                }),
+                &policy,
+                &cwd,
+                WindowsSandboxLevel::RestrictedToken,
+            ),
+            SafetyCheck::Reject { .. }
+        ));
     }
 }

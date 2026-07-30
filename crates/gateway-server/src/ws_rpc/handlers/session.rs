@@ -11,7 +11,6 @@ use tracing::debug;
 use super::super::types::{
     INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, RpcResult,
 };
-use super::agent::apply_agent_permission_policy_to_config;
 use crate::agent_terminal_delegate::TerminalEventSink;
 use crate::channel::GatewayChannel;
 use crate::channels::policy::{
@@ -28,6 +27,7 @@ use crate::identity_links::{
     canonical_for_peer, load_identity_links, save_identity_links, upsert_link,
 };
 use crate::media_store::MediaStore;
+use crate::security::execution_policy::{ApprovalClientCapabilities, resolve_execution_security};
 use crate::session::{
     GatewaySessionManager, SessionEntry, SessionOverrides, SessionStore, build_history_payload,
     build_routing_id, derive_session_label_from_history, peek_ambient_messages,
@@ -726,8 +726,27 @@ pub(crate) async fn handle_chat_send(
         config.model = Some(effective_model.clone());
     }
 
-    // Apply the agent's permission policy to the session config.
-    apply_agent_permission_policy_to_config(&mut config, channel, agent).await;
+    // Resolve the agent capability policy and interactive entry-point behavior
+    // through the same transport-independent policy path used by Channels.
+    let execution_security = resolve_execution_security(
+        &config,
+        &channel.config().savfox_home,
+        agent,
+        ApprovalClientCapabilities::interactive(),
+    )
+    .await;
+    config = execution_security.config.clone();
+
+    if let Some(logical_session_id) = requested_session_id.as_deref()
+        && let Some(existing) = session_store.get(logical_session_id).await
+        && existing.security_policy_fingerprint.as_deref()
+            != Some(execution_security.context.policy_fingerprint.as_str())
+        && existing.security_policy_fingerprint.is_some()
+    {
+        channel
+            .invalidate_logical_session_security(logical_session_id)
+            .await;
+    }
 
     let resolved_session = channel
         .resolve_agent_session(config, requested_session_id.as_deref())
@@ -743,9 +762,22 @@ pub(crate) async fn handle_chat_send(
     {
         entry.model = Some(effective_model.clone());
         entry.provider = Some(provider.clone());
+        entry.security_policy_fingerprint =
+            Some(execution_security.context.policy_fingerprint.clone());
+        entry.execution_mode = Some(execution_security.context.mode.as_str().to_owned());
         entry.touch();
         session_store.upsert(entry).await;
     }
+    let execution_mode = execution_security.context.mode.as_str().to_owned();
+    let policy_fingerprint = execution_security.context.policy_fingerprint.clone();
+    let sandbox_enforcement = execution_security.context.sandbox_enforcement.to_owned();
+    let _ = session_store
+        .update(&logical_session_id, move |entry| {
+            entry.execution_mode = Some(execution_mode);
+            entry.security_policy_fingerprint = Some(policy_fingerprint);
+            entry.sandbox_enforcement = Some(sandbox_enforcement);
+        })
+        .await;
 
     let session_id_obj = thread_session_id;
     let thread_id = session_id_obj.to_string();

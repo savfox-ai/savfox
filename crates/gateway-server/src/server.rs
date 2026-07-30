@@ -210,13 +210,9 @@ async fn bearer_auth_hoop(
     // applies to the protected API surface — the public anonymous paths
     // (webhooks, OAuth callbacks, SPA assets) are not rate-limited here.
     let limiter = global_rate_limiter(depot);
-    let Some(ip) = client_ip(req, depot) else {
-        // Unix-socket clients (or anything we can't classify) skip the
-        // rate-limit check — those connections come from the same host
-        // the daemon runs on.
-        return;
-    };
-    if !limiter.check_ip(ip).await {
+    if let Some(ip) = client_ip(req, depot)
+        && !limiter.check_ip(ip).await
+    {
         res.status_code(StatusCode::TOO_MANY_REQUESTS);
         res.render(Text::Json(
             json!({"error": "request rate limit exceeded"}).to_string(),
@@ -224,8 +220,15 @@ async fn bearer_auth_hoop(
         ctrl.skip_rest();
         return;
     }
-    if authenticate_with_info(req, depot, res).await.is_none() {
-        ctrl.skip_rest();
+    // Unix-socket clients (or anything we cannot classify by IP) skip only
+    // rate limiting. They still pass through authentication below.
+    match authenticate_with_info(req, depot, res).await {
+        Some(info) => {
+            depot.insert_typed(info);
+        }
+        None => {
+            ctrl.skip_rest();
+        }
     }
 }
 
@@ -1027,9 +1030,7 @@ fn expand_env_string(input: &str) -> Result<String, String> {
                         let orig: String = chars[i..i + 2 + close + 1].iter().collect();
                         result.push_str(&orig);
                     } else {
-                        let resolved = std::env::var(var_name)
-                            .ok()
-                            .and_then(|v| if v.is_empty() { None } else { Some(v) });
+                        let resolved = std::env::var(var_name).ok().filter(|v| !v.is_empty());
                         match resolved {
                             Some(val) => result.push_str(&val),
                             None => {

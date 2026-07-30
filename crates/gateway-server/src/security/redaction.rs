@@ -177,8 +177,8 @@ fn looks_like_secret_key(key: &str) -> bool {
     SECRET_KEY_RE.is_match(key)
 }
 
-pub fn redact_text(input: &str) -> String {
-    if !redaction_enabled() || input.is_empty() {
+fn redact_text_inner(input: &str) -> String {
+    if input.is_empty() {
         return input.to_owned();
     }
 
@@ -233,6 +233,24 @@ pub fn redact_text(input: &str) -> String {
     }
 
     output
+}
+
+/// Redact text using the configured logging behavior.
+#[must_use]
+pub fn redact_text(input: &str) -> String {
+    if !redaction_enabled() {
+        return input.to_owned();
+    }
+    redact_text_inner(input)
+}
+
+/// Redact text for security-boundary persistence and remote approval prompts.
+///
+/// Unlike [`redact_text`], this cannot be disabled by logging configuration:
+/// turning off console-log redaction must never expose secrets in durable
+/// approval records or third-party chat messages.
+pub(crate) fn redact_text_always(input: &str) -> String {
+    redact_text_inner(input)
 }
 
 #[must_use]

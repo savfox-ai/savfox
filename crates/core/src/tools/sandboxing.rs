@@ -162,6 +162,13 @@ pub(crate) fn default_exec_approval_requirement(
             sandbox_policy,
             SandboxPolicy::DangerFullAccess | SandboxPolicy::ExternalSandbox { .. }
         ),
+        AskForApproval::Granular(config) => {
+            config.allows_sandbox_approval()
+                && !matches!(
+                    sandbox_policy,
+                    SandboxPolicy::DangerFullAccess | SandboxPolicy::ExternalSandbox { .. }
+                )
+        }
         AskForApproval::UnlessTrusted => true,
     };
 

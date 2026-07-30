@@ -548,6 +548,7 @@ dependencies = [
  "arkret-state",
  "arkret-wire",
  "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -565,6 +566,7 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "hkdf 0.13.0",
+ "hmac 0.13.0",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
@@ -10023,6 +10025,7 @@ dependencies = [
  "clap",
  "pretty_assertions",
  "savfox-core",
+ "savfox-gateway-shared",
  "savfox-lmstudio",
  "savfox-ollama",
  "savfox-protocol",
@@ -10350,6 +10353,7 @@ dependencies = [
  "savfox-channels",
  "savfox-common",
  "savfox-core",
+ "savfox-exec-policy",
  "savfox-feedback",
  "savfox-gateway-shared",
  "savfox-keyring-store",
@@ -10363,6 +10367,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.11.0",
+ "shlex",
  "sqlx",
  "subtle",
  "tempfile",
