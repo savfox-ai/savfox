@@ -10,7 +10,6 @@ workspace = true
 [dependencies]
 anyhow = { workspace = true }
 salvo = { workspace = true }
-salvo_extra = { workspace = true }
 savfox-keyring-store = { workspace = true }
 savfox-protocol = { workspace = true }
 savfox-utils = { workspace = true }

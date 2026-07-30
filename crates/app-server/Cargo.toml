@@ -48,7 +48,6 @@ uuid = { workspace = true, features = ["serde", "v7"] }
 [dev-dependencies]
 app_test_support = { workspace = true }
 salvo = { workspace = true }
-salvo_extra = { workspace = true }
 base64 = { workspace = true }
 savfox-exec-policy = { workspace = true }
 core_test_support = { workspace = true }

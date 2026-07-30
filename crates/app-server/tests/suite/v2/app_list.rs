@@ -298,8 +298,7 @@ async fn start_apps_server(
         Arc::new(LocalSessionManager::default()),
         StreamableHttpServerConfig::default(),
     );
-    let mcp_handler: salvo_extra::tower_compat::TowerServiceHandler<_, salvo::http::ReqBody> =
-        mcp_service.compat();
+    let mcp_handler = TowerServiceCompat::<salvo::http::ReqBody, _, _, _>::compat(mcp_service);
 
     let router = Router::new()
         .hoop(affix_state::inject(state))

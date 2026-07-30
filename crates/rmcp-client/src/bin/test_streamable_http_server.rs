@@ -251,7 +251,7 @@ async fn require_bearer(
     if req.uri().path().contains("/.well-known/") {
         return;
     }
-    let expected = depot.obtain::<Arc<String>>().unwrap();
+    let expected = depot.get_typed::<Arc<String>>().unwrap();
     let authorized = req
         .headers()
         .get(AUTHORIZATION)
@@ -284,8 +284,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(LocalSessionManager::default()),
         StreamableHttpServerConfig::default(),
     );
-    let mcp_handler: salvo_extra::tower_compat::TowerServiceHandler<_, salvo::http::ReqBody> =
-        mcp_service.compat();
+    let mcp_handler = TowerServiceCompat::<salvo::http::ReqBody, _, _, _>::compat(mcp_service);
 
     let mut router = Router::new()
         .push(Router::with_path("/.well-known/oauth-authorization-server/mcp").get(oauth_metadata))

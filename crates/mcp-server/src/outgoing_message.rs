@@ -156,7 +156,7 @@ impl From<OutgoingMessage> for OutgoingJsonRpcMessage {
             }),
             Error(OutgoingError { id, error }) => Self::Error(JsonRpcError {
                 jsonrpc: JsonRpcVersion2_0,
-                id,
+                id: Some(id),
                 error,
             }),
         }
