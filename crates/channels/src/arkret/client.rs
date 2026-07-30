@@ -597,7 +597,6 @@ impl ArkretHttpClient {
             catchup: None,
             filter: None,
             subscriptions: None,
-            wait_for: None,
         };
         let stream = self
             .inner
