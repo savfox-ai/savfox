@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Context as _;
-use arkret::{Did, Ed25519PayloadSigner};
+use arkret::{Did, DidUrl, Ed25519PayloadSigner};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use ed25519_dalek::SigningKey;
@@ -65,7 +65,7 @@ impl ArkretKeyRef {
 /// * unreadable file
 /// * decoded seed length != 32
 /// * invalid base64 in env / inline value
-/// * invalid DID URI
+/// * invalid DID URI or verification-method DID URL
 /// * release build + `InlineSeedBase64` (refused regardless of value)
 pub fn load_ed25519_signer(
     key_ref: &ArkretKeyRef,
@@ -76,6 +76,9 @@ pub fn load_ed25519_signer(
 
     let did =
         Did::new(did.to_owned()).with_context(|| format!("arkret signer: invalid DID '{did}'"))?;
+    let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
+        anyhow::anyhow!("arkret signer: invalid verification method '{verification_method}': {err}")
+    })?;
     let signer = Ed25519PayloadSigner::from_did_key_seed(seed_arr, did, verification_method);
     // `from_did_key_seed` copies the seed into a SigningKey; wipe ours.
     seed_arr.zeroize();

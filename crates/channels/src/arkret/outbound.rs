@@ -8,9 +8,9 @@ use anyhow::Context;
 use arkret::events::EventKind;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    ContentBlock, Did, Ed25519PayloadSigner, Event, EventDraftKindRegistry, EventId, EventRef, Hlc,
-    MessageCreatePayload, OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId,
-    ScopeRef, StrandId, new_prefixed_uuid7,
+    ContentBlock, Did, DidUrl, Ed25519PayloadSigner, Event, EventDraftKindRegistry, EventId,
+    EventRef, Hlc, MessageCreatePayload, OperationEnvelopeBuilder, OperationEventConversion,
+    OperationId, RealmId, ScopeRef, StrandId, new_prefixed_uuid7,
 };
 
 use super::sidecar::{EVENT_REF_ROLE_AFTER, SidecarExchangeContext};
@@ -102,10 +102,13 @@ pub fn sign_outbound_event(
     signer: &Ed25519PayloadSigner,
     verification_method: &str,
 ) -> anyhow::Result<()> {
+    let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
+        anyhow::anyhow!("invalid verification method '{verification_method}': {err}")
+    })?;
     sign_event(
         event,
         signer,
-        verification_method,
+        &verification_method,
         SignEventOptions::default(),
     )
     .map_err(|err| anyhow::anyhow!("sign_event failed: {err}"))?;

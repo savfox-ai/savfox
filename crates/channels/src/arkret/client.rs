@@ -14,7 +14,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
-    AccountSubscribeFrame, DeviceId, Did, Ed25519PayloadSigner, Event, EventsSubmitOutcome,
+    AccountSubscribeFrame, DeviceId, Did, DidUrl, Ed25519PayloadSigner, Event, EventsSubmitOutcome,
     EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
     KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServiceDescribe,
     SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
@@ -338,6 +338,9 @@ impl ArkretHttpClient {
         validate_agent_key_ref(key_ref)?;
         let audience = Did::new(audience.to_owned())
             .with_context(|| format!("invalid Arkret service audience DID '{audience}'"))?;
+        let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
+            anyhow::anyhow!("invalid Arkret verification method '{verification_method}': {err}")
+        })?;
         // Session grants can exceed the Windows Credential Manager 2560-byte
         // secret limit. Keep the short-lived grant in the provider's memory;
         // the long-lived runtime signing key remains keyring-backed.
@@ -393,7 +396,7 @@ impl ArkretHttpClient {
             agent_key_authorization_ref,
             &agent_scope_request,
             &dpop_binding_proof,
-            verification_method.to_owned(),
+            verification_method.clone(),
             challenge.clone(),
             nonce.clone(),
             audience.clone(),
@@ -413,7 +416,7 @@ impl ArkretHttpClient {
             agent_key_authorization_ref: agent_key_authorization_ref.to_owned(),
             agent_scope_request,
             dpop_binding_proof,
-            verification_method: verification_method.to_owned(),
+            verification_method,
             challenge,
             nonce,
             audience: audience.clone(),
