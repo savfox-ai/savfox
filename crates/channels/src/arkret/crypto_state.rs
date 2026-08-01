@@ -868,6 +868,7 @@ impl FileArkretCryptoStore {
             &payload,
             aad,
             arkret::EncryptedEnvelopeAadVisibility::Hidden,
+            arkret::AadVisibilityCeiling::from_declared(None),
             group_state_ref.clone(),
         )
         .map_err(|err| anyhow::anyhow!("build Arkret encrypted envelope: {err}"))?;
@@ -1505,6 +1506,7 @@ mod tests {
             &payload,
             aad,
             arkret::EncryptedEnvelopeAadVisibility::Hidden,
+            arkret::AadVisibilityCeiling::from_declared(None),
             "sha256:2222222222222222222222222222222222222222222222222222222222222222",
         )
         .expect("envelope");
@@ -2093,7 +2095,7 @@ mod tests {
             hash('a'),
             hash('b'),
             hash('c'),
-            arkret::MLS_GOVERNANCE_BINDING_FULL_PROFILE,
+            arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
             "arkret.reducer.v1",
         )
         .expect("governance binding");
