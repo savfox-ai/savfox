@@ -336,6 +336,73 @@ impl FileArkretCryptoStore {
         self.ensure_mls_key_package_inner(principal_id, device_id, last_resort, Some(signing_seed))
     }
 
+    /// Create fresh ordinary Agent KeyPackages without replacing any
+    /// previously generated private init-key material.
+    ///
+    /// The Principal Server's self-visible `available_count` is authoritative
+    /// for pool replenishment. A locally `published` record may already be
+    /// `claimed` remotely when a prior response or Welcome was lost, so the
+    /// caller deliberately supplies the server-observed deficit here.
+    pub fn create_fresh_agent_mls_key_packages(
+        &self,
+        principal_id: &str,
+        device_id: &str,
+        count: usize,
+        key_ref: &super::signer::ArkretKeyRef,
+    ) -> anyhow::Result<Vec<MlsKeyPackageRecord>> {
+        use zeroize::Zeroize as _;
+
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        let mut signing_seed = super::signer::load_seed_array(key_ref)?;
+        let expected_signature_key = ed25519_dalek::SigningKey::from_bytes(&signing_seed)
+            .verifying_key()
+            .to_bytes();
+        signing_seed.zeroize();
+
+        let mut state = self.load()?;
+        let principal = Did::new(principal_id.to_owned())
+            .with_context(|| format!("invalid Arkret principal DID '{principal_id}'"))?;
+        let device = DeviceId::new(device_id.to_owned())
+            .with_context(|| format!("invalid Arkret device id '{device_id}'"))?;
+        let identity_key = mls_identity_key(&principal, &device);
+        let identity_record = state.mls_identities.get(&identity_key).ok_or_else(|| {
+            anyhow::anyhow!("Agent MLS identity must be initialized before pool replenishment")
+        })?;
+        let identity = restore_mls_identity(identity_record)?;
+        anyhow::ensure!(
+            identity.signature_public_key() == expected_signature_key.as_slice(),
+            "Agent MLS identity does not match the currently authorized runtime key"
+        );
+
+        let mut records = Vec::with_capacity(count);
+        for _ in 0..count {
+            let record = identity
+                .key_package_record()
+                .map_err(|err| anyhow::anyhow!("create Agent MLS KeyPackage: {err}"))?;
+            let cache_key = mls_fresh_key_package_cache_key(&identity_key, &record.keypackage_id);
+            state.mls_key_packages.insert(cache_key, record.clone());
+            records.push(record);
+        }
+        let private_state = identity
+            .export_private_state()
+            .map_err(|err| anyhow::anyhow!("export Arkret MLS identity state: {err}"))?;
+        state.mls_identities.insert(
+            identity_key,
+            ArkretMlsIdentityStateRecord {
+                principal_id: principal,
+                device_id: device,
+                private_state,
+                last_resort_key_package: false,
+                keypackage_id: records.last().map(|record| record.keypackage_id.clone()),
+                updated_at: Utc::now(),
+            },
+        );
+        self.save(&state)?;
+        Ok(records)
+    }
+
     fn ensure_mls_key_package_inner(
         &self,
         principal_id: &str,
@@ -1274,6 +1341,10 @@ fn mls_key_package_cache_key(
     format!("{}#{kind}", mls_identity_key(principal_id, device_id))
 }
 
+fn mls_fresh_key_package_cache_key(identity_key: &str, keypackage_id: &str) -> String {
+    format!("{identity_key}#single_use#{keypackage_id}")
+}
+
 fn local_key_package_can_be_published(record: &MlsKeyPackageRecord, last_resort: bool) -> bool {
     record.last_resort == last_resort
         && record.is_usable()
@@ -1454,6 +1525,44 @@ mod tests {
             .to_bytes();
         assert_eq!(identity.signature_public_key(), expected.as_slice());
         assert_ne!(first.keypackage_ref, rotated.keypackage_ref);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn agent_keypackage_replenishment_keeps_distinct_private_material() {
+        let home = temp_home("agent-keypackage-pool");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        let seed = [11_u8; 32];
+        let key_ref = crate::arkret::ArkretKeyRef::InlineSeedBase64 {
+            value: base64::engine::general_purpose::STANDARD_NO_PAD.encode(seed),
+        };
+        let principal = "did:webvh:z6mkfixture:agent.example";
+        let device = "ak:device:01904100-0000-7000-8000-000000000010";
+        let initial = store
+            .ensure_agent_mls_key_package(principal, device, false, &key_ref)
+            .unwrap();
+        let fresh = store
+            .create_fresh_agent_mls_key_packages(principal, device, 8, &key_ref)
+            .unwrap();
+
+        assert_eq!(fresh.len(), 8);
+        assert!(fresh.iter().all(|record| {
+            !record.last_resort && record.state == MlsKeyPackageState::Published
+        }));
+        let mut refs = fresh
+            .iter()
+            .map(|record| record.keypackage_ref.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        refs.insert(initial.keypackage_ref.as_str());
+        assert_eq!(refs.len(), 9);
+
+        let state = store.load().unwrap();
+        assert_eq!(state.mls_key_packages.len(), 9);
+        let identity = restore_mls_identity(state.mls_identities.values().next().unwrap()).unwrap();
+        let expected = ed25519_dalek::SigningKey::from_bytes(&seed)
+            .verifying_key()
+            .to_bytes();
+        assert_eq!(identity.signature_public_key(), expected.as_slice());
         let _ = std::fs::remove_dir_all(&home);
     }
 

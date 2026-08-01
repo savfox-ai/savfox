@@ -129,6 +129,7 @@ const DEVICE_MESSAGES_PULL_MAX_PAGES: usize = 16;
 const KEYPACKAGES_UPLOAD_SCOPE: &str = "ak.self.keys.keypackages.upload.create";
 const KEYPACKAGES_CONSUME_SCOPE: &str = "ak.self.keys.keypackages.command.consume";
 const KEYPACKAGES_REVOKE_SCOPE: &str = "ak.self.keys.keypackages.command.revoke";
+const KEYPACKAGE_MIN_AVAILABLE: u64 = 8;
 const DEVICE_MESSAGES_LIST_SCOPE: &str = "ak.self.device_messages.query.list";
 const DEVICE_MESSAGES_ACK_SCOPE: &str = "ak.self.device_messages.command.ack";
 
@@ -1134,10 +1135,85 @@ async fn publish_account_mls_key_packages(
         }
     }
 
+    let Some(available_count) = upload_account_mls_key_packages(
+        client,
+        channel,
+        account,
+        principal.clone(),
+        device.clone(),
+        &records,
+        key_ref,
+        verification_method,
+    )
+    .await
+    else {
+        return;
+    };
+
+    let Some(deficit) = keypackage_replenishment_deficit(Some(available_count)) else {
+        return;
+    };
+    let fresh = match crypto_store.create_fresh_agent_mls_key_packages(
+        &account.principal_id,
+        &account.device_id,
+        deficit,
+        key_ref,
+    ) {
+        Ok(records) => records,
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                available_count,
+                deficit,
+                "arkret: failed to replenish local MLS KeyPackage pool: {err:#}"
+            );
+            return;
+        }
+    };
+    let replenished_count = upload_account_mls_key_packages(
+        client,
+        channel,
+        account,
+        principal,
+        device,
+        &fresh,
+        key_ref,
+        verification_method,
+    )
+    .await;
+    if replenished_count.is_none_or(|count| count < KEYPACKAGE_MIN_AVAILABLE) {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            available_count = ?replenished_count,
+            minimum = KEYPACKAGE_MIN_AVAILABLE,
+            "arkret: MLS KeyPackage pool remains below its required maintenance low-watermark"
+        );
+    }
+}
+
+fn keypackage_replenishment_deficit(available_count: Option<u64>) -> Option<usize> {
+    let available_count = available_count?;
+    (available_count < KEYPACKAGE_MIN_AVAILABLE)
+        .then(|| (KEYPACKAGE_MIN_AVAILABLE - available_count) as usize)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn upload_account_mls_key_packages(
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    principal: Did,
+    device: DeviceId,
+    records: &[MlsKeyPackageRecord],
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+) -> Option<u64> {
     let request = match build_signed_keypackage_upload_request(
         principal,
         device,
-        &records,
+        records,
         key_ref,
         verification_method,
     ) {
@@ -1148,7 +1224,7 @@ async fn publish_account_mls_key_packages(
                 account_id = %account.id,
                 "arkret: failed to build canonical MLS KeyPackage upload request: {err:#}"
             );
-            return;
+            return None;
         }
     };
 
@@ -1171,12 +1247,26 @@ async fn publish_account_mls_key_packages(
                     "arkret: published MLS KeyPackages"
                 );
             }
+            match outcome.available_count {
+                Some(available_count) => Some(available_count),
+                None => {
+                    warn!(
+                        channel_id = %channel.id,
+                        account_id = %account.id,
+                        "arkret: owning-device KeyPackage upload omitted available_count"
+                    );
+                    None
+                }
+            }
         }
-        Err(err) => warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            "arkret: MLS KeyPackage upload failed: {err}"
-        ),
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: MLS KeyPackage upload failed: {err}"
+            );
+            None
+        }
     }
 }
 
@@ -1632,6 +1722,7 @@ async fn consume_account_mls_key_packages(
         return;
     };
 
+    let mut consumed_any = false;
     for binding in bindings {
         let realm_id = match optional_realm_id(binding.realm_id.as_deref()) {
             Ok(realm_id) => realm_id,
@@ -1683,6 +1774,7 @@ async fn consume_account_mls_key_packages(
         let request = unsigned.into_signed(signature);
         match client.inner().keypackages_consume(&request).await {
             Ok(outcome) if outcome.failures.is_empty() => {
+                consumed_any = true;
                 if let Err(err) =
                     crypto_store.mark_mls_key_package_consumed(&binding.keypackage_ref)
                 {
@@ -1725,6 +1817,12 @@ async fn consume_account_mls_key_packages(
                 "arkret: MLS KeyPackage consume failed: {err}"
             ),
         }
+    }
+    if consumed_any {
+        // A successful Welcome consume necessarily reduced the ordinary
+        // single-use pool. Replenish during this device-maintenance cycle;
+        // the server-provided available_count remains the source of truth.
+        publish_account_mls_key_packages(client, channel, account, crypto_store).await;
     }
 }
 
@@ -3820,6 +3918,16 @@ mod tests {
             device_signature: None,
             last_resort,
         }
+    }
+
+    #[test]
+    fn keypackage_pool_replenishes_to_spec_low_watermark() {
+        assert_eq!(keypackage_replenishment_deficit(Some(0)), Some(8));
+        assert_eq!(keypackage_replenishment_deficit(Some(1)), Some(7));
+        assert_eq!(keypackage_replenishment_deficit(Some(7)), Some(1));
+        assert_eq!(keypackage_replenishment_deficit(Some(8)), None);
+        assert_eq!(keypackage_replenishment_deficit(Some(9)), None);
+        assert_eq!(keypackage_replenishment_deficit(None), None);
     }
 
     #[test]
