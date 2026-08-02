@@ -14,7 +14,6 @@ pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
     "ak.self.events.query.scan",
     "ak.self.events.query.frontier",
-    "ak.self.authorization_leases.command.issue",
     "ak.self.events.command.submit",
     "ak.self.keys.keypackages.upload.create",
     "ak.self.keys.keypackages.command.consume",
@@ -39,11 +38,7 @@ const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     "ak.event.read",
 ];
 
-const REQUIRED_SEND_SCOPE: &[&str] = &[
-    "ak.self.authorization_leases.command.issue",
-    "ak.self.events.command.submit",
-    "ak.message.create",
-];
+const REQUIRED_SEND_SCOPE: &[&str] = &["ak.self.events.command.submit", "ak.message.create"];
 const VERIFIED_SCOPE_SCHEMA: &str = "savfox.arkret.verified_runtime_scope.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +108,9 @@ pub struct ArkretChannelConfig {
     pub id: String,
     pub base_url: String,
     pub service_id: Option<String>,
+    /// Projection policy for newly-created conversation bindings. Missing on
+    /// legacy configs means `interactive_chat` to preserve existing behavior.
+    pub delivery_mode: String,
     pub accounts: Vec<ArkretAccountConfig>,
 }
 
@@ -138,6 +136,7 @@ impl ArkretChannelConfig {
             "verificationMethod",
             "authorizedEventRef",
             "requestedScope",
+            "deliveryMode",
         ];
         let unknown = raw
             .keys()
@@ -260,6 +259,11 @@ impl ArkretChannelConfig {
             id: config.id.clone(),
             base_url: bootstrap.arkret_base_url,
             service_id: Some(bootstrap.service_id.to_string()),
+            delivery_mode: raw
+                .get("deliveryMode")
+                .and_then(Value::as_str)
+                .unwrap_or("interactive_chat")
+                .to_owned(),
             accounts: vec![account],
         })
     }
@@ -281,6 +285,15 @@ impl ArkretChannelConfig {
         if self.accounts.is_empty() {
             anyhow::bail!(
                 "Arkret channel '{}' has no accounts; configure at least one controlled account",
+                self.id
+            );
+        }
+        if !matches!(
+            self.delivery_mode.as_str(),
+            "interactive_chat" | "task_delivery"
+        ) {
+            anyhow::bail!(
+                "Arkret channel '{}' deliveryMode must be 'interactive_chat' or 'task_delivery'",
                 self.id
             );
         }
@@ -653,6 +666,25 @@ pub async fn resolve_arkret_outbound_account_for_config(
     realm_id: &str,
     saved_channel_config_id: Option<&str>,
 ) -> anyhow::Result<Option<(ArkretChannelConfig, ArkretAccountConfig)>> {
+    resolve_arkret_outbound_account_for_binding(
+        savfox_home,
+        realm_id,
+        saved_channel_config_id,
+        None,
+    )
+    .await
+}
+
+/// Resolve the exact account recorded by an execution binding.
+///
+/// Supplying `expected_account_id` disables first-sender fallback, so a
+/// checkpoint can never be signed by another account in the same config.
+pub async fn resolve_arkret_outbound_account_for_binding(
+    savfox_home: &PathBuf,
+    realm_id: &str,
+    saved_channel_config_id: Option<&str>,
+    expected_account_id: Option<&str>,
+) -> anyhow::Result<Option<(ArkretChannelConfig, ArkretAccountConfig)>> {
     let config_id = saved_channel_config_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -672,8 +704,29 @@ pub async fn resolve_arkret_outbound_account_for_config(
     }
     let channel = ArkretChannelConfig::from_strict_agent_config(&raw)
         .with_context(|| format!("routed Arkret channel config '{config_id}' is invalid"))?;
-    let Some(account) = channel.select_send_account(realm_id).cloned() else {
-        return Ok(None);
+    let account = if let Some(account_id) = expected_account_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let account = channel
+            .accounts
+            .iter()
+            .find(|account| account.id == account_id)
+            .with_context(|| {
+                format!(
+                    "routed Arkret channel config '{config_id}' has no bound account '{account_id}'"
+                )
+            })?;
+        anyhow::ensure!(
+            account.send,
+            "bound Arkret account '{account_id}' is not enabled for outbound delivery"
+        );
+        account.clone()
+    } else {
+        let Some(account) = channel.select_send_account(realm_id).cloned() else {
+            return Ok(None);
+        };
+        account
     };
     Ok(Some((channel, account)))
 }
@@ -893,10 +946,10 @@ mod strict_tests {
     }
 
     #[test]
-    fn interactive_agent_scope_requires_reply_authorization_and_presence() {
+    fn interactive_agent_scope_requires_reply_submission_and_presence() {
         for required_action in [
             "ak.self.events.query.frontier",
-            "ak.self.authorization_leases.command.issue",
+            "ak.self.events.command.submit",
             "ak.self.signal.command.send",
         ] {
             let scope = DEFAULT_AGENT_RUNTIME_SCOPE
@@ -912,6 +965,14 @@ mod strict_tests {
                 "missing capability error must name {required_action}: {error:#}"
             );
         }
+    }
+
+    #[test]
+    fn default_online_agent_scope_does_not_request_delayed_publication_leases() {
+        assert!(
+            !DEFAULT_AGENT_RUNTIME_SCOPE.contains(&"ak.self.authorization_leases.command.issue")
+        );
+        assert!(!REQUIRED_SEND_SCOPE.contains(&"ak.self.authorization_leases.command.issue"));
     }
 
     #[test]
@@ -952,6 +1013,44 @@ mod strict_tests {
         .await
         .expect_err("type-level fallback must fail");
         assert!(error.to_string().contains("saved_channel_config_id"));
+    }
+
+    #[tokio::test]
+    async fn outbound_resolution_preserves_exact_bound_account() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-arkret-account-route-{}",
+            uuid::Uuid::now_v7()
+        ));
+        let config = canonical_config(default_scope());
+        let expected = ArkretChannelConfig::from_strict_agent_config(&config)
+            .expect("parse canonical config")
+            .accounts
+            .remove(0);
+        savfox_core::config::channel_store::save_channel_config(&home, &config)
+            .await
+            .expect("save canonical config");
+
+        let (_, account) = resolve_arkret_outbound_account_for_binding(
+            &home,
+            "ak:realm:01904100-0000-7000-8000-000000000001",
+            Some("arkret-agent"),
+            Some(&expected.id),
+        )
+        .await
+        .expect("resolve bound account")
+        .expect("bound account exists");
+        assert_eq!(account.id, expected.id);
+
+        let error = resolve_arkret_outbound_account_for_binding(
+            &home,
+            "ak:realm:01904100-0000-7000-8000-000000000001",
+            Some("arkret-agent"),
+            Some("different-account"),
+        )
+        .await
+        .expect_err("bound account fallback must remain disabled");
+        assert!(error.to_string().contains("different-account"));
+        let _ = tokio::fs::remove_dir_all(home).await;
     }
 
     #[tokio::test]

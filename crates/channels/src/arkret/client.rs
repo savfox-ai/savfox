@@ -14,10 +14,11 @@ use std::sync::Arc;
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
-    AccountSubscribeFrame, DeviceId, Did, DidUrl, Ed25519PayloadSigner, EventsSubmitOutcome,
-    EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
-    KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, PreparedStandardEvent, RealmId,
-    ServiceDescribe, SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
+    AccountSubscribeFrame, Base64UrlString, DeviceId, Did, DidUrl, Ed25519PayloadSigner,
+    EventsSubmitOutcome, EventsSubscribeFrame, KeyOperationSignature, KeyPackageClaimProof,
+    KeyPackagesClaimOutcome, KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope,
+    PreparedStandardEvent, RealmId, ServiceDescribe, SessionGrantDpopBindingProof, StrandId,
+    SyncRequestBody,
 };
 use arkret_wire::EventInitialSubmission;
 use chrono::{DateTime, Utc};
@@ -47,13 +48,14 @@ pub struct ArkretHttpClient {
     initial_submission_provider: Arc<dyn ArkretInitialSubmissionProvider>,
 }
 
-/// Host-owned integration that obtains issuer-produced publication evidence
-/// for a fully-authored, fully-signed Event.
+/// Host-owned integration that wraps a fully-authored, fully-signed Event for
+/// initial publication.
 ///
-/// Implementations may call a local authority component or a remote authz
-/// service. They must return the exact Event supplied by Savfox inside an
-/// [`EventInitialSubmission`]; Savfox validates that invariant and the wrapper
-/// structure before enqueueing or sending it.
+/// Online submissions carry no authorization lease. Implementations may also
+/// obtain delayed-publication evidence from a local authority component or a
+/// remote authz service. They must return the exact Event supplied by Savfox
+/// inside an [`EventInitialSubmission`]; Savfox validates that invariant and
+/// the wrapper structure before enqueueing or sending it.
 #[async_trait::async_trait]
 pub trait ArkretInitialSubmissionProvider: Send + Sync + 'static {
     async fn initial_submission(
@@ -62,8 +64,9 @@ pub trait ArkretInitialSubmissionProvider: Send + Sync + 'static {
     ) -> anyhow::Result<EventInitialSubmission>;
 }
 
-/// Production publication provider backed by the authenticated Principal
-/// Server's standard authorization-lease and proposal-receipt operations.
+/// Production publication provider backed by the authenticated Arkret client.
+/// The default path produces an online submission without an authorization
+/// lease; delayed-publication providers remain pluggable through the trait.
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
 pub struct PrincipalServerInitialSubmissionProvider {
@@ -324,10 +327,13 @@ pub fn build_mls_key_packages_claim_request(
     strand_id: Option<&str>,
     mls_group_id: Option<&str>,
     timeout_ms: Option<u64>,
+    proof: KeyPackageClaimProof,
 ) -> anyhow::Result<KeyPackagesClaimRequestBody> {
     if claim_nonce.trim().is_empty() {
         anyhow::bail!("Arkret MLS KeyPackage claim nonce must not be empty");
     }
+    let claim_nonce = Base64UrlString::new(claim_nonce)
+        .map_err(|error| anyhow::anyhow!("invalid Arkret MLS KeyPackage claim nonce: {error}"))?;
     let target_principal_id = Did::new(target_principal_id.to_owned())
         .with_context(|| format!("invalid Arkret KeyPackage target DID '{target_principal_id}'"))?;
     let intended_realm_id = RealmId::new(intended_realm_id.to_owned()).with_context(|| {
@@ -365,7 +371,7 @@ pub fn build_mls_key_packages_claim_request(
         timeout_ms,
         strand_id,
         mls_group_id,
-        proofs: Vec::new(),
+        proofs: [proof],
     })
 }
 
@@ -734,7 +740,7 @@ impl ArkretHttpClient {
         )))
     }
 
-    /// Obtain issuer-produced publication evidence for an exact signed Event.
+    /// Build the initial-publication wrapper for an exact signed Event.
     pub async fn prepare_initial_submission(
         &self,
         event: &PreparedStandardEvent,
@@ -754,7 +760,7 @@ impl ArkretHttpClient {
         Ok(submission)
     }
 
-    /// Submit one issuer-produced initial publication wrapper.
+    /// Submit one validated initial-publication wrapper.
     pub async fn submit_initial(
         &self,
         submission: &EventInitialSubmission,
@@ -1126,17 +1132,29 @@ mod tests {
 
     #[test]
     fn claim_request_builder_validates_typed_claim_fields() {
+        let proof = KeyPackageClaimProof {
+            kind: arkret::KeyPackageClaimProofKind::DetachedJws,
+            verification_method: DidUrl::new("did:webvh:z6mkfixture:alice.example#runtime-key-1")
+                .unwrap(),
+            alg: arkret::KeyPackageClaimProofAlgorithm::EdDsa,
+            payload_digest: arkret::Hash::new(format!("sha256:{}", "00".repeat(32))).unwrap(),
+            created_at: Utc::now(),
+            audience: Did::new("did:webvh:z6mkfixture:service.example").unwrap(),
+            proof_purpose: arkret::KeyPackageClaimProofPurpose::HolderAcceptance,
+            jws: "header..signature".to_owned(),
+        };
         let request = build_mls_key_packages_claim_request(
             "did:webvh:z6mkfixture:bob.example",
             "ak:realm:01904100-0000-7000-8000-000000000001",
             "did:webvh:z6mkfixture:alice.example",
             &["mimi.content.v1".to_owned(), "ak.content.v1".to_owned()],
-            "claim-nonce-1".to_owned(),
+            "AQEBAQEBAQEBAQEBAQEBAQ".to_owned(),
             Utc::now() + chrono::Duration::minutes(5),
             &["ak:device:01904100-0000-7000-8000-00000000000e".to_owned()],
             Some("ak:strand:01904100-0000-7000-8000-000000000002"),
             Some("group-1"),
             Some(1500),
+            proof,
         )
         .expect("claim request should build");
 
@@ -1151,7 +1169,7 @@ mod tests {
             Some("ak:strand:01904100-0000-7000-8000-000000000002")
         );
         assert_eq!(request.mls_group_id.as_deref(), Some("group-1"));
-        assert!(request.proofs.is_empty());
+        assert_eq!(request.proofs.len(), 1);
     }
 
     #[test]

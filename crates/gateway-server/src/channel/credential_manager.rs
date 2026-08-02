@@ -1492,6 +1492,14 @@ impl GatewayChannel {
                 {
                     return Ok(());
                 }
+                let bound_account_id = if let Some(session_id) = session_id {
+                    crate::arkret_delivery::ArkretExecutionBindingStore::new(savfox_home)
+                        .binding_for_session(session_id)
+                        .await?
+                        .map(|binding| binding.conversation.account_id)
+                } else {
+                    None
+                };
                 crate::channels::arkret::send_to_arkret_account(
                     savfox_home,
                     channel_id,
@@ -1499,6 +1507,8 @@ impl GatewayChannel {
                     text,
                     sidecar_exchange.as_ref(),
                     saved_channel_config_id,
+                    bound_account_id.as_deref(),
+                    None,
                 )
                 .await?;
             }

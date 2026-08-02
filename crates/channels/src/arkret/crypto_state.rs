@@ -8,6 +8,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::Context;
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity};
@@ -21,14 +22,20 @@ use arkret::{
 use arkret_crypto::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use chrono::{DateTime, Utc};
 use garth::{CryptoStore, MemoryCryptoStore, MlsGroupStateRecord, MlsRecoveryAction};
+use parking_lot::ReentrantMutex;
+use savfox_keyring_store::KeyringStore as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
 const STATE_VERSION: &str = "savfox.arkret.crypto_state.v1";
+const WRAPPED_STATE_VERSION: &str = "savfox.arkret.crypto_state.wrapped.v1";
+const WRAPPING_KEY_SERVICE: &str = "savfox-arkret-crypto-state";
 #[cfg(test)]
 const CONTENT_BLOCK_JSON: &str = arkret::MESSAGE_CONTENT_BLOCK_MLS_CONTENT_TYPE;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,6 +162,8 @@ pub struct ArkretDirectConversationWelcomeBinding {
 pub struct ArkretCryptoStateFile {
     pub version: String,
     pub scope_id: String,
+    #[serde(default)]
+    pub generation: u64,
     pub binding: CryptoStoreBinding,
     pub mls_store_json: String,
     #[serde(default)]
@@ -185,6 +194,7 @@ impl ArkretCryptoStateFile {
         Ok(Self {
             version: STATE_VERSION.to_owned(),
             scope_id,
+            generation: 0,
             binding: CryptoStoreBinding::default(),
             mls_store_json: store
                 .export_backup_json()
@@ -220,6 +230,25 @@ impl ArkretCryptoStateFile {
 pub struct FileArkretCryptoStore {
     path: PathBuf,
     scope_id: String,
+    mutation_lock: Arc<ReentrantMutex<()>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrappedCryptoStateFile {
+    version: String,
+    nonce: String,
+    ciphertext: String,
+}
+
+fn crypto_scope_lock(scope_id: &str) -> Arc<ReentrantMutex<()>> {
+    static LOCKS: OnceLock<Mutex<BTreeMap<String, Arc<ReentrantMutex<()>>>>> = OnceLock::new();
+    let locks = LOCKS.get_or_init(|| Mutex::new(BTreeMap::new()));
+    let mut locks = locks.lock().expect("Arkret crypto scope lock registry");
+    locks
+        .entry(scope_id.to_owned())
+        .or_insert_with(|| Arc::new(ReentrantMutex::new(())))
+        .clone()
 }
 
 impl FileArkretCryptoStore {
@@ -241,7 +270,12 @@ impl FileArkretCryptoStore {
             .join("gateway")
             .join("arkret-crypto")
             .join(format!("{}.json", safe_file_stem(&scope_id)));
-        Self { path, scope_id }
+        let mutation_lock = crypto_scope_lock(&scope_id);
+        Self {
+            path,
+            scope_id,
+            mutation_lock,
+        }
     }
 
     #[must_use]
@@ -250,11 +284,32 @@ impl FileArkretCryptoStore {
     }
 
     pub fn load(&self) -> anyhow::Result<ArkretCryptoStateFile> {
+        let _guard = self.mutation_lock.lock();
+        self.load_unlocked()
+    }
+
+    fn load_unlocked(&self) -> anyhow::Result<ArkretCryptoStateFile> {
         match std::fs::read(&self.path) {
             Ok(bytes) if bytes.is_empty() => ArkretCryptoStateFile::new(self.scope_id.clone()),
             Ok(bytes) => {
-                let state: ArkretCryptoStateFile = serde_json::from_slice(&bytes)
+                let value: Value = serde_json::from_slice(&bytes)
                     .with_context(|| format!("parse {}", self.path.display()))?;
+                let state: ArkretCryptoStateFile = if value.get("version").and_then(Value::as_str)
+                    == Some(WRAPPED_STATE_VERSION)
+                {
+                    let wrapped: WrappedCryptoStateFile = serde_json::from_value(value)?;
+                    let mut plaintext = self.decrypt_wrapped_state(&wrapped)?;
+                    let decoded = serde_json::from_slice(&plaintext)
+                        .with_context(|| format!("decrypt {}", self.path.display()));
+                    use zeroize::Zeroize as _;
+                    plaintext.zeroize();
+                    decoded?
+                } else {
+                    // One-time migration for legacy plaintext state. The next
+                    // successful mutation rewrites it as a wrapped envelope.
+                    serde_json::from_value(value)
+                        .with_context(|| format!("parse legacy {}", self.path.display()))?
+                };
                 if state.version != STATE_VERSION {
                     anyhow::bail!(
                         "unsupported Arkret crypto state version '{}' in {}",
@@ -278,7 +333,8 @@ impl FileArkretCryptoStore {
         }
     }
 
-    pub fn save(&self, state: &ArkretCryptoStateFile) -> anyhow::Result<()> {
+    pub fn save(&self, state: &mut ArkretCryptoStateFile) -> anyhow::Result<()> {
+        let _guard = self.mutation_lock.lock();
         if state.scope_id != self.scope_id {
             anyhow::bail!(
                 "refusing to save Arkret crypto state for scope '{}' into '{}'",
@@ -292,25 +348,128 @@ impl FileArkretCryptoStore {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("create {}", parent.display()))?;
         }
-        let bytes = serde_json::to_vec_pretty(state)?;
-        let tmp = self.tmp_path();
-        std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.path).with_context(|| {
-            let _ = std::fs::remove_file(&tmp);
-            format!("rename {} -> {}", tmp.display(), self.path.display())
-        })?;
+        let current_generation = self.load_unlocked()?.generation;
+        anyhow::ensure!(
+            current_generation == state.generation,
+            "Arkret crypto state generation conflict for scope '{}': disk={}, caller={}",
+            self.scope_id,
+            current_generation,
+            state.generation
+        );
+        let next_generation = state.generation.saturating_add(1);
+        let mut next_state = state.clone();
+        next_state.generation = next_generation;
+        let mut plaintext = serde_json::to_vec(&next_state)?;
+        let wrapped = self.encrypt_wrapped_state(&plaintext)?;
+        use zeroize::Zeroize as _;
+        plaintext.zeroize();
+        let bytes = serde_json::to_vec_pretty(&wrapped)?;
+        savfox_utils::fs::write_atomically(&self.path, &bytes, Some(0o600))
+            .with_context(|| format!("persist {}", self.path.display()))?;
+        state.generation = next_generation;
         Ok(())
     }
 
+    fn wrapping_key_account(&self) -> String {
+        use sha2::Digest as _;
+        format!(
+            "scope-{}",
+            hex::encode(sha2::Sha256::digest(self.scope_id.as_bytes()))
+        )
+    }
+
+    fn wrapping_key(&self) -> anyhow::Result<[u8; 32]> {
+        let account = self.wrapping_key_account();
+        let store = savfox_keyring_store::DefaultKeyringStore;
+        if let Some(encoded) = store
+            .load(WRAPPING_KEY_SERVICE, &account)
+            .context("load Arkret crypto-state wrapping key from platform credential vault")?
+        {
+            let decoded = URL_SAFE_NO_PAD
+                .decode(encoded)
+                .context("decode Arkret crypto-state wrapping key")?;
+            return decoded.try_into().map_err(|value: Vec<u8>| {
+                anyhow::anyhow!(
+                    "Arkret crypto-state wrapping key has invalid length {}",
+                    value.len()
+                )
+            });
+        }
+        let key = rand::random::<[u8; 32]>();
+        store
+            .save(WRAPPING_KEY_SERVICE, &account, &URL_SAFE_NO_PAD.encode(key))
+            .context("save Arkret crypto-state wrapping key in platform credential vault")?;
+        Ok(key)
+    }
+
+    fn wrapping_aad(&self) -> Vec<u8> {
+        format!("{WRAPPED_STATE_VERSION}\0{}", self.scope_id).into_bytes()
+    }
+
+    fn encrypt_wrapped_state(&self, plaintext: &[u8]) -> anyhow::Result<WrappedCryptoStateFile> {
+        let mut key = self.wrapping_key()?;
+        let nonce_bytes = rand::random::<[u8; 24]>();
+        let cipher = XChaCha20Poly1305::new_from_slice(&key)
+            .map_err(|_| anyhow::anyhow!("initialize Arkret crypto-state wrapper"))?;
+        let ciphertext = cipher
+            .encrypt(
+                XNonce::from_slice(&nonce_bytes),
+                Payload {
+                    msg: plaintext,
+                    aad: &self.wrapping_aad(),
+                },
+            )
+            .map_err(|_| anyhow::anyhow!("wrap Arkret crypto state"))?;
+        use zeroize::Zeroize as _;
+        key.zeroize();
+        Ok(WrappedCryptoStateFile {
+            version: WRAPPED_STATE_VERSION.to_owned(),
+            nonce: URL_SAFE_NO_PAD.encode(nonce_bytes),
+            ciphertext: URL_SAFE_NO_PAD.encode(ciphertext),
+        })
+    }
+
+    fn decrypt_wrapped_state(&self, wrapped: &WrappedCryptoStateFile) -> anyhow::Result<Vec<u8>> {
+        anyhow::ensure!(
+            wrapped.version == WRAPPED_STATE_VERSION,
+            "unsupported wrapped Arkret crypto state version '{}'",
+            wrapped.version
+        );
+        let nonce = URL_SAFE_NO_PAD
+            .decode(&wrapped.nonce)
+            .context("decode Arkret crypto-state nonce")?;
+        anyhow::ensure!(nonce.len() == 24, "invalid Arkret crypto-state nonce");
+        let ciphertext = URL_SAFE_NO_PAD
+            .decode(&wrapped.ciphertext)
+            .context("decode Arkret crypto-state ciphertext")?;
+        let mut key = self.wrapping_key()?;
+        let cipher = XChaCha20Poly1305::new_from_slice(&key)
+            .map_err(|_| anyhow::anyhow!("initialize Arkret crypto-state wrapper"))?;
+        let plaintext = cipher
+            .decrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &ciphertext,
+                    aad: &self.wrapping_aad(),
+                },
+            )
+            .map_err(|_| anyhow::anyhow!("unwrap Arkret crypto state"));
+        use zeroize::Zeroize as _;
+        key.zeroize();
+        plaintext
+    }
+
     pub fn ensure_created(&self) -> anyhow::Result<()> {
-        let state = self.load()?;
-        self.save(&state)
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load()?;
+        self.save(&mut state)
     }
 
     pub fn upsert_realm_policy(&self, policy: ArkretRealmCryptoPolicy) -> anyhow::Result<()> {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         state.realm_policies.insert(policy.realm_id.clone(), policy);
-        self.save(&state)
+        self.save(&mut state)
     }
 
     pub fn realm_requires_e2ee(&self, realm_id: &str) -> anyhow::Result<bool> {
@@ -360,6 +519,7 @@ impl FileArkretCryptoStore {
         seal_ref: &str,
         sent_at: DateTime<Utc>,
     ) -> anyhow::Result<arkret_wire::SignalEnvelope> {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let policy = state
             .realm_policies
@@ -449,7 +609,7 @@ impl FileArkretCryptoStore {
                 updated_at: sent_at,
             },
         );
-        self.save(&state)?;
+        self.save(&mut state)?;
 
         let verification_method = arkret::DidUrl::new(verification_method.to_owned())
             .map_err(|error| anyhow::anyhow!("invalid Arkret verification method: {error}"))?;
@@ -491,6 +651,7 @@ impl FileArkretCryptoStore {
         let Some(realms) = realms_value.as_object() else {
             return Ok(0);
         };
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let mut updated = 0usize;
         for (realm_id, realm_value) in realms {
@@ -500,7 +661,7 @@ impl FileArkretCryptoStore {
             }
         }
         if updated > 0 {
-            self.save(&state)?;
+            self.save(&mut state)?;
         }
         Ok(updated)
     }
@@ -550,6 +711,7 @@ impl FileArkretCryptoStore {
             .to_bytes();
         signing_seed.zeroize();
 
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let principal = Did::new(principal_id.to_owned())
             .with_context(|| format!("invalid Arkret principal DID '{principal_id}'"))?;
@@ -588,7 +750,7 @@ impl FileArkretCryptoStore {
                 updated_at: Utc::now(),
             },
         );
-        self.save(&state)?;
+        self.save(&mut state)?;
         Ok(records)
     }
 
@@ -601,6 +763,7 @@ impl FileArkretCryptoStore {
     ) -> anyhow::Result<MlsKeyPackageRecord> {
         use zeroize::Zeroize as _;
 
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let principal = Did::new(principal_id.to_owned())
             .with_context(|| format!("invalid Arkret principal DID '{principal_id}'"))?;
@@ -683,7 +846,7 @@ impl FileArkretCryptoStore {
                 updated_at: Utc::now(),
             },
         );
-        self.save(&state)?;
+        self.save(&mut state)?;
         Ok(record)
     }
 
@@ -826,6 +989,7 @@ impl FileArkretCryptoStore {
         welcome: MlsWelcomeEnvelope,
         consume_binding: Option<ArkretMlsWelcomeConsumeBinding>,
     ) -> anyhow::Result<()> {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let mut store = state.mls_store()?;
         let local_epoch = store
@@ -864,7 +1028,7 @@ impl FileArkretCryptoStore {
                 .insert(binding.cache_key(), binding);
         }
         state.set_mls_store(&store)?;
-        self.save(&state)
+        self.save(&mut state)
     }
 
     pub fn record_mls_welcome_from_value(
@@ -900,6 +1064,7 @@ impl FileArkretCryptoStore {
         payload: &MlsCommitPayload,
         accepted_event_ref: &EventId,
     ) -> anyhow::Result<bool> {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let mut store = state.mls_store()?;
         if store.mls_group_state(payload.mls_group_id()).is_none() {
@@ -935,7 +1100,7 @@ impl FileArkretCryptoStore {
                 },
             );
             state.set_mls_store(&store)?;
-            self.save(&state)?;
+            self.save(&mut state)?;
             return Ok(false);
         }
         if record.epoch != payload.base_epoch() {
@@ -973,7 +1138,7 @@ impl FileArkretCryptoStore {
                 updated_at: Utc::now(),
             },
         );
-        self.save(&state)?;
+        self.save(&mut state)?;
         Ok(true)
     }
 
@@ -986,6 +1151,7 @@ impl FileArkretCryptoStore {
         if payloads.is_empty() {
             return Ok(0);
         }
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         for payload in &payloads {
             let binding = ArkretDirectConversationWelcomeBinding {
@@ -1004,7 +1170,7 @@ impl FileArkretCryptoStore {
                 &state.direct_conversation_welcome_bindings,
             );
         }
-        self.save(&state)?;
+        self.save(&mut state)?;
         Ok(payloads.len())
     }
 
@@ -1071,11 +1237,12 @@ impl FileArkretCryptoStore {
         &self,
         binding: &ArkretMlsWelcomeConsumeBinding,
     ) -> anyhow::Result<()> {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         state
             .mls_welcome_consume_bindings
             .remove(&binding.cache_key());
-        self.save(&state)
+        self.save(&mut state)
     }
 
     pub fn pending_mls_welcome_consume_bindings(
@@ -1107,6 +1274,7 @@ impl FileArkretCryptoStore {
             return Ok(0);
         };
 
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let mut repaired = 0;
         for event in events
@@ -1134,7 +1302,7 @@ impl FileArkretCryptoStore {
             }
         }
         if repaired > 0 {
-            self.save(&state)?;
+            self.save(&mut state)?;
         }
         Ok(repaired)
     }
@@ -1145,6 +1313,7 @@ impl FileArkretCryptoStore {
         device_id: &str,
         payload: &EncryptedPayload,
     ) -> anyhow::Result<ArkretBootstrapRecord> {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let store = state.mls_store()?;
         let principal = Did::new(principal_id.to_owned())
@@ -1181,7 +1350,7 @@ impl FileArkretCryptoStore {
         state
             .bootstrap
             .insert(record.group_id.clone(), record.clone());
-        self.save(&state)?;
+        self.save(&mut state)?;
         Ok(record)
     }
 
@@ -1193,6 +1362,7 @@ impl FileArkretCryptoStore {
         encrypted_content: EncryptedPayload,
         reason: UnableToDecryptReason,
     ) -> anyhow::Result<()> {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let record = UnableToDecryptRecord {
             event_id: EventId::new(event_id.to_owned())
@@ -1206,7 +1376,7 @@ impl FileArkretCryptoStore {
             first_seen_at: Utc::now(),
         };
         state.binding.record_unable_to_decrypt(record);
-        self.save(&state)
+        self.save(&mut state)
     }
 
     pub fn try_decrypt_content_block(
@@ -1232,6 +1402,7 @@ impl FileArkretCryptoStore {
         &self,
         payload: &EncryptedPayload,
     ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let mut store = state.mls_store()?;
         if store.mls_group_state(&payload.group_id).is_none() {
@@ -1254,7 +1425,7 @@ impl FileArkretCryptoStore {
                 },
             );
             state.set_mls_store(&store)?;
-            self.save(&state)?;
+            self.save(&mut state)?;
         }
         let record = store
             .mls_group_state(&payload.group_id)
@@ -1298,7 +1469,7 @@ impl FileArkretCryptoStore {
             })
             .cloned()
             .collect::<Vec<_>>();
-        self.save(&state)?;
+        self.save(&mut state)?;
         Ok(ArkretDecryptDetailedOutcome::Decrypted {
             content,
             consume_bindings,
@@ -1331,6 +1502,7 @@ impl FileArkretCryptoStore {
     where
         T: MlsPayloadType + Serialize,
     {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let Some(policy) = state.realm_policies.get(realm_id).cloned() else {
             return Ok(ArkretEncryptOutcome::PlaintextAllowed);
@@ -1389,7 +1561,7 @@ impl FileArkretCryptoStore {
                 updated_at: Utc::now(),
             },
         );
-        self.save(&state)?;
+        self.save(&mut state)?;
         Ok(ArkretEncryptOutcome::Encrypted(envelope))
     }
 
@@ -1398,6 +1570,7 @@ impl FileArkretCryptoStore {
         keypackage_ref_or_id: &str,
         update: impl FnOnce(&mut MlsKeyPackageRecord) -> anyhow::Result<()>,
     ) -> anyhow::Result<Option<MlsKeyPackageRecord>> {
+        let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let Some(cache_key) =
             find_mls_key_package_cache_key(&state.mls_key_packages, keypackage_ref_or_id)
@@ -1410,18 +1583,8 @@ impl FileArkretCryptoStore {
             .ok_or_else(|| anyhow::anyhow!("Arkret MLS KeyPackage cache key disappeared"))?;
         update(record)?;
         let updated = record.clone();
-        self.save(&state)?;
+        self.save(&mut state)?;
         Ok(Some(updated))
-    }
-
-    fn tmp_path(&self) -> PathBuf {
-        let mut name = self
-            .path
-            .file_name()
-            .map(|n| n.to_os_string())
-            .unwrap_or_else(|| "arkret-crypto.json".into());
-        name.push(".tmp");
-        self.path.with_file_name(name)
     }
 }
 
@@ -2034,6 +2197,28 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn crypto_state_is_wrapped_at_rest_and_rejects_stale_generation() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let store = FileArkretCryptoStore::for_account(home.path(), "wrapped", "agent");
+        store.ensure_created().expect("create wrapped state");
+
+        let raw = std::fs::read_to_string(store.path()).expect("read wrapped file");
+        assert!(raw.contains(WRAPPED_STATE_VERSION));
+        assert!(!raw.contains("mls_store_json"));
+        assert!(!raw.contains("private_state"));
+
+        let mut stale = store.load().expect("load stale snapshot");
+        let mut current = store.load().expect("load current snapshot");
+        current.key_backup.restore_needed = true;
+        store.save(&mut current).expect("advance generation");
+        stale.key_backup.restore_needed = false;
+        let error = store
+            .save(&mut stale)
+            .expect_err("stale generation must fail closed");
+        assert!(error.to_string().contains("generation conflict"));
+    }
+
     fn temp_home(label: &str) -> PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
@@ -2102,7 +2287,9 @@ mod tests {
         state
             .mls_welcome_consume_bindings
             .insert(pending.cache_key(), pending.clone());
-        store.save(&state).expect("pending binding should persist");
+        store
+            .save(&mut state)
+            .expect("pending binding should persist");
 
         let bound = direct_conversation_bound_payload(realm_id, strand_id, group_id, welcome_ref);
         assert_eq!(

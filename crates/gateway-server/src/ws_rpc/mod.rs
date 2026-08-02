@@ -140,6 +140,14 @@ pub(crate) async fn dispatch_rpc(
             handle_sessions_idle_reply_get(&params, session_store, channel).await
         }
         "sessions.preview" => handle_sessions_preview(&params, session_store, channel).await,
+        #[cfg(feature = "arkret")]
+        "sessions.arkret.delivery.preview" => {
+            handle_sessions_arkret_delivery_preview(&params, session_store, channel).await
+        }
+        #[cfg(feature = "arkret")]
+        "sessions.arkret.delivery.publish" => {
+            handle_sessions_arkret_delivery_publish(&params, session_store, channel).await
+        }
         "sessions.patch" => handle_sessions_patch(&params, session_store).await,
         "sessions.reset" => {
             handle_sessions_reset(&params, session_mgr, session_store, channel).await

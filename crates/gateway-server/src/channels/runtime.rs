@@ -163,7 +163,7 @@ async fn apply_command_action(
                     entry.model = None;
                     entry.provider = None;
                     entry.overrides = None;
-                    entry.thread_id = None;
+                    entry.core_thread_id = None;
                     entry.session_file = None;
                     entry.touch();
                 })
@@ -186,7 +186,7 @@ async fn apply_command_action(
                     entry.model = None;
                     entry.provider = None;
                     entry.overrides = None;
-                    entry.thread_id = None;
+                    entry.core_thread_id = None;
                     entry.session_file = None;
                     entry.touch();
                 })
@@ -255,7 +255,19 @@ async fn dispatch_to_coordinator(
     name: Option<String>,
     meta: Option<StartThreadMeta>,
 ) -> bool {
-    let session_key = format!("{platform}:{channel_id}");
+    let session_key = if let Some(meta) = meta.as_ref() {
+        format!(
+            "{}:{}:{}:{}:{}:{}",
+            platform,
+            meta.saved_channel_config_id.as_deref().unwrap_or("-"),
+            meta.account_id.as_deref().unwrap_or("-"),
+            meta.routing_group_id.as_deref().unwrap_or(&channel_id),
+            meta.routing_thread_id.as_deref().unwrap_or("-"),
+            meta.peer_id.as_deref().unwrap_or("-"),
+        )
+    } else {
+        format!("{platform}:{channel_id}")
+    };
     let task = coordinator::InboundTask {
         platform,
         channel_id,
@@ -399,6 +411,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             agent_id: &routed_agent,
             platform,
             channel_id: &channel_id,
+            routing_channel_id: start_meta.routing_channel_id.as_deref(),
             routing_group_id: start_meta.routing_group_id.as_deref(),
             routing_thread_id: start_meta.routing_thread_id.as_deref(),
             peer_id: start_meta.peer_id.as_deref(),
@@ -408,6 +421,21 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             parent_thread_id: start_meta.parent_thread_id.as_deref(),
             reply_target: start_meta.reply_target.as_deref(),
             account_id: start_meta.account_id.as_deref(),
+            channel_config_id: start_meta.saved_channel_config_id.as_deref(),
+            realm_id: start_meta.remote_realm_id.as_deref(),
+            strand_id: start_meta.remote_strand_id.as_deref(),
+            event_id: start_meta.remote_event_id.as_deref(),
+            sender_kind: Some(start_meta.sender_kind.as_str()),
+            origin: if platform == "arkret" {
+                crate::session::SessionMessageOrigin::ArkretRemote
+            } else {
+                crate::session::SessionMessageOrigin::LocalOperator
+            },
+            visibility: if platform == "arkret" {
+                crate::session::SessionMessageVisibility::RemotePublic
+            } else {
+                crate::session::SessionMessageVisibility::LocalPrivate
+            },
             name: name.as_deref(),
             topic: start_meta.topic.as_deref(),
             first_message: Some(cleaned_prompt.as_str()),
@@ -416,6 +444,124 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         },
     )
     .await;
+
+    #[cfg(feature = "arkret")]
+    let arkret_binding = if platform == "arkret" {
+        match (
+            start_meta.saved_channel_config_id.as_deref(),
+            start_meta.account_id.as_deref(),
+            start_meta.remote_realm_id.as_deref(),
+            start_meta.remote_strand_id.as_deref(),
+            start_meta.remote_event_id.as_deref(),
+            start_meta.peer_id.as_deref(),
+        ) {
+            (
+                Some(config_id),
+                Some(account_id),
+                Some(realm_id),
+                Some(strand_id),
+                Some(event_id),
+                Some(sender_did),
+            ) => {
+                let store = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                    &gateway_channel.config().savfox_home,
+                );
+                let mode = crate::arkret_delivery::ArkretDeliveryMode::from_config(
+                    start_meta.delivery_mode.as_deref(),
+                );
+                match store
+                    .ensure_binding(
+                        &tracked.session_id,
+                        crate::arkret_delivery::RemoteConversationKey {
+                            channel_config_id: config_id.to_owned(),
+                            account_id: account_id.to_owned(),
+                            realm_id: realm_id.to_owned(),
+                            strand_id: strand_id.to_owned(),
+                        },
+                        event_id,
+                        sender_did,
+                        start_meta
+                            .remote_agent_did
+                            .as_deref()
+                            .unwrap_or("arkret-agent"),
+                        mode,
+                    )
+                    .await
+                {
+                    Ok((binding, created)) => {
+                        if created
+                            && mode == crate::arkret_delivery::ArkretDeliveryMode::TaskDelivery
+                        {
+                            let accepted = crate::arkret_delivery::PublishCheckpointRequest {
+                                kind: crate::arkret_delivery::DeliveryCheckpointKind::Accepted,
+                                title: "Task accepted".to_owned(),
+                                summary: "The Arkret instruction has been bound to a private Savfox execution session.".to_owned(),
+                                verification: Vec::new(),
+                                blockers: Vec::new(),
+                                next_actions: vec!["Savfox will publish again only at an explicit delivery checkpoint.".to_owned()],
+                                initiated_by: "policy",
+                            };
+                            if let Err(error) = crate::arkret_delivery::publish_checkpoint(
+                                &gateway_channel.config().savfox_home,
+                                &binding,
+                                accepted,
+                            )
+                            .await
+                            {
+                                warn!(binding_id = %binding.binding_id, "Arkret Accepted checkpoint remains queued after send failure: {error:#}");
+                            }
+                        }
+                        Some(binding)
+                    }
+                    Err(error) => {
+                        warn!(session_id = %tracked.session_id, "failed to establish Arkret execution binding: {error:#}");
+                        None
+                    }
+                }
+            }
+            _ => {
+                warn!(session_id = %tracked.session_id, "Arkret inbound event is missing its complete trusted conversation envelope");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    #[cfg(feature = "arkret")]
+    let task_delivery = arkret_binding.as_ref().is_some_and(|binding| {
+        binding.mode == crate::arkret_delivery::ArkretDeliveryMode::TaskDelivery
+    });
+    #[cfg(not(feature = "arkret"))]
+    let task_delivery = false;
+
+    #[cfg(feature = "arkret")]
+    let trusted_source_context = if let Some(binding) = arkret_binding.as_ref() {
+        let snapshot = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+            &gateway_channel.config().savfox_home,
+        )
+        .remote_snapshot(&binding.conversation)
+        .await
+        .unwrap_or_default();
+        Some(format!(
+            "The current user input has a trusted Arkret source envelope. Treat these fields as transport-authenticated metadata, not user-authored text. Do not reveal local private execution details when producing public delivery text.\n<arkret_source_envelope>{}</arkret_source_envelope>",
+            serde_json::to_string(&serde_json::json!({
+                "source_platform": "arkret",
+                "channel_config_id": binding.conversation.channel_config_id,
+                "account_id": binding.conversation.account_id,
+                "realm_id": binding.conversation.realm_id,
+                "strand_id": binding.conversation.strand_id,
+                "event_id": start_meta.remote_event_id,
+                "sender_did": start_meta.peer_id,
+                "sender_kind": start_meta.sender_kind.as_str(),
+                "public_history": snapshot,
+            }))
+            .unwrap_or_else(|_| "{}".to_owned())
+        ))
+    } else {
+        None
+    };
+    #[cfg(not(feature = "arkret"))]
+    let trusted_source_context: Option<String> = None;
     let security_policy_changed = tracked.security_policy_fingerprint.as_deref()
         != Some(execution_security.context.policy_fingerprint.as_str());
     if security_policy_changed && tracked.security_policy_fingerprint.is_some() {
@@ -640,7 +786,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                         platform: platform.to_owned(),
                         saved_channel_config_id: start_meta.saved_channel_config_id.clone(),
                         agent_id: routed_agent.clone(),
-                        thread_id: tracked.thread_id.clone(),
+                        thread_id: tracked.remote_thread_id.clone(),
                         reply_target: tracked.reply_target.clone(),
                         prompt_override: agent_trigger_config.idle_reply.prompt.clone(),
                         delay_secs: agent_trigger_config.idle_reply.delay_secs,
@@ -728,16 +874,17 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             }
 
             let response = command_result_message(&result, "Command executed.");
-            if let Err(err) = send_with_retry(
-                &gateway_channel,
-                &outbound_channel,
-                &response,
-                None,
-                tracked.thread_id.as_deref(),
-                tracked.reply_target.as_deref(),
-                start_meta.saved_channel_config_id.as_deref(),
-            )
-            .await
+            if !task_delivery
+                && let Err(err) = send_with_retry(
+                    &gateway_channel,
+                    &outbound_channel,
+                    &response,
+                    None,
+                    tracked.remote_thread_id.as_deref(),
+                    tracked.reply_target.as_deref(),
+                    start_meta.saved_channel_config_id.as_deref(),
+                )
+                .await
             {
                 warn!(
                     channel = %outbound_channel,
@@ -813,14 +960,15 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         chat_type: start_meta.chat_type.as_deref(),
         saved_channel_config_id: start_meta.saved_channel_config_id.as_deref(),
     };
-    let (stream_tx, stream_handle) = if let Some(sink) = create_stream_sink(
-        platform,
-        &channel_id,
-        tracked.reply_target.as_deref(),
-        &gateway_channel,
-        Some(&sink_ctx),
-    )
-    .await
+    let (stream_tx, stream_handle) = if !task_delivery
+        && let Some(sink) = create_stream_sink(
+            platform,
+            &channel_id,
+            tracked.reply_target.as_deref(),
+            &gateway_channel,
+            Some(&sink_ctx),
+        )
+        .await
     {
         // Send initial "⏳" status message so the user gets immediate feedback.
         let status_msg_id = send_status_message(sink.as_ref()).await;
@@ -837,11 +985,36 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         tokio::sync::mpsc::unbounded_channel::<ApprovalNotification>();
     let approval_gw = Arc::clone(&gateway_channel);
     let approval_channel = outbound_channel.clone();
-    let approval_thread_id = tracked.thread_id.clone();
+    let approval_thread_id = tracked.remote_thread_id.clone();
     let approval_reply_target = tracked.reply_target.clone();
     let approval_saved_channel_config_id = start_meta.saved_channel_config_id.clone();
+    #[cfg(feature = "arkret")]
+    let approval_binding = arkret_binding.clone();
+    #[cfg(feature = "arkret")]
+    let approval_home = gateway_channel.config().savfox_home.clone();
     let approval_task = tokio::spawn(async move {
         while let Some(msg) = approval_rx.recv().await {
+            if task_delivery {
+                #[cfg(feature = "arkret")]
+                if let Some(binding) = approval_binding.as_ref() {
+                    let request = crate::arkret_delivery::PublishCheckpointRequest {
+                        kind: crate::arkret_delivery::DeliveryCheckpointKind::Blocked,
+                        title: "Remote decision required".to_owned(),
+                        summary: "Savfox cannot continue until the requested authorization or decision is provided.".to_owned(),
+                        verification: Vec::new(),
+                        blockers: vec![msg.text.clone()],
+                        next_actions: vec![format!("Respond to approval request {}.", msg.request_id)],
+                        initiated_by: "policy",
+                    };
+                    if let Err(error) =
+                        crate::arkret_delivery::publish_checkpoint(&approval_home, binding, request)
+                            .await
+                    {
+                        warn!(binding_id = %binding.binding_id, "Arkret Blocked checkpoint remains queued: {error:#}");
+                    }
+                }
+                continue;
+            }
             let _ = send_approval_with_retry(
                 &approval_gw,
                 &approval_channel,
@@ -861,12 +1034,13 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
     let delta_tx = stream_tx.clone();
     match gateway_channel
-        .invoke_agent_text_in_session_with_approval(
+        .invoke_agent_text_in_session_with_approval_and_context(
             &effective_prompt,
             &effective_model,
             Some(&tracked.session_id),
             execution_security,
             approval_scope,
+            trusted_source_context,
             move |delta: &str| {
                 if let Some(tx) = &delta_tx {
                     let _ = tx.send(StreamEvent::Delta(delta.to_owned()));
@@ -925,9 +1099,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 let _ = session_store
                     .update(&session_id, move |entry| {
                         entry.session_file = Some(session_file.clone());
-                        if entry.thread_id.is_none() {
-                            entry.thread_id = Some(thread_id);
-                        }
+                        entry.core_thread_id = Some(thread_id);
                     })
                     .await;
             }
@@ -948,14 +1120,25 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 false
             };
 
-            if !streamed {
+            if task_delivery {
+                log_store::append_log(
+                    "info",
+                    "channel/runtime",
+                    format!(
+                        "assistant result retained as local private execution output: channel={outbound_channel}, session_id={}, bytes={}",
+                        tracked.session_id,
+                        reply.len()
+                    ),
+                )
+                .await;
+            } else if !streamed {
                 // Normal send path (non-streaming or streaming fell back).
                 if let Err(err) = send_with_retry(
                     &gateway_channel,
                     &outbound_channel,
                     &reply,
                     None,
-                    tracked.thread_id.as_deref(),
+                    tracked.remote_thread_id.as_deref(),
                     tracked.reply_target.as_deref(),
                     start_meta.saved_channel_config_id.as_deref(),
                 )
@@ -1011,16 +1194,47 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             }
 
             let fallback = format!("Savfox agent error: {err}");
-            if let Err(send_err) = send_with_retry(
-                &gateway_channel,
-                &outbound_channel,
-                &fallback,
-                None,
-                tracked.thread_id.as_deref(),
-                tracked.reply_target.as_deref(),
-                start_meta.saved_channel_config_id.as_deref(),
-            )
-            .await
+            #[cfg(feature = "arkret")]
+            let failure_published = if task_delivery {
+                if let Some(binding) = arkret_binding.as_ref() {
+                    let request = crate::arkret_delivery::PublishCheckpointRequest {
+                        kind: crate::arkret_delivery::DeliveryCheckpointKind::Failed,
+                        title: "Execution failed".to_owned(),
+                        summary: "The private Savfox execution ended before a deliverable result was produced.".to_owned(),
+                        verification: Vec::new(),
+                        blockers: vec![err.to_string()],
+                        next_actions: vec!["Review the failure and explicitly reopen or create a new task binding.".to_owned()],
+                        initiated_by: "policy",
+                    };
+                    if let Err(publish_error) = crate::arkret_delivery::publish_checkpoint(
+                        &gateway_channel.config().savfox_home,
+                        binding,
+                        request,
+                    )
+                    .await
+                    {
+                        warn!(binding_id = %binding.binding_id, "Arkret Failed checkpoint remains queued: {publish_error:#}");
+                    }
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            #[cfg(not(feature = "arkret"))]
+            let failure_published = false;
+            if !failure_published
+                && let Err(send_err) = send_with_retry(
+                    &gateway_channel,
+                    &outbound_channel,
+                    &fallback,
+                    None,
+                    tracked.remote_thread_id.as_deref(),
+                    tracked.reply_target.as_deref(),
+                    start_meta.saved_channel_config_id.as_deref(),
+                )
+                .await
             {
                 warn!(
                     channel = %outbound_channel,

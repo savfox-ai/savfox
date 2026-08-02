@@ -51,6 +51,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 mod agent_terminal_delegate;
 mod agent_terminal_launcher;
 mod approval_policy_store;
+#[cfg(feature = "arkret")]
+mod arkret_delivery;
 pub mod audit;
 pub mod auto_reply;
 mod cached_db;

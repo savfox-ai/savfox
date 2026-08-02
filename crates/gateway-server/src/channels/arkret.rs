@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arkret::{
-    DeviceId, DeviceMessagesAckRequestBody, Did, EventId, EventsFrontierSelector,
+    DeviceId, DeviceMessagesAckRequestBody, Did, EventId, EventRef, EventsFrontierSelector,
     EventsFrontierView, KeyPackagesConsumeOutcome, KeyPackagesConsumeUnsignedRequest,
     KeyPackagesRevokeUnsignedRequest, KeyPackagesUploadRequestBody,
     KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord, PreparedDataEvent,
@@ -39,7 +39,7 @@ use savfox_channels::arkret::{
     SidecarRequestGate, UnableToDecryptReason, account_allows_event_read, apply_data_event_basis,
     build_message_create_event, build_user_facing_response_metadata, device_messages_scope,
     encode_sidecar_reply_target, gate_inbound_request_binding, open_account_store,
-    parse_delta_frame_for_account, resolve_arkret_outbound_account_for_config,
+    parse_delta_frame_for_account, resolve_arkret_outbound_account_for_binding,
     sidecar_binding_from_metadata_plaintext, sign_keypackages_consume_request,
     sign_keypackages_revoke_request, sign_keypackages_upload_request,
 };
@@ -571,6 +571,23 @@ async fn run_account_listener(
         return;
     }
 
+    match crate::arkret_delivery::resume_pending_checkpoints(&savfox_home, &channel.id, &account.id)
+        .await
+    {
+        Ok(count) if count > 0 => info!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            published = count,
+            "arkret: resumed durable checkpoint deliveries before subscribing"
+        ),
+        Ok(_) => {}
+        Err(error) => warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: could not inspect pending checkpoint deliveries: {error:#}"
+        ),
+    }
+
     runtime::record_channel_probe("arkret", "ok").await;
     match drive_account_subscription_engine(
         &provider,
@@ -618,22 +635,23 @@ enum AccountEngineOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AccountInboundMode {
-    Live,
-    InitialCatchup,
+    Baseline,
+    Hydrate,
+    Trigger,
 }
 
 impl AccountInboundMode {
     fn suppresses_agent_dispatch(self) -> bool {
-        self == Self::InitialCatchup
+        self != Self::Trigger
     }
 }
 
 fn account_inbound_mode(events: &[ClientEvent]) -> AccountInboundMode {
     match events.first() {
         Some(ClientEvent::AccountUpdates(updates)) if updates.initial_catchup => {
-            AccountInboundMode::InitialCatchup
+            AccountInboundMode::Baseline
         }
-        _ => AccountInboundMode::Live,
+        _ => AccountInboundMode::Trigger,
     }
 }
 
@@ -1065,7 +1083,7 @@ async fn process_durable_account_inbox(
                 return;
             }
             let inbound_mode = account_inbound_mode(&delivery.events);
-            if inbound_mode == AccountInboundMode::InitialCatchup {
+            if inbound_mode == AccountInboundMode::Baseline {
                 info!(
                     channel_id = %channel.id,
                     account_id = %account.id,
@@ -1195,7 +1213,6 @@ async fn handle_account_client_event(
                     provider,
                     client,
                     scan_request,
-                    inbound_mode,
                     channel,
                     account,
                     account_store,
@@ -2588,7 +2605,6 @@ async fn scan_limited_realm_timeline_for_account(
     provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     request: AccountScanCatchupRequest,
-    inbound_mode: AccountInboundMode,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
@@ -2658,7 +2674,7 @@ async fn scan_limited_realm_timeline_for_account(
         provider,
         client,
         parsed,
-        inbound_mode,
+        AccountInboundMode::Hydrate,
         channel,
         account,
         account_store,
@@ -3208,7 +3224,66 @@ async fn handle_parsed_account_events(
             );
             continue;
         }
+        if inbound_mode == AccountInboundMode::Trigger {
+            hydrate_conversation_before_trigger(
+                provider,
+                client,
+                &event,
+                channel,
+                account,
+                account_store,
+                crypto_store,
+                gateway_channel,
+                session_store,
+            )
+            .await?;
+        }
         let event_id = event.event_id.clone();
+        let conversation = event.strand_id.as_ref().map(|strand_id| {
+            crate::arkret_delivery::RemoteConversationKey {
+                channel_config_id: channel.id.clone(),
+                account_id: account.id.clone(),
+                realm_id: event.realm_id.clone(),
+                strand_id: strand_id.clone(),
+            }
+        });
+        if inbound_mode == AccountInboundMode::Hydrate {
+            if let Some(conversation) = conversation {
+                crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                    &gateway_channel.config().savfox_home,
+                )
+                .hydrate_event(
+                    conversation,
+                    crate::arkret_delivery::RemoteContextEvent {
+                        event_id: event.event_id.clone(),
+                        sender_did: event.sender_did.clone(),
+                        sender_kind: if event.sender_did.eq_ignore_ascii_case(&account.principal_id)
+                        {
+                            "agent".to_owned()
+                        } else {
+                            "human".to_owned()
+                        },
+                        body: event.body.clone(),
+                        received_at: Utc::now(),
+                    },
+                )
+                .await?;
+            }
+        }
+        if event
+            .sender_did
+            .eq_ignore_ascii_case(account.principal_id.trim())
+        {
+            if inbound_mode == AccountInboundMode::Trigger {
+                let _ = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                    &gateway_channel.config().savfox_home,
+                )
+                .acknowledge_echo(&event_id)
+                .await?;
+            }
+            remember_account_event(account_store, &event_id).await?;
+            continue;
+        }
         if inbound_mode.suppresses_agent_dispatch() {
             remember_account_event(account_store, &event_id).await?;
             update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
@@ -3218,7 +3293,7 @@ async fn handle_parsed_account_events(
                 channel_id = %channel.id,
                 account_id = %account.id,
                 event_id = %event_id,
-                "arkret: recorded initial catch-up event without agent dispatch"
+                "arkret: recorded non-triggering history event without agent dispatch"
             );
             continue;
         }
@@ -3233,6 +3308,85 @@ async fn handle_parsed_account_events(
         remember_account_event(account_store, &event_id).await?;
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn hydrate_conversation_before_trigger(
+    provider: &ArkretAgentSessionProvider,
+    client: &ArkretHttpClient,
+    trigger: &ArkretInboundEvent,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &garth::FileStore,
+    crypto_store: &FileArkretCryptoStore,
+    gateway_channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
+) -> anyhow::Result<()> {
+    let Some(strand_id) = trigger.strand_id.as_ref() else {
+        return Ok(());
+    };
+    let conversation = crate::arkret_delivery::RemoteConversationKey {
+        channel_config_id: channel.id.clone(),
+        account_id: account.id.clone(),
+        realm_id: trigger.realm_id.clone(),
+        strand_id: strand_id.clone(),
+    };
+    let delivery_store = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+        &gateway_channel.config().savfox_home,
+    );
+    let snapshot = delivery_store.remote_snapshot(&conversation).await?;
+    if !snapshot.events.is_empty() || snapshot.history_unavailable.is_some() {
+        return Ok(());
+    }
+    if !account.has_requested_scope("ak.self.events.query.scan") {
+        delivery_store
+            .mark_history_unavailable(
+                conversation,
+                "history_unavailable: account lacks ak.self.events.query.scan",
+            )
+            .await?;
+        return Ok(());
+    }
+    let realm_id = RealmId::new(trigger.realm_id.clone())?;
+    let outcome = match client
+        .inner()
+        .events_query(
+            realm_id.as_str(),
+            None,
+            None,
+            None,
+            Some(ACCOUNT_SCAN_CATCHUP_LIMIT),
+        )
+        .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            delivery_store
+                .mark_history_unavailable(
+                    conversation,
+                    &format!("history_unavailable: bounded events_query failed: {error}"),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+    let parsed = parse_backfill_events_for_account(&realm_id, outcome.events, account);
+    // Boxing is intentional: hydration reuses the exact signature/decryption
+    // pipeline while the `Hydrate` mode prevents this recursive pass from
+    // triggering an agent turn or another history query.
+    Box::pin(handle_parsed_account_events(
+        provider,
+        client,
+        parsed,
+        AccountInboundMode::Hydrate,
+        channel,
+        account,
+        account_store,
+        crypto_store,
+        gateway_channel,
+        session_store,
+    ))
+    .await
 }
 
 async fn dispatch_to_agent(
@@ -3272,11 +3426,20 @@ async fn dispatch_to_agent(
     };
     let mut start_meta = runtime::StartThreadMeta {
         peer_id: Some(sender.clone()),
+        routing_channel_id: Some(format!("{}:{}:{}", config_id, account.id, realm_id)),
+        routing_group_id: Some(realm_id.clone()),
+        routing_thread_id: strand_id.clone(),
         group_id: (!matches!(chat_type.as_deref(), Some("dm"))).then(|| realm_id.clone()),
         thread_id,
         reply_target,
+        account_id: Some(account.id.clone()),
         chat_type,
         saved_channel_config_id: Some(config_id.clone()),
+        remote_realm_id: Some(realm_id.clone()),
+        remote_strand_id: strand_id.clone(),
+        remote_event_id: Some(event_id.clone()),
+        remote_agent_did: Some(account.principal_id.clone()),
+        delivery_mode: Some(channel.delivery_mode.clone()),
         sender_kind,
         is_mentioned: sidecar_exchange.is_some(),
         participant_count,
@@ -3341,7 +3504,18 @@ async fn try_handle_encrypted_account_skip(
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<bool> {
-    if arkret_sender_is_account_principal(skipped.sender_did.as_deref(), account) {
+    if arkret_sender_is_account_principal(skipped.sender_did.as_deref(), account)
+        && inbound_mode != AccountInboundMode::Hydrate
+    {
+        if inbound_mode == AccountInboundMode::Trigger
+            && let Some(event_id) = skipped.event_id.as_deref()
+        {
+            let _ = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                &gateway_channel.config().savfox_home,
+            )
+            .acknowledge_echo(event_id)
+            .await?;
+        }
         debug!(
             account_id = %account.id,
             event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
@@ -3392,7 +3566,7 @@ async fn try_handle_encrypted_account_skip(
                 &consume_bindings,
             )
             .await;
-            if inbound_mode.suppresses_agent_dispatch() {
+            if inbound_mode == AccountInboundMode::Baseline {
                 debug!(
                     channel_id = %channel.id,
                     account_id = %account.id,
@@ -3418,6 +3592,34 @@ async fn try_handle_encrypted_account_skip(
             let Some(sender_did) = skipped.sender_did.clone() else {
                 return Ok(false);
             };
+            if inbound_mode == AccountInboundMode::Hydrate {
+                if let Some(strand_id) = skipped.strand_id.as_ref() {
+                    crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                        &gateway_channel.config().savfox_home,
+                    )
+                    .hydrate_event(
+                        crate::arkret_delivery::RemoteConversationKey {
+                            channel_config_id: channel.id.clone(),
+                            account_id: account.id.clone(),
+                            realm_id: realm_id.clone(),
+                            strand_id: strand_id.clone(),
+                        },
+                        crate::arkret_delivery::RemoteContextEvent {
+                            event_id: event_id.clone(),
+                            sender_did: sender_did.clone(),
+                            sender_kind: if sender_did.eq_ignore_ascii_case(&account.principal_id) {
+                                "agent".to_owned()
+                            } else {
+                                "human".to_owned()
+                            },
+                            body,
+                            received_at: Utc::now(),
+                        },
+                    )
+                    .await?;
+                }
+                return Ok(true);
+            }
             let sidecar_exchange = match consume_sidecar_exchange_binding(
                 provider,
                 skipped,
@@ -3861,19 +4063,11 @@ impl OutboundGenerationFence for AccountOutboundEncryptionFence {
         let Some(event) = item.content.get("event") else {
             return Ok(OutboundGenerationFenceDecision::Quarantine {
                 reason: format!(
-                    "queued Arkret Event for {} lacks EventInitialSubmission publication evidence",
+                    "queued Arkret Event for {} lacks an EventInitialSubmission wrapper",
                     item.realm_id.as_str()
                 ),
             });
         };
-        if item.authorization_lease.is_none() {
-            return Ok(OutboundGenerationFenceDecision::Quarantine {
-                reason: format!(
-                    "queued Arkret Event for {} has no bound AuthorizationLease",
-                    item.realm_id.as_str()
-                ),
-            });
-        }
         let is_message = event
             .get("kind")
             .and_then(Value::as_str)
@@ -3946,7 +4140,7 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
                         "decode queued Arkret initial submission: {error}"
                     ))
                 })?;
-            if item.authorization_lease.as_ref() != Some(&submission.authorization_lease) {
+            if item.authorization_lease.as_ref() != submission.authorization_lease.as_ref() {
                 return Err(garth::Error::Protocol(
                     "queued Arkret submission does not match its bound AuthorizationLease"
                         .to_owned(),
@@ -4008,10 +4202,16 @@ pub(crate) async fn send_to_arkret_account(
     body: &str,
     sidecar_exchange: Option<&SidecarExchangeContext>,
     saved_channel_config_id: Option<&str>,
-) -> anyhow::Result<()> {
-    let Some((channel, account)) =
-        resolve_arkret_outbound_account_for_config(savfox_home, realm_id, saved_channel_config_id)
-            .await?
+    expected_account_id: Option<&str>,
+    delivery: Option<&crate::arkret_delivery::DeliveryCorrelation>,
+) -> anyhow::Result<String> {
+    let Some((channel, account)) = resolve_arkret_outbound_account_for_binding(
+        savfox_home,
+        realm_id,
+        saved_channel_config_id,
+        expected_account_id,
+    )
+    .await?
     else {
         anyhow::bail!(
             "no Arkret channel configured for realm {realm_id} and routed config {saved_channel_config_id:?}"
@@ -4060,12 +4260,22 @@ pub(crate) async fn send_to_arkret_account(
         sidecar_exchange: sidecar_exchange.cloned(),
     };
     let mut event = build_message_create_event(&request)?;
+    if let Some(delivery) = delivery {
+        // The checkpoint id is also the stable event id. Rebuilding a queued
+        // checkpoint after a crash therefore reaches Arkret as a duplicate,
+        // not as a second public delivery.
+        event.event_id = EventId::new(format!("ak:event:{}", delivery.checkpoint_id))?;
+        event.refs.push(EventRef::new(
+            EventId::new(delivery.source_event_id.clone())?.to_string(),
+            "after",
+        ));
+    }
     event.payload.insert(
         "agent_context".to_owned(),
         json!({
             "agent_id": account.principal_id,
             "operator_or_controller": "derived_from_direct_conversation_binding",
-            "execution_purpose": "direct_conversation_reply",
+            "execution_purpose": if delivery.is_some() { "task_delivery_checkpoint" } else { "direct_conversation_reply" },
             "authorization_ref": realm_id,
         }),
     );
@@ -4093,7 +4303,13 @@ pub(crate) async fn send_to_arkret_account(
         account.device_id.clone(),
     )?;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
-    apply_account_outbound_encryption(&crypto_store, realm_id, &mut event, sidecar_exchange)?;
+    apply_account_outbound_encryption(
+        &crypto_store,
+        realm_id,
+        &mut event,
+        sidecar_exchange,
+        delivery,
+    )?;
 
     // Phase 8 (T8.C): sign with the account's ed25519 key when key_ref is set.
     if let Some(key_ref) = &account.key_ref {
@@ -4111,9 +4327,10 @@ pub(crate) async fn send_to_arkret_account(
             .map_err(|error| anyhow::anyhow!("prepare outbound Arkret DataEvent: {error}"))?,
     );
 
-    // First publication requires authority-produced evidence outside the
-    // signed Event. Obtain and structurally validate the exact wrapper before
-    // advancing the actor chain or enqueueing durable work.
+    // Online publication uses a structurally validated wrapper without an
+    // AuthorizationLease. A custom provider may still return a lease-bound
+    // delayed-publication wrapper. In either case, validate the exact wrapper
+    // before advancing the actor chain or enqueueing durable work.
     let submission = client.prepare_initial_submission(&prepared_event).await?;
     let authorization_lease = submission.authorization_lease.clone();
     let mut transaction_id = prepared_event.event().event_id.to_string();
@@ -4144,7 +4361,9 @@ pub(crate) async fn send_to_arkret_account(
                 submission_value,
                 Vec::new(),
             )?;
-            queue.bind_authorization_lease(&item.transaction_id, authorization_lease)?;
+            if let Some(authorization_lease) = authorization_lease {
+                queue.bind_authorization_lease(&item.transaction_id, authorization_lease)?;
+            }
             queue.get(&item.transaction_id).cloned().ok_or_else(|| {
                 garth::Error::Protocol(
                     "Arkret outbound queue lost the item while binding its AuthorizationLease"
@@ -4167,11 +4386,15 @@ pub(crate) async fn send_to_arkret_account(
             OutboundEngineOutcome::Accepted(item) | OutboundEngineOutcome::Duplicate(item)
                 if item.transaction_id == transaction_id =>
             {
+                let remote_event_id = item
+                    .remote_event_id
+                    .map(|event_id| event_id.to_string())
+                    .unwrap_or_else(|| transaction_id.clone());
                 debug!(
                     realm_id,
                     transaction_id, "arkret: durable outbound event accepted"
                 );
-                return Ok(());
+                return Ok(remote_event_id);
             }
             OutboundEngineOutcome::Accepted(_) | OutboundEngineOutcome::Duplicate(_) => {}
             OutboundEngineOutcome::Prepared(_) => {}
@@ -4210,7 +4433,14 @@ pub(crate) async fn send_to_arkret_account(
                 if snapshot.items.iter().any(|item| {
                     item.transaction_id == transaction_id && item.remote_event_id.is_some()
                 }) {
-                    return Ok(());
+                    let remote_event_id = snapshot
+                        .items
+                        .iter()
+                        .find(|item| item.transaction_id == transaction_id)
+                        .and_then(|item| item.remote_event_id.clone())
+                        .map(|event_id| event_id.to_string())
+                        .unwrap_or_else(|| transaction_id.clone());
+                    return Ok(remote_event_id);
                 }
                 anyhow::bail!(
                     "arkret: outbound queue became idle before transaction {transaction_id} completed"
@@ -4225,6 +4455,7 @@ fn apply_account_outbound_encryption(
     realm_id: &str,
     event: &mut arkret::Event,
     sidecar_exchange: Option<&SidecarExchangeContext>,
+    delivery: Option<&crate::arkret_delivery::DeliveryCorrelation>,
 ) -> anyhow::Result<()> {
     if let Some(content_block) = event.payload.get("content").cloned() {
         match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
@@ -4243,16 +4474,32 @@ fn apply_account_outbound_encryption(
             }
         }
     }
-    let Some(context) = sidecar_exchange else {
+    let mut metadata_plaintext = arkret::MessageMetadata::default();
+    if let Some(delivery) = delivery {
+        metadata_plaintext.extra.insert(
+            "delivery".to_owned(),
+            json!({
+                "checkpoint_id": delivery.checkpoint_id,
+                "sequence": delivery.sequence,
+                "source_event_id": delivery.source_event_id,
+                "initiated_by": delivery.initiated_by.as_str(),
+            }),
+        );
+    }
+    if let Some(context) = sidecar_exchange {
+        let sidecar = build_user_facing_response_metadata(context)?;
+        metadata_plaintext.fields.extend(sidecar.fields);
+        metadata_plaintext.extra.extend(sidecar.extra);
+    }
+    if metadata_plaintext.fields.is_empty() && metadata_plaintext.extra.is_empty() {
         return Ok(());
-    };
+    }
     // The `role=user_facing_response` exchange binding lives only in
     // `encrypted_metadata` plaintext, encrypted with the same MLS group as
     // `encrypted_content`; carrying it in plaintext `metadata` is a
     // `schema_violation` (zh/models/sidecar.md §7.2.1, forbidden-wire-fields
     // `sidecar_exchange_binding`). A realm without mandatory E2EE therefore
     // cannot carry an exchange reply at all — fail closed instead of leaking.
-    let metadata_plaintext = build_user_facing_response_metadata(context)?;
     match crypto_store.encrypt_message_metadata_for_realm(realm_id, &metadata_plaintext)? {
         ArkretEncryptOutcome::Encrypted(encrypted_metadata) => {
             // Defense in depth: the binding must never surface in plaintext
@@ -4264,10 +4511,17 @@ fn apply_account_outbound_encryption(
             );
             Ok(())
         }
-        ArkretEncryptOutcome::PlaintextAllowed => {
+        ArkretEncryptOutcome::PlaintextAllowed if sidecar_exchange.is_some() => {
             anyhow::bail!(
                 "Arkret realm '{realm_id}' does not require E2EE; refusing to send a Sidecar exchange binding outside encrypted_metadata"
             );
+        }
+        ArkretEncryptOutcome::PlaintextAllowed => {
+            event.payload.insert(
+                "metadata".to_owned(),
+                serde_json::to_value(metadata_plaintext)?,
+            );
+            Ok(())
         }
         ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
             anyhow::bail!(
@@ -4409,6 +4663,7 @@ mod tests {
             id: "diagnostic-replacement-channel".to_owned(),
             base_url: "http://127.0.0.1:1".to_owned(),
             service_id: None,
+            delivery_mode: "interactive_chat".to_owned(),
             accounts: Vec::new(),
         };
         let old = make_account();
@@ -4443,6 +4698,7 @@ mod tests {
             id: "fake-recovery-channel".to_owned(),
             base_url: "http://127.0.0.1:1".to_owned(),
             service_id: None,
+            delivery_mode: "interactive_chat".to_owned(),
             accounts: Vec::new(),
         };
         let account = make_account();
@@ -4578,9 +4834,51 @@ mod tests {
         let live = ClientEvent::AccountUpdates(live_context);
 
         let initial_mode = account_inbound_mode(&[initial]);
-        assert_eq!(initial_mode, AccountInboundMode::InitialCatchup);
+        assert_eq!(initial_mode, AccountInboundMode::Baseline);
         assert!(initial_mode.suppresses_agent_dispatch());
-        assert_eq!(account_inbound_mode(&[live]), AccountInboundMode::Live);
+        assert_eq!(account_inbound_mode(&[live]), AccountInboundMode::Trigger);
+    }
+
+    #[test]
+    fn outbound_fence_accepts_online_submission_without_authorization_lease() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-arkret-online-submit-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let crypto_store = FileArkretCryptoStore::for_account(&home, "c1", "support");
+        let mut queue = garth::sync_client::SendQueue::new();
+        let realm_id = realm_id();
+        let item = queue
+            .enqueue(
+                Some("online-without-lease".to_owned()),
+                realm_id.clone(),
+                garth::sync_client::SendQueueItemKind::Message,
+                json!({
+                    "event": {
+                        "kind": "ak.message.create",
+                        "actor_seq": 0,
+                        "payload": {
+                            "agent_context": { "mode": "task_delivery" }
+                        }
+                    },
+                    "authorization_lease": null,
+                    "cba_proof_bundles": []
+                }),
+                Vec::new(),
+            )
+            .expect("queue online submission");
+        assert!(item.authorization_lease.is_none());
+
+        let fence = AccountOutboundEncryptionFence {
+            crypto_store,
+            actor_chain_path: home.join("actor-chains.json"),
+        };
+        assert_eq!(
+            fence.evaluate(&item).expect("evaluate online submission"),
+            OutboundGenerationFenceDecision::Current
+        );
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
@@ -4652,6 +4950,7 @@ mod tests {
             realm_id().as_str(),
             &mut event,
             Some(&context),
+            None,
         )
         .expect_err("plaintext realm must reject Sidecar exchange replies");
         assert!(
@@ -4894,6 +5193,7 @@ mod tests {
             id: "c1".to_owned(),
             base_url: "https://arkret.example".to_owned(),
             service_id: None,
+            delivery_mode: "interactive_chat".to_owned(),
             accounts: Vec::new(),
         };
         let account = make_account();
@@ -5128,6 +5428,7 @@ mod tests {
             id: "c1".to_owned(),
             base_url: "https://arkret.example".to_owned(),
             service_id: None,
+            delivery_mode: "interactive_chat".to_owned(),
             accounts: Vec::new(),
         };
         let account = make_account();

@@ -708,6 +708,18 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Show low-level Arkret scope, signing, and applet runtime fields.",
                 },
                 ConfigField {
+                    key: "deliveryMode".into(),
+                    label: "Delivery mode".into(),
+                    field_type: FieldType::Select(vec![
+                        "task_delivery".into(),
+                        "interactive_chat".into(),
+                    ]),
+                    placeholder: "task_delivery".into(),
+                    secret: false,
+                    required: false,
+                    help: "Task delivery publishes only explicit checkpoints. Interactive chat sends every assistant reply. Existing configs without this field keep interactive behavior.",
+                },
+                ConfigField {
                     key: "appletId".into(),
                     label: "Applet ID".into(),
                     field_type: FieldType::Text,
@@ -2270,6 +2282,7 @@ fn is_arkret_account_only_field(field_key: &str) -> bool {
             | "authorizedEventRef"
             | "authorizationResult"
             | "runtimeKeyRequest"
+            | "deliveryMode"
             | "unbind"
     )
 }
@@ -2810,6 +2823,10 @@ fn default_channel_values(
         values.insert(field_value_key(channel_id, "mode"), "agent".to_string());
         values.insert(field_value_key(channel_id, "listen"), "true".to_string());
         values.insert(field_value_key(channel_id, "send"), "true".to_string());
+        values.insert(
+            field_value_key(channel_id, "deliveryMode"),
+            "task_delivery".to_string(),
+        );
         values.insert(
             field_value_key(channel_id, "receiveEvents"),
             "true".to_string(),

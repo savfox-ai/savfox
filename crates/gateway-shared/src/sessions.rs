@@ -124,11 +124,53 @@ pub struct SessionEntry {
     pub model: Option<String>,
     pub provider: Option<String>,
     pub thread_id: Option<String>,
+    pub core_thread_id: Option<String>,
+    pub remote_thread_id: Option<String>,
+    pub reply_to_event_id: Option<String>,
+    pub arkret_delivery: Option<ArkretDeliverySummary>,
     /// `"manual" | "mention" | "dm"` etc. — channel-specific.
     pub group_activation: Option<String>,
     /// Agent this session is bound to (fixed for the session's lifetime).
     /// `None` for legacy sessions that predate agent binding.
     pub agent_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArkretDeliverySummary {
+    pub binding_id: String,
+    pub mode: String,
+    pub state: String,
+    pub conversation: ArkretConversationSummary,
+    pub source_sender_did: String,
+    pub agent_sender_did: String,
+    pub last_published_checkpoint_id: Option<String>,
+    pub last_published_event_id: Option<String>,
+    pub pending_outbox: usize,
+    pub published_checkpoints: usize,
+    pub hydrated_events: usize,
+    pub hydration_truncated: bool,
+    pub history_unavailable: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArkretConversationSummary {
+    pub channel_config_id: String,
+    pub account_id: String,
+    pub realm_id: String,
+    pub strand_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArkretDeliveryPreview {
+    pub binding_id: String,
+    pub sender_did: String,
+    pub mode: String,
+    pub kind: String,
+    pub previous_rendered: Option<String>,
+    pub rendered: String,
 }
 
 impl SessionEntry {

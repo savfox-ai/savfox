@@ -61,7 +61,7 @@ pub(crate) async fn persist_chat_session_metadata(
             move |entry| {
                 entry.model = Some(model.clone());
                 entry.provider = Some(provider.clone());
-                entry.thread_id = Some(thread_id.clone());
+                entry.core_thread_id = Some(thread_id.clone());
                 if let Some(file) = session_file.as_ref() {
                     entry.session_file = Some(file.clone());
                 }
@@ -79,7 +79,7 @@ pub(crate) async fn persist_chat_session_metadata(
     if let Some(mut entry) = session_store.get_or_create(logical_session_id).await {
         entry.model = Some(model);
         entry.provider = Some(provider);
-        entry.thread_id = Some(thread_id);
+        entry.core_thread_id = Some(thread_id);
         if let Some(file) = session_file {
             entry.session_file = Some(file);
         }
@@ -115,7 +115,7 @@ pub(crate) async fn persist_session_thread_link(
             let session_file = session_file.clone();
             let thread_id = thread_id.clone();
             move |entry| {
-                entry.thread_id = Some(thread_id.clone());
+                entry.core_thread_id = Some(thread_id.clone());
                 if let Some(file) = session_file.as_ref() {
                     entry.session_file = Some(file.clone());
                 }
@@ -128,7 +128,7 @@ pub(crate) async fn persist_session_thread_link(
     }
 
     if let Some(mut entry) = session_store.get_or_create(logical_session_id).await {
-        entry.thread_id = Some(thread_id);
+        entry.core_thread_id = Some(thread_id);
         if let Some(file) = session_file {
             entry.session_file = Some(file);
         }
@@ -150,7 +150,7 @@ pub(crate) async fn resolve_abort_candidate_ids(
     if let Some(session_id) = session_id.map(str::trim).filter(|value| !value.is_empty()) {
         candidates.push(session_id.to_owned());
         if let Some(entry) = session_store.get(session_id).await
-            && let Some(mapped_thread_id) = entry.thread_id
+            && let Some(mapped_thread_id) = entry.core_thread_id.or(entry.thread_id)
         {
             let mapped_thread_id = mapped_thread_id.trim();
             if !mapped_thread_id.is_empty() {

@@ -8,7 +8,8 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::session::{
-    DmScope, SessionEntry, SessionMessageProvenance, SessionSender, SessionStore, build_routing_id,
+    DmScope, SessionEntry, SessionMessageOrigin, SessionMessageProvenance,
+    SessionMessageVisibility, SessionSender, SessionStore, build_routing_id,
 };
 
 const AUTO_LABEL_MAX_CHARS: usize = 48;
@@ -17,6 +18,7 @@ pub struct InboundSessionMeta<'a> {
     pub agent_id: &'a str,
     pub platform: &'a str,
     pub channel_id: &'a str,
+    pub routing_channel_id: Option<&'a str>,
     pub routing_group_id: Option<&'a str>,
     pub routing_thread_id: Option<&'a str>,
     pub peer_id: Option<&'a str>,
@@ -26,6 +28,13 @@ pub struct InboundSessionMeta<'a> {
     pub parent_thread_id: Option<&'a str>,
     pub reply_target: Option<&'a str>,
     pub account_id: Option<&'a str>,
+    pub channel_config_id: Option<&'a str>,
+    pub realm_id: Option<&'a str>,
+    pub strand_id: Option<&'a str>,
+    pub event_id: Option<&'a str>,
+    pub sender_kind: Option<&'a str>,
+    pub origin: SessionMessageOrigin,
+    pub visibility: SessionMessageVisibility,
     pub name: Option<&'a str>,
     pub topic: Option<&'a str>,
     pub first_message: Option<&'a str>,
@@ -54,7 +63,11 @@ pub async fn track_inbound_message(
 
     let routing_id = build_routing_id(
         meta.agent_id,
-        Some(&format!("{}:{}", meta.platform, meta.channel_id)),
+        Some(&format!(
+            "{}:{}",
+            meta.platform,
+            meta.routing_channel_id.unwrap_or(meta.channel_id)
+        )),
         meta.routing_group_id.or(meta.group_id),
         meta.routing_thread_id.or(meta.thread_id),
         effective_peer_id.as_deref(),
@@ -81,7 +94,7 @@ pub async fn track_inbound_message(
     }
 
     if let Some(tid) = meta.thread_id {
-        entry.thread_id = Some(tid.to_owned());
+        entry.remote_thread_id = Some(tid.to_owned());
     }
 
     if let Some(parent_tid) = meta.parent_thread_id {
@@ -91,6 +104,9 @@ pub async fn track_inbound_message(
     if let Some(reply_target) = meta.reply_target {
         entry.reply_target = Some(reply_target.to_owned());
         entry.parent_message_id = Some(reply_target.to_owned());
+    }
+    if let Some(event_id) = meta.event_id {
+        entry.reply_to_event_id = Some(event_id.to_owned());
     }
 
     if let Some(account_id) = meta.account_id {
@@ -119,6 +135,15 @@ pub async fn track_inbound_message(
             user_id: user_id.to_owned(),
             name: display.to_owned(),
             timestamp: crate::json_store::now_ms(),
+            origin: meta.origin,
+            visibility: meta.visibility,
+            channel_config_id: meta.channel_config_id.map(str::to_owned),
+            account_id: meta.account_id.map(str::to_owned),
+            realm_id: meta.realm_id.map(str::to_owned),
+            strand_id: meta.strand_id.map(str::to_owned),
+            event_id: meta.event_id.map(str::to_owned),
+            sender_did: meta.peer_id.map(str::to_owned),
+            sender_kind: meta.sender_kind.map(str::to_owned),
         });
     }
 
@@ -240,6 +265,7 @@ mod tests {
                 agent_id: "default",
                 platform: "feishu",
                 channel_id: "oc_group_1",
+                routing_channel_id: None,
                 routing_group_id: Some("oc_group_1"),
                 routing_thread_id: None,
                 peer_id: Some("user-a"),
@@ -249,6 +275,13 @@ mod tests {
                 parent_thread_id: None,
                 reply_target: None,
                 account_id: None,
+                channel_config_id: None,
+                realm_id: None,
+                strand_id: None,
+                event_id: None,
+                sender_kind: Some("human"),
+                origin: crate::session::SessionMessageOrigin::LocalOperator,
+                visibility: crate::session::SessionMessageVisibility::LocalPrivate,
                 name: Some("Alice"),
                 topic: None,
                 first_message: Some("hello"),
@@ -264,6 +297,7 @@ mod tests {
                 agent_id: "default",
                 platform: "feishu",
                 channel_id: "oc_group_2",
+                routing_channel_id: None,
                 routing_group_id: Some("oc_group_2"),
                 routing_thread_id: None,
                 peer_id: Some("user-a"),
@@ -273,6 +307,13 @@ mod tests {
                 parent_thread_id: None,
                 reply_target: None,
                 account_id: None,
+                channel_config_id: None,
+                realm_id: None,
+                strand_id: None,
+                event_id: None,
+                sender_kind: Some("human"),
+                origin: crate::session::SessionMessageOrigin::LocalOperator,
+                visibility: crate::session::SessionMessageVisibility::LocalPrivate,
                 name: Some("Alice"),
                 topic: None,
                 first_message: Some("hello"),

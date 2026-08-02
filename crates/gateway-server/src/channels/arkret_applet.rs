@@ -715,16 +715,41 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     let gateway_channel = gateway_channel.clone();
     let session_store = session_store.clone();
     let config_id = state.config.id.clone();
+    let applet_account_id = state.config.applet_id.clone();
+    let applet_agent_did = state.config.bot_actor_id.clone();
 
     for cmd in dispatched_commands {
         let gw = gateway_channel.clone();
         let store = session_store.clone();
         let cid = config_id.clone();
+        let account_id = applet_account_id.clone();
+        let agent_did = applet_agent_did.clone();
         let dedupe_key = format!("arkret-applet:{}:{}", cid, cmd.event_id);
         if runtime::should_drop_duplicate(Some(dedupe_key)).await {
             continue;
         }
         tokio::spawn(async move {
+            let conversation = crate::arkret_delivery::RemoteConversationKey {
+                channel_config_id: cid.clone(),
+                account_id: account_id.clone(),
+                realm_id: cmd.realm_id.clone(),
+                strand_id: cmd.strand_id.clone(),
+            };
+            if let Err(error) = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                &gw.config().savfox_home,
+            )
+            .mark_history_unavailable(
+                conversation,
+                "history_unavailable: applet transaction delivery has no timeline query capability",
+            )
+            .await
+            {
+                warn!(
+                    config_id = %cid,
+                    event_id = %cmd.event_id,
+                    "arkret applet: failed to record unavailable public history: {error:#}"
+                );
+            }
             runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                 gw,
                 store,
@@ -734,11 +759,20 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 Some(cmd.sender_did.clone()),
                 Some(runtime::StartThreadMeta {
                     peer_id: Some(cmd.sender_did),
-                    group_id: Some(cmd.realm_id),
+                    routing_channel_id: Some(format!("arkret:{cid}:{account_id}")),
+                    routing_group_id: Some(cmd.realm_id.clone()),
+                    routing_thread_id: Some(cmd.strand_id.clone()),
+                    group_id: Some(cmd.realm_id.clone()),
                     thread_id: cmd.thread_root_id,
-                    reply_target: Some(cmd.strand_id),
+                    reply_target: Some(cmd.strand_id.clone()),
+                    account_id: Some(account_id),
                     chat_type: Some("group".to_owned()),
                     saved_channel_config_id: Some(cid),
+                    remote_realm_id: Some(cmd.realm_id.clone()),
+                    remote_strand_id: Some(cmd.strand_id),
+                    remote_event_id: Some(cmd.event_id),
+                    remote_agent_did: Some(agent_did),
+                    delivery_mode: Some("interactive_chat".to_owned()),
                     ..runtime::StartThreadMeta::default()
                 }),
             )

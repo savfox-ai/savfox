@@ -8,9 +8,9 @@ use wasm_bindgen::JsCast;
 
 use crate::api::client::stream_chat;
 use crate::api::types::{
-    AgentEntry, AgentsResponse, ChatAttachment, ChatMessage, ChatTerminalEvent,
-    SessionAmbientMessage, SessionAmbientResponse, SessionEntry, SessionIdleReplyResponse,
-    SessionsResponse,
+    AgentEntry, AgentsResponse, ArkretDeliveryPreview, ChatAttachment, ChatMessage,
+    ChatTerminalEvent, SessionAmbientMessage, SessionAmbientResponse, SessionEntry,
+    SessionIdleReplyResponse, SessionsResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::chat_input::ChatInput;
@@ -24,6 +24,67 @@ const THINKING_LEVELS: [&str; 6] = ["off", "minimal", "low", "medium", "high", "
 const REASONING_MODES: [&str; 3] = ["off", "on", "stream"];
 const VERBOSE_MODES: [&str; 3] = ["off", "on", "full"];
 const PENDING_MODEL_STORAGE_KEY: &str = "savfox_pending_session_model";
+
+async fn preview_and_publish_arkret(
+    ws: WsRpc,
+    session_id: String,
+    kind: &'static str,
+    title: &'static str,
+    summary: String,
+) -> Result<String, String> {
+    let params = json!({
+        "session_id": session_id,
+        "kind": kind,
+        "title": title,
+        "summary": summary,
+        "verification": [],
+        "next_actions": [],
+    });
+    let preview = ws
+        .call::<ArkretDeliveryPreview>("sessions.arkret.delivery.preview", Some(params.clone()))
+        .await?;
+    let comparison = preview
+        .previous_rendered
+        .as_deref()
+        .map(|previous| {
+            format!(
+                "Last public checkpoint:\n{previous}\n\nNew publish candidate:\n{}",
+                preview.rendered
+            )
+        })
+        .unwrap_or_else(|| format!("First public checkpoint:\n{}", preview.rendered));
+    let confirmation = format!(
+        "Publish through Arkret Agent {}?\n\n{}",
+        preview.sender_did, comparison
+    );
+    let confirmed = web_sys::window()
+        .and_then(|window| window.confirm_with_message(&confirmation).ok())
+        .unwrap_or(false);
+    if !confirmed {
+        return Ok(format!("## Publish preview\n\n{}", preview.rendered));
+    }
+    let published = ws
+        .call::<Value>("sessions.arkret.delivery.publish", Some(params))
+        .await?;
+    let event_id = published
+        .get("remoteEventId")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    Ok(format!(
+        "## Published to Arkret\n\nSender: `{}`\n\nEvent: `{event_id}`\n\n{}",
+        preview.sender_did, preview.rendered
+    ))
+}
+
+fn request_arkret_publish_candidate(kind: &str) -> Option<String> {
+    let message = format!(
+        "Write the minimal public {kind} summary for Arkret. Local chat, tool logs, and private paths are not copied automatically."
+    );
+    web_sys::window()
+        .and_then(|window| window.prompt_with_message(&message).ok().flatten())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
 
 fn normalize_reasoning_mode(value: &str) -> String {
     let normalized = value.trim().to_lowercase();
@@ -780,6 +841,15 @@ pub fn Sessions() -> Element {
                 .map(SessionEntry::display_label)
         })
         .unwrap_or_else(|| "Draft Session".to_string());
+    let active_session_entry = active_session_id.as_deref().and_then(|session_id| {
+        sessions
+            .iter()
+            .find(|entry| entry.display_id() == session_id)
+            .cloned()
+    });
+    let active_arkret_delivery = active_session_entry
+        .as_ref()
+        .and_then(|entry| entry.arkret_delivery.clone());
 
     let msgs: Vec<ChatMessage> = messages.read().clone();
     let message_count = msgs.len();
@@ -1144,6 +1214,83 @@ pub fn Sessions() -> Element {
                     if current_session_id().is_some() {
                         div { class: "session-control-row",
                             div { class: "session-control-actions",
+                                if let Some(delivery) = active_arkret_delivery.clone() {
+                                    span { class: "session-delivery-visibility", "Local private" }
+                                    span { class: "session-delivery-target",
+                                        title: "Config: {delivery.conversation.channel_config_id}\nAccount: {delivery.conversation.account_id}\nRealm: {delivery.conversation.realm_id}\nStrand: {delivery.conversation.strand_id}\nSource: {delivery.source_sender_did}\nAgent sender: {delivery.agent_sender_did}",
+                                        "Arkret · {delivery.state} · {delivery.conversation.account_id} · {delivery.conversation.strand_id} · pending {delivery.pending_outbox}"
+                                    }
+                                    if let Some(event_id) = delivery.last_published_event_id.clone() {
+                                        span { class: "session-delivery-target", "Published to Arkret · {event_id}" }
+                                    }
+                                    if delivery.mode == "task_delivery" {
+                                        {
+                                            let ws_milestone = ws.clone();
+                                            let ws_blocked = ws.clone();
+                                            let ws_completed = ws.clone();
+                                            let session_milestone = active_session_id.clone().unwrap_or_default();
+                                            let session_blocked = session_milestone.clone();
+                                            let session_completed = session_milestone.clone();
+                                            rsx! {
+                                                span { class: "session-delivery-visibility", "Publish candidate → preview required" }
+                                                button {
+                                                    class: "session-pill-btn session-pill-btn--publish",
+                                                    onclick: move |_| {
+                                                        let Some(summary) = request_arkret_publish_candidate("milestone") else {
+                                                            return;
+                                                        };
+                                                        let ws = ws_milestone.clone();
+                                                        let session_id = session_milestone.clone();
+                                                        spawn(async move {
+                                                            let content = preview_and_publish_arkret(ws, session_id, "milestone", "Milestone", summary)
+                                                                .await
+                                                                .unwrap_or_else(|error| format!("## Arkret publish failed\n\n`{error}`"));
+                                                            sidebar_content.set(Some(content));
+                                                            session_refresh_tick += 1;
+                                                        });
+                                                    },
+                                                    "Publish milestone"
+                                                }
+                                                button {
+                                                    class: "session-pill-btn session-pill-btn--publish",
+                                                    onclick: move |_| {
+                                                        let Some(summary) = request_arkret_publish_candidate("remote question or blocker") else {
+                                                            return;
+                                                        };
+                                                        let ws = ws_blocked.clone();
+                                                        let session_id = session_blocked.clone();
+                                                        spawn(async move {
+                                                            let content = preview_and_publish_arkret(ws, session_id, "blocked", "Remote input required", summary)
+                                                                .await
+                                                                .unwrap_or_else(|error| format!("## Arkret publish failed\n\n`{error}`"));
+                                                            sidebar_content.set(Some(content));
+                                                            session_refresh_tick += 1;
+                                                        });
+                                                    },
+                                                    "Ask remote"
+                                                }
+                                                button {
+                                                    class: "session-pill-btn session-pill-btn--publish",
+                                                    onclick: move |_| {
+                                                        let Some(summary) = request_arkret_publish_candidate("completion and verification") else {
+                                                            return;
+                                                        };
+                                                        let ws = ws_completed.clone();
+                                                        let session_id = session_completed.clone();
+                                                        spawn(async move {
+                                                            let content = preview_and_publish_arkret(ws, session_id, "completed", "Task completed", summary)
+                                                                .await
+                                                                .unwrap_or_else(|error| format!("## Arkret publish failed\n\n`{error}`"));
+                                                            sidebar_content.set(Some(content));
+                                                            session_refresh_tick += 1;
+                                                        });
+                                                    },
+                                                    "Complete and deliver"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 button {
                                     class: "session-pill-btn",
                                     disabled: ambient_loading(),
@@ -1320,6 +1467,25 @@ const SESSION_STYLES: &str = r#"
         flex: 1 1 0;
         min-height: 0;
         overflow: hidden;
+    }
+
+    .session-delivery-visibility {
+        color: var(--warning, #d99b32);
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .session-delivery-target {
+        color: var(--text-secondary);
+        font-size: 12px;
+        max-width: 320px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .session-pill-btn--publish {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
     }
 
     .session-list-pane {

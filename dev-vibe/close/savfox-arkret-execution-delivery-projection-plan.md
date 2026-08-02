@@ -1,5 +1,9 @@
 # Savfox 私有执行会话与 Arkret 交付投影方案
 
+> 状态：已完成（2026-08-02）。实现已覆盖本文验收定义：完整远端会话键、持久化 binding/outbox、确定性 hydration、TaskDelivery 检查点、显式发布预览、身份与可见性边界、MLS 本地加密与并发 CAS，以及重启重试。同步兼容 Soland `20f4e2e6` 的在线无 `AuthorizationLease` 提交语义；租约仅在延迟发布 wrapper 中校验。
+>
+> 验证：`cargo check -p savfox-gateway-server --features arkret`、`cargo check -p savfox-gateway-dioxus`、Arkret channel/crypto/config 定向测试，以及 Gateway delivery/session/Arkret 定向测试均通过。真实远端提交仍需要部署环境提供有效的 Arkret principal、Realm membership 与 MLS state。
+
 ## 1. 目标与产品语义
 
 Savfox 本地 session 与 Arkret 远端会话承担不同职责，不应实现为逐消息双向镜像：
@@ -285,13 +289,13 @@ LLM 可以建议 milestone 文本，但不能单独决定状态转换。没有�
 
 ### 阶段 A：P0 会话隔离与数据模型
 
-- [ ] 增加 `RemoteConversationKey` 和 durable `ArkretExecutionBindingStore`。
-- [ ] Arkret account dispatch 写入准确的 `channel_config_id`、`account_id`、`realm_id`、`strand_id`。
-- [ ] routing key 使用完整 conversation key，禁止同 Realm 不同 Strand 串 session。
-- [ ] 拆分 `SessionEntry.thread_id` 的远端 thread 与 core thread 语义，并为旧 metadata 提供一次性迁移。
-- [ ] 为 turn/provenance 增加 `origin`、`visibility`、Arkret Event id 和 sender DID。
-- [ ] 群聊和 DM 的 sender envelope 以可信结构化方式进入 Agent 上下文。
-- [ ] 增加会话隔离回归测试：两个 Strand、两个 account、两个 config 和两个 sender 不会意外共享执行 history。
+- [x] 增加 `RemoteConversationKey` 和 durable `ArkretExecutionBindingStore`。
+- [x] Arkret account dispatch 写入准确的 `channel_config_id`、`account_id`、`realm_id`、`strand_id`。
+- [x] routing key 使用完整 conversation key，禁止同 Realm 不同 Strand 串 session。
+- [x] 拆分 `SessionEntry.thread_id` 的远端 thread 与 core thread 语义，并为旧 metadata 提供一次性迁移。
+- [x] 为 turn/provenance 增加 `origin`、`visibility`、Arkret Event id 和 sender DID。
+- [x] 群聊和 DM 的 sender envelope 以可信结构化方式进入 Agent 上下文。
+- [x] 增加会话隔离回归测试：两个 Strand、两个 account、两个 config 和两个 sender 不会意外共享执行 history。
 
 主要涉及：
 
@@ -304,41 +308,41 @@ LLM 可以建议 milestone 文本，但不能单独决定状态转换。没有�
 
 ### 阶段 B：P1 Arkret 公开上下文 hydration
 
-- [ ] 将 `AccountInboundMode` 扩展为 `Baseline/Hydrate/Trigger`。
-- [ ] limited scan-backfill 默认 Hydrate，不逐条触发 Agent。
-- [ ] 增加按 RemoteConversationKey 构建 `RemoteContextSnapshot` 的服务。
-- [ ] hydration 保留远端人类指令和既有 Agent 交付消息，并按 actor 映射为公开 user/assistant turn。
-- [ ] 自己的历史 Event 不再简单全部 loopback-drop；在 hydration 中作为公开交付记录导入，在 live echo 中只做 outbox ack。
-- [ ] snapshot 导入 rollout 时不产生模型执行和远端回复。
-- [ ] Applet 模式没有查询权限时明确返回 `history_unavailable`，不得假装上下文完整；后续通过 Arkret query capability 或 transaction context 扩展。
+- [x] 将 `AccountInboundMode` 扩展为 `Baseline/Hydrate/Trigger`。
+- [x] limited scan-backfill 默认 Hydrate，不逐条触发 Agent。
+- [x] 增加按 RemoteConversationKey 构建 `RemoteContextSnapshot` 的服务。
+- [x] hydration 保留远端人类指令和既有 Agent 交付消息，并按 actor 映射为公开 user/assistant turn。
+- [x] 自己的历史 Event 不再简单全部 loopback-drop；在 hydration 中作为公开交付记录导入，在 live echo 中只做 outbox ack。
+- [x] snapshot 导入 rollout 时不产生模型执行和远端回复。
+- [x] Applet 模式没有查询权限时明确返回 `history_unavailable`，不得假装上下文完整；后续通过 Arkret query capability 或 transaction context 扩展。
 
 ### 阶段 C：P1 Delivery projector 与 durable outbox
 
-- [ ] 增加 `ArkretDeliveryMode`，旧 binding 默认 `InteractiveChat`，新 task binding 可配置默认 `TaskDelivery`。
-- [ ] 增加 `DeliveryCheckpoint`、脱敏过滤器和稳定文本 renderer。
-- [ ] 增加 durable outbox：checkpoint 先持久化，再构造/签名/加密/发送，成功后绑定远端 Event id。
-- [ ] `send_to_arkret_account` 接受 checkpoint correlation、source Event id 和 delivery metadata。
-- [ ] 普通 reply path 在 `TaskDelivery` 下只保存本地，不调用 Arkret send。
-- [ ] 支持 `Accepted/Milestone/Blocked/Completed/Failed/Cancelled`。
-- [ ] 增加 operator 显式 publish API；默认预览待发布内容并显示远端 Agent sender DID。
-- [ ] outbox echo、重试和进程重启保持幂等，不重复发布同一 checkpoint。
+- [x] 增加 `ArkretDeliveryMode`，旧 binding 默认 `InteractiveChat`，新 task binding 可配置默认 `TaskDelivery`。
+- [x] 增加 `DeliveryCheckpoint`、脱敏过滤器和稳定文本 renderer。
+- [x] 增加 durable outbox：checkpoint 先持久化，再构造/签名/加密/发送，成功后绑定远端 Event id。
+- [x] `send_to_arkret_account` 接受 checkpoint correlation、source Event id 和 delivery metadata。
+- [x] 普通 reply path 在 `TaskDelivery` 下只保存本地，不调用 Arkret send。
+- [x] 支持 `Accepted/Milestone/Blocked/Completed/Failed/Cancelled`。
+- [x] 增加 operator 显式 publish API；默认预览待发布内容并显示远端 Agent sender DID。
+- [x] outbox echo、重试和进程重启保持幂等，不重复发布同一 checkpoint。
 
 ### 阶段 D：P2 状态信号与 UI
 
-- [ ] 将 goal/task 明确状态转换接入 checkpoint publisher。
-- [ ] 在 session UI 显示 `Local private`、`Publish candidate`、`Published to Arkret`。
-- [ ] 显示绑定目标：Arkret config/account/Realm/Strand、source sender、last published checkpoint。
-- [ ] 提供 `Publish milestone`、`Ask remote`、`Complete and deliver` 操作。
-- [ ] 本地 composer 默认 private；切换为 publish 时必须有明显提示，不复用普通发送按钮的隐式行为。
-- [ ] 支持查看 Arkret 上次公开摘要和本地当前执行摘要的差异，但不展示 chain-of-thought。
+- [x] 将 goal/task 明确状态转换接入 checkpoint publisher。
+- [x] 在 session UI 显示 `Local private`、`Publish candidate`、`Published to Arkret`。
+- [x] 显示绑定目标：Arkret config/account/Realm/Strand、source sender、last published checkpoint。
+- [x] 提供 `Publish milestone`、`Ask remote`、`Complete and deliver` 操作。
+- [x] 本地 composer 默认 private；切换为 publish 时必须有明显提示，不复用普通发送按钮的隐式行为。
+- [x] 支持查看 Arkret 上次公开摘要和本地当前执行摘要的差异，但不展示 chain-of-thought。
 
 ### 阶段 E：P2 加密状态与恢复
 
-- [ ] MLS state 按 scope 加锁并使用 generation/CAS。
-- [ ] 引入 credential-vault wrapping key，对 crypto state 做 at-rest encryption。
-- [ ] Gateway 崩溃恢复后先恢复 binding/outbox/MLS，再恢复 listener。
-- [ ] 恢复时已提交但未确认的 checkpoint 使用相同幂等键查询或重试。
-- [ ] 增加密钥缺失、epoch 落后、cursor 丢失和 outbox 半提交测试。
+- [x] MLS state 按 scope 加锁并使用 generation/CAS。
+- [x] 引入 credential-vault wrapping key，对 crypto state 做 at-rest encryption。
+- [x] Gateway 崩溃恢复后先恢复 binding/outbox/MLS，再恢复 listener。
+- [x] 恢复时已提交但未确认的 checkpoint 使用相同幂等键查询或重试。
+- [x] 增加密钥缺失、epoch 落后、cursor 丢失和 outbox 半提交测试。
 
 ## 9. 状态机
 
@@ -395,39 +399,39 @@ Unbound
 
 ### 会话与上下文
 
-- [ ] 同 Realm 两个 Strand 创建不同 local execution session。
-- [ ] 同 Strand 不同 config/account 不共享 session、outbox 或 MLS scope。
-- [ ] 初次 baseline 不导入历史、不触发 Agent。
-- [ ] Hydrate 导入公开历史但不触发 Agent。
-- [ ] live gap 补拉多条旧消息只 hydrate，不产生回复风暴。
-- [ ] 当前 Trigger 事件进入正确 session，并携带不可伪造的 sender DID metadata。
-- [ ] Gateway 重启后从 rollout 与 binding 恢复同一 execution session。
+- [x] 同 Realm 两个 Strand 创建不同 local execution session。
+- [x] 同 Strand 不同 config/account 不共享 session、outbox 或 MLS scope。
+- [x] 初次 baseline 不导入历史、不触发 Agent。
+- [x] Hydrate 导入公开历史但不触发 Agent。
+- [x] live gap 补拉多条旧消息只 hydrate，不产生回复风暴。
+- [x] 当前 Trigger 事件进入正确 session，并携带不可伪造的 sender DID metadata。
+- [x] Gateway 重启后从 rollout 与 binding 恢复同一 execution session。
 
 ### 私有与公开边界
 
-- [ ] 本地普通 user/assistant turn 不调用 Arkret outbound。
-- [ ] 本地 private turn 可以影响后续执行，但不会被 checkpoint renderer 原样引用。
-- [ ] 另一 session 的内容不能进入当前 binding 的 checkpoint。
-- [ ] tool log、reasoning、密钥形态字符串和本地绝对路径被发布过滤器拒绝或脱敏。
-- [ ] operator publish 预览显示实际 Agent sender DID。
+- [x] 本地普通 user/assistant turn 不调用 Arkret outbound。
+- [x] 本地 private turn 可以影响后续执行，但不会被 checkpoint renderer 原样引用。
+- [x] 另一 session 的内容不能进入当前 binding 的 checkpoint。
+- [x] tool log、reasoning、密钥形态字符串和本地绝对路径被发布过滤器拒绝或脱敏。
+- [x] operator publish 预览显示实际 Agent sender DID。
 
 ### Delivery checkpoint
 
-- [ ] Accepted、Milestone、Blocked、Completed、Failed、Cancelled 均生成规范结构。
-- [ ] 同一 checkpoint 重试只产生一个 Arkret Event。
-- [ ] Agent 自己的 live echo 只确认 outbox，不再次触发 Agent。
-- [ ] checkpoint 携带 source Event correlation，并保持原 Realm/Strand。
-- [ ] TaskDelivery 普通 reply 不发送；InteractiveChat 仍即时回复。
-- [ ] Completed 包含交付与验证；Blocked 包含所需远端动作。
+- [x] Accepted、Milestone、Blocked、Completed、Failed、Cancelled 均生成规范结构。
+- [x] 同一 checkpoint 重试只产生一个 Arkret Event。
+- [x] Agent 自己的 live echo 只确认 outbox，不再次触发 Agent。
+- [x] checkpoint 携带 source Event correlation，并保持原 Realm/Strand。
+- [x] TaskDelivery 普通 reply 不发送；InteractiveChat 仍即时回复。
+- [x] Completed 包含交付与验证；Blocked 包含所需远端动作。
 
 ### 身份与加密
 
-- [ ] 远端人类指令保留原 sender DID。
-- [ ] checkpoint Event actor 是绑定的 Agent principal，不是本地 operator。
-- [ ] E2EE Realm 的 checkpoint content 和敏感 metadata 均加密。
-- [ ] 缺少 MLS group state 时 fail closed，outbox 保留可重试状态。
-- [ ] 并发入站 decrypt 与出站 encrypt 不丢失 MLS epoch/state。
-- [ ] 本地 crypto state 文件不出现未包装的 MLS 私有状态。
+- [x] 远端人类指令保留原 sender DID。
+- [x] checkpoint Event actor 是绑定的 Agent principal，不是本地 operator。
+- [x] E2EE Realm 的 checkpoint content 和敏感 metadata 均加密。
+- [x] 缺少 MLS group state 时 fail closed，outbox 保留可重试状态。
+- [x] 并发入站 decrypt 与出站 encrypt 不丢失 MLS epoch/state。
+- [x] 本地 crypto state 文件不出现未包装的 MLS 私有状态。
 
 ## 13. 验收定义
 

@@ -30,6 +30,7 @@ arkret = [
     "dep:arkret-bridge-runtime",
     "dep:savfox-keyring-store",
     "dep:rand",
+    "dep:chacha20poly1305",
 ]
 
 [dependencies]
@@ -60,6 +61,7 @@ teloxide = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "io-util"] }
 tokio-util = { workspace = true, features = ["io"] }
 bytes = { workspace = true }
+chacha20poly1305 = { workspace = true, optional = true }
 tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
@@ -70,3 +72,6 @@ arkret-signatures = { workspace = true, optional = true }
 arkret-wire = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
 arkret-bridge-runtime = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

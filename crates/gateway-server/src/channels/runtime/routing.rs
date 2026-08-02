@@ -23,6 +23,10 @@ use crate::session::{DmScope, SessionStore};
 pub(crate) struct StartThreadMeta {
     pub peer_id: Option<String>,
     pub forced_agent_id: Option<String>,
+    /// Channel namespace used only for deterministic local routing. This lets
+    /// transports retain their real outbound channel id while adding config
+    /// and account isolation to the local session key.
+    pub routing_channel_id: Option<String>,
     pub routing_group_id: Option<String>,
     pub routing_thread_id: Option<String>,
     pub group_id: Option<String>,
@@ -39,6 +43,11 @@ pub(crate) struct StartThreadMeta {
     pub dm_scope: Option<DmScope>,
     pub topic: Option<String>,
     pub saved_channel_config_id: Option<String>,
+    pub remote_realm_id: Option<String>,
+    pub remote_strand_id: Option<String>,
+    pub remote_event_id: Option<String>,
+    pub remote_agent_did: Option<String>,
+    pub delivery_mode: Option<String>,
     pub sender_kind: SenderKind,
     pub is_mentioned: bool,
     pub reply_to_self: bool,
@@ -95,7 +104,7 @@ async fn resolve_parent_thread_agent(
     let mut current = parent_thread_id?.to_owned();
     let mut by_thread = HashMap::new();
     for entry in session_store.list().await {
-        if let Some(thread_id) = entry.thread_id.clone() {
+        if let Some(thread_id) = entry.remote_thread_id.clone().or(entry.thread_id.clone()) {
             by_thread.insert(thread_id, entry);
         }
     }

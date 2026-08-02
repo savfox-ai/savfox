@@ -1429,6 +1429,14 @@ pub(crate) async fn handle_sessions_list(
         .collect();
     let mut entries: Vec<Value> = Vec::with_capacity(sorted_sessions.len());
     for entry in sorted_sessions {
+        #[cfg(feature = "arkret")]
+        let arkret_delivery =
+            crate::arkret_delivery::ArkretExecutionBindingStore::new(&channel.config().savfox_home)
+                .diagnostics_for_session(&entry.session_id)
+                .await
+                .unwrap_or(None);
+        #[cfg(not(feature = "arkret"))]
+        let arkret_delivery: Option<Value> = None;
         let mut label = entry
             .label
             .clone()
@@ -1466,7 +1474,11 @@ pub(crate) async fn handle_sessions_list(
             "messages": Value::Null,
             "model": entry.model,
             "provider": entry.provider,
-            "thread_id": entry.thread_id,
+            "thread_id": entry.core_thread_id.clone(),
+            "core_thread_id": entry.core_thread_id,
+            "remote_thread_id": entry.remote_thread_id,
+            "reply_to_event_id": entry.reply_to_event_id,
+            "arkret_delivery": arkret_delivery,
             "group_activation": entry.group_activation,
             "agent_id": agent_id,
         }));
@@ -1578,6 +1590,191 @@ pub(crate) async fn handle_sessions_preview(
     }
 }
 
+#[cfg(feature = "arkret")]
+fn arkret_publish_params(
+    params: &Value,
+) -> Result<
+    (
+        crate::arkret_delivery::DeliveryCheckpointKind,
+        String,
+        String,
+        Vec<String>,
+        Vec<String>,
+        Vec<String>,
+    ),
+    (i64, String),
+> {
+    let kind_raw = params
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("milestone");
+    let kind = crate::arkret_delivery::DeliveryCheckpointKind::parse(kind_raw)
+        .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
+    let summary = params
+        .get("summary")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    if summary.is_empty() {
+        return Err((INVALID_REQUEST, "missing publish summary".to_owned()));
+    }
+    let title = params
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| kind.label().to_owned());
+    let list = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let verification = list("verification");
+    let mut blockers = list("blockers");
+    let next_actions = list("next_actions");
+    let delivery_summary = if kind == crate::arkret_delivery::DeliveryCheckpointKind::Blocked {
+        blockers.push(summary);
+        "Execution is blocked pending remote input.".to_owned()
+    } else {
+        summary
+    };
+    Ok((
+        kind,
+        title,
+        delivery_summary,
+        verification,
+        blockers,
+        next_actions,
+    ))
+}
+
+#[cfg(feature = "arkret")]
+pub(crate) async fn handle_sessions_arkret_delivery_preview(
+    params: &Value,
+    session_store: &Arc<SessionStore>,
+    channel: &GatewayChannel,
+) -> RpcResult {
+    let session_id = params
+        .get("session_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if session_id.is_empty() || session_store.get(session_id).await.is_none() {
+        return Err((INVALID_REQUEST, "Arkret-bound session not found".to_owned()));
+    }
+    let store =
+        crate::arkret_delivery::ArkretExecutionBindingStore::new(&channel.config().savfox_home);
+    let binding = store
+        .binding_for_session(session_id)
+        .await
+        .map_err(|error| (INTERNAL_ERROR, error.to_string()))?
+        .ok_or((
+            INVALID_REQUEST,
+            "session has no Arkret execution binding".to_owned(),
+        ))?;
+    if binding.mode != crate::arkret_delivery::ArkretDeliveryMode::TaskDelivery {
+        return Err((
+            INVALID_REQUEST,
+            "session uses interactive_chat; checkpoint publishing is disabled".to_owned(),
+        ));
+    }
+    let (kind, title, summary, verification, blockers, next_actions) =
+        arkret_publish_params(params)?;
+    let checkpoint = crate::arkret_delivery::DeliveryCheckpoint {
+        checkpoint_id: uuid::Uuid::nil(),
+        binding_id: binding.binding_id,
+        sequence: binding.public_summary_revision.saturating_add(1),
+        kind,
+        title: crate::arkret_delivery::sanitize_public_text(&title)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        summary: crate::arkret_delivery::sanitize_public_text(&summary)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        artifacts: Vec::new(),
+        verification: crate::arkret_delivery::sanitize_public_list(verification)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        blockers: crate::arkret_delivery::sanitize_public_list(blockers)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        next_actions: crate::arkret_delivery::sanitize_public_list(next_actions)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        source_revision: binding.public_summary_revision.saturating_add(1),
+        visibility: crate::arkret_delivery::DeliveryVisibility::RemotePublic,
+        created_at: chrono::Utc::now(),
+    };
+    let previous_rendered = store
+        .last_published_rendered(binding.binding_id)
+        .await
+        .map_err(|error| (INTERNAL_ERROR, error.to_string()))?;
+    Ok(json!({
+        "bindingId": binding.binding_id,
+        "senderDid": binding.agent_sender_did,
+        "mode": binding.mode,
+        "kind": kind,
+        "previousRendered": previous_rendered,
+        "rendered": crate::arkret_delivery::render_checkpoint(&checkpoint),
+    }))
+}
+
+#[cfg(feature = "arkret")]
+pub(crate) async fn handle_sessions_arkret_delivery_publish(
+    params: &Value,
+    session_store: &Arc<SessionStore>,
+    channel: &GatewayChannel,
+) -> RpcResult {
+    let session_id = params
+        .get("session_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if session_id.is_empty() || session_store.get(session_id).await.is_none() {
+        return Err((INVALID_REQUEST, "Arkret-bound session not found".to_owned()));
+    }
+    let binding =
+        crate::arkret_delivery::ArkretExecutionBindingStore::new(&channel.config().savfox_home)
+            .binding_for_session(session_id)
+            .await
+            .map_err(|error| (INTERNAL_ERROR, error.to_string()))?
+            .ok_or((
+                INVALID_REQUEST,
+                "session has no Arkret execution binding".to_owned(),
+            ))?;
+    let (kind, title, summary, verification, blockers, next_actions) =
+        arkret_publish_params(params)?;
+    let request = crate::arkret_delivery::PublishCheckpointRequest {
+        kind,
+        title,
+        summary,
+        verification,
+        blockers,
+        next_actions,
+        initiated_by: "operator_via_agent",
+    };
+    let (checkpoint, rendered, remote_event_id) = crate::arkret_delivery::publish_checkpoint(
+        &channel.config().savfox_home,
+        &binding,
+        request,
+    )
+    .await
+    .map_err(|error| (INTERNAL_ERROR, error.to_string()))?;
+    Ok(json!({
+        "status": "published",
+        "checkpointId": checkpoint.checkpoint_id,
+        "sequence": checkpoint.sequence,
+        "remoteEventId": remote_event_id,
+        "senderDid": binding.agent_sender_did,
+        "rendered": rendered,
+    }))
+}
+
 pub(crate) async fn handle_sessions_patch(
     params: &Value,
     session_store: &Arc<SessionStore>,
@@ -1632,7 +1829,7 @@ pub(crate) async fn handle_sessions_patch(
     }
     // Threading support: thread_id and parent_message_id
     if let Some(thread_id) = patch_str(params, &patch, "thread_id") {
-        updated.thread_id = Some(thread_id.to_owned());
+        updated.core_thread_id = Some(thread_id.to_owned());
     }
     if let Some(parent_id) = patch_str(params, &patch, "parent_message_id") {
         updated.parent_message_id = Some(parent_id.to_owned());
@@ -1939,6 +2136,9 @@ fn merge_session_entries(mut left: SessionEntry, right: SessionEntry) -> Session
         left.last_channel = right.last_channel.clone().or(left.last_channel);
         left.to = right.to.clone().or(left.to);
         left.last_to = right.last_to.clone().or(left.last_to);
+        left.core_thread_id = right.core_thread_id.clone().or(left.core_thread_id);
+        left.remote_thread_id = right.remote_thread_id.clone().or(left.remote_thread_id);
+        left.reply_to_event_id = right.reply_to_event_id.clone().or(left.reply_to_event_id);
         left.thread_id = right.thread_id.clone().or(left.thread_id);
         left.reply_target = right.reply_target.clone().or(left.reply_target);
         left.parent_thread_id = right.parent_thread_id.clone().or(left.parent_thread_id);
@@ -2040,7 +2240,7 @@ pub(crate) async fn handle_dm_scope_migrate(
             &agent,
             entry.channel.as_deref(),
             entry.group_id.as_deref(),
-            entry.thread_id.as_deref(),
+            entry.remote_thread_id.as_deref(),
             Some(peer.as_str()),
             entry.account_id.as_deref(),
             target_scope,
