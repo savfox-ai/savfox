@@ -1737,7 +1737,10 @@ async fn revoke_account_mls_key_package_refs(
     let unsigned = KeyPackagesRevokeUnsignedRequest {
         key_package_refs: key_package_refs.clone(),
         device_id: device,
-        reason: Some(reason.to_owned()),
+        reason: Some(
+            arkret::NonEmptyString::new(reason.to_owned())
+                .map_err(|error| anyhow::anyhow!("invalid KeyPackage revoke reason: {error}"))?,
+        ),
     };
     let signature = sign_keypackages_revoke_request(key_ref, verification_method, &unsigned)
         .context("sign canonical MLS KeyPackage revoke request")?;
@@ -1752,7 +1755,7 @@ async fn revoke_account_mls_key_package_refs(
         .iter()
         .filter(|failure| {
             accept_terminally_unclaimable
-                && legacy_retirement_failure_is_terminal(&failure.reason_code)
+                && keypackage_retirement_failure_is_terminal(&failure.reason_code)
         })
         .filter_map(|failure| failure.keypackage_ref.as_deref())
         .collect::<std::collections::BTreeSet<_>>();
@@ -1792,10 +1795,10 @@ async fn revoke_account_mls_key_package_refs(
     Ok(Some(outcome.revoked.len() + safely_retired_failures.len()))
 }
 
-fn legacy_retirement_failure_is_terminal(reason_code: &str) -> bool {
+fn keypackage_retirement_failure_is_terminal(reason_code: &arkret::ReasonCode) -> bool {
     matches!(
-        reason_code,
-        "already_consumed" | "already_consumed_or_missing" | "not_found"
+        reason_code.as_str(),
+        arkret::ErrorCode::KEYPACKAGE_ALREADY_CONSUMED | arkret::ErrorCode::KEYPACKAGE_UNKNOWN
     )
 }
 
@@ -1806,10 +1809,7 @@ fn consume_outcome_acknowledges_binding(
     outcome.failures.is_empty()
         || (outcome.failures.len() == 1
             && outcome.failures[0].keypackage_ref.as_deref() == Some(keypackage_ref)
-            && matches!(
-                outcome.failures[0].reason_code.as_str(),
-                "already_consumed" | "already_consumed_or_missing"
-            ))
+            && keypackage_retirement_failure_is_terminal(&outcome.failures[0].reason_code))
 }
 
 /// Outcome of an explicit Agent runtime unbind, surfaced to the RPC caller.
@@ -3632,7 +3632,6 @@ async fn try_handle_encrypted_account_skip(
             .await?
             {
                 SidecarConsumeOutcome::NoBinding => None,
-                SidecarConsumeOutcome::Execute(context) => Some(context),
                 SidecarConsumeOutcome::DropSilently => return Ok(true),
             };
             dispatch_to_agent(
@@ -3703,10 +3702,7 @@ async fn try_handle_encrypted_account_skip(
 enum SidecarConsumeOutcome {
     /// No (valid) exchange binding: handle as an ordinary private message.
     NoBinding,
-    /// A valid `role=request` binding addressed to this principal whose
-    /// exchange id passed the durable idempotency gate: execute exactly once.
-    Execute(SidecarExchangeContext),
-    /// The request must be treated as nonexistent or already consumed: do not
+    /// The request must be treated as nonexistent or already observed: do not
     /// execute, do not surface an error (the Event stays acknowledged).
     DropSilently,
 }
@@ -3729,9 +3725,18 @@ fn refreshed_sidecar_grant_matches_account(
 /// Decrypt the `encrypted_metadata` carrier (same MLS group as the content
 /// carrier), extract the exchange binding fail-closed, and apply the §7.2.2
 /// consumption gate: role/request-context validation, addressed-principal
-/// membership, and the durable `exchange_id → request_event_id` idempotency
-/// map. The runtime obtains exchange identity only from this binding — never
-/// from `reply_to`, message bodies or arrival order.
+/// membership, scoped durable request-identity audit, and current runtime-key
+/// session revalidation. The runtime obtains exchange identity only from this
+/// binding — never from `reply_to`, message bodies or arrival order.
+///
+/// The current Arkret public contract exposes Sidecar desired/effective
+/// access and reconciliation readiness only through controller-only get/list
+/// operations. It has no Agent-runtime-authorized typed read that atomically
+/// proves effective access, eligibility, target-device MLS readiness,
+/// authorization freshness, canonical request identity, and non-terminal
+/// exchange state. Consequently every otherwise valid Sidecar request is
+/// retained in the local identity audit and then dropped. A session grant is
+/// intentionally not treated as a substitute for the missing proof.
 async fn consume_sidecar_exchange_binding(
     provider: &ArkretAgentSessionProvider,
     skipped: &ArkretInboundSkippedEvent,
@@ -3775,6 +3780,47 @@ async fn consume_sidecar_exchange_binding(
             Ok(SidecarConsumeOutcome::DropSilently)
         }
         SidecarRequestGate::Addressed(context) => {
+            let Some(controller_id) = skipped.sender_did.as_deref() else {
+                return Ok(SidecarConsumeOutcome::DropSilently);
+            };
+            let Some(private_strand_id) = skipped.strand_id.as_deref() else {
+                return Ok(SidecarConsumeOutcome::DropSilently);
+            };
+            let store = SidecarExchangeStore::for_account(
+                &gateway_channel.config().savfox_home,
+                &channel.id,
+                &account.id,
+            );
+            match store.record_request_identity(
+                controller_id,
+                private_strand_id,
+                &context.exchange_id,
+                &context.request_event_id,
+            )? {
+                SidecarExchangeAdmission::Recorded => {}
+                SidecarExchangeAdmission::AlreadyObserved => {
+                    debug!(
+                        account_id = %account.id,
+                        event_id,
+                        exchange_id = %context.exchange_id,
+                        "arkret: Sidecar request identity already observed; skipping exact replay"
+                    );
+                    return Ok(SidecarConsumeOutcome::DropSilently);
+                }
+                SidecarExchangeAdmission::Conflict {
+                    existing_request_event_id,
+                } => {
+                    warn!(
+                        account_id = %account.id,
+                        event_id,
+                        exchange_id = %context.exchange_id,
+                        existing_request_event_id = %existing_request_event_id,
+                        "arkret: scoped Sidecar exchange id maps to a different request event; failing closed"
+                    );
+                    return Ok(SidecarConsumeOutcome::DropSilently);
+                }
+            }
+
             if let Err(error) = provider.refresh_for_sensitive_action().await {
                 warn!(
                     account_id = %account.id,
@@ -3795,37 +3841,13 @@ async fn consume_sidecar_exchange_binding(
                 );
                 return Ok(SidecarConsumeOutcome::DropSilently);
             }
-            let store = SidecarExchangeStore::for_account(
-                &gateway_channel.config().savfox_home,
-                &channel.id,
-                &account.id,
+            warn!(
+                account_id = %account.id,
+                event_id,
+                exchange_id = %context.exchange_id,
+                "arkret: Sidecar runtime authorization proof surface is unavailable; failing closed before execution"
             );
-            match store.admit(&context.exchange_id, &context.request_event_id)? {
-                SidecarExchangeAdmission::Recorded => Ok(SidecarConsumeOutcome::Execute(context)),
-                SidecarExchangeAdmission::AlreadyConsumed => {
-                    debug!(
-                        account_id = %account.id,
-                        event_id,
-                        exchange_id = %context.exchange_id,
-                        "arkret: Sidecar exchange already consumed; skipping duplicate request"
-                    );
-                    Ok(SidecarConsumeOutcome::DropSilently)
-                }
-                SidecarExchangeAdmission::Conflict {
-                    existing_request_event_id,
-                } => {
-                    // §7.2.1: the same exchange id with a different request
-                    // Event id MUST fail closed — never execute a second time.
-                    warn!(
-                        account_id = %account.id,
-                        event_id,
-                        exchange_id = %context.exchange_id,
-                        existing_request_event_id = %existing_request_event_id,
-                        "arkret: Sidecar exchange id maps to a different request event; failing closed"
-                    );
-                    Ok(SidecarConsumeOutcome::DropSilently)
-                }
-            }
+            Ok(SidecarConsumeOutcome::DropSilently)
         }
     }
 }
@@ -4205,6 +4227,16 @@ pub(crate) async fn send_to_arkret_account(
     expected_account_id: Option<&str>,
     delivery: Option<&crate::arkret_delivery::DeliveryCorrelation>,
 ) -> anyhow::Result<String> {
+    // Defense in depth for work already queued when lifecycle/access state
+    // changed: until Arkret exposes an Agent-runtime-authorized typed proof of
+    // the complete §7.2.2 gate, no cached Sidecar context may produce a new
+    // response Event. This check precedes session creation, actor-sequence
+    // mutation, encryption, queueing, and submission.
+    if sidecar_exchange.is_some() {
+        anyhow::bail!(
+            "Arkret Sidecar runtime authorization proof surface is unavailable; refusing to create a response Event"
+        );
+    }
     let Some((channel, account)) = resolve_arkret_outbound_account_for_binding(
         savfox_home,
         realm_id,
@@ -4559,16 +4591,19 @@ mod tests {
     }
 
     #[test]
-    fn legacy_keypackage_retirement_accepts_only_nonclaimable_terminal_states() {
+    fn keypackage_retirement_accepts_only_current_terminal_reason_codes() {
         for reason in [
-            "already_consumed",
-            "already_consumed_or_missing",
-            "not_found",
+            arkret::ErrorCode::KEYPACKAGE_ALREADY_CONSUMED,
+            arkret::ErrorCode::KEYPACKAGE_UNKNOWN,
         ] {
-            assert!(legacy_retirement_failure_is_terminal(reason));
+            assert!(keypackage_retirement_failure_is_terminal(
+                &arkret::ReasonCode::from_wire(reason)
+            ));
         }
-        for reason in ["not_owner", "database unavailable", "retry_later"] {
-            assert!(!legacy_retirement_failure_is_terminal(reason));
+        for reason in ["not_owner", "database_unavailable", "retry_later"] {
+            assert!(!keypackage_retirement_failure_is_terminal(
+                &arkret::ReasonCode::from_wire(reason)
+            ));
         }
     }
 
@@ -4580,7 +4615,9 @@ mod tests {
             failures: vec![arkret::Failure {
                 keypackage_ref: Some(keypackage_ref.to_owned()),
                 device_id: None,
-                reason_code: "already_consumed_or_missing".to_owned(),
+                reason_code: arkret::ReasonCode::from_wire(
+                    arkret::ErrorCode::KEYPACKAGE_ALREADY_CONSUMED,
+                ),
                 retry_after_ms: None,
             }],
         };
@@ -4594,7 +4631,7 @@ mod tests {
         ));
 
         let mut non_terminal = terminal;
-        non_terminal.failures[0].reason_code = "claim_mismatch".to_owned();
+        non_terminal.failures[0].reason_code = arkret::ReasonCode::ClaimInvalid;
         assert!(!consume_outcome_acknowledges_binding(
             &non_terminal,
             keypackage_ref
@@ -4620,13 +4657,6 @@ mod tests {
             commit.group_id.clone(),
             0,
             commit.epoch,
-            vec![
-                arkret::EventId::new("ak:event:01904100-0000-7000-8000-000000000010".to_owned())
-                    .unwrap(),
-            ],
-            vec![arkret::SealId::new(format!("ak:seal:sha256:{}", "d".repeat(64))).unwrap()],
-            hash('a'),
-            hash('b'),
             hash('c'),
             arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
             "arkret.reducer.v1",
@@ -4909,6 +4939,38 @@ mod tests {
         state.device_id = Some(DeviceId::new(account.device_id.clone()).unwrap());
         state.principal_id = Did::new("did:webvh:z6mkfixture:other.example").unwrap();
         assert!(!refreshed_sidecar_grant_matches_account(&state, &account));
+    }
+
+    #[tokio::test]
+    async fn cached_sidecar_reply_is_rejected_before_any_outbound_side_effect() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-arkret-sidecar-runtime-gate-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let context = SidecarExchangeContext {
+            exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
+            request_event_id: "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+            coordinator_assignment_event_id: None,
+        };
+        let error = send_to_arkret_account(
+            &home,
+            realm_id().as_str(),
+            Some("ak:strand:01904100-0000-7000-8000-000000000011"),
+            "must not be sent",
+            Some(&context),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("Sidecar reply must fail closed without complete runtime authorization");
+
+        assert!(error.to_string().contains("authorization proof surface"));
+        assert!(
+            !home.exists(),
+            "the runtime gate must run before config/session/store side effects"
+        );
     }
 
     fn realm_id() -> arkret::RealmId {

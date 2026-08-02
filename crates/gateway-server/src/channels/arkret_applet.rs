@@ -682,7 +682,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 }
                 rejected.push(RejectedItem {
                     event_id: Some(event.event_id.clone()),
-                    reason_code: format!("{reason:?}"),
+                    reason_code: reason.reason_code(),
                     retry_after_ms: None,
                 });
             }

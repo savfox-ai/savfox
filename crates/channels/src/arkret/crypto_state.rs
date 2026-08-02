@@ -3109,10 +3109,6 @@ mod tests {
             commit.group_id.clone(),
             expected_binding.epoch,
             commit.epoch,
-            vec![EventId::new("ak:event:01904100-0000-7000-8000-000000000010".to_owned()).unwrap()],
-            vec![SealId::new(format!("ak:seal:sha256:{}", "d".repeat(64))).unwrap()],
-            Hash::new(format!("sha256:{}", "a".repeat(64))).unwrap(),
-            Hash::new(format!("sha256:{}", "b".repeat(64))).unwrap(),
             Hash::new(format!("sha256:{}", "c".repeat(64))).unwrap(),
             arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
             "arkret.reducer.v1",
@@ -3189,7 +3185,7 @@ mod tests {
         use arkret::{
             Base64UrlString, EventId, MlsClaimTrustBinding, MlsGovernanceBindingPayload,
             MlsGroupId, MlsRequesterTrustBinding, MlsWelcomeCarrier, MlsWelcomeClaimEnvelope,
-            MlsWelcomePayloadClaimRef, NonEmptyString, RealmId, SealId,
+            MlsWelcomePayloadClaimRef, NonEmptyString, RealmId,
         };
 
         let home = temp_home("durable-welcome-payload");
@@ -3217,19 +3213,11 @@ mod tests {
         let hash = |marker: char| {
             Hash::new(format!("sha256:{}", marker.to_string().repeat(64))).expect("hash")
         };
-        let frontier = EventId::new("ak:event:01904100-0000-7000-8000-000000000010".to_owned())
-            .expect("frontier");
-        let covered_seal =
-            SealId::new(format!("ak:seal:sha256:{}", "d".repeat(64))).expect("covered seal");
         let governance_binding = MlsGovernanceBindingPayload::realm(
             realm_id.clone(),
             add.welcome.group_id.clone(),
             0,
             add.welcome.epoch,
-            vec![frontier],
-            vec![covered_seal],
-            hash('a'),
-            hash('b'),
             hash('c'),
             arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
             "arkret.reducer.v1",

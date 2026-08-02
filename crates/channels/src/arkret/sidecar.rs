@@ -7,8 +7,9 @@
 //! closed: the Event is handled as an ordinary private message and never as an
 //! exchange participant.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::Context;
 use arkret::{
@@ -108,32 +109,75 @@ pub fn gate_inbound_request_binding(
     })
 }
 
-/// Result of persisting one `exchange_id → request_event_id` consumption.
+/// Result of durably observing one scoped Sidecar request identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidecarExchangeAdmission {
-    /// First consumption of this exchange id; the mapping is now durable.
+    /// First observation of this scoped exchange id; the identity audit is now
+    /// durable. This does not authorize execution.
     Recorded,
-    /// The identical mapping already exists: the exchange was consumed before
-    /// (e.g. runtime restart replay). The request must not execute again.
-    AlreadyConsumed,
-    /// The exchange id is already mapped to a **different** request Event id.
+    /// The identical mapping already exists (for example after a runtime
+    /// restart). It is an exact replay and must not execute again.
+    AlreadyObserved,
+    /// The scoped exchange id is already mapped to a **different** request
+    /// Event id.
     /// §7.2.1: fail closed — never execute a second time for the same
     /// exchange id, even when body or `request_context` differ.
     Conflict { existing_request_event_id: String },
 }
 
-/// Durable `exchange_id → canonical request_event_id` map, one JSON file per
-/// account scope (sibling of the garth account store), written atomically via
-/// tmp+rename like the crypto state file.
+/// Durable request-identity audit, one local file per account scope (sibling
+/// of the garth account store).
+///
+/// The normative idempotency domain is
+/// `(controller_id, private_strand_id, exchange_id)`. Observing a request is
+/// deliberately separate from authorizing or consuming it: callers first
+/// preserve the identity here, then apply the complete runtime authorization
+/// gate. Writes are serialized per path and use the workspace atomic writer,
+/// so concurrent deliveries cannot both observe an empty exchange slot.
 #[derive(Debug, Clone)]
 pub struct SidecarExchangeStore {
     path: PathBuf,
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+const SIDECAR_EXCHANGE_AUDIT_SCHEMA: &str = "savfox.arkret.sidecar_exchange_audit.v1";
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SidecarExchangeFile {
+    schema: String,
     #[serde(default)]
-    exchanges: BTreeMap<String, String>,
+    controllers: SidecarExchangeControllers,
+}
+
+type SidecarExchangeControllers =
+    BTreeMap<String, BTreeMap<String, BTreeMap<String, SidecarExchangeRecord>>>;
+
+impl Default for SidecarExchangeFile {
+    fn default() -> Self {
+        Self {
+            schema: SIDECAR_EXCHANGE_AUDIT_SCHEMA.to_owned(),
+            controllers: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SidecarExchangeRecord {
+    request_event_id: String,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    conflicting_request_event_ids: BTreeSet<String>,
+}
+
+fn sidecar_exchange_lock(path: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut locks = locks.lock().expect("Sidecar exchange lock registry");
+    Arc::clone(
+        locks
+            .entry(path.to_path_buf())
+            .or_insert_with(|| Arc::new(Mutex::new(()))),
+    )
 }
 
 impl SidecarExchangeStore {
@@ -144,7 +188,7 @@ impl SidecarExchangeStore {
             .join("gateway")
             .join("arkret-account-state")
             .join(format!(
-                "{}-sidecar-exchanges.json",
+                "{}-sidecar-exchange-audit-v1.json",
                 safe_file_stem(&scope_id)
             ));
         Self { path }
@@ -155,25 +199,51 @@ impl SidecarExchangeStore {
         &self.path
     }
 
-    /// Check-and-record consumption of `exchange_id`. See
-    /// [`SidecarExchangeAdmission`] for the three outcomes.
-    pub fn admit(
+    /// Validate and record one request identity in the normative scoped
+    /// idempotency domain. This method never grants permission to execute.
+    pub fn record_request_identity(
         &self,
+        controller_id: &str,
+        private_strand_id: &str,
         exchange_id: &str,
         request_event_id: &str,
     ) -> anyhow::Result<SidecarExchangeAdmission> {
+        let controller_id = arkret::Did::new(controller_id.to_owned())?;
+        let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
+        let exchange_id = AgentSidecarExchangeId::new(exchange_id.to_owned())?;
+        let request_event_id = EventId::new(request_event_id.to_owned())?;
+
+        let lock = sidecar_exchange_lock(&self.path);
+        let _guard = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sidecar exchange audit lock poisoned"))?;
         let mut state = self.load()?;
-        if let Some(existing) = state.exchanges.get(exchange_id) {
-            if existing == request_event_id {
-                return Ok(SidecarExchangeAdmission::AlreadyConsumed);
+        let exchanges = state
+            .controllers
+            .entry(controller_id.to_string())
+            .or_default()
+            .entry(private_strand_id.to_string())
+            .or_default();
+        if let Some(existing) = exchanges.get_mut(exchange_id.as_str()) {
+            if existing.request_event_id == request_event_id.as_str() {
+                return Ok(SidecarExchangeAdmission::AlreadyObserved);
             }
+            existing
+                .conflicting_request_event_ids
+                .insert(request_event_id.to_string());
+            let existing_request_event_id = existing.request_event_id.clone();
+            self.save(&state)?;
             return Ok(SidecarExchangeAdmission::Conflict {
-                existing_request_event_id: existing.clone(),
+                existing_request_event_id,
             });
         }
-        state
-            .exchanges
-            .insert(exchange_id.to_owned(), request_event_id.to_owned());
+        exchanges.insert(
+            exchange_id.to_string(),
+            SidecarExchangeRecord {
+                request_event_id: request_event_id.to_string(),
+                conflicting_request_event_ids: BTreeSet::new(),
+            },
+        );
         self.save(&state)?;
         Ok(SidecarExchangeAdmission::Recorded)
     }
@@ -181,8 +251,16 @@ impl SidecarExchangeStore {
     fn load(&self) -> anyhow::Result<SidecarExchangeFile> {
         match std::fs::read(&self.path) {
             Ok(bytes) if bytes.is_empty() => Ok(SidecarExchangeFile::default()),
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .with_context(|| format!("parse {}", self.path.display())),
+            Ok(bytes) => {
+                let state: SidecarExchangeFile = serde_json::from_slice(&bytes)
+                    .with_context(|| format!("parse {}", self.path.display()))?;
+                anyhow::ensure!(
+                    state.schema == SIDECAR_EXCHANGE_AUDIT_SCHEMA,
+                    "unsupported Sidecar exchange audit schema '{}'",
+                    state.schema
+                );
+                Ok(state)
+            }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 Ok(SidecarExchangeFile::default())
             }
@@ -195,21 +273,9 @@ impl SidecarExchangeStore {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("create {}", parent.display()))?;
         }
-        let tmp = self.tmp_path();
         let bytes = serde_json::to_vec_pretty(state)?;
-        std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.path)
-            .with_context(|| format!("rename {} -> {}", tmp.display(), self.path.display()))
-    }
-
-    fn tmp_path(&self) -> PathBuf {
-        let mut name = self
-            .path
-            .file_name()
-            .map(|n| n.to_os_string())
-            .unwrap_or_else(|| "sidecar-exchanges.json".into());
-        name.push(".tmp");
-        self.path.with_file_name(name)
+        savfox_utils::fs::write_atomically(&self.path, &bytes, Some(0o600))
+            .with_context(|| format!("write {}", self.path.display()))
     }
 }
 
@@ -481,29 +547,97 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
         let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
         assert_eq!(
-            store.admit(EXCHANGE_ID, REQUEST_EVENT_ID).unwrap(),
+            store
+                .record_request_identity(OTHER_DID, STRAND_ID, EXCHANGE_ID, REQUEST_EVENT_ID)
+                .unwrap(),
             SidecarExchangeAdmission::Recorded
         );
         assert_eq!(
-            store.admit(EXCHANGE_ID, REQUEST_EVENT_ID).unwrap(),
-            SidecarExchangeAdmission::AlreadyConsumed
+            store
+                .record_request_identity(OTHER_DID, STRAND_ID, EXCHANGE_ID, REQUEST_EVENT_ID)
+                .unwrap(),
+            SidecarExchangeAdmission::AlreadyObserved
         );
 
         // Restart replay: a fresh store handle over the same file must still
-        // report the exchange as consumed.
+        // report the exchange as observed.
         let reopened = SidecarExchangeStore::for_account(&home, "c1", "a1");
         assert_eq!(
-            reopened.admit(EXCHANGE_ID, REQUEST_EVENT_ID).unwrap(),
-            SidecarExchangeAdmission::AlreadyConsumed
+            reopened
+                .record_request_identity(OTHER_DID, STRAND_ID, EXCHANGE_ID, REQUEST_EVENT_ID)
+                .unwrap(),
+            SidecarExchangeAdmission::AlreadyObserved
         );
 
         // Same exchange id with a different request Event id: fail closed.
         let other_event = "ak:event:01904100-0000-7000-8000-000000000032";
         assert_eq!(
-            reopened.admit(EXCHANGE_ID, other_event).unwrap(),
+            reopened
+                .record_request_identity(OTHER_DID, STRAND_ID, EXCHANGE_ID, other_event)
+                .unwrap(),
             SidecarExchangeAdmission::Conflict {
                 existing_request_event_id: REQUEST_EVENT_ID.to_owned(),
             }
+        );
+
+        // The same exchange id in another normative scope is independent.
+        let other_strand = "ak:strand:01904100-0000-7000-8000-000000000012";
+        assert_eq!(
+            reopened
+                .record_request_identity(OTHER_DID, other_strand, EXCHANGE_ID, other_event)
+                .unwrap(),
+            SidecarExchangeAdmission::Recorded
+        );
+        assert_eq!(
+            reopened
+                .record_request_identity(AGENT_DID, STRAND_ID, EXCHANGE_ID, other_event)
+                .unwrap(),
+            SidecarExchangeAdmission::Recorded
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn exchange_store_serializes_concurrent_first_observation() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-sidecar-exchange-concurrent-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
+        let handles = (0..8)
+            .map(|_| {
+                let store = store.clone();
+                std::thread::spawn(move || {
+                    store
+                        .record_request_identity(
+                            OTHER_DID,
+                            STRAND_ID,
+                            EXCHANGE_ID,
+                            REQUEST_EVENT_ID,
+                        )
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let outcomes = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| **outcome == SidecarExchangeAdmission::Recorded)
+                .count(),
+            1
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| **outcome == SidecarExchangeAdmission::AlreadyObserved)
+                .count(),
+            7
         );
         let _ = std::fs::remove_dir_all(&home);
     }

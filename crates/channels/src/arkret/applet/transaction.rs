@@ -61,6 +61,24 @@ pub enum AppletDispatchSkip {
     LoopbackFromApplet,
 }
 
+impl AppletDispatchSkip {
+    /// Closed Arkret reason used at the typed Applet transaction boundary.
+    /// The local routing classification remains an implementation detail and
+    /// is never serialized through its Rust debug name.
+    #[must_use]
+    pub const fn reason_code(&self) -> arkret::ReasonCode {
+        match self {
+            Self::ActorNotInNamespace | Self::RealmNotInNamespace | Self::LoopbackFromApplet => {
+                arkret::ReasonCode::AppletNamespaceMismatch
+            }
+            Self::KindNotMessageCreate => arkret::ReasonCode::UnsupportedEventKind,
+            Self::EncryptedContent => arkret::ReasonCode::DecryptionFailed,
+            Self::ContentKindUnsupported => arkret::ReasonCode::UnknownKind,
+            Self::EmptyBody => arkret::ReasonCode::CardinalityViolation,
+        }
+    }
+}
+
 /// Outcome of parsing a single event from an applet transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppletEventOutcome {
