@@ -13,12 +13,15 @@ use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
     "ak.self.events.query.scan",
+    "ak.self.events.query.frontier",
+    "ak.self.authorization_leases.command.issue",
     "ak.self.events.command.submit",
     "ak.self.keys.keypackages.upload.create",
     "ak.self.keys.keypackages.command.consume",
     "ak.self.keys.keypackages.command.revoke",
     "ak.self.device_messages.query.list",
     "ak.self.device_messages.command.ack",
+    "ak.self.signal.command.send",
     "ak.event.read",
     "ak.message.create",
 ];
@@ -26,15 +29,21 @@ pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
 const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
     "ak.self.events.query.scan",
+    "ak.self.events.query.frontier",
     "ak.self.keys.keypackages.upload.create",
     "ak.self.keys.keypackages.command.consume",
     "ak.self.keys.keypackages.command.revoke",
     "ak.self.device_messages.query.list",
     "ak.self.device_messages.command.ack",
+    "ak.self.signal.command.send",
     "ak.event.read",
 ];
 
-const REQUIRED_SEND_SCOPE: &[&str] = &["ak.self.events.command.submit", "ak.message.create"];
+const REQUIRED_SEND_SCOPE: &[&str] = &[
+    "ak.self.authorization_leases.command.issue",
+    "ak.self.events.command.submit",
+    "ak.message.create",
+];
 const VERIFIED_SCOPE_SCHEMA: &str = "savfox.arkret.verified_runtime_scope.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,12 +228,19 @@ impl ArkretChannelConfig {
         let bootstrap = parse_inkson_bootstrap(raw.get("inksonBootstrap"));
         let bootstrap = bootstrap?;
         let principal_id = bootstrap.agent_id.to_string();
-        let id = config.id.clone();
+        let pairing_request_id = bootstrap.pairing_request_id.to_string();
+        let device_id = derive_arkret_device_id(&[&principal_id, &pairing_request_id]);
+        // A saved channel slot may be paired again with a replacement runtime
+        // or a different Agent. Scope all durable account, cursor and crypto
+        // state to the concrete paired endpoint so the new binding can never
+        // inherit Realm/MLS state from the previous principal.
+        let account_id =
+            derive_agent_runtime_account_id(&config.id, &principal_id, &pairing_request_id);
         let account = ArkretAccountConfig {
             mode: ArkretAccountMode::Agent,
-            id: id.clone(),
+            id: account_id,
             principal_id: principal_id.clone(),
-            device_id: derive_arkret_device_id(&[&config.id, &id, &principal_id]),
+            device_id,
             key_ref: raw.get("keyRef").and_then(ArkretKeyRef::from_value),
             verification_method: raw
                 .get("verificationMethod")
@@ -354,16 +370,12 @@ impl ArkretAccountConfig {
                 self.id
             )
             })?;
-        if !verification_method
-            .split_once('#')
-            .is_some_and(|(controller, fragment)| {
-                controller == self.principal_id && !fragment.is_empty()
-            })
-        {
+        if !verification_method.eq(&format!("{}#{}", self.principal_id, self.device_id)) {
             anyhow::bail!(
-                "Arkret agent '{}' verificationMethod must be controlled by principal_id '{}'",
+                "Arkret agent '{}' verificationMethod must equal '{}#{}' so the authorized Agent runtime key is bound to its stable Signal/MLS endpoint",
                 self.id,
-                self.principal_id
+                self.principal_id,
+                self.device_id
             );
         }
         let authorization_ref = self
@@ -582,6 +594,22 @@ pub fn derive_arkret_device_id(parts: &[&str]) -> String {
     format!("ak:device:{}", uuid::Uuid::from_bytes(bytes))
 }
 
+#[must_use]
+fn derive_agent_runtime_account_id(
+    channel_id: &str,
+    principal_id: &str,
+    pairing_request_id: &str,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(channel_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(principal_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(pairing_request_id.as_bytes());
+    let digest = hex::encode(hasher.finalize());
+    format!("{channel_id}-{}", &digest[..24])
+}
+
 fn parse_string_list(value: Option<&Value>) -> Vec<String> {
     match value {
         None => Vec::new(),
@@ -751,6 +779,8 @@ mod strict_tests {
     use super::*;
 
     fn canonical_config(scope: Value) -> ChannelConfig {
+        let principal_id = "did:webvh:example.org:agents:bb";
+        let device_id = derive_arkret_device_id(&[principal_id, "pair-bb"]);
         ChannelConfig {
             id: "arkret-agent".to_owned(),
             kind: "arkret".to_owned(),
@@ -762,7 +792,7 @@ mod strict_tests {
                 "inksonBootstrap": {
                     "arkret_base_url": "https://arkret.example.org",
                     "service_id": "did:webvh:arkret.example.org",
-                    "agent_id": "did:webvh:example.org:agents:bb",
+                    "agent_id": principal_id,
                     "pairing_request_id": "pair-bb",
                     "pairing_code": "123456",
                     "pairing_expires_at": "2026-07-25T09:05:35.700Z"
@@ -772,7 +802,7 @@ mod strict_tests {
                     "service": "savfox-arkret",
                     "account": "runtime-bb"
                 },
-                "verificationMethod": "did:webvh:example.org:agents:bb#runtime-1",
+                "verificationMethod": format!("{principal_id}#{device_id}"),
                 "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
                 "requestedScope": scope
             }),
@@ -786,6 +816,40 @@ mod strict_tests {
 
     fn default_scope() -> Value {
         json!(DEFAULT_AGENT_RUNTIME_SCOPE)
+    }
+
+    #[test]
+    fn agent_endpoint_derivation_is_stable_across_pairing_components() {
+        assert_eq!(
+            derive_arkret_device_id(&["did:webvh:example.org:agents:support", "pair-123",]),
+            "ak:device:af5d87e9-102d-765f-91ea-f649575db582"
+        );
+    }
+
+    #[test]
+    fn replacement_pairing_gets_fresh_durable_account_scope() {
+        let first_config = canonical_config(default_scope());
+        let first = ArkretChannelConfig::from_strict_agent_config(&first_config)
+            .expect("first pairing parses");
+        let first_again = ArkretChannelConfig::from_strict_agent_config(&first_config)
+            .expect("same pairing parses deterministically");
+
+        let mut replacement_config = canonical_config(default_scope());
+        replacement_config.config["inksonBootstrap"]["pairing_request_id"] =
+            json!("pair-replacement");
+        let principal_id = "did:webvh:example.org:agents:bb";
+        let replacement_device = derive_arkret_device_id(&[principal_id, "pair-replacement"]);
+        replacement_config.config["verificationMethod"] =
+            json!(format!("{principal_id}#{replacement_device}"));
+        let replacement = ArkretChannelConfig::from_strict_agent_config(&replacement_config)
+            .expect("replacement pairing parses");
+
+        assert_eq!(first.accounts[0].id, first_again.accounts[0].id);
+        assert_ne!(first.accounts[0].id, replacement.accounts[0].id);
+        assert_ne!(
+            first.accounts[0].device_id,
+            replacement.accounts[0].device_id
+        );
     }
 
     #[test]
@@ -826,6 +890,28 @@ mod strict_tests {
                 .to_string()
                 .contains("missing required runtime actions")
         );
+    }
+
+    #[test]
+    fn interactive_agent_scope_requires_reply_authorization_and_presence() {
+        for required_action in [
+            "ak.self.events.query.frontier",
+            "ak.self.authorization_leases.command.issue",
+            "ak.self.signal.command.send",
+        ] {
+            let scope = DEFAULT_AGENT_RUNTIME_SCOPE
+                .iter()
+                .filter(|action| **action != required_action)
+                .copied()
+                .collect::<Vec<_>>();
+            let error =
+                ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
+                    .expect_err("interactive Agent capability must fail closed");
+            assert!(
+                error.to_string().contains(required_action),
+                "missing capability error must name {required_action}: {error:#}"
+            );
+        }
     }
 
     #[test]

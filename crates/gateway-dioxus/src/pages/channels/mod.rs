@@ -2642,12 +2642,15 @@ fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
 const ARKRET_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
     "ak.self.events.query.scan",
+    "ak.self.events.query.frontier",
+    "ak.self.authorization_leases.command.issue",
     "ak.self.events.command.submit",
     "ak.self.keys.keypackages.upload.create",
     "ak.self.keys.keypackages.command.consume",
     "ak.self.keys.keypackages.command.revoke",
     "ak.self.device_messages.query.list",
     "ak.self.device_messages.command.ack",
+    "ak.self.signal.command.send",
     "ak.event.read",
     "ak.message.create",
 ];
@@ -2673,6 +2676,7 @@ fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
         patch["requestedScope"] = json!(ARKRET_AGENT_RUNTIME_SCOPE);
     }
     let agent_id = bootstrap.agent_id.to_string();
+    let pairing_request_id = bootstrap.pairing_request_id.to_string();
     let existing_verification_method = patch
         .get("verificationMethod")
         .and_then(Value::as_str)
@@ -2684,7 +2688,8 @@ fn apply_arkret_bootstrap_defaults(patch: &mut Value) {
         if existing_verification_method.is_some() {
             patch["authorizedEventRef"] = Value::Null;
         }
-        patch["verificationMethod"] = json!(format!("{agent_id}#runtime-1"));
+        let device_id = derive_arkret_agent_endpoint(&agent_id, &pairing_request_id);
+        patch["verificationMethod"] = json!(format!("{agent_id}#{device_id}"));
     }
 }
 
@@ -2692,6 +2697,23 @@ fn arkret_verification_method_matches_agent(verification_method: &str, agent_id:
     verification_method
         .split_once('#')
         .is_some_and(|(did, fragment)| did == agent_id && !fragment.is_empty())
+}
+
+fn derive_arkret_agent_endpoint(agent_id: &str, pairing_request_id: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"savfox.arkret.device.v1");
+    for part in [agent_id, pairing_request_id] {
+        hasher.update((part.len() as u64).to_le_bytes());
+        hasher.update(part.as_bytes());
+    }
+    let digest = hasher.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x70;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!("ak:device:{}", uuid::Uuid::from_bytes(bytes))
 }
 
 fn clear_arkret_agent_obsolete_fields(patch: &mut Value) {
@@ -4950,7 +4972,20 @@ fn render_single_field(
                                                 .and_then(serde_json::Value::as_str)
                                                 .map(str::trim)
                                                 .filter(|value| !value.is_empty())
-                                                .map(|value| format!("{value}#runtime-1"));
+                                                .zip(
+                                                    bootstrap
+                                                        .get("pairing_request_id")
+                                                        .and_then(serde_json::Value::as_str)
+                                                        .map(str::trim)
+                                                        .filter(|value| !value.is_empty()),
+                                                )
+                                                .map(|(agent_id, pairing_request_id)| {
+                                                    let device_id = derive_arkret_agent_endpoint(
+                                                        agent_id,
+                                                        pairing_request_id,
+                                                    );
+                                                    format!("{agent_id}#{device_id}")
+                                                });
                                             {
                                                 let mut values = values.write();
                                                 values.insert(bootstrap_key.clone(), text.clone());
@@ -5737,12 +5772,16 @@ fn arkret_runtime_key_ref_generation_params(
     });
     let verification_method = bootstrap.as_ref().map(|bootstrap| {
         let agent_id = bootstrap.agent_id.to_string();
+        let pairing_request_id = bootstrap.pairing_request_id.to_string();
         values
             .get(&field_value_key(channel_id, "verificationMethod"))
             .map(|value| value.trim())
             .filter(|value| arkret_verification_method_matches_agent(value, &agent_id))
             .map(str::to_owned)
-            .unwrap_or_else(|| format!("{agent_id}#runtime-1"))
+            .unwrap_or_else(|| {
+                let device_id = derive_arkret_agent_endpoint(&agent_id, &pairing_request_id);
+                format!("{agent_id}#{device_id}")
+            })
     });
 
     let mut params = serde_json::Map::new();
@@ -6354,6 +6393,14 @@ mod tests {
     }
 
     #[test]
+    fn arkret_agent_endpoint_derivation_matches_runtime_contract() {
+        assert_eq!(
+            derive_arkret_agent_endpoint("did:webvh:example.org:agents:support", "pair-123",),
+            "ak:device:af5d87e9-102d-765f-91ea-f649575db582"
+        );
+    }
+
+    #[test]
     fn channel_types_include_arkret() {
         let arkret = build_channel_types()
             .into_iter()
@@ -6745,9 +6792,11 @@ mod tests {
 
         assert_eq!(params["platform"], "arkret");
         assert_eq!(params["agent_id"], "did:webvh:example.org:agents:support");
+        let endpoint =
+            derive_arkret_agent_endpoint("did:webvh:example.org:agents:support", "pair-123");
         assert_eq!(
             params["verification_method"],
-            "did:webvh:example.org:agents:support#runtime-1"
+            format!("did:webvh:example.org:agents:support#{endpoint}")
         );
         assert!(params.get("keyRef").is_none());
         assert!(params.get("value").is_none());
@@ -6933,9 +6982,11 @@ mod tests {
         assert!(patch["serviceId"].is_null());
         assert!(patch["principalId"].is_null());
         assert_eq!(patch["requestedScope"], json!(ARKRET_AGENT_RUNTIME_SCOPE));
+        let endpoint =
+            derive_arkret_agent_endpoint("did:webvh:example.org:agents:support", "pair-123");
         assert_eq!(
             patch["verificationMethod"],
-            json!("did:webvh:example.org:agents:support#runtime-1")
+            json!(format!("did:webvh:example.org:agents:support#{endpoint}"))
         );
     }
 
@@ -6963,9 +7014,11 @@ mod tests {
 
         let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
+        let endpoint =
+            derive_arkret_agent_endpoint("did:webvh:example.org:agents:support", "pair-123");
         assert_eq!(
             patch["verificationMethod"],
-            json!("did:webvh:example.org:agents:support#runtime-1")
+            json!(format!("did:webvh:example.org:agents:support#{endpoint}"))
         );
         assert!(patch["authorizedEventRef"].is_null());
     }

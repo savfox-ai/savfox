@@ -106,12 +106,7 @@ pub async fn load_and_verify_grant(
     let payload: CapabilityGrantPayload = event
         .payload_as()
         .with_context(|| format!("decode CapabilityGrant payload in {}", path.display()))?;
-    let grant = payload.grant.ok_or_else(|| {
-        anyhow::anyhow!(
-            "capability grant {}: payload.grant is required",
-            path.display()
-        )
-    })?;
+    let grant = payload.grant;
 
     if event.actor_id.as_str() != grant.issuer.as_str() {
         anyhow::bail!(

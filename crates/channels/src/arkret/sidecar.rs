@@ -285,7 +285,7 @@ pub fn split_sidecar_reply_target(value: &str) -> (String, Option<SidecarExchang
 /// plaintext `metadata` (forbidden-wire-fields `sidecar_exchange_binding`).
 pub fn build_user_facing_response_metadata(
     context: &SidecarExchangeContext,
-) -> anyhow::Result<Value> {
+) -> anyhow::Result<MessageMetadata> {
     let exchange_id = AgentSidecarExchangeId::new(context.exchange_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid Sidecar exchange id: {err}"))?;
     let request_event_id = EventId::new(context.request_event_id.clone())
@@ -304,7 +304,7 @@ pub fn build_user_facing_response_metadata(
     metadata
         .set_sidecar_exchange_binding(&binding)
         .map_err(|err| anyhow::anyhow!("mount Sidecar exchange binding: {err}"))?;
-    serde_json::to_value(&metadata).context("serialize Sidecar reply metadata")
+    Ok(metadata)
 }
 
 #[cfg(test)]
@@ -540,6 +540,7 @@ mod tests {
             coordinator_assignment_event_id: Some(REQUEST_EVENT_ID.to_owned()),
         };
         let plaintext = build_user_facing_response_metadata(&context).expect("metadata");
+        let plaintext = serde_json::to_value(plaintext).expect("serialize metadata");
         let binding = sidecar_binding_from_metadata_plaintext(&plaintext).expect("binding");
         assert_eq!(
             binding.role,

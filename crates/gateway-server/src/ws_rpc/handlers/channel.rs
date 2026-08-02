@@ -2477,7 +2477,12 @@ pub(crate) async fn handle_channels_arkret_inspect(
     let key_digest =
         savfox_channels::arkret::ed25519_runtime_public_key_digest(key_ref, verification_method)
             .map_err(|error| (INTERNAL_ERROR, error.to_string()))?;
-    let diagnostics = crate::channels::arkret::arkret_account_runtime_diagnostics(config_id);
+    let diagnostics = crate::channels::arkret::arkret_account_runtime_diagnostics(config_id)
+        .into_iter()
+        .filter(|diagnostic| {
+            diagnostic.get("account_id").and_then(Value::as_str) == Some(account.id.as_str())
+        })
+        .collect::<Vec<_>>();
     let runtime_phase = diagnostics
         .iter()
         .find_map(|diagnostic| diagnostic.get("phase").and_then(Value::as_str))

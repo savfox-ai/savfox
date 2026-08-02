@@ -12,8 +12,11 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity};
 use arkret::{
-    DeviceId, Did, EncryptedPayload, EncryptedPayloadScheme, EventId, MlsKeyPackageRecord,
-    MlsKeyPackageState, MlsWelcomeEnvelope, MlsWelcomePayload, RealmId,
+    ContentBlock, DeviceId, Did, DirectConversationBoundPayload, EncryptedPayload,
+    EncryptedPayloadScheme, EventId, MessageMetadata, MlsCommitPayload, MlsEncryptedPayload,
+    MlsKeyPackageRecord, MlsKeyPackageState, MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload,
+    PresencePlaintext, PresenceState, RealmId, ScopeRef, SealId, StrandCreatePayload,
+    seal_signal_plaintext,
 };
 use arkret_crypto::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
 use base64::Engine as _;
@@ -23,9 +26,11 @@ use garth::{CryptoStore, MemoryCryptoStore, MlsGroupStateRecord, MlsRecoveryActi
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const STATE_VERSION: &str = "savfox.arkret.crypto_state.v1";
-const CONTENT_BLOCK_JSON: &str = "application/vnd.arkret.content-block+json";
+use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
+const STATE_VERSION: &str = "savfox.arkret.crypto_state.v1";
+#[cfg(test)]
+const CONTENT_BLOCK_JSON: &str = arkret::MESSAGE_CONTENT_BLOCK_MLS_CONTENT_TYPE;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArkretContentEncryptionFloor {
     AllowPlaintext,
@@ -138,6 +143,14 @@ impl ArkretMlsWelcomeConsumeBinding {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArkretDirectConversationWelcomeBinding {
+    pub welcome_ref: String,
+    pub realm_id: String,
+    pub strand_id: String,
+    pub mls_group_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArkretCryptoStateFile {
     pub version: String,
@@ -151,9 +164,17 @@ pub struct ArkretCryptoStateFile {
     #[serde(default)]
     pub mls_welcome_consume_bindings: BTreeMap<String, ArkretMlsWelcomeConsumeBinding>,
     #[serde(default)]
+    pub direct_conversation_welcome_bindings:
+        BTreeMap<String, ArkretDirectConversationWelcomeBinding>,
+    #[serde(default)]
     pub realm_policies: BTreeMap<String, ArkretRealmCryptoPolicy>,
     #[serde(default)]
     pub bootstrap: BTreeMap<String, ArkretBootstrapRecord>,
+    /// Next sender-device sequence per Signal scope. The value is advanced and
+    /// persisted before each submit so a failed HTTP request can skip but never
+    /// reuse a sequence or the MLS Signal nonce consumed alongside it.
+    #[serde(default)]
+    pub signal_sequences: BTreeMap<String, u64>,
     #[serde(default)]
     pub key_backup: ArkretKeyBackupState,
 }
@@ -171,8 +192,10 @@ impl ArkretCryptoStateFile {
             mls_identities: BTreeMap::new(),
             mls_key_packages: BTreeMap::new(),
             mls_welcome_consume_bindings: BTreeMap::new(),
+            direct_conversation_welcome_bindings: BTreeMap::new(),
             realm_policies: BTreeMap::new(),
             bootstrap: BTreeMap::new(),
+            signal_sequences: BTreeMap::new(),
             key_backup: ArkretKeyBackupState::default(),
         })
     }
@@ -296,6 +319,172 @@ impl FileArkretCryptoStore {
             .realm_policies
             .get(realm_id)
             .is_some_and(ArkretRealmCryptoPolicy::requires_e2ee))
+    }
+
+    /// Realm ids for which the account has both an E2EE policy and mutable MLS
+    /// state accepted at a known group-state reference. Only these scopes can
+    /// safely advertise encrypted v1 presence.
+    pub fn presence_ready_realm_ids(&self) -> anyhow::Result<Vec<String>> {
+        let state = self.load()?;
+        let store = state.mls_store()?;
+        let mut realms = state
+            .realm_policies
+            .values()
+            .filter(|policy| policy.requires_e2ee())
+            .filter_map(|policy| {
+                let group_id = policy.group_id_for_realm();
+                let record = store.mls_group_state(group_id.as_ref())?;
+                group_state_ref_for_epoch(&state, group_id.as_ref(), record.epoch)?;
+                Some(policy.realm_id.clone())
+            })
+            .collect::<Vec<_>>();
+        realms.sort();
+        realms.dedup();
+        Ok(realms)
+    }
+
+    /// Seal and sign one Realm-scoped `ak.presence` Signal.
+    ///
+    /// The post-seal MLS state and strictly increasing payload sequence are
+    /// persisted before the caller performs HTTP submit. This intentionally
+    /// burns both values on an uncertain request and prevents replay/nonce
+    /// reuse after a crash.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seal_online_presence_signal(
+        &self,
+        realm_id: &str,
+        principal_id: &str,
+        device_id: &str,
+        verification_method: &str,
+        key_ref: &ArkretKeyRef,
+        seal_ref: &str,
+        sent_at: DateTime<Utc>,
+    ) -> anyhow::Result<arkret_wire::SignalEnvelope> {
+        let mut state = self.load()?;
+        let policy = state
+            .realm_policies
+            .get(realm_id)
+            .filter(|policy| policy.requires_e2ee())
+            .cloned()
+            .with_context(|| format!("Realm '{realm_id}' has no E2EE Signal policy"))?;
+        let mut store = state.mls_store()?;
+        let group_id = policy.group_id_for_realm().into_owned();
+        let record = store
+            .mls_group_state(&group_id)
+            .cloned()
+            .with_context(|| format!("Realm '{realm_id}' has no accepted MLS group state"))?;
+        let group_state_ref = group_state_ref_for_epoch(&state, &group_id, record.epoch)
+            .with_context(|| {
+                format!(
+                    "Realm '{realm_id}' MLS epoch {} has no accepted group-state reference",
+                    record.epoch
+                )
+            })?;
+        // `ArkretMlsGroup` admits exactly the protocol ciphersuite exported by
+        // the SDK. Use that negotiated wire id directly; a global registry
+        // scan would become wrong as soon as a second suite is activated.
+        let aead_profile = arkret::mls::ARKRET_MLS_CIPHERSUITE_CANONICAL_ID;
+        let realm_id = RealmId::new(realm_id.to_owned())?;
+        let actor_id = Did::new(principal_id.to_owned())?;
+        let device_id = DeviceId::new(device_id.to_owned())?;
+        let seal_ref = SealId::new(seal_ref.to_owned())?;
+        let scope_ref = ScopeRef::Realm {
+            realm_id: realm_id.clone(),
+        };
+        let expires_at = sent_at + chrono::Duration::seconds(30);
+        let sequence_key = format!("realm:{}", realm_id.as_str());
+        let payload_sequence = state
+            .signal_sequences
+            .get(&sequence_key)
+            .copied()
+            .unwrap_or(0);
+        let plaintext = PresencePlaintext::new(
+            payload_sequence,
+            actor_id.clone(),
+            PresenceState::Online,
+            30_000,
+        )?;
+        let plaintext = seal_signal_plaintext(&plaintext)?;
+        let signal_key_ref = arkret_wire::SignalKeyRef {
+            algorithm: "MLS-EXPORTER-AEAD".to_owned(),
+            group_state_ref: group_state_ref.clone(),
+        };
+        let mut group = ArkretMlsGroup::restore_from_state_record(&record)
+            .map_err(|error| anyhow::anyhow!("restore Arkret MLS group: {error}"))?;
+        let binding = arkret_wire::SignalAeadBinding {
+            realm_id: &realm_id,
+            scope_ref: &scope_ref,
+            sender_actor_id: &actor_id,
+            sender_device_id: &device_id,
+            seal_ref: &seal_ref,
+            signal_class: arkret_wire::SignalClass::Session,
+            sent_at,
+            expires_at,
+            scheme: arkret_wire::signal::SIGNAL_AEAD_SCHEME,
+            key_ref: &signal_key_ref,
+            purpose: arkret_wire::signal::SIGNAL_AEAD_PURPOSE,
+            aead_profile,
+            epoch: record.epoch,
+        };
+        let sealed = group
+            .seal_signal_payload(&binding, &plaintext)
+            .map_err(|error| anyhow::anyhow!("seal Arkret presence Signal: {error}"))?;
+
+        let updated = group
+            .persist_state(&mut store)
+            .map_err(|error| anyhow::anyhow!("persist post-Signal MLS group: {error}"))?;
+        state.set_mls_store(&store)?;
+        let next_sequence = payload_sequence
+            .checked_add(1)
+            .context("Arkret presence payload sequence exhausted")?;
+        state.signal_sequences.insert(sequence_key, next_sequence);
+        state.bootstrap.insert(
+            updated.group_id.clone(),
+            ArkretBootstrapRecord {
+                group_id: updated.group_id,
+                required_epoch: updated.epoch,
+                local_epoch: Some(updated.epoch),
+                group_state_ref: Some(group_state_ref),
+                action: MlsRecoveryAction::UseLocalState,
+                updated_at: sent_at,
+            },
+        );
+        self.save(&state)?;
+
+        let verification_method = arkret::DidUrl::new(verification_method.to_owned())
+            .map_err(|error| anyhow::anyhow!("invalid Arkret verification method: {error}"))?;
+        let mut envelope = arkret_wire::SignalEnvelope {
+            realm_id,
+            scope_ref,
+            sender_actor_id: actor_id,
+            sender_device_id: device_id,
+            seal_ref,
+            signal_class: arkret_wire::SignalClass::Session,
+            sent_at,
+            expires_at,
+            encrypted_payload: sealed.encrypted_payload,
+            proof: arkret_wire::SignalProof {
+                kind: arkret::proof_kind::DETACHED_JWS.to_owned(),
+                verification_method,
+                alg: "EdDSA".to_owned(),
+                envelope_digest: arkret::Hash::new(format!("sha256:{}", "0".repeat(64)))?,
+                created_at: sent_at,
+                domain: None,
+                audience: None,
+                jws: String::new(),
+            },
+        };
+        let expected_aad = envelope.expected_aad_digest()?;
+        if envelope.encrypted_payload.aad_digest != expected_aad {
+            anyhow::bail!("Arkret presence ciphertext was sealed against a different header");
+        }
+        envelope.proof.envelope_digest = envelope.envelope_digest()?;
+        let proof_bytes = envelope.proof_binding_bytes()?;
+        let signing_key = load_ed25519_signing_key(key_ref)?;
+        envelope.proof.jws =
+            arkret_signatures::sign_eddsa_detached_jws(&signing_key, &proof_bytes)?;
+        envelope.validate_structural()?;
+        Ok(envelope)
     }
 
     pub fn update_realm_policies_from_sync(&self, realms_value: &Value) -> anyhow::Result<usize> {
@@ -560,6 +749,41 @@ impl FileArkretCryptoStore {
     /// primary key.
     pub fn revocable_keypackage_refs(&self) -> anyhow::Result<Vec<String>> {
         let state = self.load()?;
+        Ok(Self::revocable_keypackage_refs_matching(&state, None, None))
+    }
+
+    /// Canonical KeyPackage refs in this store that belong to one exact Agent
+    /// runtime binding and have not already been consumed or revoked.
+    ///
+    /// This is used by the pairing-scoped account migration.  Older Savfox
+    /// releases keyed Arkret crypto state only by channel/account id, so one
+    /// legacy file can contain material from several replaced Agents.  A new
+    /// Agent MUST revoke only its own principal/device rows; attempting to
+    /// revoke another Agent's rows both fails authorization and leaves the
+    /// current runtime exposed to claims for private material it no longer
+    /// opens.
+    pub fn revocable_keypackage_refs_for_agent(
+        &self,
+        principal_id: &str,
+        device_id: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        let principal = Did::new(principal_id.to_owned())
+            .with_context(|| format!("invalid Arkret principal DID '{principal_id}'"))?;
+        let device = DeviceId::new(device_id.to_owned())
+            .with_context(|| format!("invalid Arkret device id '{device_id}'"))?;
+        let state = self.load()?;
+        Ok(Self::revocable_keypackage_refs_matching(
+            &state,
+            Some(&principal),
+            Some(&device),
+        ))
+    }
+
+    fn revocable_keypackage_refs_matching(
+        state: &ArkretCryptoStateFile,
+        principal_id: Option<&Did>,
+        device_id: Option<&DeviceId>,
+    ) -> Vec<String> {
         let mut refs = Vec::new();
         for record in state.mls_key_packages.values() {
             if matches!(
@@ -568,12 +792,17 @@ impl FileArkretCryptoStore {
             ) {
                 continue;
             }
+            if principal_id.is_some_and(|principal| &record.principal_id != principal)
+                || device_id.is_some_and(|device| &record.device_id != device)
+            {
+                continue;
+            }
             let keypackage_ref = record.keypackage_ref.as_str().to_owned();
             if !refs.contains(&keypackage_ref) {
                 refs.push(keypackage_ref);
             }
         }
-        Ok(refs)
+        refs
     }
 
     /// Delete the persisted crypto-state file for this account. Used by unbind
@@ -645,9 +874,138 @@ impl FileArkretCryptoStore {
         let Some(welcome) = extract_mls_welcome_envelope(value) else {
             return Ok(None);
         };
-        let consume_binding = extract_mls_welcome_consume_binding(value);
+        let state = self.load()?;
+        let mut consume_binding = extract_mls_welcome_consume_binding(value);
+        if let Some(binding) = consume_binding.as_mut() {
+            binding.welcome_ref = binding
+                .welcome_ref
+                .clone()
+                .or_else(|| extract_mls_welcome_event_ref(value));
+            enrich_mls_welcome_consume_binding(
+                binding,
+                &state.direct_conversation_welcome_bindings,
+            );
+        }
+        drop(state);
         self.record_mls_welcome_inner(welcome.clone(), consume_binding)?;
         Ok(Some(welcome))
+    }
+
+    /// Apply one accepted durable `ak.mls.commit` to the local MLS group and
+    /// persist the post-Commit snapshot before any later encrypted DataEvent is
+    /// handled. Replaying the same accepted Commit is idempotent; an epoch gap
+    /// fails closed instead of fabricating ratchet state.
+    pub fn apply_mls_commit(
+        &self,
+        payload: &MlsCommitPayload,
+        accepted_event_ref: &EventId,
+    ) -> anyhow::Result<bool> {
+        let mut state = self.load()?;
+        let mut store = state.mls_store()?;
+        if store.mls_group_state(payload.mls_group_id()).is_none() {
+            consume_stored_welcome_for_commit(
+                &state,
+                &mut store,
+                payload.mls_group_id(),
+                payload.base_epoch(),
+            )?;
+        }
+        let record = store
+            .mls_group_state(payload.mls_group_id())
+            .cloned()
+            .with_context(|| {
+                format!(
+                    "Arkret MLS Commit for group '{}' has no admitted local group state",
+                    payload.mls_group_id()
+                )
+            })?;
+        if record.epoch > payload.next_epoch() {
+            return Ok(false);
+        }
+        if record.epoch == payload.next_epoch() {
+            state.bootstrap.insert(
+                record.group_id.clone(),
+                ArkretBootstrapRecord {
+                    group_id: record.group_id,
+                    required_epoch: record.epoch,
+                    local_epoch: Some(record.epoch),
+                    group_state_ref: Some(accepted_event_ref.to_string()),
+                    action: MlsRecoveryAction::UseLocalState,
+                    updated_at: Utc::now(),
+                },
+            );
+            state.set_mls_store(&store)?;
+            self.save(&state)?;
+            return Ok(false);
+        }
+        if record.epoch != payload.base_epoch() {
+            anyhow::bail!(
+                "Arkret MLS Commit epoch gap for group '{}': local={}, commit base={}, next={}",
+                payload.mls_group_id(),
+                record.epoch,
+                payload.base_epoch(),
+                payload.next_epoch()
+            );
+        }
+        let mut group = ArkretMlsGroup::restore_from_state_record(&record)
+            .map_err(|err| anyhow::anyhow!("restore Arkret MLS group: {err}"))?;
+        let applied_epoch = group
+            .apply_commit(&payload.commit_envelope())
+            .map_err(|err| anyhow::anyhow!("apply Arkret MLS Commit: {err}"))?;
+        if applied_epoch != payload.next_epoch() {
+            anyhow::bail!(
+                "Arkret MLS Commit produced epoch {applied_epoch}, expected {}",
+                payload.next_epoch()
+            );
+        }
+        let updated = group
+            .persist_state(&mut store)
+            .map_err(|err| anyhow::anyhow!("persist post-Commit Arkret MLS group: {err}"))?;
+        state.set_mls_store(&store)?;
+        state.bootstrap.insert(
+            updated.group_id.clone(),
+            ArkretBootstrapRecord {
+                group_id: updated.group_id,
+                required_epoch: updated.epoch,
+                local_epoch: Some(updated.epoch),
+                group_state_ref: Some(accepted_event_ref.to_string()),
+                action: MlsRecoveryAction::UseLocalState,
+                updated_at: Utc::now(),
+            },
+        );
+        self.save(&state)?;
+        Ok(true)
+    }
+
+    pub fn record_direct_conversation_binding_from_value(
+        &self,
+        value: &Value,
+    ) -> anyhow::Result<usize> {
+        let mut payloads = Vec::new();
+        collect_direct_conversation_bound_payloads(value, 8, &mut payloads);
+        if payloads.is_empty() {
+            return Ok(0);
+        }
+        let mut state = self.load()?;
+        for payload in &payloads {
+            let binding = ArkretDirectConversationWelcomeBinding {
+                welcome_ref: payload.mls_welcome_event_ref.to_string(),
+                realm_id: payload.realm_id.to_string(),
+                strand_id: payload.main_strand_id.to_string(),
+                mls_group_id: payload.mls_group_id.to_string(),
+            };
+            state
+                .direct_conversation_welcome_bindings
+                .insert(binding.welcome_ref.clone(), binding);
+        }
+        for consume_binding in state.mls_welcome_consume_bindings.values_mut() {
+            enrich_mls_welcome_consume_binding(
+                consume_binding,
+                &state.direct_conversation_welcome_bindings,
+            );
+        }
+        self.save(&state)?;
+        Ok(payloads.len())
     }
 
     pub fn validate_agent_mls_welcome_value_tree(
@@ -718,6 +1076,67 @@ impl FileArkretCryptoStore {
             .mls_welcome_consume_bindings
             .remove(&binding.cache_key());
         self.save(&state)
+    }
+
+    pub fn pending_mls_welcome_consume_bindings(
+        &self,
+    ) -> anyhow::Result<Vec<ArkretMlsWelcomeConsumeBinding>> {
+        Ok(self
+            .load()?
+            .mls_welcome_consume_bindings
+            .into_values()
+            .collect())
+    }
+
+    pub fn repair_pending_direct_conversation_bindings_from_accepted_events(
+        &self,
+        events: &[arkret::Event],
+    ) -> anyhow::Result<usize> {
+        let strand_ids = events
+            .iter()
+            .filter(|event| event.kind.as_str() == "ak.strand.create")
+            .filter_map(|event| {
+                serde_json::to_value(&event.payload)
+                    .ok()
+                    .and_then(|value| serde_json::from_value::<StrandCreatePayload>(value).ok())
+                    .filter(|payload| payload.object.realm_id == event.realm_id)
+                    .map(|payload| payload.object.id.to_string())
+            })
+            .collect::<Vec<_>>();
+        let [strand_id] = strand_ids.as_slice() else {
+            return Ok(0);
+        };
+
+        let mut state = self.load()?;
+        let mut repaired = 0;
+        for event in events
+            .iter()
+            .filter(|event| event.kind.as_str() == "ak.mls.welcome")
+        {
+            let Ok(value) = serde_json::to_value(&event.payload) else {
+                continue;
+            };
+            let Ok(payload) = serde_json::from_value::<MlsWelcomePayload>(value) else {
+                continue;
+            };
+            for binding in state.mls_welcome_consume_bindings.values_mut() {
+                if binding.keypackage_ref == payload.keypackage_ref
+                    && binding.claim_id == payload.claim_id.to_string()
+                    && binding.mls_group_id == payload.mls_group_id.to_string()
+                    && binding.epoch == payload.epoch
+                    && binding.realm_id.as_deref()
+                        == Some(payload.claim_envelope.intended_realm_id.as_str())
+                {
+                    binding.welcome_ref = Some(event.event_id.to_string());
+                    binding.strand_id = Some(strand_id.clone());
+                    repaired += 1;
+                }
+            }
+        }
+        if repaired > 0 {
+            self.save(&state)?;
+        }
+        Ok(repaired)
     }
 
     pub fn plan_bootstrap_for_payload(
@@ -815,14 +1234,12 @@ impl FileArkretCryptoStore {
     ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
         let mut state = self.load()?;
         let mut store = state.mls_store()?;
-        let mut joined_from_welcome = None;
         if store.mls_group_state(&payload.group_id).is_none() {
-            let Some((updated, welcome)) =
+            let Some((updated, _welcome)) =
                 try_consume_stored_welcome_for_payload(&state, &mut store, payload)?
             else {
                 return Ok(ArkretDecryptDetailedOutcome::MissingGroupState);
             };
-            joined_from_welcome = Some(welcome);
             let group_state_ref =
                 group_state_ref_for_epoch(&state, &payload.group_id, updated.epoch);
             state.bootstrap.insert(
@@ -873,19 +1290,14 @@ impl FileArkretCryptoStore {
                 updated_at: Utc::now(),
             },
         );
-        let consume_bindings = joined_from_welcome
-            .as_ref()
-            .map(|welcome| {
-                state
-                    .mls_welcome_consume_bindings
-                    .values()
-                    .filter(|binding| {
-                        binding.mls_group_id == welcome.group_id && binding.epoch == welcome.epoch
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>()
+        let consume_bindings = state
+            .mls_welcome_consume_bindings
+            .values()
+            .filter(|binding| {
+                binding.mls_group_id == payload.group_id && binding.epoch <= updated.epoch
             })
-            .unwrap_or_default();
+            .cloned()
+            .collect::<Vec<_>>();
         self.save(&state)?;
         Ok(ArkretDecryptDetailedOutcome::Decrypted {
             content,
@@ -897,7 +1309,28 @@ impl FileArkretCryptoStore {
         &self,
         realm_id: &str,
         content: &Value,
-    ) -> anyhow::Result<ArkretEncryptOutcome> {
+    ) -> anyhow::Result<ArkretEncryptOutcome<ContentBlock>> {
+        let content: ContentBlock = serde_json::from_value(content.clone())
+            .with_context(|| "Arkret message content is not a ContentBlock")?;
+        self.encrypt_typed_payload_for_realm(realm_id, &content)
+    }
+
+    pub fn encrypt_message_metadata_for_realm(
+        &self,
+        realm_id: &str,
+        metadata: &MessageMetadata,
+    ) -> anyhow::Result<ArkretEncryptOutcome<MessageMetadata>> {
+        self.encrypt_typed_payload_for_realm(realm_id, metadata)
+    }
+
+    fn encrypt_typed_payload_for_realm<T>(
+        &self,
+        realm_id: &str,
+        plaintext_value: &T,
+    ) -> anyhow::Result<ArkretEncryptOutcome<T>>
+    where
+        T: MlsPayloadType + Serialize,
+    {
         let mut state = self.load()?;
         let Some(policy) = state.realm_policies.get(realm_id).cloned() else {
             return Ok(ArkretEncryptOutcome::PlaintextAllowed);
@@ -927,9 +1360,9 @@ impl FileArkretCryptoStore {
                 .with_context(|| format!("invalid Arkret realm id '{realm_id}'"))?,
             arkret::events::EventKind::MESSAGE_CREATE,
         );
-        let plaintext = serde_json::to_vec(content)?;
+        let plaintext = serde_json::to_vec(plaintext_value)?;
         let payload = group
-            .encrypt_payload_with_aad(CONTENT_BLOCK_JSON, Some(aad.clone()), &plaintext)
+            .encrypt_payload_with_aad(T::MLS_CONTENT_TYPE, Some(aad.clone()), &plaintext)
             .map_err(|err| anyhow::anyhow!("encrypt Arkret MLS payload: {err}"))?;
         let envelope = arkret::mls::encrypted_envelope_from_payload(
             &payload,
@@ -939,6 +1372,8 @@ impl FileArkretCryptoStore {
             group_state_ref.clone(),
         )
         .map_err(|err| anyhow::anyhow!("build Arkret encrypted envelope: {err}"))?;
+        let envelope = MlsEncryptedPayload::<T>::new(envelope)
+            .map_err(|err| anyhow::anyhow!("type Arkret MLS payload: {err}"))?;
         let updated = group
             .persist_state(&mut store)
             .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
@@ -955,9 +1390,7 @@ impl FileArkretCryptoStore {
             },
         );
         self.save(&state)?;
-        Ok(ArkretEncryptOutcome::Encrypted(serde_json::to_value(
-            envelope,
-        )?))
+        Ok(ArkretEncryptOutcome::Encrypted(envelope))
     }
 
     fn update_cached_mls_key_package(
@@ -1032,10 +1465,10 @@ pub enum ArkretDecryptDetailedOutcome {
     UnsupportedScheme(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ArkretEncryptOutcome {
+#[derive(Debug, PartialEq)]
+pub enum ArkretEncryptOutcome<T: MlsPayloadType> {
     PlaintextAllowed,
-    Encrypted(Value),
+    Encrypted(MlsEncryptedPayload<T>),
     MissingRequiredGroupState { realm_id: String, group_id: String },
 }
 
@@ -1167,6 +1600,70 @@ fn collect_typed_mls_welcome_payloads(
         }
         _ => {}
     }
+}
+
+fn collect_direct_conversation_bound_payloads(
+    value: &Value,
+    remaining_depth: usize,
+    payloads: &mut Vec<DirectConversationBoundPayload>,
+) {
+    if let Ok(payload) = serde_json::from_value::<DirectConversationBoundPayload>(value.clone()) {
+        payloads.push(payload);
+        return;
+    }
+    if remaining_depth == 0 {
+        return;
+    }
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_direct_conversation_bound_payloads(item, remaining_depth - 1, payloads);
+            }
+        }
+        Value::Object(object) => {
+            for item in object.values() {
+                collect_direct_conversation_bound_payloads(item, remaining_depth - 1, payloads);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn extract_mls_welcome_event_ref(value: &Value) -> Option<String> {
+    let Value::Object(object) = value else {
+        return None;
+    };
+    if string_field(object, &["kind"]).as_deref() == Some("ak.mls.welcome") {
+        return string_field(object, &["event_id", "eventId"]);
+    }
+    object.values().find_map(extract_mls_welcome_event_ref)
+}
+
+fn enrich_mls_welcome_consume_binding(
+    binding: &mut ArkretMlsWelcomeConsumeBinding,
+    direct_bindings: &BTreeMap<String, ArkretDirectConversationWelcomeBinding>,
+) {
+    let exact = binding
+        .welcome_ref
+        .as_ref()
+        .and_then(|welcome_ref| direct_bindings.get(welcome_ref));
+    let matched = exact.or_else(|| {
+        let mut candidates = direct_bindings.values().filter(|candidate| {
+            candidate.mls_group_id == binding.mls_group_id
+                && binding
+                    .realm_id
+                    .as_ref()
+                    .is_none_or(|realm_id| realm_id == &candidate.realm_id)
+        });
+        let candidate = candidates.next()?;
+        candidates.next().is_none().then_some(candidate)
+    });
+    let Some(direct) = matched else {
+        return;
+    };
+    binding.welcome_ref = Some(direct.welcome_ref.clone());
+    binding.realm_id = Some(direct.realm_id.clone());
+    binding.strand_id = Some(direct.strand_id.clone());
 }
 
 fn extract_mls_welcome_consume_binding_inner(
@@ -1311,6 +1808,58 @@ fn try_consume_stored_welcome_for_payload(
         anyhow::bail!("consume Arkret MLS Welcome failed: {err}");
     }
     Ok(None)
+}
+
+fn consume_stored_welcome_for_commit(
+    state: &ArkretCryptoStateFile,
+    store: &mut MemoryCryptoStore,
+    group_id: &str,
+    base_epoch: u64,
+) -> anyhow::Result<()> {
+    let mut candidates = Vec::new();
+    for identity_record in state.mls_identities.values() {
+        candidates.extend(
+            store
+                .welcomes_for_device(&identity_record.principal_id, &identity_record.device_id)
+                .into_iter()
+                .filter(|welcome| welcome.group_id == group_id && welcome.epoch <= base_epoch)
+                .cloned()
+                .map(|welcome| (identity_record.clone(), welcome)),
+        );
+    }
+    candidates.sort_by_key(|(_, welcome)| std::cmp::Reverse(welcome.epoch));
+
+    let mut last_error = None;
+    for (identity_record, welcome) in candidates {
+        let identity = match restore_mls_identity(&identity_record) {
+            Ok(identity) => identity,
+            Err(err) => {
+                last_error = Some(err);
+                continue;
+            }
+        };
+        match ArkretMlsGroup::join_from_welcome(identity, &welcome) {
+            Ok(group) if group.epoch() == base_epoch => {
+                group
+                    .persist_state(store)
+                    .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
+                return Ok(());
+            }
+            Ok(group) => {
+                last_error = Some(anyhow::anyhow!(
+                    "MLS Welcome joined epoch {}, but Commit requires base epoch {base_epoch}",
+                    group.epoch()
+                ));
+            }
+            Err(err) => last_error = Some(anyhow::anyhow!("{err}")),
+        }
+    }
+    if let Some(err) = last_error {
+        anyhow::bail!("consume Arkret MLS Welcome before Commit failed: {err}");
+    }
+    anyhow::bail!(
+        "no usable Arkret MLS Welcome for group '{group_id}' at Commit base epoch {base_epoch}"
+    )
 }
 
 fn restore_mls_identity(
@@ -1494,6 +2043,95 @@ mod tests {
             std::process::id(),
             N.fetch_add(1, Ordering::SeqCst)
         ))
+    }
+
+    fn direct_conversation_bound_payload(
+        realm_id: &str,
+        strand_id: &str,
+        group_id: &str,
+        welcome_ref: &str,
+    ) -> Value {
+        json!({
+            "pair_key": format!("sha256:{}", "aa".repeat(32)),
+            "participants_unordered": [
+                "did:webvh:z6mkfixture:alice.example",
+                "did:webvh:z6mkfixture:agent.example"
+            ],
+            "realm_id": realm_id,
+            "main_strand_id": strand_id,
+            "authorization_basis": {
+                "kind": "accepted_contact",
+                "event_refs": [
+                    "ak:event:01904100-0000-7000-8000-000000000001",
+                    "ak:event:01904100-0000-7000-8000-000000000002"
+                ]
+            },
+            "member_event_refs": [
+                "ak:event:01904100-0000-7000-8000-000000000003",
+                "ak:event:01904100-0000-7000-8000-000000000004"
+            ],
+            "main_strand_create_ref": "ak:event:01904100-0000-7000-8000-000000000005",
+            "mls_group_id": group_id,
+            "mls_genesis_event_ref": "ak:event:01904100-0000-7000-8000-000000000006",
+            "mls_commit_event_ref": "ak:event:01904100-0000-7000-8000-000000000007",
+            "mls_welcome_event_ref": welcome_ref,
+            "created_at": "2026-08-01T00:00:00.000Z",
+            "binding_state": "active"
+        })
+    }
+
+    #[test]
+    fn direct_conversation_binding_enriches_pending_welcome_consume_in_either_order() {
+        let home = temp_home("direct-welcome-binding-order");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        let realm_id = "ak:realm:01904100-0000-7000-8000-000000000011";
+        let strand_id = "ak:strand:01904100-0000-7000-8000-000000000012";
+        let group_id = "AZZBmwAAAACAAAAAAAAAAQ";
+        let welcome_ref = "ak:event:01904100-0000-7000-8000-000000000013";
+        let pending = ArkretMlsWelcomeConsumeBinding {
+            keypackage_ref: "ak:mls:keypackage:pending".to_owned(),
+            claim_id: "ak:claim:pending".to_owned(),
+            welcome_ref: Some(welcome_ref.to_owned()),
+            realm_id: Some(realm_id.to_owned()),
+            strand_id: None,
+            mls_group_id: group_id.to_owned(),
+            epoch: 1,
+            group_state_ref: None,
+        };
+        let mut state = store.load().expect("state should load");
+        state
+            .mls_welcome_consume_bindings
+            .insert(pending.cache_key(), pending.clone());
+        store.save(&state).expect("pending binding should persist");
+
+        let bound = direct_conversation_bound_payload(realm_id, strand_id, group_id, welcome_ref);
+        assert_eq!(
+            store
+                .record_direct_conversation_binding_from_value(&json!({"payload": bound}))
+                .expect("typed Direct Conversation binding should persist"),
+            1
+        );
+        let state = store.load().expect("enriched state should load");
+        let enriched = state
+            .mls_welcome_consume_bindings
+            .get(&pending.cache_key())
+            .expect("pending consume should remain queued");
+        assert_eq!(enriched.strand_id.as_deref(), Some(strand_id));
+
+        let mut later = ArkretMlsWelcomeConsumeBinding {
+            keypackage_ref: "ak:mls:keypackage:later".to_owned(),
+            claim_id: "ak:claim:later".to_owned(),
+            welcome_ref: None,
+            realm_id: Some(realm_id.to_owned()),
+            strand_id: None,
+            mls_group_id: group_id.to_owned(),
+            epoch: 1,
+            group_state_ref: None,
+        };
+        enrich_mls_welcome_consume_binding(&mut later, &state.direct_conversation_welcome_bindings);
+        assert_eq!(later.welcome_ref.as_deref(), Some(welcome_ref));
+        assert_eq!(later.strand_id.as_deref(), Some(strand_id));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -1833,12 +2471,17 @@ mod tests {
             ),
         };
         let metadata_plaintext = build_user_facing_response_metadata(&context).expect("metadata");
-        let ArkretEncryptOutcome::Encrypted(envelope_value) = bob_store
-            .encrypt_content_block_for_realm(realm_id, &metadata_plaintext)
+        let ArkretEncryptOutcome::Encrypted(encrypted_metadata) = bob_store
+            .encrypt_message_metadata_for_realm(realm_id, &metadata_plaintext)
             .expect("encryption should complete")
         else {
             panic!("sidecar metadata must be encrypted, never plaintext");
         };
+        let envelope_value = serde_json::to_value(encrypted_metadata.into_envelope()).unwrap();
+        assert_eq!(
+            envelope_value["content_type"],
+            arkret::MESSAGE_METADATA_MLS_CONTENT_TYPE
+        );
 
         // The wire envelope is ciphertext only: no binding key leaks.
         assert!(
@@ -1861,6 +2504,139 @@ mod tests {
         assert_eq!(
             binding.request_event_id.as_ref().map(|id| id.as_str()),
             Some(context.request_event_id.as_str())
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn online_presence_is_encrypted_signed_and_monotonic_across_refreshes() {
+        let home = temp_home("presence-heartbeat");
+        let realm_id = "ak:realm:01904100-0000-7000-8000-000000000001";
+        let agent_id = "did:webvh:z6mkfixture:agent.example";
+        let agent_device = "ak:device:01904100-0000-7000-8000-00000000000e";
+        let verification_method =
+            "did:webvh:z6mkfixture:agent.example#ak:device:01904100-0000-7000-8000-00000000000e";
+        let seed = [42_u8; 32];
+        let key_ref = crate::arkret::ArkretKeyRef::InlineSeedBase64 {
+            value: base64::engine::general_purpose::STANDARD_NO_PAD.encode(seed),
+        };
+        let agent_store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        let agent_key_package = agent_store
+            .ensure_agent_mls_key_package(agent_id, agent_device, false, &key_ref)
+            .expect("Agent KeyPackage should use its authorized runtime key");
+
+        let alice = ArkretMlsIdentity::new_basic(
+            Did::new("did:webvh:z6mkfixture:alice.example").unwrap(),
+            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
+        )
+        .unwrap();
+        let mut alice_group = alice.create_group(realm_id.as_bytes()).unwrap();
+        let add = alice_group.add_member(&agent_key_package).unwrap();
+        let group_id = add.welcome.group_id.clone();
+        let group_state_ref = "ak:event:01904100-0000-7000-8000-0000000000aa";
+        agent_store
+            .record_mls_welcome_from_value(&json!({
+                "keypackage_ref": agent_key_package.keypackage_ref.as_str(),
+                "claim_ref": { "claim_id": "ak:claim:presence-heartbeat" },
+                "claim_envelope": { "intended_realm_id": realm_id },
+                "welcome_ref": "ak:welcome:presence-heartbeat",
+                "mls_group_id": group_id,
+                "epoch": add.welcome.epoch,
+                "commit_ref": group_state_ref,
+                "content": serde_json::to_value(&add.welcome).unwrap()
+            }))
+            .expect("Welcome carrier should persist")
+            .expect("Welcome should be extracted");
+
+        // Consuming one ordinary MLS payload admits the Welcome and persists
+        // the accepted group-state reference used by Signal exporter AEAD.
+        let inbound = alice_group
+            .encrypt_payload(
+                CONTENT_BLOCK_JSON,
+                &serde_json::to_vec(&json!({"kind":"ak.content.text","body":"ready"})).unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            agent_store
+                .try_decrypt_content_block_detailed(&inbound)
+                .expect("Agent should join and decrypt"),
+            ArkretDecryptDetailedOutcome::Decrypted { .. }
+        ));
+        agent_store
+            .upsert_realm_policy(ArkretRealmCryptoPolicy {
+                realm_id: realm_id.to_owned(),
+                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+                encryption_profile: Some("mls_rfc9420".to_owned()),
+                mls_group_id: Some(group_id),
+                source: "test".to_owned(),
+                updated_at: Utc::now(),
+            })
+            .expect("presence Realm policy should persist");
+        assert_eq!(
+            agent_store.presence_ready_realm_ids().unwrap(),
+            vec![realm_id.to_owned()]
+        );
+
+        let sent_at = Utc::now();
+        let seal_ref = format!("ak:seal:sha256:{}", "d".repeat(64));
+        let first = agent_store
+            .seal_online_presence_signal(
+                realm_id,
+                agent_id,
+                agent_device,
+                verification_method,
+                &key_ref,
+                &seal_ref,
+                sent_at,
+            )
+            .expect("first presence heartbeat should seal");
+        let second = agent_store
+            .seal_online_presence_signal(
+                realm_id,
+                agent_id,
+                agent_device,
+                verification_method,
+                &key_ref,
+                &seal_ref,
+                sent_at + chrono::Duration::seconds(20),
+            )
+            .expect("second presence heartbeat should seal");
+
+        let verifying_key = ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key();
+        let public_key = arkret_signatures::PublicKeyMaterial::Ed25519Raw {
+            bytes: verifying_key.to_bytes().to_vec(),
+        };
+        arkret_signatures::verify_eddsa_signal_proof(&first, &public_key)
+            .expect("first Signal proof should verify");
+        arkret_signatures::verify_eddsa_signal_proof(&second, &public_key)
+            .expect("second Signal proof should verify");
+        assert_ne!(
+            first.encrypted_payload.nonce, second.encrypted_payload.nonce,
+            "each refresh must spend a distinct MLS Signal nonce"
+        );
+
+        let mut replay = arkret::AeadNonceReplayTracker::new();
+        for (expected_sequence, envelope) in [(0, &first), (1, &second)] {
+            let plaintext = alice_group
+                .open_signal_envelope(envelope, &mut replay)
+                .expect("peer should decrypt encrypted presence");
+            let arkret::SignalPlaintext::Presence(presence) =
+                arkret::open_signal_plaintext(&plaintext).expect("presence plaintext should open")
+            else {
+                panic!("Signal plaintext must be ak.presence");
+            };
+            assert_eq!(presence.payload_sequence, expected_sequence);
+            assert_eq!(presence.actor_id.as_str(), agent_id);
+            assert_eq!(presence.state, PresenceState::Online);
+            assert_eq!(presence.ttl_ms, 30_000);
+        }
+        assert_eq!(
+            agent_store
+                .load()
+                .unwrap()
+                .signal_sequences
+                .get(&format!("realm:{realm_id}")),
+            Some(&2)
         );
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -1940,6 +2716,30 @@ mod tests {
                 .expect("revocable refs should reload")
                 .is_empty()
         );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn legacy_pool_cleanup_is_limited_to_the_current_agent_binding() {
+        let home = temp_home("kp-revoke-agent-scope");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "legacy");
+        let current_principal = "did:web:current-agent.example";
+        let current_device = "ak:device:01904100-0000-7000-8000-000000000011";
+        let replaced_principal = "did:web:replaced-agent.example";
+        let replaced_device = "ak:device:01904100-0000-7000-8000-000000000012";
+        let current = store
+            .ensure_mls_key_package(current_principal, current_device, false)
+            .expect("current Agent KeyPackage should be created");
+        let replaced = store
+            .ensure_mls_key_package(replaced_principal, replaced_device, false)
+            .expect("replaced Agent KeyPackage should be created");
+
+        let refs = store
+            .revocable_keypackage_refs_for_agent(current_principal, current_device)
+            .expect("binding-scoped revocable refs should load");
+        assert_eq!(refs, vec![current.keypackage_ref.as_str().to_owned()]);
+        assert!(!refs.contains(&replaced.keypackage_ref.as_str().to_owned()));
+
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -2110,6 +2910,46 @@ mod tests {
             Some(expected_binding.claim_id.as_str())
         );
 
+        // The durable Commit must be sufficient to advance a receiver that
+        // has recorded its Welcome but has not yet seen any application data.
+        let commit = alice_group
+            .self_update_commit()
+            .expect("Alice self-update Commit should build");
+        let commit_event =
+            EventId::new("ak:event:01904100-0000-7000-8000-0000000000ab".to_owned()).unwrap();
+        let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
+            RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001".to_owned()).unwrap(),
+            commit.group_id.clone(),
+            expected_binding.epoch,
+            commit.epoch,
+            vec![EventId::new("ak:event:01904100-0000-7000-8000-000000000010".to_owned()).unwrap()],
+            vec![SealId::new(format!("ak:seal:sha256:{}", "d".repeat(64))).unwrap()],
+            Hash::new(format!("sha256:{}", "a".repeat(64))).unwrap(),
+            Hash::new(format!("sha256:{}", "b".repeat(64))).unwrap(),
+            Hash::new(format!("sha256:{}", "c".repeat(64))).unwrap(),
+            arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
+            "arkret.reducer.v1",
+        )
+        .unwrap();
+        let commit_payload = MlsCommitPayload::new(
+            expected_binding.epoch,
+            expected_binding.group_state_ref.as_deref().unwrap(),
+            Vec::new(),
+            &commit,
+            governance_binding,
+        )
+        .unwrap();
+        assert!(
+            bob_store
+                .apply_mls_commit(&commit_payload, &commit_event)
+                .expect("Bob should consume Welcome and apply Commit")
+        );
+        assert!(
+            !bob_store
+                .apply_mls_commit(&commit_payload, &commit_event)
+                .expect("accepted Commit replay should be idempotent")
+        );
+
         let content = json!({"kind":"ak.content.text","body":"secret"});
         let payload = alice_group
             .encrypt_payload(CONTENT_BLOCK_JSON, &serde_json::to_vec(&content).unwrap())
@@ -2262,7 +3102,7 @@ mod tests {
 
         let recorded = store
             .record_mls_welcome_from_value(
-                &serde_json::to_value(payload).expect("serialize durable payload"),
+                &serde_json::to_value(&payload).expect("serialize durable payload"),
             )
             .expect("record durable payload")
             .expect("extract durable Welcome");
@@ -2274,6 +3114,66 @@ mod tests {
         let welcomes = mls_store.welcomes_for_device(&principal, &device);
         assert_eq!(welcomes.len(), 1);
         assert_eq!(welcomes[0], &recorded);
+
+        let repair_realm_id = payload.claim_envelope.intended_realm_id.clone();
+        let repair_actor = Did::new("did:webvh:z6mkfixture:owner.example".to_owned()).unwrap();
+        let repair_scope = ScopeRef::Realm {
+            realm_id: repair_realm_id.clone(),
+        };
+        let strand_id =
+            arkret::StrandId::new("ak:strand:01904100-0000-7000-8000-000000000020".to_owned())
+                .unwrap();
+        let strand_payload = StrandCreatePayload {
+            object: arkret::Strand::new(
+                strand_id.clone(),
+                repair_realm_id.clone(),
+                "Direct",
+                repair_actor.clone(),
+            ),
+            initial_relations: None,
+        };
+        let strand_event = arkret::Event::new_with_id_at(
+            EventId::new("ak:event:01904100-0000-7000-8000-000000000021".to_owned()).unwrap(),
+            "ak.strand.create",
+            repair_scope.clone(),
+            repair_actor.clone(),
+            1,
+            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
+            serde_json::to_value(strand_payload).unwrap(),
+            Utc::now(),
+        )
+        .unwrap();
+        let welcome_event_id =
+            EventId::new("ak:event:01904100-0000-7000-8000-000000000022".to_owned()).unwrap();
+        let welcome_event = arkret::Event::new_with_id_at(
+            welcome_event_id.clone(),
+            "ak.mls.welcome",
+            repair_scope,
+            repair_actor,
+            2,
+            arkret::Hlc::new("01970e589d22-0000-a13f9c2e").unwrap(),
+            serde_json::to_value(&payload).unwrap(),
+            Utc::now(),
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .repair_pending_direct_conversation_bindings_from_accepted_events(&[
+                    strand_event,
+                    welcome_event,
+                ])
+                .expect("accepted history should repair pending consume context"),
+            1
+        );
+        let repaired = store
+            .pending_mls_welcome_consume_bindings()
+            .expect("repaired pending bindings should load");
+        assert_eq!(repaired.len(), 1);
+        assert_eq!(
+            repaired[0].welcome_ref.as_deref(),
+            Some(welcome_event_id.as_str())
+        );
+        assert_eq!(repaired[0].strand_id.as_deref(), Some(strand_id.as_str()));
         let _ = std::fs::remove_dir_all(&home);
     }
 }

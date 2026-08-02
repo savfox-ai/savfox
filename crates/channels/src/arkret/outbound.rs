@@ -8,9 +8,9 @@ use anyhow::Context;
 use arkret::events::EventKind;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    ContentBlock, Did, DidUrl, Ed25519PayloadSigner, Event, EventDraftKindRegistry, EventId,
-    EventRef, Hlc, MessageCreatePayload, OperationEnvelopeBuilder, OperationEventConversion,
-    OperationId, RealmId, ScopeRef, StrandId, new_prefixed_uuid7,
+    AuthContext, ContentBlock, Did, DidUrl, Ed25519PayloadSigner, Event, EventDraftKindRegistry,
+    EventId, EventRef, Hlc, MessageCreatePayload, OperationEnvelopeBuilder,
+    OperationEventConversion, OperationId, RealmId, ScopeRef, SealId, StrandId, new_prefixed_uuid7,
 };
 
 use super::sidecar::{EVENT_REF_ROLE_AFTER, SidecarExchangeContext};
@@ -115,6 +115,27 @@ pub fn sign_outbound_event(
     Ok(())
 }
 
+/// Stamp the accepted Realm Seal and signing identity required by the CBA
+/// DataEvent shape before encryption and signing.
+pub fn apply_data_event_basis(
+    event: &mut Event,
+    seal_id: SealId,
+    signer_did: Did,
+    key_id: String,
+) -> anyhow::Result<()> {
+    if event.seal_basis.is_some() || !event.preconditions.is_empty() {
+        anyhow::bail!("DataEvent cannot carry seal_basis or preconditions");
+    }
+    event.seal_ref = Some(seal_id);
+    event.auth_context = Some(AuthContext {
+        did: signer_did,
+        key_id,
+        key_epoch: 0,
+        credential_epoch: None,
+    });
+    Ok(())
+}
+
 fn current_hlc() -> Hlc {
     // HLC format: `unix_ms_hex(12) - logical_hex(4) - node_hex(8)`. We don't
     // own a logical clock here, so emit `(now, 0, 00000000)` — Arkret v1
@@ -169,6 +190,24 @@ mod tests {
             Some(valid_request().strand_id.as_str())
         );
         assert!(event.payload.get("track").is_none());
+    }
+
+    #[test]
+    fn data_event_basis_is_explicit_before_signing() {
+        let mut event = build_message_create_event(&valid_request()).expect("build");
+        apply_data_event_basis(
+            &mut event,
+            SealId::new(format!("ak:seal:sha256:{}", "11".repeat(32))).unwrap(),
+            Did::new(valid_request().principal_id).unwrap(),
+            "agent-device".to_owned(),
+        )
+        .expect("basis");
+
+        assert!(event.seal_ref.is_some());
+        let auth_context = event.auth_context.expect("auth context");
+        assert_eq!(auth_context.key_id, "agent-device");
+        assert_eq!(auth_context.did.as_str(), valid_request().principal_id);
+        assert!(event.seal_basis.is_none());
     }
 
     #[test]

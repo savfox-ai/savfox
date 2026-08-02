@@ -1553,9 +1553,10 @@ fn apply_applet_outbound_encryption(
         ArkretEncryptOutcome::PlaintextAllowed => Ok(()),
         ArkretEncryptOutcome::Encrypted(encrypted_content) => {
             event.payload.remove("content");
-            event
-                .payload
-                .insert("encrypted_content".to_owned(), encrypted_content);
+            event.payload.insert(
+                "encrypted_content".to_owned(),
+                serde_json::to_value(encrypted_content.into_envelope())?,
+            );
             Ok(())
         }
         ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {

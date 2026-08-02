@@ -47,7 +47,8 @@ pub use arkret_wire::EventInitialSubmission;
 pub use client::{
     ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretFrameStream, ArkretHttpClient,
     ArkretInitialSubmissionProvider, PrincipalServerInitialSubmissionProvider,
-    SavfoxArkretClientCore, SavfoxDurableArkretClientCore, build_mls_key_packages_claim_request,
+    SavfoxArkretClientCore, SavfoxDurableArkretClientCore, agent_session_exchange_reason,
+    agent_session_reason_is_irreversibly_terminal, build_mls_key_packages_claim_request,
     sign_mls_welcome_claim_envelope,
 };
 pub use config::{
@@ -76,7 +77,9 @@ pub use inbound_adapter::{
     classify_message_event, extract_message_event, parse_delta_frame_for_account,
     parse_notification_delta_for_account, should_dispatch_event,
 };
-pub use outbound::{MessageCreateRequest, build_message_create_event, sign_outbound_event};
+pub use outbound::{
+    MessageCreateRequest, apply_data_event_basis, build_message_create_event, sign_outbound_event,
+};
 pub use session::{ArkretSession, login_with_signer};
 pub use sidecar::{
     EVENT_REF_ROLE_AFTER, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,

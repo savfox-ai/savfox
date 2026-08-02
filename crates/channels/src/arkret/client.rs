@@ -14,10 +14,10 @@ use std::sync::Arc;
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
-    AccountSubscribeFrame, DeviceId, Did, DidUrl, Ed25519PayloadSigner, Event, EventsSubmitOutcome,
+    AccountSubscribeFrame, DeviceId, Did, DidUrl, Ed25519PayloadSigner, EventsSubmitOutcome,
     EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
-    KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, RealmId, ServiceDescribe,
-    SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
+    KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope, PreparedStandardEvent, RealmId,
+    ServiceDescribe, SessionGrantDpopBindingProof, StrandId, SyncRequestBody,
 };
 use arkret_wire::EventInitialSubmission;
 use chrono::{DateTime, Utc};
@@ -56,7 +56,10 @@ pub struct ArkretHttpClient {
 /// structure before enqueueing or sending it.
 #[async_trait::async_trait]
 pub trait ArkretInitialSubmissionProvider: Send + Sync + 'static {
-    async fn initial_submission(&self, event: &Event) -> anyhow::Result<EventInitialSubmission>;
+    async fn initial_submission(
+        &self,
+        event: &PreparedStandardEvent,
+    ) -> anyhow::Result<EventInitialSubmission>;
 }
 
 /// Production publication provider backed by the authenticated Principal
@@ -76,9 +79,12 @@ impl PrincipalServerInitialSubmissionProvider {
 
 #[async_trait::async_trait]
 impl ArkretInitialSubmissionProvider for PrincipalServerInitialSubmissionProvider {
-    async fn initial_submission(&self, event: &Event) -> anyhow::Result<EventInitialSubmission> {
+    async fn initial_submission(
+        &self,
+        event: &PreparedStandardEvent,
+    ) -> anyhow::Result<EventInitialSubmission> {
         self.client
-            .prepare_initial_submission(event)
+            .prepare_initial_standard_submission(event)
             .await
             .map_err(|error| anyhow::anyhow!(error.to_string()))
     }
@@ -731,13 +737,13 @@ impl ArkretHttpClient {
     /// Obtain issuer-produced publication evidence for an exact signed Event.
     pub async fn prepare_initial_submission(
         &self,
-        event: &Event,
+        event: &PreparedStandardEvent,
     ) -> anyhow::Result<EventInitialSubmission> {
         let submission = self
             .initial_submission_provider
             .initial_submission(event)
             .await?;
-        if submission.event != *event {
+        if &submission.event != event.event() {
             anyhow::bail!(
                 "Arkret EventInitialSubmissionProvider replaced or mutated the signed Event"
             );
@@ -764,7 +770,10 @@ impl ArkretHttpClient {
 
     /// Prepare and submit one signed Event through the installed publication
     /// evidence provider.
-    pub async fn submit_event(&self, event: &Event) -> anyhow::Result<EventsSubmitOutcome> {
+    pub async fn submit_event(
+        &self,
+        event: &PreparedStandardEvent,
+    ) -> anyhow::Result<EventsSubmitOutcome> {
         let submission = self.prepare_initial_submission(event).await?;
         self.submit_initial(&submission).await
     }
@@ -780,12 +789,60 @@ impl ArkretHttpClient {
     }
 }
 
+#[derive(Debug)]
+struct AgentSessionExchangeError {
+    reason: String,
+    action: &'static str,
+    source: garth::Error,
+}
+
+impl std::fmt::Display for AgentSessionExchangeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "agent_key_proof session grant exchange failed ({}): {}: {}",
+            self.reason, self.action, self.source
+        )
+    }
+}
+
+impl std::error::Error for AgentSessionExchangeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+/// Preserve the machine-readable Account Authority reason through `anyhow`
+/// context so lifecycle-aware callers (notably explicit unbind) can distinguish
+/// an irreversibly dead authorization from a transient authentication failure.
+pub fn agent_session_exchange_reason(error: &anyhow::Error) -> Option<&str> {
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<AgentSessionExchangeError>())
+        .map(|error| error.reason.as_str())
+}
+
+/// Whether the authorization can never become valid again. KeyPackages bind
+/// to the exact authorization Event, so these outcomes also make its pool
+/// permanently unclaimable. A paused Agent is deliberately excluded because
+/// resuming can make the same authorization usable again.
+pub fn agent_session_reason_is_irreversibly_terminal(reason: &str) -> bool {
+    matches!(
+        reason,
+        "agent_deactivated"
+            | "agent_key_authorization_expired"
+            | "agent_key_authorization_revoked"
+            | "superseded_by_repairing"
+    )
+}
+
 fn agent_session_exchange_error(error: garth::Error) -> anyhow::Error {
     let reason = match &error {
         garth::Error::Api { error, .. } => error
             .details()
             .get("reason_code")
             .and_then(serde_json::Value::as_str)
+            .or_else(|| reason_code_from_message(error.message()))
             .unwrap_or_else(|| error.code()),
         _ => "unknown",
     };
@@ -798,7 +855,29 @@ fn agent_session_exchange_error(error: garth::Error) -> anyhow::Error {
         }
         _ => "verify the pairing, authorization reference, scope, and service audience",
     };
-    anyhow::anyhow!("agent_key_proof session grant exchange failed ({reason}): {action}: {error}")
+    AgentSessionExchangeError {
+        reason: reason.to_owned(),
+        action,
+        source: error,
+    }
+    .into()
+}
+
+/// Coauth's Arkret session-grant boundary currently carries the specific
+/// rejection reason in the protocol message (`reason_code=...`) while keeping
+/// the envelope code at the broad `failed_precondition` category. Accept that
+/// wire-compatible representation as well as the preferred structured detail
+/// so callers never have to parse the rendered `anyhow` chain.
+fn reason_code_from_message(message: &str) -> Option<&str> {
+    const MARKER: &str = "reason_code=";
+    let value = message.split_once(MARKER)?.1;
+    let end = value
+        .find(|character: char| {
+            !character.is_ascii_alphanumeric() && character != '_' && character != '-'
+        })
+        .unwrap_or(value.len());
+    let reason = &value[..end];
+    (!reason.is_empty()).then_some(reason)
 }
 
 fn validate_agent_key_ref(key_ref: &ArkretKeyRef) -> anyhow::Result<()> {
@@ -1168,13 +1247,49 @@ mod tests {
         ] {
             let envelope = arkret::ErrorEnvelope::new("failed_precondition", "rejected")
                 .with_detail("reason_code", serde_json::json!(reason));
-            let rendered = agent_session_exchange_error(garth::Error::Api {
+            let error = agent_session_exchange_error(garth::Error::Api {
                 status: 412,
                 error: Box::new(envelope),
-            })
-            .to_string();
+            });
+            assert_eq!(agent_session_exchange_reason(&error), Some(reason));
+            let rendered = error.to_string();
             assert!(rendered.contains(reason), "{rendered}");
             assert!(rendered.contains(expected), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn agent_session_errors_preserve_message_encoded_reason_codes() {
+        let envelope = arkret::ErrorEnvelope::new(
+            "failed_precondition",
+            "reason_code=agent_deactivated; failed_precondition",
+        );
+        let error = agent_session_exchange_error(garth::Error::Api {
+            status: 403,
+            error: Box::new(envelope),
+        });
+
+        assert_eq!(
+            agent_session_exchange_reason(&error),
+            Some("agent_deactivated")
+        );
+        assert!(agent_session_reason_is_irreversibly_terminal(
+            agent_session_exchange_reason(&error).unwrap()
+        ));
+    }
+
+    #[test]
+    fn only_irreversible_agent_session_failures_allow_terminal_cleanup() {
+        for reason in [
+            "agent_deactivated",
+            "agent_key_authorization_expired",
+            "agent_key_authorization_revoked",
+            "superseded_by_repairing",
+        ] {
+            assert!(agent_session_reason_is_irreversibly_terminal(reason));
+        }
+        for reason in ["agent_paused", "proof_invalid", "unknown"] {
+            assert!(!agent_session_reason_is_irreversibly_terminal(reason));
         }
     }
 }

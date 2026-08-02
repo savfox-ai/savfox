@@ -706,6 +706,11 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             ));
         }
 
+        let message = if report.revoke_attempted {
+            "Unbound Agent runtime: revoked the KeyPackage pool, purged local state, and cleared the binding"
+        } else {
+            "Unbound Agent runtime: remote authorization was already terminal, so its KeyPackage pool was unclaimable; purged local state and cleared the binding"
+        };
         Ok(json!({
             "platform": "arkret",
             "ok": true,
@@ -715,7 +720,7 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             "device_id": report.device_id,
             "listeners_stopped": report.listeners_stopped,
             "pool_revoke_attempted": report.revoke_attempted,
-            "message": "Unbound Agent runtime: revoked KeyPackage pool, purged local state, and cleared the binding",
+            "message": message,
         }))
     }
 }
