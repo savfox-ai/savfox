@@ -1735,6 +1735,8 @@ async fn revoke_account_mls_key_package_refs(
         return Ok(None);
     }
     let unsigned = KeyPackagesRevokeUnsignedRequest {
+        owner_account_id: arkret::Did::new(account.id.clone())
+            .map_err(|error| anyhow::anyhow!("invalid Arkret account id: {error}"))?,
         key_package_refs: key_package_refs.clone(),
         device_id: device,
         reason: Some(
@@ -2243,14 +2245,53 @@ async fn consume_account_mls_key_packages(
                 continue;
             }
         };
+        let Some(recipient_durable_receipt) = binding.recipient_durable_receipt.clone() else {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                keypackage_ref = %binding.keypackage_ref,
+                "arkret: deferring MLS KeyPackage consume until recipient durable receipt is available"
+            );
+            continue;
+        };
+        let owner_account_id = match arkret::Did::new(account.id.clone()) {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(channel_id = %channel.id, account_id = %account.id, "arkret: invalid account id for MLS KeyPackage consume: {error}");
+                continue;
+            }
+        };
+        let claim_id = match arkret::NonEmptyString::new(binding.claim_id.clone()) {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(channel_id = %channel.id, account_id = %account.id, keypackage_ref = %binding.keypackage_ref, "arkret: invalid claim id: {error}");
+                continue;
+            }
+        };
+        let welcome_ref = match arkret::NonEmptyString::new(binding.welcome_ref.clone().unwrap()) {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(channel_id = %channel.id, account_id = %account.id, keypackage_ref = %binding.keypackage_ref, "arkret: invalid welcome ref: {error}");
+                continue;
+            }
+        };
+        let mls_group_id = match arkret::NonEmptyString::new(binding.mls_group_id.clone()) {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(channel_id = %channel.id, account_id = %account.id, keypackage_ref = %binding.keypackage_ref, "arkret: invalid MLS group id: {error}");
+                continue;
+            }
+        };
         let unsigned = KeyPackagesConsumeUnsignedRequest {
+            owner_account_id,
             key_package_refs: vec![binding.keypackage_ref.clone()],
             consumer_device_id: consumer_device.clone(),
-            claim_ids: vec![binding.claim_id.clone()],
-            welcome_ref: binding.welcome_ref.clone(),
+            claim_ids: vec![claim_id],
+            welcome_ref,
+            recipient_durable_receipt,
             realm_id,
             strand_id,
-            mls_group_id: Some(binding.mls_group_id.clone()),
+            mls_group_id: Some(mls_group_id),
             epoch: Some(binding.epoch),
         };
         let signature =

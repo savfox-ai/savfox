@@ -124,7 +124,7 @@ impl std::fmt::Debug for ArkretMlsIdentityStateRecord {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArkretMlsWelcomeConsumeBinding {
     pub keypackage_ref: String,
     pub claim_id: String,
@@ -138,6 +138,21 @@ pub struct ArkretMlsWelcomeConsumeBinding {
     pub epoch: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_state_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient_durable_receipt: Option<arkret::RecipientMlsDurableReceipt>,
+}
+
+impl PartialEq for ArkretMlsWelcomeConsumeBinding {
+    fn eq(&self, other: &Self) -> bool {
+        self.keypackage_ref == other.keypackage_ref
+            && self.claim_id == other.claim_id
+            && self.welcome_ref == other.welcome_ref
+            && self.realm_id == other.realm_id
+            && self.strand_id == other.strand_id
+            && self.mls_group_id == other.mls_group_id
+            && self.epoch == other.epoch
+            && self.group_state_ref == other.group_state_ref
+    }
 }
 
 impl ArkretMlsWelcomeConsumeBinding {
@@ -1848,6 +1863,7 @@ fn extract_mls_welcome_consume_binding_inner(
             mls_group_id: payload.mls_group_id.to_string(),
             epoch: payload.epoch,
             group_state_ref: payload.commit_ref.map(|event_id| event_id.to_string()),
+            recipient_durable_receipt: None,
         });
     }
 
@@ -1916,6 +1932,7 @@ fn extract_mls_welcome_consume_binding_from_object(
         mls_group_id,
         epoch,
         group_state_ref,
+        recipient_durable_receipt: None,
     })
 }
 
