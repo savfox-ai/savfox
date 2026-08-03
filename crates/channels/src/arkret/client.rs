@@ -371,7 +371,7 @@ pub fn build_mls_key_packages_claim_request(
         timeout_ms,
         strand_id,
         mls_group_id,
-        proofs: [proof],
+        holder_acceptance_proof: proof,
     })
 }
 
