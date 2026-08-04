@@ -641,7 +641,6 @@ impl FileArkretCryptoStore {
             proof: arkret_wire::SignalProof {
                 kind: arkret::proof_kind::DETACHED_JWS.to_owned(),
                 verification_method,
-                alg: "EdDSA".to_owned(),
                 envelope_digest: arkret::Hash::new(format!("sha256:{}", "0".repeat(64)))?,
                 created_at: sent_at,
                 domain: None,
@@ -657,7 +656,7 @@ impl FileArkretCryptoStore {
         let proof_bytes = envelope.proof_binding_bytes()?;
         let signing_key = load_ed25519_signing_key(key_ref)?;
         envelope.proof.jws =
-            arkret_signatures::sign_eddsa_detached_jws(&signing_key, &proof_bytes)?;
+            arkret_signatures::sign_ed25519_detached_jws(&signing_key, &proof_bytes)?;
         envelope.validate_structural()?;
         Ok(envelope)
     }
@@ -3018,7 +3017,9 @@ mod tests {
             expires_at: Utc::now() + chrono::Duration::days(1),
             device_signature: KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(format!("{bob_principal}#runtime-1")).unwrap(),
-                alg: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
+                signature_algorithm: Some(
+                    arkret::NonEmptyString::new("Ed25519").unwrap(),
+                ),
                 sig: arkret::Base64UrlString::new("c2ln").unwrap(),
             },
             revocation_status: Some("active".to_owned()),
@@ -3268,7 +3269,9 @@ mod tests {
             created_at: Utc::now(),
             signature: KeyOperationSignature {
                 kid: NonEmptyString::new("did:webvh:z6mkfixture:owner.example#ssk-1").expect("kid"),
-                alg: Some(NonEmptyString::new("EdDSA").expect("algorithm")),
+                signature_algorithm: Some(
+                    NonEmptyString::new("Ed25519").expect("algorithm"),
+                ),
                 sig: Base64UrlString::new("AQ").expect("signature"),
             },
         };

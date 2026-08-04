@@ -309,7 +309,9 @@ fn ed25519_key_operation_signature(
     Ok(KeyOperationSignature {
         kid: arkret::NonEmptyString::new(verification_method.to_owned())
             .map_err(anyhow::Error::msg)?,
-        alg: Some(arkret::NonEmptyString::new("Ed25519").map_err(anyhow::Error::msg)?),
+        signature_algorithm: Some(
+            arkret::NonEmptyString::new("Ed25519").map_err(anyhow::Error::msg)?,
+        ),
         sig: arkret::Base64UrlString::new(arkret::base64url_encode(signature.to_bytes()))
             .map_err(anyhow::Error::msg)?,
     })
@@ -1194,7 +1196,7 @@ mod tests {
             created_at: Utc::now(),
             signature: KeyOperationSignature {
                 kid: arkret::NonEmptyString::new("pending").unwrap(),
-                alg: None,
+                signature_algorithm: None,
                 sig: arkret::Base64UrlString::new("cGVuZGluZw").unwrap(),
             },
         };

@@ -357,7 +357,9 @@ mod tests {
             device_verification_method: arkret::NonEmptyString::new(TEST_VM).unwrap(),
             signature: arkret::KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(TEST_VM).unwrap(),
-                alg: Some(arkret::NonEmptyString::new("EdDSA").unwrap()),
+                signature_algorithm: Some(
+                    arkret::NonEmptyString::new("Ed25519").unwrap(),
+                ),
                 sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
             },
         }
