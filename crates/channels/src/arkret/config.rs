@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
+use super::signer::{ArkretKeyRef, ed25519_runtime_public_key, load_ed25519_signing_key};
 
 pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
@@ -830,13 +830,7 @@ pub fn build_arkret_runtime_key_status_request_json(
                 account.id
             )
         })?;
-    let signing_key = load_ed25519_signing_key(key_ref)?;
-    let public_key = serde_json::json!({
-        "kty": "OKP",
-        "kid": verification_method,
-        "alg": "Ed25519",
-        "key": arkret::base64url_encode(signing_key.verifying_key().to_bytes()),
-    });
+    let public_key = ed25519_runtime_public_key(key_ref, verification_method)?;
     let local_public_key_digest =
         arkret_signatures::agent::agent_runtime_public_key_digest(&public_key)
             .map_err(|err| anyhow::anyhow!("agent runtime public key digest: {err}"))?;

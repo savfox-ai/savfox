@@ -2811,9 +2811,9 @@ mod tests {
         let public_key = arkret_signatures::PublicKeyMaterial::Ed25519Raw {
             bytes: verifying_key.to_bytes().to_vec(),
         };
-        arkret_signatures::verify_eddsa_signal_proof(&first, &public_key)
+        arkret_signatures::verify_ed25519_signal_proof(&first, &public_key)
             .expect("first Signal proof should verify");
-        arkret_signatures::verify_eddsa_signal_proof(&second, &public_key)
+        arkret_signatures::verify_ed25519_signal_proof(&second, &public_key)
             .expect("second Signal proof should verify");
         assert_ne!(
             first.encrypted_payload.nonce, second.encrypted_payload.nonce,

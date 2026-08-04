@@ -214,20 +214,46 @@ pub fn sign_keypackages_revoke_request(
     result.context("arkret signer: sign canonical KeyPackage revoke request")
 }
 
+/// Build the canonical Agent runtime public-key DTO for this runtime key.
+///
+/// The DTO is the SDK type [`arkret::PublicKey`], never a hand-written JSON
+/// object: its field names are part of the digest preimage, so an ad-hoc
+/// `json!` here silently diverges from every peer that speaks the same
+/// profile (the SDK's own `algorithm` field, for instance, is not `alg`).
+pub fn ed25519_runtime_public_key(
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+) -> anyhow::Result<arkret::PublicKey> {
+    let signing_key = load_ed25519_signing_key(key_ref)?;
+    runtime_public_key_from_signing_key(&signing_key, verification_method)
+}
+
+pub(super) fn runtime_public_key_from_signing_key(
+    signing_key: &SigningKey,
+    verification_method: &str,
+) -> anyhow::Result<arkret::PublicKey> {
+    Ok(arkret::PublicKey {
+        kty: arkret::NonEmptyString::new("OKP")
+            .map_err(|reason| anyhow::anyhow!("arkret signer: public_key.kty: {reason}"))?,
+        kid: arkret::NonEmptyString::new(verification_method.to_owned())
+            .map_err(|reason| anyhow::anyhow!("arkret signer: public_key.kid: {reason}"))?,
+        algorithm: arkret::NonEmptyString::new("Ed25519")
+            .map_err(|reason| anyhow::anyhow!("arkret signer: public_key.algorithm: {reason}"))?,
+        key: arkret::Base64UrlString::new(arkret::base64url_encode(
+            signing_key.verifying_key().to_bytes(),
+        ))
+        .map_err(|reason| anyhow::anyhow!("arkret signer: public_key.key: {reason}"))?,
+        key_digest: None,
+    })
+}
+
 /// Return the canonical public-key digest for diagnostics and authorization
 /// binding checks. No seed or private-key material leaves this function.
 pub fn ed25519_runtime_public_key_digest(
     key_ref: &ArkretKeyRef,
     verification_method: &str,
 ) -> anyhow::Result<String> {
-    let signing_key = load_ed25519_signing_key(key_ref)?;
-    let public_key = serde_json::json!({
-        "kty": "OKP",
-        "kid": verification_method,
-        "alg": "Ed25519",
-        "key": base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(signing_key.verifying_key().as_bytes()),
-    });
+    let public_key = ed25519_runtime_public_key(key_ref, verification_method)?;
     arkret_signatures::agent::agent_runtime_public_key_digest(&public_key)
         .map(|digest| digest.as_str().to_owned())
         .map_err(|error| anyhow::anyhow!("arkret signer: public-key digest: {error}"))

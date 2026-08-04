@@ -1138,7 +1138,6 @@ mod tests {
             kind: arkret::KeyPackageClaimProofKind::DetachedJws,
             verification_method: DidUrl::new("did:webvh:z6mkfixture:alice.example#runtime-key-1")
                 .unwrap(),
-            alg: arkret::KeyPackageClaimProofAlgorithm::EdDsa,
             payload_digest: arkret::Hash::new(format!("sha256:{}", "00".repeat(32))).unwrap(),
             created_at: Utc::now(),
             audience: Did::new("did:webvh:z6mkfixture:service.example").unwrap(),
