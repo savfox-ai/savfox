@@ -731,9 +731,16 @@ pub async fn resolve_arkret_outbound_account_for_binding(
     Ok(Some((channel, account)))
 }
 
+fn runtime_key_proof_expires_at(
+    now: DateTime<Utc>,
+    pairing_expires_at: DateTime<Utc>,
+) -> DateTime<Utc> {
+    std::cmp::min(pairing_expires_at, now + chrono::Duration::seconds(300))
+}
+
 pub fn build_arkret_runtime_key_request_json(
     account: &ArkretAccountConfig,
-    _now: DateTime<Utc>,
+    now: DateTime<Utc>,
 ) -> anyhow::Result<Value> {
     let bootstrap = account.inkson_bootstrap.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
@@ -773,11 +780,14 @@ pub fn build_arkret_runtime_key_request_json(
         expected_verification_method
     );
     let signing_key = load_ed25519_signing_key(key_ref)?;
+    let proof_expires_at = runtime_key_proof_expires_at(now, bootstrap.pairing_expires_at);
     let request = arkret_signatures::agent::RuntimeKeyRequestBuilder::new(
         &signing_key,
         bootstrap.clone(),
         endpoint_device_id,
     )
+    .proof_created_at(now)
+    .proof_expires_at(proof_expires_at)
     .build_approval_request()
     .map_err(|err| anyhow::anyhow!("agent runtime key request: {err}"))?;
     let mut request = serde_json::to_value(request.body)
@@ -842,6 +852,8 @@ pub fn build_arkret_runtime_key_status_request_json(
 
 #[cfg(test)]
 mod strict_tests {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD_NO_PAD;
     use savfox_core::config::channel_store::ChannelConfig;
     use serde_json::{Value, json};
 
@@ -1013,6 +1025,56 @@ mod strict_tests {
         let error = ArkretChannelConfig::from_strict_agent_config(&config)
             .expect_err("timestamp must be canonical");
         assert!(error.to_string().contains("canonical inksonBootstrap"));
+    }
+
+    #[test]
+    fn runtime_key_proof_expiry_is_capped_to_five_minutes() {
+        let now = "2026-08-04T09:10:00.123Z"
+            .parse::<DateTime<Utc>>()
+            .expect("now");
+        let pairing_expires_at = "2026-08-04T09:20:00.123Z"
+            .parse::<DateTime<Utc>>()
+            .expect("pairing expiry");
+
+        assert_eq!(
+            runtime_key_proof_expires_at(now, pairing_expires_at),
+            "2026-08-04T09:15:00.123Z"
+                .parse::<DateTime<Utc>>()
+                .expect("proof expiry")
+        );
+
+        let shorter_pairing_expiry = "2026-08-04T09:12:00.456Z"
+            .parse::<DateTime<Utc>>()
+            .expect("short pairing expiry");
+        assert_eq!(
+            runtime_key_proof_expires_at(now, shorter_pairing_expiry),
+            shorter_pairing_expiry
+        );
+    }
+
+    #[test]
+    fn runtime_key_request_uses_the_capped_proof_expiry() {
+        let mut config = canonical_config(default_scope());
+        config.config["keyRef"] = json!({
+            "kind": "inline_seed_base64",
+            "value": STANDARD_NO_PAD.encode([7_u8; 32]),
+        });
+        let parsed = ArkretChannelConfig::from_channel_config(&config).expect("agent config");
+        let now = "2026-07-25T08:55:35.700Z"
+            .parse::<DateTime<Utc>>()
+            .expect("now");
+
+        let request = build_arkret_runtime_key_request_json(&parsed.accounts[0], now)
+            .expect("runtime key request");
+
+        assert_eq!(
+            request["proof_of_possession"]["created_at"],
+            "2026-07-25T08:55:35.700Z"
+        );
+        assert_eq!(
+            request["proof_of_possession"]["expires_at"],
+            "2026-07-25T09:00:35.700Z"
+        );
     }
 
     #[tokio::test]

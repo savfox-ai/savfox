@@ -2745,6 +2745,15 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
 }
 
 #[cfg(feature = "arkret")]
+fn canonical_arkret_request_body(
+    value: &impl serde::Serialize,
+    context: &str,
+) -> Result<Vec<u8>, String> {
+    arkret::canonical::canonical_json_bytes(value)
+        .map_err(|err| format!("serialize canonical {context}: {err}"))
+}
+
+#[cfg(feature = "arkret")]
 async fn submit_arkret_runtime_key_approval_request(
     client: &reqwest::Client,
     account: &savfox_channels::arkret::ArkretAccountConfig,
@@ -2766,8 +2775,7 @@ async fn submit_arkret_runtime_key_approval_request(
         .map_err(|err| {
             format!("Arkret runtime approval request does not match the spec body: {err}")
         })?;
-    let request_body = serde_json::to_vec(&typed)
-        .map_err(|err| format!("serialize Arkret runtime approval request: {err}"))?;
+    let request_body = canonical_arkret_request_body(&typed, "Arkret runtime approval request")?;
     let endpoint = format!(
         "{}/_arkret/open/agent-pairing/runtime-key-requests",
         bootstrap.arkret_base_url.trim_end_matches('/')
@@ -2916,8 +2924,7 @@ async fn poll_arkret_runtime_key_status(
         .map_err(|err| {
             format!("Arkret runtime key status request does not match the spec body: {err}")
         })?;
-    let request_body = serde_json::to_vec(&typed)
-        .map_err(|err| format!("serialize Arkret runtime key status request: {err}"))?;
+    let request_body = canonical_arkret_request_body(&typed, "Arkret runtime key status request")?;
     let endpoint = format!(
         "{}/_arkret/open/agent-pairing/runtime-key-requests/status",
         bootstrap.arkret_base_url.trim_end_matches('/')
@@ -4146,8 +4153,9 @@ mod tests {
     #[cfg(feature = "arkret")]
     use super::{
         SavedChannelState, arkret_pairing_resolve_target, arkret_runtime_key_status_flags,
-        insert_arkret_listener_summary, insert_saved_channel_metadata,
-        sanitize_arkret_runtime_key_label, validate_arkret_pairing_bootstrap_value,
+        canonical_arkret_request_body, insert_arkret_listener_summary,
+        insert_saved_channel_metadata, sanitize_arkret_runtime_key_label,
+        validate_arkret_pairing_bootstrap_value,
     };
     use super::{
         arkret_test_channel_config, matrix_test_channel_config, request_matches_channel_instance,
@@ -4165,6 +4173,20 @@ mod tests {
             arkret_runtime_key_status_flags(arkret::AgentLifecycleState::Active, Some(true)),
             (true, true, false)
         );
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_request_body_is_byte_for_byte_canonical_json() {
+        let bytes = canonical_arkret_request_body(
+            &json!({"z": {"b": 2, "a": 1}, "a": "value"}),
+            "test request",
+        )
+        .expect("canonical request body");
+
+        assert_eq!(bytes, br#"{"a":"value","z":{"a":1,"b":2}}"#.as_slice());
+        arkret::canonical::validate_canonical_bytes(&bytes)
+            .expect("request body must pass the server canonical-byte validator");
     }
 
     fn channel_config(
