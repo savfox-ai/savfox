@@ -2299,6 +2299,7 @@ mod tests {
             mls_group_id: group_id.to_owned(),
             epoch: 1,
             group_state_ref: None,
+            recipient_durable_receipt: None,
         };
         let mut state = store.load().expect("state should load");
         state
@@ -2331,6 +2332,7 @@ mod tests {
             mls_group_id: group_id.to_owned(),
             epoch: 1,
             group_state_ref: None,
+            recipient_durable_receipt: None,
         };
         enrich_mls_welcome_consume_binding(&mut later, &state.direct_conversation_welcome_bindings);
         assert_eq!(later.welcome_ref.as_deref(), Some(welcome_ref));
@@ -3076,6 +3078,7 @@ mod tests {
             mls_group_id: add.welcome.group_id.clone(),
             epoch: add.welcome.epoch,
             group_state_ref: Some("ak:event:01904100-0000-7000-8000-0000000000aa".to_owned()),
+            recipient_durable_receipt: None,
         };
         let welcome_carrier = json!({
             "keypackage_ref": expected_binding.keypackage_ref.as_str(),

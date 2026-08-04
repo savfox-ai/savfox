@@ -330,6 +330,39 @@ mod tests {
         STANDARD_NO_PAD.encode(TEST_SEED)
     }
 
+    fn test_recipient_durable_receipt() -> arkret::RecipientMlsDurableReceipt {
+        arkret::RecipientMlsDurableReceipt {
+            domain: arkret::NonEmptyString::new("ak.recipient-mls-durable-receipt.v1").unwrap(),
+            claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
+            key_package_ref: arkret::NonEmptyString::new(
+                "ak:mls:kp:01904100-0000-7000-8000-000000000001",
+            )
+            .unwrap(),
+            recipient_principal_id: arkret::Did::new(TEST_DID).unwrap(),
+            recipient_device_id: arkret::DeviceId::new(
+                "ak:device:01904100-0000-7000-8000-000000000001",
+            )
+            .unwrap(),
+            recipient_service_id: arkret::Did::new("did:webvh:example.org:service").unwrap(),
+            realm_id: arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001")
+                .unwrap(),
+            mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
+            mls_epoch: 3,
+            welcome_ref: arkret::NonEmptyString::new(
+                "ak:event:01904100-0000-7000-8000-000000000002",
+            )
+            .unwrap(),
+            welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
+            durable_at: chrono::Utc::now(),
+            device_verification_method: arkret::NonEmptyString::new(TEST_VM).unwrap(),
+            signature: arkret::KeyOperationSignature {
+                kid: arkret::NonEmptyString::new(TEST_VM).unwrap(),
+                alg: Some(arkret::NonEmptyString::new("EdDSA").unwrap()),
+                sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+            },
+        }
+    }
+
     // Use process-unique names so parallel tests don't clobber.
     fn unique_id(label: &str) -> String {
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -439,16 +472,21 @@ mod tests {
     fn keypackage_consume_signer_uses_sdk_canonical_input() {
         let key_ref = ArkretKeyRef::InlineSeedBase64 { value: seed_b64() };
         let unsigned = arkret::KeyPackagesConsumeUnsignedRequest {
+            owner_account_id: arkret::Did::new(TEST_DID).unwrap(),
             key_package_refs: vec!["ak:mls:kp:01904100-0000-7000-8000-000000000001".to_owned()],
             consumer_device_id: arkret::DeviceId::new(
                 "ak:device:01904100-0000-7000-8000-000000000001".to_owned(),
             )
             .unwrap(),
-            claim_ids: vec!["ak:claim:fixture".to_owned()],
-            welcome_ref: Some("ak:event:01904100-0000-7000-8000-000000000002".to_owned()),
+            claim_ids: vec![arkret::NonEmptyString::new("ak:claim:fixture").unwrap()],
+            welcome_ref: arkret::NonEmptyString::new(
+                "ak:event:01904100-0000-7000-8000-000000000002",
+            )
+            .unwrap(),
+            recipient_durable_receipt: test_recipient_durable_receipt(),
             realm_id: None,
             strand_id: None,
-            mls_group_id: Some("mls-group-fixture".to_owned()),
+            mls_group_id: Some(arkret::NonEmptyString::new("mls-group-fixture").unwrap()),
             epoch: Some(3),
         };
 

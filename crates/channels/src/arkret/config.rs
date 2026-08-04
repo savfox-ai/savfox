@@ -758,12 +758,28 @@ pub fn build_arkret_runtime_key_request_json(
                 account.id
             )
         })?;
+    let endpoint_device_id = DeviceId::new(account.device_id.trim().to_owned()).map_err(|err| {
+        anyhow::anyhow!(
+            "Arkret agent '{}' has invalid deviceId '{}' for runtime key request: {err}",
+            account.id,
+            account.device_id
+        )
+    })?;
+    let expected_verification_method = format!("{}#{endpoint_device_id}", bootstrap.agent_id);
+    anyhow::ensure!(
+        verification_method == expected_verification_method,
+        "Arkret agent '{}' verificationMethod must equal '{}' for runtime key request",
+        account.id,
+        expected_verification_method
+    );
     let signing_key = load_ed25519_signing_key(key_ref)?;
-    let request =
-        arkret_signatures::agent::RuntimeKeyRequestBuilder::new(&signing_key, bootstrap.clone())
-            .verification_method(verification_method)
-            .build_approval_request()
-            .map_err(|err| anyhow::anyhow!("agent runtime key request: {err}"))?;
+    let request = arkret_signatures::agent::RuntimeKeyRequestBuilder::new(
+        &signing_key,
+        bootstrap.clone(),
+        endpoint_device_id,
+    )
+    .build_approval_request()
+    .map_err(|err| anyhow::anyhow!("agent runtime key request: {err}"))?;
     let mut request = serde_json::to_value(request.body)
         .map_err(|err| anyhow::anyhow!("serialize agent runtime key request: {err}"))?;
     request

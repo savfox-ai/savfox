@@ -1169,7 +1169,10 @@ mod tests {
             Some("ak:strand:01904100-0000-7000-8000-000000000002")
         );
         assert_eq!(request.mls_group_id.as_deref(), Some("group-1"));
-        assert_eq!(request.proofs.len(), 1);
+        assert_eq!(
+            request.holder_acceptance_proof.verification_method.as_str(),
+            "did:webvh:z6mkfixture:alice.example#runtime-key-1"
+        );
     }
 
     #[test]
