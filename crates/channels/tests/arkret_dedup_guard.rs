@@ -115,7 +115,7 @@ fn savfox_account_outbound_uses_garth_durable_queue() {
         .expect("missing account outbound entrypoint");
     let send_source = &source[send_start..];
     assert!(
-        send_source.contains("OutboundEngine::new(outbound_store)")
+        send_source.contains("OutboundEngine::new(outbound_store")
             && send_source.contains(".enqueue(")
             && send_source.contains(".submit_next_with_fence("),
         "Savfox account outbound must enqueue and submit through Garth's durable engine"

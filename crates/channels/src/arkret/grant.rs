@@ -217,14 +217,6 @@ mod tests {
         let mut grant = serde_json::Map::new();
         let grant_id = "ak:grant:01904100-0000-7000-8000-000000000abc";
         let issuer = "did:webvh:example.com:admin";
-        let proof = json!({
-            "kind": "detached_jws",
-            "alg": "EdDSA",
-            "verification_method": "did:webvh:example.com:admin#grant-key-1",
-            "payload_digest": format!("sha256:{}", "0".repeat(64)),
-            "created_at": "2026-05-27T00:00:00.000Z",
-            "jws": "grant.detached.signature"
-        });
         grant.insert("id".into(), json!(grant_id));
         grant.insert("schema".into(), json!("ak.schema.capability.v1"));
         grant.insert("issuer".into(), json!(issuer));
@@ -232,7 +224,16 @@ mod tests {
         grant.insert("actions".into(), json!([action]));
         grant.insert("resources".into(), json!([{"kind": "*"}]));
         grant.insert("issued_at".into(), json!("2026-05-27T00:00:00.000Z"));
-        grant.insert("proofs".into(), json!([proof]));
+        grant.insert(
+            "issuer_authority_refs".into(),
+            json!([{
+                "kind": "realm_root",
+                "realm_id": realm.unwrap_or("ak:realm:01904100-0000-7000-8000-000000000001"),
+                "cell_ref": "ak:cell:01904100-0000-7000-8000-0000000000a1",
+                "controller_epoch_at_issuance": 1,
+                "authority_generation": 1
+            }]),
+        );
         if let Some(realm) = realm {
             grant.insert("realm_id".into(), json!(realm));
         }
@@ -266,7 +267,6 @@ mod tests {
         let digest = Hash::new(parsed.event_digest().expect("digest")).expect("hash");
         event["proofs"] = json!([{
             "kind": "detached_jws",
-            "alg": "EdDSA",
             "verification_method": "did:webvh:example.com:admin#key-1",
             "event_digest": digest.as_str(),
             "created_at": "2026-05-27T00:00:00.000Z",

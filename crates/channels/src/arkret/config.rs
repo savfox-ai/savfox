@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use arkret::{AgentPairingBootstrap, DeviceId, Did};
+use arkret::{AgentPairingBootstrap, DeviceId, Did, DidUrl};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -804,6 +804,14 @@ pub fn build_arkret_runtime_key_request_json(
 /// `authorized_public_key_digest` returned by the Arkret server against the
 /// local key: a mismatch means the pairing was completed by another runtime
 /// and MUST NOT be treated as this runtime's approval.
+///
+/// The returned digest is the **authorization domain** digest — the hash of
+/// the raw 32-byte Ed25519 key that the controller-signed
+/// `ak.agent.key.authorize` payload binds, which is what the server echoes as
+/// `authorized_public_key_digest`. It is deliberately not the private
+/// pairing-request JWK digest returned by
+/// [`agent_runtime_public_key_digest`](arkret_signatures::agent::agent_runtime_public_key_digest);
+/// comparing across the two domains never matches.
 pub fn build_arkret_runtime_key_status_request_json(
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<(Value, String)> {
@@ -831,9 +839,18 @@ pub fn build_arkret_runtime_key_status_request_json(
             )
         })?;
     let public_key = ed25519_runtime_public_key(key_ref, verification_method)?;
-    let local_public_key_digest =
-        arkret_signatures::agent::agent_runtime_public_key_digest(&public_key)
-            .map_err(|err| anyhow::anyhow!("agent runtime public key digest: {err}"))?;
+    let verification_method_url = DidUrl::new(verification_method.to_owned()).map_err(|err| {
+        anyhow::anyhow!(
+            "Arkret agent '{}' has invalid verificationMethod for runtime key status poll: {err}",
+            account.id
+        )
+    })?;
+    let local_public_key_digest = arkret_signatures::agent::validate_agent_runtime_public_key(
+        &public_key,
+        &verification_method_url,
+    )
+    .map_err(|err| anyhow::anyhow!("agent runtime public key digest: {err}"))?
+    .authorization_digest;
     Ok((
         serde_json::json!({
             "pairing_request_id": bootstrap.pairing_request_id,
@@ -1071,6 +1088,69 @@ mod strict_tests {
         );
     }
 
+    /// The status poll compares its local digest against the server's
+    /// `authorized_public_key_digest`, which lives in the public authorization
+    /// domain (hash of the raw Ed25519 key). Emitting the private
+    /// pairing-request JWK digest instead makes every legitimate approval look
+    /// like "paired by a different runtime key".
+    #[test]
+    fn runtime_key_status_digest_uses_the_authorization_domain() {
+        let mut config = canonical_config(default_scope());
+        config.config["keyRef"] = json!({
+            "kind": "inline_seed_base64",
+            "value": STANDARD_NO_PAD.encode([7_u8; 32]),
+        });
+        let parsed = ArkretChannelConfig::from_channel_config(&config).expect("agent config");
+        let account = &parsed.accounts[0];
+        let verification_method = DidUrl::new(account.verification_method.clone().expect("vm"))
+            .expect("canonical verification method");
+
+        let (_, local_digest) =
+            build_arkret_runtime_key_status_request_json(account).expect("status request");
+        let submit = build_arkret_runtime_key_request_json(
+            account,
+            "2026-07-25T08:55:35.700Z".parse::<DateTime<Utc>>().expect("now"),
+        )
+        .expect("submit request");
+        let validated = arkret_signatures::agent::validate_agent_runtime_public_key(
+            &submit["public_key"],
+            &verification_method,
+        )
+        .expect("submitted public key is canonical");
+
+        assert_eq!(local_digest, validated.authorization_digest.as_str());
+        assert_ne!(
+            local_digest,
+            validated.runtime_request_digest.as_str(),
+            "the two digest domains must not be conflated"
+        );
+    }
+
+    /// The runtime public key is the SDK DTO, not a hand-written JSON object:
+    /// its field names are part of the digest preimage (`algorithm`, not
+    /// `alg`), so an ad-hoc `json!` fails the SDK's closed schema at runtime.
+    #[test]
+    fn runtime_public_key_matches_the_sdk_dto_field_names() {
+        let key_ref = super::super::signer::ArkretKeyRef::InlineSeedBase64 {
+            value: STANDARD_NO_PAD.encode([7_u8; 32]),
+        };
+        let verification_method = "did:webvh:example.org:agents:bb#ak:device:test";
+        let public_key = super::super::signer::ed25519_runtime_public_key(
+            &key_ref,
+            verification_method,
+        )
+        .expect("runtime public key");
+
+        let rendered = serde_json::to_value(&public_key).expect("serialize");
+        assert_eq!(rendered["kty"], json!("OKP"));
+        assert_eq!(rendered["algorithm"], json!("Ed25519"));
+        assert_eq!(rendered["kid"], json!(verification_method));
+        assert!(rendered.get("alg").is_none());
+        assert!(rendered.get("key_digest").is_none());
+        arkret_signatures::agent::agent_runtime_public_key_digest(&public_key)
+            .expect("the SDK accepts its own DTO");
+    }
+
     #[tokio::test]
     async fn outbound_resolution_requires_exact_instance_id() {
         let home = std::env::temp_dir().join(format!(
@@ -1195,6 +1275,12 @@ mod strict_tests {
     }
 }
 
+// DISABLED: `any()` is always false, so this whole module is dead code that
+// neither compiles nor runs. Its fixtures predate the current protocol
+// (`#runtime-1` verification methods instead of derived device ids, `alg`
+// instead of `algorithm` in grant proofs, removed `access_token`), and
+// silencing it is what let two runtime-key bugs reach the UI. Reviving it means
+// re-basing ~15 fixtures onto the conventions used by `strict_tests` above.
 #[cfg(all(test, any()))]
 mod tests {
     use base64::Engine as _;
@@ -1345,7 +1431,6 @@ mod tests {
             account.authorized_event_ref.as_deref(),
             Some("ak:event:01904100-0000-7000-8000-000000000099")
         );
-        assert!(account.access_token.is_empty());
         assert!(account.key_ref.is_some());
         assert_eq!(
             account.requested_scope,
@@ -1773,28 +1858,23 @@ mod tests {
             .unwrap()
             .parse::<DateTime<Utc>>()
             .unwrap();
-        let request_digest = arkret::Hash::new(
-            proof["request_canonical_digest"]
-                .as_str()
-                .unwrap()
-                .to_owned(),
-        )
-        .unwrap();
-        let signing_input = arkret_signatures::agent::agent_key_pair_proof_signing_input(
-            request["verification_method"].as_str().unwrap(),
-            proof["challenge"].as_str().unwrap(),
-            proof["audience"].as_str().unwrap(),
-            expires_at,
-            request_digest,
-        );
-        let signature = arkret::base64url_decode(proof["signature"].as_str().unwrap()).unwrap();
+        // Verify through the typed proof DTO, so a wire-shape change in the
+        // SDK breaks this test at compile time instead of silently checking a
+        // field the protocol no longer has.
+        let typed_proof: arkret::AgentRuntimeKeyPossessionProof =
+            serde_json::from_value(request["proof_of_possession"].clone()).expect("typed proof");
+        assert_eq!(typed_proof.expires_at, expires_at);
+        let transcript = typed_proof
+            .canonical_transcript_bytes("123456")
+            .expect("canonical proof transcript");
+        let signature = arkret::base64url_decode(typed_proof.signature.as_str()).unwrap();
         let signature = ed25519_dalek::Signature::from_slice(&signature).unwrap();
         let signing_key = load_ed25519_signing_key(account.key_ref.as_ref().unwrap()).unwrap();
 
         assert_eq!(proof["expires_at"], "2026-07-14T14:43:48.784Z");
         signing_key
             .verifying_key()
-            .verify(&signing_input.canonical_bytes().unwrap(), &signature)
+            .verify(&transcript, &signature)
             .expect("signature must bind the serialized proof expiry");
     }
 
@@ -1828,8 +1908,11 @@ mod tests {
         assert!(request.get("proof_of_possession").is_none());
         assert!(local_digest.starts_with("sha256:"));
 
-        // The local digest must match the digest of the public key the
-        // submit path sends, so a server echo compares equal for this key.
+        // The local digest must be the authorization-domain digest of the same
+        // key the submit path sends: that is the domain the server echoes as
+        // `authorized_public_key_digest`, so an approval for this key compares
+        // equal. The private pairing-request JWK digest is a distinct domain
+        // and would never match a legitimate approval.
         let submit = build_arkret_runtime_key_request_json(
             &parsed.accounts[0],
             DateTime::parse_from_rfc3339("2026-07-06T11:50:00Z")
@@ -1837,9 +1920,16 @@ mod tests {
                 .with_timezone(&Utc),
         )
         .expect("submit request");
-        let expected_digest =
-            arkret_signatures::agent::agent_runtime_public_key_digest(&submit["public_key"])
-                .expect("digest");
-        assert_eq!(local_digest, expected_digest.as_str());
+        let validated = arkret_signatures::agent::validate_agent_runtime_public_key(
+            &submit["public_key"],
+            &DidUrl::new("did:webvh:example.org:agents:support#runtime-1").unwrap(),
+        )
+        .expect("validated public key");
+        assert_eq!(local_digest, validated.authorization_digest.as_str());
+        assert_ne!(
+            local_digest,
+            validated.runtime_request_digest.as_str(),
+            "the status poll must not compare the private request-domain digest"
+        );
     }
 }

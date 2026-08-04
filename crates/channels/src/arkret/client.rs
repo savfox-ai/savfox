@@ -1119,7 +1119,10 @@ mod tests {
             serde_json::from_slice(&arkret::base64url_decode(parts[1]).unwrap()).unwrap();
 
         assert_eq!(protected["typ"], "dpop+jwt");
-        assert_eq!(protected["alg"], "EdDSA");
+        // Assert against the SDK constant: the DPoP proof algorithm name is
+        // generated from the spec registry, so hard-coding it here silently
+        // rots when the registry moves (it did: `EdDSA` -> `Ed25519`).
+        assert_eq!(protected["alg"], arkret::dpop::DPOP_PROOF_ALG);
         assert_eq!(payload["htm"], "GET");
         assert_eq!(payload["htu"], "https://arkret.example/_arkret/self/events");
         assert_eq!(
