@@ -151,8 +151,8 @@ mod tests {
 
     fn valid_request() -> MessageCreateRequest {
         MessageCreateRequest {
-            realm_id: "ak:realm:01904100-0000-7000-8000-000000000001".into(),
-            strand_id: "ak:strand:01904100-0000-7000-8000-000000000001".into(),
+            realm_id: "ak:realm:01904100-0000-8000-8000-000000000001".into(),
+            strand_id: "ak:strand:01904100-0000-8000-8000-000000000001".into(),
             body: "hello world".into(),
             principal_id: "did:webvh:example.org:agents:support".into(),
             actor_seq: 1,
@@ -213,14 +213,14 @@ mod tests {
     #[test]
     fn uses_strand_id_for_sdk_payload() {
         let mut req = valid_request();
-        req.strand_id = "ak:strand:01904100-0000-7000-8000-000000000002".into();
+        req.strand_id = "ak:strand:01904100-0000-8000-8000-000000000002".into();
         let event = build_message_create_event(&req).expect("build");
         assert_eq!(
             event
                 .payload
                 .get("strand_id")
                 .and_then(serde_json::Value::as_str),
-            Some("ak:strand:01904100-0000-7000-8000-000000000002")
+            Some("ak:strand:01904100-0000-8000-8000-000000000002")
         );
     }
 
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn sidecar_exchange_adds_after_ref_to_request_event() {
-        let request_event_id = "ak:event:01904100-0000-7000-8000-000000000031";
+        let request_event_id = "ak:event:01904100-0000-8000-8000-000000000031";
         let mut req = valid_request();
         req.sidecar_exchange = Some(SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".into(),

@@ -1149,13 +1149,13 @@ mod tests {
         };
         let request = build_mls_key_packages_claim_request(
             "did:webvh:z6mkfixture:bob.example",
-            "ak:realm:01904100-0000-7000-8000-000000000001",
+            "ak:realm:01904100-0000-8000-8000-000000000001",
             "did:webvh:z6mkfixture:alice.example",
             &["mimi.content.v1".to_owned(), "ak.content.v1".to_owned()],
             "AQEBAQEBAQEBAQEBAQEBAQ".to_owned(),
             Utc::now() + chrono::Duration::minutes(5),
             &["ak:device:01904100-0000-7000-8000-00000000000e".to_owned()],
-            Some("ak:strand:01904100-0000-7000-8000-000000000002"),
+            Some("ak:strand:01904100-0000-8000-8000-000000000002"),
             Some("group-1"),
             Some(1500),
             proof,
@@ -1170,7 +1170,7 @@ mod tests {
         assert_eq!(request.target_device_ids.len(), 1);
         assert_eq!(
             request.strand_id.as_ref().map(StrandId::as_str),
-            Some("ak:strand:01904100-0000-7000-8000-000000000002")
+            Some("ak:strand:01904100-0000-8000-8000-000000000002")
         );
         assert_eq!(request.mls_group_id.as_deref(), Some("group-1"));
         assert_eq!(
@@ -1185,7 +1185,7 @@ mod tests {
             keypackage_ref: "ak:mls:keypackage:test".to_owned(),
             keypackage_digest: arkret::Hash::new(format!("sha256:{}", "aa".repeat(32))).unwrap(),
             intended_realm_id: RealmId::new(
-                "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+                "ak:realm:01904100-0000-8000-8000-000000000001".to_owned(),
             )
             .unwrap(),
             claim_id: arkret::NonEmptyString::new("ak:claim:test").unwrap(),

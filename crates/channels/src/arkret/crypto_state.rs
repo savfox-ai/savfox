@@ -16,7 +16,7 @@ use arkret::{
     ContentBlock, DeviceId, Did, DirectConversationBoundPayload, EncryptedPayload,
     EncryptedPayloadScheme, EventId, MessageMetadata, MlsCommitPayload, MlsEncryptedPayload,
     MlsKeyPackageRecord, MlsKeyPackageState, MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload,
-    PresencePlaintext, PresenceState, RealmId, ScopeRef, SealId, StrandCreatePayload,
+    PresencePlaintext, PresenceState, RealmId, ScopeRef, SealId, StrandCreatePayload, StrandId,
     seal_signal_plaintext,
 };
 use arkret_crypto::{CryptoStoreBinding, UnableToDecryptReason, UnableToDecryptRecord};
@@ -165,12 +165,20 @@ impl ArkretMlsWelcomeConsumeBinding {
     }
 }
 
+/// Coordinates endorsed by an accepted `ak.direct_conversation.bound`.
+///
+/// The payload names no Welcome Event and no permanent MLS group — the binding
+/// is written once for the pair and participant authority reads the *current*
+/// active generation — so the Realm is what a pending Welcome consume is
+/// matched on. A record written by an older build carries `welcome_ref` /
+/// `mls_group_id`; those keys are simply dropped on read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArkretDirectConversationWelcomeBinding {
-    pub welcome_ref: String,
     pub realm_id: String,
     pub strand_id: String,
-    pub mls_group_id: String,
+    /// `generation 1` activation Event: the first exact-pair MLS generation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_exact_pair_generation_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1169,14 +1177,20 @@ impl FileArkretCryptoStore {
         let mut state = self.load()?;
         for payload in &payloads {
             let binding = ArkretDirectConversationWelcomeBinding {
-                welcome_ref: payload.mls_welcome_event_ref.to_string(),
                 realm_id: payload.realm_id.to_string(),
                 strand_id: payload.main_strand_id.to_string(),
-                mls_group_id: payload.mls_group_id.to_string(),
+                initial_exact_pair_generation_ref: Some(
+                    payload.initial_exact_pair_generation_ref.to_string(),
+                ),
             };
+            // One binding per Realm: drop any record an older build keyed by the
+            // Welcome Event so the same pair is never described twice.
             state
                 .direct_conversation_welcome_bindings
-                .insert(binding.welcome_ref.clone(), binding);
+                .retain(|_, existing| existing.realm_id != binding.realm_id);
+            state
+                .direct_conversation_welcome_bindings
+                .insert(binding.realm_id.clone(), binding);
         }
         for consume_binding in state.mls_welcome_consume_bindings.values_mut() {
             enrich_mls_welcome_consume_binding(
@@ -1277,11 +1291,13 @@ impl FileArkretCryptoStore {
             .iter()
             .filter(|event| event.kind.as_str() == "ak.strand.create")
             .filter_map(|event| {
+                // A Strand id is event-derived: the create payload carries no id
+                // of its own, so it is retyped off the accepted Event.
                 serde_json::to_value(&event.payload)
                     .ok()
                     .and_then(|value| serde_json::from_value::<StrandCreatePayload>(value).ok())
                     .filter(|payload| payload.object.realm_id == event.realm_id)
-                    .map(|payload| payload.object.id.to_string())
+                    .map(|_| StrandId::from_event_id(&event.event_id).to_string())
             })
             .collect::<Vec<_>>();
         let [strand_id] = strand_ids.as_slice() else {
@@ -1820,25 +1836,25 @@ fn enrich_mls_welcome_consume_binding(
     binding: &mut ArkretMlsWelcomeConsumeBinding,
     direct_bindings: &BTreeMap<String, ArkretDirectConversationWelcomeBinding>,
 ) {
-    let exact = binding
-        .welcome_ref
-        .as_ref()
-        .and_then(|welcome_ref| direct_bindings.get(welcome_ref));
-    let matched = exact.or_else(|| {
-        let mut candidates = direct_bindings.values().filter(|candidate| {
-            candidate.mls_group_id == binding.mls_group_id
-                && binding
-                    .realm_id
-                    .as_ref()
-                    .is_none_or(|realm_id| realm_id == &candidate.realm_id)
-        });
+    // The binding endorses Realm coordinates, so the Realm is the identity to
+    // match on; a consume that never learned its own falls back to the single
+    // binding on file, if there is exactly one.
+    let by_realm = binding.realm_id.as_deref().and_then(|realm_id| {
+        direct_bindings
+            .values()
+            .find(|candidate| candidate.realm_id == realm_id)
+    });
+    let unique = || {
+        if binding.realm_id.is_some() {
+            return None;
+        }
+        let mut candidates = direct_bindings.values();
         let candidate = candidates.next()?;
         candidates.next().is_none().then_some(candidate)
-    });
-    let Some(direct) = matched else {
+    };
+    let Some(direct) = by_realm.or_else(unique) else {
         return;
     };
-    binding.welcome_ref = Some(direct.welcome_ref.clone());
     binding.realm_id = Some(direct.realm_id.clone());
     binding.strand_id = Some(direct.strand_id.clone());
 }
@@ -2246,12 +2262,7 @@ mod tests {
         ))
     }
 
-    fn direct_conversation_bound_payload(
-        realm_id: &str,
-        strand_id: &str,
-        group_id: &str,
-        welcome_ref: &str,
-    ) -> Value {
+    fn direct_conversation_bound_payload(realm_id: &str, strand_id: &str) -> Value {
         json!({
             "pair_key": format!("sha256:{}", "aa".repeat(32)),
             "participants_unordered": [
@@ -2260,24 +2271,17 @@ mod tests {
             ],
             "realm_id": realm_id,
             "main_strand_id": strand_id,
+            "founding_unit_digest": format!("sha256:{}", "bb".repeat(32)),
             "authorization_basis": {
                 "kind": "accepted_contact",
                 "event_refs": [
-                    "ak:event:01904100-0000-7000-8000-000000000001",
-                    "ak:event:01904100-0000-7000-8000-000000000002"
+                    "ak:event:01904100-0000-8000-8000-000000000001",
+                    "ak:event:01904100-0000-8000-8000-000000000002"
                 ]
             },
-            "member_event_refs": [
-                "ak:event:01904100-0000-7000-8000-000000000003",
-                "ak:event:01904100-0000-7000-8000-000000000004"
-            ],
-            "main_strand_create_ref": "ak:event:01904100-0000-7000-8000-000000000005",
-            "mls_group_id": group_id,
-            "mls_genesis_event_ref": "ak:event:01904100-0000-7000-8000-000000000006",
-            "mls_commit_event_ref": "ak:event:01904100-0000-7000-8000-000000000007",
-            "mls_welcome_event_ref": welcome_ref,
-            "created_at": "2026-08-01T00:00:00.000Z",
-            "binding_state": "active"
+            "initial_exact_pair_generation_ref":
+                "ak:event:01904100-0000-8000-8000-000000000006",
+            "created_at": "2026-08-01T00:00:00.000Z"
         })
     }
 
@@ -2285,10 +2289,10 @@ mod tests {
     fn direct_conversation_binding_enriches_pending_welcome_consume_in_either_order() {
         let home = temp_home("direct-welcome-binding-order");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
-        let realm_id = "ak:realm:01904100-0000-7000-8000-000000000011";
-        let strand_id = "ak:strand:01904100-0000-7000-8000-000000000012";
+        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000011";
+        let strand_id = "ak:strand:01904100-0000-8000-8000-000000000012";
         let group_id = "AZZBmwAAAACAAAAAAAAAAQ";
-        let welcome_ref = "ak:event:01904100-0000-7000-8000-000000000013";
+        let welcome_ref = "ak:event:01904100-0000-8000-8000-000000000013";
         let pending = ArkretMlsWelcomeConsumeBinding {
             keypackage_ref: "ak:mls:keypackage:pending".to_owned(),
             claim_id: "ak:claim:pending".to_owned(),
@@ -2308,7 +2312,7 @@ mod tests {
             .save(&mut state)
             .expect("pending binding should persist");
 
-        let bound = direct_conversation_bound_payload(realm_id, strand_id, group_id, welcome_ref);
+        let bound = direct_conversation_bound_payload(realm_id, strand_id);
         assert_eq!(
             store
                 .record_direct_conversation_binding_from_value(&json!({"payload": bound}))
@@ -2334,8 +2338,31 @@ mod tests {
             recipient_durable_receipt: None,
         };
         enrich_mls_welcome_consume_binding(&mut later, &state.direct_conversation_welcome_bindings);
-        assert_eq!(later.welcome_ref.as_deref(), Some(welcome_ref));
+        assert_eq!(later.realm_id.as_deref(), Some(realm_id));
         assert_eq!(later.strand_id.as_deref(), Some(strand_id));
+        // The binding endorses coordinates only, so it can no longer name the
+        // Welcome Event a consume is still missing.
+        assert_eq!(later.welcome_ref, None);
+
+        // A consume that never learned its Realm still resolves while exactly
+        // one binding is on file.
+        let mut orphan = ArkretMlsWelcomeConsumeBinding {
+            keypackage_ref: "ak:mls:keypackage:orphan".to_owned(),
+            claim_id: "ak:claim:orphan".to_owned(),
+            welcome_ref: None,
+            realm_id: None,
+            strand_id: None,
+            mls_group_id: group_id.to_owned(),
+            epoch: 1,
+            group_state_ref: None,
+            recipient_durable_receipt: None,
+        };
+        enrich_mls_welcome_consume_binding(
+            &mut orphan,
+            &state.direct_conversation_welcome_bindings,
+        );
+        assert_eq!(orphan.realm_id.as_deref(), Some(realm_id));
+        assert_eq!(orphan.strand_id.as_deref(), Some(strand_id));
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -2434,8 +2461,8 @@ mod tests {
         store.ensure_created().expect("create");
         store
             .record_unable_to_decrypt(
-                "ak:event:01904100-0000-7000-8000-000000000001",
-                "ak:realm:01904100-0000-7000-8000-000000000001",
+                "ak:event:01904100-0000-8000-8000-000000000001",
+                "ak:realm:01904100-0000-8000-8000-000000000001",
                 "did:webvh:example.org:alice",
                 encrypted_payload(),
                 UnableToDecryptReason::NoSession,
@@ -2449,7 +2476,7 @@ mod tests {
     #[test]
     fn extracts_encrypted_payload_carriers() {
         let aad = arkret::EncryptedEnvelopeAad::hidden(
-            RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001").unwrap(),
+            RealmId::new("ak:realm:01904100-0000-8000-8000-000000000001").unwrap(),
             arkret::events::EventKind::MESSAGE_CREATE,
         );
         let mut payload = encrypted_payload();
@@ -2476,7 +2503,7 @@ mod tests {
         let home = temp_home("policy");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
         let realms = json!({
-            "ak:realm:01904100-0000-7000-8000-000000000001": {
+            "ak:realm:01904100-0000-8000-8000-000000000001": {
                 "state": {
                     "realm": {
                         "content_encryption_floor": "e2ee_required",
@@ -2495,7 +2522,7 @@ mod tests {
         let state = store.load().expect("state should load");
         let policy = state
             .realm_policies
-            .get("ak:realm:01904100-0000-7000-8000-000000000001")
+            .get("ak:realm:01904100-0000-8000-8000-000000000001")
             .expect("policy should be present");
         assert!(policy.requires_e2ee());
         assert_eq!(policy.group_id_for_realm(), "group1");
@@ -2506,7 +2533,7 @@ mod tests {
     fn direct_conversation_sync_projection_persists_required_e2ee_policy() {
         let home = temp_home("direct-conversation-policy");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
-        let realm_id = "ak:realm:01904100-0000-7000-8000-000000000001";
+        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000001";
         let realms = json!({
             realm_id: {
                 "state_at_window_start": {
@@ -2534,7 +2561,7 @@ mod tests {
         assert!(policy.requires_e2ee());
         assert_eq!(
             policy.group_id_for_realm(),
-            "YWs6cmVhbG06MDE5MDQxMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAx"
+            "YWs6cmVhbG06MDE5MDQxMDAtMDAwMC04MDAwLTgwMDAtMDAwMDAwMDAwMDAx"
         );
         assert_eq!(policy.encryption_profile.as_deref(), Some("mls_rfc9420"));
         let _ = std::fs::remove_dir_all(&home);
@@ -2542,7 +2569,7 @@ mod tests {
 
     #[test]
     fn legacy_direct_conversation_policy_derives_canonical_group_id() {
-        let realm_id = "ak:realm:01904100-0000-7000-8000-000000000001";
+        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000001";
         let policy = ArkretRealmCryptoPolicy {
             realm_id: realm_id.to_owned(),
             content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
@@ -2553,7 +2580,7 @@ mod tests {
         };
         assert_eq!(
             policy.group_id_for_realm(),
-            "YWs6cmVhbG06MDE5MDQxMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAx"
+            "YWs6cmVhbG06MDE5MDQxMDAtMDAwMC04MDAwLTgwMDAtMDAwMDAwMDAwMDAx"
         );
     }
 
@@ -2563,7 +2590,7 @@ mod tests {
         let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
         store
             .upsert_realm_policy(ArkretRealmCryptoPolicy {
-                realm_id: "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+                realm_id: "ak:realm:01904100-0000-8000-8000-000000000001".to_owned(),
                 content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
                 encryption_profile: Some("mls".to_owned()),
                 mls_group_id: Some("group1".to_owned()),
@@ -2573,14 +2600,14 @@ mod tests {
             .expect("policy should persist");
         let outcome = store
             .encrypt_content_block_for_realm(
-                "ak:realm:01904100-0000-7000-8000-000000000001",
+                "ak:realm:01904100-0000-8000-8000-000000000001",
                 &json!({"kind":"ak.content.text","body":"secret"}),
             )
             .expect("encryption decision should complete");
         assert_eq!(
             outcome,
             ArkretEncryptOutcome::MissingRequiredGroupState {
-                realm_id: "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+                realm_id: "ak:realm:01904100-0000-8000-8000-000000000001".to_owned(),
                 group_id: "group1".to_owned()
             }
         );
@@ -2600,7 +2627,7 @@ mod tests {
         };
 
         let home = temp_home("sidecar-metadata-encrypt");
-        let realm_id = "ak:realm:01904100-0000-7000-8000-000000000001";
+        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000001";
         let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
         let bob_key_package = bob_store
             .ensure_mls_key_package(
@@ -2624,7 +2651,7 @@ mod tests {
             "welcome_ref": "ak:welcome:sidecar-metadata",
             "mls_group_id": add.welcome.group_id.as_str(),
             "epoch": add.welcome.epoch,
-            "commit_ref": "ak:event:01904100-0000-7000-8000-0000000000aa",
+            "commit_ref": "ak:event:01904100-0000-8000-8000-0000000000aa",
             "content": serde_json::to_value(&add.welcome).unwrap()
         });
         bob_store
@@ -2655,7 +2682,7 @@ mod tests {
             .expect("planning with local state should preserve the verified commit ref");
         assert_eq!(
             bootstrap.group_state_ref.as_deref(),
-            Some("ak:event:01904100-0000-7000-8000-0000000000aa")
+            Some("ak:event:01904100-0000-8000-8000-0000000000aa")
         );
         bob_store
             .upsert_realm_policy(ArkretRealmCryptoPolicy {
@@ -2670,9 +2697,9 @@ mod tests {
 
         let context = SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
-            request_event_id: "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+            request_event_id: "ak:event:01904100-0000-8000-8000-000000000031".to_owned(),
             coordinator_assignment_event_id: Some(
-                "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+                "ak:event:01904100-0000-8000-8000-000000000031".to_owned(),
             ),
         };
         let metadata_plaintext = build_user_facing_response_metadata(&context).expect("metadata");
@@ -2716,7 +2743,7 @@ mod tests {
     #[test]
     fn online_presence_is_encrypted_signed_and_monotonic_across_refreshes() {
         let home = temp_home("presence-heartbeat");
-        let realm_id = "ak:realm:01904100-0000-7000-8000-000000000001";
+        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000001";
         let agent_id = "did:webvh:z6mkfixture:agent.example";
         let agent_device = "ak:device:01904100-0000-7000-8000-00000000000e";
         let verification_method =
@@ -2738,7 +2765,7 @@ mod tests {
         let mut alice_group = alice.create_group(realm_id.as_bytes()).unwrap();
         let add = alice_group.add_member(&agent_key_package).unwrap();
         let group_id = add.welcome.group_id.clone();
-        let group_state_ref = "ak:event:01904100-0000-7000-8000-0000000000aa";
+        let group_state_ref = "ak:event:01904100-0000-8000-8000-0000000000aa";
         agent_store
             .record_mls_welcome_from_value(&json!({
                 "keypackage_ref": agent_key_package.keypackage_ref.as_str(),
@@ -3017,9 +3044,7 @@ mod tests {
             expires_at: Utc::now() + chrono::Duration::days(1),
             device_signature: KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(format!("{bob_principal}#runtime-1")).unwrap(),
-                signature_algorithm: Some(
-                    arkret::NonEmptyString::new("Ed25519").unwrap(),
-                ),
+                signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
                 sig: arkret::Base64UrlString::new("c2ln").unwrap(),
             },
             revocation_status: Some("active".to_owned()),
@@ -3038,7 +3063,7 @@ mod tests {
         )
         .unwrap();
         let mut alice_group = alice
-            .create_group(b"ak:realm:01904100-0000-7000-8000-f7claim00001")
+            .create_group(b"ak:realm:01904100-0000-8000-8000-f7claim00001")
             .unwrap();
         let add = alice_group
             .add_member(&claimed)
@@ -3067,18 +3092,18 @@ mod tests {
         )
         .unwrap();
         let mut alice_group = alice
-            .create_group(b"ak:realm:01904100-0000-7000-8000-f7admission")
+            .create_group(b"ak:realm:01904100-0000-8000-8000-f7admission")
             .unwrap();
         let add = alice_group.add_member(&bob_key_package).unwrap();
         let expected_binding = ArkretMlsWelcomeConsumeBinding {
             keypackage_ref: bob_key_package.keypackage_ref.as_str().to_owned(),
             claim_id: "ak:claim:test-welcome".to_owned(),
             welcome_ref: Some("ak:welcome:test".to_owned()),
-            realm_id: Some("ak:realm:01904100-0000-7000-8000-000000000001".to_owned()),
+            realm_id: Some("ak:realm:01904100-0000-8000-8000-000000000001".to_owned()),
             strand_id: None,
             mls_group_id: add.welcome.group_id.clone(),
             epoch: add.welcome.epoch,
-            group_state_ref: Some("ak:event:01904100-0000-7000-8000-0000000000aa".to_owned()),
+            group_state_ref: Some("ak:event:01904100-0000-8000-8000-0000000000aa".to_owned()),
             recipient_durable_receipt: None,
         };
         let welcome_carrier = json!({
@@ -3124,9 +3149,9 @@ mod tests {
             .self_update_commit()
             .expect("Alice self-update Commit should build");
         let commit_event =
-            EventId::new("ak:event:01904100-0000-7000-8000-0000000000ab".to_owned()).unwrap();
+            EventId::new("ak:event:01904100-0000-8000-8000-0000000000ab".to_owned()).unwrap();
         let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
-            RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001".to_owned()).unwrap(),
+            RealmId::new("ak:realm:01904100-0000-8000-8000-000000000001".to_owned()).unwrap(),
             commit.group_id.clone(),
             expected_binding.epoch,
             commit.epoch,
@@ -3225,7 +3250,7 @@ mod tests {
                 .expect("owner device"),
         )
         .expect("owner identity");
-        let realm_id = RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001".to_owned())
+        let realm_id = RealmId::new("ak:realm:01904100-0000-8000-8000-000000000001".to_owned())
             .expect("realm");
         let mut group = owner
             .create_group(realm_id.as_str().as_bytes())
@@ -3245,7 +3270,7 @@ mod tests {
         )
         .expect("governance binding");
         let claim_id = NonEmptyString::new("claim-agent-welcome-001").expect("claim id");
-        let authorize_event = NonEmptyString::new("ak:event:01904100-0000-7000-8000-000000000011")
+        let authorize_event = NonEmptyString::new("ak:event:01904100-0000-8000-8000-000000000011")
             .expect("authorize event");
         let claim_ref = MlsWelcomePayloadClaimRef {
             claim_id: claim_id.clone(),
@@ -3269,9 +3294,7 @@ mod tests {
             created_at: Utc::now(),
             signature: KeyOperationSignature {
                 kid: NonEmptyString::new("did:webvh:z6mkfixture:owner.example#ssk-1").expect("kid"),
-                signature_algorithm: Some(
-                    NonEmptyString::new("Ed25519").expect("algorithm"),
-                ),
+                signature_algorithm: Some(NonEmptyString::new("Ed25519").expect("algorithm")),
                 sig: Base64UrlString::new("AQ").expect("signature"),
             },
         };
@@ -3318,9 +3341,11 @@ mod tests {
         let repair_scope = ScopeRef::Realm {
             realm_id: repair_realm_id.clone(),
         };
-        let strand_id =
-            arkret::StrandId::new("ak:strand:01904100-0000-7000-8000-000000000020".to_owned())
-                .unwrap();
+        let strand_event_id =
+            EventId::new("ak:event:01904100-0000-8000-8000-000000000021".to_owned()).unwrap();
+        // A Strand id is event-derived: it is retyped off its create Event, not
+        // chosen by the payload.
+        let strand_id = arkret::StrandId::from_event_id(&strand_event_id);
         let strand_payload = StrandCreatePayload {
             object: arkret::Strand::new(
                 strand_id.clone(),
@@ -3331,7 +3356,7 @@ mod tests {
             initial_relations: None,
         };
         let strand_event = arkret::Event::new_with_id_at(
-            EventId::new("ak:event:01904100-0000-7000-8000-000000000021".to_owned()).unwrap(),
+            strand_event_id,
             "ak.strand.create",
             repair_scope.clone(),
             repair_actor.clone(),
@@ -3342,7 +3367,7 @@ mod tests {
         )
         .unwrap();
         let welcome_event_id =
-            EventId::new("ak:event:01904100-0000-7000-8000-000000000022".to_owned()).unwrap();
+            EventId::new("ak:event:01904100-0000-8000-8000-000000000022".to_owned()).unwrap();
         let welcome_event = arkret::Event::new_with_id_at(
             welcome_event_id.clone(),
             "ak.mls.welcome",

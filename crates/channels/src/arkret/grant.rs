@@ -228,7 +228,7 @@ mod tests {
             "issuer_authority_refs".into(),
             json!([{
                 "kind": "realm_root",
-                "realm_id": realm.unwrap_or("ak:realm:01904100-0000-7000-8000-000000000001"),
+                "realm_id": realm.unwrap_or("ak:realm:01904100-0000-8000-8000-000000000001"),
                 "cell_ref": "ak:cell:01904100-0000-7000-8000-0000000000a1",
                 "controller_epoch_at_issuance": 1,
                 "authority_generation": 1
@@ -247,12 +247,12 @@ mod tests {
         content.insert("grant_id".into(), json!(grant_id));
         content.insert("grant".into(), serde_json::Value::Object(grant));
         let mut event = json!({
-            "event_id": "ak:event:01904100-0000-7000-8000-000000000def",
+            "event_id": "ak:event:01904100-0000-8000-8000-000000000def",
             "kind": "ak.capability.grant",
-            "realm_id": realm.unwrap_or("ak:realm:01904100-0000-7000-8000-000000000001"),
+            "realm_id": realm.unwrap_or("ak:realm:01904100-0000-8000-8000-000000000001"),
             "scope_ref": {
                 "kind": "realm",
-                "realm_id": realm.unwrap_or("ak:realm:01904100-0000-7000-8000-000000000001")
+                "realm_id": realm.unwrap_or("ak:realm:01904100-0000-8000-8000-000000000001")
             },
             "actor_id": issuer,
             "actor_seq": 1,
@@ -280,7 +280,7 @@ mod tests {
         let path = unique_path("valid");
         let ev = make_grant_event(
             "did:webvh:example.org:agents:support",
-            Some("ak:realm:01904100-0000-7000-8000-000000000001"),
+            Some("ak:realm:01904100-0000-8000-8000-000000000001"),
             "ak.message.create",
             None,
         );
@@ -293,7 +293,7 @@ mod tests {
         let grant = load_and_verify_grant(
             &path,
             "did:webvh:example.org:agents:support",
-            Some("ak:realm:01904100-0000-7000-8000-000000000001"),
+            Some("ak:realm:01904100-0000-8000-8000-000000000001"),
         )
         .await
         .expect("load");
@@ -308,7 +308,7 @@ mod tests {
         let path = unique_path("subj");
         let ev = make_grant_event(
             "did:webvh:example.org:agents:other",
-            Some("ak:realm:01904100-0000-7000-8000-000000000001"),
+            Some("ak:realm:01904100-0000-8000-8000-000000000001"),
             "ak.message.create",
             None,
         );

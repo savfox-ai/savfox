@@ -139,7 +139,7 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
 
 #[cfg(test)]
 mod tests {
-    use arkret::{Did, Hlc, RealmId, ScopeRef, new_prefixed_uuid7};
+    use arkret::{Did, Hlc, RealmId, ScopeRef};
     use serde_json::json;
 
     use super::*;
@@ -195,7 +195,9 @@ mod tests {
     }
 
     fn make_event(actor: &str, realm_id: &str, kind: &str, content: serde_json::Value) -> Event {
-        let mut ev = Event::new(
+        // `Event::new` derives `event_id` from the Event's own content; an id
+        // can no longer be minted for it.
+        Event::new(
             kind,
             ScopeRef::Realm {
                 realm_id: realm(realm_id),
@@ -205,16 +207,12 @@ mod tests {
             hlc(),
             content,
         )
-        .expect("event new");
-        // Replace event_id with a predictable one for tests by minting a fresh uuidv7.
-        let ev_id_s = new_prefixed_uuid7("ak:event:");
-        ev.event_id = arkret::EventId::new(ev_id_s).expect("event id");
-        ev
+        .expect("event new")
     }
 
     fn text_content(body: &str) -> serde_json::Value {
         json!({
-            "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
+            "strand_id": "ak:strand:01904100-0000-8000-8000-000000000001",
             "track_name": "discussion",
             "content": { "kind": "ak.content.text", "body": body },
         })
@@ -224,7 +222,7 @@ mod tests {
     fn dispatches_text_message_in_realm_namespace() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-7000-8000-000000000123",
+            "ak:realm:01904100-0000-8000-8000-000000000123",
             "ak.message.create",
             text_content("hello"),
         );
@@ -233,14 +231,14 @@ mod tests {
             AppletEventOutcome::Dispatch(cmd) => {
                 assert_eq!(
                     cmd.realm_id,
-                    "ak:realm:01904100-0000-7000-8000-000000000123"
+                    "ak:realm:01904100-0000-8000-8000-000000000123"
                 );
                 assert!(matches!(cmd.body.as_str(), "hello"));
                 assert_eq!(cmd.sender_did, "did:webvh:acme:alice");
                 assert_eq!(cmd.body, "hello");
                 assert_eq!(
                     cmd.strand_id,
-                    "ak:strand:01904100-0000-7000-8000-000000000001"
+                    "ak:strand:01904100-0000-8000-8000-000000000001"
                 );
             }
             other => panic!("expected Dispatch, got {other:?}"),
@@ -251,7 +249,7 @@ mod tests {
     fn skips_events_outside_realm_namespace() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "ak:realm:99999999-0000-7000-8000-000000000abc",
+            "ak:realm:99999999-0000-8000-8000-000000000abc",
             "ak.message.create",
             text_content("hi"),
         );
@@ -266,7 +264,7 @@ mod tests {
     fn skips_loopback_from_ghost_actor() {
         let ev = make_event(
             "did:web:bridge.example:ghost:u1",
-            "ak:realm:01904100-0000-7000-8000-000000000456",
+            "ak:realm:01904100-0000-8000-8000-000000000456",
             "ak.message.create",
             text_content("loopback"),
         );
@@ -281,7 +279,7 @@ mod tests {
     fn skips_loopback_from_bot() {
         let ev = make_event(
             "did:web:bridge.example:bot",
-            "ak:realm:01904100-0000-7000-8000-000000000456",
+            "ak:realm:01904100-0000-8000-8000-000000000456",
             "ak.message.create",
             text_content("loopback"),
         );
@@ -296,10 +294,10 @@ mod tests {
     fn skips_non_text_content() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-7000-8000-000000000456",
+            "ak:realm:01904100-0000-8000-8000-000000000456",
             "ak.message.create",
             json!({
-                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
+                "strand_id": "ak:strand:01904100-0000-8000-8000-000000000001",
                 "track_name": "discussion",
                 "content": { "kind": "ak.content.image", "ref": "ak:blob:..." }
             }),
@@ -315,10 +313,10 @@ mod tests {
     fn skips_encrypted_content_block() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-7000-8000-000000000456",
+            "ak:realm:01904100-0000-8000-8000-000000000456",
             "ak.message.create",
             json!({
-                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
+                "strand_id": "ak:strand:01904100-0000-8000-8000-000000000001",
                 "track_name": "discussion",
                 "content": { "kind": "ak.content.encrypted", "body": "" }
             }),
@@ -334,10 +332,10 @@ mod tests {
     fn skips_spec_encrypted_content_carrier() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-7000-8000-000000000456",
+            "ak:realm:01904100-0000-8000-8000-000000000456",
             "ak.message.create",
             json!({
-                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000001",
+                "strand_id": "ak:strand:01904100-0000-8000-8000-000000000001",
                 "track_name": "discussion",
                 "encrypted_content": {
                     "scheme": "mls_rfc9420",
@@ -356,7 +354,7 @@ mod tests {
     fn skips_empty_body() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-7000-8000-000000000456",
+            "ak:realm:01904100-0000-8000-8000-000000000456",
             "ak.message.create",
             text_content("   "),
         );
@@ -371,7 +369,7 @@ mod tests {
     fn skips_non_message_kind() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-7000-8000-000000000456",
+            "ak:realm:01904100-0000-8000-8000-000000000456",
             "ak.strand.create",
             json!({"title": "irrelevant"}),
         );

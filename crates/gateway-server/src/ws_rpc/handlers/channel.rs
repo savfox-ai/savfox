@@ -4251,6 +4251,19 @@ mod tests {
         })
     }
 
+    /// The only verificationMethod a paired Agent may carry: the runtime key is
+    /// bound to the device id derived from principal + pairing request.
+    #[cfg(feature = "arkret")]
+    fn sdk_agent_verification_method() -> String {
+        format!(
+            "did:webvh:example.org:agents:support#{}",
+            savfox_channels::arkret::derive_arkret_device_id(&[
+                "did:webvh:example.org:agents:support",
+                "agent_pairing_request:01904100-0000-7000-8000-000000000001",
+            ])
+        )
+    }
+
     #[cfg(feature = "arkret")]
     #[test]
     fn arkret_pairing_resolver_target_accepts_fragment_link() {
@@ -4379,20 +4392,9 @@ mod tests {
                 "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
-                "requestedScope": [
-                    "ak.self.events.stream.subscribe",
-                    "ak.self.events.query.scan",
-                    "ak.self.events.command.submit",
-                    "ak.self.keys.keypackages.upload.create",
-                    "ak.self.keys.keypackages.command.consume",
-                    "ak.self.keys.keypackages.command.revoke",
-                    "ak.self.device_messages.query.list",
-                    "ak.self.device_messages.command.ack",
-                    "ak.event.read",
-                    "ak.message.create"
-                ]
+                "verificationMethod": sdk_agent_verification_method(),
+                "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
+                "requestedScope": savfox_channels::arkret::DEFAULT_AGENT_RUNTIME_SCOPE
             }),
         );
         let missing_authorization = channel_config(
@@ -4430,7 +4432,7 @@ mod tests {
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
+                "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
                 "requestedScope": ["ak.event.read", "ak.message.create"],
                 "listen": true,
                 "send": false
@@ -4452,20 +4454,9 @@ mod tests {
                 "inksonBootstrap": sdk_inkson_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
-                "requestedScope": [
-                    "ak.self.events.stream.subscribe",
-                    "ak.self.events.query.scan",
-                    "ak.self.events.command.submit",
-                    "ak.self.keys.keypackages.upload.create",
-                    "ak.self.keys.keypackages.command.consume",
-                    "ak.self.keys.keypackages.command.revoke",
-                    "ak.self.device_messages.query.list",
-                    "ak.self.device_messages.command.ack",
-                    "ak.event.read",
-                    "ak.message.create"
-                ]
+                "verificationMethod": sdk_agent_verification_method(),
+                "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
+                "requestedScope": savfox_channels::arkret::DEFAULT_AGENT_RUNTIME_SCOPE
             }),
         );
         let state = SavedChannelState {
@@ -4485,12 +4476,9 @@ mod tests {
         assert_eq!(info["runtime_ready"], false);
         assert_eq!(
             info["authorized_event_ref"],
-            "ak:event:01904100-0000-7000-8000-000000000099"
+            "ak:event:01904100-0000-8000-8000-000000000099"
         );
-        assert_eq!(
-            info["verification_method"],
-            "did:webvh:example.org:agents:support#runtime-1"
-        );
+        assert_eq!(info["verification_method"], sdk_agent_verification_method());
         assert_eq!(
             info["runtime_scope_count"],
             savfox_channels::arkret::DEFAULT_AGENT_RUNTIME_SCOPE.len()

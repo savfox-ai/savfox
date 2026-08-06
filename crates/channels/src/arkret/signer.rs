@@ -370,12 +370,12 @@ mod tests {
             )
             .unwrap(),
             recipient_service_id: arkret::Did::new("did:webvh:example.org:service").unwrap(),
-            realm_id: arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001")
+            realm_id: arkret::RealmId::new("ak:realm:01904100-0000-8000-8000-000000000001")
                 .unwrap(),
             mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
             mls_epoch: 3,
             welcome_ref: arkret::NonEmptyString::new(
-                "ak:event:01904100-0000-7000-8000-000000000002",
+                "ak:event:01904100-0000-8000-8000-000000000002",
             )
             .unwrap(),
             welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
@@ -383,9 +383,7 @@ mod tests {
             device_verification_method: arkret::NonEmptyString::new(TEST_VM).unwrap(),
             signature: arkret::KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(TEST_VM).unwrap(),
-                signature_algorithm: Some(
-                    arkret::NonEmptyString::new("Ed25519").unwrap(),
-                ),
+                signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
                 sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
             },
         }
@@ -508,7 +506,7 @@ mod tests {
             .unwrap(),
             claim_ids: vec![arkret::NonEmptyString::new("ak:claim:fixture").unwrap()],
             welcome_ref: arkret::NonEmptyString::new(
-                "ak:event:01904100-0000-7000-8000-000000000002",
+                "ak:event:01904100-0000-8000-8000-000000000002",
             )
             .unwrap(),
             recipient_durable_receipt: test_recipient_durable_receipt(),

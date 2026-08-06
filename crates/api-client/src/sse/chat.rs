@@ -319,6 +319,15 @@ pub async fn process_chat_sse<S>(
                     };
                     let _ = tx_event.send(Ok(ResponseEvent::OutputItemDone(item))).await;
                 }
+
+                // A delta may carry assistant text alongside the tool calls.
+                // Without this the text streamed out as deltas but never
+                // reached a finished item, so it vanished from the turn.
+                if let Some(assistant) = assistant_item.take() {
+                    let _ = tx_event
+                        .send(Ok(ResponseEvent::OutputItemDone(assistant)))
+                        .await;
+                }
             }
         }
 

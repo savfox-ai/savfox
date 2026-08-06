@@ -714,7 +714,7 @@ impl ArkretExecutionBindingStore {
                     .as_ref()
                     .map(|error| (item.updated_at, error, item.next_attempt_at))
             })
-            .max_by_key(|(updated_at, _, _)| *updated_at);
+            .max_by_key(|(updated_at, ..)| *updated_at);
         Ok(Some(serde_json::json!({
             "bindingId": binding.binding_id,
             "mode": binding.mode,

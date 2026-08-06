@@ -705,7 +705,7 @@ mod tests {
         let pending = serde_json::from_value::<IdleReplyPendingStatus>(serde_json::json!({
             "session_id": "session-1",
             "agent_id": "default",
-            "outbound_channel": "arkret:ak:realm:01904100-0000-7000-8000-000000000001",
+            "outbound_channel": "arkret:ak:realm:01904100-0000-8000-8000-000000000001",
             "delay_secs": 60,
             "scheduled_at_ms": 1,
             "deadline_at_ms": 61_000,

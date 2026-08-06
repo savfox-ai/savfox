@@ -264,7 +264,7 @@ mod tests {
             .expect("session entry should exist");
         assert_eq!(entry.model.as_deref(), Some("openai/gpt-4.1"));
         assert_eq!(entry.provider.as_deref(), Some("openai"));
-        assert_eq!(entry.thread_id.as_deref(), Some(thread_id.as_str()));
+        assert_eq!(entry.core_thread_id.as_deref(), Some(thread_id.as_str()));
         assert_eq!(entry.session_file.as_deref(), Some(session_id.as_str()));
         assert_eq!(entry.input_tokens, 11);
         assert_eq!(entry.output_tokens, 7);
