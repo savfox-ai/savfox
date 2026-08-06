@@ -16,7 +16,7 @@ use super::crypto_state::{
     extract_encrypted_metadata_payload_from_message_content,
     extract_encrypted_payload_from_message_content, message_content_has_encrypted_carrier,
 };
-use super::sidecar::SidecarExchangeContext;
+use super::sidecar::{SidecarExchangeContext, SidecarRequestOrdering};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArkretInboundEvent {
@@ -67,6 +67,12 @@ pub struct ArkretInboundSkippedEvent {
     /// `encrypted_content`); its plaintext may hold the Sidecar exchange
     /// binding (`message_metadata.sidecar_exchange_binding`).
     pub encrypted_metadata_payload: Option<arkret::EncryptedPayload>,
+    /// Canonical-request ordering keys read from the Event envelope
+    /// (`zh/models/sidecar.md` §7.2.1: smallest `actor_seq`, then
+    /// bytewise-maximum `event_digest`). Present whenever the envelope parsed;
+    /// absent for malformed events and Notification projections, which can
+    /// therefore never admit a Sidecar request.
+    pub request_ordering: Option<SidecarRequestOrdering>,
     pub reason: ArkretInboundSkipReason,
 }
 
@@ -84,6 +90,12 @@ pub enum ArkretInboundSkipReason {
     /// does not contain this account's principal: the request is treated as
     /// nonexistent — no execution, no error (`zh/models/sidecar.md` §7.2.2).
     SidecarNotAddressed,
+    /// `ak.agent.sidecar.exchange.control` delivered on a private Strand this
+    /// runtime is an MLS member of. It is never dispatched to the agent, but
+    /// it is the only source of terminal exchange state (§7.2.3), so the
+    /// gateway decrypts and folds it instead of discarding it as a non-message
+    /// kind.
+    SidecarExchangeControl,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,11 +142,16 @@ pub fn classify_message_event(event: &Value, account_id: &str) -> ArkretInboundE
                 ArkretInboundSkipReason::KindNotMessageCreate,
             ),
         },
-        Ok(DecodedInbound::Event(event_envelope)) => skip_sdk_event(
-            &event_envelope,
-            account_id,
-            ArkretInboundSkipReason::KindNotMessageCreate,
-        ),
+        Ok(DecodedInbound::Event(event_envelope)) => {
+            if event_envelope.kind == arkret::EventKind::AgentSidecarExchangeControl {
+                return classify_sidecar_exchange_control(&event_envelope, account_id);
+            }
+            skip_sdk_event(
+                &event_envelope,
+                account_id,
+                ArkretInboundSkipReason::KindNotMessageCreate,
+            )
+        }
         Err(_) if message_content_has_encrypted_carrier(&event_envelope.payload) => {
             skip_encrypted_sdk_event(&event_envelope, account_id)
         }
@@ -312,6 +329,7 @@ pub fn parse_delta_frame_for_account(
                             reply_to: parsed.thread_root_id.clone(),
                             encrypted_payload: None,
                             encrypted_metadata_payload: None,
+                            request_ordering: None,
                             reason,
                         });
                     } else {
@@ -359,6 +377,7 @@ pub fn parse_notification_delta_for_account(
                         reply_to: parsed.thread_root_id.clone(),
                         encrypted_payload: None,
                         encrypted_metadata_payload: None,
+                        request_ordering: None,
                         reason,
                     });
                 } else {
@@ -532,7 +551,54 @@ fn skip_event(
         reply_to: None,
         encrypted_payload: None,
         encrypted_metadata_payload: None,
+        request_ordering: None,
         reason,
+    }))
+}
+
+/// Read the §7.2.1 canonical-request ordering keys off an Event envelope.
+///
+/// The digest is recomputed from the envelope rather than read from any
+/// payload field, so a producer cannot bias the sibling tie-break. A digest
+/// that cannot be computed yields `None`, which makes the request unadmittable.
+fn request_ordering_from_event(event: &arkret::Event) -> Option<SidecarRequestOrdering> {
+    Some(SidecarRequestOrdering {
+        actor_seq: event.actor_seq,
+        event_digest: event.event_digest().ok()?,
+    })
+}
+
+/// `ak.agent.sidecar.exchange.control` carries only private-Strand routing and
+/// ciphertext on the wire (§7.2.3). Surface both so the gateway can decrypt and
+/// fold it; the plaintext never reaches the agent pipeline.
+fn classify_sidecar_exchange_control(
+    event: &arkret::Event,
+    account_id: &str,
+) -> ArkretInboundEventOutcome {
+    let payload: Option<arkret::AgentSidecarExchangeControlPayload> =
+        serde_json::to_value(&event.payload)
+            .ok()
+            .and_then(|value| serde_json::from_value(value).ok());
+    let (strand_id, encrypted_payload) = match payload {
+        Some(payload) => (
+            Some(payload.strand_id.as_str().to_owned()),
+            arkret::mls::encrypted_envelope_to_payload(&payload.encrypted_payload).ok(),
+        ),
+        None => (None, None),
+    };
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
+        account_id: account_id.to_owned(),
+        event_id: Some(event.event_id.as_str().to_owned()),
+        realm_id: Some(event.realm_id.as_str().to_owned()),
+        chat_type: None,
+        participant_count: None,
+        sender_did: Some(event.actor_id.as_str().to_owned()),
+        strand_id,
+        reply_to: None,
+        encrypted_payload,
+        encrypted_metadata_payload: None,
+        request_ordering: request_ordering_from_event(event),
+        reason: ArkretInboundSkipReason::SidecarExchangeControl,
     }))
 }
 
@@ -552,6 +618,7 @@ fn skip_sdk_event(
         reply_to: None,
         encrypted_payload: None,
         encrypted_metadata_payload: None,
+        request_ordering: request_ordering_from_event(event),
         reason,
     }))
 }
@@ -575,6 +642,7 @@ fn skip_notification(
         reply_to: None,
         encrypted_payload: None,
         encrypted_metadata_payload: None,
+        request_ordering: None,
         reason,
     }))
 }
@@ -596,6 +664,7 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
         encrypted_metadata_payload: extract_encrypted_metadata_payload_from_message_content(
             &event.payload,
         ),
+        request_ordering: request_ordering_from_event(event),
         reason: ArkretInboundSkipReason::EncryptedContent,
     }))
 }
@@ -616,16 +685,17 @@ mod tests {
             verification_method: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
+            controller_id: Some("did:webvh:example.org:users:alice".into()),
             requested_scope: vec!["ak.event.read".into()],
             listen: true,
             send: true,
         }
     }
 
-    const REALM_1: &str = "ak:realm:01904100-0000-7000-8000-000000000001";
-    const REALM_2: &str = "ak:realm:01904100-0000-7000-8000-000000000002";
-    const STRAND_1: &str = "ak:strand:01904100-0000-7000-8000-000000000011";
-    const STRAND_2: &str = "ak:strand:01904100-0000-7000-8000-000000000012";
+    const REALM_1: &str = "ak:realm:01904100-0000-8000-8000-000000000001";
+    const REALM_2: &str = "ak:realm:01904100-0000-8000-8000-000000000002";
+    const STRAND_1: &str = "ak:strand:01904100-0000-8000-8000-000000000011";
+    const STRAND_2: &str = "ak:strand:01904100-0000-8000-8000-000000000012";
 
     fn message_event(actor: &str, body: &str) -> Value {
         message_event_in_realm(REALM_1, actor, STRAND_1, body)

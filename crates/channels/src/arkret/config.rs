@@ -12,8 +12,8 @@ use super::signer::{ArkretKeyRef, ed25519_runtime_public_key, load_ed25519_signi
 
 pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
-    "ak.self.events.query.scan",
-    "ak.self.events.query.frontier",
+    "ak.self.events.read.scan",
+    "ak.self.events.read.frontier",
     "ak.self.events.command.submit",
     "ak.self.keys.keypackages.upload.create",
     "ak.self.keys.keypackages.command.consume",
@@ -27,8 +27,8 @@ pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
 
 const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
-    "ak.self.events.query.scan",
-    "ak.self.events.query.frontier",
+    "ak.self.events.read.scan",
+    "ak.self.events.read.frontier",
     "ak.self.keys.keypackages.upload.create",
     "ak.self.keys.keypackages.command.consume",
     "ak.self.keys.keypackages.command.revoke",
@@ -97,6 +97,16 @@ pub struct ArkretAccountConfig {
     /// Durable `ak.agent.key.authorize` reference proving the runtime key has
     /// been approved by the controller.
     pub authorized_event_ref: Option<String>,
+    /// DID of the controller that owns this Agent principal.
+    ///
+    /// A Native Personal Agent has exactly one controller and that ownership
+    /// is immutable provisioning state (`zh/models/sidecar.md` §4), so it
+    /// belongs with the other immutable runtime identity facts here rather
+    /// than being re-derived per Event. It is required by the Sidecar
+    /// consumption gate: §7.2.1 makes a `role=request` binding carried by a
+    /// non-controller actor wholly invalid, and without this value the gate
+    /// fails closed instead of trusting the Event actor.
+    pub controller_id: Option<String>,
     /// Requested service/content runtime scope saved as typed list.
     pub requested_scope: Vec<String>,
     pub listen: bool,
@@ -135,6 +145,7 @@ impl ArkretChannelConfig {
             "keyRef",
             "verificationMethod",
             "authorizedEventRef",
+            "controllerId",
             "requestedScope",
             "deliveryMode",
         ];
@@ -250,6 +261,7 @@ impl ArkretChannelConfig {
                 .get("authorizedEventRef")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
+            controller_id: parse_controller_id(raw),
             requested_scope: parse_string_list(raw.get("requestedScope")),
             listen: true,
             send: true,
@@ -623,6 +635,24 @@ fn derive_agent_runtime_account_id(
     format!("{channel_id}-{}", &digest[..24])
 }
 
+/// Read the controller DID from the saved account slot.
+///
+/// Both spellings are accepted because the Arkret channel config already mixes
+/// camelCase UI keys with snake_case protocol keys. A value that is not a
+/// well-formed DID is dropped rather than stored, so the Sidecar gate fails
+/// closed instead of comparing Event actors against a malformed string.
+fn parse_controller_id(raw: &serde_json::Map<String, Value>) -> Option<String> {
+    let value = raw
+        .get("controllerId")
+        .or_else(|| raw.get("controller_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    arkret::Did::new(value.to_owned())
+        .ok()
+        .map(|did| did.to_string())
+}
+
 fn parse_string_list(value: Option<&Value>) -> Vec<String> {
     match value {
         None => Vec::new(),
@@ -895,7 +925,7 @@ mod strict_tests {
                     "account": "runtime-bb"
                 },
                 "verificationMethod": format!("{principal_id}#{device_id}"),
-                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
+                "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
                 "requestedScope": scope
             }),
             router: None,
@@ -987,7 +1017,7 @@ mod strict_tests {
     #[test]
     fn interactive_agent_scope_requires_reply_submission_and_presence() {
         for required_action in [
-            "ak.self.events.query.frontier",
+            "ak.self.events.read.frontier",
             "ak.self.events.command.submit",
             "ak.self.signal.command.send",
         ] {
@@ -1109,7 +1139,9 @@ mod strict_tests {
             build_arkret_runtime_key_status_request_json(account).expect("status request");
         let submit = build_arkret_runtime_key_request_json(
             account,
-            "2026-07-25T08:55:35.700Z".parse::<DateTime<Utc>>().expect("now"),
+            "2026-07-25T08:55:35.700Z"
+                .parse::<DateTime<Utc>>()
+                .expect("now"),
         )
         .expect("submit request");
         let validated = arkret_signatures::agent::validate_agent_runtime_public_key(
@@ -1135,11 +1167,9 @@ mod strict_tests {
             value: STANDARD_NO_PAD.encode([7_u8; 32]),
         };
         let verification_method = "did:webvh:example.org:agents:bb#ak:device:test";
-        let public_key = super::super::signer::ed25519_runtime_public_key(
-            &key_ref,
-            verification_method,
-        )
-        .expect("runtime public key");
+        let public_key =
+            super::super::signer::ed25519_runtime_public_key(&key_ref, verification_method)
+                .expect("runtime public key");
 
         let rendered = serde_json::to_value(&public_key).expect("serialize");
         assert_eq!(rendered["kty"], json!("OKP"));
@@ -1159,7 +1189,7 @@ mod strict_tests {
         ));
         let error = resolve_arkret_outbound_account_for_config(
             &home,
-            "ak:realm:01904100-0000-7000-8000-000000000001",
+            "ak:realm:01904100-0000-8000-8000-000000000001",
             None,
         )
         .await
@@ -1184,7 +1214,7 @@ mod strict_tests {
 
         let (_, account) = resolve_arkret_outbound_account_for_binding(
             &home,
-            "ak:realm:01904100-0000-7000-8000-000000000001",
+            "ak:realm:01904100-0000-8000-8000-000000000001",
             Some("arkret-agent"),
             Some(&expected.id),
         )
@@ -1195,7 +1225,7 @@ mod strict_tests {
 
         let error = resolve_arkret_outbound_account_for_binding(
             &home,
-            "ak:realm:01904100-0000-7000-8000-000000000001",
+            "ak:realm:01904100-0000-8000-8000-000000000001",
             Some("arkret-agent"),
             Some("different-account"),
         )
@@ -1220,7 +1250,7 @@ mod strict_tests {
 
         let error = resolve_arkret_outbound_account_for_config(
             &home,
-            "ak:realm:01904100-0000-7000-8000-000000000001",
+            "ak:realm:01904100-0000-8000-8000-000000000001",
             Some("arkret-agent"),
         )
         .await
@@ -1340,7 +1370,7 @@ mod tests {
                     ),
                     "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_SUPPORT_KEY" },
                     "verificationMethod": "did:webvh:example.org:agents:support-1#runtime-1",
-                    "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000001",
+                    "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000001",
                     "listen": true,
                     "send": true
                 },
@@ -1355,7 +1385,7 @@ mod tests {
                     ),
                     "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_BILLING_KEY" },
                     "verificationMethod": "did:webvh:example.org:agents:billing-1#runtime-1",
-                    "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000002",
+                    "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000002",
                     "listen": true,
                     "send": false
                 }
@@ -1386,7 +1416,7 @@ mod tests {
             ),
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:bot#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000010"
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000010"
         }));
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
         assert_eq!(parsed.accounts.len(), 1);
@@ -1413,8 +1443,8 @@ mod tests {
             },
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
-            "defaultRealmId": "ak:realm:01904100-0000-7000-8000-000000000001",
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
+            "defaultRealmId": "ak:realm:01904100-0000-8000-8000-000000000001",
             "agentId": "support"
         }));
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
@@ -1429,7 +1459,7 @@ mod tests {
         assert_eq!(account.principal_id, "did:webvh:example.org:agents:support");
         assert_eq!(
             account.authorized_event_ref.as_deref(),
-            Some("ak:event:01904100-0000-7000-8000-000000000099")
+            Some("ak:event:01904100-0000-8000-8000-000000000099")
         );
         assert!(account.key_ref.is_some());
         assert_eq!(
@@ -1502,7 +1532,7 @@ mod tests {
             ),
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:bot#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000010"
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000010"
         }));
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
         let again = ArkretChannelConfig::from_channel_config(&cfg).expect("parse again");
@@ -1525,7 +1555,7 @@ mod tests {
             "deviceId": "ak:device:bot-1",
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:bot#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000010"
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000010"
         }));
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
         let err = parsed.validate().expect_err("bad device id should fail");
@@ -1565,7 +1595,7 @@ mod tests {
                 "123456"
             ),
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099"
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099"
         }));
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
         let err = parsed
@@ -1588,7 +1618,7 @@ mod tests {
             "principalId": "did:webvh:example.org:agents:support",
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
             "requestedScope": ["ak.event.read", "ak.message.create"],
             "listen": true,
             "send": false
@@ -1613,7 +1643,7 @@ mod tests {
             "principalId": "did:webvh:example.org:agents:support",
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
             "requestedScope": ["ak.event.read", "ak.message.create"],
             "listen": false,
             "send": true
@@ -1679,7 +1709,7 @@ mod tests {
                     ),
                     "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_A_KEY" },
                     "verificationMethod": "did:webvh:a#runtime-1",
-                    "authorizedEventRef": "ak:event:01904100-0000-7000-8000-0000000000a1"
+                    "authorizedEventRef": "ak:event:01904100-0000-8000-8000-0000000000a1"
                 },
                 {
                     "id":"b",
@@ -1692,7 +1722,7 @@ mod tests {
                     ),
                     "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_B_KEY" },
                     "verificationMethod": "did:webvh:b#runtime-1",
-                    "authorizedEventRef": "ak:event:01904100-0000-7000-8000-0000000000b2"
+                    "authorizedEventRef": "ak:event:01904100-0000-8000-8000-0000000000b2"
                 }
             ]
         }));
@@ -1716,7 +1746,7 @@ mod tests {
             ),
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_FIRST_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:first#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-0000000000a1"
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-0000000000a1"
         }));
         first.id = "arkret-first".into();
         first.slug = "first".into();
@@ -1732,7 +1762,7 @@ mod tests {
             ),
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_SECOND_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:second#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-0000000000b2"
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-0000000000b2"
         }));
         second.id = "arkret-second".into();
         second.slug = "second".into();
@@ -1747,7 +1777,7 @@ mod tests {
 
         let (channel, account) = resolve_arkret_outbound_account_for_config(
             &savfox_home,
-            "ak:realm:01904100-0000-7000-8000-000000000001",
+            "ak:realm:01904100-0000-8000-8000-000000000001",
             Some("arkret-second"),
         )
         .await
@@ -1774,7 +1804,7 @@ mod tests {
             ),
             "keyRef": { "kind": "inline_seed_base64", "value": seed },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-            "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099"
+            "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099"
         }));
         let parsed = ArkretChannelConfig::from_channel_config(&cfg).expect("parse");
         let request = build_arkret_runtime_key_request_json(

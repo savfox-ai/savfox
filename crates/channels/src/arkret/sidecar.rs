@@ -7,14 +7,15 @@
 //! closed: the Event is handled as an ordinary private message and never as an
 //! exchange participant.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::Context;
 use arkret::{
-    AgentSidecarEventExchangeBinding, AgentSidecarExchangeBindingRole, AgentSidecarExchangeId,
-    EventId, MessageMetadata,
+    AgentSidecarEventExchangeBinding, AgentSidecarExchangeBindingRole, AgentSidecarExchangeControl,
+    AgentSidecarExchangeControlAction, AgentSidecarExchangeId, EventId, MessageMetadata,
 };
 use serde_json::Value;
 
@@ -61,6 +62,11 @@ pub enum SidecarRequestGate {
     /// the Event is not an executable Sidecar request. Response/internal
     /// bindings produced by other Agents also land here.
     NotARequest,
+    /// The Event carrying the request binding was not authored by this
+    /// runtime's controller. §7.2.1: "非 controller actor 携带的 request
+    /// binding 整体无效" — a sibling Agent of the same backing Circle can
+    /// decrypt the Event but can never drive this runtime with it.
+    NotController,
     /// A valid request binding whose `addressed_agent_ids` does not contain
     /// this runtime's principal. The request must be treated as nonexistent:
     /// no execution, no shared error (§7.2.2).
@@ -69,17 +75,26 @@ pub enum SidecarRequestGate {
     Addressed(SidecarExchangeContext),
 }
 
-/// Apply the §7.2.2 pre-execution checks that are decidable from the binding
-/// alone: `role == request` with a valid closed `request_context`, and this
-/// runtime's principal being a member of `addressed_agent_ids`.
+/// Apply the §7.2.1/§7.2.2 pre-execution checks that are decidable from the
+/// binding and the Event envelope alone: `role == request` with a valid closed
+/// `request_context`, the Event actor being this runtime's controller, and
+/// this runtime's principal being a member of `addressed_agent_ids`.
+///
+/// Identity matching is bit-identical throughout; DIDs are never case-folded.
 #[must_use]
 pub fn gate_inbound_request_binding(
     binding: &AgentSidecarEventExchangeBinding,
     request_event_id: &str,
+    request_event_actor_id: &str,
+    controller_id: &str,
     principal_id: &str,
 ) -> SidecarRequestGate {
     if binding.role != AgentSidecarExchangeBindingRole::Request {
         return SidecarRequestGate::NotARequest;
+    }
+    let controller = controller_id.trim();
+    if controller.is_empty() || request_event_actor_id.trim() != controller {
+        return SidecarRequestGate::NotController;
     }
     // `MessageMetadata::sidecar_exchange_binding` already validated, but the
     // gate re-validates so it stays fail-closed for any caller.
@@ -109,20 +124,109 @@ pub fn gate_inbound_request_binding(
     })
 }
 
+/// Ordering keys that decide which request Event is the **canonical** request
+/// of one scoped exchange id (`zh/models/sidecar.md` §7.2.1): the surviving
+/// Event with the smallest `actor_seq` in the controller's accepted actor
+/// chain, and on a same-sequence sibling the bytewise-maximum `event_digest`.
+///
+/// `event_digest` is the SDK wire form `"<suite>:<lowercase hex>"`. Both
+/// operands of a sibling comparison come from the same Realm digest suite, so
+/// comparing the encoded strings bytewise is order-isomorphic to comparing the
+/// decoded digest bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidecarRequestOrdering {
+    pub actor_seq: u64,
+    pub event_digest: String,
+}
+
+impl SidecarRequestOrdering {
+    /// Whether `self` wins the §7.2.1 canonical-request contest against
+    /// `other`. Equal keys never supersede: an identical ordering pair from a
+    /// different Event id is an unresolvable candidate, not a winner.
+    #[must_use]
+    fn supersedes(&self, other: &Self) -> bool {
+        match self.actor_seq.cmp(&other.actor_seq) {
+            Ordering::Less => true,
+            Ordering::Greater => false,
+            Ordering::Equal => self.event_digest.as_bytes() > other.event_digest.as_bytes(),
+        }
+    }
+}
+
+/// Fail-closed §7.2.3 consumer validation of one decrypted
+/// `ak.agent.sidecar.exchange.control` plaintext.
+///
+/// Checks the parts that are decidable from the plaintext and the Event
+/// envelope: closed `ak.schema.agent_sidecar_exchange_control.v1` validation,
+/// the Event actor being the Sidecar controller (Agent-authored control is
+/// always invalid), and the outer payload `strand_id` matching the private
+/// Strand the control was delivered on. The remaining consumer duty —
+/// `request_event_id` being the canonical request of the same `exchange_id` —
+/// belongs to [`SidecarExchangeStore::record_terminal_control`], which owns
+/// that mapping.
+///
+/// Any failure yields `None`; the Event is then retained as ordinary private
+/// history and never folded.
+#[must_use]
+pub fn gate_inbound_exchange_control(
+    plaintext: &Value,
+    payload_strand_id: &str,
+    delivered_strand_id: &str,
+    control_event_actor_id: &str,
+    controller_id: &str,
+) -> Option<AgentSidecarExchangeControl> {
+    let controller = controller_id.trim();
+    if controller.is_empty() || control_event_actor_id.trim() != controller {
+        return None;
+    }
+    if payload_strand_id.is_empty() || payload_strand_id != delivered_strand_id {
+        return None;
+    }
+    let control: AgentSidecarExchangeControl = serde_json::from_value(plaintext.clone()).ok()?;
+    control.validate().ok()?;
+    Some(control)
+}
+
 /// Result of durably observing one scoped Sidecar request identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidecarExchangeAdmission {
-    /// First observation of this scoped exchange id; the identity audit is now
-    /// durable. This does not authorize execution.
+    /// First observation of this scoped exchange id; it is by definition the
+    /// canonical request so far and the identity audit is now durable. This
+    /// does not by itself authorize execution — the remaining §7.2.2 gates
+    /// still apply.
     Recorded,
     /// The identical mapping already exists (for example after a runtime
     /// restart). It is an exact replay and must not execute again.
     AlreadyObserved,
     /// The scoped exchange id is already mapped to a **different** request
-    /// Event id.
-    /// §7.2.1: fail closed — never execute a second time for the same
-    /// exchange id, even when body or `request_context` differ.
-    Conflict { existing_request_event_id: String },
+    /// Event id. §7.2.1: fail closed — never execute a second time for the
+    /// same exchange id, even when body or `request_context` differ. The
+    /// canonical winner is still recomputed and persisted for audit, so the
+    /// returned id may be the Event just observed.
+    Conflict { canonical_request_event_id: String },
+    /// A valid terminal control Event has already closed this exchange
+    /// (§7.2.3). No new request may execute, and the exchange is not
+    /// implicitly reopened.
+    Terminal { control_event_id: String },
+}
+
+/// Result of durably folding one valid terminal control Event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidecarTerminalAdmission {
+    /// First valid terminal control for this exchange; it absorbs the terminal
+    /// state (§7.2.3: the first valid terminal control wins).
+    Recorded,
+    /// A terminal control was already folded. Later controls are ignored and
+    /// MUST NOT change the projection.
+    AlreadyTerminal { control_event_id: String },
+    /// The control references a request Event id that is not the canonical
+    /// request of this scoped exchange, or the exchange was never observed.
+    /// Fail closed: the control is not folded.
+    NotCanonicalRequest,
+    /// `reassign_coordinator`, which never changes terminal state. Coordinator
+    /// identity reaches this runtime through the request binding it already
+    /// verified, so there is nothing durable to fold.
+    NotTerminal,
 }
 
 /// Durable request-identity audit, one local file per account scope (sibling
@@ -164,9 +268,33 @@ impl Default for SidecarExchangeFile {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SidecarExchangeRecord {
-    request_event_id: String,
+    /// Winner of the §7.2.1 canonical-request contest across every request
+    /// Event observed for this scoped exchange id.
+    canonical_request_event_id: String,
+    canonical_actor_seq: u64,
+    canonical_event_digest: String,
+    /// The request Event this runtime actually admitted for execution. It is
+    /// the first Event admitted and never changes, so a later-arriving
+    /// canonical request cannot cause a second execution.
+    admitted_request_event_id: String,
+    /// Request Events for the same scoped exchange id that lost the canonical
+    /// contest or arrived after admission. Retained as controller-local
+    /// equivocation diagnostics (§7.2.1).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    conflicting_request_event_ids: BTreeSet<String>,
+    losing_request_event_ids: BTreeSet<String>,
+    /// First valid terminal control Event (§7.2.3). Once present the exchange
+    /// is closed for new execution and is never implicitly reopened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    terminal: Option<SidecarExchangeTerminalRecord>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SidecarExchangeTerminalRecord {
+    control_event_id: String,
+    /// The SDK enum is persisted directly so the terminal action vocabulary
+    /// stays owned by `arkret-rust-sdk` instead of being restated here.
+    action: AgentSidecarExchangeControlAction,
 }
 
 fn sidecar_exchange_lock(path: &Path) -> Arc<Mutex<()>> {
@@ -200,18 +328,27 @@ impl SidecarExchangeStore {
     }
 
     /// Validate and record one request identity in the normative scoped
-    /// idempotency domain. This method never grants permission to execute.
+    /// idempotency domain, applying the §7.2.1 canonical-request rule.
+    ///
+    /// This method never grants permission to execute: `Recorded` only means
+    /// the identity audit is durable and no earlier request or terminal
+    /// control blocks this one. The remaining §7.2.2 gates are the caller's.
     pub fn record_request_identity(
         &self,
         controller_id: &str,
         private_strand_id: &str,
         exchange_id: &str,
         request_event_id: &str,
+        ordering: &SidecarRequestOrdering,
     ) -> anyhow::Result<SidecarExchangeAdmission> {
         let controller_id = arkret::Did::new(controller_id.to_owned())?;
         let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
         let exchange_id = AgentSidecarExchangeId::new(exchange_id.to_owned())?;
         let request_event_id = EventId::new(request_event_id.to_owned())?;
+        anyhow::ensure!(
+            !ordering.event_digest.trim().is_empty(),
+            "Sidecar canonical request ordering requires an event digest"
+        );
 
         let lock = sidecar_exchange_lock(&self.path);
         let _guard = lock
@@ -225,27 +362,135 @@ impl SidecarExchangeStore {
             .entry(private_strand_id.to_string())
             .or_default();
         if let Some(existing) = exchanges.get_mut(exchange_id.as_str()) {
-            if existing.request_event_id == request_event_id.as_str() {
+            // A closed exchange rejects every new request, including an exact
+            // replay of the request that opened it: a cached context must not
+            // reopen terminal state (§7.2.3).
+            if let Some(terminal) = existing.terminal.as_ref() {
+                let control_event_id = terminal.control_event_id.clone();
+                return Ok(SidecarExchangeAdmission::Terminal { control_event_id });
+            }
+            if existing.admitted_request_event_id == request_event_id.as_str() {
                 return Ok(SidecarExchangeAdmission::AlreadyObserved);
             }
-            existing
-                .conflicting_request_event_ids
-                .insert(request_event_id.to_string());
-            let existing_request_event_id = existing.request_event_id.clone();
+            // Recompute the canonical winner for the audit record, then fail
+            // closed regardless: the admitted request never changes, so a
+            // later-arriving canonical request cannot execute a second time.
+            let candidate = SidecarRequestOrdering {
+                actor_seq: ordering.actor_seq,
+                event_digest: ordering.event_digest.clone(),
+            };
+            let incumbent = SidecarRequestOrdering {
+                actor_seq: existing.canonical_actor_seq,
+                event_digest: existing.canonical_event_digest.clone(),
+            };
+            if candidate.supersedes(&incumbent) {
+                existing
+                    .losing_request_event_ids
+                    .insert(existing.canonical_request_event_id.clone());
+                existing.canonical_request_event_id = request_event_id.to_string();
+                existing.canonical_actor_seq = candidate.actor_seq;
+                existing.canonical_event_digest = candidate.event_digest;
+            } else {
+                existing
+                    .losing_request_event_ids
+                    .insert(request_event_id.to_string());
+            }
+            let canonical_request_event_id = existing.canonical_request_event_id.clone();
             self.save(&state)?;
             return Ok(SidecarExchangeAdmission::Conflict {
-                existing_request_event_id,
+                canonical_request_event_id,
             });
         }
         exchanges.insert(
             exchange_id.to_string(),
             SidecarExchangeRecord {
-                request_event_id: request_event_id.to_string(),
-                conflicting_request_event_ids: BTreeSet::new(),
+                canonical_request_event_id: request_event_id.to_string(),
+                canonical_actor_seq: ordering.actor_seq,
+                canonical_event_digest: ordering.event_digest.clone(),
+                admitted_request_event_id: request_event_id.to_string(),
+                losing_request_event_ids: BTreeSet::new(),
+                terminal: None,
             },
         );
         self.save(&state)?;
         Ok(SidecarExchangeAdmission::Recorded)
+    }
+
+    /// Fold one §7.2.3-valid terminal control Event into the durable exchange
+    /// record. The caller owes the control's own consumer validation
+    /// ([`gate_inbound_exchange_control`]); this method owns only the
+    /// "canonical request" cross-check and first-terminal-wins ordering.
+    pub fn record_terminal_control(
+        &self,
+        controller_id: &str,
+        private_strand_id: &str,
+        control: &AgentSidecarExchangeControl,
+        control_event_id: &str,
+    ) -> anyhow::Result<SidecarTerminalAdmission> {
+        let controller_id = arkret::Did::new(controller_id.to_owned())?;
+        let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
+        let control_event_id = EventId::new(control_event_id.to_owned())?;
+        let Some(action) = control.action.is_terminal().then_some(control.action) else {
+            return Ok(SidecarTerminalAdmission::NotTerminal);
+        };
+
+        let lock = sidecar_exchange_lock(&self.path);
+        let _guard = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sidecar exchange audit lock poisoned"))?;
+        let mut state = self.load()?;
+        let Some(existing) = state
+            .controllers
+            .get_mut(controller_id.as_str())
+            .and_then(|strands| strands.get_mut(private_strand_id.as_str()))
+            .and_then(|exchanges| exchanges.get_mut(control.exchange_id.as_str()))
+        else {
+            return Ok(SidecarTerminalAdmission::NotCanonicalRequest);
+        };
+        if existing.canonical_request_event_id != control.request_event_id.as_str() {
+            return Ok(SidecarTerminalAdmission::NotCanonicalRequest);
+        }
+        if let Some(terminal) = existing.terminal.as_ref() {
+            let control_event_id = terminal.control_event_id.clone();
+            return Ok(SidecarTerminalAdmission::AlreadyTerminal { control_event_id });
+        }
+        existing.terminal = Some(SidecarExchangeTerminalRecord {
+            control_event_id: control_event_id.to_string(),
+            action,
+        });
+        self.save(&state)?;
+        Ok(SidecarTerminalAdmission::Recorded)
+    }
+
+    /// Whether this scoped exchange may still produce a new Event from this
+    /// runtime: it must be observed, non-terminal, and the supplied request
+    /// Event id must be both the admitted and the canonical request.
+    ///
+    /// Used by the reply path so a cached exchange context cannot author a
+    /// response after the controller closed the exchange (§7.2.2/§7.2.3).
+    pub fn exchange_accepts_new_response(
+        &self,
+        controller_id: &str,
+        private_strand_id: &str,
+        exchange_id: &str,
+        request_event_id: &str,
+    ) -> anyhow::Result<bool> {
+        let lock = sidecar_exchange_lock(&self.path);
+        let _guard = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sidecar exchange audit lock poisoned"))?;
+        let state = self.load()?;
+        let Some(existing) = state
+            .controllers
+            .get(controller_id)
+            .and_then(|strands| strands.get(private_strand_id))
+            .and_then(|exchanges| exchanges.get(exchange_id))
+        else {
+            return Ok(false);
+        };
+        Ok(existing.terminal.is_none()
+            && existing.admitted_request_event_id == request_event_id
+            && existing.canonical_request_event_id == request_event_id)
     }
 
     fn load(&self) -> anyhow::Result<SidecarExchangeFile> {
@@ -385,10 +630,20 @@ mod tests {
 
     const AGENT_DID: &str = "did:webvh:example.org:agents:support";
     const OTHER_DID: &str = "did:webvh:example.org:agents:other";
+    const CONTROLLER_DID: &str = "did:webvh:example.org:users:alice";
     const EXCHANGE_ID: &str = "01904100-0000-7000-8000-0000000000aa";
-    const REQUEST_EVENT_ID: &str = "ak:event:01904100-0000-7000-8000-000000000031";
-    const REALM_ID: &str = "ak:realm:01904100-0000-7000-8000-000000000001";
-    const STRAND_ID: &str = "ak:strand:01904100-0000-7000-8000-000000000011";
+    const REQUEST_EVENT_ID: &str = "ak:event:01904100-0000-8000-8000-000000000031";
+    const OTHER_EVENT_ID: &str = "ak:event:01904100-0000-8000-8000-000000000032";
+    const CONTROL_EVENT_ID: &str = "ak:event:01904100-0000-8000-8000-000000000041";
+    const REALM_ID: &str = "ak:realm:01904100-0000-8000-8000-000000000001";
+    const STRAND_ID: &str = "ak:strand:01904100-0000-8000-8000-000000000011";
+
+    fn ordering(actor_seq: u64, digest_suffix: &str) -> SidecarRequestOrdering {
+        SidecarRequestOrdering {
+            actor_seq,
+            event_digest: format!("sha256:{digest_suffix}"),
+        }
+    }
 
     fn request_context(addressed: &[&str]) -> AgentSidecarExchangeRequestContext {
         AgentSidecarExchangeRequestContext {
@@ -416,6 +671,22 @@ mod tests {
             request_context(addressed),
         )
         .unwrap()
+    }
+
+    /// A closed `action=close` control with no delivered response, which
+    /// §7.2.3 folds to `failed/controller_closed_empty`.
+    fn terminal_control(request_event_id: &str) -> AgentSidecarExchangeControl {
+        AgentSidecarExchangeControl {
+            schema: arkret::AgentSidecarExchangeControlSchema::V1,
+            exchange_id: AgentSidecarExchangeId::new(EXCHANGE_ID).unwrap(),
+            request_event_id: EventId::new(request_event_id.to_owned()).unwrap(),
+            basis_event_ids: vec![EventId::new(request_event_id.to_owned()).unwrap()],
+            action: AgentSidecarExchangeControlAction::Close,
+            response_event_ids: Some(Vec::new()),
+            failure_reason_code: None,
+            expected_coordinator_agent_id: None,
+            coordinator_agent_id: None,
+        }
     }
 
     fn metadata_plaintext_with_binding(binding: &AgentSidecarEventExchangeBinding) -> Value {
@@ -484,17 +755,65 @@ mod tests {
     fn gate_rejects_non_addressed_principal() {
         let binding = request_binding(&[OTHER_DID]);
         assert_eq!(
-            gate_inbound_request_binding(&binding, REQUEST_EVENT_ID, AGENT_DID),
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID,
+                CONTROLLER_DID,
+                CONTROLLER_DID,
+                AGENT_DID
+            ),
             SidecarRequestGate::NotAddressed
+        );
+    }
+
+    #[test]
+    fn gate_rejects_request_binding_from_a_non_controller_actor() {
+        let binding = request_binding(&[AGENT_DID]);
+        assert_eq!(
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID,
+                OTHER_DID,
+                CONTROLLER_DID,
+                AGENT_DID
+            ),
+            SidecarRequestGate::NotController,
+            "a sibling backing-Circle Agent can decrypt the Event but never drives this runtime"
+        );
+        assert_eq!(
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID,
+                CONTROLLER_DID,
+                &CONTROLLER_DID.to_ascii_uppercase(),
+                AGENT_DID
+            ),
+            SidecarRequestGate::NotController,
+            "controller identity matching is bit-identical, never case-folded"
+        );
+        assert_eq!(
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID,
+                CONTROLLER_DID,
+                "  ",
+                AGENT_DID
+            ),
+            SidecarRequestGate::NotController,
+            "an unconfigured controller fails closed instead of admitting every actor"
         );
     }
 
     #[test]
     fn gate_admits_addressed_principal_with_request_event_identity() {
         let binding = request_binding(&[OTHER_DID, AGENT_DID]);
-        let SidecarRequestGate::Addressed(context) =
-            gate_inbound_request_binding(&binding, REQUEST_EVENT_ID, AGENT_DID)
-        else {
+        let SidecarRequestGate::Addressed(context) = gate_inbound_request_binding(
+            &binding,
+            REQUEST_EVENT_ID,
+            CONTROLLER_DID,
+            CONTROLLER_DID,
+            AGENT_DID,
+        ) else {
             panic!("expected addressed gate");
         };
         assert_eq!(context.exchange_id, EXCHANGE_ID);
@@ -503,6 +822,8 @@ mod tests {
         let SidecarRequestGate::Addressed(coordinator_context) = gate_inbound_request_binding(
             &request_binding(&[AGENT_DID]),
             REQUEST_EVENT_ID,
+            CONTROLLER_DID,
+            CONTROLLER_DID,
             AGENT_DID,
         ) else {
             panic!("expected coordinator gate");
@@ -517,6 +838,8 @@ mod tests {
             gate_inbound_request_binding(
                 &request_binding(&[AGENT_DID]),
                 REQUEST_EVENT_ID,
+                CONTROLLER_DID,
+                CONTROLLER_DID,
                 &AGENT_DID.to_ascii_uppercase(),
             ),
             SidecarRequestGate::NotAddressed,
@@ -532,7 +855,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            gate_inbound_request_binding(&binding, REQUEST_EVENT_ID, AGENT_DID),
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID,
+                CONTROLLER_DID,
+                CONTROLLER_DID,
+                AGENT_DID
+            ),
             SidecarRequestGate::NotARequest
         );
     }
@@ -548,13 +877,25 @@ mod tests {
         let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
         assert_eq!(
             store
-                .record_request_identity(OTHER_DID, STRAND_ID, EXCHANGE_ID, REQUEST_EVENT_ID)
+                .record_request_identity(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID,
+                    &ordering(7, "aa")
+                )
                 .unwrap(),
             SidecarExchangeAdmission::Recorded
         );
         assert_eq!(
             store
-                .record_request_identity(OTHER_DID, STRAND_ID, EXCHANGE_ID, REQUEST_EVENT_ID)
+                .record_request_identity(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID,
+                    &ordering(7, "aa")
+                )
                 .unwrap(),
             SidecarExchangeAdmission::AlreadyObserved
         );
@@ -564,37 +905,278 @@ mod tests {
         let reopened = SidecarExchangeStore::for_account(&home, "c1", "a1");
         assert_eq!(
             reopened
-                .record_request_identity(OTHER_DID, STRAND_ID, EXCHANGE_ID, REQUEST_EVENT_ID)
+                .record_request_identity(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID,
+                    &ordering(7, "aa")
+                )
                 .unwrap(),
             SidecarExchangeAdmission::AlreadyObserved
         );
 
-        // Same exchange id with a different request Event id: fail closed.
-        let other_event = "ak:event:01904100-0000-7000-8000-000000000032";
+        // Same exchange id with a different request Event id: fail closed. The
+        // higher actor_seq loses the canonical contest, so the canonical
+        // request is unchanged.
         assert_eq!(
             reopened
-                .record_request_identity(OTHER_DID, STRAND_ID, EXCHANGE_ID, other_event)
+                .record_request_identity(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    OTHER_EVENT_ID,
+                    &ordering(9, "ff")
+                )
                 .unwrap(),
             SidecarExchangeAdmission::Conflict {
-                existing_request_event_id: REQUEST_EVENT_ID.to_owned(),
+                canonical_request_event_id: REQUEST_EVENT_ID.to_owned(),
             }
         );
 
         // The same exchange id in another normative scope is independent.
-        let other_strand = "ak:strand:01904100-0000-7000-8000-000000000012";
+        let other_strand = "ak:strand:01904100-0000-8000-8000-000000000012";
         assert_eq!(
             reopened
-                .record_request_identity(OTHER_DID, other_strand, EXCHANGE_ID, other_event)
+                .record_request_identity(
+                    CONTROLLER_DID,
+                    other_strand,
+                    EXCHANGE_ID,
+                    OTHER_EVENT_ID,
+                    &ordering(9, "ff")
+                )
                 .unwrap(),
             SidecarExchangeAdmission::Recorded
         );
         assert_eq!(
             reopened
-                .record_request_identity(AGENT_DID, STRAND_ID, EXCHANGE_ID, other_event)
+                .record_request_identity(
+                    AGENT_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    OTHER_EVENT_ID,
+                    &ordering(9, "ff")
+                )
                 .unwrap(),
             SidecarExchangeAdmission::Recorded
         );
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn canonical_request_is_lowest_actor_seq_then_bytewise_max_digest() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-sidecar-exchange-canonical-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
+        assert_eq!(
+            store
+                .record_request_identity(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID,
+                    &ordering(9, "bb")
+                )
+                .unwrap(),
+            SidecarExchangeAdmission::Recorded
+        );
+
+        // A lower actor_seq wins the canonical contest even though it arrived
+        // second, but it still must not execute: the admitted request never
+        // changes (§7.2.1 "不得执行第二次").
+        assert_eq!(
+            store
+                .record_request_identity(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    OTHER_EVENT_ID,
+                    &ordering(4, "01")
+                )
+                .unwrap(),
+            SidecarExchangeAdmission::Conflict {
+                canonical_request_event_id: OTHER_EVENT_ID.to_owned(),
+            }
+        );
+        assert!(
+            !store
+                .exchange_accepts_new_response(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID
+                )
+                .unwrap(),
+            "the admitted request lost the canonical contest, so it may no longer reply"
+        );
+
+        // Same-sequence sibling: bytewise-max event digest decides.
+        let sibling = "ak:event:01904100-0000-8000-8000-000000000033";
+        assert_eq!(
+            store
+                .record_request_identity(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    sibling,
+                    &ordering(4, "ff")
+                )
+                .unwrap(),
+            SidecarExchangeAdmission::Conflict {
+                canonical_request_event_id: sibling.to_owned(),
+            }
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn terminal_control_closes_the_exchange_for_new_requests_and_replies() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-sidecar-exchange-terminal-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
+        store
+            .record_request_identity(
+                CONTROLLER_DID,
+                STRAND_ID,
+                EXCHANGE_ID,
+                REQUEST_EVENT_ID,
+                &ordering(3, "aa"),
+            )
+            .unwrap();
+        assert!(
+            store
+                .exchange_accepts_new_response(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID
+                )
+                .unwrap()
+        );
+
+        // A control naming a different request Event is not folded.
+        assert_eq!(
+            store
+                .record_terminal_control(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    &terminal_control(OTHER_EVENT_ID),
+                    CONTROL_EVENT_ID,
+                )
+                .unwrap(),
+            SidecarTerminalAdmission::NotCanonicalRequest
+        );
+
+        assert_eq!(
+            store
+                .record_terminal_control(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    &terminal_control(REQUEST_EVENT_ID),
+                    CONTROL_EVENT_ID,
+                )
+                .unwrap(),
+            SidecarTerminalAdmission::Recorded
+        );
+        // First valid terminal control absorbs the terminal state; later ones
+        // are ignored and must not change it.
+        assert_eq!(
+            store
+                .record_terminal_control(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    &terminal_control(REQUEST_EVENT_ID),
+                    "ak:event:01904100-0000-8000-8000-000000000042",
+                )
+                .unwrap(),
+            SidecarTerminalAdmission::AlreadyTerminal {
+                control_event_id: CONTROL_EVENT_ID.to_owned(),
+            }
+        );
+
+        // A cached context must not reply after the exchange closed, and an
+        // exact replay of the opening request must not re-execute.
+        assert!(
+            !store
+                .exchange_accepts_new_response(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID
+                )
+                .unwrap()
+        );
+        assert_eq!(
+            store
+                .record_request_identity(
+                    CONTROLLER_DID,
+                    STRAND_ID,
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID,
+                    &ordering(3, "aa")
+                )
+                .unwrap(),
+            SidecarExchangeAdmission::Terminal {
+                control_event_id: CONTROL_EVENT_ID.to_owned(),
+            }
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn exchange_control_gate_requires_controller_actor_and_matching_strand() {
+        let plaintext = serde_json::to_value(terminal_control(REQUEST_EVENT_ID)).unwrap();
+        assert!(
+            gate_inbound_exchange_control(
+                &plaintext,
+                STRAND_ID,
+                STRAND_ID,
+                CONTROLLER_DID,
+                CONTROLLER_DID
+            )
+            .is_some()
+        );
+        assert!(
+            gate_inbound_exchange_control(
+                &plaintext,
+                STRAND_ID,
+                STRAND_ID,
+                AGENT_DID,
+                CONTROLLER_DID
+            )
+            .is_none(),
+            "Agent-authored exchange control is always invalid (§7.2.3)"
+        );
+        assert!(
+            gate_inbound_exchange_control(
+                &plaintext,
+                STRAND_ID,
+                "ak:strand:01904100-0000-8000-8000-000000000012",
+                CONTROLLER_DID,
+                CONTROLLER_DID
+            )
+            .is_none(),
+            "the payload strand must match the private Strand it was delivered on"
+        );
+        assert!(
+            gate_inbound_exchange_control(
+                &json!({"schema": "ak.schema.agent_sidecar_exchange_control.v1"}),
+                STRAND_ID,
+                STRAND_ID,
+                CONTROLLER_DID,
+                CONTROLLER_DID
+            )
+            .is_none(),
+            "non-closed control plaintext fails closed"
+        );
     }
 
     #[test]
@@ -612,10 +1194,11 @@ mod tests {
                 std::thread::spawn(move || {
                     store
                         .record_request_identity(
-                            OTHER_DID,
+                            CONTROLLER_DID,
                             STRAND_ID,
                             EXCHANGE_ID,
                             REQUEST_EVENT_ID,
+                            &ordering(3, "aa"),
                         )
                         .unwrap()
                 })

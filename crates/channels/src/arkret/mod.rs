@@ -58,8 +58,7 @@ pub use config::{
     derive_arkret_device_id, duplicate_requested_scope_actions, load_arkret_channel_configs,
     load_verified_runtime_scope, missing_required_scope_actions,
     resolve_arkret_outbound_account_for_binding, resolve_arkret_outbound_account_for_config,
-    save_verified_runtime_scope,
-    unknown_requested_scope_actions,
+    save_verified_runtime_scope, unknown_requested_scope_actions,
 };
 pub use crypto_state::{
     ArkretBootstrapRecord, ArkretContentEncryptionFloor, ArkretCryptoStateFile,
@@ -84,14 +83,14 @@ pub use outbound::{
 pub use session::{ArkretSession, login_with_signer};
 pub use sidecar::{
     EVENT_REF_ROLE_AFTER, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
-    SidecarRequestGate, build_user_facing_response_metadata, encode_sidecar_reply_target,
-    gate_inbound_request_binding, sidecar_binding_from_metadata_plaintext,
-    split_sidecar_reply_target,
+    SidecarRequestGate, SidecarRequestOrdering, SidecarTerminalAdmission,
+    build_user_facing_response_metadata, encode_sidecar_reply_target,
+    gate_inbound_exchange_control, gate_inbound_request_binding,
+    sidecar_binding_from_metadata_plaintext, split_sidecar_reply_target,
 };
 pub use signer::{
     ArkretKeyRef, ed25519_runtime_public_key, ed25519_runtime_public_key_digest,
-    generate_ed25519_key_ref_in_keyring,
-    get_or_generate_ed25519_key_ref_in_keyring, load_ed25519_seed_hex, load_ed25519_signer,
-    sign_keypackages_consume_request, sign_keypackages_revoke_request,
-    sign_keypackages_upload_request,
+    generate_ed25519_key_ref_in_keyring, get_or_generate_ed25519_key_ref_in_keyring,
+    load_ed25519_seed_hex, load_ed25519_signer, sign_keypackages_consume_request,
+    sign_keypackages_revoke_request, sign_keypackages_upload_request,
 };

@@ -735,7 +735,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "did:webvh:arkret.example.org".into(),
                     secret: false,
                     required: true,
-                    help: "Controller DID that owns or signs the applet registration.",
+                    help: "Applet mode: controller DID that owns or signs the applet registration. Agent mode: DID of the controller that owns this Agent principal. Agent Sidecar requests fail closed until it is set, because a request binding from a non-controller actor is invalid.",
                 },
                 ConfigField {
                     key: "botActorId".into(),
@@ -2258,7 +2258,7 @@ fn field_display_required(
 ) -> bool {
     if ch_id == "arkret" {
         let mode = current_arkret_mode(ch_id, values);
-        if field.key == "serviceId" {
+        if field.key == "serviceId" || field.key == "controllerId" {
             return mode == "applet";
         }
         if mode != "applet" && field.key == "inksonBootstrap" {
@@ -2312,7 +2312,6 @@ fn is_arkret_applet_only_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "appletId"
-            | "controllerId"
             | "botActorId"
             | "accessToken"
             | "loginChallenge"
@@ -2604,6 +2603,14 @@ fn apply_arkret_hidden_agent_runtime_values(
         patch["authorizedEventRef"] = json!(authorized_event_ref);
     }
 
+    if let Some(value) = values
+        .get(&field_value_key(channel_id, "controllerId"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        patch["controllerId"] = json!(value);
+    }
+
     Ok(())
 }
 
@@ -2654,8 +2661,8 @@ fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
 
 const ARKRET_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.events.stream.subscribe",
-    "ak.self.events.query.scan",
-    "ak.self.events.query.frontier",
+    "ak.self.events.read.scan",
+    "ak.self.events.read.frontier",
     "ak.self.authorization_leases.command.issue",
     "ak.self.events.command.submit",
     "ak.self.keys.keypackages.upload.create",
@@ -6577,7 +6584,7 @@ mod tests {
         let mut values = std::collections::HashMap::new();
         values.insert(
             field_value_key("arkret", "authorizedEventRef"),
-            "ak:event:01904100-0000-7000-8000-000000000099".to_owned(),
+            "ak:event:01904100-0000-8000-8000-000000000099".to_owned(),
         );
 
         assert!(arkret_agent_is_bound("arkret", &values));
@@ -6734,7 +6741,7 @@ mod tests {
                 "principalId": "did:webvh:example.org:agents:support",
                 "defaultRealmId": "ak:realm:abc",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099"
+                "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099"
             }
         });
 
@@ -6880,7 +6887,7 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "authorizationResult"),
-            r#"{"authorized_event_ref":"ak:event:01904100-0000-7000-8000-000000000099"}"#
+            r#"{"authorized_event_ref":"ak:event:01904100-0000-8000-8000-000000000099"}"#
                 .to_owned(),
         );
         values.insert(
@@ -6927,7 +6934,7 @@ mod tests {
         assert!(patch["runtimeKeyRequest"].is_null());
         assert_eq!(
             patch["authorizedEventRef"],
-            json!("ak:event:01904100-0000-7000-8000-000000000099")
+            json!("ak:event:01904100-0000-8000-8000-000000000099")
         );
         assert!(patch["principalId"].is_null());
         assert!(patch["baseUrl"].is_null());
@@ -7026,7 +7033,7 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "authorizedEventRef"),
-            "ak:event:01904100-0000-7000-8000-000000000099".to_owned(),
+            "ak:event:01904100-0000-8000-8000-000000000099".to_owned(),
         );
 
         let patch = build_channel_patch("arkret", &fields, &values).expect("patch");

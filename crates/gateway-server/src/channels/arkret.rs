@@ -36,12 +36,13 @@ use savfox_channels::arkret::{
     ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent, ArkretKeyRef,
     ArkretMlsWelcomeConsumeBinding, EventInitialSubmission, FileArkretCryptoStore,
     MessageCreateRequest, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
-    SidecarRequestGate, UnableToDecryptReason, account_allows_event_read, apply_data_event_basis,
-    build_message_create_event, build_user_facing_response_metadata, device_messages_scope,
-    encode_sidecar_reply_target, gate_inbound_request_binding, open_account_store,
-    parse_delta_frame_for_account, resolve_arkret_outbound_account_for_binding,
-    sidecar_binding_from_metadata_plaintext, sign_keypackages_consume_request,
-    sign_keypackages_revoke_request, sign_keypackages_upload_request,
+    SidecarRequestGate, SidecarTerminalAdmission, UnableToDecryptReason, account_allows_event_read,
+    apply_data_event_basis, build_message_create_event, build_user_facing_response_metadata,
+    device_messages_scope, encode_sidecar_reply_target, gate_inbound_exchange_control,
+    gate_inbound_request_binding, open_account_store, parse_delta_frame_for_account,
+    resolve_arkret_outbound_account_for_binding, sidecar_binding_from_metadata_plaintext,
+    sign_keypackages_consume_request, sign_keypackages_revoke_request,
+    sign_keypackages_upload_request,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1316,12 +1317,12 @@ async fn repair_and_consume_pending_mls_welcomes(
         .filter_map(|binding| binding.realm_id.as_deref())
         .collect::<HashSet<_>>();
 
-    if !realm_ids.is_empty() && !account.has_requested_scope("ak.self.events.query.scan") {
+    if !realm_ids.is_empty() && !account.has_requested_scope("ak.self.events.read.scan") {
         warn!(
             channel_id = %channel.id,
             account_id = %account.id,
             pending_realms = realm_ids.len(),
-            "arkret: cannot repair pending Direct Conversation Welcome bindings without ak.self.events.query.scan"
+            "arkret: cannot repair pending Direct Conversation Welcome bindings without ak.self.events.read.scan"
         );
     } else {
         for realm_id in realm_ids {
@@ -1344,12 +1345,13 @@ async fn repair_and_consume_pending_mls_welcomes(
                 |realm_id, before, limit| async move {
                     client
                         .inner()
-                        .events_query(
+                        .events_read_outcome(
                             realm_id.as_str(),
                             before.as_deref(),
                             None,
                             None,
                             Some(limit),
+                            None,
                         )
                         .await
                         .map_err(anyhow::Error::from)
@@ -2653,12 +2655,12 @@ async fn scan_limited_realm_timeline_for_account(
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    if !account.has_requested_scope("ak.self.events.query.scan") {
+    if !account.has_requested_scope("ak.self.events.read.scan") {
         warn!(
             channel_id = %channel.id,
             account_id = %account.id,
             realm_id = %request.realm_id.as_str(),
-            "arkret: limited account timeline cannot be scan-backfilled without ak.self.events.query.scan"
+            "arkret: limited account timeline cannot be scan-backfilled without ak.self.events.read.scan"
         );
         return Ok(());
     }
@@ -2668,12 +2670,13 @@ async fn scan_limited_realm_timeline_for_account(
         match collect_account_scan_catchup(request, |realm_id, before, limit| async move {
             client
                 .inner()
-                .events_query(
+                .events_read_outcome(
                     realm_id.as_str(),
                     before.as_deref(),
                     None,
                     None,
                     Some(limit),
+                    None,
                 )
                 .await
                 .map_err(anyhow::Error::from)
@@ -3379,11 +3382,11 @@ async fn hydrate_conversation_before_trigger(
     if !snapshot.events.is_empty() || snapshot.history_unavailable.is_some() {
         return Ok(());
     }
-    if !account.has_requested_scope("ak.self.events.query.scan") {
+    if !account.has_requested_scope("ak.self.events.read.scan") {
         delivery_store
             .mark_history_unavailable(
                 conversation,
-                "history_unavailable: account lacks ak.self.events.query.scan",
+                "history_unavailable: account lacks ak.self.events.read.scan",
             )
             .await?;
         return Ok(());
@@ -3391,12 +3394,13 @@ async fn hydrate_conversation_before_trigger(
     let realm_id = RealmId::new(trigger.realm_id.clone())?;
     let outcome = match client
         .inner()
-        .events_query(
+        .events_read_outcome(
             realm_id.as_str(),
             None,
             None,
             None,
             Some(ACCOUNT_SCAN_CATCHUP_LIMIT),
+            None,
         )
         .await
     {
@@ -3405,7 +3409,7 @@ async fn hydrate_conversation_before_trigger(
             delivery_store
                 .mark_history_unavailable(
                     conversation,
-                    &format!("history_unavailable: bounded events_query failed: {error}"),
+                    &format!("history_unavailable: bounded events_read failed: {error}"),
                 )
                 .await?;
             return Ok(());
@@ -3564,6 +3568,13 @@ async fn try_handle_encrypted_account_skip(
         );
         return Ok(true);
     }
+    if skipped.reason == ArkretInboundSkipReason::SidecarExchangeControl {
+        // Controller-authored exchange control never reaches the agent; it only
+        // folds durable terminal state (§7.2.3).
+        fold_sidecar_exchange_control(skipped, crypto_store, channel, account, gateway_channel)
+            .await?;
+        return Ok(true);
+    }
     let Some(payload) = skipped.encrypted_payload.as_ref() else {
         return Ok(false);
     };
@@ -3674,6 +3685,7 @@ async fn try_handle_encrypted_account_skip(
             {
                 SidecarConsumeOutcome::NoBinding => None,
                 SidecarConsumeOutcome::DropSilently => return Ok(true),
+                SidecarConsumeOutcome::Execute(context) => Some(context),
             };
             dispatch_to_agent(
                 ArkretInboundEvent {
@@ -3746,11 +3758,16 @@ enum SidecarConsumeOutcome {
     /// The request must be treated as nonexistent or already observed: do not
     /// execute, do not surface an error (the Event stays acknowledged).
     DropSilently,
+    /// Every §7.2.2 gate passed: dispatch the request with this verified
+    /// exchange identity so the reply can carry the `user_facing_response`
+    /// binding.
+    Execute(SidecarExchangeContext),
 }
 
-fn refreshed_sidecar_grant_matches_account(
+fn refreshed_grant_matches_account(
     state: &garth::SessionGrantState,
     account: &ArkretAccountConfig,
+    required_scope: &str,
 ) -> bool {
     state.principal_id.as_str() == account.principal_id
         && state
@@ -3760,24 +3777,162 @@ fn refreshed_sidecar_grant_matches_account(
         && state
             .granted_scope
             .iter()
-            .any(|scope| scope == "ak.event.read")
+            .any(|scope| scope == required_scope)
+}
+
+/// Re-prove this runtime's authorization immediately before a sensitive
+/// action. This is an **agent-level** gate and has nothing to do with Sidecar.
+///
+/// A successful grant refresh is the registered protocol proof of the whole
+/// authorization chain, not a convenience: the Auth Server re-fetches the
+/// authoritative Agent view and refuses to issue for a `paused` or
+/// `deactivated` agent (`zh/models/actor.md` "Lifecycle", which also binds
+/// already-issued sessions inside a ≤60 s freshness window), and it revalidates
+/// the proof against the current non-revoked runtime key
+/// (`zh/identity/key-management.md` §3.6.1, where a replaced key's sessions
+/// fail closed inside the revocation freshness window rather than living out
+/// their TTL).
+///
+/// The identity/scope comparison afterwards is what makes the refreshed grant
+/// evidence about *this* runtime: a grant that came back bound to another
+/// principal, another device, or without the required scope proves nothing.
+async fn ensure_fresh_runtime_authorization(
+    provider: &ArkretAgentSessionProvider,
+    account: &ArkretAccountConfig,
+    required_scope: &str,
+) -> anyhow::Result<()> {
+    provider
+        .refresh_for_sensitive_action()
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!("Arkret runtime authorization could not be revalidated: {error}")
+        })?;
+    let Some(state) = provider.session().current_state() else {
+        anyhow::bail!("Arkret runtime authorization refresh produced no session grant");
+    };
+    anyhow::ensure!(
+        refreshed_grant_matches_account(&state, account, required_scope),
+        "refreshed Arkret runtime grant lost its identity binding or {required_scope} scope"
+    );
+    Ok(())
+}
+
+/// Decrypt and fold one `ak.agent.sidecar.exchange.control` Event.
+///
+/// The plaintext is readable here because this runtime is an MLS member of the
+/// Sidecar backing Circle, which is exactly the population §7.2.3 addresses.
+/// The Event is never dispatched to the agent: its only effect is durable
+/// terminal state, which is what stops a later request or a cached reply
+/// context from executing.
+async fn fold_sidecar_exchange_control(
+    skipped: &ArkretInboundSkippedEvent,
+    crypto_store: &FileArkretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    gateway_channel: &Arc<GatewayChannel>,
+) -> anyhow::Result<()> {
+    if !account_allows_event_read(account) {
+        return Ok(());
+    }
+    let (Some(controller_id), Some(actor_id), Some(strand_id), Some(payload), Some(event_id)) = (
+        account.controller_id.as_deref(),
+        skipped.sender_did.as_deref(),
+        skipped.strand_id.as_deref(),
+        skipped.encrypted_payload.as_ref(),
+        skipped.event_id.as_deref(),
+    ) else {
+        return Ok(());
+    };
+    let Ok(ArkretDecryptDetailedOutcome::Decrypted {
+        content: plaintext, ..
+    }) = crypto_store.try_decrypt_content_block_detailed(payload)
+    else {
+        debug!(
+            account_id = %account.id,
+            event_id,
+            "arkret: Sidecar exchange control could not be decrypted; leaving exchange state unchanged"
+        );
+        return Ok(());
+    };
+    // The outer payload strand and the delivery strand are the same value here
+    // because the delivery strand is read from that payload; passing both keeps
+    // the §7.2.3 check owned by the gate instead of implied by the caller.
+    let Some(control) =
+        gate_inbound_exchange_control(&plaintext, strand_id, strand_id, actor_id, controller_id)
+    else {
+        debug!(
+            account_id = %account.id,
+            event_id,
+            "arkret: Sidecar exchange control failed closed consumer validation; not folded"
+        );
+        return Ok(());
+    };
+    let store = SidecarExchangeStore::for_account(
+        &gateway_channel.config().savfox_home,
+        &channel.id,
+        &account.id,
+    );
+    match store.record_terminal_control(controller_id, strand_id, &control, event_id)? {
+        SidecarTerminalAdmission::Recorded => {
+            info!(
+                account_id = %account.id,
+                event_id,
+                exchange_id = %control.exchange_id.as_str(),
+                "arkret: Sidecar exchange closed by controller control Event"
+            );
+        }
+        SidecarTerminalAdmission::AlreadyTerminal { control_event_id } => {
+            debug!(
+                account_id = %account.id,
+                event_id,
+                terminal_control_event_id = %control_event_id,
+                "arkret: Sidecar exchange already terminal; later control ignored"
+            );
+        }
+        SidecarTerminalAdmission::NotCanonicalRequest => {
+            debug!(
+                account_id = %account.id,
+                event_id,
+                "arkret: Sidecar exchange control does not name the canonical request; not folded"
+            );
+        }
+        SidecarTerminalAdmission::NotTerminal => {
+            debug!(
+                account_id = %account.id,
+                event_id,
+                "arkret: Sidecar coordinator reassignment does not change terminal state"
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Decrypt the `encrypted_metadata` carrier (same MLS group as the content
 /// carrier), extract the exchange binding fail-closed, and apply the §7.2.2
-/// consumption gate: role/request-context validation, addressed-principal
-/// membership, scoped durable request-identity audit, and current runtime-key
-/// session revalidation. The runtime obtains exchange identity only from this
+/// consumption gate. The runtime obtains exchange identity only from this
 /// binding — never from `reply_to`, message bodies or arrival order.
 ///
-/// The current Arkret public contract exposes Sidecar desired/effective
-/// access and reconciliation readiness only through controller-only get/list
-/// operations. It has no Agent-runtime-authorized typed read that atomically
-/// proves effective access, eligibility, target-device MLS readiness,
-/// authorization freshness, canonical request identity, and non-terminal
-/// exchange state. Consequently every otherwise valid Sidecar request is
-/// retained in the local identity audit and then dropped. A session grant is
-/// intentionally not treated as a substitute for the missing proof.
+/// The gate is the conjunction of five locally decidable facts. No
+/// Agent-runtime-facing Sidecar read exists (§3.2 scopes get/list to the
+/// controller) and none is needed, because §7.2.2 asks the runtime to
+/// *re-verify*, not to fetch a single combined proof:
+///
+/// 1. **Controller authorship** — the Event actor is this runtime's controller. §7.2.1: a request
+///    binding carried by a non-controller actor is wholly invalid, so a sibling Agent in the same
+///    backing Circle cannot drive this runtime even though it can decrypt the Event.
+/// 2. **Addressed** — this principal is in `addressed_agent_ids`.
+/// 3. **Canonical request identity and local idempotency** — the scoped `(controller, private
+///    strand, exchange)` audit admits exactly one request Event and fails closed on any other,
+///    applying the `actor_seq` / `event_digest` canonical rule.
+/// 4. **Non-terminal exchange** — no valid terminal control Event has closed it.
+/// 5. **Runtime authorization freshness** — see [`ensure_fresh_runtime_authorization`].
+///
+/// Effective access and target-device MLS readiness are not separate fetches:
+/// the request was decrypted with the group's current epoch key, and §7.3
+/// requires the server to stop addressing, delivery and new write admission for
+/// an Agent the moment revoke/pause/deactivate becomes accepted state. An old
+/// key cannot open a newly delivered request, and a reply from a runtime that
+/// lost access cannot pass write admission.
 async fn consume_sidecar_exchange_binding(
     provider: &ArkretAgentSessionProvider,
     skipped: &ArkretInboundSkippedEvent,
@@ -3807,8 +3962,38 @@ async fn consume_sidecar_exchange_binding(
     let Some(binding) = sidecar_binding_from_metadata_plaintext(&metadata_plaintext) else {
         return Ok(SidecarConsumeOutcome::NoBinding);
     };
-    match gate_inbound_request_binding(&binding, event_id, &account.principal_id) {
+    let Some(controller_id) = account.controller_id.as_deref() else {
+        // Without a known controller the §7.2.1 authorship check cannot be
+        // evaluated, so the request is indistinguishable from nonexistent.
+        warn!(
+            account_id = %account.id,
+            event_id,
+            "arkret: Sidecar request cannot be authenticated without a configured controllerId; failing closed"
+        );
+        return Ok(SidecarConsumeOutcome::DropSilently);
+    };
+    let Some(actor_id) = skipped.sender_did.as_deref() else {
+        return Ok(SidecarConsumeOutcome::DropSilently);
+    };
+    match gate_inbound_request_binding(
+        &binding,
+        event_id,
+        actor_id,
+        controller_id,
+        &account.principal_id,
+    ) {
         SidecarRequestGate::NotARequest => Ok(SidecarConsumeOutcome::NoBinding),
+        SidecarRequestGate::NotController => {
+            // §7.2.1: a request binding carried by a non-controller actor is
+            // wholly invalid. Another Agent of the same backing Circle can
+            // decrypt it, and must still treat it as nonexistent.
+            debug!(
+                account_id = %account.id,
+                event_id,
+                "arkret: Sidecar request binding was not authored by this runtime's controller; treating request as nonexistent"
+            );
+            Ok(SidecarConsumeOutcome::DropSilently)
+        }
         SidecarRequestGate::NotAddressed => {
             // §7.2.2: a non-addressed member treats the request as
             // nonexistent even though it can decrypt it.
@@ -3821,10 +4006,17 @@ async fn consume_sidecar_exchange_binding(
             Ok(SidecarConsumeOutcome::DropSilently)
         }
         SidecarRequestGate::Addressed(context) => {
-            let Some(controller_id) = skipped.sender_did.as_deref() else {
+            let Some(private_strand_id) = skipped.strand_id.as_deref() else {
                 return Ok(SidecarConsumeOutcome::DropSilently);
             };
-            let Some(private_strand_id) = skipped.strand_id.as_deref() else {
+            let Some(ordering) = skipped.request_ordering.as_ref() else {
+                // Without the envelope ordering keys the canonical-request rule
+                // is undecidable, so the request is not admissible.
+                warn!(
+                    account_id = %account.id,
+                    event_id,
+                    "arkret: Sidecar request carries no canonical ordering keys; failing closed"
+                );
                 return Ok(SidecarConsumeOutcome::DropSilently);
             };
             let store = SidecarExchangeStore::for_account(
@@ -3837,6 +4029,7 @@ async fn consume_sidecar_exchange_binding(
                 private_strand_id,
                 &context.exchange_id,
                 &context.request_event_id,
+                ordering,
             )? {
                 SidecarExchangeAdmission::Recorded => {}
                 SidecarExchangeAdmission::AlreadyObserved => {
@@ -3849,46 +4042,41 @@ async fn consume_sidecar_exchange_binding(
                     return Ok(SidecarConsumeOutcome::DropSilently);
                 }
                 SidecarExchangeAdmission::Conflict {
-                    existing_request_event_id,
+                    canonical_request_event_id,
                 } => {
                     warn!(
                         account_id = %account.id,
                         event_id,
                         exchange_id = %context.exchange_id,
-                        existing_request_event_id = %existing_request_event_id,
+                        canonical_request_event_id = %canonical_request_event_id,
                         "arkret: scoped Sidecar exchange id maps to a different request event; failing closed"
+                    );
+                    return Ok(SidecarConsumeOutcome::DropSilently);
+                }
+                SidecarExchangeAdmission::Terminal { control_event_id } => {
+                    debug!(
+                        account_id = %account.id,
+                        event_id,
+                        exchange_id = %context.exchange_id,
+                        terminal_control_event_id = %control_event_id,
+                        "arkret: Sidecar exchange is already terminal; refusing to execute a new request"
                     );
                     return Ok(SidecarConsumeOutcome::DropSilently);
                 }
             }
 
-            if let Err(error) = provider.refresh_for_sensitive_action().await {
+            if let Err(error) =
+                ensure_fresh_runtime_authorization(provider, account, "ak.event.read").await
+            {
                 warn!(
                     account_id = %account.id,
                     event_id,
                     %error,
-                    "arkret: Sidecar runtime grant freshness could not be revalidated; failing closed"
+                    "arkret: Sidecar request authorization freshness failed; failing closed"
                 );
                 return Ok(SidecarConsumeOutcome::DropSilently);
             }
-            let Some(fresh_state) = provider.session().current_state() else {
-                return Ok(SidecarConsumeOutcome::DropSilently);
-            };
-            if !refreshed_sidecar_grant_matches_account(&fresh_state, account) {
-                warn!(
-                    account_id = %account.id,
-                    event_id,
-                    "arkret: refreshed Sidecar runtime grant lost its identity or read scope; failing closed"
-                );
-                return Ok(SidecarConsumeOutcome::DropSilently);
-            }
-            warn!(
-                account_id = %account.id,
-                event_id,
-                exchange_id = %context.exchange_id,
-                "arkret: Sidecar runtime authorization proof surface is unavailable; failing closed before execution"
-            );
-            Ok(SidecarConsumeOutcome::DropSilently)
+            Ok(SidecarConsumeOutcome::Execute(context))
         }
     }
 }
@@ -4007,20 +4195,6 @@ async fn construct_account_provider(
         account.id, audience, session.expires_at
     );
     Ok(provider)
-}
-
-/// Obtain a current authenticated client for one-shot outbound operations.
-async fn construct_account_client(
-    savfox_home: &std::path::Path,
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-) -> anyhow::Result<ArkretHttpClient> {
-    let provider = construct_account_provider(savfox_home, channel, account).await?;
-    let inner = provider
-        .provide()
-        .await
-        .map_err(|error| anyhow::anyhow!("build authenticated Arkret client: {error}"))?;
-    Ok(ArkretHttpClient::from_inner(inner))
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -4268,16 +4442,6 @@ pub(crate) async fn send_to_arkret_account(
     expected_account_id: Option<&str>,
     delivery: Option<&crate::arkret_delivery::DeliveryCorrelation>,
 ) -> anyhow::Result<String> {
-    // Defense in depth for work already queued when lifecycle/access state
-    // changed: until Arkret exposes an Agent-runtime-authorized typed proof of
-    // the complete §7.2.2 gate, no cached Sidecar context may produce a new
-    // response Event. This check precedes session creation, actor-sequence
-    // mutation, encryption, queueing, and submission.
-    if sidecar_exchange.is_some() {
-        anyhow::bail!(
-            "Arkret Sidecar runtime authorization proof surface is unavailable; refusing to create a response Event"
-        );
-    }
     let Some((channel, account)) = resolve_arkret_outbound_account_for_binding(
         savfox_home,
         realm_id,
@@ -4305,7 +4469,43 @@ pub(crate) async fn send_to_arkret_account(
 
     // One-shot send restores the same keyring-backed session grant as the
     // listener and participates in the shared refresh/client rebuild path.
-    let client = construct_account_client(savfox_home, &channel, &account).await?;
+    if let Some(context) = sidecar_exchange {
+        // Defense in depth for work already queued when the controller closed
+        // the exchange: a cached context must not author a response into a
+        // terminal exchange, and it must still be the canonical request
+        // (§7.2.2/§7.2.3). The terminal fact is durable and controller-authored,
+        // so this is decided locally, not inferred from elapsed time — and it
+        // runs before the network, the session, the actor chain and the store.
+        let controller_id = account.controller_id.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Arkret account '{}' cannot answer a Sidecar exchange without a configured controllerId",
+                account.id
+            )
+        })?;
+        let store = SidecarExchangeStore::for_account(savfox_home, &channel.id, &account.id);
+        anyhow::ensure!(
+            store.exchange_accepts_new_response(
+                controller_id,
+                &strand_id,
+                &context.exchange_id,
+                &context.request_event_id,
+            )?,
+            "Arkret Sidecar exchange {} no longer accepts a response from this runtime",
+            context.exchange_id
+        );
+    }
+    let provider = construct_account_provider(savfox_home, &channel, &account).await?;
+    // Authorization freshness is an agent-level precondition of writing at all,
+    // Sidecar or not: work queued before a pause/revoke must not still be
+    // publishable afterwards. It runs before session reuse, actor-sequence
+    // mutation, encryption, queueing and submission.
+    ensure_fresh_runtime_authorization(&provider, &account, "ak.self.events.command.submit")
+        .await?;
+    let inner = provider
+        .provide()
+        .await
+        .map_err(|error| anyhow::anyhow!("build authenticated Arkret client: {error}"))?;
+    let client = ArkretHttpClient::from_inner(inner);
     let outbound_store = open_account_store(
         savfox_home,
         &channel.id,
@@ -4621,9 +4821,10 @@ mod tests {
             verification_method: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
+            controller_id: Some("did:webvh:z6mkfixture:controller.example".into()),
             requested_scope: vec![
                 "ak.self.events.stream.subscribe".into(),
-                "ak.self.events.query.scan".into(),
+                "ak.self.events.read.scan".into(),
                 "ak.event.read".into(),
             ],
             listen: true,
@@ -4648,11 +4849,68 @@ mod tests {
         }
     }
 
+    /// Signed consume receipt every `KeyPackagesConsumeOutcome` now carries.
+    /// Only `failures` is read by the assertions below, so the receipt just has
+    /// to be well-formed.
+    fn consume_receipt_fixture(keypackage_ref: &str) -> arkret::KeyPackageConsumeReceipt {
+        let device_verification_method = "did:webvh:example.org:service#key-1";
+        arkret::KeyPackageConsumeReceipt {
+            domain: arkret::NonEmptyString::new("ak.keypackage-consume-receipt.v1").unwrap(),
+            claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
+            claim_ids: vec![arkret::NonEmptyString::new("ak:claim:direct-welcome").unwrap()],
+            key_package_refs: vec![keypackage_ref.to_owned()],
+            recipient_durable_receipt: arkret::RecipientMlsDurableReceipt {
+                domain: arkret::NonEmptyString::new("ak.recipient-mls-durable-receipt.v1").unwrap(),
+                claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
+                key_package_ref: arkret::NonEmptyString::new(keypackage_ref).unwrap(),
+                recipient_principal_id: actor_id(),
+                recipient_device_id: arkret::DeviceId::new(
+                    "ak:device:01904100-0000-7000-8000-000000000006".to_owned(),
+                )
+                .unwrap(),
+                recipient_service_id: arkret::Did::new("did:webvh:example.org:service".to_owned())
+                    .unwrap(),
+                realm_id: realm_id(),
+                mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
+                mls_epoch: 1,
+                welcome_ref: arkret::NonEmptyString::new(
+                    "ak:event:01904100-0000-8000-8000-000000000007",
+                )
+                .unwrap(),
+                welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
+                durable_at: chrono::Utc::now(),
+                device_verification_method: arkret::NonEmptyString::new(device_verification_method)
+                    .unwrap(),
+                signature: arkret::KeyOperationSignature {
+                    kid: arkret::NonEmptyString::new(device_verification_method).unwrap(),
+                    signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
+                    sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+                },
+            },
+            welcome_ref: arkret::NonEmptyString::new(
+                "ak:event:01904100-0000-8000-8000-000000000007",
+            )
+            .unwrap(),
+            realm_id: realm_id(),
+            mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
+            mls_epoch: 1,
+            source_service_id: arkret::Did::new("did:webvh:example.org:service".to_owned())
+                .unwrap(),
+            consumed_at: chrono::Utc::now(),
+            signature: arkret::KeyOperationSignature {
+                kid: arkret::NonEmptyString::new(device_verification_method).unwrap(),
+                signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
+                sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+            },
+        }
+    }
+
     #[test]
     fn pending_welcome_consume_accepts_only_its_own_terminal_replay() {
         let keypackage_ref = "sha256:direct-welcome-keypackage";
         let terminal = KeyPackagesConsumeOutcome {
             consumed: Vec::new(),
+            consume_receipt: consume_receipt_fixture(keypackage_ref),
             failures: vec![arkret::Failure {
                 keypackage_ref: Some(keypackage_ref.to_owned()),
                 device_id: None,
@@ -4705,14 +4963,14 @@ mod tests {
         .unwrap();
         let payload = arkret::MlsCommitPayload::new(
             0,
-            "ak:event:01904100-0000-7000-8000-000000000001",
+            "ak:event:01904100-0000-8000-8000-000000000001",
             Vec::new(),
             &commit,
             governance_binding,
         )
         .unwrap();
         let event_ref =
-            arkret::EventId::new("ak:event:01904100-0000-7000-8000-000000000011".to_owned())
+            arkret::EventId::new("ak:event:01904100-0000-8000-8000-000000000011".to_owned())
                 .unwrap();
         let value = json!({
             "kind": "ak.mls.commit",
@@ -4953,7 +5211,7 @@ mod tests {
     }
 
     #[test]
-    fn refreshed_sidecar_grant_must_preserve_exact_runtime_identity_and_read_scope() {
+    fn refreshed_grant_must_preserve_exact_runtime_identity_and_required_scope() {
         let account = make_account();
         let mut state = garth::SessionGrantState {
             principal_id: Did::new(account.principal_id.clone()).unwrap(),
@@ -4969,21 +5227,44 @@ mod tests {
             session_public_key: None,
             dpop_jkt: Some("test-jkt".to_owned()),
         };
-        assert!(refreshed_sidecar_grant_matches_account(&state, &account));
+        assert!(refreshed_grant_matches_account(
+            &state,
+            &account,
+            "ak.event.read"
+        ));
+        // A grant that came back without the scope the action needs proves
+        // nothing about that action.
+        assert!(!refreshed_grant_matches_account(
+            &state,
+            &account,
+            "ak.self.events.command.submit"
+        ));
 
         state.granted_scope.clear();
-        assert!(!refreshed_sidecar_grant_matches_account(&state, &account));
+        assert!(!refreshed_grant_matches_account(
+            &state,
+            &account,
+            "ak.event.read"
+        ));
         state.granted_scope.push("ak.event.read".to_owned());
         state.device_id =
             Some(DeviceId::new("ak:device:01904100-0000-7000-8000-000000000099").unwrap());
-        assert!(!refreshed_sidecar_grant_matches_account(&state, &account));
+        assert!(!refreshed_grant_matches_account(
+            &state,
+            &account,
+            "ak.event.read"
+        ));
         state.device_id = Some(DeviceId::new(account.device_id.clone()).unwrap());
         state.principal_id = Did::new("did:webvh:z6mkfixture:other.example").unwrap();
-        assert!(!refreshed_sidecar_grant_matches_account(&state, &account));
+        assert!(!refreshed_grant_matches_account(
+            &state,
+            &account,
+            "ak.event.read"
+        ));
     }
 
     #[tokio::test]
-    async fn cached_sidecar_reply_is_rejected_before_any_outbound_side_effect() {
+    async fn sidecar_reply_fails_closed_before_any_outbound_side_effect() {
         let home = std::env::temp_dir().join(format!(
             "savfox-arkret-sidecar-runtime-gate-{}-{}",
             std::process::id(),
@@ -4991,13 +5272,13 @@ mod tests {
         ));
         let context = SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
-            request_event_id: "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+            request_event_id: "ak:event:01904100-0000-8000-8000-000000000031".to_owned(),
             coordinator_assignment_event_id: None,
         };
         let error = send_to_arkret_account(
             &home,
             realm_id().as_str(),
-            Some("ak:strand:01904100-0000-7000-8000-000000000011"),
+            Some("ak:strand:01904100-0000-8000-8000-000000000011"),
             "must not be sent",
             Some(&context),
             None,
@@ -5005,17 +5286,20 @@ mod tests {
             None,
         )
         .await
-        .expect_err("Sidecar reply must fail closed without complete runtime authorization");
+        .expect_err("Sidecar reply must fail closed for an unresolvable runtime");
 
-        assert!(error.to_string().contains("authorization proof surface"));
+        assert!(
+            error.to_string().contains("saved_channel_config_id"),
+            "unexpected error: {error:#}"
+        );
         assert!(
             !home.exists(),
-            "the runtime gate must run before config/session/store side effects"
+            "the outbound path must resolve and gate before any store side effect"
         );
     }
 
     fn realm_id() -> arkret::RealmId {
-        arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001").unwrap()
+        arkret::RealmId::new("ak:realm:01904100-0000-8000-8000-000000000001").unwrap()
     }
 
     /// A Sidecar exchange reply must never mount the binding outside
@@ -5032,12 +5316,12 @@ mod tests {
         let crypto_store = FileArkretCryptoStore::for_account(&home, "c1", "support");
         let context = SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
-            request_event_id: "ak:event:01904100-0000-7000-8000-000000000031".to_owned(),
+            request_event_id: "ak:event:01904100-0000-8000-8000-000000000031".to_owned(),
             coordinator_assignment_event_id: None,
         };
         let request = MessageCreateRequest {
             realm_id: realm_id().to_string(),
-            strand_id: "ak:strand:01904100-0000-7000-8000-000000000011".to_owned(),
+            strand_id: "ak:strand:01904100-0000-8000-8000-000000000011".to_owned(),
             body: "final user-visible reply".to_owned(),
             principal_id: "did:webvh:z6mkfixture:agent.example".to_owned(),
             actor_seq: 1,
@@ -5186,9 +5470,9 @@ mod tests {
             actor_seq,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             json!({
-                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000002",
+                "strand_id": "ak:strand:01904100-0000-8000-8000-000000000002",
                 "track_name": "discussion",
-                "reply_to": "ak:message:01904100-0000-7000-8000-000000000003",
+                "reply_to": "ak:message:01904100-0000-8000-8000-000000000003",
                 "content": {
                     "kind": "ak.content.text",
                     "body": body
@@ -5243,7 +5527,7 @@ mod tests {
         assert_eq!(parsed.events[0].sender_did, actor_id().as_str());
         assert_eq!(
             parsed.events[0].strand_id.as_deref(),
-            Some("ak:strand:01904100-0000-7000-8000-000000000002")
+            Some("ak:strand:01904100-0000-8000-8000-000000000002")
         );
     }
 
