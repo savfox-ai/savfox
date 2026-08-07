@@ -178,6 +178,7 @@ fn is_public_anonymous_path(path: &str) -> bool {
 /// API surfaces. Anything matching this set gets the bearer-auth hoop applied.
 fn is_protected_api_path(path: &str) -> bool {
     path.starts_with("/api/")
+        || path.starts_with("/v1/")
         || path.starts_with("/tools/")
         || path.starts_with("/hooks/")
         || path.starts_with("/plugins/")
@@ -418,6 +419,10 @@ pub(crate) fn build_router(
         .push(Router::with_path("api/skills/install").post(skills_api::skills_install_handler))
         .push(Router::with_path("api/skills/uninstall").post(skills_api::skills_uninstall_handler))
         // OpenAI-compatible API
+        .push(Router::with_path("v1/chat/completions").post(openai::chat_completions_handler))
+        .push(Router::with_path("v1/models").get(openai::models_list_handler))
+        .push(Router::with_path("v1/responses").post(openresponses::responses_handler))
+        // Compatibility aliases retained for existing Savfox clients.
         .push(Router::with_path("api/chat/completions").post(openai::chat_completions_handler))
         .push(Router::with_path("api/models/openai").get(openai::models_list_handler))
         // OpenResponses API (Phase 7)
@@ -1145,6 +1150,9 @@ mod tests {
             "/api/exec/approval/resolve",
             "/api/devices/pair",
             "/api/sessions/abc/history",
+            "/v1/chat/completions",
+            "/v1/models",
+            "/v1/responses",
             "/tools/invoke",
             "/hooks/wake",
             "/plugins/some-id",

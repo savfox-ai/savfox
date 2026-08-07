@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::parse_arguments;
+use super::{gateway_endpoint, gateway_http_client, parse_arguments};
 use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::registry::{ToolHandler, ToolKind};
@@ -55,12 +55,7 @@ impl ToolHandler for MessageHandler {
         let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
 
-        let client = reqwest::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .build()
-            .map_err(|err| {
-                FunctionCallError::RespondToModel(format!("failed to build HTTP client: {err}"))
-            })?;
+        let client = gateway_http_client(REQUEST_TIMEOUT)?;
 
         let body = serde_json::json!({
             "channel": args.channel,
@@ -68,9 +63,9 @@ impl ToolHandler for MessageHandler {
             "format": args.format,
         });
 
-        let url = format!("{gateway_url}/api/message");
+        let url = gateway_endpoint(&gateway_url, &["api", "message"])?;
         let response = client
-            .post(&url)
+            .post(url.as_str())
             .header("Content-Type", "application/json")
             .body(body.to_string())
             .send()

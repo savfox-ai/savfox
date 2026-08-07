@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::{debug, warn};
 
-use super::parse_arguments;
+use super::{gateway_endpoint, gateway_http_client, parse_arguments};
 use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::handlers::a2a_types::{
@@ -371,10 +371,7 @@ fn gateway_url() -> String {
 }
 
 fn build_client(timeout_secs: u64) -> Result<reqwest::Client, FunctionCallError> {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_secs.max(5)))
-        .build()
-        .or_else(|err| model_err(format!("failed to build HTTP client: {err}")))
+    gateway_http_client(Duration::from_secs(timeout_secs.max(5)))
 }
 
 /// Sends a prompt to an agent session via the gateway and returns the reply.
@@ -397,9 +394,9 @@ async fn run_agent_step(
         body["system"] = serde_json::Value::String(system.to_owned());
     }
 
-    let agent_url = format!("{gateway_url}/api/agent");
+    let agent_url = gateway_endpoint(gateway_url, &["api", "agent"])?;
     let response = client
-        .post(&agent_url)
+        .post(agent_url.as_str())
         .header("Content-Type", "application/json")
         .body(body.to_string())
         .send()
@@ -424,14 +421,14 @@ async fn run_agent_step(
 
     // Wait for completion.
     if !run_id.is_empty() {
-        let wait_url = format!("{gateway_url}/api/agent/wait");
+        let wait_url = gateway_endpoint(gateway_url, &["api", "agent", "wait"])?;
         let wait_body = serde_json::json!({
             "run_id": run_id,
             "timeout_secs": timeout_secs,
         });
 
         let _ = client
-            .post(&wait_url)
+            .post(wait_url.as_str())
             .header("Content-Type", "application/json")
             .body(wait_body.to_string())
             .send()
@@ -439,9 +436,11 @@ async fn run_agent_step(
     }
 
     // Read latest assistant reply.
-    let history_url = format!("{gateway_url}/api/sessions/{session_id}/history?limit=50");
+    let mut history_url =
+        gateway_endpoint(gateway_url, &["api", "sessions", session_id, "history"])?;
+    history_url.query_pairs_mut().append_pair("limit", "50");
     let response = match client
-        .get(&history_url)
+        .get(history_url.as_str())
         .timeout(REQUEST_TIMEOUT)
         .send()
         .await
@@ -488,14 +487,16 @@ async fn announce_to_channel(
     channel: &str,
     message: &str,
 ) -> bool {
-    let send_url = format!("{gateway_url}/api/message");
+    let Ok(send_url) = gateway_endpoint(gateway_url, &["api", "message"]) else {
+        return false;
+    };
     let body = serde_json::json!({
         "channel": channel,
         "text": message,
     });
 
     match client
-        .post(&send_url)
+        .post(send_url.as_str())
         .header("Content-Type", "application/json")
         .body(body.to_string())
         .send()
@@ -520,8 +521,9 @@ async fn resolve_announce_channel(
         return Some(channel.to_owned());
     }
 
-    let preview_url = format!("{gateway_url}/api/sessions/preview?limit=500");
-    let response = client.get(&preview_url).send().await.ok()?;
+    let mut preview_url = gateway_endpoint(gateway_url, &["api", "sessions", "preview"]).ok()?;
+    preview_url.query_pairs_mut().append_pair("limit", "500");
+    let response = client.get(preview_url.as_str()).send().await.ok()?;
     if !response.status().is_success() {
         return None;
     }

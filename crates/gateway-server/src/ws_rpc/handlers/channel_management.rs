@@ -157,7 +157,7 @@ pub(in crate::ws_rpc) async fn save_nostr_profile(
     crate::json_store::ensure_parent_dir(&path).await?;
     let payload = serde_json::to_string_pretty(profile)
         .map_err(|err| format!("failed to serialize nostr profile: {err}"))?;
-    tokio::fs::write(path, payload)
+    savfox_utils::fs::write_atomically_async(&path, payload.into_bytes(), Some(0o600))
         .await
         .map_err(|err| format!("failed to write nostr profile: {err}"))
 }

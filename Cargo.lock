@@ -509,7 +509,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "tokio",
- "tokio-util",
  "url",
 ]
 
@@ -518,6 +517,7 @@ name = "arkret-identifiers"
 version = "0.3.0"
 dependencies = [
  "arkret-canonical",
+ "base64 0.22.1",
  "getrandom 0.2.17",
  "getrandom 0.4.3",
  "serde",
@@ -730,7 +730,6 @@ name = "arkret-server"
 version = "0.3.0"
 dependencies = [
  "arkret-canonical",
- "arkret-event-draft",
  "arkret-models-collaboration",
  "arkret-models-crypto",
  "arkret-models-discovery",
@@ -4339,7 +4338,6 @@ dependencies = [
  "arkret-models-crypto",
  "arkret-models-discovery",
  "arkret-models-identity",
- "arkret-models-integration",
  "arkret-schema",
  "arkret-signatures",
  "arkret-state",

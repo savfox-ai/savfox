@@ -38,7 +38,7 @@ pub(super) fn create_sessions_history_tool() -> ToolSpec {
 
     function_tool(FunctionToolDecl {
         name: "sessions_history",
-        description: "Placeholder: cross-session history retrieval is not integrated yet and currently returns an empty list. Do not rely on it.",
+        description: "Get persisted chat history for a gateway session.",
         properties,
         required: &["session_id"],
     })
@@ -78,7 +78,7 @@ pub(super) fn create_session_status_tool() -> ToolSpec {
 
     function_tool(FunctionToolDecl {
         name: "session_status",
-        description: "Placeholder: per-session status lookup is not integrated yet and currently reports an unknown status. Do not rely on it.",
+        description: "Check whether a gateway session is currently active.",
         properties,
         required: &["session_id"],
     })

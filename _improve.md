@@ -338,3 +338,66 @@
 - [x] `cargo test -p savfox-windows-sandbox --lib`
 
 注：`savfox-windows-sandbox` 的 setup 二进制集成测试需要 UAC 提权（os error 740），与本轮改动无关，已用 `--lib` 仅跑库测试。
+
+---
+
+# 第十轮（2026-08-08）—— Gateway 工具、路由与凭据边界
+
+审计日期：2026-08-08
+
+## 范围与说明
+
+本轮以当前工作树为基线，重点检查了 `savfox-core` 工具注册与 HTTP 调用、Gateway REST / WebSocket RPC 的鉴权边界、对外路由、持久化凭据、明确的未实现标记以及无调用方模块。检查方式包括调用链检索、路由与客户端交叉核对、编译检查和针对性测试。
+
+这不是一次覆盖整个大型工作区的形式化安全证明。勾选项表示本轮已经修改并验证；未勾选项是已经通过代码证据确认、但需要更大设计或跨端工作的后续事项。
+
+## 本轮已改进
+
+- [x] **S1 / 高：Core 的 Gateway HTTP 工具没有携带 Gateway Bearer Token。** `message`、`gateway_status`、`agent_step`、`sessions`、`sessions_send_a2a` 和 `channel_tools` 调用的都是受保护的 `/api/*` 路由，但此前没有读取 `SAVFOX_GATEWAY_TOKEN`，正常启用 Gateway 鉴权后会稳定得到 401。已新增统一 HTTP client 构造逻辑，自动注入敏感 `Authorization` header，并拒绝非法 header 值。
+
+- [x] **S2 / 中：动态 session ID 直接拼入 URL。** `agent_step` 和 A2A/history 路径直接字符串拼接 session ID，斜杠、问号、`..` 等字符可改变请求路径或查询含义。已改为分段构造 URL，动态值会被百分号编码，并补充基本单元测试。
+
+- [x] **F1 / 高：`sessions_history` 和 `session_status` 返回伪成功占位数据。** history 固定返回空消息，status 固定返回 `unknown`，但 Gateway 已经存在 session list/history API。现已接入真实 API；history limit 被限制在 1..=500，status 根据活动 session 列表返回 `active` 或 `not_found`，list 的 filter 也不再被服务端静默忽略。
+
+- [x] **F2 / 高：`channel_tools` 宣称支持多个动作，但调用的 `/api/channel/action` 路由并不存在。** `react/edit/delete/history/list_channels` 此前必然落到 404。已收缩工具声明为当前真实可用的 `send`，其余动作返回明确的未实现错误，不再产生误导性的网络调用。
+
+- [x] **S3 / 高：普通 Channel Write scope 可以读取长期凭据。** `channels.config.get/list` 直接序列化包含 bot token、password、app secret 的配置；Nostr profile get/export 也包含 `private_key`，但所有 `channels.*` 原先只要求 Write。现已将 `channels.config.*` 和 `channels.nostr.profile.*` 提升为 Admin，并补充 scope 测试。
+
+- [x] **S4 / 高：Nostr 私钥文件不是原子、owner-only 写入。** profile 中保存 `private_key`，此前使用普通 `tokio::fs::write`，Unix 权限依赖 umask，崩溃时也可能留下截断文件。现改为原子写入并显式使用 `0600`。
+
+- [x] **F3 / 高：文档、测试和客户端使用的 OpenAI 兼容 `/v1/*` 路由没有挂载。** Router 只注册了 `/api/chat/completions`、`/api/models/openai` 和 `/api/responses`，而文档、E2E 测试及 `llm_task` 都使用 `/v1/chat/completions`、`/v1/models`、`/v1/responses`。现已恢复三个 canonical 路由、保留旧 alias，并把 `/v1/*` 纳入全局 Bearer 鉴权。
+
+- [x] **D1 / 低：`chat_attachments` 是完整但无调用方的重复实现。** 模块只有声明，没有任何构造或调用；实际会话附件由 `MediaStore` 和 terminal attachment 路径处理。已删除该模块及 171 行不可达维护负担。
+
+- [x] **B1 / 低：提交中的 `Cargo.lock` 与当前 workspace manifest 不一致。** Cargo 在首次 check/clippy 时重新计算了 Arkret 本地 crate 的依赖边（移除已不再声明的依赖、补上 `arkret-identifiers` 的 `base64`）。已保留 Cargo 自动生成的 lockfile 更新，避免后续 `--locked` 构建使用过期依赖图。
+
+## 已确认、待后续处理
+
+- [ ] **S5 / 严重：REST API 只验证 token 有效，不执行细粒度 scope 授权。** `bearer_auth_hoop` 会把 `TokenInfo` 放入 depot，但大多数 `/api/*` handler 不检查 scope。结果是 Chat/Viewer 等低权限有效 token 仍可能访问 session history、logs、device pairing/revoke、config patch、agent invocation 等接口。建议建立“HTTP method + path -> TokenScope”的闭合映射并在全局 hoop 中强制执行，未知路由默认 Admin/拒绝；同时为每类 scope 增加 401/403 E2E 矩阵。
+
+- [ ] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** 本轮已经修正权限边界，但 `channel_config_to_json` 仍原样返回 token/secret/password。建议 list 永不返回 secret；get 使用不可逆占位符或 `has_*` 标志；save 对“未修改占位符”执行保留语义。这样可降低浏览器 XSS、日志或前端状态快照泄露凭据的影响。
+
+- [ ] **F4 / 高：`gateway` 工具 POST 到不存在的 `/rpc`。** Gateway JSON-RPC 目前只通过 WebSocket `/ws` 分发，HTTP Router 没有 `/rpc`。应选择其一：让工具使用带 subprotocol 鉴权的 WebSocket 客户端，或增加同样执行 `required_scope` 的受保护 HTTP RPC adapter；不能简单把 `/rpc` 暴露为只校验 token 的路由。
+
+- [ ] **F5 / 高：多会话编排工具仍有未完成路径。** `sessions_spawn` 明确返回未实现；`sessions_send` 不能投递；`sessions_send_a2a` 依赖这些外围能力；模型打开相应 experimental tool 后仍会进入断路。建议在完成 SessionManager 路由前不要注册这些 tool spec，或者统一为 capability discovery 后再暴露。
+
+- [ ] **F6 / 高：多个已注册 WebSocket RPC 方法固定返回未实现。** `chat.inject`、`node.rename`、`reactions.add`、`reactions.remove` 都在 dispatcher 中可见，但 handler 固定报错。应实现底层 store/adapter 后再注册，或通过 capabilities 从客户端隐藏。
+
+- [ ] **F7 / 高：Gateway compaction 不是语义摘要。** `build_summary` 仅截取每条消息前 100 个字符再整体截断，却把结果作为 compaction summary 持久使用；工具结果、约束、决定和后半段关键信息会永久丢失。应接入模型摘要或结构化抽取，并在摘要失败时保持原历史、不能用截断拼接结果替代。
+
+- [ ] **F8 / 中：iOS/Android 客户端是会误报成功的 UI 壳。** `connect` 没有初始化 `GatewayClient` 就把状态设为 connected；`sendMessage` 只本地追加消息，没有发送。建议在接入 SavfoxKit/Android client 前显示 `not available`，不要伪造连接和发送成功。
+
+- [ ] **F9 / 中：macOS 菜单端仍未接入核心操作。** 打开 session 和切换 active model 只有 TODO，UI 操作没有 RPC 效果。应在菜单项可点击前接入 RPC，或禁用并给出说明。
+
+- [ ] **F10 / 中：`savfox status` 的参数和退出语义不完整。** `--token` 与 `--format` 没有被使用，只请求匿名 `/health`；Gateway 离线时仍返回 `Ok(())`，自动化脚本无法依赖退出码。应使用受保护 status API/WS、真正输出 table/json，并在不可达或鉴权失败时返回非零。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-core`
+- `cargo check -p savfox-gateway-server`
+- `cargo check -p savfox-core -p savfox-gateway-server --locked`
+- `cargo clippy -p savfox-core -p savfox-gateway-server --all-targets -- -D warnings`
+- `cargo test -p savfox-core --lib gateway_endpoint`（2 passed）
+- `cargo test -p savfox-gateway-server --lib channel_credential_methods_require_admin`（1 passed）
+- `cargo test -p savfox-gateway-server --lib protected_paths_require_auth`（1 passed）

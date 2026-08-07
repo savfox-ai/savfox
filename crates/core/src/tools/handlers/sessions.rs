@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
-use crate::tools::handlers::parse_arguments;
+use crate::tools::handlers::{gateway_endpoint, gateway_http_client, parse_arguments};
 use crate::tools::registry::{ToolHandler, ToolKind};
 
 /// Handles multiple session-related tool names:
@@ -16,6 +16,7 @@ use crate::tools::registry::{ToolHandler, ToolKind};
 pub struct SessionsHandler;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_HISTORY_LIMIT: usize = 500;
 
 #[derive(Deserialize)]
 struct SessionsListArgs {
@@ -51,15 +52,6 @@ mod defaults {
     pub fn limit() -> usize {
         50
     }
-}
-
-/// Minimal percent-encoding for a query-string value (mirrors `browser.rs`).
-fn encode_query(s: &str) -> String {
-    s.replace('%', "%25")
-        .replace(' ', "%20")
-        .replace('&', "%26")
-        .replace('=', "%3D")
-        .replace('#', "%23")
 }
 
 #[async_trait]
@@ -101,53 +93,47 @@ impl SessionsHandler {
     ) -> Result<ToolOutput, FunctionCallError> {
         let args: SessionsListArgs = parse_arguments(arguments)?;
 
-        let client = reqwest::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .build()
-            .map_err(|err| {
-                FunctionCallError::RespondToModel(format!("failed to build HTTP client: {err}"))
-            })?;
+        let client = gateway_http_client(REQUEST_TIMEOUT)?;
+        let url = gateway_endpoint(gateway_url, &["api", "sessions"])?;
+        let mut payload = get_json(&client, url, "list sessions").await?;
 
-        let url = match args.filter.as_deref().map(str::trim) {
-            Some(filter) if !filter.is_empty() => {
-                // Percent-encode so the filter can't break out of the query string.
-                format!("{gateway_url}/api/sessions?filter={}", encode_query(filter))
+        if let Some(filter) = args
+            .filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let needle = filter.to_ascii_lowercase();
+            if let Some(sessions) = payload.get_mut("sessions").and_then(|v| v.as_array_mut()) {
+                sessions.retain(|session| {
+                    session
+                        .as_str()
+                        .is_some_and(|id| id.to_ascii_lowercase().contains(&needle))
+                });
+                payload["count"] = serde_json::json!(sessions.len());
             }
-            _ => format!("{gateway_url}/api/sessions"),
-        };
-        let response = client.get(&url).send().await.map_err(|err| {
-            FunctionCallError::RespondToModel(format!("failed to list sessions: {err}"))
-        })?;
-
-        let status = response.status();
-        if !status.is_success() {
-            return model_err(format!("gateway returned HTTP {status}"));
         }
 
-        let body = response.bytes().await.map_err(|err| {
-            FunctionCallError::RespondToModel(format!("failed to read response: {err}"))
-        })?;
-
-        Ok(ToolOutput::ok(String::from_utf8_lossy(&body).into_owned()))
+        Ok(ToolOutput::ok(payload.to_string()))
     }
 
     async fn handle_history(
         &self,
         arguments: &str,
-        _gateway_url: &str,
+        gateway_url: &str,
     ) -> Result<ToolOutput, FunctionCallError> {
         let args: SessionsHistoryArgs = parse_arguments(arguments)?;
+        let session_id = args.session_id.trim();
+        if session_id.is_empty() {
+            return model_err("session_id must not be empty");
+        }
 
-        // Session history is stored locally by the SessionManager.
-        // For now, return a placeholder indicating that the session history
-        // would be retrieved from the local session storage.
-        Ok(ToolOutput::ok(serde_json::json!({
-                "session_id": args.session_id,
-                "limit": args.limit,
-                "messages": [],
-                "note": "Session history retrieval via SessionManager - implement when session storage API is available"
-            })
-            .to_string()))
+        let client = gateway_http_client(REQUEST_TIMEOUT)?;
+        let mut url = gateway_endpoint(gateway_url, &["api", "sessions", session_id, "history"])?;
+        url.query_pairs_mut()
+            .append_pair("limit", &args.limit.clamp(1, MAX_HISTORY_LIMIT).to_string());
+        let payload = get_json(&client, url, "get session history").await?;
+        Ok(ToolOutput::ok(payload.to_string()))
     }
 
     async fn handle_send(
@@ -174,15 +160,54 @@ impl SessionsHandler {
     async fn handle_status(
         &self,
         arguments: &str,
-        _gateway_url: &str,
+        gateway_url: &str,
     ) -> Result<ToolOutput, FunctionCallError> {
         let args: SessionStatusArgs = parse_arguments(arguments)?;
+        let session_id = args.session_id.trim();
+        if session_id.is_empty() {
+            return model_err("session_id must not be empty");
+        }
 
-        Ok(ToolOutput::ok(serde_json::json!({
-                "session_id": args.session_id,
-                "status": "unknown",
-                "note": "Session status via SessionManager - implement when session status API is available"
+        let client = gateway_http_client(REQUEST_TIMEOUT)?;
+        let url = gateway_endpoint(gateway_url, &["api", "sessions"])?;
+        let payload = get_json(&client, url, "get session status").await?;
+        let active = payload
+            .get("sessions")
+            .and_then(|value| value.as_array())
+            .is_some_and(|sessions| {
+                sessions
+                    .iter()
+                    .any(|value| value.as_str() == Some(session_id))
+            });
+        Ok(ToolOutput::ok(
+            serde_json::json!({
+                "session_id": session_id,
+                "status": if active { "active" } else { "not_found" },
             })
-            .to_string()))
+            .to_string(),
+        ))
     }
+}
+
+async fn get_json(
+    client: &reqwest::Client,
+    url: reqwest::Url,
+    operation: &str,
+) -> Result<serde_json::Value, FunctionCallError> {
+    let response = client.get(url.as_str()).send().await.map_err(|err| {
+        FunctionCallError::RespondToModel(format!("failed to {operation}: {err}"))
+    })?;
+    let status = response.status();
+    let body = response.bytes().await.map_err(|err| {
+        FunctionCallError::RespondToModel(format!("failed to read gateway response: {err}"))
+    })?;
+    if !status.is_success() {
+        return model_err(format!(
+            "gateway returned HTTP {status}: {}",
+            String::from_utf8_lossy(&body)
+        ));
+    }
+    serde_json::from_slice(&body).map_err(|err| {
+        FunctionCallError::RespondToModel(format!("gateway returned invalid JSON: {err}"))
+    })
 }

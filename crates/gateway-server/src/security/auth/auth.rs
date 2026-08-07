@@ -336,7 +336,8 @@ impl std::fmt::Display for Scope {
 ///   create/update/delete/patch/set/compact/reset/promote/run
 /// - approval reads -> `ApprovalsRead`; resolution -> `ApprovalsResolve`
 /// - `chat.*`, `send` -> `Chat`
-/// - `channels.*` -> `Write`
+/// - credential-bearing `channels.config.*` and `channels.nostr.profile.*` -> `Admin`;
+///   other `channels.*` -> `Write`
 /// - `directory.*` -> `Read`
 /// - `node.pair.*`, `device.*` -> `Pairing`
 /// - `security.audit`, `security.analyze` -> `Read`; `security.rotate` -> `Write`
@@ -439,7 +440,14 @@ pub fn required_scope(method: &str) -> Scope {
         return Scope::Chat;
     }
 
-    // ── Channels (always Write) ──────────────────────────────────────
+    // Channel configuration and Nostr profile methods can read or replace
+    // long-lived bot tokens, signing secrets, passwords, and private keys.
+    // Keep credential material behind the same Admin boundary as config.*.
+    if method.starts_with("channels.config.") || method.starts_with("channels.nostr.profile.") {
+        return Scope::Admin;
+    }
+
+    // ── Channels (ordinary operations require Write) ─────────────────
     if method.starts_with("channels.") {
         return Scope::Write;
     }
@@ -820,6 +828,22 @@ mod tests {
             required_scope("channels.arkret.generate_runtime_key_ref"),
             Scope::Write
         );
+    }
+
+    #[test]
+    fn channel_credential_methods_require_admin() {
+        for method in [
+            "channels.config.list",
+            "channels.config.get",
+            "channels.config.save",
+            "channels.config.delete",
+            "channels.nostr.profile.get",
+            "channels.nostr.profile.set",
+            "channels.nostr.profile.import",
+            "channels.nostr.profile.export",
+        ] {
+            assert_eq!(required_scope(method), Scope::Admin, "{method}");
+        }
     }
 
     #[test]

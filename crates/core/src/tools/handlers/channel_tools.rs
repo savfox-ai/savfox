@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::{parse_arguments, require_field};
+use super::{gateway_endpoint, gateway_http_client, parse_arguments, require_field};
 use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::registry::{ToolHandler, ToolKind};
@@ -11,7 +11,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Deserialize)]
 struct ChannelToolsArgs {
-    /// Action: "send", "react", "edit", "delete", "history", "list_channels".
+    /// Action to perform. Only "send" is currently implemented.
     action: String,
     /// Target platform: "discord", "slack", "telegram", "whatsapp", "webhook".
     platform: String,
@@ -21,26 +21,14 @@ struct ChannelToolsArgs {
     /// Message content.
     #[serde(default)]
     content: Option<String>,
-    /// Message ID (for edit/delete/react).
-    #[serde(default)]
-    message_id: Option<String>,
-    /// Emoji for reactions.
-    #[serde(default)]
-    emoji: Option<String>,
     /// Session/reply-to ID.
     #[serde(default)]
     session_id: Option<String>,
-    /// Maximum messages to fetch for history.
-    #[serde(default)]
-    limit: Option<u32>,
 }
 
 /// Unified multi-platform channel tool that routes actions to the correct
 /// platform (Discord, Slack, Telegram, WhatsApp, etc.) based on a `platform`
 /// field, providing a single entry point for cross-platform messaging.
-///
-/// This mirrors OpenClaw's `channel-tools.ts` — agents can send messages,
-/// reactions, and manage channels across platforms using a consistent interface.
 pub struct ChannelToolsHandler;
 
 #[async_trait::async_trait]
@@ -59,10 +47,7 @@ impl ToolHandler for ChannelToolsHandler {
         let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
 
-        let client = reqwest::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .build()
-            .or_else(|err| model_err(format!("failed to build HTTP client: {err}")))?;
+        let client = gateway_http_client(REQUEST_TIMEOUT)?;
 
         match args.action.as_str() {
             "send" => {
@@ -93,65 +78,10 @@ impl ToolHandler for ChannelToolsHandler {
                     send_post(&client, &gateway_url, "/api/message", body).await
                 }
             }
-            "react" => {
-                let channel_id = require_field(&args.channel_id, "channel_id")?;
-                let message_id = require_field(&args.message_id, "message_id")?;
-                let emoji = require_field(&args.emoji, "emoji")?;
-
-                let body = serde_json::json!({
-                    "platform": args.platform,
-                    "action": "react",
-                    "channel_id": channel_id,
-                    "message_id": message_id,
-                    "emoji": emoji,
-                });
-                send_post(&client, &gateway_url, "/api/channel/action", body).await
-            }
-            "edit" => {
-                let channel_id = require_field(&args.channel_id, "channel_id")?;
-                let message_id = require_field(&args.message_id, "message_id")?;
-                let content = require_field(&args.content, "content")?;
-
-                let body = serde_json::json!({
-                    "platform": args.platform,
-                    "action": "edit",
-                    "channel_id": channel_id,
-                    "message_id": message_id,
-                    "content": content,
-                });
-                send_post(&client, &gateway_url, "/api/channel/action", body).await
-            }
-            "delete" => {
-                let channel_id = require_field(&args.channel_id, "channel_id")?;
-                let message_id = require_field(&args.message_id, "message_id")?;
-
-                let body = serde_json::json!({
-                    "platform": args.platform,
-                    "action": "delete",
-                    "channel_id": channel_id,
-                    "message_id": message_id,
-                });
-                send_post(&client, &gateway_url, "/api/channel/action", body).await
-            }
-            "history" => {
-                let channel_id = require_field(&args.channel_id, "channel_id")?;
-                let limit = args.limit.unwrap_or(50);
-
-                let body = serde_json::json!({
-                    "platform": args.platform,
-                    "action": "history",
-                    "channel_id": channel_id,
-                    "limit": limit,
-                });
-                send_post(&client, &gateway_url, "/api/channel/action", body).await
-            }
-            "list_channels" => {
-                let body = serde_json::json!({
-                    "platform": args.platform,
-                    "action": "list_channels",
-                });
-                send_post(&client, &gateway_url, "/api/channel/action", body).await
-            }
+            "react" | "edit" | "delete" | "history" | "list_channels" => model_err(format!(
+                "channel_tools action '{}' is not implemented by the gateway; only 'send' is currently supported",
+                args.action
+            )),
             other => model_err(format!(
                 "unknown channel_tools action: {other}. Valid actions: send, react, \
                  edit, delete, history, list_channels"
@@ -166,9 +96,10 @@ async fn send_post(
     path: &str,
     body: serde_json::Value,
 ) -> Result<ToolOutput, FunctionCallError> {
-    let url = format!("{base_url}{path}");
+    let segments = path.trim_matches('/').split('/').collect::<Vec<_>>();
+    let url = gateway_endpoint(base_url, &segments)?;
     let response = client
-        .post(&url)
+        .post(url.as_str())
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
