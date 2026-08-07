@@ -373,7 +373,7 @@
 
 ## 已确认、待后续处理
 
-- [ ] **S5 / 严重：REST API 只验证 token 有效，不执行细粒度 scope 授权。** `bearer_auth_hoop` 会把 `TokenInfo` 放入 depot，但大多数 `/api/*` handler 不检查 scope。结果是 Chat/Viewer 等低权限有效 token 仍可能访问 session history、logs、device pairing/revoke、config patch、agent invocation 等接口。建议建立“HTTP method + path -> TokenScope”的闭合映射并在全局 hoop 中强制执行，未知路由默认 Admin/拒绝；同时为每类 scope 增加 401/403 E2E 矩阵。
+- [x] **S5 / 严重：REST API 只验证 token 有效，不执行细粒度 scope 授权。** 已在第十一轮修复：全局 `bearer_auth_hoop` 现在按 HTTP method + path 强制执行 scope，未知受保护路由默认要求 Admin，并补充路由权限与角色隔离测试。
 
 - [ ] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** 本轮已经修正权限边界，但 `channel_config_to_json` 仍原样返回 token/secret/password。建议 list 永不返回 secret；get 使用不可逆占位符或 `has_*` 标志；save 对“未修改占位符”执行保留语义。这样可降低浏览器 XSS、日志或前端状态快照泄露凭据的影响。
 
@@ -401,3 +401,32 @@
 - `cargo test -p savfox-core --lib gateway_endpoint`（2 passed）
 - `cargo test -p savfox-gateway-server --lib channel_credential_methods_require_admin`（1 passed）
 - `cargo test -p savfox-gateway-server --lib protected_paths_require_auth`（1 passed）
+
+---
+
+# 第十一轮（2026-08-08）—— Gateway REST 最小权限授权
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **S5 / 严重：低权限有效 token 可以越权调用 REST API。** 此前全局 hoop 只验证 Bearer token 是否存在且有效，`Chat`、`Viewer` 或单一 approval scope token 通过验证后，仍能进入 session mutation、device pairing、config mutation、agent policy、plugin/hook/tool 等更高权限 handler。现已增加闭合的 `HTTP method + path -> TokenScope` 映射，并在 handler 执行前统一返回 403。
+
+- [x] **S5.1 / 高：新增 REST 路由可能因遗漏授权规则而默认放行。** 权限映射采用 fail-closed 默认值；未显式分类的受保护路由要求 `OperatorAdmin`。读取、普通写入、Chat、Pairing、Admin 以及 approval request/read/resolve 分别映射到独立 scope，`/api/token/validate` 只要求 token 已认证。
+
+- [x] **S5.2 / 中：角色继承与路由权限缺少回归测试。** 已覆盖当前主要 REST 路由的最小权限映射、未知路由默认 Admin，以及 Viewer、Chat、approval requester、Operator 的权限隔离和继承关系；另通过真实 Salvo hoop 请求矩阵验证无 token 返回 401、scope 不足返回 403、匹配 scope 才进入 handler。
+
+## 仍待后续处理
+
+- [ ] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** REST 与 WebSocket 的调用权限已经收紧，但凭据读取后的暴露面仍然过大；下一轮应实现 secret redaction 和“占位符表示保留原值”的更新语义。
+
+- [ ] **T1 / 中：REST 权限表与 Router 注册仍是两处维护。** 当前单元测试覆盖现有主要路由且未知项会 fail-closed，但新增路由若未更新权限表，会暂时变成 Admin-only。后续可把 route 注册和权限元数据合并为同一声明，避免遗漏导致可用性回归。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-gateway-server --locked`
+- `cargo clippy -p savfox-gateway-server --all-targets --locked -- -D warnings`
+- `cargo test -p savfox-gateway-server --lib http_ -- --nocapture`（4 passed）
+- `cargo test -p savfox-gateway-server --lib bearer_auth_hoop_enforces_http_scope_matrix -- --nocapture`（1 passed）
+- `cargo test -p savfox-gateway-server --lib --locked`（400 passed）

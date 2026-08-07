@@ -184,6 +184,158 @@ fn is_protected_api_path(path: &str) -> bool {
         || path.starts_with("/plugins/")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HttpAuthorization {
+    AnyAuthenticated,
+    Scope(TokenScope),
+}
+
+/// Return the least privilege required for an authenticated HTTP endpoint.
+///
+/// This is deliberately fail-closed: a new route under a protected prefix is
+/// Admin-only until it is explicitly classified here. Keep this mapping in
+/// sync with [`build_router`] and with WebSocket RPC's `required_scope`.
+fn required_http_authorization(method: &str, path: &str) -> HttpAuthorization {
+    let path = if path.len() > 1 {
+        path.trim_end_matches('/')
+    } else {
+        path
+    };
+
+    // Token introspection already requires a valid bearer token in the global
+    // hoop, but every role must be able to inspect its own token.
+    if method == "POST" && path == "/api/token/validate" {
+        return HttpAuthorization::AnyAuthenticated;
+    }
+
+    // Approval scopes are intentionally split so requesters cannot discover
+    // nonces and resolvers cannot enumerate pending approvals.
+    if method == "POST" && path == "/api/exec/approval/request" {
+        return HttpAuthorization::Scope(TokenScope::OperatorApprovalsRequest);
+    }
+    if method == "POST" && path == "/api/exec/approval/resolve" {
+        return HttpAuthorization::Scope(TokenScope::OperatorApprovalsResolve);
+    }
+    if method == "GET" && path == "/api/exec/approvals" {
+        return HttpAuthorization::Scope(TokenScope::OperatorApprovalsRead);
+    }
+
+    // Credential/config mutation and surfaces capable of installing or
+    // executing code are administrative operations.
+    if matches!(
+        path,
+        "/api/config/patch"
+            | "/api/config/apply"
+            | "/api/restart"
+            | "/api/skills/install"
+            | "/api/skills/uninstall"
+    ) || path.starts_with("/tools/")
+        || path.starts_with("/hooks/")
+        || path.starts_with("/plugins/")
+    {
+        return HttpAuthorization::Scope(TokenScope::OperatorAdmin);
+    }
+
+    // Pairing records and device token lifecycle use a dedicated scope.
+    if path == "/api/nodes" || path == "/api/devices" || path.starts_with("/api/devices/") {
+        return HttpAuthorization::Scope(TokenScope::OperatorPairing);
+    }
+
+    // Chat-compatible endpoints can be used by channel-scoped tokens without
+    // granting general operator read/write access.
+    if matches!(
+        path,
+        "/api/message"
+            | "/api/chat/abort"
+            | "/v1/chat/completions"
+            | "/v1/responses"
+            | "/api/chat/completions"
+            | "/api/responses"
+    ) {
+        return HttpAuthorization::Scope(TokenScope::Chat);
+    }
+
+    // Agent definitions can carry sandbox/tool/network policy. Mutating them
+    // is Admin-equivalent; invoking an existing agent is an ordinary write.
+    if path == "/api/agents" || path.starts_with("/api/agents/") {
+        return if method == "GET" {
+            HttpAuthorization::Scope(TokenScope::OperatorRead)
+        } else {
+            HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+        };
+    }
+    if method == "POST" && path == "/api/agent" {
+        return HttpAuthorization::Scope(TokenScope::OperatorWrite);
+    }
+    if method == "POST" && path == "/api/agent/wait" {
+        return HttpAuthorization::Scope(TokenScope::OperatorRead);
+    }
+
+    // Session history/list/preview are reads; reset/compact/patch/delete are
+    // writes. A method not registered by the router remains fail-closed.
+    if path == "/api/sessions" || path.starts_with("/api/sessions/") {
+        return if method == "GET" {
+            HttpAuthorization::Scope(TokenScope::OperatorRead)
+        } else if matches!(method, "POST" | "DELETE") {
+            HttpAuthorization::Scope(TokenScope::OperatorWrite)
+        } else {
+            HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+        };
+    }
+
+    // CRUD-style domains use GET for reads and POST/DELETE for writes.
+    for prefix in ["/api/cron", "/api/tts", "/api/voicewake"] {
+        if path == prefix || path.starts_with(&format!("{prefix}/")) {
+            return if method == "GET" {
+                HttpAuthorization::Scope(TokenScope::OperatorRead)
+            } else if matches!(method, "POST" | "DELETE") {
+                HttpAuthorization::Scope(TokenScope::OperatorWrite)
+            } else {
+                HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+            };
+        }
+    }
+
+    if path == "/api/skills/refresh" {
+        return if method == "POST" {
+            HttpAuthorization::Scope(TokenScope::OperatorWrite)
+        } else {
+            HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+        };
+    }
+    if path == "/api/skills" || path.starts_with("/api/skills/") {
+        return if method == "GET" {
+            HttpAuthorization::Scope(TokenScope::OperatorRead)
+        } else {
+            HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+        };
+    }
+
+    if method == "GET"
+        && (matches!(
+            path,
+            "/api/status"
+                | "/api/logs"
+                | "/api/config"
+                | "/api/metrics"
+                | "/api/channels"
+                | "/v1/models"
+                | "/api/models/openai"
+        ) || path.starts_with("/api/usage/"))
+    {
+        return HttpAuthorization::Scope(TokenScope::OperatorRead);
+    }
+
+    HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+}
+
+fn has_http_authorization(info: &TokenInfo, required: HttpAuthorization) -> bool {
+    match required {
+        HttpAuthorization::AnyAuthenticated => true,
+        HttpAuthorization::Scope(scope) => info.has_scope(scope),
+    }
+}
+
 /// Global Salvo hoop: enforce Bearer-auth on every protected endpoint.
 ///
 /// The hoop short-circuits the request with `401 Unauthorized` when the
@@ -225,6 +377,15 @@ async fn bearer_auth_hoop(
     // rate limiting. They still pass through authentication below.
     match authenticate_with_info(req, depot, res).await {
         Some(info) => {
+            let required = required_http_authorization(req.method().as_str(), path);
+            if !has_http_authorization(&info, required) {
+                res.status_code(StatusCode::FORBIDDEN);
+                res.render(Text::Json(
+                    json!({"error": "insufficient token scope"}).to_string(),
+                ));
+                ctrl.skip_rest();
+                return;
+            }
             depot.insert_typed(info);
         }
         None => {
@@ -1088,12 +1249,22 @@ fn expand_env_string(input: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use salvo::Service;
+    use salvo::conn::SocketAddr;
+    use salvo::http::Method;
+    use salvo::http::uri::{Scheme, Uri};
     #[cfg(windows)]
-    use salvo::prelude::{Listener, Router, Server};
+    use salvo::prelude::{Listener, Server};
+    use salvo::prelude::{Request, Response, Router, StatusCode};
     use serde_json::json;
 
     use super::{
-        expand_env_string, is_protected_api_path, is_public_anonymous_path, substitute_env_vars,
+        GatewayAuth, HttpAuthorization, TokenInfo, TokenScope, bearer_auth_hoop, expand_env_string,
+        has_http_authorization, is_protected_api_path, is_public_anonymous_path,
+        required_http_authorization, substitute_env_vars,
     };
 
     #[cfg(windows)]
@@ -1165,6 +1336,286 @@ mod tests {
                 !is_public_anonymous_path(path),
                 "path must not be anonymous: {path}"
             );
+        }
+    }
+
+    #[test]
+    fn protected_http_routes_have_least_privilege_scope_mappings() {
+        use HttpAuthorization::AnyAuthenticated;
+        use HttpAuthorization::Scope;
+
+        for (method, path, expected) in [
+            ("POST", "/api/token/validate", AnyAuthenticated),
+            ("GET", "/api/status", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/logs", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/config", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/metrics", Scope(TokenScope::OperatorRead)),
+            ("POST", "/api/message", Scope(TokenScope::Chat)),
+            ("GET", "/api/sessions", Scope(TokenScope::OperatorRead)),
+            (
+                "GET",
+                "/api/sessions/session-1/history",
+                Scope(TokenScope::OperatorRead),
+            ),
+            (
+                "POST",
+                "/api/sessions/session-1/compact",
+                Scope(TokenScope::OperatorWrite),
+            ),
+            ("GET", "/api/channels", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/nodes", Scope(TokenScope::OperatorPairing)),
+            (
+                "POST",
+                "/api/devices/device-1/revoke",
+                Scope(TokenScope::OperatorPairing),
+            ),
+            (
+                "POST",
+                "/api/config/patch",
+                Scope(TokenScope::OperatorAdmin),
+            ),
+            ("GET", "/api/skills/search", Scope(TokenScope::OperatorRead)),
+            (
+                "POST",
+                "/api/skills/refresh",
+                Scope(TokenScope::OperatorWrite),
+            ),
+            (
+                "POST",
+                "/api/skills/install",
+                Scope(TokenScope::OperatorAdmin),
+            ),
+            ("GET", "/v1/models", Scope(TokenScope::OperatorRead)),
+            ("POST", "/v1/responses", Scope(TokenScope::Chat)),
+            ("POST", "/tools/invoke", Scope(TokenScope::OperatorAdmin)),
+            (
+                "POST",
+                "/api/exec/approval/request",
+                Scope(TokenScope::OperatorApprovalsRequest),
+            ),
+            (
+                "POST",
+                "/api/exec/approval/resolve",
+                Scope(TokenScope::OperatorApprovalsResolve),
+            ),
+            (
+                "GET",
+                "/api/exec/approvals",
+                Scope(TokenScope::OperatorApprovalsRead),
+            ),
+            ("POST", "/api/agent", Scope(TokenScope::OperatorWrite)),
+            ("POST", "/api/agent/wait", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/agents/a", Scope(TokenScope::OperatorRead)),
+            ("DELETE", "/api/agents/a", Scope(TokenScope::OperatorAdmin)),
+            ("GET", "/api/usage/cost", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/cron", Scope(TokenScope::OperatorRead)),
+            (
+                "POST",
+                "/api/cron/job-1/run",
+                Scope(TokenScope::OperatorWrite),
+            ),
+            ("GET", "/api/tts/status", Scope(TokenScope::OperatorRead)),
+            ("POST", "/api/tts/enable", Scope(TokenScope::OperatorWrite)),
+            ("POST", "/api/chat/abort", Scope(TokenScope::Chat)),
+            (
+                "POST",
+                "/hooks/custom-mapping",
+                Scope(TokenScope::OperatorAdmin),
+            ),
+            (
+                "POST",
+                "/plugins/example/route",
+                Scope(TokenScope::OperatorAdmin),
+            ),
+        ] {
+            assert_eq!(
+                required_http_authorization(method, path),
+                expected,
+                "{method} {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_protected_http_routes_fail_closed_to_admin() {
+        assert_eq!(
+            required_http_authorization("GET", "/api/future-capability"),
+            HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+        );
+        assert_eq!(
+            required_http_authorization("PUT", "/api/sessions/session-1"),
+            HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+        );
+    }
+
+    #[test]
+    fn http_scope_check_preserves_role_separation() {
+        let info = |scope| TokenInfo {
+            label: "test".to_owned(),
+            scopes: vec![scope],
+        };
+
+        let viewer = info(TokenScope::Viewer);
+        assert!(has_http_authorization(
+            &viewer,
+            HttpAuthorization::Scope(TokenScope::OperatorRead)
+        ));
+        assert!(!has_http_authorization(
+            &viewer,
+            HttpAuthorization::Scope(TokenScope::OperatorWrite)
+        ));
+        assert!(!has_http_authorization(
+            &viewer,
+            HttpAuthorization::Scope(TokenScope::Chat)
+        ));
+
+        let chat = info(TokenScope::Chat);
+        assert!(has_http_authorization(
+            &chat,
+            HttpAuthorization::Scope(TokenScope::Chat)
+        ));
+        assert!(has_http_authorization(
+            &chat,
+            HttpAuthorization::AnyAuthenticated
+        ));
+        assert!(!has_http_authorization(
+            &chat,
+            HttpAuthorization::Scope(TokenScope::OperatorRead)
+        ));
+
+        let requester = info(TokenScope::OperatorApprovalsRequest);
+        assert!(has_http_authorization(
+            &requester,
+            HttpAuthorization::Scope(TokenScope::OperatorApprovalsRequest)
+        ));
+        assert!(!has_http_authorization(
+            &requester,
+            HttpAuthorization::Scope(TokenScope::OperatorApprovalsRead)
+        ));
+
+        let operator = info(TokenScope::Operator);
+        for scope in [
+            TokenScope::OperatorRead,
+            TokenScope::OperatorWrite,
+            TokenScope::OperatorAdmin,
+            TokenScope::OperatorPairing,
+            TokenScope::OperatorApprovalsRequest,
+            TokenScope::OperatorApprovalsRead,
+            TokenScope::OperatorApprovalsResolve,
+            TokenScope::Chat,
+        ] {
+            assert!(has_http_authorization(
+                &operator,
+                HttpAuthorization::Scope(scope)
+            ));
+        }
+    }
+
+    #[salvo::handler]
+    async fn authorization_probe(res: &mut Response) {
+        res.status_code(StatusCode::NO_CONTENT);
+    }
+
+    async fn call_authorization_probe(
+        auth: Arc<GatewayAuth>,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+    ) -> Response {
+        let router = Router::new()
+            .hoop(salvo::affix_state::inject(auth))
+            .hoop(bearer_auth_hoop)
+            .push(Router::with_path("api/status").get(authorization_probe))
+            .push(Router::with_path("api/sessions").get(authorization_probe))
+            .push(Router::with_path("api/message").post(authorization_probe))
+            .push(Router::with_path("api/config/patch").post(authorization_probe));
+        let service = Service::new(router);
+        let mut req = Request::new();
+        *req.method_mut() = method;
+        req.set_uri(path.parse::<Uri>().expect("valid test URI"));
+        if let Some(token) = token {
+            req.headers_mut().insert(
+                "authorization",
+                format!("Bearer {token}")
+                    .parse()
+                    .expect("valid auth header"),
+            );
+        }
+
+        service
+            .hyper_handler(
+                SocketAddr::Unknown,
+                SocketAddr::Unknown,
+                Scheme::HTTP,
+                None,
+                salvo::conn::ConnCtrl::default(),
+                None,
+            )
+            .handle(req)
+            .await
+    }
+
+    #[tokio::test]
+    async fn bearer_auth_hoop_enforces_http_scope_matrix() {
+        let auth = Arc::new(GatewayAuth::new(HashMap::from([
+            (
+                "viewer-token".to_owned(),
+                TokenInfo {
+                    label: "viewer".to_owned(),
+                    scopes: vec![TokenScope::Viewer],
+                },
+            ),
+            (
+                "chat-token".to_owned(),
+                TokenInfo {
+                    label: "chat".to_owned(),
+                    scopes: vec![TokenScope::Chat],
+                },
+            ),
+            (
+                "admin-token".to_owned(),
+                TokenInfo {
+                    label: "admin".to_owned(),
+                    scopes: vec![TokenScope::OperatorAdmin],
+                },
+            ),
+        ])));
+
+        for (method, path, token, expected) in [
+            (Method::GET, "/api/status", None, StatusCode::UNAUTHORIZED),
+            (
+                Method::GET,
+                "/api/status",
+                Some("viewer-token"),
+                StatusCode::NO_CONTENT,
+            ),
+            (
+                Method::POST,
+                "/api/config/patch",
+                Some("viewer-token"),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Method::POST,
+                "/api/message",
+                Some("chat-token"),
+                StatusCode::NO_CONTENT,
+            ),
+            (
+                Method::GET,
+                "/api/sessions",
+                Some("chat-token"),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Method::POST,
+                "/api/config/patch",
+                Some("admin-token"),
+                StatusCode::NO_CONTENT,
+            ),
+        ] {
+            let response = call_authorization_probe(auth.clone(), method, path, token).await;
+            assert_eq!(response.status_code, Some(expected), "{path}");
         }
     }
 
