@@ -1,0 +1,2 @@
+name = "default"
+description = "Default agent. Inherits the parent session configuration unchanged."

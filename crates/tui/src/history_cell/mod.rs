@@ -869,6 +869,7 @@ fn with_border_internal(
 /// Return the emoji followed by a hair space (U+200A).
 /// Using only the hair space avoids excessive padding after the emoji while
 /// still providing a small visual gap across terminals.
+#[cfg_attr(debug_assertions, allow(dead_code))]
 pub(crate) fn padded_emoji(emoji: &str) -> String {
     format!("{emoji}\u{200A}")
 }

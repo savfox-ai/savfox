@@ -186,11 +186,8 @@ impl TurnDiffTracker {
                 }
             }
 
-            if let Some(parent) = cur.parent() {
-                cur = parent.to_path_buf();
-            } else {
-                return None;
-            }
+            let parent = cur.parent()?;
+            cur = parent.to_path_buf();
         }
     }
 

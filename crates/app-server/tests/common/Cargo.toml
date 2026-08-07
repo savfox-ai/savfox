@@ -13,6 +13,7 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 savfox-app-server-protocol = { workspace = true }
 savfox-core = { workspace = true, features = ["test-support"] }
+savfox-model = { workspace = true }
 savfox-protocol = { workspace = true }
 savfox-utils = { workspace = true }
 serde = { workspace = true }

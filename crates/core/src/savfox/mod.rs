@@ -970,7 +970,7 @@ mod tests {
 
     use super::*;
     use crate::SavfoxAuth;
-    use crate::config::{ConfigBuilder, test_config};
+    use crate::config::{test_config, test_config_with_home};
     use crate::exec::ExecToolCallOutput;
     use crate::function_tool::FunctionCallError;
     use crate::protocol::{
@@ -985,11 +985,6 @@ mod tests {
     use crate::tools::registry::ToolHandler;
     use crate::tools::{ToolRouter, format_exec_output_str};
     use crate::turn_diff_tracker::TurnDiffTracker;
-
-    struct InstructionsTestCase {
-        slug: &'static str,
-        expects_apply_patch_instructions: bool,
-    }
 
     fn user_message(text: &str) -> ResponseItem {
         ResponseItem::Message {
@@ -1018,67 +1013,16 @@ mod tests {
 
     #[tokio::test]
     async fn get_base_instructions_no_user_content() {
-        let test_cases = vec![
-            InstructionsTestCase {
-                slug: "gpt-3.5",
-                expects_apply_patch_instructions: true,
-            },
-            InstructionsTestCase {
-                slug: "gpt-4.1",
-                expects_apply_patch_instructions: true,
-            },
-            InstructionsTestCase {
-                slug: "gpt-4o",
-                expects_apply_patch_instructions: true,
-            },
-            InstructionsTestCase {
-                slug: "gpt-5",
-                expects_apply_patch_instructions: true,
-            },
-            InstructionsTestCase {
-                slug: "gpt-5.1",
-                expects_apply_patch_instructions: false,
-            },
-            InstructionsTestCase {
-                slug: "savfox-mini-latest",
-                expects_apply_patch_instructions: true,
-            },
-            InstructionsTestCase {
-                slug: "gpt-oss:120b",
-                expects_apply_patch_instructions: false,
-            },
-            InstructionsTestCase {
-                slug: "gpt-5.1-savfox",
-                expects_apply_patch_instructions: false,
-            },
-            InstructionsTestCase {
-                slug: "gpt-5.1-savfox-max",
-                expects_apply_patch_instructions: false,
-            },
-        ];
-
         let (session, _turn_context) = make_session_and_context().await;
-
-        for test_case in test_cases {
-            let config = test_config();
-            let model_info = ModelsManager::construct_model_info_offline(test_case.slug, &config);
-            if test_case.expects_apply_patch_instructions {
-                assert!(
-                    model_info.base_instructions.contains("apply_patch"),
-                    "expected apply_patch instructions for model {}",
-                    test_case.slug
-                );
-            }
-
-            {
-                let mut state = session.state.lock().await;
-                state.session_configuration.base_instructions =
-                    model_info.base_instructions.clone();
-            }
-
-            let base_instructions = session.get_base_instructions().await;
-            assert_eq!(base_instructions.text, model_info.base_instructions);
+        let config = test_config();
+        let model_info = ModelsManager::construct_model_info_offline("test-model", &config);
+        {
+            let mut state = session.state.lock().await;
+            state.session_configuration.base_instructions = model_info.base_instructions.clone();
         }
+
+        let base_instructions = session.get_base_instructions().await;
+        assert_eq!(base_instructions.text, model_info.base_instructions);
     }
 
     #[test]
@@ -1755,11 +1699,7 @@ mod tests {
     }
 
     async fn build_test_config(savfox_home: &Path) -> Config {
-        ConfigBuilder::default()
-            .savfox_home(savfox_home.to_path_buf())
-            .build()
-            .await
-            .expect("load default test config")
+        test_config_with_home(savfox_home.to_path_buf())
     }
 
     fn otel_manager(
@@ -1784,7 +1724,8 @@ mod tests {
     pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         let (tx_event, _rx_event) = async_channel::unbounded();
         let savfox_home = tempfile::tempdir().expect("create temp dir");
-        let config = build_test_config(savfox_home.path()).await;
+        let mut config = build_test_config(savfox_home.path()).await;
+        config.model = Some("test-model".to_owned());
         let config = Arc::new(config);
         let conversation_id = SessionId::default();
         let auth_manager =
@@ -1844,7 +1785,7 @@ mod tests {
 
         let mut state = SessionState::new(session_configuration.clone());
         mark_state_initial_context_seeded(&mut state);
-        let skills_manager = Arc::new(SkillsManager::new(config.savfox_home.clone(), None));
+        let skills_manager = Arc::new(SkillsManager::new_for_tests(config.savfox_home.clone()));
 
         let services = SessionServices {
             mcp_connection_manager: Arc::new(RwLock::new(McpConnectionManager::default())),
@@ -1905,7 +1846,8 @@ mod tests {
     ) {
         let (tx_event, rx_event) = async_channel::unbounded();
         let savfox_home = tempfile::tempdir().expect("create temp dir");
-        let config = build_test_config(savfox_home.path()).await;
+        let mut config = build_test_config(savfox_home.path()).await;
+        config.model = Some("test-model".to_owned());
         let config = Arc::new(config);
         let conversation_id = SessionId::default();
         let auth_manager =
@@ -1965,7 +1907,7 @@ mod tests {
 
         let mut state = SessionState::new(session_configuration.clone());
         mark_state_initial_context_seeded(&mut state);
-        let skills_manager = Arc::new(SkillsManager::new(config.savfox_home.clone(), None));
+        let skills_manager = Arc::new(SkillsManager::new_for_tests(config.savfox_home.clone()));
 
         let services = SessionServices {
             mcp_connection_manager: Arc::new(RwLock::new(McpConnectionManager::default())),

@@ -892,8 +892,9 @@ async fn login_account_chatgpt_start_can_be_cancelled() -> Result<()> {
         bail!("unexpected login response: {login:?}");
     };
     assert!(
-        auth_url.contains("redirect_uri=http%3A%2F%2Flocalhost"),
-        "auth_url should contain a redirect_uri to localhost"
+        auth_url.contains("redirect_uri=http%3A%2F%2Flocalhost")
+            || auth_url.contains("redirect_uri=http%3A%2F%2F127.0.0.1"),
+        "auth_url should contain a redirect_uri to a loopback host"
     );
 
     let cancel_id = mcp

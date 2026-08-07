@@ -41,6 +41,17 @@ const REQUIRED_LISTEN_SCOPE: &[&str] = &[
 const REQUIRED_SEND_SCOPE: &[&str] = &["ak.self.events.command.submit", "ak.message.create"];
 const VERIFIED_SCOPE_SCHEMA: &str = "savfox.arkret.verified_runtime_scope.v1";
 
+/// Preserve persisted pre-read-API scope commitments while comparing them by
+/// their current service-operation names. The original spelling must remain
+/// on the wire because it is part of the immutable pairing authorization.
+fn canonical_requested_scope_action(action: &str) -> &str {
+    match action {
+        "ak.self.events.query.scan" => "ak.self.events.read.scan",
+        "ak.self.events.query.frontier" => "ak.self.events.read.frontier",
+        _ => action,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VerifiedArkretRuntimeScope {
@@ -57,9 +68,12 @@ pub struct VerifiedArkretRuntimeScope {
 impl VerifiedArkretRuntimeScope {
     #[must_use]
     pub fn permits(&self, requested: &[String]) -> bool {
-        requested
-            .iter()
-            .all(|action| self.actions.iter().any(|allowed| allowed == action))
+        requested.iter().all(|action| {
+            let action = canonical_requested_scope_action(action);
+            self.actions
+                .iter()
+                .any(|allowed| canonical_requested_scope_action(allowed) == action)
+        })
     }
 }
 
@@ -339,9 +353,10 @@ impl ArkretChannelConfig {
 impl ArkretAccountConfig {
     #[must_use]
     pub fn has_requested_scope(&self, action: &str) -> bool {
+        let action = canonical_requested_scope_action(action.trim());
         self.requested_scope
             .iter()
-            .any(|scope| scope.trim() == action)
+            .any(|scope| canonical_requested_scope_action(scope.trim()) == action)
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -460,7 +475,8 @@ pub fn duplicate_requested_scope_actions(actions: &[String]) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut duplicates = Vec::new();
     for action in actions {
-        if !seen.insert(action.as_str()) && !duplicates.iter().any(|item| item == action) {
+        let canonical = canonical_requested_scope_action(action.as_str());
+        if !seen.insert(canonical) && !duplicates.iter().any(|item| item == action) {
             duplicates.push(action.clone());
         }
     }
@@ -470,14 +486,15 @@ pub fn duplicate_requested_scope_actions(actions: &[String]) -> Vec<String> {
 pub fn unknown_requested_scope_actions(actions: &[String]) -> anyhow::Result<Vec<String>> {
     let mut unknown = Vec::new();
     for action in actions {
-        let canonical = action.trim();
+        let trimmed = action.trim();
+        let canonical = canonical_requested_scope_action(trimmed);
         // requestedScope contains both content capabilities and Arkret service
         // operations, so validate against both SDK-owned canonical registries.
         let is_capability_action = arkret_schema::embedded_capability_action(canonical)
             .map_err(|error| anyhow::anyhow!("load Arkret action registry: {error}"))?
             .is_some();
         let is_service_operation = arkret::ServiceOperationId::from_wire(canonical).is_some();
-        if canonical != action
+        if trimmed != action
             || canonical.is_empty()
             || (!is_capability_action && !is_service_operation)
         {
@@ -495,7 +512,11 @@ pub fn missing_required_scope_actions(actions: &[String], listen: bool, send: bo
         .filter(|_| listen)
         .chain(REQUIRED_SEND_SCOPE.iter().copied().filter(|_| send));
     required
-        .filter(|required| !actions.iter().any(|action| action == required))
+        .filter(|required| {
+            !actions
+                .iter()
+                .any(|action| canonical_requested_scope_action(action) == *required)
+        })
         .map(str::to_owned)
         .collect()
 }
@@ -996,6 +1017,45 @@ mod strict_tests {
         let error = ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
             .expect_err("historical alias must fail");
         assert!(error.to_string().contains("unknown canonical actions"));
+    }
+
+    #[test]
+    fn query_scope_aliases_preserve_existing_pairing_commitments() {
+        let scope = DEFAULT_AGENT_RUNTIME_SCOPE
+            .iter()
+            .map(|action| match *action {
+                "ak.self.events.read.scan" => "ak.self.events.query.scan".to_owned(),
+                "ak.self.events.read.frontier" => "ak.self.events.query.frontier".to_owned(),
+                action => action.to_owned(),
+            })
+            .collect::<Vec<_>>();
+
+        let parsed = ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
+            .expect("query aliases should remain valid for persisted pairings");
+        let account = &parsed.accounts[0];
+
+        assert!(account.has_requested_scope("ak.self.events.read.scan"));
+        assert!(account.has_requested_scope("ak.self.events.read.frontier"));
+        assert!(
+            account
+                .requested_scope
+                .iter()
+                .any(|action| action == "ak.self.events.query.scan"),
+            "the signed pairing spelling must not be rewritten"
+        );
+    }
+
+    #[test]
+    fn query_and_read_spellings_are_duplicate_scopes() {
+        let actions = vec![
+            "ak.self.events.query.scan".to_owned(),
+            "ak.self.events.read.scan".to_owned(),
+        ];
+
+        assert_eq!(
+            duplicate_requested_scope_actions(&actions),
+            vec!["ak.self.events.read.scan".to_owned()]
+        );
     }
 
     #[test]

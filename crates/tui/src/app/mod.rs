@@ -912,7 +912,7 @@ impl App {
         let mut model = session_manager
             .get_models_manager()
             .get_default_model(&config.model, &config, RefreshStrategy::Offline)
-            .await;
+            .await?;
         let available_models = session_manager
             .get_models_manager()
             .list_models(&config, RefreshStrategy::Offline)
@@ -3089,8 +3089,46 @@ mod tests {
         )
     }
 
+    /// A catalog for exercising the migration-prompt rules.
+    ///
+    /// No model list ships with the binary any more, so these tests state the
+    /// entries they need instead of sampling a built-in one — which also keeps
+    /// the assertions from drifting whenever the real catalog changes.
     fn all_model_presets() -> Vec<ModelPreset> {
-        savfox_core::models_manager::model_presets::all_model_presets().clone()
+        vec![
+            migration_preset("legacy-model", false, Some("current-model")),
+            migration_preset("current-model", true, None),
+        ]
+    }
+
+    fn migration_preset(slug: &str, show_in_picker: bool, upgrade_to: Option<&str>) -> ModelPreset {
+        ModelPreset {
+            id: slug.to_owned(),
+            slug: slug.to_owned(),
+            name: slug.to_owned(),
+            description: format!("{slug} description"),
+            default_reasoning_effort: ReasoningEffortConfig::Medium,
+            supported_reasoning_efforts: Vec::new(),
+            supports_personality: false,
+            is_default: false,
+            upgrade: upgrade_to.map(|target| ModelUpgrade {
+                id: target.to_owned(),
+                reasoning_effort_mapping: None,
+                migration_config_key: target.to_owned(),
+                model_link: None,
+                upgrade_copy: None,
+                migration_markdown: Some(
+                    "\n**Savfox just got an upgrade. Introducing {model_to}.**\n\n\
+                     Savfox is now powered by {model_to}, a newer and more capable \
+                     agentic coding model than {model_from}.\n\n\
+                     You can continue using {model_from} if you prefer.\n"
+                        .to_owned(),
+                ),
+            }),
+            show_in_picker,
+            supported_in_api: true,
+            input_modalities: savfox_protocol::openai_models::default_input_modalities(),
+        }
     }
 
     fn model_migration_copy_to_plain_text(

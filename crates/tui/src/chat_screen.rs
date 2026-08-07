@@ -61,7 +61,7 @@ use savfox_core::skills::model::SkillMetadata;
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
 use savfox_core::{
     ModelProviderInfo, built_in_model_providers, canonical_provider_id, connectors,
-    parse_provider_prefixed_model, provider_model_info,
+    parse_provider_prefixed_model,
 };
 use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
@@ -4490,6 +4490,19 @@ impl ChatScreen {
             .filter(|preset| preset.show_in_picker)
             .collect();
 
+        // No model list ships with Savfox, so an empty catalog means nothing has
+        // been discovered yet — say how to fix that instead of opening an empty
+        // picker.
+        if presets.is_empty() {
+            self.add_info_message(
+                "No models available yet. Sign in with /login, or set `model` in \
+                 ~/.savfox/config.toml to name one."
+                    .to_owned(),
+                None,
+            );
+            return;
+        }
+
         let current_model = self.current_model();
         let current_label = presets
             .iter()
@@ -4788,11 +4801,7 @@ impl ChatScreen {
             parse_provider_prefixed_model(&preset.slug)
                 .map(|(provider_id, model_slug)| (provider_id.to_owned(), model_slug.to_owned()))
                 .unwrap_or_else(|| (self.config.model_provider_id.clone(), preset.slug.clone()));
-        let (default_effort, supported) = Self::reasoning_effort_options_for_model(
-            &preset,
-            selected_provider_id.as_str(),
-            selected_model_slug.as_str(),
-        );
+        let (default_effort, supported) = self.reasoning_effort_options_for_model(&preset);
         let is_openai_provider = canonical_provider_id(selected_provider_id.as_str()) == "openai";
 
         let warn_effort = if supported
@@ -4932,13 +4941,17 @@ impl ChatScreen {
     }
 
     fn reasoning_effort_options_for_model(
+        &self,
         preset: &ModelPreset,
-        provider_id: &str,
-        model_slug: &str,
     ) -> (ReasoningEffortConfig, Vec<ReasoningEffortPreset>) {
         let default_effort = preset.default_reasoning_effort;
         let supported = preset.supported_reasoning_efforts.clone();
-        let Some(model_info) = provider_model_info(provider_id, model_slug) else {
+        let Some(model_info) = self
+            .models_manager
+            .try_get_catalog_model_info(&preset.slug, &self.config)
+            .ok()
+            .flatten()
+        else {
             return (default_effort, supported);
         };
         let default_effort = model_info.default_reasoning_level.unwrap_or(default_effort);

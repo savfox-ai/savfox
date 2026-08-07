@@ -15,7 +15,7 @@ use savfox_common::permission_presets::builtin_tui_presets;
 use savfox_core::config::{Config, ConfigBuilder, Constrained, ConstraintError};
 use savfox_core::config_loader::RequirementSource;
 use savfox_core::features::Feature;
-use savfox_core::models_manager::manager::ModelsManager;
+use savfox_core::models_manager::manager::{ModelsManager, RefreshStrategy};
 use savfox_core::protocol::{
     AgentMessageDeltaEvent, AgentMessageEvent, AgentReasoningDeltaEvent, AgentReasoningEvent,
     ApplyPatchApprovalRequestEvent, BackgroundEventEvent, CreditsSnapshot, Event, EventMsg,
@@ -32,7 +32,8 @@ use savfox_protocol::SessionId;
 use savfox_protocol::account::PlanType;
 use savfox_protocol::config_types::{CollaborationMode, ModeKind, Personality, Settings};
 use savfox_protocol::openai_models::{
-    ModelPreset, ReasoningEffortPreset, default_input_modalities,
+    ModelInstructionsVariables, ModelMessages, ModelPreset, ModelVisibility, ReasoningEffortPreset,
+    default_input_modalities,
 };
 use savfox_protocol::parse_command::ParsedCommand;
 use savfox_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
@@ -1795,29 +1796,37 @@ fn active_blob(chat: &ChatScreen) -> String {
     lines_to_single_string(&lines)
 }
 
-fn get_reasoning_popup_model(chat: &ChatScreen) -> ModelPreset {
-    let models = chat
-        .models_manager
-        .try_list_models(&chat.config)
-        .expect("models lock available");
-    let supports_xhigh = |preset: &ModelPreset| {
-        preset.show_in_picker
-            && preset
-                .supported_reasoning_efforts
-                .iter()
-                .any(|option| option.effort == ReasoningEffortConfig::XHigh)
-    };
-    models
-        .iter()
-        .find(|preset| {
-            supports_xhigh(preset)
-                && (preset.slug.starts_with("gpt-5.2")
-                    || preset.slug.starts_with("gpt-5.1-codex")
-                    || preset.slug.starts_with("gpt-5.1-codex-max"))
-        })
-        .or_else(|| models.iter().find(|preset| supports_xhigh(preset)))
-        .cloned()
-        .expect("reasoning popup model with xhigh effort")
+async fn get_reasoning_popup_model(chat: &mut ChatScreen) -> ModelPreset {
+    let mut model = ModelsManager::construct_model_info_offline("gpt-5.2-codex", &chat.config);
+    model.name = "gpt-5.2-codex".to_owned();
+    model.description = Some("Catalog reasoning fixture".to_owned());
+    model.default_reasoning_level = Some(ReasoningEffortConfig::Medium);
+    model.supported_reasoning_levels = vec![
+        ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Low,
+            description: "Fast responses with lighter reasoning".to_owned(),
+        },
+        ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Medium,
+            description: "Balances speed and reasoning depth for everyday tasks".to_owned(),
+        },
+        ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::High,
+            description: "Greater reasoning depth for complex problems".to_owned(),
+        },
+        ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::XHigh,
+            description: "Extra high reasoning depth for complex problems".to_owned(),
+        },
+    ];
+    model.visibility = ModelVisibility::List;
+    model.priority = 0;
+    model.used_fallback_model_metadata = false;
+    let preset = ModelPreset::from(model.clone());
+    chat.models_manager
+        .replace_catalog_for_test(vec![model])
+        .await;
+    preset
 }
 
 fn has_rate_limit_nudge_model(chat: &ChatScreen) -> bool {
@@ -2729,10 +2738,50 @@ async fn collab_mode_enabling_keeps_custom_until_selected() {
 
 #[tokio::test]
 async fn user_turn_includes_personality_from_config() {
-    let (mut chat, _rx, mut op_rx) = make_chat_screen_manual(Some("bengalfox")).await;
+    let (mut chat, _rx, mut op_rx) = make_chat_screen_manual(Some("test-model")).await;
+    let savfox_home = tempdir().expect("tempdir");
+    let models_dir = savfox_home.path().join("models");
+    std::fs::create_dir_all(&models_dir).expect("create models dir");
+    let mut model = ModelsManager::construct_model_info_offline("test-model", &chat.config);
+    model.model_messages = Some(ModelMessages {
+        instructions_template: Some("{{ personality }}".to_owned()),
+        instructions_variables: Some(ModelInstructionsVariables {
+            personality_default: Some("default".to_owned()),
+            personality_friendly: Some("friendly".to_owned()),
+            personality_pragmatic: Some("pragmatic".to_owned()),
+        }),
+    });
+    model.used_fallback_model_metadata = false;
+    std::fs::write(
+        models_dir.join("test-provider.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 2,
+            "provider_id": "test-provider",
+            "name": "Test Provider",
+            "models": [model],
+            "disabled_models": []
+        }))
+        .expect("serialize provider catalog"),
+    )
+    .expect("write provider catalog");
+    chat.config.savfox_home = savfox_home.path().to_path_buf();
+    let manager = Arc::new(ModelsManager::new(
+        chat.config.savfox_home.clone(),
+        chat.auth_manager.clone(),
+    ));
+    let listed = manager
+        .list_models(&chat.config, RefreshStrategy::Offline)
+        .await;
+    assert!(
+        listed
+            .iter()
+            .any(|preset| preset.slug == "test-model" && preset.supports_personality),
+        "test catalog must explicitly advertise personality support"
+    );
+    chat.models_manager = manager;
     chat.set_feature_enabled(Feature::Personality, true);
     chat.session_id = Some(SessionId::new());
-    chat.set_model("bengalfox");
+    chat.set_model("test-model");
     chat.set_personality(Personality::Friendly);
 
     chat.bottom_pane
@@ -3366,7 +3415,7 @@ async fn model_selection_popup_snapshot() {
 
 #[tokio::test]
 async fn personality_selection_popup_snapshot() {
-    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("bengalfox")).await;
+    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("test-model")).await;
     chat.session_id = Some(SessionId::new());
     chat.open_personality_popup();
 
@@ -3725,7 +3774,7 @@ async fn model_reasoning_selection_popup_snapshot() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
     set_chatgpt_auth(&mut chat);
-    let preset = get_reasoning_popup_model(&chat);
+    let preset = get_reasoning_popup_model(&mut chat).await;
     chat.set_model(&preset.slug);
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
     chat.open_reasoning_popup(preset);
@@ -3739,7 +3788,7 @@ async fn model_reasoning_selection_popup_extra_high_warning_snapshot() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
     set_chatgpt_auth(&mut chat);
-    let preset = get_reasoning_popup_model(&chat);
+    let preset = get_reasoning_popup_model(&mut chat).await;
     chat.set_model(&preset.slug);
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::XHigh));
     chat.open_reasoning_popup(preset);
@@ -3753,7 +3802,7 @@ async fn reasoning_popup_shows_extra_high_with_space() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
     set_chatgpt_auth(&mut chat);
-    let preset = get_reasoning_popup_model(&chat);
+    let preset = get_reasoning_popup_model(&mut chat).await;
     chat.set_model(&preset.slug);
     chat.open_reasoning_popup(preset);
 
@@ -3769,15 +3818,32 @@ async fn reasoning_popup_shows_extra_high_with_space() {
 }
 
 #[tokio::test]
-async fn reasoning_popup_uses_model_crate_metadata_for_selected_slug() {
+async fn reasoning_popup_uses_active_catalog_metadata_for_selected_slug() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
     set_chatgpt_auth(&mut chat);
     chat.config.model_provider_id = "chatgpt".to_owned();
+    let mut catalog_model =
+        ModelsManager::construct_model_info_offline("catalog-reasoning-model", &chat.config);
+    catalog_model.default_reasoning_level = Some(ReasoningEffortConfig::Medium);
+    catalog_model.supported_reasoning_levels = vec![
+        ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Medium,
+            description: "Catalog default".to_owned(),
+        },
+        ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::XHigh,
+            description: "Catalog maximum".to_owned(),
+        },
+    ];
+    catalog_model.used_fallback_model_metadata = false;
+    chat.models_manager
+        .replace_catalog_for_test(vec![catalog_model])
+        .await;
     let preset = ModelPreset {
-        id: "gpt-5.3-codex".to_owned(),
-        slug: "gpt-5.3-codex".to_owned(),
-        name: "gpt-5.3-codex".to_owned(),
+        id: "catalog-reasoning-model".to_owned(),
+        slug: "catalog-reasoning-model".to_owned(),
+        name: "Catalog reasoning model".to_owned(),
         description: "stale preset".to_owned(),
         default_reasoning_effort: ReasoningEffortConfig::Low,
         supported_reasoning_efforts: vec![ReasoningEffortPreset {
@@ -3798,17 +3864,20 @@ async fn reasoning_popup_uses_model_crate_metadata_for_selected_slug() {
     let popup = render_bottom_popup(&chat, 120);
     assert!(
         popup.contains("Medium (default)"),
-        "expected default effort from bundled model metadata; popup: {popup}"
+        "expected default effort from active catalog metadata; popup: {popup}"
     );
     assert!(
         popup.contains("Extra high"),
-        "expected xhigh effort from bundled model metadata; popup: {popup}"
+        "expected xhigh effort from active catalog metadata; popup: {popup}"
     );
 }
 
 #[tokio::test]
 async fn single_reasoning_option_skips_selection() {
     let (mut chat, mut rx, _op_rx) = make_chat_screen_manual(None).await;
+    // OpenAI keeps the picker visible even for one option; use a neutral
+    // third-party provider to exercise the auto-apply path.
+    chat.config.model_provider_id = "test-provider".to_owned();
 
     let single_effort = vec![ReasoningEffortPreset {
         effort: ReasoningEffortConfig::High,
@@ -3875,7 +3944,7 @@ async fn feedback_upload_consent_popup_snapshot() {
 async fn reasoning_popup_escape_returns_to_model_popup() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
     set_chatgpt_auth(&mut chat);
-    let preset = get_reasoning_popup_model(&chat);
+    let preset = get_reasoning_popup_model(&mut chat).await;
     chat.set_model(&preset.slug);
     chat.session_id = Some(SessionId::new());
     chat.open_model_popup();

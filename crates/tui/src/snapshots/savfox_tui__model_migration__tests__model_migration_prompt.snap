@@ -1,12 +1,11 @@
-﻿---
+---
 source: crates/tui/src/model_migration.rs
 expression: terminal.backend()
 ---
 
 > Savfox just got an upgrade. Introducing gpt-5.1-savfox-max
 
-  Upgrade to gpt-5.2-savfox for the latest and greatest
-  agentic coding model.
+  Upgrade for the latest and greatest agentic coding model.
 
   You can continue using gpt-5.1-savfox-mini if you prefer.
 

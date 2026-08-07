@@ -405,10 +405,7 @@ mod tests {
                 "gpt-5.1-savfox-mini",
                 "gpt-5.1-savfox-max",
                 None,
-                Some(
-                    "Upgrade to gpt-5.2-savfox for the latest and greatest agentic coding model."
-                        .to_owned(),
-                ),
+                Some("Upgrade for the latest and greatest agentic coding model.".to_owned()),
                 None,
                 "gpt-5.1-savfox-max".to_owned(),
                 Some("Savfox-optimized flagship for deep and fast reasoning.".to_owned()),

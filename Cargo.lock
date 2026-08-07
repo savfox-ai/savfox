@@ -227,6 +227,7 @@ dependencies = [
  "core_test_support",
  "savfox-app-server-protocol",
  "savfox-core",
+ "savfox-model",
  "savfox-protocol",
  "savfox-utils",
  "serde",

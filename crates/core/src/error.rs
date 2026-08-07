@@ -719,37 +719,37 @@ mod tests {
     #[test]
     fn model_cap_error_formats_message() {
         let err = ModelCapError {
-            model: "boomslang".to_owned(),
+            model: "test-model".to_owned(),
             reset_after_seconds: Some(120),
         };
         assert_eq!(
             err.to_string(),
-            "Model boomslang is at capacity. Please try a different model. Try again in 2m."
+            "Model test-model is at capacity. Please try a different model. Try again in 2m."
         );
     }
 
     #[test]
     fn model_cap_error_formats_message_without_reset() {
         let err = ModelCapError {
-            model: "boomslang".to_owned(),
+            model: "test-model".to_owned(),
             reset_after_seconds: None,
         };
         assert_eq!(
             err.to_string(),
-            "Model boomslang is at capacity. Please try a different model. Try again later."
+            "Model test-model is at capacity. Please try a different model. Try again later."
         );
     }
 
     #[test]
     fn model_cap_error_maps_to_protocol() {
         let err = SavfoxError::ModelCap(ModelCapError {
-            model: "boomslang".to_owned(),
+            model: "test-model".to_owned(),
             reset_after_seconds: Some(30),
         });
         assert_eq!(
             err.to_savfox_protocol_error(),
             SavfoxErrorInfo::ModelCap {
-                model: "boomslang".to_owned(),
+                model: "test-model".to_owned(),
                 reset_after_seconds: Some(30),
             }
         );

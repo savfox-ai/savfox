@@ -3,7 +3,7 @@
 //! These types are serialized across core, TUI, app-server, and SDK boundaries, so field defaults
 //! are used to preserve compatibility when older payloads omit newly introduced attributes.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -317,6 +317,11 @@ pub struct ModelInfo {
     /// Input modalities accepted by the backend for this model.
     #[serde(default = "default_input_modalities")]
     pub input_modalities: Vec<InputModality>,
+    /// Set when no catalog entry described this model and the values above are
+    /// the client's conservative defaults rather than the model's real
+    /// capabilities. Never sent by the backend — it is stamped locally.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub used_fallback_model_metadata: bool,
 }
 
 impl Default for ModelInfo {
@@ -346,6 +351,7 @@ impl Default for ModelInfo {
             effective_context_window_percent: default_effective_context_window_percent(),
             experimental_supported_tools: default_experimental_supported_tools(),
             input_modalities: default_input_modalities(),
+            used_fallback_model_metadata: false,
         }
     }
 }
@@ -543,33 +549,6 @@ impl ModelPreset {
             .filter(|model| chatgpt_mode || model.supported_in_api)
             .collect()
     }
-
-    /// Merge remote presets with existing presets, preferring remote when slugs match.
-    ///
-    /// Remote presets take precedence. Existing presets not in remote are appended with
-    /// `is_default` set to false.
-    #[must_use]
-    pub fn merge(remote_presets: Vec<Self>, existing_presets: Vec<Self>) -> Vec<Self> {
-        if remote_presets.is_empty() {
-            return existing_presets;
-        }
-
-        let remote_slugs: HashSet<&str> = remote_presets
-            .iter()
-            .map(|preset| preset.slug.as_str())
-            .collect();
-
-        let mut merged_presets = remote_presets.clone();
-        for mut preset in existing_presets {
-            if remote_slugs.contains(preset.slug.as_str()) {
-                continue;
-            }
-            preset.is_default = false;
-            merged_presets.push(preset);
-        }
-
-        merged_presets
-    }
 }
 
 fn reasoning_effort_mapping_from_presets(
@@ -642,6 +621,7 @@ mod tests {
             effective_context_window_percent: 95,
             experimental_supported_tools: vec![],
             input_modalities: default_input_modalities(),
+            used_fallback_model_metadata: false,
         }
     }
 

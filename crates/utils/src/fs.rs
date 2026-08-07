@@ -73,7 +73,7 @@ pub async fn write_atomically_async(
     let suffix: u32 = rand_u32();
     let tmp_name = format!(".tmp-{pid}-{suffix:08x}");
     let tmp_path = match path.file_name() {
-        Some(name) => parent.join(format!("{}{}", name.to_string_lossy(), &tmp_name)),
+        Some(name) => parent.join(format!("{}{}", name.to_string_lossy(), tmp_name)),
         None => parent.join(tmp_name),
     };
 

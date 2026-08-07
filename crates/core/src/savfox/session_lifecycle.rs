@@ -54,7 +54,7 @@ impl SessionHandle {
                 &config,
                 crate::models_manager::manager::RefreshStrategy::OnlineIfUncached,
             )
-            .await;
+            .await?;
 
         // Resolve base instructions for the session. Priority order:
         // 1. config.base_instructions override

@@ -1410,16 +1410,29 @@ mod tests {
         assert_contains_tool_names(&tools, &["request_user_input"]);
     }
 
+    /// Tool routing keys off model *capabilities*, never off the slug — the
+    /// catalog is what says whether a model has `apply_patch` or a
+    /// `shell_command` shell. These fixtures therefore state the capabilities
+    /// directly instead of naming a model and relying on inference.
+    fn model_with_capabilities(
+        shell_type: ConfigShellToolType,
+        apply_patch_tool_type: Option<ApplyPatchToolType>,
+    ) -> ModelInfo {
+        let config = test_config();
+        let mut model_info = ModelsManager::construct_model_info_offline("test-model", &config);
+        model_info.shell_type = shell_type;
+        model_info.apply_patch_tool_type = apply_patch_tool_type;
+        model_info
+    }
+
     fn assert_model_tools(
-        model_slug: &str,
+        model_info: &ModelInfo,
         features: &Features,
         web_search_mode: Option<WebSearchMode>,
         expected_tools: &[&str],
     ) {
-        let config = test_config();
-        let model_info = ModelsManager::construct_model_info_offline(model_slug, &config);
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
-            model_info: &model_info,
+            model_info,
             features,
             web_search_mode,
         });
@@ -1473,11 +1486,11 @@ mod tests {
     }
 
     #[test]
-    fn test_build_specs_gpt5_savfox_default() {
+    fn default_shell_type_exposes_shell_tool() {
         let mut features = Features::with_defaults();
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5-savfox",
+            &model_with_capabilities(ConfigShellToolType::Default, None),
             &features,
             Some(WebSearchMode::Cached),
             &[
@@ -1494,11 +1507,14 @@ mod tests {
     }
 
     #[test]
-    fn test_build_specs_gpt51_savfox_default() {
+    fn shell_command_type_exposes_apply_patch() {
         let mut features = Features::with_defaults();
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5.1-savfox",
+            &model_with_capabilities(
+                ConfigShellToolType::ShellCommand,
+                Some(ApplyPatchToolType::Freeform),
+            ),
             &features,
             Some(WebSearchMode::Cached),
             &[
@@ -1516,12 +1532,12 @@ mod tests {
     }
 
     #[test]
-    fn test_build_specs_gpt5_savfox_unified_exec_web_search() {
+    fn unified_exec_feature_replaces_shell_tool() {
         let mut features = Features::with_defaults();
         features.enable(Feature::UnifiedExec);
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5-savfox",
+            &model_with_capabilities(ConfigShellToolType::Default, None),
             &features,
             Some(WebSearchMode::Live),
             &[
@@ -1539,12 +1555,15 @@ mod tests {
     }
 
     #[test]
-    fn test_build_specs_gpt51_savfox_unified_exec_web_search() {
+    fn unified_exec_feature_keeps_apply_patch() {
         let mut features = Features::with_defaults();
         features.enable(Feature::UnifiedExec);
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5.1-savfox",
+            &model_with_capabilities(
+                ConfigShellToolType::ShellCommand,
+                Some(ApplyPatchToolType::Freeform),
+            ),
             &features,
             Some(WebSearchMode::Live),
             &[
@@ -1567,7 +1586,7 @@ mod tests {
         let mut features = Features::with_defaults();
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "savfox-mini-latest",
+            &model_with_capabilities(ConfigShellToolType::Default, None),
             &features,
             Some(WebSearchMode::Cached),
             &[
@@ -1584,76 +1603,14 @@ mod tests {
     }
 
     #[test]
-    fn test_savfox_5_1_mini_defaults() {
+    fn unified_exec_shell_type_exposes_exec_command() {
         let mut features = Features::with_defaults();
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5.1-savfox-mini",
-            &features,
-            Some(WebSearchMode::Cached),
-            &[
-                "shell_command",
-                "list_mcp_resources",
-                "list_mcp_resource_templates",
-                "read_mcp_resource",
-                "update_plan",
-                "request_user_input",
-                "apply_patch",
-                "web_search",
-                "view_image",
-            ],
-        );
-    }
-
-    #[test]
-    fn test_gpt_5_defaults() {
-        let mut features = Features::with_defaults();
-        features.enable(Feature::CollaborationModes);
-        assert_model_tools(
-            "gpt-5",
-            &features,
-            Some(WebSearchMode::Cached),
-            &[
-                "shell",
-                "list_mcp_resources",
-                "list_mcp_resource_templates",
-                "read_mcp_resource",
-                "update_plan",
-                "request_user_input",
-                "web_search",
-                "view_image",
-            ],
-        );
-    }
-
-    #[test]
-    fn test_gpt_5_1_defaults() {
-        let mut features = Features::with_defaults();
-        features.enable(Feature::CollaborationModes);
-        assert_model_tools(
-            "gpt-5.1",
-            &features,
-            Some(WebSearchMode::Cached),
-            &[
-                "shell_command",
-                "list_mcp_resources",
-                "list_mcp_resource_templates",
-                "read_mcp_resource",
-                "update_plan",
-                "request_user_input",
-                "apply_patch",
-                "web_search",
-                "view_image",
-            ],
-        );
-    }
-
-    #[test]
-    fn test_exp_5_1_defaults() {
-        let mut features = Features::with_defaults();
-        features.enable(Feature::CollaborationModes);
-        assert_model_tools(
-            "exp-5.1",
+            &model_with_capabilities(
+                ConfigShellToolType::UnifiedExec,
+                Some(ApplyPatchToolType::Freeform),
+            ),
             &features,
             Some(WebSearchMode::Cached),
             &[
@@ -1672,12 +1629,12 @@ mod tests {
     }
 
     #[test]
-    fn test_savfox_mini_unified_exec_web_search() {
+    fn unified_exec_feature_without_apply_patch() {
         let mut features = Features::with_defaults();
         features.enable(Feature::UnifiedExec);
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "savfox-mini-latest",
+            &model_with_capabilities(ConfigShellToolType::Default, None),
             &features,
             Some(WebSearchMode::Live),
             &[
@@ -1737,9 +1694,17 @@ mod tests {
     }
 
     #[test]
-    fn test_test_model_info_includes_sync_tool() {
+    fn experimental_supported_tools_are_exposed() {
         let config = test_config();
-        let model_info = ModelsManager::construct_model_info_offline("test-gpt-5-savfox", &config);
+        let mut model_info = ModelsManager::construct_model_info_offline("test-model", &config);
+        // Experimental tools are a catalog property, so the fixture states them
+        // rather than relying on a magic slug prefix to conjure them.
+        model_info.experimental_supported_tools = vec![
+            "test_sync_tool".to_owned(),
+            "read_file".to_owned(),
+            "grep_files".to_owned(),
+            "list_dir".to_owned(),
+        ];
         let features = Features::with_defaults();
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
             model_info: &model_info,

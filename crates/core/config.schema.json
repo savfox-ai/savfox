@@ -74,6 +74,19 @@
           "type": "string"
         },
         {
+          "additionalProperties": false,
+          "description": "Fine-grained switches for individual approval flows. A disabled\ncategory is rejected instead of being surfaced as an approval prompt.",
+          "properties": {
+            "granular": {
+              "$ref": "#/definitions/GranularApprovalConfig"
+            }
+          },
+          "required": [
+            "granular"
+          ],
+          "type": "object"
+        },
+        {
           "const": "never",
           "description": "Never ask the user to approve commands. Failures are immediately returned\nto the model, and never escalated to the user for approval.",
           "type": "string"
@@ -152,6 +165,23 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "GranularApprovalConfig": {
+      "properties": {
+        "rules": {
+          "description": "Commands matched by an execpolicy `prompt` rule.",
+          "type": "boolean"
+        },
+        "sandbox_approval": {
+          "description": "Shell commands that need an expanded sandbox boundary.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sandbox_approval",
+        "rules"
+      ],
       "type": "object"
     },
     "History": {

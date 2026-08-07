@@ -6,9 +6,10 @@ use http::HeaderMap;
 use savfox_api_client::{ModelsClient, ReqwestTransport};
 use savfox_protocol::config_types::CollaborationModeMask;
 use savfox_protocol::openai_models::{ModelInfo, ModelPreset};
+use serde_json::Value;
 use tokio::sync::{RwLock, TryLockError};
 use tokio::time::timeout;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use super::cache::ModelsCacheManager;
 use crate::api_bridge::{auth_provider_from_auth, map_api_error};
@@ -20,11 +21,14 @@ use crate::features::Feature;
 use crate::model_provider_info::ModelProviderInfo;
 use crate::models_manager::collaboration_mode_presets::builtin_collaboration_mode_presets;
 use crate::models_manager::model_info;
-use crate::models_manager::model_presets::builtin_model_presets;
 
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const DEFAULT_MODEL_CACHE_TTL: Duration = Duration::from_secs(300);
 const MODELS_REFRESH_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Stand-in model for tests that must name one but do not depend on which.
+#[cfg(any(test, feature = "test-support"))]
+const OFFLINE_TEST_MODEL: &str = "test-model";
 
 /// Strategy for refreshing available models.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,7 +45,6 @@ pub enum RefreshStrategy {
 #[derive(Debug)]
 pub struct ModelsManager {
     savfox_home: PathBuf,
-    local_models: Vec<ModelPreset>,
     remote_models: RwLock<Vec<ModelInfo>>,
     auth_manager: Arc<AuthManager>,
     etag: RwLock<Option<String>>,
@@ -58,7 +61,6 @@ impl ModelsManager {
         let cache_manager = ModelsCacheManager::new(cache_path, DEFAULT_MODEL_CACHE_TTL);
         Self {
             savfox_home,
-            local_models: builtin_model_presets(auth_manager.get_internal_auth_mode()),
             remote_models: RwLock::new(Vec::new()),
             auth_manager,
             etag: RwLock::new(None),
@@ -103,16 +105,18 @@ impl ModelsManager {
     // todo(aibrahim): should be visible to core only and sent on session_configured event
     /// Get the model identifier to use, refreshing according to the specified strategy.
     ///
-    /// If `model` is provided, returns it directly. Otherwise selects the default based on
-    /// auth mode and available models.
+    /// If `model` is provided, returns it directly. Otherwise selects the default
+    /// from the catalog. Fails when the catalog is empty rather than returning an
+    /// empty string: with no bundled model list there is nothing to fall back on,
+    /// and an unnamed model would otherwise go out on the wire.
     pub async fn get_default_model(
         &self,
         model: &Option<String>,
         config: &Config,
         refresh_strategy: RefreshStrategy,
-    ) -> String {
+    ) -> CoreResult<String> {
         if let Some(model) = model.as_ref() {
-            return model.clone();
+            return Ok(model.clone());
         }
         if let Err(err) = self
             .refresh_available_models(config, refresh_strategy)
@@ -127,7 +131,13 @@ impl ModelsManager {
             .find(|model| model.is_default)
             .or_else(|| available.first())
             .map(|model| model.slug.clone())
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                SavfoxError::Fatal(
+                    "no models are available: sign in to a provider, or set `model` in \
+                     config.toml to name one explicitly"
+                        .to_owned(),
+                )
+            })
     }
 
     // todo(aibrahim): look if we can tighten it to pub(crate)
@@ -141,9 +151,29 @@ impl ModelsManager {
         let model = if let Some(remote) = remote {
             remote
         } else {
+            warn!(
+                model,
+                "model is absent from the active catalog; using conservative fallback metadata"
+            );
             model_info::find_model_info_for_slug(model)
         };
         model_info::with_config_overrides(model, config)
+    }
+
+    /// Attempts to read model metadata from the catalog already held in
+    /// memory, without refreshing or manufacturing fallback metadata.
+    pub fn try_get_catalog_model_info(
+        &self,
+        model: &str,
+        config: &Config,
+    ) -> Result<Option<ModelInfo>, TryLockError> {
+        let model = self
+            .remote_models
+            .try_read()?
+            .iter()
+            .find(|candidate| candidate.slug == model)
+            .cloned();
+        Ok(model.map(|model| model_info::with_config_overrides(model, config)))
     }
 
     /// Refresh models if the provided ETag differs from the cached ETag.
@@ -171,40 +201,50 @@ impl ModelsManager {
         config: &Config,
         refresh_strategy: RefreshStrategy,
     ) -> CoreResult<()> {
-        if !config.features.enabled(Feature::RemoteModels)
-            || self.auth_manager.get_internal_auth_mode() == Some(AuthMode::ApiKey)
-        {
+        if !config.features.enabled(Feature::RemoteModels) {
+            // This flag disables network discovery. Disk cache and provider
+            // stores are local catalog data and must remain available in
+            // offline or locked-down configurations.
+            if self.try_load_cache().await {
+                self.merge_from_provider_store(false).await;
+            } else {
+                self.replace_from_provider_store(false).await;
+            }
             return Ok(());
         }
 
         match refresh_strategy {
             RefreshStrategy::Offline => {
-                // Try cache first, then provider store files (no network).
-                if !self.try_load_cache().await {
-                    self.try_load_from_provider_store().await;
+                // The remote cache and per-account provider stores are independent
+                // catalog sources. Keep both when they are available.
+                if self.try_load_cache().await {
+                    self.merge_from_provider_store(false).await;
+                } else {
+                    self.replace_from_provider_store(false).await;
                 }
                 Ok(())
             }
             RefreshStrategy::OnlineIfUncached => {
                 // Try cache first, then fresh provider store, then online.
                 if self.try_load_cache().await {
+                    self.merge_from_provider_store(false).await;
                     return Ok(());
                 }
-                if self.try_load_fresh_provider_store().await {
+                if self.replace_from_provider_store(true).await {
                     return Ok(());
                 }
                 if let Err(err) = self.fetch_and_update_models(config).await {
                     debug!("remote fetch failed, falling back to provider store: {err}");
-                    self.try_load_from_provider_store().await;
                 }
+                self.merge_from_provider_store(false).await;
                 Ok(())
             }
             RefreshStrategy::Online => {
                 // Always fetch from network, fall back to provider store on failure.
                 if let Err(err) = self.fetch_and_update_models(config).await {
                     debug!("remote fetch failed, falling back to provider store: {err}");
-                    self.try_load_from_provider_store().await;
                 }
+                self.merge_from_provider_store(false).await;
                 Ok(())
             }
         }
@@ -331,12 +371,89 @@ impl ModelsManager {
                 }
             }
             for model_value in &file.models {
-                if let Ok(model_info) = serde_json::from_value::<ModelInfo>(model_value.clone()) {
+                if let Some(model_info) = Self::model_info_from_provider_store(&file, model_value) {
                     all_models.push(model_info);
                 }
             }
         }
         all_models
+    }
+
+    /// Convert the provider connection format (`id` / `model_slug`) into the
+    /// protocol catalog format (`slug`). Exact capability fields are preserved;
+    /// missing fields retain `ModelInfo`'s neutral defaults.
+    fn model_info_from_provider_store(
+        file: &crate::config::provider_store::ProviderStoreFile,
+        model_value: &Value,
+    ) -> Option<ModelInfo> {
+        let mut normalized = model_value.clone();
+        let model = normalized.as_object_mut()?;
+
+        let slug = ["slug", "id", "model", "model_slug"]
+            .into_iter()
+            .find_map(|key| {
+                model
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+            })?;
+        model.insert("slug".to_owned(), Value::String(slug.clone()));
+
+        if !model
+            .get("name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| !name.trim().is_empty())
+        {
+            let fallback_name = model
+                .get("model_slug")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| slug.clone());
+            model.insert("name".to_owned(), Value::String(fallback_name));
+        }
+
+        if !model.contains_key("default_reasoning_level")
+            && let Some(value) = model
+                .get("default_reasoning_effort")
+                .or_else(|| model.get("defaultReasoningEffort"))
+                .or_else(|| model.get("defaultReasoningLevel"))
+                .cloned()
+        {
+            model.insert("default_reasoning_level".to_owned(), value);
+        }
+
+        let bare_slug = crate::parse_provider_prefixed_model(&slug)
+            .map(|(_, model_slug)| model_slug)
+            .unwrap_or(slug.as_str());
+        let disabled = file
+            .disabled_models
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(bare_slug))
+            || model
+                .get("is_disabled")
+                .or_else(|| model.get("disabled"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+        if disabled {
+            model.insert("visibility".to_owned(), Value::String("hide".to_owned()));
+        } else if !model.contains_key("visibility") {
+            model.insert("visibility".to_owned(), Value::String("list".to_owned()));
+        }
+
+        if !model.contains_key("priority")
+            && model
+                .get("is_default")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        {
+            model.insert("priority".to_owned(), Value::Number(0.into()));
+        }
+
+        serde_json::from_value(normalized).ok()
     }
 
     /// Attempt to satisfy the refresh from the cache when it matches the provider and TTL.
@@ -354,74 +471,79 @@ impl ModelsManager {
         true
     }
 
-    /// Try loading fresh models (within TTL) from provider store files.
-    async fn try_load_fresh_provider_store(&self) -> bool {
-        let models = Self::load_models_from_provider_store(&self.savfox_home, true);
+    /// Replace the in-memory catalog with provider store entries.
+    async fn replace_from_provider_store(&self, require_fresh: bool) -> bool {
+        let models = Self::load_models_from_provider_store(&self.savfox_home, require_fresh);
         if models.is_empty() {
             return false;
         }
         debug!(
             count = models.len(),
-            "loaded fresh models from provider store files"
+            require_fresh, "loaded models from provider store files"
         );
         self.apply_remote_models(models).await;
         true
     }
 
-    /// Fall back to any models in provider store files (ignoring freshness).
-    async fn try_load_from_provider_store(&self) {
-        let models = Self::load_models_from_provider_store(&self.savfox_home, false);
-        if !models.is_empty() {
-            debug!(
-                count = models.len(),
-                "loaded models from provider store files (stale fallback)"
-            );
-            self.apply_remote_models(models).await;
+    /// Merge provider store entries into an already-loaded remote catalog.
+    async fn merge_from_provider_store(&self, require_fresh: bool) -> bool {
+        let stored = Self::load_models_from_provider_store(&self.savfox_home, require_fresh);
+        if stored.is_empty() {
+            return false;
         }
+
+        let mut models = self.remote_models.write().await;
+        let mut added = 0usize;
+        for model in stored {
+            if models.iter().any(|existing| existing.slug == model.slug) {
+                continue;
+            }
+            models.push(model);
+            added += 1;
+        }
+        debug!(
+            added,
+            require_fresh, "merged models from provider store files"
+        );
+        true
     }
 
-    /// Merge remote model metadata into picker-ready presets, preserving existing entries.
+    /// Project discovered model metadata onto picker-ready presets.
+    ///
+    /// The catalog is the only source: there is no bundled model list to merge
+    /// against. Savfox speaks to a dozen providers, so shipping one vendor's
+    /// models as a built-in baseline would put the wrong entries in front of
+    /// everyone else.
     fn build_available_models(&self, mut remote_models: Vec<ModelInfo>) -> Vec<ModelPreset> {
         remote_models.sort_by_key(|model| model.priority);
 
-        let remote_presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();
-        let existing_presets = self.local_models.clone();
-        let mut merged_presets = ModelPreset::merge(remote_presets, existing_presets);
+        let presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();
         let chatgpt_mode = matches!(
             self.auth_manager.get_internal_auth_mode(),
             Some(AuthMode::Chatgpt)
         );
-        merged_presets = ModelPreset::filter_by_auth(merged_presets, chatgpt_mode);
+        let mut available = ModelPreset::filter_by_auth(presets, chatgpt_mode);
 
-        for preset in &mut merged_presets {
+        for preset in &mut available {
             preset.is_default = false;
         }
-        if let Some(default) = merged_presets
-            .iter_mut()
-            .find(|preset| preset.show_in_picker)
-        {
+        if let Some(default) = available.iter_mut().find(|preset| preset.show_in_picker) {
             default.is_default = true;
-        } else if let Some(default) = merged_presets.first_mut() {
+        } else if let Some(default) = available.first_mut() {
             default.is_default = true;
         }
 
-        merged_presets
+        available
     }
 
     async fn get_remote_models(&self, config: &Config) -> Vec<ModelInfo> {
-        if config.features.enabled(Feature::RemoteModels) {
-            self.remote_models.read().await.clone()
-        } else {
-            Vec::new()
-        }
+        let _ = config;
+        self.remote_models.read().await.clone()
     }
 
     fn try_get_remote_models(&self, config: &Config) -> Result<Vec<ModelInfo>, TryLockError> {
-        if config.features.enabled(Feature::RemoteModels) {
-            Ok(self.remote_models.try_read()?.clone())
-        } else {
-            Ok(Vec::new())
-        }
+        let _ = config;
+        Ok(self.remote_models.try_read()?.clone())
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -435,7 +557,6 @@ impl ModelsManager {
         let cache_manager = ModelsCacheManager::new(cache_path, DEFAULT_MODEL_CACHE_TTL);
         Self {
             savfox_home,
-            local_models: builtin_model_presets(auth_manager.get_internal_auth_mode()),
             remote_models: RwLock::new(Vec::new()),
             auth_manager,
             etag: RwLock::new(None),
@@ -445,19 +566,21 @@ impl ModelsManager {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    /// Replaces the in-memory catalog for a test that needs explicit model
+    /// capabilities without relying on a model slug.
+    pub async fn replace_catalog_for_test(&self, models: Vec<ModelInfo>) {
+        self.apply_remote_models(models).await;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     /// Get model identifier without consulting remote state or cache.
+    ///
+    /// With no bundled catalog there is nothing to pick a default from, so an
+    /// unset `config.model` resolves to an explicit placeholder. A test that
+    /// cares which model it runs as sets one.
     #[must_use]
     pub fn get_model_offline(model: Option<&str>) -> String {
-        if let Some(model) = model {
-            return model.to_owned();
-        }
-        let presets = builtin_model_presets(None);
-        presets
-            .iter()
-            .find(|preset| preset.show_in_picker)
-            .or_else(|| presets.first())
-            .map(|preset| preset.slug.clone())
-            .unwrap_or_default()
+        model.unwrap_or(OFFLINE_TEST_MODEL).to_owned()
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -466,6 +589,17 @@ impl ModelsManager {
     pub fn construct_model_info_offline(model: &str, config: &Config) -> ModelInfo {
         model_info::with_config_overrides(model_info::find_model_info_for_slug(model), config)
     }
+
+    #[cfg(any(test, feature = "test-support"))]
+    /// Apply config-level overrides to metadata the caller supplies.
+    ///
+    /// Capabilities come from the catalog, never from the slug, so a test that
+    /// exercises override behaviour states its starting metadata rather than
+    /// naming a model and hoping the client infers the right shape.
+    #[must_use]
+    pub fn apply_config_overrides(model: ModelInfo, config: &Config) -> ModelInfo {
+        model_info::with_config_overrides(model, config)
+    }
 }
 
 #[cfg(test)]
@@ -473,7 +607,9 @@ mod tests {
     use chrono::Utc;
     use core_test_support::responses::mount_models_once;
     use pretty_assertions::assert_eq;
-    use savfox_protocol::openai_models::ModelsResponse;
+    use savfox_protocol::openai_models::{
+        ApplyPatchToolType, ConfigShellToolType, ModelsResponse, ReasoningEffort,
+    };
     use serde_json::json;
     use tempfile::tempdir;
     use wiremock::MockServer;
@@ -908,9 +1044,8 @@ mod tests {
         let auth_manager =
             AuthManager::from_auth_for_testing(SavfoxAuth::from_api_key("Test API Key"));
         let provider = provider_for("http://example.test".to_owned());
-        let mut manager =
+        let manager =
             ModelsManager::with_provider(savfox_home.path().to_path_buf(), auth_manager, provider);
-        manager.local_models = Vec::new();
 
         let hidden_model = remote_model_with_visibility("hidden", "Hidden", 0, "hide");
         let visible_model = remote_model_with_visibility("visible", "Visible", 1, "list");
@@ -922,5 +1057,298 @@ mod tests {
         let available = manager.build_available_models(vec![hidden_model, visible_model]);
 
         assert_eq!(available, vec![expected_hidden, expected_visible]);
+    }
+
+    /// An unnamed model would otherwise be sent to the provider verbatim; there
+    /// is no bundled list left to quietly pick a default from.
+    #[tokio::test]
+    async fn get_default_model_fails_when_no_catalog_is_available() {
+        let savfox_home = tempdir().expect("temp dir");
+        let mut config = ConfigBuilder::default()
+            .savfox_home(savfox_home.path().to_path_buf())
+            .build()
+            .await
+            .expect("load default test config");
+        config.features.enable(Feature::RemoteModels);
+        let auth_manager =
+            AuthManager::from_auth_for_testing(SavfoxAuth::from_api_key("Test API Key"));
+        let provider = provider_for("http://127.0.0.1:1/unreachable".to_owned());
+        let manager =
+            ModelsManager::with_provider(savfox_home.path().to_path_buf(), auth_manager, provider);
+
+        let err = manager
+            .get_default_model(&None, &config, RefreshStrategy::Offline)
+            .await
+            .expect_err("an empty catalog must not resolve to a model name");
+
+        assert!(
+            err.to_string().contains("no models are available"),
+            "error should tell the user how to recover, got: {err}"
+        );
+    }
+
+    /// An explicitly configured model is honoured without consulting a catalog.
+    #[tokio::test]
+    async fn get_default_model_returns_configured_model_without_catalog() {
+        let savfox_home = tempdir().expect("temp dir");
+        let config = ConfigBuilder::default()
+            .savfox_home(savfox_home.path().to_path_buf())
+            .build()
+            .await
+            .expect("load default test config");
+        let auth_manager =
+            AuthManager::from_auth_for_testing(SavfoxAuth::from_api_key("Test API Key"));
+        let provider = provider_for("http://127.0.0.1:1/unreachable".to_owned());
+        let manager =
+            ModelsManager::with_provider(savfox_home.path().to_path_buf(), auth_manager, provider);
+
+        let model = manager
+            .get_default_model(
+                &Some("my-model".to_owned()),
+                &config,
+                RefreshStrategy::Offline,
+            )
+            .await
+            .expect("an explicit model needs no catalog");
+
+        assert_eq!(model, "my-model");
+    }
+
+    /// API-key sign-in is the normal state for every third-party provider, and
+    /// those accounts carry their model list in the provider store rather than
+    /// on OpenAI's `/models`. The refresh used to bail out before reading it.
+    #[tokio::test]
+    async fn api_key_auth_lists_models_from_provider_store() {
+        use crate::config::provider_store::persist_provider_connection;
+
+        let savfox_home = tempdir().expect("temp dir");
+        persist_provider_connection(
+            savfox_home.path(),
+            "anthropic",
+            "anthropic",
+            "Anthropic",
+            &[json!({
+                "id": "anthropic/stored-model",
+                "model_slug": "stored-model",
+                "name": "Stored",
+                "is_default": true,
+                "default_reasoning_effort": "high",
+                "shell_type": "shell_command",
+                "apply_patch_tool_type": "freeform",
+                "supports_parallel_tool_calls": true,
+            })],
+            Some("ANTHROPIC_API_KEY"),
+            Some("test-key"),
+        )
+        .expect("store provider connection");
+
+        let mut config = ConfigBuilder::default()
+            .savfox_home(savfox_home.path().to_path_buf())
+            .build()
+            .await
+            .expect("load default test config");
+        config.features.enable(Feature::RemoteModels);
+        let auth_manager =
+            AuthManager::from_auth_for_testing(SavfoxAuth::from_api_key("Test API Key"));
+        // No server is mounted. A just-imported provider catalog is fresh, so
+        // it should be sufficient without an OpenAI model refresh.
+        let provider = provider_for("http://127.0.0.1:1/unreachable".to_owned());
+        let manager =
+            ModelsManager::with_provider(savfox_home.path().to_path_buf(), auth_manager, provider);
+
+        let available = manager
+            .list_models(&config, RefreshStrategy::OnlineIfUncached)
+            .await;
+
+        assert!(
+            available
+                .iter()
+                .any(|preset| preset.slug == "anthropic/stored-model"),
+            "provider store models should be listed under API-key auth, got {:?}",
+            available.iter().map(|p| &p.slug).collect::<Vec<_>>()
+        );
+
+        let info = manager
+            .get_model_info("anthropic/stored-model", &config)
+            .await;
+        assert_eq!(info.default_reasoning_level, Some(ReasoningEffort::High));
+        assert_eq!(info.shell_type, ConfigShellToolType::ShellCommand);
+        assert_eq!(
+            info.apply_patch_tool_type,
+            Some(ApplyPatchToolType::Freeform)
+        );
+        assert!(info.supports_parallel_tool_calls);
+        assert!(!info.used_fallback_model_metadata);
+    }
+
+    #[tokio::test]
+    async fn synchronous_catalog_lookup_never_manufactures_fallback_metadata() {
+        let savfox_home = tempdir().expect("temp dir");
+        let config = ConfigBuilder::default()
+            .savfox_home(savfox_home.path().to_path_buf())
+            .build()
+            .await
+            .expect("load default test config");
+        let auth_manager =
+            AuthManager::from_auth_for_testing(SavfoxAuth::from_api_key("Test API Key"));
+        let manager = ModelsManager::with_provider(
+            savfox_home.path().to_path_buf(),
+            auth_manager,
+            provider_for("http://127.0.0.1:1/unreachable".to_owned()),
+        );
+        let mut catalog_model = remote_model("catalog-model", "Catalog Model", 0);
+        catalog_model.default_reasoning_level = Some(ReasoningEffort::High);
+        manager.apply_remote_models(vec![catalog_model]).await;
+
+        let found = manager
+            .try_get_catalog_model_info("catalog-model", &config)
+            .expect("catalog lock")
+            .expect("catalog model");
+        assert_eq!(found.default_reasoning_level, Some(ReasoningEffort::High));
+        assert!(!found.used_fallback_model_metadata);
+        assert_eq!(
+            manager
+                .try_get_catalog_model_info("missing-model", &config)
+                .expect("catalog lock"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_models_feature_off_still_lists_local_provider_catalog() {
+        use crate::config::provider_store::persist_provider_connection;
+
+        let savfox_home = tempdir().expect("temp dir");
+        persist_provider_connection(
+            savfox_home.path(),
+            "offline-provider",
+            "offline-provider",
+            "Offline Provider",
+            &[json!({
+                "id": "offline-provider/local-model",
+                "model_slug": "local-model",
+                "name": "Local Model",
+            })],
+            None,
+            None,
+        )
+        .expect("store provider catalog");
+
+        let mut config = ConfigBuilder::default()
+            .savfox_home(savfox_home.path().to_path_buf())
+            .build()
+            .await
+            .expect("load default test config");
+        config.features.disable(Feature::RemoteModels);
+        let auth_manager =
+            AuthManager::from_auth_for_testing(SavfoxAuth::from_api_key("Test API Key"));
+        let manager = ModelsManager::with_provider(
+            savfox_home.path().to_path_buf(),
+            auth_manager,
+            provider_for("http://127.0.0.1:1/must-not-be-called".to_owned()),
+        );
+
+        let available = manager.list_models(&config, RefreshStrategy::Online).await;
+        assert_eq!(available.len(), 1);
+        assert_eq!(available[0].slug, "offline-provider/local-model");
+    }
+
+    #[tokio::test]
+    async fn remote_models_feature_off_still_uses_disk_cache_without_network() {
+        let server = MockServer::start().await;
+        let models_mock = mount_models_once(
+            &server,
+            ModelsResponse {
+                models: vec![remote_model("cached-offline", "Cached Offline", 0)],
+            },
+        )
+        .await;
+        let savfox_home = tempdir().expect("temp dir");
+        let mut config = ConfigBuilder::default()
+            .savfox_home(savfox_home.path().to_path_buf())
+            .build()
+            .await
+            .expect("load default test config");
+        config.features.enable(Feature::RemoteModels);
+        let auth_manager =
+            AuthManager::from_auth_for_testing(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
+        let manager = ModelsManager::with_provider(
+            savfox_home.path().to_path_buf(),
+            auth_manager,
+            provider_for(server.uri()),
+        );
+
+        manager.list_models(&config, RefreshStrategy::Online).await;
+        manager.apply_remote_models(Vec::new()).await;
+        config.features.disable(Feature::RemoteModels);
+
+        let available = manager.list_models(&config, RefreshStrategy::Online).await;
+        assert_eq!(available.len(), 1);
+        assert_eq!(available[0].slug, "cached-offline");
+        assert_eq!(
+            models_mock.requests().len(),
+            1,
+            "feature-off refresh must not issue another request"
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_cache_and_provider_store_are_combined() {
+        use crate::config::provider_store::persist_provider_connection;
+
+        let server = MockServer::start().await;
+        let remote = remote_model("remote-model", "Remote", 1);
+        let models_mock = mount_models_once(
+            &server,
+            ModelsResponse {
+                models: vec![remote],
+            },
+        )
+        .await;
+
+        let savfox_home = tempdir().expect("temp dir");
+        persist_provider_connection(
+            savfox_home.path(),
+            "anthropic",
+            "anthropic",
+            "Anthropic",
+            &[json!({
+                "id": "anthropic/stored-model",
+                "model_slug": "stored-model",
+                "name": "Stored",
+            })],
+            Some("ANTHROPIC_API_KEY"),
+            Some("test-key"),
+        )
+        .expect("store provider connection");
+
+        let mut config = ConfigBuilder::default()
+            .savfox_home(savfox_home.path().to_path_buf())
+            .build()
+            .await
+            .expect("load default test config");
+        config.features.enable(Feature::RemoteModels);
+        let auth_manager =
+            AuthManager::from_auth_for_testing(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
+        let manager = ModelsManager::with_provider(
+            savfox_home.path().to_path_buf(),
+            auth_manager,
+            provider_for(server.uri()),
+        );
+
+        let available = manager.list_models(&config, RefreshStrategy::Online).await;
+        let slugs: Vec<&str> = available
+            .iter()
+            .map(|preset| preset.slug.as_str())
+            .collect();
+        assert!(
+            slugs.contains(&"remote-model"),
+            "missing remote model: {slugs:?}"
+        );
+        assert!(
+            slugs.contains(&"anthropic/stored-model"),
+            "missing provider-store model: {slugs:?}"
+        );
+        assert_eq!(models_mock.requests().len(), 1);
     }
 }
