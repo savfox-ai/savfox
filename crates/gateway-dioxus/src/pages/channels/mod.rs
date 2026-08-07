@@ -39,6 +39,8 @@ use crate::components::skeleton::*;
 use crate::components::tooltip::HelpTip;
 use crate::utils::deep_link::replace_url;
 
+const REDACTED_CHANNEL_SECRET: &str = "__SAVFOX_CHANNEL_SECRET_REDACTED__";
+
 fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
@@ -4392,6 +4394,10 @@ fn ChannelConfigModal(
                         };
                         if is_appservice {
                             let ch_id_export = ch_id.clone();
+                            let export_requires_credentials = inline_values
+                                .read()
+                                .values()
+                                .any(|value| value == REDACTED_CHANNEL_SECRET);
                             rsx! {
                                 button {
                                     onclick: move |_| {
@@ -4402,8 +4408,18 @@ fn ChannelConfigModal(
                                             matrix::trigger_yaml_download(&yaml);
                                         });
                                     },
+                                    disabled: export_requires_credentials,
+                                    title: if export_requires_credentials {
+                                        "Re-enter the appservice and homeserver tokens before exporting"
+                                    } else {
+                                        "Export the current Matrix appservice registration"
+                                    },
                                     class: "channels-action-btn",
-                                    "Export Registration YAML"
+                                    if export_requires_credentials {
+                                        "Re-enter tokens to export"
+                                    } else {
+                                        "Export Registration YAML"
+                                    }
                                 }
                             }
                         } else {

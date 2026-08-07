@@ -375,7 +375,7 @@
 
 - [x] **S5 / 严重：REST API 只验证 token 有效，不执行细粒度 scope 授权。** 已在第十一轮修复：全局 `bearer_auth_hoop` 现在按 HTTP method + path 强制执行 scope，未知受保护路由默认要求 Admin，并补充路由权限与角色隔离测试。
 
-- [ ] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** 本轮已经修正权限边界，但 `channel_config_to_json` 仍原样返回 token/secret/password。建议 list 永不返回 secret；get 使用不可逆占位符或 `has_*` 标志；save 对“未修改占位符”执行保留语义。这样可降低浏览器 XSS、日志或前端状态快照泄露凭据的影响。
+- [x] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** 已在第十二轮修复：config list/get/save 与普通 Nostr profile 响应使用稳定的不可逆占位符，保存时原样占位符会恢复旧值；状态轮询也不再返回 Matrix registration token 或凭据型 webhook URL。
 
 - [ ] **F4 / 高：`gateway` 工具 POST 到不存在的 `/rpc`。** Gateway JSON-RPC 目前只通过 WebSocket `/ws` 分发，HTTP Router 没有 `/rpc`。应选择其一：让工具使用带 subprotocol 鉴权的 WebSocket 客户端，或增加同样执行 `required_scope` 的受保护 HTTP RPC adapter；不能简单把 `/rpc` 暴露为只校验 token 的路由。
 
@@ -418,7 +418,7 @@
 
 ## 仍待后续处理
 
-- [ ] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** REST 与 WebSocket 的调用权限已经收紧，但凭据读取后的暴露面仍然过大；下一轮应实现 secret redaction 和“占位符表示保留原值”的更新语义。
+- [x] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** 已在第十二轮完成凭据脱敏、旧值保留、无法匹配占位符时 fail-closed，以及状态响应中的旁路泄露清理。
 
 - [ ] **T1 / 中：REST 权限表与 Router 注册仍是两处维护。** 当前单元测试覆盖现有主要路由且未知项会 fail-closed，但新增路由若未更新权限表，会暂时变成 Admin-only。后续可把 route 注册和权限元数据合并为同一声明，避免遗漏导致可用性回归。
 
@@ -430,3 +430,35 @@
 - `cargo test -p savfox-gateway-server --lib http_ -- --nocapture`（4 passed）
 - `cargo test -p savfox-gateway-server --lib bearer_auth_hoop_enforces_http_scope_matrix -- --nocapture`（1 passed）
 - `cargo test -p savfox-gateway-server --lib --locked`（400 passed）
+
+---
+
+# 第十二轮（2026-08-08）—— Channel 凭据只写响应边界
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **S6 / 高：Channel config list/get/save 返回完整明文凭据。** `channels.config.list`、`channels.config.get` 和保存成功响应现会递归识别 token、secret、password、private/signing key、key reference、access code、credential-bearing webhook URL 等字段，并以固定占位符替代非空值；空值和普通配置仍保持原类型和内容。
+
+- [x] **S6.1 / 高：脱敏值经编辑表单回写会破坏真实凭据。** 保存前会按配置 ID（兼容同 kind 多实例）从持久化配置恢复未修改的占位符；用户输入的新凭据优先。新配置或结构不匹配时出现占位符会返回 `INVALID_REQUEST`，不会把占位符写进磁盘。嵌套对象和数组（如 `room_tokens`、Arkret `keyRef`）也支持逐层恢复。
+
+- [x] **S6.2 / 高：普通 Channel Write scope 可通过状态响应旁路读取凭据。** `channels.status` 此前会返回 Matrix appservice registration 中的 `as_token`/`hs_token`，还会回传可能内嵌 access token 的 webhook URL。现已从状态与连接测试响应移除 registration secret，并把 webhook 状态收缩为 `callback_configured` 布尔值。
+
+- [x] **S6.3 / 中：Nostr 普通 profile 响应回显私钥。** profile get/set/import 现均脱敏 `private_key`，set 接受未修改占位符并保留旧私钥。显式的 Admin-only `channels.nostr.profile.export` 仍保留导出私钥的既有语义，不会在普通读取或保存响应中自动触发。
+
+- [x] **U1 / 中：Matrix YAML 导出会把脱敏占位符当成真实 token。** Web 配置页检测到只写占位符时会禁用导出并提示重新输入 appservice/homeserver token；普通状态页不再缓存或展示包含 token 的 registration。
+
+## 新确认、待后续处理
+
+- [ ] **T2 / 中：Channel secret 分类仍依赖通用字段名规则。** 当前规则覆盖仓库内现有 Channel 表单及常见嵌套结构，但未来插件若引入语义不明显的凭据字段名，可能需要同步扩展规则。建议后续把 `ConfigField.secret` 元数据下沉到共享 schema，由服务端按 schema 脱敏，而不是让前后端分别维护安全含义。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo test -p savfox-gateway-server --lib credential -- --nocapture`（5 passed）
+- `cargo test -p savfox-gateway-server --lib --locked`（404 passed）
+- `cargo check -p savfox-gateway-dioxus --locked`
+- `cargo test -p savfox-gateway-dioxus --locked`（51 passed）
+- `cargo clippy -p savfox-gateway-server -p savfox-gateway-dioxus --all-targets --locked -- -D warnings`
+- `scripts/build-web.ps1`（Dioxus Web 构建及 Gateway static 同步成功）

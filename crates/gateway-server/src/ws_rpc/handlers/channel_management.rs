@@ -8,6 +8,174 @@ use super::super::utils::require_str;
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
+/// Stable value returned in place of channel credentials.
+///
+/// Clients may submit this value unchanged when editing a config. The save
+/// path restores the corresponding persisted value before validation and
+/// refuses placeholders that cannot be matched to an existing value.
+const REDACTED_CHANNEL_SECRET: &str = "__SAVFOX_CHANNEL_SECRET_REDACTED__";
+
+fn channel_config_key_is_sensitive(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+
+    normalized.contains("token")
+        || normalized.contains("secret")
+        || normalized.contains("password")
+        || normalized.contains("passwd")
+        || normalized.contains("credential")
+        || normalized.contains("privatekey")
+        || normalized.contains("signingkey")
+        || matches!(
+            normalized.as_str(),
+            "authorization"
+                | "accesscode"
+                | "keypair"
+                | "keyref"
+                | "loginchallenge"
+                | "pairingcode"
+                | "webhookurl"
+        )
+}
+
+fn redact_sensitive_value(value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            if !text.trim().is_empty() {
+                *text = REDACTED_CHANNEL_SECRET.to_owned();
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                redact_sensitive_value(value);
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values_mut() {
+                redact_sensitive_value(value);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+fn redact_channel_secrets(value: &mut Value) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                redact_channel_secrets(value);
+            }
+        }
+        Value::Object(values) => {
+            for (key, value) in values {
+                if channel_config_key_is_sensitive(key) {
+                    redact_sensitive_value(value);
+                } else {
+                    redact_channel_secrets(value);
+                }
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn redacted_channel_config_json(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> Value {
+    let mut value = savfox_core::config::channel_store::channel_config_to_json(config);
+    redact_channel_secrets(&mut value);
+    value
+}
+
+fn redacted_channel_configs_json(
+    configs: &[savfox_core::config::channel_store::ChannelConfig],
+) -> Value {
+    let mut value = savfox_core::config::channel_store::channel_configs_to_json(configs);
+    redact_channel_secrets(&mut value);
+    value
+}
+
+fn restore_redacted_channel_secrets(incoming: &mut Value, persisted: &Value) {
+    if incoming.as_str() == Some(REDACTED_CHANNEL_SECRET) {
+        *incoming = persisted.clone();
+        return;
+    }
+
+    match (incoming, persisted) {
+        (Value::Array(incoming), Value::Array(persisted)) => {
+            for (index, value) in incoming.iter_mut().enumerate() {
+                if let Some(persisted) = persisted.get(index) {
+                    restore_redacted_channel_secrets(value, persisted);
+                }
+            }
+        }
+        (Value::Object(incoming), Value::Object(persisted)) => {
+            for (key, value) in incoming {
+                if let Some(persisted) = persisted.get(key) {
+                    restore_redacted_channel_secrets(value, persisted);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn contains_redacted_channel_secret(value: &Value) -> bool {
+    match value {
+        Value::String(value) => value == REDACTED_CHANNEL_SECRET,
+        Value::Array(values) => values.iter().any(contains_redacted_channel_secret),
+        Value::Object(values) => values.values().any(contains_redacted_channel_secret),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+async fn restore_saved_channel_secrets(
+    savfox_home: &PathBuf,
+    channel_kind: &str,
+    channel_name: &str,
+    patch: &mut Value,
+) -> Result<(), String> {
+    use savfox_core::config::channel_store;
+
+    if !contains_redacted_channel_secret(patch) {
+        return Ok(());
+    }
+
+    let existing = if let Some(id) = patch
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        channel_store::get_channel_config(savfox_home, id)
+            .await
+            .map_err(|error| format!("failed to load channel config '{id}': {error}"))?
+    } else {
+        channel_store::list_channel_configs(savfox_home)
+            .await
+            .map_err(|error| format!("failed to list channel configs: {error}"))?
+            .into_iter()
+            .find(|config| {
+                config.kind.eq_ignore_ascii_case(channel_kind)
+                    && config.name.trim().eq_ignore_ascii_case(channel_name.trim())
+            })
+    };
+
+    if let Some(existing) = existing {
+        restore_redacted_channel_secrets(patch, &existing.config);
+    }
+    if contains_redacted_channel_secret(patch) {
+        return Err(
+            "redacted channel credential does not match an existing saved value; provide a new credential"
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(feature = "arkret")]
 async fn validate_arkret_config_before_save(
     savfox_home: &std::path::Path,
@@ -165,7 +333,8 @@ pub(in crate::ws_rpc) async fn save_nostr_profile(
 pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_get(
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let profile = load_nostr_profile(channel).await;
+    let mut profile = load_nostr_profile(channel).await;
+    redact_channel_secrets(&mut profile);
     Ok(json!({ "profile": profile }))
 }
 
@@ -173,7 +342,8 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_set(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let mut profile = load_nostr_profile(channel).await;
+    let persisted = load_nostr_profile(channel).await;
+    let mut profile = persisted.clone();
     if let Some(incoming) = params.get("profile").and_then(|v| v.as_object()) {
         for (key, value) in incoming {
             profile[key] = value.clone();
@@ -193,10 +363,20 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_set(
             }
         }
     }
+    restore_redacted_channel_secrets(&mut profile, &persisted);
+    if contains_redacted_channel_secret(&profile) {
+        return Err((
+            INVALID_REQUEST,
+            "redacted Nostr credential does not match an existing saved value; provide a new credential"
+                .to_owned(),
+        ));
+    }
     save_nostr_profile(channel, &profile)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))?;
-    Ok(json!({ "status": "saved", "profile": profile }))
+    let mut response_profile = profile;
+    redact_channel_secrets(&mut response_profile);
+    Ok(json!({ "status": "saved", "profile": response_profile }))
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_import(
@@ -222,6 +402,7 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_import(
     save_nostr_profile(channel, &profile)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))?;
+    redact_channel_secrets(&mut profile);
     Ok(json!({
         "status": "imported",
         "profile": profile,
@@ -278,7 +459,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_list(
                 format!("failed to list channel configs: {e}"),
             )
         })?;
-    Ok(channel_store::channel_configs_to_json(&configs))
+    Ok(redacted_channel_configs_json(&configs))
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_config_get(
@@ -289,7 +470,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_get(
 
     let channel_id = require_str(params, "channel")?;
     match channel_store::get_channel_config(&channel.config().savfox_home, channel_id).await {
-        Ok(Some(config)) => Ok(json!({ "config": channel_store::channel_config_to_json(&config) })),
+        Ok(Some(config)) => Ok(json!({ "config": redacted_channel_config_json(&config) })),
         Ok(None) => Ok(json!({ "config": serde_json::Value::Null })),
         Err(e) => Err((INTERNAL_ERROR, format!("failed to get channel config: {e}"))),
     }
@@ -339,6 +520,15 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     if let Some(group_policy) = params.get("group_policy") {
         patch["group_policy"] = group_policy.clone();
     }
+
+    restore_saved_channel_secrets(
+        &channel.config().savfox_home,
+        channel_kind,
+        channel_name,
+        &mut patch,
+    )
+    .await
+    .map_err(|error| (INVALID_REQUEST, error))?;
 
     // Validate uniqueness for Matrix appservice channels: no two appservice
     // channels may share the same server_name AND user_prefix.
@@ -499,7 +689,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
             let runtime =
                 crate::channels::reconcile_channel_instance(&config, channel, session_store).await;
             Ok(json!({
-                "config": channel_store::channel_config_to_json(&config),
+                "config": redacted_channel_config_json(&config),
                 "status": "saved",
                 "runtime": runtime,
             }))
@@ -722,6 +912,117 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             "pool_revoke_attempted": report.revoke_attempted,
             "message": message,
         }))
+    }
+}
+
+#[cfg(test)]
+mod credential_redaction_tests {
+    use savfox_core::config::channel_store::{self, ChannelConfig};
+
+    use super::*;
+
+    fn sample_channel_config() -> ChannelConfig {
+        ChannelConfig {
+            id: "matrix-support".to_owned(),
+            kind: "matrix".to_owned(),
+            slug: "support".to_owned(),
+            name: "Support".to_owned(),
+            enabled: true,
+            config: json!({
+                "homeserver": "https://matrix.example.com",
+                "bot_token": "bot-secret-value",
+                "password": "",
+                "webhook_url": "https://hooks.example.com/private/path",
+                "room_tokens": {
+                    "!public:example.com": "room-secret-value"
+                },
+                "keyRef": {
+                    "kind": "env",
+                    "var": "MATRIX_PRIVATE_KEY"
+                },
+                "private_key": "private-key-value",
+                "public_key": "safe-public-key"
+            }),
+            router: None,
+            dm_policy: None,
+            group_policy: None,
+            created_at: Some(1),
+            updated_at: Some(1),
+        }
+    }
+
+    #[test]
+    fn channel_config_responses_replace_credentials_with_stable_placeholder() {
+        let redacted = redacted_channel_config_json(&sample_channel_config());
+
+        assert_eq!(redacted["config"]["bot_token"], REDACTED_CHANNEL_SECRET);
+        assert_eq!(redacted["config"]["password"], "");
+        assert_eq!(redacted["config"]["webhook_url"], REDACTED_CHANNEL_SECRET);
+        assert_eq!(
+            redacted["config"]["room_tokens"]["!public:example.com"],
+            REDACTED_CHANNEL_SECRET
+        );
+        assert_eq!(
+            redacted["config"]["keyRef"]["kind"],
+            REDACTED_CHANNEL_SECRET
+        );
+        assert_eq!(redacted["config"]["private_key"], REDACTED_CHANNEL_SECRET);
+        assert_eq!(redacted["config"]["public_key"], "safe-public-key");
+        assert_eq!(
+            redacted["config"]["homeserver"],
+            "https://matrix.example.com"
+        );
+        assert!(!redacted.to_string().contains("bot-secret-value"));
+        assert!(!redacted.to_string().contains("room-secret-value"));
+    }
+
+    #[test]
+    fn unchanged_placeholders_restore_persisted_values_but_new_secrets_win() {
+        let config = sample_channel_config();
+        let mut patch = redacted_channel_config_json(&config)["config"].clone();
+        patch["homeserver"] = json!("https://new.example.com");
+        patch["webhook_url"] = json!("https://hooks.example.com/replacement");
+
+        restore_redacted_channel_secrets(&mut patch, &config.config);
+
+        assert_eq!(patch["bot_token"], "bot-secret-value");
+        assert_eq!(
+            patch["room_tokens"]["!public:example.com"],
+            "room-secret-value"
+        );
+        assert_eq!(patch["keyRef"]["kind"], "env");
+        assert_eq!(patch["keyRef"]["var"], "MATRIX_PRIVATE_KEY");
+        assert_eq!(patch["homeserver"], "https://new.example.com");
+        assert_eq!(
+            patch["webhook_url"],
+            "https://hooks.example.com/replacement"
+        );
+        assert!(!contains_redacted_channel_secret(&patch));
+    }
+
+    #[tokio::test]
+    async fn save_placeholder_must_match_an_existing_config() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().to_path_buf();
+        let config = sample_channel_config();
+        channel_store::save_channel_config(&home, &config)
+            .await
+            .expect("save config");
+
+        let mut existing_patch = json!({
+            "id": "matrix-support",
+            "bot_token": REDACTED_CHANNEL_SECRET,
+        });
+        restore_saved_channel_secrets(&home, "matrix", "Support", &mut existing_patch)
+            .await
+            .expect("restore existing credential");
+        assert_eq!(existing_patch["bot_token"], "bot-secret-value");
+
+        let mut new_patch = json!({ "bot_token": REDACTED_CHANNEL_SECRET });
+        let error = restore_saved_channel_secrets(&home, "discord", "New", &mut new_patch)
+            .await
+            .expect_err("unmatched placeholder must fail closed");
+        assert!(error.contains("does not match an existing saved value"));
     }
 }
 

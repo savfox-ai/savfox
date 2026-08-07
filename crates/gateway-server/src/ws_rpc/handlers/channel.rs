@@ -849,19 +849,18 @@ fn insert_saved_channel_metadata(
             }
         }
         "webhook" => {
-            if let Some(callback_url) = first_non_empty_channel_config_string(
+            let configured = first_non_empty_channel_config_string(
                 config_obj,
                 &["callback_url", "webhook_url", "url"],
-            ) {
-                info.insert("callback_url".to_owned(), json!(callback_url));
-            }
+            )
+            .is_some();
+            info.insert("callback_configured".to_owned(), json!(configured));
         }
         "dingtalk" => {
-            if let Some(webhook_url) =
+            let configured =
                 first_non_empty_channel_config_string(config_obj, &["webhook_url", "url"])
-            {
-                info.insert("webhook_url".to_owned(), json!(webhook_url));
-            }
+                    .is_some();
+            info.insert("callback_configured".to_owned(), json!(configured));
         }
         "zalo" => {
             if let Some(app_id) =
@@ -1253,9 +1252,10 @@ pub(crate) async fn handle_channels_status(
             if let Some(config_id) = matrix_runtime.config_id.as_deref() {
                 matrix_entry.insert("config_id".to_owned(), json!(config_id));
             }
-            if let Some(registration) = matrix_runtime.registration.as_ref() {
-                matrix_entry.insert("registration".to_owned(), registration.clone());
-            }
+            // The generated registration contains as_token/hs_token. It is
+            // deliberately not included in status polling responses; those
+            // responses are retained in browser state and require only the
+            // ordinary Channel Write scope.
             matrix_entry.insert("last_error".to_owned(), json!(matrix_runtime.last_error));
         }
     }
@@ -3355,7 +3355,7 @@ async fn handle_matrix_channel_test(
             "platform": "matrix",
             "ok": true,
             "mode": "appservice",
-            "registration": crate::channels::matrix::matrix_appservice_registration_preview(&parsed),
+            "registration_configured": true,
             "message": "Matrix appservice configuration is valid",
         })),
     }
@@ -4148,14 +4148,14 @@ pub(crate) async fn handle_directory_groups_members(
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
 
+    use super::{SavedChannelState, insert_saved_channel_metadata};
     #[cfg(feature = "arkret")]
     use super::{
-        SavedChannelState, arkret_pairing_resolve_target, arkret_runtime_key_status_flags,
+        arkret_pairing_resolve_target, arkret_runtime_key_status_flags,
         canonical_arkret_request_body, insert_arkret_listener_summary,
-        insert_saved_channel_metadata, sanitize_arkret_runtime_key_label,
-        validate_arkret_pairing_bootstrap_value,
+        sanitize_arkret_runtime_key_label, validate_arkret_pairing_bootstrap_value,
     };
     use super::{
         arkret_test_channel_config, matrix_test_channel_config, request_matches_channel_instance,
@@ -4237,6 +4237,35 @@ mod tests {
             &json!({"id": "arkret-two"}),
             &saved[0]
         ));
+    }
+
+    #[test]
+    fn channel_status_metadata_never_returns_credential_bearing_webhook_urls() {
+        for kind in ["webhook", "dingtalk"] {
+            let config = channel_config(
+                kind,
+                json!({
+                    "webhook_url": "https://hooks.example.com/send?access_token=secret-token"
+                }),
+            );
+            let state = SavedChannelState {
+                exists: true,
+                enabled: true,
+                ready: true,
+                channel_name: Some("Default".to_owned()),
+                channel_slug: Some("default".to_owned()),
+                config: Some(config),
+            };
+            let mut info = serde_json::Map::new();
+
+            insert_saved_channel_metadata(&mut info, kind, &state);
+
+            let serialized = Value::Object(info);
+            assert_eq!(serialized["callback_configured"], true);
+            assert!(!serialized.to_string().contains("secret-token"));
+            assert!(serialized.get("webhook_url").is_none());
+            assert!(serialized.get("callback_url").is_none());
+        }
     }
 
     #[cfg(feature = "arkret")]
