@@ -154,7 +154,6 @@ pub(crate) async fn dispatch_rpc(
         "sessions.delete" => {
             handle_sessions_delete(&params, session_mgr, session_store, channel).await
         }
-        "sessions.compact" => handle_sessions_compact(&params, session_store, channel).await,
         "sessions.overrides.get" => handle_sessions_overrides_get(&params, session_store).await,
         "sessions.overrides.set" => handle_sessions_overrides_set(&params, session_store).await,
         "sessions.identity_links.get" => handle_identity_links_get(channel).await,

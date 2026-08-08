@@ -7,7 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{debug, info};
+use thiserror::Error;
+use tracing::info;
 
 // ---- Configuration --------------------------------------------------------
 
@@ -110,6 +111,18 @@ pub struct CompactionResult {
     pub post_tokens: u64,
 }
 
+/// Compaction is fail-closed because replacing history with a lossy local
+/// truncation can permanently discard constraints, decisions and tool data.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum CompactionError {
+    #[error("a semantic summary is required before removing {removed_count} message(s)")]
+    SemanticSummaryRequired { removed_count: u32 },
+    #[error("the semantic summary must not be empty")]
+    EmptySummary,
+    #[error("the semantic summary exceeds the configured {max_tokens}-token budget")]
+    SummaryExceedsBudget { max_tokens: u32 },
+}
+
 // ---- Service --------------------------------------------------------------
 
 /// Stateless compaction service.
@@ -150,13 +163,14 @@ impl CompactionService {
         session_tokens >= threshold
     }
 
-    /// Run compaction on a slice of messages.
+    /// Check whether compaction can proceed without removing history.
     ///
     /// The algorithm:
     /// 1. Separate **pinned** messages (kept unconditionally).
     /// 2. Separate **tool-result** messages when `preserve_tool_results` is set.
     /// 3. Keep the most recent `tail_count` messages untouched.
-    /// 4. Everything else is folded into a synthetic summary message.
+    /// 4. If any other messages would be removed, fail until a semantic
+    ///    summary is supplied through [`Self::compact_with_summary`].
     ///
     /// `tail_count` controls how many recent messages are preserved verbatim
     /// (in addition to pinned and tool messages). A value of 0 means only
@@ -166,17 +180,43 @@ impl CompactionService {
         session_id: &str,
         messages: &[Value],
         tail_count: usize,
-    ) -> CompactionResult {
+    ) -> Result<CompactionResult, CompactionError> {
+        self.compact_inner(session_id, messages, tail_count, None)
+    }
+
+    /// Build a compaction result using a semantic summary produced by an
+    /// external model or structured extractor.
+    ///
+    /// The summary is validated before any compacted result is returned. An
+    /// empty or over-budget summary fails closed, leaving the caller's original
+    /// message slice untouched.
+    pub fn compact_with_summary(
+        &self,
+        session_id: &str,
+        messages: &[Value],
+        tail_count: usize,
+        semantic_summary: &str,
+    ) -> Result<CompactionResult, CompactionError> {
+        self.compact_inner(session_id, messages, tail_count, Some(semantic_summary))
+    }
+
+    fn compact_inner(
+        &self,
+        session_id: &str,
+        messages: &[Value],
+        tail_count: usize,
+        semantic_summary: Option<&str>,
+    ) -> Result<CompactionResult, CompactionError> {
         let pre_tokens = estimate_tokens(messages);
 
         if messages.is_empty() {
-            return CompactionResult {
+            return Ok(CompactionResult {
                 summary: String::new(),
                 kept_messages: Vec::new(),
                 removed_count: 0,
                 pre_tokens,
                 post_tokens: 0,
-            };
+            });
         }
 
         // --- partition messages ---
@@ -210,7 +250,18 @@ impl CompactionService {
         let summary = if to_summarise.is_empty() {
             String::new()
         } else {
-            build_summary(&to_summarise, &self.config)
+            let summary = semantic_summary
+                .map(str::trim)
+                .ok_or(CompactionError::SemanticSummaryRequired { removed_count })?;
+            if summary.is_empty() {
+                return Err(CompactionError::EmptySummary);
+            }
+            if estimate_text_tokens(summary) > u64::from(self.config.summary_max_tokens) {
+                return Err(CompactionError::SummaryExceedsBudget {
+                    max_tokens: self.config.summary_max_tokens,
+                });
+            }
+            summary.to_owned()
         };
 
         // --- assemble kept messages ---
@@ -238,13 +289,13 @@ impl CompactionService {
             removed_count, pre_tokens, post_tokens, "session compacted"
         );
 
-        CompactionResult {
+        Ok(CompactionResult {
             summary,
             kept_messages: kept,
             removed_count,
             pre_tokens,
             post_tokens,
-        }
+        })
     }
 
     /// Generate a memory flush entry from a compaction summary.
@@ -309,6 +360,10 @@ pub fn estimate_tokens(messages: &[Value]) -> u64 {
     total_chars / 4
 }
 
+fn estimate_text_tokens(text: &str) -> u64 {
+    (text.chars().count() as u64).div_ceil(4)
+}
+
 // ---- Helpers (private) ----------------------------------------------------
 
 /// Check whether a message is pinned.
@@ -331,50 +386,6 @@ fn is_tool_result(msg: &Value) -> bool {
         return true;
     }
     false
-}
-
-/// Build a summary string from a set of messages.
-///
-/// This is a *local* placeholder implementation: it concatenates the first
-/// `CHARS_PER_MSG` characters of each message's content, capped at the
-/// configured `summary_max_tokens * 4` characters. A real deployment would
-/// call an LLM to produce a proper summary.
-fn build_summary(messages: &[&Value], config: &CompactionConfig) -> String {
-    const CHARS_PER_MSG: usize = 100;
-    let budget = config.summary_max_tokens as usize * 4; // rough char budget
-
-    let mut parts: Vec<String> = Vec::with_capacity(messages.len());
-
-    for msg in messages {
-        let role = msg.get("role").and_then(Value::as_str).unwrap_or("unknown");
-        let content = msg.get("content").and_then(Value::as_str).unwrap_or("");
-
-        let truncated: String = content.chars().take(CHARS_PER_MSG).collect();
-        let ellipsis = if content.len() > CHARS_PER_MSG {
-            "..."
-        } else {
-            ""
-        };
-
-        parts.push(format!("[{role}] {truncated}{ellipsis}"));
-    }
-
-    let mut summary = format!(
-        "[Compaction summary of {} message(s)]\n{}",
-        messages.len(),
-        parts.join("\n"),
-    );
-
-    if summary.len() > budget {
-        debug!(
-            len = summary.len(),
-            budget, "summary exceeded budget, truncating"
-        );
-        summary.truncate(budget);
-        summary.push_str("\n...(truncated)");
-    }
-
-    summary
 }
 
 // ---- Tests ----------------------------------------------------------------
@@ -438,23 +449,47 @@ mod tests {
     #[test]
     fn compact_empty_messages() {
         let svc = CompactionService::new(CompactionConfig::default());
-        let result = svc.compact("test:session", &[], 2);
+        let result = svc.compact("test:session", &[], 2).unwrap();
         assert_eq!(result.removed_count, 0);
         assert!(result.kept_messages.is_empty());
         assert!(result.summary.is_empty());
     }
 
     #[test]
-    fn compact_preserves_recent_tail() {
+    fn compact_requires_semantic_summary_without_mutating_input() {
         let svc = CompactionService::new(CompactionConfig::default());
         let msgs = sample_messages();
-        let result = svc.compact("test:session", &msgs, 2);
+        let original = msgs.clone();
+        let error = svc.compact("test:session", &msgs, 2).unwrap_err();
+
+        assert_eq!(
+            error,
+            CompactionError::SemanticSummaryRequired { removed_count: 4 }
+        );
+        assert_eq!(msgs, original);
+    }
+
+    #[test]
+    fn compact_preserves_recent_tail_with_semantic_summary() {
+        let svc = CompactionService::new(CompactionConfig::default());
+        let msgs = sample_messages();
+        let result = svc
+            .compact_with_summary(
+                "test:session",
+                &msgs,
+                2,
+                "The user asked about Rust and async execution.",
+            )
+            .unwrap();
 
         // The last 2 messages should survive.
         assert!(result.kept_messages.len() >= 2);
         // The removed count should be 4 (6 total - 2 recent).
         assert_eq!(result.removed_count, 4);
-        assert!(!result.summary.is_empty());
+        assert_eq!(
+            result.summary,
+            "The user asked about Rust and async execution."
+        );
     }
 
     #[test]
@@ -470,7 +505,14 @@ mod tests {
             json!({ "role": "user", "content": "latest" }),
         ];
 
-        let result = svc.compact("test:pinned", &msgs, 1);
+        let result = svc
+            .compact_with_summary(
+                "test:pinned",
+                &msgs,
+                1,
+                "Two middle messages were discussed.",
+            )
+            .unwrap();
 
         // Pinned message + summary + recent tail = at least 3.
         // Only the 2 middle messages (user + assistant) are candidates for
@@ -500,7 +542,9 @@ mod tests {
             json!({ "role": "user", "content": "thanks" }),
         ];
 
-        let result = svc.compact("test:tool", &msgs, 1);
+        let result = svc
+            .compact_with_summary("test:tool", &msgs, 1, "The user requested a tool run.")
+            .unwrap();
 
         let has_tool = result
             .kept_messages
@@ -510,18 +554,33 @@ mod tests {
     }
 
     #[test]
-    fn compact_summary_has_header() {
+    fn compact_rejects_empty_or_over_budget_summary() {
         let svc = CompactionService::new(CompactionConfig::default());
         let msgs = sample_messages();
-        let result = svc.compact("test:hdr", &msgs, 1);
-        assert!(result.summary.starts_with("[Compaction summary of"));
+        assert_eq!(
+            svc.compact_with_summary("test:empty", &msgs, 1, "   ")
+                .unwrap_err(),
+            CompactionError::EmptySummary
+        );
+
+        let tiny = CompactionService::new(CompactionConfig {
+            summary_max_tokens: 1,
+            ..Default::default()
+        });
+        assert_eq!(
+            tiny.compact_with_summary("test:large", &msgs, 1, "This summary is too large")
+                .unwrap_err(),
+            CompactionError::SummaryExceedsBudget { max_tokens: 1 }
+        );
     }
 
     #[test]
     fn compact_reports_token_counts() {
         let svc = CompactionService::new(CompactionConfig::default());
         let msgs = sample_messages();
-        let result = svc.compact("test:tokens", &msgs, 1);
+        let result = svc
+            .compact_with_summary("test:tokens", &msgs, 1, "Rust and async were discussed.")
+            .unwrap();
         assert!(result.pre_tokens > 0);
         assert!(result.post_tokens > 0);
         assert!(result.removed_count > 0);
@@ -535,7 +594,9 @@ mod tests {
             ..Default::default()
         });
         let msgs = sample_messages();
-        let compacted = svc.compact("test:flush-off", &msgs, 1);
+        let compacted = svc
+            .compact_with_summary("test:flush-off", &msgs, 1, "Rust was discussed.")
+            .unwrap();
         assert!(
             svc.generate_memory_flush("test:flush-off", &compacted)
                 .is_none()
@@ -550,7 +611,14 @@ mod tests {
             ..Default::default()
         });
         let msgs = sample_messages();
-        let compacted = svc.compact("0194f7b3-1d7b-7c40-ae3d-95b6ef93e170", &msgs, 1);
+        let compacted = svc
+            .compact_with_summary(
+                "0194f7b3-1d7b-7c40-ae3d-95b6ef93e170",
+                &msgs,
+                1,
+                "Rust and async were discussed.",
+            )
+            .unwrap();
         let flush = svc
             .generate_memory_flush("0194f7b3-1d7b-7c40-ae3d-95b6ef93e170", &compacted)
             .expect("memory flush should be generated");

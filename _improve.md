@@ -383,7 +383,7 @@
 
 - [x] **F6 / 高：多个已注册 WebSocket RPC 方法固定返回未实现。** 已在第十四轮从 dispatcher 移除 `chat.inject`、`node.rename`、`reactions.add`、`reactions.remove` 并删除固定失败的 handler；调用方现在得到标准 `METHOD_NOT_FOUND`，不会误认为协议声明了可用能力。
 
-- [ ] **F7 / 高：Gateway compaction 不是语义摘要。** `build_summary` 仅截取每条消息前 100 个字符再整体截断，却把结果作为 compaction summary 持久使用；工具结果、约束、决定和后半段关键信息会永久丢失。应接入模型摘要或结构化抽取，并在摘要失败时保持原历史、不能用截断拼接结果替代。
+- [x] **F7 / 高：Gateway compaction 不是语义摘要。** 已在第十五轮删除字符截断 `build_summary`，改为要求外部模型/结构化抽取器显式提供语义摘要；缺失、空白或超预算摘要都会 fail-closed，原消息保持不变。自动 memory flush 在摘要器未接入时记录跳过；另移除了仅改计数/返回 placeholder 的 REST/WS `sessions.compact` 入口。
 
 - [ ] **F8 / 中：iOS/Android 客户端是会误报成功的 UI 壳。** `connect` 没有初始化 `GatewayClient` 就把状态设为 connected；`sendMessage` 只本地追加消息，没有发送。建议在接入 SavfoxKit/Android client 前显示 `not available`，不要伪造连接和发送成功。
 
@@ -506,3 +506,25 @@
 - `cargo test -p savfox-core --lib incomplete_gateway_orchestration_tools_are_not_exposed -- --nocapture`（1 passed）
 - `cargo test -p savfox-gateway-server --lib -q`（404 passed）
 - `cargo clippy -p savfox-core -p savfox-gateway-server --all-targets -- -D warnings`
+
+---
+
+# 第十五轮（2026-08-08）—— Compaction 数据保全
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **F7 / 高：截断拼接结果被作为永久 compaction summary。** 删除本地 `build_summary`；`compact` 在需要移除消息但没有语义摘要时返回 `SemanticSummaryRequired`，`compact_with_summary` 只接受非空且不超过配置预算的外部摘要。任何校验失败都不生成替换历史，调用方继续持有原消息。
+
+- [x] **F7.1 / 高：自动 memory flush 在没有语义摘要器时持久化有损文本。** 当前 runtime 会明确记录 `semantic compaction unavailable` 并跳过写入，不增加 flush/compaction 计数，也不声称节省 token。
+
+- [x] **F7.2 / 中：`sessions.compact` REST/WS 入口伪报完成。** REST handler 只返回 placeholder，WS handler 只增加计数或执行无关的 stale prune；两者已从路由与 dispatcher 移除，待真实会话历史和语义摘要事务接入后再公开。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-gateway-server -q`
+- `cargo test -p savfox-gateway-server --lib compaction -q`（13 passed）
+- `cargo test -p savfox-gateway-server --lib -q`（405 passed）
+- `cargo clippy -p savfox-gateway-server --all-targets -- -D warnings`

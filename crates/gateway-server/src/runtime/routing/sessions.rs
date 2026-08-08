@@ -124,32 +124,6 @@ pub async fn sessions_delete_handler(req: &mut Request, depot: &mut Depot, res: 
 }
 
 #[handler]
-pub async fn sessions_compact_handler(req: &mut Request, _depot: &mut Depot, res: &mut Response) {
-    let session_id = req.param::<String>("session_id").unwrap_or_default();
-    if session_id.is_empty() {
-        res.status_code(StatusCode::BAD_REQUEST);
-        res.render(Text::Json(
-            json!({ "error": "missing session_id" }).to_string(),
-        ));
-        return;
-    }
-
-    let _body = req
-        .parse_json::<serde_json::Value>()
-        .await
-        .unwrap_or(json!({}));
-
-    res.render(Text::Json(
-        json!({
-            "status": "ok",
-            "session_id": session_id,
-            "message": "session compacted (placeholder)",
-        })
-        .to_string(),
-    ));
-}
-
-#[handler]
 pub async fn sessions_preview_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let limit = req.query::<usize>("limit").unwrap_or(10);
 

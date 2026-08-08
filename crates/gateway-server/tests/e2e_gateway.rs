@@ -658,11 +658,10 @@ async fn websocket_auth_rpc_disconnect_flow() {
     ws.close(None).await.ok();
 }
 
-/// Session lifecycle e2e:
-/// create -> compact -> reset.
+/// Session lifecycle e2e: create -> reset.
 #[tokio::test]
 #[ignore]
-async fn session_lifecycle_create_compact_prune() {
+async fn session_lifecycle_create_and_reset() {
     let (url, token) = require_gateway!();
     let mut ws = ws_connect_with_query_token(&url, &token).await;
     let session_id = uuid::Uuid::now_v7().to_string();
@@ -685,23 +684,9 @@ async fn session_lifecycle_create_compact_prune() {
         Some("patched")
     );
 
-    let compacted = ws_rpc_call(
-        &mut ws,
-        1102,
-        "sessions.compact",
-        json!({
-            "session_id": session_id,
-        }),
-    )
-    .await;
-    assert_eq!(
-        compacted.get("status").and_then(|v| v.as_str()),
-        Some("compacted")
-    );
-
     let reset = ws_rpc_call(
         &mut ws,
-        1103,
+        1102,
         "sessions.reset",
         json!({
             "session_id": session_id

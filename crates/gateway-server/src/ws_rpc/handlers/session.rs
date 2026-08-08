@@ -14,9 +14,7 @@ use crate::channel::GatewayChannel;
 use crate::channels::policy::{
     DmScopePolicyConfig, load_dm_scope_policy, parse_dm_scope, write_dm_scope_policy,
 };
-use crate::channels::runtime::{
-    cleanup_session_runtime_state, get_idle_reply_status, remove_idle_reply_session,
-};
+use crate::channels::runtime::{get_idle_reply_status, remove_idle_reply_session};
 use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
     provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
@@ -1877,41 +1875,6 @@ pub(crate) async fn handle_sessions_delete(
         .cleanup_staging_for_session(session_id)
         .await;
     Ok(json!({ "status": "deleted", "staging_cleaned": staging_cleaned }))
-}
-
-pub(crate) async fn handle_sessions_compact(
-    params: &Value,
-    session_store: &Arc<SessionStore>,
-    channel: &GatewayChannel,
-) -> RpcResult {
-    let session_id = params
-        .get("session_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if session_id.is_empty() {
-        // Global compaction  - prune stale entries.
-        let report = session_store.prune_report().await;
-        cleanup_session_runtime_state(&channel.config().savfox_home, &report.session_ids).await;
-        let pruned = report.pruned;
-        return Ok(json!({ "status": "compacted", "pruned": pruned }));
-    }
-    // Per-session compaction: increment counter.
-    match session_store
-        .update(session_id, |entry| {
-            entry.compaction_count += 1;
-        })
-        .await
-    {
-        Some(entry) => Ok(json!({
-            "session_id": session_id,
-            "status": "compacted",
-            "compaction_count": entry.compaction_count,
-            "memory_flush_count": entry.memory_flush_count,
-            "memory_flush_bytes": entry.memory_flush_bytes,
-            "memory_flush_tokens_saved": entry.memory_flush_tokens_saved,
-        })),
-        None => Err((INVALID_REQUEST, format!("session '{session_id}' not found"))),
-    }
 }
 
 // ── Session Overrides ────────────────────────────────────────────────────────
