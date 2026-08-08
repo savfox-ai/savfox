@@ -111,6 +111,17 @@ savfox gateway models                   # 列出可用模型
 | `channels` | 管理聊天桥接通道 |
 | `nodes` | 管理连接的节点 |
 
+### `status`
+
+查询需要认证的 Gateway 状态接口。Gateway 不可达、令牌被拒绝或响应数据无效时，命令会以非零状态退出。
+
+```bash
+savfox status --token "$SAVFOX_GATEWAY_TOKEN"
+savfox status --format json
+```
+
+`--token` 默认读取 `SAVFOX_GATEWAY_TOKEN`（兼容回退到旧的 `SAVFOX_TOKEN`）；`--format` 支持 `table` 或 `json`。
+
 ### `mcp-server`
 
 以 MCP（模型上下文协议）服务器模式运行 Savfox。

@@ -111,6 +111,19 @@ See [Gateway](gateway.md) for full details.
 | `channels` | Manage chat channels |
 | `nodes` | Manage connected nodes |
 
+### `status`
+
+Query the authenticated Gateway status endpoint. The command exits non-zero
+when the Gateway is unreachable, rejects the token, or returns invalid data.
+
+```bash
+savfox status --token "$SAVFOX_GATEWAY_TOKEN"
+savfox status --format json
+```
+
+`--token` defaults to `SAVFOX_GATEWAY_TOKEN` (with legacy `SAVFOX_TOKEN`
+fallback). `--format` accepts `table` or `json`.
+
 ### `mcp-server`
 
 Run Savfox as an MCP (Model Context Protocol) server over stdio.

@@ -385,11 +385,11 @@
 
 - [x] **F7 / 高：Gateway compaction 不是语义摘要。** 已在第十五轮删除字符截断 `build_summary`，改为要求外部模型/结构化抽取器显式提供语义摘要；缺失、空白或超预算摘要都会 fail-closed，原消息保持不变。自动 memory flush 在摘要器未接入时记录跳过；另移除了仅改计数/返回 placeholder 的 REST/WS `sessions.compact` 入口。
 
-- [ ] **F8 / 中：iOS/Android 客户端是会误报成功的 UI 壳。** `connect` 没有初始化 `GatewayClient` 就把状态设为 connected；`sendMessage` 只本地追加消息，没有发送。建议在接入 SavfoxKit/Android client 前显示 `not available`，不要伪造连接和发送成功。
+- [x] **F8 / 中：iOS/Android 客户端是会误报成功的 UI 壳。** 已在第十六轮删除不可达的 connected/chat/discovery 状态与本地伪消息逻辑；连接、发现和扫码操作现在保持在设置页并明确提示当前构建未接入 Native Gateway transport，建议使用 Web UI。
 
-- [ ] **F9 / 中：macOS 菜单端仍未接入核心操作。** 打开 session 和切换 active model 只有 TODO，UI 操作没有 RPC 效果。应在菜单项可点击前接入 RPC，或禁用并给出说明。
+- [x] **F9 / 中：macOS 菜单端仍未接入核心操作。** 已在第十六轮移除 Quick Chat、Recent Sessions、Active Model、Connect 等无效动作及死状态，菜单明确显示 Native client unavailable；保留真实可用的 Open Web UI，并从持久化 Gateway URL 安全转换 ws/wss 到 http/https。
 
-- [ ] **F10 / 中：`savfox status` 的参数和退出语义不完整。** `--token` 与 `--format` 没有被使用，只请求匿名 `/health`；Gateway 离线时仍返回 `Ok(())`，自动化脚本无法依赖退出码。应使用受保护 status API/WS、真正输出 table/json，并在不可达或鉴权失败时返回非零。
+- [x] **F10 / 中：`savfox status` 的参数和退出语义不完整。** 已在第十六轮改为携带 Bearer token 请求受保护 `/api/status`；`--format` 使用 clap enum 支持 table/json，JSON 模式无附加提示；缺 token、不可达、非 2xx 或无效 JSON 都返回错误并产生非零退出码，同时补充中英文 CLI 文档。
 
 ## 本轮验证
 
@@ -528,3 +528,25 @@
 - `cargo test -p savfox-gateway-server --lib compaction -q`（13 passed）
 - `cargo test -p savfox-gateway-server --lib -q`（405 passed）
 - `cargo clippy -p savfox-gateway-server --all-targets -- -D warnings`
+
+---
+
+# 第十六轮（2026-08-08）—— 客户端与 CLI 真实状态语义
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **F8 / 中：iOS/Android 连接和发送伪报成功。** 删除 connected/chat/discovery 壳状态、伪消息模型与发送 UI；尚未接入原生 transport 的操作只显示明确不可用提示，不再构造成功状态。
+
+- [x] **F9 / 中：macOS 菜单动作无 RPC 效果。** 删除 Quick Chat、Recent Sessions、Active Model 与 Connect 的 TODO/no-op UI 和死状态，明确标注当前 Native client 不可用。仍可打开 Web UI，且会读取持久化 Gateway URL 并将 ws/wss 正确转换为 http/https。
+
+- [x] **F10 / 中：`savfox status` 忽略 token/format 且离线返回成功。** 命令现请求受保护的 `/api/status`，支持 `--token`/`SAVFOX_GATEWAY_TOKEN`（兼容 `SAVFOX_TOKEN`）、严格的 `table|json` 格式、IPv4/IPv6/hostname URL 构造和 10 秒超时；认证、网络、HTTP、JSON 失败均向上返回错误。中英文 CLI 文档已同步。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo test -p savfox-cli --bin savfox status_cmd -q`（3 passed，含离线错误退出语义）
+- `cargo clippy -p savfox-cli --all-targets -- -D warnings`
+- `rg -n 'TODO|connectionState|CONNECTED|sendMessage|openSession|setModel|showQuickChat|showConnectionSheet' apps/ios/SavfoxApp/ContentView.swift apps/android/app/src/main/java/ai/savfox/app/MainActivity.kt apps/macos/SavfoxMenu/SavfoxMenuApp.swift`（无残留）
+- 移动端目录仅包含单文件源码、没有 Xcode/Gradle 工程，无法在本仓库执行平台编译。
