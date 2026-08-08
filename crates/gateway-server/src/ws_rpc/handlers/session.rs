@@ -8,9 +8,7 @@ use savfox_protocol::SessionId;
 use serde_json::{Value, json};
 use tracing::debug;
 
-use super::super::types::{
-    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, RpcResult,
-};
+use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
 use crate::agent_terminal_delegate::TerminalEventSink;
 use crate::channel::GatewayChannel;
 use crate::channels::policy::{
@@ -1370,45 +1368,6 @@ pub(crate) async fn handle_chat_abort(
 
     let aborted = abort_all_active_threads(channel.as_ref()).await;
     Ok(json!({ "status": "aborted", "aborted_count": aborted }))
-}
-
-/// Inject a message into a session's history without triggering the agent.
-pub(crate) async fn handle_chat_inject(
-    params: &Value,
-    session_store: &Arc<crate::session::SessionStore>,
-) -> RpcResult {
-    let session_id = params["session_id"]
-        .as_str()
-        .ok_or((INVALID_PARAMS, "missing session_id".to_owned()))?;
-    let content = params["content"]
-        .as_str()
-        .ok_or((INVALID_PARAMS, "missing content".to_owned()))?;
-    let role = params["role"].as_str().unwrap_or("system");
-
-    // Validate role
-    if !matches!(role, "system" | "user" | "assistant") {
-        return Err((
-            INVALID_PARAMS,
-            format!("invalid role: {role} (expected system, user, or assistant)"),
-        ));
-    }
-
-    // Validate the session exists so the caller gets a meaningful error.
-    let _entry = session_store
-        .get(session_id)
-        .await
-        .or(session_store.get_by_session_id(session_id).await)
-        .ok_or((INVALID_PARAMS, format!("session not found: {session_id}")))?;
-
-    // Injecting into a live session's message history is not yet implemented:
-    // the conversation transcript is owned by the running agent/channel runtime,
-    // not the SessionStore. Return an explicit error instead of reporting a
-    // success that silently does nothing.
-    let _ = content;
-    Err((
-        METHOD_NOT_FOUND,
-        "chat.inject is not implemented: message injection into session history is not supported yet".to_owned(),
-    ))
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────

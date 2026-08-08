@@ -11,7 +11,6 @@ use crate::tools::registry::{ToolHandler, ToolKind};
 /// Handles multiple session-related tool names:
 /// - `sessions_list` — List active sessions
 /// - `sessions_history` — Get session history
-/// - `sessions_send` — Send a message to a session
 /// - `session_status` — Get session metadata
 pub struct SessionsHandler;
 
@@ -32,14 +31,6 @@ struct SessionsHistoryArgs {
     /// Maximum number of messages to return.
     #[serde(default = "defaults::limit")]
     limit: usize,
-}
-
-#[derive(Deserialize)]
-struct SessionsSendArgs {
-    /// Session ID to send to.
-    session_id: String,
-    /// Message text.
-    message: String,
 }
 
 #[derive(Deserialize)]
@@ -78,7 +69,6 @@ impl ToolHandler for SessionsHandler {
         match tool_name.as_str() {
             "sessions_list" => self.handle_list(&arguments, &gateway_url).await,
             "sessions_history" => self.handle_history(&arguments, &gateway_url).await,
-            "sessions_send" => self.handle_send(&arguments, &gateway_url).await,
             "session_status" => self.handle_status(&arguments, &gateway_url).await,
             _ => model_err(format!("unknown sessions tool: {tool_name}")),
         }
@@ -134,27 +124,6 @@ impl SessionsHandler {
             .append_pair("limit", &args.limit.clamp(1, MAX_HISTORY_LIMIT).to_string());
         let payload = get_json(&client, url, "get session history").await?;
         Ok(ToolOutput::ok(payload.to_string()))
-    }
-
-    async fn handle_send(
-        &self,
-        arguments: &str,
-        _gateway_url: &str,
-    ) -> Result<ToolOutput, FunctionCallError> {
-        let args: SessionsSendArgs = parse_arguments(arguments)?;
-
-        if args.session_id.is_empty() {
-            return model_err("session_id must not be empty");
-        }
-
-        // Direct session messaging is not wired to SessionManager routing yet.
-        // Previously this claimed the message was "queued" while dropping it —
-        // report the gap honestly instead.
-        let _ = &args.message;
-        model_err(format!(
-            "sessions_send is not implemented yet: cannot deliver to session {}; SessionManager message routing is not wired up",
-            args.session_id
-        ))
     }
 
     async fn handle_status(

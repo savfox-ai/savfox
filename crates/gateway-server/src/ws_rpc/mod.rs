@@ -129,7 +129,6 @@ pub(crate) async fn dispatch_rpc(
         "chat.send" => handle_chat_send(&params, channel, session_mgr, session_store).await,
         "chat.history" => handle_chat_history(&params, session_store, channel).await,
         "chat.abort" => handle_chat_abort(&params, channel, session_store).await,
-        "chat.inject" => handle_chat_inject(&params, session_store).await,
 
         // ── Sessions ────────────────────────────────────────────────────
         "sessions.list" => handle_sessions_list(session_mgr, session_store, channel).await,
@@ -259,7 +258,6 @@ pub(crate) async fn dispatch_rpc(
         "node.invoke" => handle_node_invoke(&params, channel).await,
         "node.invoke.result" => handle_node_invoke_result(&params).await,
         "node.event" => handle_node_event(&params, channel).await,
-        "node.rename" => handle_node_rename(&params, channel).await,
         "node.camera.snap" => handle_node_tool_alias("camera.snap", &params, channel).await,
         "node.camera.clip" => handle_node_tool_alias("camera.clip", &params, channel).await,
         "node.screen.record" => handle_node_tool_alias("screen.record", &params, channel).await,
@@ -487,10 +485,6 @@ pub(crate) async fn dispatch_rpc(
         "hooks.list" => handle_hooks_list(channel).await,
         "hooks.enable" => handle_hooks_enable(&params, channel).await,
         "hooks.disable" => handle_hooks_disable(&params, channel).await,
-
-        // ── Message Reactions (#37) ───────────────────────────────────
-        "reactions.add" => handle_reactions_add(&params, channel).await,
-        "reactions.remove" => handle_reactions_remove(&params, channel).await,
 
         // ── Streaming Config (#36) ────────────────────────────────────
         "streaming.config.get" => handle_streaming_config_get(channel).await,

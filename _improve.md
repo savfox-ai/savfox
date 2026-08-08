@@ -377,11 +377,11 @@
 
 - [x] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** 已在第十二轮修复：config list/get/save 与普通 Nostr profile 响应使用稳定的不可逆占位符，保存时原样占位符会恢复旧值；状态轮询也不再返回 Matrix registration token 或凭据型 webhook URL。
 
-- [ ] **F4 / 高：`gateway` 工具 POST 到不存在的 `/rpc`。** Gateway JSON-RPC 目前只通过 WebSocket `/ws` 分发，HTTP Router 没有 `/rpc`。应选择其一：让工具使用带 subprotocol 鉴权的 WebSocket 客户端，或增加同样执行 `required_scope` 的受保护 HTTP RPC adapter；不能简单把 `/rpc` 暴露为只校验 token 的路由。
+- [x] **F4 / 高：`gateway` 工具 POST 到不存在的 `/rpc`。** 已在第十四轮从工具 spec/handler 注册中移除该断路入口并删除死实现；在实现带 scope 鉴权的 WebSocket/HTTP adapter 前，模型不会再发现或调用它。
 
-- [ ] **F5 / 高：多会话编排工具仍有未完成路径。** `sessions_spawn` 明确返回未实现；`sessions_send` 不能投递；`sessions_send_a2a` 依赖这些外围能力；模型打开相应 experimental tool 后仍会进入断路。建议在完成 SessionManager 路由前不要注册这些 tool spec，或者统一为 capability discovery 后再暴露。
+- [x] **F5 / 高：多会话编排工具仍有未完成路径。** 已在第十四轮停止注册 `sessions_spawn`、`sessions_send`、`sessions_send_a2a` 并删除其占位 handler/spec；真实可用的 `sessions_list`、`sessions_history`、`session_status` 与 `agent_step` 保持可用，并新增“不完整工具不可暴露”测试。
 
-- [ ] **F6 / 高：多个已注册 WebSocket RPC 方法固定返回未实现。** `chat.inject`、`node.rename`、`reactions.add`、`reactions.remove` 都在 dispatcher 中可见，但 handler 固定报错。应实现底层 store/adapter 后再注册，或通过 capabilities 从客户端隐藏。
+- [x] **F6 / 高：多个已注册 WebSocket RPC 方法固定返回未实现。** 已在第十四轮从 dispatcher 移除 `chat.inject`、`node.rename`、`reactions.add`、`reactions.remove` 并删除固定失败的 handler；调用方现在得到标准 `METHOD_NOT_FOUND`，不会误认为协议声明了可用能力。
 
 - [ ] **F7 / 高：Gateway compaction 不是语义摘要。** `build_summary` 仅截取每条消息前 100 个字符再整体截断，却把结果作为 compaction summary 持久使用；工具结果、约束、决定和后半段关键信息会永久丢失。应接入模型摘要或结构化抽取，并在摘要失败时保持原历史、不能用截断拼接结果替代。
 
@@ -463,8 +463,6 @@
 - `cargo clippy -p savfox-gateway-server -p savfox-gateway-dioxus --all-targets --locked -- -D warnings`
 - `scripts/build-web.ps1`（Dioxus Web 构建及 Gateway static 同步成功）
 
----
-
 # 第十三轮（2026-08-08）—— 安全元数据单一来源
 
 审计日期：2026-08-08
@@ -486,3 +484,25 @@
 - `cargo test -p savfox-gateway-server --lib -q`（404 passed）
 - `cargo clippy -p savfox-gateway-server -p savfox-gateway-shared -p savfox-gateway-dioxus --all-targets -- -D warnings`
 - `scripts/build-web.ps1`（Dioxus Web 构建及 Gateway static 同步成功）
+
+---
+
+# 第十四轮（2026-08-08）—— 未完成能力断路
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **F4 / 高：Core `gateway` 工具固定请求不存在的 `/rpc`。** 删除该 experimental tool 的 spec、handler 和注册；在安全的 RPC transport 接入前不再向模型宣称可用。
+
+- [x] **F5 / 高：多会话编排占位工具可被模型调用。** 移除 `sessions_spawn`、`sessions_send`、`sessions_send_a2a` 的 spec/handler/注册，保留真实可用的 session 读取、状态与 `agent_step`。新增测试确保即使模型目录包含旧 experimental 名称，这些断路工具仍不会暴露。
+
+- [x] **F6 / 高：四个 WS RPC 方法已注册但固定失败。** `chat.inject`、`node.rename`、`reactions.add`、`reactions.remove` 已从 dispatcher 和 handler 实现移除；请求统一落入标准 `METHOD_NOT_FOUND` 分支，客户端不会把占位入口识别为受支持能力。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-core -p savfox-gateway-server -q`
+- `cargo test -p savfox-core --lib incomplete_gateway_orchestration_tools_are_not_exposed -- --nocapture`（1 passed）
+- `cargo test -p savfox-gateway-server --lib -q`（404 passed）
+- `cargo clippy -p savfox-core -p savfox-gateway-server --all-targets -- -D warnings`
