@@ -2,6 +2,45 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
+/// Wire value used in place of a configured channel credential.
+///
+/// This constant is shared by the gateway and web editor so a redacted value
+/// can never be mistaken for a real credential during save/export flows.
+pub const CHANNEL_SECRET_REDACTION_PLACEHOLDER: &str = "__SAVFOX_CHANNEL_SECRET_REDACTED__";
+
+/// Return whether a Channel config field carries secret or credential-bearing
+/// data and therefore must be write-only on ordinary RPC responses.
+///
+/// Keys are normalized across snake_case, camelCase, kebab-case and dotted
+/// forms. Explicit entries cover current fields whose names do not contain a
+/// conventional credential marker.
+#[must_use]
+pub fn channel_config_key_is_sensitive(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+
+    normalized.contains("token")
+        || normalized.contains("secret")
+        || normalized.contains("password")
+        || normalized.contains("passwd")
+        || normalized.contains("credential")
+        || normalized.contains("privatekey")
+        || normalized.contains("signingkey")
+        || matches!(
+            normalized.as_str(),
+            "authorization"
+                | "accesscode"
+                | "keypair"
+                | "keyref"
+                | "loginchallenge"
+                | "pairingcode"
+                | "webhookurl"
+        )
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct ChannelEntry {
     pub platform: String,
@@ -287,7 +326,27 @@ pub struct MsTeamsStatus {
 mod tests {
     use serde_json::json;
 
-    use super::ChannelsStatusSnapshot;
+    use super::{ChannelsStatusSnapshot, channel_config_key_is_sensitive};
+
+    #[test]
+    fn channel_secret_schema_covers_conventional_and_explicit_keys() {
+        for key in [
+            "bot_token",
+            "accessToken",
+            "signing-secret",
+            "app.password",
+            "private_key",
+            "signing_key_seed_hex",
+            "webhook_url",
+            "keyRef",
+            "access_code",
+        ] {
+            assert!(channel_config_key_is_sensitive(key), "{key}");
+        }
+        for key in ["public_key", "app_id", "homeserver", "channel_name"] {
+            assert!(!channel_config_key_is_sensitive(key), "{key}");
+        }
+    }
 
     #[test]
     fn aggregate_channel_status_deserializes_common_fields() {

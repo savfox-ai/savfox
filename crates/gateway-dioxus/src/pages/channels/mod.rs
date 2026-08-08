@@ -30,6 +30,7 @@ use lucide_dioxus::{
     Activity, Braces, CircleCheck, Copy, Link2, LoaderCircle, Power, Settings, SlidersHorizontal,
     Trash2, TriangleAlert, Unplug,
 };
+use savfox_gateway_shared::CHANNEL_SECRET_REDACTION_PLACEHOLDER;
 use savfox_utils::string::normalize_slug;
 use serde_json::{Value, json};
 
@@ -38,8 +39,6 @@ use crate::components::chip::{Chip, ChipVariant};
 use crate::components::skeleton::*;
 use crate::components::tooltip::HelpTip;
 use crate::utils::deep_link::replace_url;
-
-const REDACTED_CHANNEL_SECRET: &str = "__SAVFOX_CHANNEL_SECRET_REDACTED__";
 
 fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
@@ -4397,7 +4396,7 @@ fn ChannelConfigModal(
                             let export_requires_credentials = inline_values
                                 .read()
                                 .values()
-                                .any(|value| value == REDACTED_CHANNEL_SECRET);
+                                .any(|value| value == CHANNEL_SECRET_REDACTION_PLACEHOLDER);
                             rsx! {
                                 button {
                                     onclick: move |_| {
@@ -6484,6 +6483,24 @@ mod tests {
                 .iter()
                 .any(|field| field.key == "externalAiEndpointConfig")
         );
+    }
+
+    #[test]
+    fn every_secret_form_field_is_covered_by_the_shared_server_schema() {
+        for channel in build_channel_types() {
+            for field in channel
+                .config_fields
+                .into_iter()
+                .filter(|field| field.secret)
+            {
+                assert!(
+                    savfox_gateway_shared::channel_config_key_is_sensitive(&field.key),
+                    "{}.{} is marked secret in the UI but missing from the shared schema",
+                    channel.id,
+                    field.key
+                );
+            }
+        }
     }
 
     #[test]

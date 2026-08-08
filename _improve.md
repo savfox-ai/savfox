@@ -420,7 +420,7 @@
 
 - [x] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** 已在第十二轮完成凭据脱敏、旧值保留、无法匹配占位符时 fail-closed，以及状态响应中的旁路泄露清理。
 
-- [ ] **T1 / 中：REST 权限表与 Router 注册仍是两处维护。** 当前单元测试覆盖现有主要路由且未知项会 fail-closed，但新增路由若未更新权限表，会暂时变成 Admin-only。后续可把 route 注册和权限元数据合并为同一声明，避免遗漏导致可用性回归。
+- [x] **T1 / 中：REST 权限表与 Router 注册仍是两处维护。** 已在第十三轮把 handler、HTTP method、path template 与所需 scope 合并为同一声明表，由宏同时生成 Router 注册和授权元数据；未知受保护路径继续 fail-closed 到 Admin。
 
 ## 本轮验证
 
@@ -451,7 +451,7 @@
 
 ## 新确认、待后续处理
 
-- [ ] **T2 / 中：Channel secret 分类仍依赖通用字段名规则。** 当前规则覆盖仓库内现有 Channel 表单及常见嵌套结构，但未来插件若引入语义不明显的凭据字段名，可能需要同步扩展规则。建议后续把 `ConfigField.secret` 元数据下沉到共享 schema，由服务端按 schema 脱敏，而不是让前后端分别维护安全含义。
+- [x] **T2 / 中：Channel secret 分类仍依赖前后端各自维护的安全含义。** 已在第十三轮把字段敏感性规则及脱敏占位符下沉到 `savfox-gateway-shared`，Gateway 与 Dioxus 共同消费；新增回归测试逐项断言所有 UI `secret: true` 字段都被服务端共享 schema 覆盖。
 
 ## 本轮验证
 
@@ -461,4 +461,28 @@
 - `cargo check -p savfox-gateway-dioxus --locked`
 - `cargo test -p savfox-gateway-dioxus --locked`（51 passed）
 - `cargo clippy -p savfox-gateway-server -p savfox-gateway-dioxus --all-targets --locked -- -D warnings`
+- `scripts/build-web.ps1`（Dioxus Web 构建及 Gateway static 同步成功）
+
+---
+
+# 第十三轮（2026-08-08）—— 安全元数据单一来源
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **T1 / 中：REST 路由注册与授权规则可能漂移。** 受保护路由现由同一声明同时生成 Salvo Router 注册和 `method + path template -> scope` 授权元数据；动态 path segment 和 catch-all plugin route 由统一 matcher 识别，未登记路径仍要求 Admin。
+
+- [x] **T2 / 中：Channel secret 安全语义在前后端重复维护。** 敏感字段规则与只写占位符已移动到 `savfox-gateway-shared`。Gateway 脱敏/恢复逻辑和 Web 导出保护共享同一常量与分类函数，并用表单元数据回归测试保证当前所有 secret 字段都在服务端 schema 覆盖范围内。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-gateway-server`
+- `cargo test -p savfox-gateway-server --lib http_ -q`（5 passed）
+- `cargo test -p savfox-gateway-server --lib bearer_auth_hoop_enforces_http_scope_matrix -q`（1 passed）
+- `cargo test -p savfox-gateway-shared channel_secret_schema -q`（1 passed）
+- `cargo test -p savfox-gateway-dioxus every_secret_form_field -q`（1 passed）
+- `cargo test -p savfox-gateway-server --lib -q`（404 passed）
+- `cargo clippy -p savfox-gateway-server -p savfox-gateway-shared -p savfox-gateway-dioxus --all-targets -- -D warnings`
 - `scripts/build-web.ps1`（Dioxus Web 构建及 Gateway static 同步成功）

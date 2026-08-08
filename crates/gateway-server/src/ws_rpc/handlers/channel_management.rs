@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use savfox_gateway_shared::{
+    CHANNEL_SECRET_REDACTION_PLACEHOLDER, channel_config_key_is_sensitive,
+};
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_REQUEST, RpcResult};
@@ -8,44 +11,11 @@ use super::super::utils::require_str;
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
-/// Stable value returned in place of channel credentials.
-///
-/// Clients may submit this value unchanged when editing a config. The save
-/// path restores the corresponding persisted value before validation and
-/// refuses placeholders that cannot be matched to an existing value.
-const REDACTED_CHANNEL_SECRET: &str = "__SAVFOX_CHANNEL_SECRET_REDACTED__";
-
-fn channel_config_key_is_sensitive(key: &str) -> bool {
-    let normalized = key
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect::<String>();
-
-    normalized.contains("token")
-        || normalized.contains("secret")
-        || normalized.contains("password")
-        || normalized.contains("passwd")
-        || normalized.contains("credential")
-        || normalized.contains("privatekey")
-        || normalized.contains("signingkey")
-        || matches!(
-            normalized.as_str(),
-            "authorization"
-                | "accesscode"
-                | "keypair"
-                | "keyref"
-                | "loginchallenge"
-                | "pairingcode"
-                | "webhookurl"
-        )
-}
-
 fn redact_sensitive_value(value: &mut Value) {
     match value {
         Value::String(text) => {
             if !text.trim().is_empty() {
-                *text = REDACTED_CHANNEL_SECRET.to_owned();
+                *text = CHANNEL_SECRET_REDACTION_PLACEHOLDER.to_owned();
             }
         }
         Value::Array(values) => {
@@ -99,7 +69,7 @@ fn redacted_channel_configs_json(
 }
 
 fn restore_redacted_channel_secrets(incoming: &mut Value, persisted: &Value) {
-    if incoming.as_str() == Some(REDACTED_CHANNEL_SECRET) {
+    if incoming.as_str() == Some(CHANNEL_SECRET_REDACTION_PLACEHOLDER) {
         *incoming = persisted.clone();
         return;
     }
@@ -125,7 +95,7 @@ fn restore_redacted_channel_secrets(incoming: &mut Value, persisted: &Value) {
 
 fn contains_redacted_channel_secret(value: &Value) -> bool {
     match value {
-        Value::String(value) => value == REDACTED_CHANNEL_SECRET,
+        Value::String(value) => value == CHANNEL_SECRET_REDACTION_PLACEHOLDER,
         Value::Array(values) => values.iter().any(contains_redacted_channel_secret),
         Value::Object(values) => values.values().any(contains_redacted_channel_secret),
         Value::Null | Value::Bool(_) | Value::Number(_) => false,
@@ -955,18 +925,27 @@ mod credential_redaction_tests {
     fn channel_config_responses_replace_credentials_with_stable_placeholder() {
         let redacted = redacted_channel_config_json(&sample_channel_config());
 
-        assert_eq!(redacted["config"]["bot_token"], REDACTED_CHANNEL_SECRET);
+        assert_eq!(
+            redacted["config"]["bot_token"],
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
+        );
         assert_eq!(redacted["config"]["password"], "");
-        assert_eq!(redacted["config"]["webhook_url"], REDACTED_CHANNEL_SECRET);
+        assert_eq!(
+            redacted["config"]["webhook_url"],
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
+        );
         assert_eq!(
             redacted["config"]["room_tokens"]["!public:example.com"],
-            REDACTED_CHANNEL_SECRET
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
         );
         assert_eq!(
             redacted["config"]["keyRef"]["kind"],
-            REDACTED_CHANNEL_SECRET
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
         );
-        assert_eq!(redacted["config"]["private_key"], REDACTED_CHANNEL_SECRET);
+        assert_eq!(
+            redacted["config"]["private_key"],
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
+        );
         assert_eq!(redacted["config"]["public_key"], "safe-public-key");
         assert_eq!(
             redacted["config"]["homeserver"],
@@ -1011,14 +990,14 @@ mod credential_redaction_tests {
 
         let mut existing_patch = json!({
             "id": "matrix-support",
-            "bot_token": REDACTED_CHANNEL_SECRET,
+            "bot_token": CHANNEL_SECRET_REDACTION_PLACEHOLDER,
         });
         restore_saved_channel_secrets(&home, "matrix", "Support", &mut existing_patch)
             .await
             .expect("restore existing credential");
         assert_eq!(existing_patch["bot_token"], "bot-secret-value");
 
-        let mut new_patch = json!({ "bot_token": REDACTED_CHANNEL_SECRET });
+        let mut new_patch = json!({ "bot_token": CHANNEL_SECRET_REDACTION_PLACEHOLDER });
         let error = restore_saved_channel_secrets(&home, "discord", "New", &mut new_patch)
             .await
             .expect_err("unmatched placeholder must fail closed");
