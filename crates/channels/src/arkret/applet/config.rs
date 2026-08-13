@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use arkret::signatures::PublicKeyMaterial;
-use arkret::{DeviceId, Did};
+use arkret::{DeviceId, DidCoreId, DidFullId};
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};
@@ -234,7 +234,7 @@ impl ArkretAppletConfig {
             ("controller_id", &self.controller_id),
             ("bot_actor_id", &self.bot_actor_id),
         ] {
-            Did::new(value.clone()).map_err(|err| {
+            DidCoreId::new(value.clone()).map_err(|err| {
                 anyhow::anyhow!(
                     "Arkret applet channel '{}' {label} must be a valid DID URI, got '{}': {err}",
                     self.id,
@@ -242,7 +242,7 @@ impl ArkretAppletConfig {
                 )
             })?;
         }
-        let service_did = Did::new(self.service_id.clone())?;
+        let service_did = DidFullId::new(self.service_id.clone())?;
         if service_did.method() != "webvh" {
             anyhow::bail!(
                 "Arkret applet channel '{}' service_id must use did:webvh",
@@ -265,7 +265,7 @@ impl ArkretAppletConfig {
             })?;
         }
         if let Some(value) = self.arkret_server_did.as_deref() {
-            Did::new(value.to_owned()).map_err(|err| {
+            DidCoreId::new(value.to_owned()).map_err(|err| {
                 anyhow::anyhow!(
                     "Arkret applet channel '{}' arkret_server_did must be a valid DID URI, got '{}': {err}",
                     self.id,

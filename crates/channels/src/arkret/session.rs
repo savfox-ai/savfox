@@ -5,7 +5,7 @@
 
 use anyhow::Context as _;
 use arkret::http_client::{Client, login_did_proof};
-use arkret::{DeviceId, Did, Ed25519PayloadSigner};
+use arkret::{DeviceId, DidCoreId, Ed25519PayloadSigner};
 use chrono::{DateTime, Utc};
 
 /// One-shot session state produced by [`login_with_signer`].
@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 pub struct ArkretSession {
     pub session_grant: String,
     pub expires_at: DateTime<Utc>,
-    pub principal_did: Did,
+    pub principal_did: DidCoreId,
     pub device_id: Option<DeviceId>,
 }
 
@@ -34,12 +34,12 @@ impl ArkretSession {
 pub async fn login_with_signer(
     http: &Client,
     signer: &Ed25519PayloadSigner,
-    principal_did: Did,
+    principal_did: DidCoreId,
     device_id: DeviceId,
     challenge: &str,
     audience: &str,
 ) -> anyhow::Result<ArkretSession> {
-    let audience = Did::new(audience.to_owned())
+    let audience = DidCoreId::new(audience.to_owned())
         .with_context(|| format!("invalid Arkret service audience DID '{audience}'"))?;
     let session = login_did_proof(
         http,
@@ -75,7 +75,7 @@ mod tests {
         let s = ArkretSession {
             session_grant: "g".into(),
             expires_at: Utc::now() + chrono::Duration::seconds(10),
-            principal_did: Did::new("did:web:alice.example".to_owned())
+            principal_did: DidCoreId::new("did:web:alice.example".to_owned())
                 .expect("test DID should parse"),
             device_id: Some(
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
@@ -93,7 +93,7 @@ mod tests {
         let s = ArkretSession {
             session_grant: "g".into(),
             expires_at: Utc::now() - chrono::Duration::seconds(10),
-            principal_did: Did::new("did:web:alice.example".to_owned())
+            principal_did: DidCoreId::new("did:web:alice.example".to_owned())
                 .expect("test DID should parse"),
             device_id: Some(
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())

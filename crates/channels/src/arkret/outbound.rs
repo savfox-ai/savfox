@@ -5,12 +5,12 @@
 //! Production servers are expected to reject unsigned writes.
 
 use anyhow::Context;
-use arkret::events::EventKind;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    AuthContext, ContentBlock, Did, DidUrl, Ed25519PayloadSigner, Event, EventDraftKindRegistry,
-    EventId, EventRef, Hlc, MessageCreatePayload, OperationEnvelopeBuilder,
-    OperationEventConversion, OperationId, RealmId, ScopeRef, SealId, StrandId, new_prefixed_uuid7,
+    AuthContext, ContentBlock, DidCoreId, DidUrl, Ed25519PayloadSigner, Event,
+    EventDraftKindRegistry, EventId, EventRef, Hlc, MessageCreatePayload, OperationEnvelopeBuilder,
+    OperationEventConversion, OperationId, RealmId, ScopeRef, SealId, StrandId, event_spec,
+    new_prefixed_uuid7,
 };
 
 use super::sidecar::{EVENT_REF_ROLE_AFTER, SidecarExchangeContext};
@@ -50,7 +50,7 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     }
     let realm = RealmId::new(req.realm_id.clone())
         .with_context(|| format!("invalid realm_id: {}", req.realm_id))?;
-    let actor = Did::new(req.principal_id.clone())
+    let actor = DidCoreId::new(req.principal_id.clone())
         .with_context(|| format!("invalid principal DID: {}", req.principal_id))?;
     let hlc = current_hlc();
 
@@ -61,22 +61,15 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     if let Some(thread_root) = &req.thread_root_id {
         payload = payload.with_reply_to(thread_root.clone());
     }
-    let envelope = OperationEnvelopeBuilder::new(
+    let builder = OperationEnvelopeBuilder::<event_spec::MessageCreate>::new(
         OperationId::new(new_prefixed_uuid7("ak:operation:"))
             .context("failed to generate message operation id")?,
         ScopeRef::Realm { realm_id: realm },
         actor,
-        EventKind::MESSAGE_CREATE,
         req.actor_seq,
         hlc,
-    )
-    .with_payload(
-        payload
-            .to_value()
-            .map_err(|err| anyhow::anyhow!("failed to build message-create payload: {err}"))?,
-    )
-    .build(&EventDraftKindRegistry::default())
-    .map_err(|err| anyhow::anyhow!("failed to build message-create envelope: {err}"))?;
+        payload,
+    );
     let mut conversion = OperationEventConversion::default();
     if let Some(exchange) = &req.sidecar_exchange {
         // Sidecar exchange Events MUST reference the accepted request Event
@@ -88,8 +81,8 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
             EVENT_REF_ROLE_AFTER,
         ));
     }
-    envelope
-        .into_event_envelope(conversion)
+    builder
+        .into_event_envelope(&EventDraftKindRegistry::default(), conversion)
         .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))
 }
 
@@ -120,7 +113,7 @@ pub fn sign_outbound_event(
 pub fn apply_data_event_basis(
     event: &mut Event,
     seal_id: SealId,
-    signer_did: Did,
+    signer_did: DidCoreId,
     key_id: String,
 ) -> anyhow::Result<()> {
     if event.seal_basis.is_some() || !event.preconditions.is_empty() {
@@ -128,7 +121,7 @@ pub fn apply_data_event_basis(
     }
     event.seal_ref = Some(seal_id);
     event.auth_context = Some(AuthContext {
-        did: signer_did,
+        actor_id: signer_did,
         key_id,
         key_epoch: 0,
         credential_epoch: None,
@@ -198,7 +191,7 @@ mod tests {
         apply_data_event_basis(
             &mut event,
             SealId::new(format!("ak:seal:sha256:{}", "11".repeat(32))).unwrap(),
-            Did::new(valid_request().principal_id).unwrap(),
+            DidCoreId::new(valid_request().principal_id).unwrap(),
             "agent-device".to_owned(),
         )
         .expect("basis");
@@ -206,7 +199,7 @@ mod tests {
         assert!(event.seal_ref.is_some());
         let auth_context = event.auth_context.expect("auth context");
         assert_eq!(auth_context.key_id, "agent-device");
-        assert_eq!(auth_context.did.as_str(), valid_request().principal_id);
+        assert_eq!(auth_context.actor_id.as_str(), valid_request().principal_id);
         assert!(event.seal_basis.is_none());
     }
 

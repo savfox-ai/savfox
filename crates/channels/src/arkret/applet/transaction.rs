@@ -139,7 +139,7 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
 
 #[cfg(test)]
 mod tests {
-    use arkret::{Did, Hlc, RealmId, ScopeRef};
+    use arkret::{DidCoreId, Hlc, RealmId, ScopeRef};
     use serde_json::json;
 
     use super::*;
@@ -190,14 +190,14 @@ mod tests {
     fn hlc() -> Hlc {
         Hlc::new("000000000000-0000-00000000").expect("test HLC should parse")
     }
-    fn did(s: &str) -> Did {
-        Did::new(s.to_owned()).expect("did")
+    fn did(s: &str) -> DidCoreId {
+        DidCoreId::new(s.to_owned()).expect("did")
     }
 
     fn make_event(actor: &str, realm_id: &str, kind: &str, content: serde_json::Value) -> Event {
         // `Event::new` derives `event_id` from the Event's own content; an id
         // can no longer be minted for it.
-        Event::new(
+        arkret_wire::test_support::raw_event(
             kind,
             ScopeRef::Realm {
                 realm_id: realm(realm_id),

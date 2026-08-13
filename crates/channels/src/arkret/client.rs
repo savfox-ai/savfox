@@ -14,7 +14,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
-    AccountSubscribeFrame, Base64UrlString, DeviceId, Did, DidUrl, Ed25519PayloadSigner,
+    AccountSubscribeFrame, Base64UrlString, DeviceId, DidCoreId, DidUrl, Ed25519PayloadSigner,
     EventsSubmitOutcome, EventsSubscribeFrame, KeyOperationSignature, KeyPackageClaimProof,
     KeyPackagesClaimOutcome, KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope,
     PreparedStandardEvent, RealmId, ServiceDescribe, SessionGrantDpopBindingProof, StrandId,
@@ -225,13 +225,13 @@ fn mint_agent_session_refresh_proof(
     let signature = arkret::base64url_encode(signing_key.sign(&signing_bytes).to_bytes());
 
     Ok(arkret::SessionGrantRefreshProof {
-        proof_kind: Some(arkret::SessionGrantProofKind::AgentKeyProof),
-        challenge: Some(challenge),
-        request_canonical_digest: Some(request_canonical_digest),
-        audience: Some(state.audience.clone()),
-        issued_at: Some(issued_at),
-        expires_at: Some(expires_at),
-        signature: Some(signature),
+        proof_kind: arkret::SessionGrantProofKind::AgentKeyProof,
+        challenge,
+        request_canonical_digest,
+        audience: state.audience.clone(),
+        issued_at,
+        expires_at,
+        signature,
         verification_method: Some(verification_method.clone()),
     })
 }
@@ -336,12 +336,12 @@ pub fn build_mls_key_packages_claim_request(
     }
     let claim_nonce = Base64UrlString::new(claim_nonce)
         .map_err(|error| anyhow::anyhow!("invalid Arkret MLS KeyPackage claim nonce: {error}"))?;
-    let target_principal_id = Did::new(target_principal_id.to_owned())
+    let target_principal_id = DidCoreId::new(target_principal_id.to_owned())
         .with_context(|| format!("invalid Arkret KeyPackage target DID '{target_principal_id}'"))?;
     let intended_realm_id = RealmId::new(intended_realm_id.to_owned()).with_context(|| {
         format!("invalid Arkret KeyPackage claim Realm id '{intended_realm_id}'")
     })?;
-    let requester = Did::new(requester.to_owned())
+    let requester = DidCoreId::new(requester.to_owned())
         .with_context(|| format!("invalid Arkret KeyPackage requester DID '{requester}'"))?;
     let target_device_ids = target_device_ids
         .iter()
@@ -436,7 +436,7 @@ impl ArkretHttpClient {
     pub async fn login_agent_provider(
         base_url: &str,
         key_ref: &ArkretKeyRef,
-        principal_did: Did,
+        principal_did: DidCoreId,
         verification_method: &str,
         agent_key_authorization_ref: &str,
         requested_scope: Vec<String>,
@@ -445,7 +445,7 @@ impl ArkretHttpClient {
         realm_id: Option<&str>,
     ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
         validate_agent_key_ref(key_ref)?;
-        let audience = Did::new(audience.to_owned())
+        let audience = DidCoreId::new(audience.to_owned())
             .with_context(|| format!("invalid Arkret service audience DID '{audience}'"))?;
         let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
             anyhow::anyhow!("invalid Arkret verification method '{verification_method}': {err}")
@@ -513,6 +513,7 @@ impl ArkretHttpClient {
             &requested_scope,
             agent_key_authorization_ref,
             &agent_scope_request,
+            None,
             &dpop_binding_proof,
             verification_method.clone(),
             challenge.clone(),
@@ -533,6 +534,7 @@ impl ArkretHttpClient {
             requested_scope,
             agent_key_authorization_ref: agent_key_authorization_ref.to_owned(),
             agent_scope_request,
+            requested_scope_disclosure: None,
             dpop_binding_proof,
             verification_method: verification_method.clone(),
             challenge,
@@ -605,7 +607,7 @@ impl ArkretHttpClient {
     pub async fn login_agent(
         base_url: &str,
         key_ref: &ArkretKeyRef,
-        principal_did: Did,
+        principal_did: DidCoreId,
         verification_method: &str,
         agent_key_authorization_ref: &str,
         requested_scope: Vec<String>,
@@ -641,7 +643,7 @@ impl ArkretHttpClient {
     pub async fn login(
         base_url: &str,
         signer: &Ed25519PayloadSigner,
-        principal_did: Did,
+        principal_did: DidCoreId,
         device_id: DeviceId,
         challenge: &str,
         audience: &str,
@@ -1009,15 +1011,14 @@ mod tests {
 
     fn agent_session_state() -> SessionGrantState {
         SessionGrantState {
-            principal_id: Did::new("did:webvh:z6mkfixture:agent.example").unwrap(),
+            principal_id: DidCoreId::new("did:webvh:z6mkfixture:agent.example").unwrap(),
             device_id: Some(
                 DeviceId::new("ak:device:0196419b-0000-7000-8000-000000000001").unwrap(),
             ),
-            grant_id: arkret::GrantId::new("ak:grant:0196419b-0000-7000-8000-000000000001")
-                .unwrap(),
+            grant_id: arkret_wire::SessionGrantId::from_issuance_digest([0x11; 32]),
             grant_jwt: "agent.grant.jwt".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
-            audience: Did::new("did:webvh:z6mkfixture:service.example").unwrap(),
+            audience: DidCoreId::new("did:webvh:z6mkfixture:service.example").unwrap(),
             granted_scope: vec!["ak.self.events.stream.subscribe".to_owned()],
             session_public_key: Some("session-public-key".to_owned()),
             dpop_jkt: Some("agent-dpop-jkt".to_owned()),
@@ -1047,10 +1048,10 @@ mod tests {
 
         assert_eq!(
             first.proof_kind,
-            Some(arkret::SessionGrantProofKind::AgentKeyProof)
+            arkret::SessionGrantProofKind::AgentKeyProof
         );
         assert_ne!(first.challenge, second.challenge);
-        assert_eq!(first.audience.as_ref(), Some(&state.audience));
+        assert_eq!(first.audience, state.audience);
         assert_eq!(
             first.verification_method.as_ref(),
             Some(&verification_method)
@@ -1060,16 +1061,15 @@ mod tests {
             principal_id: state.principal_id.as_str(),
             device_id: device_id.as_str(),
             audience: state.audience.as_str(),
-            challenge: first.challenge.as_deref().unwrap(),
-            request_canonical_digest: first.request_canonical_digest.as_ref().unwrap().as_str(),
-            issued_at: first.issued_at.unwrap(),
-            expires_at: first.expires_at.unwrap(),
+            challenge: first.challenge.as_str(),
+            request_canonical_digest: first.request_canonical_digest.as_str(),
+            issued_at: first.issued_at,
+            expires_at: first.expires_at,
         };
         let bytes = arkret::canonical::canonical_json_bytes(&claims).unwrap();
-        let signature = Signature::from_slice(
-            &arkret::base64url_decode(first.signature.as_deref().unwrap()).unwrap(),
-        )
-        .unwrap();
+        let signature =
+            Signature::from_slice(&arkret::base64url_decode(first.signature.as_str()).unwrap())
+                .unwrap();
         signing_key()
             .verifying_key()
             .verify_strict(&bytes, &signature)
@@ -1143,7 +1143,7 @@ mod tests {
                 .unwrap(),
             payload_digest: arkret::Hash::new(format!("sha256:{}", "00".repeat(32))).unwrap(),
             created_at: Utc::now(),
-            audience: Did::new("did:webvh:z6mkfixture:service.example").unwrap(),
+            audience: DidCoreId::new("did:webvh:z6mkfixture:service.example").unwrap(),
             proof_purpose: arkret::KeyPackageClaimProofPurpose::HolderAcceptance,
             jws: "header..signature".to_owned(),
         };
@@ -1189,10 +1189,18 @@ mod tests {
             )
             .unwrap(),
             claim_id: arkret::NonEmptyString::new("ak:claim:test").unwrap(),
-            requester_did: Did::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap(),
-            trust_binding: arkret::MlsRequesterTrustBinding::RequesterDeviceId(
-                DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned()).unwrap(),
-            ),
+            requester_actor_id: DidCoreId::new("did:webvh:z6mkfixture:alice.example".to_owned())
+                .unwrap(),
+            trust_binding: arkret::MlsRequesterTrustBinding::RequesterDevice {
+                requester_device_id: DeviceId::new(
+                    "ak:device:01904100-0000-7000-8000-000000000001".to_owned(),
+                )
+                .unwrap(),
+                requester_device_authorize_event_id: arkret::EventId::new(
+                    "ak:event:01904100-0000-7000-8000-000000000009".to_owned(),
+                )
+                .unwrap(),
+            },
             nonce: arkret::NonEmptyString::new("nonce-1").unwrap(),
             welcome_digest: arkret::Hash::new(format!("sha256:{}", "bb".repeat(32))).unwrap(),
             created_at: Utc::now(),

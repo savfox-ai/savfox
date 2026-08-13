@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use arkret::{AgentPairingBootstrap, DeviceId, Did, DidUrl};
+use arkret::{AgentPairingBootstrap, DeviceId, DidCoreId, DidFullId, DidUrl};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -300,7 +300,7 @@ impl ArkretChannelConfig {
             anyhow::bail!("Arkret channel '{}' missing base_url", self.id);
         }
         if let Some(service_id) = self.service_id.as_deref() {
-            Did::new(service_id.to_owned()).map_err(|err| {
+            DidCoreId::new(service_id.to_owned()).map_err(|err| {
                 anyhow::anyhow!(
                     "Arkret channel '{}' service_id must be a valid DID URI, got '{}': {err}",
                     self.id,
@@ -366,7 +366,7 @@ impl ArkretAccountConfig {
         if self.principal_id.trim().is_empty() {
             anyhow::bail!("Arkret account '{}' missing principal_id (DID)", self.id);
         }
-        Did::new(self.principal_id.clone()).map_err(|err| {
+        DidCoreId::new(self.principal_id.clone()).map_err(|err| {
             anyhow::anyhow!(
                 "Arkret account '{}' principal_id must be a valid DID URI, got '{}': {err}",
                 self.id,
@@ -669,7 +669,7 @@ fn parse_controller_id(raw: &serde_json::Map<String, Value>) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
-    arkret::Did::new(value.to_owned())
+    arkret::DidCoreId::new(value.to_owned())
         .ok()
         .map(|did| did.to_string())
 }
@@ -831,10 +831,18 @@ pub fn build_arkret_runtime_key_request_json(
         expected_verification_method
     );
     let signing_key = load_ed25519_signing_key(key_ref)?;
+    let agent_full_id = DidFullId::new(account.principal_id.clone()).map_err(|err| {
+        anyhow::anyhow!(
+            "Arkret agent '{}' has invalid full principal DID '{}': {err}",
+            account.id,
+            account.principal_id
+        )
+    })?;
     let proof_expires_at = runtime_key_proof_expires_at(now, bootstrap.pairing_expires_at);
     let request = arkret_signatures::agent::RuntimeKeyRequestBuilder::new(
         &signing_key,
         bootstrap.clone(),
+        &agent_full_id,
         endpoint_device_id,
     )
     .proof_created_at(now)

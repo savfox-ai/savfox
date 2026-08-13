@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use arkret::{DeviceId, Did};
+use arkret::{DeviceId, DidCoreId};
 use garth::{CursorScope, FileStore};
 
 use crate::arkret::account_scope_id;
@@ -54,12 +54,12 @@ pub fn device_messages_scope(
     Ok(CursorScope::DeviceMessages {
         service_id: service_id
             .map(|value| {
-                Did::new(value.to_owned()).map_err(|error| {
+                DidCoreId::new(value.to_owned()).map_err(|error| {
                     arkret::Error::Protocol(format!("invalid service DID '{value}': {error}"))
                 })
             })
             .transpose()?,
-        actor_id: Did::new(actor_id.to_owned()).map_err(|error| {
+        actor_id: DidCoreId::new(actor_id.to_owned()).map_err(|error| {
             arkret::Error::Protocol(format!("invalid actor DID '{actor_id}': {error}"))
         })?,
         device_id: DeviceId::new(device_id.to_owned()).map_err(|error| {

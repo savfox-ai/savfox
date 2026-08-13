@@ -24,6 +24,7 @@ arkret = [
     "dep:arkret",
     "dep:arkret-schema",
     "dep:arkret-crypto",
+    "dep:arkret-models-collaboration",
     "dep:arkret-signatures",
     "dep:arkret-wire",
     "dep:garth",
@@ -68,6 +69,7 @@ uuid = { workspace = true, features = ["v7"] }
 arkret = { workspace = true, optional = true }
 arkret-schema = { workspace = true, optional = true }
 arkret-crypto = { workspace = true, optional = true }
+arkret-models-collaboration = { workspace = true, optional = true }
 arkret-signatures = { workspace = true, optional = true }
 arkret-wire = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
@@ -75,3 +77,4 @@ arkret-bridge-runtime = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+arkret-wire = { workspace = true, features = ["test-support"] }

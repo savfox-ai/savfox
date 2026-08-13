@@ -103,9 +103,11 @@ pub async fn load_and_verify_grant(
         .validate_proof_bindings()
         .map_err(|err| anyhow::anyhow!("grant proof binding invalid: {err}"))?;
 
-    let payload: CapabilityGrantPayload = event
-        .payload_as()
-        .with_context(|| format!("decode CapabilityGrant payload in {}", path.display()))?;
+    let payload: CapabilityGrantPayload = serde_json::from_value(
+        serde_json::to_value(&event.payload)
+            .with_context(|| format!("encode CapabilityGrant payload in {}", path.display()))?,
+    )
+    .with_context(|| format!("decode CapabilityGrant payload in {}", path.display()))?;
     let grant = payload.grant;
 
     if event.actor_id.as_str() != grant.issuer.as_str() {
@@ -181,8 +183,8 @@ pub async fn load_and_verify_grant(
 
 fn capability_subject_did(subject: &CapabilitySubject) -> Option<&str> {
     match subject {
-        CapabilitySubject::Did(did) => Some(did.as_str()),
-        CapabilitySubject::Selector(_) => None,
+        CapabilitySubject::CoreDid(did) => Some(did.as_str()),
+        CapabilitySubject::Condition(_) => None,
     }
 }
 

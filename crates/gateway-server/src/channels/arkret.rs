@@ -1486,12 +1486,22 @@ async fn publish_account_mls_key_packages(
         );
         return;
     };
+    let Some(authorized_event_ref) = account.authorized_event_ref.as_deref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage upload requires the current authorize Event"
+        );
+        return;
+    };
     for last_resort in [false, true] {
         match crypto_store.ensure_agent_mls_key_package(
             &account.principal_id,
             &account.device_id,
             last_resort,
             key_ref,
+            verification_method,
+            authorized_event_ref,
         ) {
             Ok(record) => records.push(record),
             Err(err) => {
@@ -1529,6 +1539,8 @@ async fn publish_account_mls_key_packages(
         &account.device_id,
         deficit,
         key_ref,
+        verification_method,
+        authorized_event_ref,
     ) {
         Ok(records) => records,
         Err(err) => {

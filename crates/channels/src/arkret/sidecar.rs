@@ -341,7 +341,7 @@ impl SidecarExchangeStore {
         request_event_id: &str,
         ordering: &SidecarRequestOrdering,
     ) -> anyhow::Result<SidecarExchangeAdmission> {
-        let controller_id = arkret::Did::new(controller_id.to_owned())?;
+        let controller_id = arkret::DidCoreId::new(controller_id.to_owned())?;
         let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
         let exchange_id = AgentSidecarExchangeId::new(exchange_id.to_owned())?;
         let request_event_id = EventId::new(request_event_id.to_owned())?;
@@ -427,7 +427,7 @@ impl SidecarExchangeStore {
         control: &AgentSidecarExchangeControl,
         control_event_id: &str,
     ) -> anyhow::Result<SidecarTerminalAdmission> {
-        let controller_id = arkret::Did::new(controller_id.to_owned())?;
+        let controller_id = arkret::DidCoreId::new(controller_id.to_owned())?;
         let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
         let control_event_id = EventId::new(control_event_id.to_owned())?;
         let Some(action) = control.action.is_terminal().then_some(control.action) else {
@@ -622,7 +622,7 @@ pub fn build_user_facing_response_metadata(
 mod tests {
     use arkret::{
         AgentSidecarExchangeCompletionPolicy, AgentSidecarExchangeRequestContext,
-        AgentSidecarSourceTrackRef, Did, Hlc, NonEmptyString, RealmId, StrandId,
+        AgentSidecarSourceTrackRef, DidCoreId, Hlc, NonEmptyString, RealmId, StrandId,
     };
     use serde_json::json;
 
@@ -656,11 +656,11 @@ mod tests {
             client_order_key: NonEmptyString::new("device-1-1").unwrap(),
             addressed_agent_ids: addressed
                 .iter()
-                .map(|did| Did::new((*did).to_owned()).unwrap())
+                .map(|did| DidCoreId::new((*did).to_owned()).unwrap())
                 .collect(),
             completion_policy: AgentSidecarExchangeCompletionPolicy::Coordinator,
             coordinator_agent_id: (addressed.len() > 1)
-                .then(|| Did::new(addressed[0].to_owned()).unwrap()),
+                .then(|| DidCoreId::new(addressed[0].to_owned()).unwrap()),
             source_event_id: None,
         }
     }

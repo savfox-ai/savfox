@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Context as _;
-use arkret::{Did, DidUrl, Ed25519PayloadSigner};
+use arkret::{DidFullId, DidUrl, Ed25519PayloadSigner};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use ed25519_dalek::SigningKey;
@@ -74,8 +74,8 @@ pub fn load_ed25519_signer(
 ) -> anyhow::Result<Ed25519PayloadSigner> {
     let mut seed_arr = load_seed_array(key_ref)?;
 
-    let did =
-        Did::new(did.to_owned()).with_context(|| format!("arkret signer: invalid DID '{did}'"))?;
+    let did = DidFullId::new(did.to_owned())
+        .with_context(|| format!("arkret signer: invalid DID '{did}'"))?;
     let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
         anyhow::anyhow!("arkret signer: invalid verification method '{verification_method}': {err}")
     })?;
@@ -364,12 +364,15 @@ mod tests {
                 "ak:mls:kp:01904100-0000-7000-8000-000000000001",
             )
             .unwrap(),
-            recipient_principal_id: arkret::Did::new(TEST_DID).unwrap(),
-            recipient_device_id: arkret::DeviceId::new(
-                "ak:device:01904100-0000-7000-8000-000000000001",
-            )
-            .unwrap(),
-            recipient_service_id: arkret::Did::new("did:webvh:example.org:service").unwrap(),
+            recipient_principal_id: arkret::DidCoreId::new(TEST_DID).unwrap(),
+            recipient: arkret::RecipientMlsDurableSigner::Device {
+                recipient_device_id: arkret::DeviceId::new(
+                    "ak:device:01904100-0000-7000-8000-000000000001",
+                )
+                .unwrap(),
+                device_verification_method: arkret::DidUrl::new(TEST_VM).unwrap(),
+            },
+            recipient_service_id: arkret::DidCoreId::new("did:webvh:example.org:service").unwrap(),
             realm_id: arkret::RealmId::new("ak:realm:01904100-0000-8000-8000-000000000001")
                 .unwrap(),
             mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
@@ -380,7 +383,6 @@ mod tests {
             .unwrap(),
             welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
             durable_at: chrono::Utc::now(),
-            device_verification_method: arkret::NonEmptyString::new(TEST_VM).unwrap(),
             signature: arkret::KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(TEST_VM).unwrap(),
                 signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
@@ -498,12 +500,14 @@ mod tests {
     fn keypackage_consume_signer_uses_sdk_canonical_input() {
         let key_ref = ArkretKeyRef::InlineSeedBase64 { value: seed_b64() };
         let unsigned = arkret::KeyPackagesConsumeUnsignedRequest {
-            owner_account_id: arkret::Did::new(TEST_DID).unwrap(),
+            owner_account_id: arkret::DidCoreId::new(TEST_DID).unwrap(),
             key_package_refs: vec!["ak:mls:kp:01904100-0000-7000-8000-000000000001".to_owned()],
-            consumer_device_id: arkret::DeviceId::new(
-                "ak:device:01904100-0000-7000-8000-000000000001".to_owned(),
-            )
-            .unwrap(),
+            consumer: arkret::KeyPackageConsumer::Device {
+                consumer_device_id: arkret::DeviceId::new(
+                    "ak:device:01904100-0000-7000-8000-000000000001".to_owned(),
+                )
+                .unwrap(),
+            },
             claim_ids: vec![arkret::NonEmptyString::new("ak:claim:fixture").unwrap()],
             welcome_ref: arkret::NonEmptyString::new(
                 "ak:event:01904100-0000-8000-8000-000000000002",

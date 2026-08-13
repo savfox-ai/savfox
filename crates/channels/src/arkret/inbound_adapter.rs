@@ -581,7 +581,14 @@ fn classify_sidecar_exchange_control(
             .and_then(|value| serde_json::from_value(value).ok());
     let (strand_id, encrypted_payload) = match payload {
         Some(payload) => (
-            Some(payload.strand_id.as_str().to_owned()),
+            match payload.source_context_ref {
+                arkret_models_collaboration::sidecar_operations::SidecarContextRef::Strand {
+                    strand_id,
+                } => Some(strand_id.as_str().to_owned()),
+                arkret_models_collaboration::sidecar_operations::SidecarContextRef::Relation {
+                    ..
+                } => None,
+            },
             arkret::mls::encrypted_envelope_to_payload(&payload.encrypted_payload).ok(),
         ),
         None => (None, None),
@@ -722,12 +729,12 @@ mod tests {
     }
 
     fn event_value(kind: &str, realm: &str, actor: &str, payload: Value) -> Value {
-        let event = arkret::Event::new(
+        let event = arkret_wire::test_support::raw_event(
             kind,
             arkret::ScopeRef::Realm {
                 realm_id: arkret::RealmId::new(realm).unwrap(),
             },
-            arkret::Did::new(actor.to_owned()).unwrap(),
+            arkret::DidCoreId::new(actor.to_owned()).unwrap(),
             1,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             payload,
