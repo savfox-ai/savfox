@@ -64,8 +64,9 @@ use crate::session::SessionStore;
 ///
 /// Phase 7: `txn_dedupe` is now an SDK [`IdempotencyWindow`] (S-5) that
 /// implements spec applet-integration.md §7.3 properly — including
-/// `duplicate_conflict` detection when the same `(source_service_id,
-/// idempotency_key)` arrives with a different canonical body hash.
+/// `duplicate_conflict` detection when the same operation/direction/source/
+/// destination/Idempotency-Key identity arrives with different authenticated
+/// request material.
 #[derive(Debug)]
 struct AppletRuntimeState {
     txn_dedupe: IdempotencyWindow<AppletTransactionOutcome>,
@@ -247,13 +248,14 @@ fn render_unauthorized(res: &mut Response, code: &str, message: impl Into<String
 struct VerifiedAppletHttpSignature {
     source_service_id: String,
     destination_service_id: String,
+    signature_label: String,
     key_id: String,
-    source_key_state_digest: String,
-    content_digest: Option<String>,
+    verification_key_digest: String,
+    signature_algorithm: String,
+    content_digest: String,
     covered_components: Vec<String>,
     created: i64,
     expires: i64,
-    canonical_message_digest: String,
 }
 
 fn render_state_unavailable(res: &mut Response, err: &anyhow::Error) {
@@ -514,9 +516,15 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             return;
         }
     };
-    if let Some(signature) = verified_http_signature.as_ref()
-        && signature.source_service_id != source_service_id
-    {
+    let Some(signature) = verified_http_signature.as_ref() else {
+        render_unauthorized(
+            res,
+            "http_signature_required",
+            "Arkret applet transactions require a verified HTTP message signature",
+        );
+        return;
+    };
+    if signature.source_service_id != source_service_id {
         render_unauthorized(
             res,
             "invalid_signature",
@@ -554,55 +562,61 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         }
     };
 
-    let idempotency_key = idempotency_key.trim().to_owned();
+    // Preserve the received field value in the protocol record. Trimming is
+    // used only above to reject an all-whitespace value.
+    let Some(registration_epoch) = state
+        .config
+        .registration_epoch
+        .as_deref()
+        .filter(|epoch| !epoch.is_empty())
+    else {
+        render_unauthorized(
+            res,
+            "applet_registration_unauthorized",
+            "Arkret applet transaction has no effective registration epoch",
+        );
+        return;
+    };
     let identity = IdempotencyIdentity::applet_transaction(
         IdempotencyDirection::NodeToApplet,
-        source_service_id.clone(),
+        signature.source_service_id.clone(),
         state.config.service_id.clone(),
         idempotency_key.clone(),
     );
-    let source_signature_evidence = if let Some(signature) = verified_http_signature.as_ref() {
-        json!({
-            "operation_id": ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION,
-            "direction": IdempotencyDirection::NodeToApplet.as_str(),
-            "source_service_id": &source_service_id,
-            "destination_service_id": &signature.destination_service_id,
-            "idempotency_key": &idempotency_key,
-            "auth_scheme": "http_message_signature+bearer",
-            "canonical_body_digest": body_hash.clone(),
-            "content_digest": &signature.content_digest,
-            "covered_components": &signature.covered_components,
-            "created": signature.created,
-            "expires": signature.expires,
-            "canonical_message_digest": &signature.canonical_message_digest,
-            "source_key_state_digest": &signature.source_key_state_digest,
-            "verification_method": &signature.key_id,
-        })
-    } else {
-        json!({
-            "operation_id": ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION,
-            "direction": IdempotencyDirection::NodeToApplet.as_str(),
-            "source_service_id": &source_service_id,
-            "destination_service_id": state.config.service_id.clone(),
-            "idempotency_key": &idempotency_key,
-            "auth_scheme": "bearer",
-            "content_digest": body_hash.clone(),
-        })
-    };
-    let source_signature_anchor = match canonical::canonical_json_string(&source_signature_evidence)
-    {
-        Ok(anchor) => anchor,
-        Err(err) => {
-            warn!("applet: source signature anchor construct failed: {err}");
-            render_error(
-                res,
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "idempotency_anchor_failed",
-                "failed to compute idempotency source signature anchor",
-            );
-            return;
-        }
-    };
+    let delivery_authentication_record = json!({
+        "operation_id": ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION,
+        "direction": IdempotencyDirection::NodeToApplet.as_str(),
+        "source_service_id": &signature.source_service_id,
+        "destination_service_id": &signature.destination_service_id,
+        "signature_label": &signature.signature_label,
+        "verification_method": &signature.key_id,
+        "verification_key_digest": &signature.verification_key_digest,
+        "signature_algorithm": &signature.signature_algorithm,
+        "registration_epoch": registration_epoch,
+        "idempotency_key": &idempotency_key,
+        "content_digest": &signature.content_digest,
+        "covered_components": &signature.covered_components,
+        "created": signature.created,
+        "expires": signature.expires,
+    });
+    let delivery_authentication_record_digest =
+        match canonical::canonical_json_bytes(&delivery_authentication_record) {
+            Ok(record_bytes) => {
+                let mut transcript = b"ak.applet.delivery-authentication-record.v1\n".to_vec();
+                transcript.extend(record_bytes);
+                canonical::sha256_digest(transcript)
+            }
+            Err(err) => {
+                warn!("applet: delivery authentication record digest failed: {err}");
+                render_error(
+                    res,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "delivery_authentication_record_digest_failed",
+                    "failed to compute delivery authentication record digest",
+                );
+                return;
+            }
+        };
 
     // Idempotency check (SDK S-5 IdempotencyWindow). The claim is persisted
     // before any gateway dispatch side effect runs.
@@ -619,14 +633,15 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             return;
         };
         runtime_state.txn_dedupe.gc();
-        match runtime_state
-            .txn_dedupe
-            .claim(&identity, &body_hash, &source_signature_anchor)
-        {
+        match runtime_state.txn_dedupe.claim(
+            &identity,
+            &body_hash,
+            &delivery_authentication_record_digest,
+        ) {
             IdempotencyClaim::Fresh => {}
             IdempotencyClaim::Duplicate { outcome, .. } => {
                 debug!(
-                    "applet: duplicate transaction (matching body hash/signature anchor) — returning cached outcome"
+                    "applet: duplicate transaction (matching body hash/delivery authentication record digest) — returning cached outcome"
                 );
                 res.status_code(StatusCode::OK);
                 res.render(Json(outcome));
@@ -634,13 +649,13 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             }
             IdempotencyClaim::DuplicateConflict { .. } => {
                 warn!(
-                    "applet: idempotency conflict — same identity with different body hash or source signature anchor"
+                    "applet: idempotency conflict — same identity with different body hash or delivery authentication record digest"
                 );
                 render_error(
                     res,
                     StatusCode::CONFLICT,
                     "duplicate_conflict",
-                    "Idempotency-Key already used for a different request body or signature anchor",
+                    "Idempotency-Key already used for a different request body or delivery authentication record digest",
                 );
                 return;
             }
@@ -857,7 +872,7 @@ fn verify_applet_transaction_http_signature(
         .public_key
         .ed25519_bytes()
         .map_err(|err| anyhow::anyhow!("trusted HTTP signature public key: {err}"))?;
-    let source_key_state_digest = canonical::canonical_digest(&public_key_bytes);
+    let verification_key_digest = canonical::sha256_digest(&public_key_bytes);
     let public_key = public_key_from_bytes(&public_key_bytes)
         .map_err(|err| anyhow::anyhow!("trusted HTTP signature public key: {err}"))?;
     let authority =
@@ -894,24 +909,25 @@ fn verify_applet_transaction_http_signature(
     let content_digest = verified
         .content_digest
         .as_ref()
-        .map(|digest| digest.wire_value.clone());
+        .map(|digest| digest.wire_value.clone())
+        .ok_or_else(|| anyhow::anyhow!("verified HTTP signature has no Content-Digest"))?;
     let covered_components = verified
         .signature_input
         .covered_components
         .iter()
         .map(Component::canonical_name)
         .collect();
-    let canonical_message_digest = canonical::canonical_digest(&verified.canonical_message);
     Ok(Some(VerifiedAppletHttpSignature {
         source_service_id: source,
         destination_service_id: destination,
+        signature_label: verified.signature_input.label,
         key_id: verified.signature_input.key_id,
-        source_key_state_digest,
+        verification_key_digest,
+        signature_algorithm: verified.signature_input.algorithm,
         content_digest,
         covered_components,
         created: verified.signature_input.created,
         expires: verified.signature_input.expires,
-        canonical_message_digest,
     }))
 }
 
@@ -1960,6 +1976,7 @@ mod tests {
                 "accessToken": "test-bearer",
                 "keyRef": {"kind": "env", "var": "SAVFOX_ARKRET_APPLET_TEST_KEY"},
                 "loginChallenge": "arkret-applet-test-login-challenge",
+                "registrationEpoch": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "protocols": ["slack"],
                 "namespaces": {
                     "actors": [{"pattern": "did:webvh:bridge.example:ghost:*", "exclusive": true}],
@@ -2146,8 +2163,11 @@ mod tests {
         .expect("signature should be required");
         assert_eq!(verified.source_service_id, "did:webvh:arkret.example.org");
         assert_eq!(verified.destination_service_id, "did:webvh:bridge.example");
+        assert_eq!(verified.signature_label, "sig1");
         assert_eq!(verified.key_id, "did:webvh:arkret.example.org#key-1");
-        assert!(verified.content_digest.is_some());
+        assert_eq!(verified.signature_algorithm, "ed25519");
+        assert!(verified.verification_key_digest.starts_with("sha256:"));
+        assert!(verified.content_digest.starts_with("sha-256=:"));
     }
 
     #[test]

@@ -661,7 +661,7 @@ mod tests {
             completion_policy: AgentSidecarExchangeCompletionPolicy::Coordinator,
             coordinator_agent_id: (addressed.len() > 1)
                 .then(|| Did::new(addressed[0].to_owned()).unwrap()),
-            source_frontier_anchor: None,
+            source_event_id: None,
         }
     }
 
