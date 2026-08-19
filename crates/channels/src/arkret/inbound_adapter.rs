@@ -735,6 +735,8 @@ mod tests {
                 realm_id: arkret::RealmId::new(realm).unwrap(),
             },
             arkret::DidCoreId::new(actor.to_owned()).unwrap(),
+            arkret::DidCoreId::new("did:webvh:z6mkfixture:principal-server.example".to_owned())
+                .unwrap(),
             1,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             payload,

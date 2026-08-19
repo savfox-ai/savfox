@@ -36,10 +36,10 @@ use arkret::http_signature::{
 };
 use arkret::{
     AppletActorView, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
-    AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, Did,
+    AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, DidCoreId,
     EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity,
     IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe, ServiceKind,
-    ServiceOperationId, StrandId, TypedTrustDomainId, canonical,
+    ServiceOperationId, StrandId, TrustDomainId, canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -353,11 +353,11 @@ async fn applet_ping(req: &mut Request, res: &mut Response) {
     let body = AppletPingOutcome {
         ok: true,
         applet_id: state.config.applet_id.clone(),
-        // `service_id` is strictly validated (Did::new) in
+        // `service_id` is strictly validated (DidCoreId::new) in
         // `ArkretAppletConfig::validate()` before the channel is registered,
         // so a registered applet always has a parseable DID here. No silent
         // `applet.unknown` fallback that would mask a config error.
-        service_id: Did::new(state.config.service_id.clone())
+        service_id: DidCoreId::new(state.config.service_id.clone())
             .expect("service_id validated at channel registration"),
         protocol_version: "1.0".to_owned(),
     };
@@ -383,7 +383,7 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
         );
         return;
     };
-    let Ok(trust_domain) = TypedTrustDomainId::new(format!("ak:trust_domain:{host}")) else {
+    let Ok(trust_domain) = TrustDomainId::new(format!("ak:trust_domain:{host}")) else {
         render_error(
             res,
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -393,20 +393,21 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
         return;
     };
     let mut body = ServiceDescribe::development(
-        Did::new(cfg.service_id.clone()).expect("service_id validated at channel registration"),
+        arkret::DidFullId::new(cfg.service_id.clone())
+            .expect("service_id validated at channel registration"),
         trust_domain,
         ServiceKind::AppletService,
     );
     body.supported_profiles = vec!["ak.profile.applet.v1".to_owned()];
     body.supported_operations = vec![
-        ServiceOperationId::EDGE_APPLET_QUERY_PING.to_owned(),
-        ServiceOperationId::EDGE_APPLET_QUERY_DESCRIBE.to_owned(),
+        ServiceOperationId::EDGE_APPLET_READ_PING.to_owned(),
+        ServiceOperationId::EDGE_APPLET_READ_DESCRIBE.to_owned(),
         ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION.to_owned(),
-        ServiceOperationId::EDGE_APPLET_ACTOR_QUERY_RESOLVE.to_owned(),
-        ServiceOperationId::EDGE_APPLET_REALM_QUERY_RESOLVE.to_owned(),
-        ServiceOperationId::EDGE_APPLET_QUERY_PROTOCOL_METADATA.to_owned(),
-        ServiceOperationId::EDGE_APPLET_THIRD_PARTY_USERS_QUERY_LIST.to_owned(),
-        ServiceOperationId::EDGE_APPLET_THIRD_PARTY_LOCATIONS_QUERY_LIST.to_owned(),
+        ServiceOperationId::EDGE_APPLET_ACTOR_READ_RESOLVE.to_owned(),
+        ServiceOperationId::EDGE_APPLET_REALM_READ_RESOLVE.to_owned(),
+        ServiceOperationId::EDGE_APPLET_READ_PROTOCOL_METADATA.to_owned(),
+        ServiceOperationId::EDGE_APPLET_THIRD_PARTY_USERS_READ_LIST.to_owned(),
+        ServiceOperationId::EDGE_APPLET_THIRD_PARTY_LOCATIONS_READ_LIST.to_owned(),
     ];
     res.status_code(StatusCode::OK);
     res.render(Json(body));
@@ -1038,8 +1039,7 @@ fn record_applet_mls_welcome_from_value_tree(
                 realm_id = event.realm_id.as_str(),
                 group_id = %welcome.group_id,
                 epoch = welcome.epoch,
-                recipient_principal_id = %welcome.recipient_principal_id.as_str(),
-                recipient_device_id = %welcome.recipient_device_id.as_str(),
+                recipient = ?welcome.recipient,
                 "arkret applet: recorded MLS Welcome from inbound transaction event"
             );
             return 1;
@@ -1219,7 +1219,7 @@ async fn applet_actor(req: &mut Request, res: &mut Response) {
     }
     let body = AppletActorView {
         exists: true,
-        actor_id: Did::new(actor_id).ok(),
+        actor_id: DidCoreId::new(actor_id).ok(),
         display_name: None,
         external_ref: None,
     };
@@ -1521,16 +1521,15 @@ pub(crate) async fn send_via_applet(
         })?;
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
-    let actor = Did::new(ghost_actor_did.to_owned())
-        .with_context(|| format!("invalid ghost actor DID: {ghost_actor_did}"))?;
+    let actor = arkret::DidFullId::new(ghost_actor_did.to_owned())
+        .map_err(|err| anyhow::anyhow!("invalid ghost actor DID '{ghost_actor_did}': {err}"))?;
     let strand = StrandId::new(strand_id.to_owned())
         .with_context(|| format!("invalid strand_id: {strand_id}"))?;
     let content = ContentBlock::text(body.to_owned());
     let payload = MessageCreatePayload::with_content(strand, "discussion", content);
     let mut event = edge
-        .mint_event_as_unsigned_async(
+        .mint_event_as_unsigned_async::<arkret::event_spec::MessageCreate>(
             &actor,
-            "ak.message.create",
             &realm,
             payload,
             &authorization_ref,
@@ -1637,7 +1636,7 @@ async fn emit_bridge_error(
     let cfg = &state.config;
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
-    let actor = Did::new(cfg.bot_actor_id.clone())
+    let actor = DidCoreId::new(cfg.bot_actor_id.clone())
         .with_context(|| format!("invalid bot DID: {}", cfg.bot_actor_id))?;
     let applet_id = AppletId::new(cfg.applet_id.clone())
         .with_context(|| format!("invalid applet_id: {}", cfg.applet_id))?;
@@ -1693,7 +1692,7 @@ async fn construct_applet_client(
             )
         })?;
         let signer = savfox_channels::arkret::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
-        let principal = arkret::Did::new(cfg.bot_actor_id.clone())
+        let principal = arkret::DidCoreId::new(cfg.bot_actor_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
         // Applet configs keep the bot device optional for bearer-only mode.
         // DID-proof login still needs a protocol-valid runtime device id.
@@ -2067,12 +2066,11 @@ mod tests {
         serde_json::to_value(arkret::MlsWelcomeEnvelope {
             group_id: group_id.to_owned(),
             epoch: 7,
-            recipient_principal_id: Did::new("did:webvh:z6mkfixture:bob.example".to_owned())
-                .unwrap(),
-            recipient_device_id: arkret::DeviceId::new(
-                "ak:device:01904100-0000-7000-8000-00000000000e".to_owned(),
-            )
-            .unwrap(),
+            recipient: arkret::MlsEndpointIdentity::human_device(
+                DidCoreId::new("did:webvh:z6mkfixture:bob.example".to_owned()).unwrap(),
+                arkret::DeviceId::new("ak:device:01904100-0000-7000-8000-00000000000e".to_owned())
+                    .unwrap(),
+            ),
             welcome: "AA".to_owned(),
             welcome_hash: Hash::new(format!("sha256:{}", "cd".repeat(32))).unwrap(),
             ratchet_tree: None,
@@ -2119,13 +2117,14 @@ mod tests {
             edge: tokio::sync::Mutex::new(None),
         };
         let group_id = "group-applet-welcome";
-        let event = arkret::Event::new(
+        let event = arkret_wire::test_support::raw_event(
             "ak.mls.welcome",
             arkret::ScopeRef::Realm {
                 realm_id: arkret::RealmId::new("ak:realm:01904100-0000-8000-8000-000000000123")
                     .unwrap(),
             },
-            Did::new("did:webvh:acme:alice".to_owned()).unwrap(),
+            DidCoreId::new("did:webvh:acme:alice".to_owned()).unwrap(),
+            DidCoreId::new("did:webvh:z6mkfixture:principal-server.example".to_owned()).unwrap(),
             1,
             arkret::Hlc::new("000000000000-0000-00000000").unwrap(),
             json!({

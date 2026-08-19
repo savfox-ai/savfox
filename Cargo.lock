@@ -393,6 +393,7 @@ dependencies = [
  "arkret-models-collaboration",
  "arkret-models-discovery",
  "arkret-models-integration",
+ "arkret-retry",
  "arkret-wire",
  "async-trait",
  "chrono",
@@ -461,6 +462,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "arkret-egress-reqwest"
+version = "0.3.0"
+dependencies = [
+ "arkret-egress-policy",
+ "reqwest 0.13.4",
+ "thiserror 2.0.19",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "arkret-event-draft"
 version = "0.3.0"
 dependencies = [
@@ -494,6 +506,7 @@ version = "0.3.0"
 dependencies = [
  "arkret-canonical",
  "arkret-egress-policy",
+ "arkret-egress-reqwest",
  "arkret-identity",
  "arkret-models-collaboration",
  "arkret-models-crypto",
@@ -612,6 +625,7 @@ dependencies = [
  "arkret-identifiers",
  "arkret-models-crypto",
  "arkret-models-identity",
+ "arkret-schema",
  "arkret-wire",
  "chrono",
  "chrono-tz",
@@ -623,6 +637,7 @@ dependencies = [
  "sha2 0.11.0",
  "thiserror 2.0.19",
  "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]
@@ -711,6 +726,10 @@ dependencies = [
 
 [[package]]
 name = "arkret-rate-limit"
+version = "0.3.0"
+
+[[package]]
+name = "arkret-retry"
 version = "0.3.0"
 
 [[package]]
@@ -4344,6 +4363,7 @@ dependencies = [
  "arkret-models-discovery",
  "arkret-models-identity",
  "arkret-policy",
+ "arkret-retry",
  "arkret-schema",
  "arkret-signatures",
  "arkret-state",

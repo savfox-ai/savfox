@@ -19,7 +19,7 @@
 use std::path::Path;
 
 use anyhow::Context as _;
-use arkret::{CapabilityGrantPayload, CapabilitySubject, Event};
+use arkret::{CapabilityGrantPayload, CapabilitySubject, Event, EventProof};
 use chrono::{DateTime, Utc};
 
 /// Loaded capability grant ready for use as `authorization_ref` on
@@ -95,9 +95,22 @@ pub async fn load_and_verify_grant(
         anyhow::bail!("capability grant {}: missing proofs", path.display());
     }
     for proof in &event.proofs {
-        proof
-            .validate_production()
-            .map_err(|err| anyhow::anyhow!("grant proof is not production-grade: {err}"))?;
+        match proof {
+            EventProof::Producer(producer) => producer
+                .validate_production()
+                .map_err(|err| anyhow::anyhow!("grant proof is not production-grade: {err}"))?,
+            // Admission proofs are Principal Server attestations layered on
+            // top of the producer proof; their kind is closed by the type, so
+            // only the signature payload can be structurally absent.
+            EventProof::PrincipalServerAdmission(admission) => {
+                if admission.jws.is_empty() {
+                    anyhow::bail!(
+                        "capability grant {}: admission proof is missing its JWS",
+                        path.display()
+                    );
+                }
+            }
+        }
     }
     event
         .validate_proof_bindings()
@@ -119,10 +132,18 @@ pub async fn load_and_verify_grant(
         );
     }
     let issuer_vm_prefix = format!("{}#", grant.issuer.as_str());
-    if !event.proofs.iter().any(|proof| {
-        proof.verification_method == grant.issuer.as_str()
-            || proof.verification_method.starts_with(&issuer_vm_prefix)
-    }) {
+    if !event
+        .proofs
+        .iter()
+        .filter_map(EventProof::as_producer)
+        .any(|proof| {
+            proof.verification_method.as_str() == grant.issuer.as_str()
+                || proof
+                    .verification_method
+                    .as_str()
+                    .starts_with(&issuer_vm_prefix)
+        })
+    {
         anyhow::bail!(
             "capability grant {}: no proof verification_method belongs to issuer '{}'",
             path.display(),

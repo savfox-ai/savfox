@@ -1761,7 +1761,7 @@ pub fn mls_key_package_record_from_claim(
     Ok(MlsKeyPackageRecord {
         keypackage_id: claim.keypackage_ref.clone(),
         endpoint,
-        key_package: claim.key_package.clone(),
+        keypackage: claim.keypackage.clone(),
         keypackage_ref: claim.keypackage_digest.clone(),
         cipher_suites: Vec::new(),
         capabilities: claim.capabilities.clone(),
@@ -3176,15 +3176,13 @@ mod tests {
             device_id: Some(DeviceId::new(bob_device.to_owned()).unwrap()),
             agent_id: None,
             agent_verification_method: None,
-            key_package: bob_key_package.key_package.clone(),
+            keypackage: bob_key_package.keypackage.clone(),
             capabilities: bob_key_package.capabilities.clone(),
             capabilities_digest: Hash::new(format!("sha256:{}", "bb".repeat(32))).unwrap(),
             device_authorize_event_id: Some(
                 EventId::new("ak:event:01904100-0000-7000-8000-000000000009".to_owned()).unwrap(),
             ),
             agent_key_authorize_event_id: None,
-            target_device_signing_key_evidence: None,
-            target_agent_signer_evidence: None,
             expires_at: Utc::now() + chrono::Duration::days(1),
             device_signature: KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(format!("{bob_principal}#runtime-1")).unwrap(),
@@ -3453,36 +3451,29 @@ mod tests {
                 sig: Base64UrlString::new("AQ").expect("signature"),
             },
         };
-        let claim_receipt: arkret::SelfKeyPackageClaimReceipt = serde_json::from_value(json!({
-            "operation_id": "ak.self.keys.keypackages.command.claim",
-            "claim_request_id": "Y2xhaW0tcmVxdWVzdC0x",
+        let claim_receipt: arkret::MlsWelcomeClaimReceipt = serde_json::from_value(json!({
+            "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
             "request_digest": format!("sha256:{}", "e".repeat(64)),
             "claims_digest": format!("sha256:{}", "f".repeat(64)),
             "source_service_id": "did:webvh:z6mkfixture:service.example",
             "destination_service_id": "did:webvh:z6mkfixture:service.example",
             "request": {
+                "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
                 "target_principal_id": principal.as_str(),
-                "intended_realm_id": realm_id.as_str(),
                 "requester": "did:webvh:z6mkfixture:owner.example",
+                "intended_realm_id": realm_id.as_str(),
+                "mls_group_id": add.welcome.group_id.clone(),
+                "claim_purpose": "realm_membership",
                 "required_capabilities": ["mimi.content.v1"],
-                "claim_nonce": "Y2xhaW0tcmVxdWVzdC0x",
+                "claim_nonce": "Y2xhaW0tcmVxdWVzdC1ub25jZQ",
                 "expires_at": "2099-01-01T00:00:00.000Z",
-                "target_device_ids": [device.as_str()],
-                "holder_acceptance_proof": {
-                    "kind": "detached_jws",
-                    "verification_method": "did:webvh:z6mkfixture:owner.example#device-1",
-                    "payload_digest": format!("sha256:{}", "a".repeat(64)),
-                    "created_at": "2098-12-31T23:59:00.000Z",
-                    "audience": "did:webvh:z6mkfixture:service.example",
-                    "proof_purpose": "holder_acceptance",
-                    "jws": "a..b"
-                }
+                "target_device_ids": [device.as_str()]
             },
             "claimed_at": "2098-12-31T23:59:30.000Z",
             "expires_at": "2099-01-01T00:00:00.000Z",
             "signature": {"kid": "service-key", "sig": "AQ"}
         }))
-        .expect("self claim receipt");
+        .expect("peer claim receipt");
         let payload = MlsWelcomePayload {
             mls_group_id: MlsGroupId::new(add.welcome.group_id.clone()).expect("group id"),
             epoch: add.welcome.epoch,
@@ -3496,7 +3487,7 @@ mod tests {
             claim_id,
             claim_ref,
             claim_envelope,
-            claim_receipt: arkret::MlsWelcomeClaimReceipt::SelfClaim(claim_receipt),
+            claim_receipt,
             carrier: MlsWelcomeCarrier::new(
                 None,
                 None,
@@ -3543,10 +3534,15 @@ mod tests {
             ),
             initial_relations: None,
         };
+        let repair_principal_server = DidCoreId::new(
+            "did:webvh:z6mkfixture:principal-server.example".to_owned(),
+        )
+        .unwrap();
         let mut strand_event = arkret_wire::test_support::raw_event_at(
             "ak.strand.create",
             repair_scope.clone(),
             repair_actor.clone(),
+            repair_principal_server.clone(),
             1,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             serde_json::to_value(strand_payload).unwrap(),
@@ -3560,6 +3556,7 @@ mod tests {
             "ak.mls.welcome",
             repair_scope,
             repair_actor,
+            repair_principal_server,
             2,
             arkret::Hlc::new("01970e589d22-0000-a13f9c2e").unwrap(),
             serde_json::to_value(&payload).unwrap(),

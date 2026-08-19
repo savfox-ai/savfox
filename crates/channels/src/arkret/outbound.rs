@@ -8,9 +8,9 @@ use anyhow::Context;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
     AuthContext, ContentBlock, DidCoreId, DidUrl, Ed25519PayloadSigner, Event,
-    EventDraftKindRegistry, EventId, EventRef, Hlc, MessageCreatePayload, OperationEnvelopeBuilder,
-    OperationEventConversion, OperationId, RealmId, ScopeRef, SealId, StrandId, event_spec,
-    new_prefixed_uuid7,
+    EventDraftKindRegistry, EventId, EventRef, Hlc, MessageCreatePayload, OpaqueLocalId,
+    OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId, ScopeRef, SealId,
+    StrandId, event_spec, new_prefixed_uuid7,
 };
 
 use super::sidecar::{EVENT_REF_ROLE_AFTER, SidecarExchangeContext};
@@ -110,6 +110,10 @@ pub fn sign_outbound_event(
 
 /// Stamp the accepted Realm Seal and signing identity required by the CBA
 /// DataEvent shape before encryption and signing.
+///
+/// `key_id` is the deployment-local signing key name pinned at `seal_ref` —
+/// the verification-method fragment (`"key-1"` in `did:...#key-1`), never an
+/// `ak:` typed id: the wire type rejects the `ak:` lexical space fail-closed.
 pub fn apply_data_event_basis(
     event: &mut Event,
     seal_id: SealId,
@@ -119,6 +123,8 @@ pub fn apply_data_event_basis(
     if event.seal_basis.is_some() || !event.preconditions.is_empty() {
         anyhow::bail!("DataEvent cannot carry seal_basis or preconditions");
     }
+    let key_id = OpaqueLocalId::new(key_id)
+        .map_err(|err| anyhow::anyhow!("invalid DataEvent auth_context key id: {err}"))?;
     event.seal_ref = Some(seal_id);
     event.auth_context = Some(AuthContext {
         actor_id: signer_did,
@@ -198,7 +204,7 @@ mod tests {
 
         assert!(event.seal_ref.is_some());
         let auth_context = event.auth_context.expect("auth context");
-        assert_eq!(auth_context.key_id, "agent-device");
+        assert_eq!(auth_context.key_id.as_str(), "agent-device");
         assert_eq!(auth_context.actor_id.as_str(), valid_request().principal_id);
         assert!(event.seal_basis.is_none());
     }

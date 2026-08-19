@@ -203,6 +203,7 @@ mod tests {
                 realm_id: realm(realm_id),
             },
             did(actor),
+            did("did:webvh:z6mkfixture:principal-server.example"),
             1,
             hlc(),
             content,

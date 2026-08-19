@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arkret::{
-    DeviceId, DeviceMessagesAckRequestBody, Did, EventId, EventRef, EventsFrontierSelector,
+    DeviceId, DeviceMessagesAckRequestBody, DidCoreId, EventId, EventRef, EventsFrontierSelector,
     EventsFrontierView, KeyPackagesConsumeOutcome, KeyPackagesConsumeUnsignedRequest,
     KeyPackagesRevokeUnsignedRequest, KeyPackagesUploadRequestBody,
     KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord, PreparedDataEvent,
@@ -665,7 +665,7 @@ async fn drive_account_subscription_engine(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> AccountEngineOutcome {
-    let actor_id = match Did::new(account.principal_id.clone()) {
+    let actor_id = match DidCoreId::new(account.principal_id.clone()) {
         Ok(actor_id) => actor_id,
         Err(err) => {
             return AccountEngineOutcome::Retry {
@@ -1259,10 +1259,10 @@ fn account_cursor_service_id(
 fn account_subscription_service_id(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-) -> anyhow::Result<Option<Did>> {
+) -> anyhow::Result<Option<DidCoreId>> {
     account_cursor_service_id(channel, account)
         .map(|value| {
-            Did::new(value.clone())
+            DidCoreId::new(value.clone())
                 .map_err(|err| anyhow::anyhow!("invalid Arkret service DID '{value}': {err}"))
         })
         .transpose()
@@ -1446,7 +1446,7 @@ async fn publish_account_mls_key_packages(
         );
         return;
     }
-    let principal = match Did::new(account.principal_id.clone()) {
+    let principal = match DidCoreId::new(account.principal_id.clone()) {
         Ok(principal) => principal,
         Err(err) => {
             warn!(
@@ -1587,7 +1587,7 @@ async fn upload_account_mls_key_packages(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    principal: Did,
+    principal: DidCoreId,
     device: DeviceId,
     records: &[MlsKeyPackageRecord],
     key_ref: &ArkretKeyRef,
@@ -1749,7 +1749,7 @@ async fn revoke_account_mls_key_package_refs(
         return Ok(None);
     }
     let unsigned = KeyPackagesRevokeUnsignedRequest {
-        owner_account_id: arkret::Did::new(account.id.clone())
+        owner_account_id: arkret::DidCoreId::new(account.id.clone())
             .map_err(|error| anyhow::anyhow!("invalid Arkret account id: {error}"))?,
         key_package_refs: key_package_refs.clone(),
         device_id: device,
@@ -1936,7 +1936,7 @@ fn terminal_agent_authorization_makes_pool_unclaimable(error: &anyhow::Error) ->
 }
 
 fn build_signed_keypackage_upload_request(
-    principal_id: Did,
+    principal_id: DidCoreId,
     device_id: DeviceId,
     records: &[MlsKeyPackageRecord],
     key_ref: &ArkretKeyRef,
@@ -1951,7 +1951,7 @@ fn build_signed_keypackage_upload_request(
     let unsigned = KeyPackagesUploadUnsignedRequest {
         principal_id,
         device_id,
-        key_packages,
+        keypackages: key_packages,
         expires_at: None,
         strand_id: None,
         mls_group_id: None,
@@ -2268,7 +2268,7 @@ async fn consume_account_mls_key_packages(
             );
             continue;
         };
-        let owner_account_id = match arkret::Did::new(account.id.clone()) {
+        let owner_account_id = match arkret::DidCoreId::new(account.id.clone()) {
             Ok(value) => value,
             Err(error) => {
                 warn!(channel_id = %channel.id, account_id = %account.id, "arkret: invalid account id for MLS KeyPackage consume: {error}");
@@ -2299,7 +2299,9 @@ async fn consume_account_mls_key_packages(
         let unsigned = KeyPackagesConsumeUnsignedRequest {
             owner_account_id,
             key_package_refs: vec![binding.keypackage_ref.clone()],
-            consumer_device_id: consumer_device.clone(),
+            consumer: arkret::KeyPackageConsumer::Device {
+                consumer_device_id: consumer_device.clone(),
+            },
             claim_ids: vec![claim_id],
             welcome_ref,
             recipient_durable_receipt,
@@ -2642,7 +2644,14 @@ where
         .await?;
         let next_before = outcome.prev_cursor.clone();
         limited = outcome.has_more;
-        events.extend(outcome.events);
+        // Redacted / reference-locked rows are legitimate protocol states with
+        // no readable envelope; message backfill only consumes plain Events.
+        events.extend(
+            outcome
+                .events
+                .into_iter()
+                .filter_map(arkret::EventReadRow::into_event),
+        );
         match (limited, next_before) {
             (true, Some(cursor)) => before = Some(cursor),
             _ => break,
@@ -2894,7 +2903,7 @@ fn parse_backfill_events_for_account(
                 limited: false,
                 prev_cursor: None,
                 preview_only: None,
-                ordered_log_conflicts: Vec::new(),
+                ordered_log_siblings: Vec::new(),
                 extra: Default::default(),
             }),
             ..Default::default()
@@ -3039,8 +3048,7 @@ fn record_account_mls_welcome_from_value_tree_inner(
                 source,
                 group_id = %welcome.group_id,
                 epoch = welcome.epoch,
-                recipient_principal_id = %welcome.recipient_principal_id.as_str(),
-                recipient_device_id = %welcome.recipient_device_id.as_str(),
+                recipient = ?welcome.recipient,
                 "arkret: recorded MLS Welcome from account inbound event"
             );
             return 1;
@@ -3427,7 +3435,12 @@ async fn hydrate_conversation_before_trigger(
             return Ok(());
         }
     };
-    let parsed = parse_backfill_events_for_account(&realm_id, outcome.events, account);
+    let events = outcome
+        .events
+        .into_iter()
+        .filter_map(arkret::EventReadRow::into_event)
+        .collect();
+    let parsed = parse_backfill_events_for_account(&realm_id, events, account);
     // Boxing is intentional: hydration reuses the exact signature/decryption
     // pipeline while the `Hydrate` mode prevents this recursive pass from
     // triggering an agent turn or another history query.
@@ -4170,7 +4183,7 @@ async fn construct_account_provider(
                 account.id
             )
         })?;
-    let principal = Did::new(account.principal_id.clone())
+    let principal = DidCoreId::new(account.principal_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
     let device_id = DeviceId::new(account.device_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid Arkret device_id: {err}"))?;
@@ -4309,26 +4322,26 @@ impl OutboundGenerationFence for AccountOutboundEncryptionFence {
                     "load Arkret realm encryption policy before submit: {error:#}"
                 ))
             })?;
-        let Some(event) = item.content.get("event") else {
+        let garth::QueuedRecord::SdkEvent(queued) = &item.record else {
             return Ok(OutboundGenerationFenceDecision::Quarantine {
                 reason: format!(
-                    "queued Arkret Event for {} lacks an EventInitialSubmission wrapper",
+                    "queued Arkret item for {} is not an SDK Event record",
                     item.realm_id.as_str()
                 ),
             });
         };
-        let is_message = event
-            .get("kind")
-            .and_then(Value::as_str)
-            .is_some_and(|kind| kind == "ak.message.create");
-        let is_encrypted = event
-            .get("payload")
-            .and_then(|payload| payload.get("encrypted_content"))
-            .is_some();
-        let has_agent_context = event
-            .get("payload")
-            .and_then(|payload| payload.get("agent_context"))
-            .is_some();
+        let Some(attempt) = queued.authored_attempt.as_ref() else {
+            return Ok(OutboundGenerationFenceDecision::Quarantine {
+                reason: format!(
+                    "queued Arkret Event for {} lacks its authored envelope",
+                    item.realm_id.as_str()
+                ),
+            });
+        };
+        let event = &attempt.envelope;
+        let is_message = event.kind == "ak.message.create";
+        let is_encrypted = event.payload.get("encrypted_content").is_some();
+        let has_agent_context = event.payload.get("agent_context").is_some();
 
         if is_message && !has_agent_context {
             return Ok(OutboundGenerationFenceDecision::Quarantine {
@@ -4339,7 +4352,6 @@ impl OutboundGenerationFence for AccountOutboundEncryptionFence {
             });
         }
 
-        let actor_seq = event.get("actor_seq").and_then(Value::as_u64);
         let chain_head = load_account_actor_chain_head(
             &self.actor_chain_path,
             item.realm_id.as_str(),
@@ -4347,10 +4359,9 @@ impl OutboundGenerationFence for AccountOutboundEncryptionFence {
         .map_err(|error| {
             garth::Error::Protocol(format!("load Arkret actor chain before submit: {error:#}"))
         })?;
-        let belongs_to_current_actor_chain = match (actor_seq, chain_head) {
-            (Some(0), None) => true,
-            (Some(seq), Some(head)) => seq < head.next_seq,
-            _ => false,
+        let belongs_to_current_actor_chain = match chain_head {
+            None => event.actor_seq == 0,
+            Some(head) => event.actor_seq < head.next_seq,
         };
         if !belongs_to_current_actor_chain {
             return Ok(OutboundGenerationFenceDecision::Quarantine {
@@ -4383,18 +4394,26 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
         item: garth::sync_client::SendQueueItem,
     ) -> garth::outbound::BoxOutboundFuture<'a, OutboundSubmitOutcome> {
         Box::pin(async move {
-            let submission: EventInitialSubmission =
-                serde_json::from_value(item.content).map_err(|error| {
-                    garth::Error::Protocol(format!(
-                        "decode queued Arkret initial submission: {error}"
-                    ))
-                })?;
-            if item.authorization_lease.as_ref() != submission.authorization_lease.as_ref() {
+            let garth::QueuedRecord::SdkEvent(queued) = item.record.clone() else {
                 return Err(garth::Error::Protocol(
-                    "queued Arkret submission does not match its bound AuthorizationLease"
-                        .to_owned(),
+                    "queued Arkret item is not an SDK Event record".to_owned(),
                 ));
-            }
+            };
+            let Some(attempt) = queued.authored_attempt else {
+                return Err(garth::Error::Protocol(
+                    "queued Arkret Event lacks its authored envelope".to_owned(),
+                ));
+            };
+            // The typed queue record persists the signed envelope; the
+            // submission wrapper is rebuilt around it with the lease bound on
+            // the queue item, so wrapper and lease cannot diverge.
+            let submission = EventInitialSubmission {
+                event: attempt.envelope,
+                authorization_lease: item.authorization_lease.clone(),
+                cba_proof_bundles: Vec::new(),
+                control_proposal_ack: None,
+                membership_compensation_evidence: None,
+            };
             let response = match self.client.submit_initial(&submission).await {
                 Ok(response) => response,
                 Err(error) => {
@@ -4581,11 +4600,28 @@ pub(crate) async fn send_to_arkret_account(
     let EventsFrontierView::RealmSeal(frontier) = frontier.frontier else {
         anyhow::bail!("Arkret Realm Seal frontier response changed selector variant");
     };
+    // auth_context.key_id pins the deployment-local signing key name (the
+    // verification-method fragment), never the ak:device: typed id — the wire
+    // type rejects the ak: lexical space fail-closed.
+    let signing_verification_method = account
+        .verification_method
+        .clone()
+        .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
+    let signing_key_id = signing_verification_method
+        .rsplit_once('#')
+        .map(|(_, fragment)| fragment.to_owned())
+        .filter(|fragment| !fragment.is_empty())
+        .with_context(|| {
+            format!(
+                "Arkret account verification method '{signing_verification_method}' has no key \
+                 fragment to pin as the DataEvent auth_context key id"
+            )
+        })?;
     apply_data_event_basis(
         &mut event,
         frontier.seal_id,
-        Did::new(account.principal_id.clone())?,
-        account.device_id.clone(),
+        DidCoreId::new(account.principal_id.clone())?,
+        signing_key_id,
     )?;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     apply_account_outbound_encryption(
@@ -4598,13 +4634,16 @@ pub(crate) async fn send_to_arkret_account(
 
     // Phase 8 (T8.C): sign with the account's ed25519 key when key_ref is set.
     if let Some(key_ref) = &account.key_ref {
-        let vm = account
-            .verification_method
-            .clone()
-            .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
-        let signer =
-            savfox_channels::arkret::load_ed25519_signer(key_ref, &account.principal_id, &vm)?;
-        savfox_channels::arkret::sign_outbound_event(&mut event, &signer, &vm)?;
+        let signer = savfox_channels::arkret::load_ed25519_signer(
+            key_ref,
+            &account.principal_id,
+            &signing_verification_method,
+        )?;
+        savfox_channels::arkret::sign_outbound_event(
+            &mut event,
+            &signer,
+            &signing_verification_method,
+        )?;
     }
 
     let prepared_event = PreparedStandardEvent::from(
@@ -4617,6 +4656,18 @@ pub(crate) async fn send_to_arkret_account(
     // delayed-publication wrapper. In either case, validate the exact wrapper
     // before advancing the actor chain or enqueueing durable work.
     let submission = client.prepare_initial_submission(&prepared_event).await?;
+    // The typed durable queue persists only the signed envelope plus the bound
+    // AuthorizationLease; refuse wrappers carrying side material it would
+    // silently drop on replay.
+    if !submission.cba_proof_bundles.is_empty()
+        || submission.control_proposal_ack.is_some()
+        || submission.membership_compensation_evidence.is_some()
+    {
+        anyhow::bail!(
+            "Arkret initial submission carries side material the durable outbound queue cannot \
+             persist (CBA proof bundles / control-proposal ack / membership compensation evidence)"
+        );
+    }
     let authorization_lease = submission.authorization_lease.clone();
     let mut transaction_id = prepared_event.event().event_id.to_string();
     let next_actor_seq = actor_seq
@@ -4636,14 +4687,43 @@ pub(crate) async fn send_to_arkret_account(
         actor_chain_path: actor_chain_path.clone(),
     };
     let queued_transaction_id = transaction_id.clone();
-    let submission_value = serde_json::to_value(&submission)?;
+    // Authoring generation: this runtime key authors under its controller's
+    // `ak.agent.key.authorize` approval; re-authorizing the key changes the
+    // generation and lets the fence retire stale queued attempts.
+    let authoring_generation = garth::AuthoringGeneration {
+        authority_model: garth::AuthoringAuthorityModel::ManagedAgent,
+        authority_principal_id: account
+            .controller_id
+            .clone()
+            .unwrap_or_else(|| account.principal_id.clone()),
+        generation_ref: account
+            .authorized_event_ref
+            .clone()
+            .or_else(|| account.verification_method.clone())
+            .unwrap_or_else(|| format!("{}#key-1", account.principal_id)),
+    };
+    let canonical_envelope_bytes = arkret::canonical::canonical_json_bytes(&submission.event)
+        .map_err(|error| {
+            anyhow::anyhow!("canonicalize queued Arkret Event envelope: {error}")
+        })?;
+    let queued_record = garth::QueuedRecord::SdkEvent(
+        garth::QueuedSdkEvent::authored(
+            submission.event.clone(),
+            transaction_id.clone(),
+            transaction_id.clone(),
+            canonical_envelope_bytes,
+            None,
+            authoring_generation,
+            None,
+        )
+        .map_err(|error| anyhow::anyhow!("build durable Arkret queue record: {error}"))?,
+    );
     if let Err(error) = outbound_store
         .mutate_outbound(move |queue| {
             let item = queue.enqueue(
                 Some(queued_transaction_id),
                 realm_id_typed,
-                garth::sync_client::SendQueueItemKind::Message,
-                submission_value,
+                queued_record,
                 Vec::new(),
             )?;
             if let Some(authorization_lease) = authorization_lease {
@@ -4876,11 +4956,17 @@ mod tests {
                 claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
                 key_package_ref: arkret::NonEmptyString::new(keypackage_ref).unwrap(),
                 recipient_principal_id: actor_id(),
-                recipient_device_id: arkret::DeviceId::new(
-                    "ak:device:01904100-0000-7000-8000-000000000006".to_owned(),
-                )
-                .unwrap(),
-                recipient_service_id: arkret::Did::new("did:webvh:example.org:service".to_owned())
+                recipient: arkret::RecipientMlsDurableSigner::Device {
+                    recipient_device_id: arkret::DeviceId::new(
+                        "ak:device:01904100-0000-7000-8000-000000000006".to_owned(),
+                    )
+                    .unwrap(),
+                    device_verification_method: arkret::DidUrl::new(
+                        device_verification_method.to_owned(),
+                    )
+                    .unwrap(),
+                },
+                recipient_service_id: arkret::DidCoreId::new("did:webvh:example.org:service".to_owned())
                     .unwrap(),
                 realm_id: realm_id(),
                 mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
@@ -4891,8 +4977,6 @@ mod tests {
                 .unwrap(),
                 welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
                 durable_at: chrono::Utc::now(),
-                device_verification_method: arkret::NonEmptyString::new(device_verification_method)
-                    .unwrap(),
                 signature: arkret::KeyOperationSignature {
                     kid: arkret::NonEmptyString::new(device_verification_method).unwrap(),
                     signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
@@ -4906,7 +4990,7 @@ mod tests {
             realm_id: realm_id(),
             mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
             mls_epoch: 1,
-            source_service_id: arkret::Did::new("did:webvh:example.org:service".to_owned())
+            source_service_id: arkret::DidCoreId::new("did:webvh:example.org:service".to_owned())
                 .unwrap(),
             consumed_at: chrono::Utc::now(),
             signature: arkret::KeyOperationSignature {
@@ -5190,22 +5274,46 @@ mod tests {
         let crypto_store = FileArkretCryptoStore::for_account(&home, "c1", "support");
         let mut queue = garth::sync_client::SendQueue::new();
         let realm_id = realm_id();
+        let envelope = arkret_wire::test_support::raw_event(
+            "ak.message.create",
+            arkret::ScopeRef::Realm {
+                realm_id: realm_id.clone(),
+            },
+            actor_id(),
+            principal_server_id(),
+            0,
+            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
+            json!({
+                "strand_id": "ak:strand:01904100-0000-8000-8000-000000000002",
+                "track_name": "discussion",
+                "content": { "kind": "ak.content.text", "body": "online submission body" },
+                "agent_context": { "mode": "task_delivery" }
+            }),
+        )
+        .expect("online submission envelope");
+        let canonical_envelope_bytes =
+            arkret::canonical::canonical_json_bytes(&envelope).expect("canonical envelope");
+        let record = garth::QueuedRecord::SdkEvent(
+            garth::QueuedSdkEvent::authored(
+                envelope,
+                "online-without-lease".to_owned(),
+                "online-without-lease".to_owned(),
+                canonical_envelope_bytes,
+                None,
+                garth::AuthoringGeneration {
+                    authority_model: garth::AuthoringAuthorityModel::ManagedAgent,
+                    authority_principal_id: actor_id().as_str().to_owned(),
+                    generation_ref: "ak:event:01904100-0000-8000-8000-0000000000aa".to_owned(),
+                },
+                None,
+            )
+            .expect("authored queue record"),
+        );
         let item = queue
             .enqueue(
                 Some("online-without-lease".to_owned()),
                 realm_id.clone(),
-                garth::sync_client::SendQueueItemKind::Message,
-                json!({
-                    "event": {
-                        "kind": "ak.message.create",
-                        "actor_seq": 0,
-                        "payload": {
-                            "agent_context": { "mode": "task_delivery" }
-                        }
-                    },
-                    "authorization_lease": null,
-                    "cba_proof_bundles": []
-                }),
+                record,
                 Vec::new(),
             )
             .expect("queue online submission");
@@ -5226,15 +5334,12 @@ mod tests {
     fn refreshed_grant_must_preserve_exact_runtime_identity_and_required_scope() {
         let account = make_account();
         let mut state = garth::SessionGrantState {
-            principal_id: Did::new(account.principal_id.clone()).unwrap(),
+            principal_id: DidCoreId::new(account.principal_id.clone()).unwrap(),
             device_id: Some(DeviceId::new(account.device_id.clone()).unwrap()),
-            grant_id: arkret::GrantId::new(
-                "ak:grant:01904100-0000-7000-8000-000000000001".to_owned(),
-            )
-            .unwrap(),
+            grant_id: arkret::identifiers::SessionGrantId::from_issuance_digest([0x11; 32]),
             grant_jwt: "redacted-test-grant".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
-            audience: Did::new("did:webvh:z6mkfixture:service.example").unwrap(),
+            audience: DidCoreId::new("did:webvh:z6mkfixture:service.example").unwrap(),
             granted_scope: vec!["ak.event.read".to_owned()],
             session_public_key: None,
             dpop_jkt: Some("test-jkt".to_owned()),
@@ -5267,7 +5372,7 @@ mod tests {
             "ak.event.read"
         ));
         state.device_id = Some(DeviceId::new(account.device_id.clone()).unwrap());
-        state.principal_id = Did::new("did:webvh:z6mkfixture:other.example").unwrap();
+        state.principal_id = DidCoreId::new("did:webvh:z6mkfixture:other.example").unwrap();
         assert!(!refreshed_grant_matches_account(
             &state,
             &account,
@@ -5366,12 +5471,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
-    fn actor_id() -> Did {
-        Did::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap()
+    fn actor_id() -> DidCoreId {
+        DidCoreId::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap()
+    }
+
+    fn principal_server_id() -> DidCoreId {
+        DidCoreId::new("did:webvh:z6mkfixture:principal-server.example".to_owned()).unwrap()
     }
 
     fn keypackage_record(
-        principal_id: &Did,
+        principal_id: &DidCoreId,
         device_id: &DeviceId,
         marker: u8,
         last_resort: bool,
@@ -5379,9 +5488,11 @@ mod tests {
         let key_package_bytes = vec![marker; 16];
         MlsKeyPackageRecord {
             keypackage_id: format!("ak:mls:kp:01904100-0000-7000-8000-0000000000{marker:02x}"),
-            principal_id: principal_id.clone(),
-            device_id: device_id.clone(),
-            key_package: URL_SAFE_NO_PAD.encode(&key_package_bytes),
+            endpoint: arkret::MlsEndpointIdentity::human_device(
+                principal_id.clone(),
+                device_id.clone(),
+            ),
+            keypackage: URL_SAFE_NO_PAD.encode(&key_package_bytes),
             keypackage_ref: arkret::Hash::new(arkret::canonical::sha256_digest(&key_package_bytes))
                 .unwrap(),
             cipher_suites: vec!["MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519".to_owned()],
@@ -5407,7 +5518,7 @@ mod tests {
 
     #[test]
     fn keypackage_upload_uses_sdk_batch_transcript_without_entry_signatures() {
-        let principal_id = Did::new("did:webvh:z6mkfixture:agent.example".to_owned()).unwrap();
+        let principal_id = DidCoreId::new("did:webvh:z6mkfixture:agent.example".to_owned()).unwrap();
         let device_id =
             DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned()).unwrap();
         let verification_method = format!("{}#runtime-1", principal_id.as_str());
@@ -5431,12 +5542,12 @@ mod tests {
 
         assert!(
             request
-                .key_packages
+                .keypackages
                 .iter()
                 .all(|entry| entry.device_signature.is_none())
         );
-        assert_eq!(request.key_packages[0].last_resort, None);
-        assert_eq!(request.key_packages[1].last_resort, Some(true));
+        assert_eq!(request.keypackages[0].last_resort, None);
+        assert_eq!(request.keypackages[1].last_resort, Some(true));
         let unsigned = request.unsigned();
         let batch_input = arkret::keypackages_upload_signing_input(&unsigned).unwrap();
         let public_key = ed25519_dalek::SigningKey::from_bytes(&seed)
@@ -5453,7 +5564,7 @@ mod tests {
         let entry_input = arkret::keypackage_upload_entry_signing_input(
             &principal_id,
             &device_id,
-            &request.key_packages[0],
+            &request.keypackages[0],
         )
         .unwrap();
         assert_ne!(batch_input, entry_input);
@@ -5473,12 +5584,13 @@ mod tests {
     }
 
     fn message_event_with_seq(body: &str, actor_seq: u64) -> arkret::Event {
-        arkret::Event::new(
+        arkret_wire::test_support::raw_event(
             "ak.message.create",
             arkret::ScopeRef::Realm {
                 realm_id: realm_id(),
             },
             actor_id(),
+            principal_server_id(),
             actor_seq,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             json!({
@@ -5498,12 +5610,11 @@ mod tests {
         serde_json::to_value(arkret::MlsWelcomeEnvelope {
             group_id: group_id.to_owned(),
             epoch: 7,
-            recipient_principal_id: Did::new("did:webvh:z6mkfixture:bob.example".to_owned())
-                .unwrap(),
-            recipient_device_id: arkret::DeviceId::new(
-                "ak:device:01904100-0000-7000-8000-00000000000e".to_owned(),
-            )
-            .unwrap(),
+            recipient: arkret::MlsEndpointIdentity::human_device(
+                DidCoreId::new("did:webvh:z6mkfixture:bob.example".to_owned()).unwrap(),
+                arkret::DeviceId::new("ak:device:01904100-0000-7000-8000-00000000000e".to_owned())
+                    .unwrap(),
+            ),
             welcome: "AA".to_owned(),
             welcome_hash: arkret::Hash::new(format!("sha256:{}", "ab".repeat(32))).unwrap(),
             ratchet_tree: None,
@@ -5523,7 +5634,7 @@ mod tests {
                     limited: false,
                     prev_cursor: None,
                     preview_only: None,
-                    ordered_log_conflicts: Vec::new(),
+                    ordered_log_siblings: Vec::new(),
                     extra: Default::default(),
                 }),
                 ..Default::default()
@@ -5554,7 +5665,7 @@ mod tests {
                     limited: false,
                     prev_cursor: None,
                     preview_only: None,
-                    ordered_log_conflicts: Vec::new(),
+                    ordered_log_siblings: Vec::new(),
                     extra: Default::default(),
                 }),
                 summary: Some(
@@ -5638,12 +5749,13 @@ mod tests {
 
     #[test]
     fn realm_create_profile_marks_scan_catchup_as_direct_conversation() {
-        let direct_realm_create = arkret::Event::new(
+        let direct_realm_create = arkret_wire::test_support::raw_event(
             "ak.realm.create",
             arkret::ScopeRef::Realm {
                 realm_id: realm_id(),
             },
             actor_id(),
+            principal_server_id(),
             0,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             json!({
@@ -5662,7 +5774,7 @@ mod tests {
                 limited: false,
                 prev_cursor: None,
                 preview_only: None,
-                ordered_log_conflicts: Vec::new(),
+                ordered_log_siblings: Vec::new(),
                 extra: Default::default(),
             }),
             ..Default::default()
@@ -5734,7 +5846,7 @@ mod tests {
                     limited: true,
                     prev_cursor: Some("ak:cursor:older-1".to_owned()),
                     preview_only: None,
-                    ordered_log_conflicts: Vec::new(),
+                    ordered_log_siblings: Vec::new(),
                     extra: Default::default(),
                 }),
                 ..Default::default()
@@ -5753,7 +5865,7 @@ mod tests {
         let responses =
             std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from([
                 arkret::EventsQueryOutcome {
-                    events: vec![message_event_with_seq("older one", 2)],
+                    events: vec![message_event_with_seq("older one", 2).into()],
                     snapshot_bootstrap: None,
                     prev_cursor: Some("ak:cursor:older-2".to_owned()),
                     next_cursor: None,
@@ -5761,7 +5873,7 @@ mod tests {
                     range_completeness: None,
                 },
                 arkret::EventsQueryOutcome {
-                    events: vec![message_event_with_seq("older two", 3)],
+                    events: vec![message_event_with_seq("older two", 3).into()],
                     snapshot_bootstrap: None,
                     prev_cursor: None,
                     next_cursor: None,
@@ -5833,12 +5945,13 @@ mod tests {
         let account = make_account();
         let crypto_store = FileArkretCryptoStore::for_account(tmp.path(), &channel.id, &account.id);
         let group_id = "group-account-welcome";
-        let welcome_event = arkret::Event::new(
+        let welcome_event = arkret_wire::test_support::raw_event(
             "ak.mls.welcome",
             arkret::ScopeRef::Realm {
                 realm_id: realm_id(),
             },
             actor_id(),
+            principal_server_id(),
             7,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             json!({
@@ -5855,7 +5968,7 @@ mod tests {
                     limited: false,
                     prev_cursor: None,
                     preview_only: None,
-                    ordered_log_conflicts: Vec::new(),
+                    ordered_log_siblings: Vec::new(),
                     extra: Default::default(),
                 }),
                 ..Default::default()

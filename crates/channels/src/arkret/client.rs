@@ -15,8 +15,9 @@ use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
     AccountSubscribeFrame, Base64UrlString, DeviceId, DidCoreId, DidUrl, Ed25519PayloadSigner,
-    EventsSubmitOutcome, EventsSubscribeFrame, KeyOperationSignature, KeyPackageClaimProof,
-    KeyPackagesClaimOutcome, KeyPackagesClaimRequestBody, MlsWelcomeClaimEnvelope,
+    EventsSubmitOutcome, EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
+    KeyPackagesClaimRequestBody, KeyPackagesClaimServiceBinding, MlsWelcomeClaimEnvelope,
+    NonEmptyString, PeerKeyPackageClaimPurpose, PeerKeyPackageRequesterAuthorization,
     PreparedStandardEvent, RealmId, ServiceDescribe, SessionGrantDpopBindingProof, StrandId,
     SyncRequestBody,
 };
@@ -319,18 +320,25 @@ fn ed25519_key_operation_signature(
 
 #[allow(clippy::too_many_arguments)]
 pub fn build_mls_key_packages_claim_request(
+    claim_request_id: String,
     target_principal_id: &str,
     intended_realm_id: &str,
     requester: &str,
+    claim_purpose: PeerKeyPackageClaimPurpose,
     required_capabilities: &[String],
     claim_nonce: String,
     expires_at: DateTime<Utc>,
     target_device_ids: &[String],
     strand_id: Option<&str>,
-    mls_group_id: Option<&str>,
+    mls_group_id: &str,
     timeout_ms: Option<u64>,
-    proof: KeyPackageClaimProof,
+    source_service_id: &str,
+    destination_service_id: &str,
+    requester_authorization: PeerKeyPackageRequesterAuthorization,
 ) -> anyhow::Result<KeyPackagesClaimRequestBody> {
+    let claim_request_id = Base64UrlString::new(claim_request_id).map_err(|error| {
+        anyhow::anyhow!("invalid Arkret MLS KeyPackage claim request id: {error}")
+    })?;
     if claim_nonce.trim().is_empty() {
         anyhow::bail!("Arkret MLS KeyPackage claim nonce must not be empty");
     }
@@ -343,6 +351,14 @@ pub fn build_mls_key_packages_claim_request(
     })?;
     let requester = DidCoreId::new(requester.to_owned())
         .with_context(|| format!("invalid Arkret KeyPackage requester DID '{requester}'"))?;
+    let required_capabilities = required_capabilities
+        .iter()
+        .map(|capability| {
+            NonEmptyString::new(capability.clone()).map_err(|error| {
+                anyhow::anyhow!("invalid Arkret KeyPackage capability '{capability}': {error}")
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let target_device_ids = target_device_ids
         .iter()
         .map(|device_id| {
@@ -357,24 +373,49 @@ pub fn build_mls_key_packages_claim_request(
                 .with_context(|| format!("invalid Arkret KeyPackage claim Strand id '{value}'"))
         })
         .transpose()?;
-    let mls_group_id = mls_group_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
-    Ok(KeyPackagesClaimRequestBody {
+    let mls_group_id = NonEmptyString::new(mls_group_id.trim().to_owned()).map_err(|error| {
+        anyhow::anyhow!("invalid Arkret KeyPackage claim MLS group id: {error}")
+    })?;
+    let service_binding = KeyPackagesClaimServiceBinding {
+        source_service_id: DidCoreId::new(source_service_id.to_owned()).with_context(|| {
+            format!("invalid Arkret KeyPackage claim source Service DID '{source_service_id}'")
+        })?,
+        destination_service_id: DidCoreId::new(destination_service_id.to_owned()).with_context(
+            || {
+                format!(
+                    "invalid Arkret KeyPackage claim destination Service DID \
+                     '{destination_service_id}'"
+                )
+            },
+        )?,
+    };
+    let request = KeyPackagesClaimRequestBody {
+        claim_request_id,
         target_principal_id,
-        intended_realm_id,
         requester,
-        required_capabilities: required_capabilities.to_vec(),
+        intended_realm_id,
+        mls_group_id,
+        claim_purpose,
+        required_capabilities,
         claim_nonce,
         expires_at,
         target_device_ids,
+        target_keypackage_ref: None,
+        target_agent_id: None,
+        target_agent_verification_method: None,
+        target_agent_key_authorize_event_id: None,
         minimal_metadata_allowed: None,
         timeout_ms,
         strand_id,
-        mls_group_id,
-        holder_acceptance_proof: proof,
-    })
+        pair_key: None,
+        last_resort_allowed: None,
+        service_binding,
+        requester_authorization,
+    };
+    request
+        .validate_shape()
+        .map_err(|error| anyhow::anyhow!("Arkret KeyPackage claim request shape: {error}"))?;
+    Ok(request)
 }
 
 impl ArkretHttpClient {
@@ -1137,28 +1178,37 @@ mod tests {
 
     #[test]
     fn claim_request_builder_validates_typed_claim_fields() {
-        let proof = KeyPackageClaimProof {
-            kind: arkret::KeyPackageClaimProofKind::DetachedJws,
-            verification_method: DidUrl::new("did:webvh:z6mkfixture:alice.example#runtime-key-1")
-                .unwrap(),
-            payload_digest: arkret::Hash::new(format!("sha256:{}", "00".repeat(32))).unwrap(),
-            created_at: Utc::now(),
-            audience: DidCoreId::new("did:webvh:z6mkfixture:service.example").unwrap(),
-            proof_purpose: arkret::KeyPackageClaimProofPurpose::HolderAcceptance,
-            jws: "header..signature".to_owned(),
+        let verification_method = "did:webvh:z6mkfixture:alice.example#runtime-key-1";
+        let authorization = PeerKeyPackageRequesterAuthorization::NativeAgent {
+            verification_method: DidUrl::new(verification_method).unwrap(),
+            requester_agent_id: DidCoreId::new("did:webvh:z6mkfixture:alice.example").unwrap(),
+            agent_key_authorize_event_id: arkret::EventId::new(
+                "ak:event:01904100-0000-7000-8000-000000000011",
+            )
+            .unwrap(),
+            signed_at: Utc::now(),
+            signature: KeyOperationSignature {
+                kid: arkret::NonEmptyString::new(verification_method).unwrap(),
+                signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
+                sig: arkret::Base64UrlString::new("AQ").unwrap(),
+            },
         };
         let request = build_mls_key_packages_claim_request(
+            "AQEBAQEBAQEBAQEBAQEBAQ".to_owned(),
             "did:webvh:z6mkfixture:bob.example",
             "ak:realm:01904100-0000-8000-8000-000000000001",
             "did:webvh:z6mkfixture:alice.example",
+            PeerKeyPackageClaimPurpose::RealmMembership,
             &["mimi.content.v1".to_owned(), "ak.content.v1".to_owned()],
             "AQEBAQEBAQEBAQEBAQEBAQ".to_owned(),
             Utc::now() + chrono::Duration::minutes(5),
             &["ak:device:01904100-0000-7000-8000-00000000000e".to_owned()],
             Some("ak:strand:01904100-0000-8000-8000-000000000002"),
-            Some("group-1"),
+            "group-1",
             Some(1500),
-            proof,
+            "did:webvh:z6mkfixture:service.example",
+            "did:webvh:z6mkfixture:peer-service.example",
+            authorization,
         )
         .expect("claim request should build");
 
@@ -1166,17 +1216,30 @@ mod tests {
             request.target_principal_id.as_str(),
             "did:webvh:z6mkfixture:bob.example"
         );
+        assert_eq!(request.claim_request_id.as_str(), "AQEBAQEBAQEBAQEBAQEBAQ");
+        assert_eq!(
+            request.claim_purpose,
+            PeerKeyPackageClaimPurpose::RealmMembership
+        );
         assert_eq!(request.required_capabilities.len(), 2);
         assert_eq!(request.target_device_ids.len(), 1);
         assert_eq!(
             request.strand_id.as_ref().map(StrandId::as_str),
             Some("ak:strand:01904100-0000-8000-8000-000000000002")
         );
-        assert_eq!(request.mls_group_id.as_deref(), Some("group-1"));
+        assert_eq!(request.mls_group_id.as_str(), "group-1");
         assert_eq!(
-            request.holder_acceptance_proof.verification_method.as_str(),
-            "did:webvh:z6mkfixture:alice.example#runtime-key-1"
+            request.service_binding.source_service_id.as_str(),
+            "did:webvh:z6mkfixture:service.example"
         );
+        let PeerKeyPackageRequesterAuthorization::NativeAgent {
+            verification_method: authorized_method,
+            ..
+        } = &request.requester_authorization
+        else {
+            panic!("requester authorization variant must round-trip");
+        };
+        assert_eq!(authorized_method.as_str(), verification_method);
     }
 
     #[test]
