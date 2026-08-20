@@ -7,7 +7,7 @@
 use anyhow::Context;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    AuthContext, ContentBlock, DidCoreId, DidUrl, Ed25519PayloadSigner, Event,
+    AuthContext, AuthoredEvent, ContentBlock, DidCoreId, DidUrl, Ed25519PayloadSigner, Event,
     EventDraftKindRegistry, EventId, EventRef, Hlc, MessageCreatePayload, OpaqueLocalId,
     OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId, ScopeRef, SealId,
     StrandId, event_spec, new_prefixed_uuid7,
@@ -83,7 +83,15 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     }
     builder
         .into_event_envelope(&EventDraftKindRegistry::default(), conversion)
+        .map(AuthoredEvent::into_event)
         .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))
+}
+
+/// Close producer authoring after all CBA, encryption and causal fields have
+/// been applied, deriving the final content-bound Event identity.
+pub fn finalize_outbound_event(event: Event) -> anyhow::Result<AuthoredEvent> {
+    AuthoredEvent::finalize(event)
+        .map_err(|err| anyhow::anyhow!("failed to finalize outbound event: {err}"))
 }
 
 /// Phase 8 (T8.C): attach a detached-JWS [`Proof`] to an outbound event.
@@ -91,7 +99,7 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
 /// Wraps SDK `arkret::signatures::sign_event` (S-1). Same semantics as
 /// the applet-mode helper in [`super::applet::sign_outbound_event`].
 pub fn sign_outbound_event(
-    event: &mut Event,
+    event: &mut AuthoredEvent,
     signer: &Ed25519PayloadSigner,
     verification_method: &str,
 ) -> anyhow::Result<()> {
@@ -149,11 +157,19 @@ mod tests {
     use super::*;
 
     fn valid_request() -> MessageCreateRequest {
+        let realm_id = RealmId::from_event_id(&EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [0x11; 32],
+        ));
+        let strand_id = StrandId::from_event_id(&EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [0x22; 32],
+        ));
         MessageCreateRequest {
-            realm_id: "ak:realm:01904100-0000-8000-8000-000000000001".into(),
-            strand_id: "ak:strand:01904100-0000-8000-8000-000000000001".into(),
+            realm_id: realm_id.to_string(),
+            strand_id: strand_id.to_string(),
             body: "hello world".into(),
-            principal_id: "did:webvh:example.org:agents:support".into(),
+            principal_id: "ak:did_core:webvh:z6mksupport".into(),
             actor_seq: 1,
             thread_root_id: None,
             sidecar_exchange: None,
@@ -212,14 +228,18 @@ mod tests {
     #[test]
     fn uses_strand_id_for_sdk_payload() {
         let mut req = valid_request();
-        req.strand_id = "ak:strand:01904100-0000-8000-8000-000000000002".into();
+        req.strand_id = StrandId::from_event_id(&EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [0x33; 32],
+        ))
+        .to_string();
         let event = build_message_create_event(&req).expect("build");
         assert_eq!(
             event
                 .payload
                 .get("strand_id")
                 .and_then(serde_json::Value::as_str),
-            Some("ak:strand:01904100-0000-8000-8000-000000000002")
+            Some(req.strand_id.as_str())
         );
     }
 
@@ -253,11 +273,12 @@ mod tests {
 
     #[test]
     fn sidecar_exchange_adds_after_ref_to_request_event() {
-        let request_event_id = "ak:event:01904100-0000-8000-8000-000000000031";
+        let request_event_id =
+            EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x44; 32]).to_string();
         let mut req = valid_request();
         req.sidecar_exchange = Some(SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".into(),
-            request_event_id: request_event_id.into(),
+            request_event_id: request_event_id.clone(),
             coordinator_assignment_event_id: None,
         });
         let event = build_message_create_event(&req).expect("build");

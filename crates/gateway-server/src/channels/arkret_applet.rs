@@ -1526,36 +1526,37 @@ pub(crate) async fn send_via_applet(
     let strand = StrandId::new(strand_id.to_owned())
         .with_context(|| format!("invalid strand_id: {strand_id}"))?;
     let content = ContentBlock::text(body.to_owned());
-    let payload = MessageCreatePayload::with_content(strand, "discussion", content);
-    let mut event = edge
-        .mint_event_as_unsigned_async::<arkret::event_spec::MessageCreate>(
+    let mut payload = MessageCreatePayload::with_content(strand, "discussion", content);
+    apply_applet_outbound_encryption(&state.crypto_store, realm_id, &mut payload)?;
+    let external_ref_object = external_ref
+        .as_object()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("Arkret external_ref must be an object"))?;
+    let intent = edge
+        .delegated_intent::<arkret::event_spec::MessageCreate>(
             &actor,
             &realm,
             payload,
             &authorization_ref,
         )
+        .map_err(|err| anyhow::anyhow!("arkret edge intent: {err}"))?
+        .with_external_ref(external_ref_object.into_iter().collect());
+    let event = edge
+        .author_and_sign(&realm, intent)
         .await
-        .map_err(|err| anyhow::anyhow!("arkret edge mint: {err}"))?;
-    let external_ref_object = external_ref
-        .as_object()
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("Arkret external_ref must be an object"))?;
-    event.external_ref = Some(external_ref_object.into_iter().collect());
-    apply_applet_outbound_encryption(&state.crypto_store, realm_id, &mut event)?;
-    edge.resign_event(&mut event)
-        .map_err(|err| anyhow::anyhow!("arkret edge sign: {err}"))?;
+        .map_err(|err| anyhow::anyhow!("arkret edge author/sign: {err}"))?;
 
     // A transport 200 is not delivery confirmation: inspect the business-level
     // result and treat a rejection (or zero accepted/duplicate events) as a
     // failure so it flows through the same bridge_error path as a transport
     // error (spec §14), instead of being silently dropped.
-    let submit_result = match edge.submit_event(&event).await {
+    let submit_result = match edge.submit_event(event.event()).await {
         Ok(_) => Ok(()),
         Err(first) => {
             debug!(config_id, error = %first, "arkret applet submit failed; refreshing edge once");
             let refreshed = refresh_applet_edge(&state).await?;
             refreshed
-                .submit_event(&event)
+                .submit_event(event.event())
                 .await
                 .map(|_| ())
                 .map_err(|err| anyhow::anyhow!(err.to_string()))
@@ -1593,19 +1594,17 @@ pub(crate) async fn send_via_applet(
 fn apply_applet_outbound_encryption(
     crypto_store: &FileArkretCryptoStore,
     realm_id: &str,
-    event: &mut arkret::Event,
+    payload: &mut MessageCreatePayload,
 ) -> anyhow::Result<()> {
-    let Some(content_block) = event.payload.get("content").cloned() else {
+    let Some(content_block) = payload.content.as_ref() else {
         return Ok(());
     };
+    let content_block = serde_json::to_value(content_block)?;
     match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
         ArkretEncryptOutcome::PlaintextAllowed => Ok(()),
         ArkretEncryptOutcome::Encrypted(encrypted_content) => {
-            event.payload.remove("content");
-            event.payload.insert(
-                "encrypted_content".to_owned(),
-                serde_json::to_value(encrypted_content.into_envelope())?,
-            );
+            payload.content = None;
+            payload.encrypted_content = Some(encrypted_content.into_envelope());
             Ok(())
         }
         ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
@@ -1669,58 +1668,24 @@ async fn emit_bridge_error(
     Ok(())
 }
 
-/// Build the outbound HTTP client for an applet config using DID-proof login.
+/// Build the outbound HTTP client for an applet config using its registered
+/// bearer credential. Event authenticity remains independently enforced by
+/// the applet signing key in [`build_applet_edge`].
 async fn construct_applet_client(
     cfg: &savfox_channels::arkret::ArkretAppletConfig,
 ) -> anyhow::Result<savfox_channels::arkret::ArkretHttpClient> {
-    if let Some(key_ref) = &cfg.key_ref {
-        use savfox_channels::arkret::ArkretHttpClient;
-        let vm = cfg
-            .verification_method
-            .clone()
-            .unwrap_or_else(|| format!("{}#key-1", cfg.bot_actor_id));
-        let audience = cfg.arkret_server_did.as_deref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "applet '{}' has key_ref but no arkret_server_did / arkretServerDid for DID-proof audience",
+    let token = cfg
+        .arkret_bearer_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .with_context(|| {
+            format!(
+                "arkret applet '{}' requires access_token / arkretBearerToken for outbound authentication",
                 cfg.id
             )
         })?;
-        let challenge = cfg.login_challenge.as_deref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "applet '{}' has key_ref but no login_challenge / loginChallenge",
-                cfg.id
-            )
-        })?;
-        let signer = savfox_channels::arkret::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
-        let principal = arkret::DidCoreId::new(cfg.bot_actor_id.clone())
-            .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
-        // Applet configs keep the bot device optional for bearer-only mode.
-        // DID-proof login still needs a protocol-valid runtime device id.
-        let device = arkret::DeviceId::new(cfg.device_id.clone().unwrap_or_else(|| {
-            savfox_channels::arkret::derive_arkret_device_id(&[
-                "applet",
-                &cfg.id,
-                &cfg.applet_id,
-                &cfg.bot_actor_id,
-            ])
-        }))
-        .map_err(|err| anyhow::anyhow!("synth device_id: {err}"))?;
-        let (client, _session) = ArkretHttpClient::login(
-            &cfg.arkret_server_url,
-            &signer,
-            principal,
-            device,
-            challenge,
-            audience,
-        )
-        .await?;
-        Ok(client)
-    } else {
-        anyhow::bail!(
-            "arkret applet '{}' requires key_ref; unsigned bearer-only outbound is retired",
-            cfg.id
-        )
-    }
+    savfox_channels::arkret::ArkretHttpClient::new(&cfg.arkret_server_url, token)
 }
 
 async fn applet_edge(

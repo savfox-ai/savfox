@@ -50,7 +50,9 @@ pub struct ArkretAppletConfig {
     /// Static server verification methods accepted for inbound applet HTTP
     /// Message Signatures and event pushes.
     pub trusted_verification_methods: Vec<ArkretAppletTrustedVerificationMethod>,
-    /// Server-issued one-time challenge for DID-proof session grant issuance.
+    /// Retained compatibility field from the retired Applet DID-proof login
+    /// flow. Current Applet transport authentication uses the registered
+    /// bearer credential.
     pub login_challenge: Option<String>,
     /// Optional bearer for outbound `events_submit` calls. In a fully
     /// signed flow this is replaced by the ghost actor's detached JWS.
@@ -84,9 +86,7 @@ pub struct ArkretAppletConfig {
     /// emits a zero placeholder suitable only for an unsigned draft destined
     /// for offline controller signing.
     pub registration_epoch: Option<String>,
-    /// Phase 8 (T8.A): ed25519 key for DID-proof login + event signing.
-    /// When set, `start_arkret_applet_channel` runs login_did_proof to
-    /// obtain the bearer rather than relying on a static `accessToken`.
+    /// Ed25519 key used to sign outbound Applet events.
     pub key_ref: Option<ArkretKeyRef>,
     /// Phase 8: verification method id used by the signer. Defaults to
     /// `{bot_actor_id}#key-1` when missing.
@@ -274,7 +274,7 @@ impl ArkretAppletConfig {
             })?;
         } else if self.key_ref.is_some() {
             anyhow::bail!(
-                "Arkret applet channel '{}' has key_ref but no arkret_server_did / arkretServerDid for DID-proof audience",
+                "Arkret applet channel '{}' has key_ref but no arkret_server_did / arkretServerDid for server trust",
                 self.id
             );
         }
@@ -310,26 +310,6 @@ impl ArkretAppletConfig {
                     method.verification_method
                 )
             })?;
-        }
-        if self.key_ref.is_some() {
-            let Some(challenge) = self.login_challenge.as_deref().map(str::trim) else {
-                anyhow::bail!(
-                    "Arkret applet channel '{}' has key_ref but no login_challenge / loginChallenge",
-                    self.id
-                );
-            };
-            if challenge.is_empty() {
-                anyhow::bail!(
-                    "Arkret applet channel '{}' has key_ref but no login_challenge / loginChallenge",
-                    self.id
-                );
-            }
-            if challenge.len() < 16 {
-                anyhow::bail!(
-                    "Arkret applet channel '{}' login_challenge must be at least 16 characters",
-                    self.id
-                );
-            }
         }
         if self.namespaces.actors.is_empty()
             && self.namespaces.realms.is_empty()

@@ -4408,7 +4408,7 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
             // submission wrapper is rebuilt around it with the lease bound on
             // the queue item, so wrapper and lease cannot diverge.
             let submission = EventInitialSubmission {
-                event: attempt.envelope,
+                event: attempt.envelope.into_event(),
                 authorization_lease: item.authorization_lease.clone(),
                 cba_proof_bundles: Vec::new(),
                 control_proposal_ack: None,
@@ -4632,6 +4632,8 @@ pub(crate) async fn send_to_arkret_account(
         delivery,
     )?;
 
+    let mut event = savfox_channels::arkret::finalize_outbound_event(event)?;
+
     // Phase 8 (T8.C): sign with the account's ed25519 key when key_ref is set.
     if let Some(key_ref) = &account.key_ref {
         let signer = savfox_channels::arkret::load_ed25519_signer(
@@ -4645,9 +4647,8 @@ pub(crate) async fn send_to_arkret_account(
             &signing_verification_method,
         )?;
     }
-
     let prepared_event = PreparedStandardEvent::from(
-        PreparedDataEvent::try_from(event)
+        PreparedDataEvent::try_from(event.event().clone())
             .map_err(|error| anyhow::anyhow!("prepare outbound Arkret DataEvent: {error}"))?,
     );
 
@@ -4703,12 +4704,13 @@ pub(crate) async fn send_to_arkret_account(
             .unwrap_or_else(|| format!("{}#key-1", account.principal_id)),
     };
     let canonical_envelope_bytes = arkret::canonical::canonical_json_bytes(&submission.event)
-        .map_err(|error| {
-            anyhow::anyhow!("canonicalize queued Arkret Event envelope: {error}")
-        })?;
+        .map_err(|error| anyhow::anyhow!("canonicalize queued Arkret Event envelope: {error}"))?;
+    let queued_intent =
+        garth::QueuedEventIntent::new(arkret::EventIntent::from_authored(event.event()));
     let queued_record = garth::QueuedRecord::SdkEvent(
         garth::QueuedSdkEvent::authored(
-            submission.event.clone(),
+            queued_intent,
+            event,
             transaction_id.clone(),
             transaction_id.clone(),
             canonical_envelope_bytes,
@@ -4966,8 +4968,10 @@ mod tests {
                     )
                     .unwrap(),
                 },
-                recipient_service_id: arkret::DidCoreId::new("did:webvh:example.org:service".to_owned())
-                    .unwrap(),
+                recipient_service_id: arkret::DidCoreId::new(
+                    "did:webvh:example.org:service".to_owned(),
+                )
+                .unwrap(),
                 realm_id: realm_id(),
                 mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
                 mls_epoch: 1,
@@ -5518,7 +5522,8 @@ mod tests {
 
     #[test]
     fn keypackage_upload_uses_sdk_batch_transcript_without_entry_signatures() {
-        let principal_id = DidCoreId::new("did:webvh:z6mkfixture:agent.example".to_owned()).unwrap();
+        let principal_id =
+            DidCoreId::new("did:webvh:z6mkfixture:agent.example".to_owned()).unwrap();
         let device_id =
             DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned()).unwrap();
         let verification_method = format!("{}#runtime-1", principal_id.as_str());

@@ -78,9 +78,10 @@ pub use inbound_adapter::{
     parse_notification_delta_for_account, should_dispatch_event,
 };
 pub use outbound::{
-    MessageCreateRequest, apply_data_event_basis, build_message_create_event, sign_outbound_event,
+    MessageCreateRequest, apply_data_event_basis, build_message_create_event,
+    finalize_outbound_event, sign_outbound_event,
 };
-pub use session::{ArkretSession, login_with_signer};
+pub use session::ArkretSession;
 pub use sidecar::{
     EVENT_REF_ROLE_AFTER, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
     SidecarRequestGate, SidecarRequestOrdering, SidecarTerminalAdmission,

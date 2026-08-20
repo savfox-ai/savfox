@@ -1,14 +1,9 @@
-//! Applet DID-proof login + session grant tracking.
-//!
-//! CKP-0008 personal agent runtime must use agent_key_proof plus DPoP and
-//! must not call this path.
+//! Session grant state shared by Arkret client integrations.
 
-use anyhow::Context as _;
-use arkret::http_client::{Client, login_did_proof};
-use arkret::{DeviceId, DidCoreId, Ed25519PayloadSigner};
+use arkret::{DeviceId, DidCoreId};
 use chrono::{DateTime, Utc};
 
-/// One-shot session state produced by [`login_with_signer`].
+/// One-shot view of an active Arkret session grant.
 #[derive(Debug, Clone)]
 pub struct ArkretSession {
     pub session_grant: String,
@@ -26,44 +21,6 @@ impl ArkretSession {
         let threshold = self.expires_at - chrono::Duration::seconds(skew_secs);
         now >= threshold
     }
-}
-
-/// Run the Arkret DID-proof login flow against the given HTTP client.
-///
-/// `audience` is the Arkret server's service DID.
-pub async fn login_with_signer(
-    http: &Client,
-    signer: &Ed25519PayloadSigner,
-    principal_did: DidCoreId,
-    device_id: DeviceId,
-    challenge: &str,
-    audience: &str,
-) -> anyhow::Result<ArkretSession> {
-    let audience = DidCoreId::new(audience.to_owned())
-        .with_context(|| format!("invalid Arkret service audience DID '{audience}'"))?;
-    let session = login_did_proof(
-        http,
-        principal_did.clone(),
-        device_id.clone(),
-        signer,
-        challenge,
-        audience.clone(),
-    )
-    .await
-    .map_err(|err| anyhow::anyhow!("login_did_proof failed: {err}"))
-    .with_context(|| {
-        format!(
-            "arkret login_did_proof: principal={} audience={}",
-            principal_did.as_str(),
-            audience
-        )
-    })?;
-    Ok(ArkretSession {
-        session_grant: session.session_grant,
-        expires_at: session.expires_at,
-        principal_did: session.principal_id,
-        device_id: session.device_id,
-    })
 }
 
 #[cfg(test)]

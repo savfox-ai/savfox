@@ -14,12 +14,14 @@ use std::sync::Arc;
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::{
-    AccountSubscribeFrame, Base64UrlString, DeviceId, DidCoreId, DidUrl, Ed25519PayloadSigner,
+    AccountSubscribeFrame, AgentSessionGrantRefreshRequest, AgentSessionRefreshProof,
+    AgentSessionRefreshProofContext, Base64UrlString, DeviceId, DidCoreId, DidUrl,
     EventsSubmitOutcome, EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
     KeyPackagesClaimRequestBody, KeyPackagesClaimServiceBinding, MlsWelcomeClaimEnvelope,
     NonEmptyString, PeerKeyPackageClaimPurpose, PeerKeyPackageRequesterAuthorization,
-    PreparedStandardEvent, RealmId, ServiceDescribe, SessionGrantDpopBindingProof, StrandId,
-    SyncRequestBody,
+    PreparedStandardEvent, RealmId, ServiceDescribe, SessionGrantDpopBindingProof,
+    SessionGrantRefreshRequestBody, StrandId, SyncRequestBody, UnsignedAgentSessionGrantRequest,
+    UnsignedAgentSessionRefreshProof,
 };
 use arkret_wire::EventInitialSubmission;
 use chrono::{DateTime, Utc};
@@ -27,17 +29,14 @@ use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::Stream;
 use garth::session::BoxSessionFuture;
 use garth::{
-    AgentKeyProofLogin, ArkretClient, AuthenticatedTransportFactory, FileStore, LoginKind,
-    MemoryStore, NativeExecutor, NoopSessionGrantStore, SessionEngine, SessionGrantState,
-    SessionGrantStore, SessionGrantTransport, SessionRefreshOptions, SessionTransportProvider,
-    TransportProvider,
+    ArkretClient, AuthenticatedTransportFactory, FileStore, MemoryStore, NativeExecutor,
+    NoopSessionGrantStore, SessionEngine, SessionGrantState, SessionGrantStore,
+    SessionGrantTransport, SessionRefreshOptions, SessionTransportProvider, TransportProvider,
 };
-use serde::Serialize;
-use sha2::Digest as _;
 use url::Url;
 use uuid::Uuid;
 
-use super::session::{ArkretSession, login_with_signer};
+use super::session::ArkretSession;
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
 const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
@@ -138,10 +137,14 @@ impl SessionGrantTransport for AgentSessionGrantTransport {
         request: arkret::SessionGrantRefreshRequestBody,
     ) -> BoxSessionFuture<'a, arkret::SessionGrantRefreshOutcome> {
         Box::pin(async move {
+            let grant_jwt = match &request {
+                SessionGrantRefreshRequestBody::Human(request) => &request.grant_jwt,
+                SessionGrantRefreshRequestBody::Agent(request) => &request.grant_jwt,
+            };
             let client = build_dpop_client(
                 self.grant_base_url.clone(),
                 Arc::clone(&self.dpop_signing_key),
-                request.grant_jwt.clone(),
+                grant_jwt.clone(),
             )?;
             client
                 .auth_refresh_session_grant(&request)
@@ -161,80 +164,40 @@ pub struct AgentAuthenticatedTransportFactory {
     verification_method: DidUrl,
 }
 
-const AGENT_SESSION_REFRESH_OPERATION: &str = "resume_soft_logged_out_session";
-
-#[derive(Serialize)]
-struct AgentSessionRefreshRequestDigest<'a> {
-    operation: &'static str,
-    grant_jwt_hash: String,
-    principal_id: &'a str,
-    device_id: &'a str,
-    audience: &'a str,
-    grant_binding_key_id: &'a str,
-}
-
-#[derive(Serialize)]
-struct AgentSessionRefreshProofClaims<'a> {
-    principal_id: &'a str,
-    device_id: &'a str,
-    audience: &'a str,
-    challenge: &'a str,
-    request_canonical_digest: &'a str,
-    #[serde(with = "arkret::canonical::serde_helpers::canonical_timestamp")]
-    issued_at: DateTime<Utc>,
-    #[serde(with = "arkret::canonical::serde_helpers::canonical_timestamp")]
-    expires_at: DateTime<Utc>,
-}
-
 fn mint_agent_session_refresh_proof(
     state: &SessionGrantState,
     device_id: &DeviceId,
     verification_method: &DidUrl,
     signing_key: &SigningKey,
-) -> garth::Result<arkret::SessionGrantRefreshProof> {
-    let grant_jwt_hash = format!(
-        "sha256:{}",
-        hex::encode(sha2::Sha256::digest(state.grant_jwt.as_bytes()))
-    );
-    let digest_input = AgentSessionRefreshRequestDigest {
-        operation: AGENT_SESSION_REFRESH_OPERATION,
-        grant_jwt_hash,
-        principal_id: state.principal_id.as_str(),
-        device_id: device_id.as_str(),
-        audience: state.audience.as_str(),
-        grant_binding_key_id: verification_method.as_str(),
-    };
-    let request_canonical_digest = arkret::Hash::new(
-        arkret::canonical::canonical_sha256(&digest_input)
-            .map_err(|error| garth::Error::Protocol(error.to_string()))?,
+) -> garth::Result<AgentSessionRefreshProof> {
+    let request_canonical_digest = arkret::agent_session_refresh_request_digest(
+        &state.grant_jwt,
+        &state.principal_id,
+        device_id,
+        &state.audience,
+        verification_method,
     )
     .map_err(|error| garth::Error::Protocol(error.to_string()))?;
-    let challenge = format!("savfox-agent-refresh-{}", Uuid::now_v7());
     let issued_at = Utc::now();
     let expires_at = issued_at + chrono::Duration::seconds(60);
-    let claims = AgentSessionRefreshProofClaims {
-        principal_id: state.principal_id.as_str(),
-        device_id: device_id.as_str(),
-        audience: state.audience.as_str(),
-        challenge: &challenge,
-        request_canonical_digest: request_canonical_digest.as_str(),
-        issued_at,
-        expires_at,
-    };
-    let signing_bytes = arkret::canonical::canonical_json_bytes(&claims)
-        .map_err(|error| garth::Error::Protocol(error.to_string()))?;
-    let signature = arkret::base64url_encode(signing_key.sign(&signing_bytes).to_bytes());
-
-    Ok(arkret::SessionGrantRefreshProof {
-        proof_kind: arkret::SessionGrantProofKind::AgentKeyProof,
-        challenge,
+    let unsigned = UnsignedAgentSessionRefreshProof {
+        context: AgentSessionRefreshProofContext::V1,
         request_canonical_digest,
         audience: state.audience.clone(),
         issued_at,
         expires_at,
-        signature,
-        verification_method: Some(verification_method.clone()),
-    })
+        verification_method: verification_method.clone(),
+    };
+    let signing_bytes = unsigned
+        .canonical_signing_bytes()
+        .map_err(|error| garth::Error::Protocol(error.to_string()))?;
+    let signature = Base64UrlString::new(arkret::base64url_encode(
+        signing_key.sign(&signing_bytes).to_bytes(),
+    ))
+    .map_err(|error| garth::Error::Protocol(error.to_string()))?;
+    unsigned
+        .attach_signature(signature)
+        .map_err(|error| garth::Error::Protocol(error.to_string()))
 }
 
 fn generate_session_dpop_signing_key() -> SigningKey {
@@ -255,15 +218,11 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
     fn refresh_options(
         &self,
         state: &SessionGrantState,
-        fallback: &SessionRefreshOptions,
+        _fallback: &SessionRefreshOptions,
     ) -> garth::Result<SessionRefreshOptions> {
-        let device_id = state
-            .device_id
-            .clone()
-            .or_else(|| fallback.device_id.clone())
-            .ok_or_else(|| {
-                garth::Error::Protocol("agent session refresh device_id is required".to_owned())
-            })?;
+        let device_id = state.device_id.clone().ok_or_else(|| {
+            garth::Error::Protocol("agent session refresh device_id is required".to_owned())
+        })?;
         let proof = mint_agent_session_refresh_proof(
             state,
             &device_id,
@@ -271,9 +230,14 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
             &self.runtime_signing_key,
         )?;
         Ok(SessionRefreshOptions {
-            audience: Some(state.audience.clone()),
-            device_id: Some(device_id),
-            proof: Some(proof),
+            request: Some(SessionGrantRefreshRequestBody::Agent(
+                AgentSessionGrantRefreshRequest {
+                    grant_jwt: state.grant_jwt.clone(),
+                    audience: Some(state.audience.clone()),
+                    device_id,
+                    agent_session_refresh_proof: proof,
+                },
+            )),
             expected_dpop_jkt: Some(self.dpop_jkt.clone()),
         })
     }
@@ -548,42 +512,34 @@ impl ArkretHttpClient {
         let dpop_binding_proof = SessionGrantDpopBindingProof {
             proof_jwt: binding_proof,
         };
-        let signing_input = arkret::session_grant::agent_key_proof_signing_input_for_session_grant(
-            &principal_did,
-            &device_id,
-            &requested_scope,
-            agent_key_authorization_ref,
-            &agent_scope_request,
-            None,
-            &dpop_binding_proof,
-            verification_method.clone(),
-            challenge.clone(),
-            nonce.clone(),
-            audience.clone(),
-            expires_at,
-        )
-        .map_err(|err| anyhow::anyhow!("agent_key_proof signing input: {err}"))?;
-        let signature = runtime_signing_key.sign(
-            &signing_input
-                .canonical_bytes()
-                .map_err(|err| anyhow::anyhow!("agent_key_proof canonical bytes: {err}"))?,
-        );
-        let signature = arkret::base64url_encode(signature.to_bytes());
-        let login = AgentKeyProofLogin {
-            principal_id: principal_did.clone(),
-            device_id: device_id.clone(),
+        let unsigned_request = UnsignedAgentSessionGrantRequest::new(
+            principal_did.clone(),
+            device_id.clone(),
             requested_scope,
-            agent_key_authorization_ref: agent_key_authorization_ref.to_owned(),
+            agent_key_authorization_ref.to_owned(),
             agent_scope_request,
-            requested_scope_disclosure: None,
+            None,
             dpop_binding_proof,
-            verification_method: verification_method.clone(),
-            challenge,
-            nonce,
-            audience: audience.clone(),
-            expires_at,
-            signature,
-        };
+            None,
+            arkret::UnsignedAgentSessionGrantProof {
+                challenge,
+                audience: audience.clone(),
+                expires_at,
+                verification_method: verification_method.clone(),
+                nonce,
+            },
+        )
+        .map_err(|err| anyhow::anyhow!("author agent_key_proof request: {err}"))?;
+        let signing_bytes = unsigned_request
+            .canonical_signing_bytes()
+            .map_err(|err| anyhow::anyhow!("agent_key_proof canonical bytes: {err}"))?;
+        let signature = NonEmptyString::new(arkret::base64url_encode(
+            runtime_signing_key.sign(&signing_bytes).to_bytes(),
+        ))
+        .map_err(|err| anyhow::anyhow!("agent_key_proof signature: {err}"))?;
+        let login_request = unsigned_request
+            .attach_signature(signature)
+            .map_err(|err| anyhow::anyhow!("attach agent_key_proof signature: {err}"))?;
         let session_transport = AgentSessionGrantTransport {
             grant_base_url,
             bootstrap,
@@ -597,9 +553,7 @@ impl ArkretHttpClient {
             verification_method: verification_method.clone(),
         };
         let refresh_options = SessionRefreshOptions {
-            audience: Some(audience.clone()),
-            device_id: Some(device_id),
-            proof: None,
+            request: None,
             expected_dpop_jkt: Some(dpop_jkt),
         };
         let restored = SessionTransportProvider::restore(
@@ -624,7 +578,7 @@ impl ArkretHttpClient {
 
         let session_engine = SessionEngine::new(session_transport);
         session_engine
-            .login(LoginKind::AgentKeyProof(login), Utc::now())
+            .login_request(login_request, Utc::now())
             .await
             .map_err(agent_session_exchange_error)?;
         let state = session_engine
@@ -672,41 +626,6 @@ impl ArkretHttpClient {
             .provide()
             .await
             .map_err(|error| anyhow::anyhow!("build authenticated Arkret client: {error}"))?;
-        Ok((Self::from_inner(inner), session))
-    }
-
-    /// Construct an applet HTTP client by running DID-proof login.
-    ///
-    /// Builds an unauthenticated underlying `Client`, runs the applet
-    /// DID-proof grant exchange, then rebuilds the authenticated `Client`
-    /// carrying the `Authorization: Bearer <grant>` header. This is not the
-    /// personal-agent runtime path.
-    pub async fn login(
-        base_url: &str,
-        signer: &Ed25519PayloadSigner,
-        principal_did: DidCoreId,
-        device_id: DeviceId,
-        challenge: &str,
-        audience: &str,
-    ) -> anyhow::Result<(Self, ArkretSession)> {
-        let url =
-            Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
-        let bootstrap = ClientBuilder::new(url.clone())
-            .build()
-            .map_err(|err| anyhow::anyhow!("bootstrap HTTP client: {err}"))?;
-        let session = login_with_signer(
-            &bootstrap,
-            signer,
-            principal_did,
-            device_id,
-            challenge,
-            audience,
-        )
-        .await?;
-        let inner = ClientBuilder::new(url)
-            .auth(Auth::Bearer(session.session_grant.clone()))
-            .build()
-            .map_err(|err| anyhow::anyhow!("authenticated HTTP client: {err}"))?;
         Ok((Self::from_inner(inner), session))
     }
 
@@ -954,7 +873,7 @@ fn build_dpop_client(
     access_token: String,
 ) -> garth::Result<Client> {
     personal_agent_client_builder(base_url)
-        .auth(Auth::Dpop(DpopAuth::with_access_token(
+        .auth(Auth::Dpop(DpopAuth::with_dpop_token(
             access_token,
             move |request| {
                 arkret::dpop::build_dpop_proof(&request, &signing_key)
@@ -1052,14 +971,14 @@ mod tests {
 
     fn agent_session_state() -> SessionGrantState {
         SessionGrantState {
-            principal_id: DidCoreId::new("did:webvh:z6mkfixture:agent.example").unwrap(),
+            principal_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture").unwrap(),
             device_id: Some(
                 DeviceId::new("ak:device:0196419b-0000-7000-8000-000000000001").unwrap(),
             ),
             grant_id: arkret_wire::SessionGrantId::from_issuance_digest([0x11; 32]),
             grant_jwt: "agent.grant.jwt".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
-            audience: DidCoreId::new("did:webvh:z6mkfixture:service.example").unwrap(),
+            audience: DidCoreId::new("ak:did_core:webvh:z6mkservice").unwrap(),
             granted_scope: vec!["ak.self.events.stream.subscribe".to_owned()],
             session_public_key: Some("session-public-key".to_owned()),
             dpop_jkt: Some("agent-dpop-jkt".to_owned()),
@@ -1067,7 +986,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_session_refresh_mints_fresh_runtime_key_proof() {
+    fn agent_session_refresh_mints_valid_runtime_key_proof() {
         let state = agent_session_state();
         let device_id = state.device_id.as_ref().unwrap();
         let verification_method =
@@ -1079,35 +998,22 @@ mod tests {
             &signing_key(),
         )
         .expect("first refresh proof");
-        let second = mint_agent_session_refresh_proof(
-            &state,
-            device_id,
-            &verification_method,
-            &signing_key(),
-        )
-        .expect("second refresh proof");
-
-        assert_eq!(
-            first.proof_kind,
-            arkret::SessionGrantProofKind::AgentKeyProof
-        );
-        assert_ne!(first.challenge, second.challenge);
+        assert_eq!(first.context, arkret::AgentSessionRefreshProofContext::V1);
         assert_eq!(first.audience, state.audience);
+        assert_eq!(first.verification_method, verification_method);
         assert_eq!(
-            first.verification_method.as_ref(),
-            Some(&verification_method)
+            first.request_canonical_digest,
+            arkret::agent_session_refresh_request_digest(
+                &state.grant_jwt,
+                &state.principal_id,
+                device_id,
+                &state.audience,
+                &first.verification_method,
+            )
+            .unwrap()
         );
 
-        let claims = AgentSessionRefreshProofClaims {
-            principal_id: state.principal_id.as_str(),
-            device_id: device_id.as_str(),
-            audience: state.audience.as_str(),
-            challenge: first.challenge.as_str(),
-            request_canonical_digest: first.request_canonical_digest.as_str(),
-            issued_at: first.issued_at,
-            expires_at: first.expires_at,
-        };
-        let bytes = arkret::canonical::canonical_json_bytes(&claims).unwrap();
+        let bytes = first.canonical_signing_bytes().unwrap();
         let signature =
             Signature::from_slice(&arkret::base64url_decode(first.signature.as_str()).unwrap())
                 .unwrap();
