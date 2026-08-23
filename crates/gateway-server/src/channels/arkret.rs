@@ -479,23 +479,7 @@ async fn run_account_listener(
         &account.id,
         ACCOUNT_EVENT_DEDUPE_MAX,
     ) {
-        Ok(store) => {
-            if let Err(err) = store.ensure_created().await {
-                let path = store
-                    .path()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|_| "<unavailable>".to_owned());
-                warn!(
-                    "arkret: account '{}' durable subscribe state unavailable at {path}: {err}",
-                    account.id
-                );
-                record_listener_failure(&channel, &account, "store_error", &err);
-                runtime::record_channel_probe("arkret", "error").await;
-                return;
-            } else {
-                store
-            }
-        }
+        Ok(store) => store,
         Err(err) => {
             warn!(
                 "arkret: account '{}' failed to open durable subscribe state: {err}",
@@ -826,7 +810,17 @@ async fn refresh_account_presence(
             }
         };
         let seal_ref = match frontier.frontier {
-            arkret::EventsFrontierView::RealmSeal(frontier) => frontier.seal_id,
+            arkret::EventsFrontierView::RealmSeal(frontier) => match frontier.sole_leaf() {
+                Ok(seal_id) => seal_id.clone(),
+                Err(error) => {
+                    record_presence_failure(
+                        channel,
+                        account,
+                        format!("Realm Seal frontier for '{realm}' has no sole leaf: {error}"),
+                    );
+                    continue;
+                }
+            },
             _ => {
                 record_presence_failure(
                     channel,
@@ -1469,7 +1463,7 @@ async fn publish_account_mls_key_packages(
         }
     };
 
-    let mut records = Vec::with_capacity(2);
+    let mut records = Vec::with_capacity(1);
     let Some(key_ref) = account.key_ref.as_ref() else {
         warn!(
             channel_id = %channel.id,
@@ -1494,25 +1488,22 @@ async fn publish_account_mls_key_packages(
         );
         return;
     };
-    for last_resort in [false, true] {
-        match crypto_store.ensure_agent_mls_key_package(
-            &account.principal_id,
-            &account.device_id,
-            last_resort,
-            key_ref,
-            verification_method,
-            authorized_event_ref,
-        ) {
-            Ok(record) => records.push(record),
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    last_resort,
-                    "arkret: failed to ensure local MLS KeyPackage: {err:#}"
-                );
-                return;
-            }
+    match crypto_store.ensure_agent_mls_key_package(
+        &account.principal_id,
+        &account.device_id,
+        false,
+        key_ref,
+        verification_method,
+        authorized_event_ref,
+    ) {
+        Ok(record) => records.push(record),
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: failed to ensure local MLS KeyPackage: {err:#}"
+            );
+            return;
         }
     }
 
@@ -4543,7 +4534,6 @@ pub(crate) async fn send_to_arkret_account(
         &account.id,
         ACCOUNT_EVENT_DEDUPE_MAX,
     )?;
-    outbound_store.ensure_created().await?;
     let actor_chain_path = account_actor_chain_path(savfox_home, &account.id);
     let actor_chain_guard = account_actor_chain_lock().lock().await;
     let mut actor_chains = load_account_actor_chains(&actor_chain_path).await?;
@@ -4619,7 +4609,12 @@ pub(crate) async fn send_to_arkret_account(
         })?;
     apply_data_event_basis(
         &mut event,
-        frontier.seal_id,
+        frontier
+            .sole_leaf()
+            .map_err(|error| {
+                anyhow::anyhow!("Arkret Realm Seal frontier has no sole leaf: {error}")
+            })?
+            .clone(),
         DidCoreId::new(account.principal_id.clone())?,
         signing_key_id,
     )?;
@@ -4705,9 +4700,11 @@ pub(crate) async fn send_to_arkret_account(
     };
     let canonical_envelope_bytes = arkret::canonical::canonical_json_bytes(&submission.event)
         .map_err(|error| anyhow::anyhow!("canonicalize queued Arkret Event envelope: {error}"))?;
-    let queued_intent =
-        garth::QueuedEventIntent::new(arkret::EventIntent::from_authored(event.event()));
-    let queued_record = garth::QueuedRecord::SdkEvent(
+    let queued_intent = garth::QueuedEventIntent::new(
+        arkret::EventIntent::from_authored(event.event()),
+        arkret::canonical::DigestSuite::Sha256,
+    );
+    let queued_record = garth::QueuedRecord::SdkEvent(Box::new(
         garth::QueuedSdkEvent::authored(
             queued_intent,
             event,
@@ -4719,7 +4716,7 @@ pub(crate) async fn send_to_arkret_account(
             None,
         )
         .map_err(|error| anyhow::anyhow!("build durable Arkret queue record: {error}"))?,
-    );
+    ));
     if let Err(error) = outbound_store
         .mutate_outbound(move |queue| {
             let item = queue.enqueue(
@@ -5057,6 +5054,8 @@ mod tests {
             0,
             commit.epoch,
             hash('c'),
+            arkret::ContentScheme::MlsRfc9420,
+            None,
             arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
             "arkret.reducer.v1",
         )
@@ -5295,10 +5294,20 @@ mod tests {
             }),
         )
         .expect("online submission envelope");
+        let envelope = arkret::AuthoredEvent::finalize_with_digest_suite(
+            envelope,
+            arkret::canonical::DigestSuite::Sha256,
+        )
+        .expect("author online submission envelope");
         let canonical_envelope_bytes =
-            arkret::canonical::canonical_json_bytes(&envelope).expect("canonical envelope");
-        let record = garth::QueuedRecord::SdkEvent(
+            arkret::canonical::canonical_json_bytes(envelope.event()).expect("canonical envelope");
+        let queued_intent = garth::QueuedEventIntent::new(
+            arkret::EventIntent::from_authored(envelope.event()),
+            arkret::canonical::DigestSuite::Sha256,
+        );
+        let record = garth::QueuedRecord::SdkEvent(Box::new(
             garth::QueuedSdkEvent::authored(
+                queued_intent,
                 envelope,
                 "online-without-lease".to_owned(),
                 "online-without-lease".to_owned(),
@@ -5312,7 +5321,7 @@ mod tests {
                 None,
             )
             .expect("authored queue record"),
-        );
+        ));
         let item = queue
             .enqueue(
                 Some("online-without-lease".to_owned()),

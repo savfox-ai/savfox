@@ -564,7 +564,9 @@ fn skip_event(
 fn request_ordering_from_event(event: &arkret::Event) -> Option<SidecarRequestOrdering> {
     Some(SidecarRequestOrdering {
         actor_seq: event.actor_seq,
-        event_digest: event.event_digest().ok()?,
+        event_digest: event
+            .event_digest_with_digest_suite(super::DIGEST_SUITE)
+            .ok()?,
     })
 }
 
@@ -589,7 +591,7 @@ fn classify_sidecar_exchange_control(
                     ..
                 } => None,
             },
-            arkret::mls::encrypted_envelope_to_payload(&payload.encrypted_payload).ok(),
+            super::crypto_state::encrypted_payload_for_event(event, &payload.encrypted_payload),
         ),
         None => (None, None),
     };
@@ -667,10 +669,8 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
             .as_ref()
             .map(|payload| payload.strand_id.as_str().to_owned()),
         reply_to: message.and_then(|payload| payload.reply_to),
-        encrypted_payload: extract_encrypted_payload_from_message_content(&event.payload),
-        encrypted_metadata_payload: extract_encrypted_metadata_payload_from_message_content(
-            &event.payload,
-        ),
+        encrypted_payload: extract_encrypted_payload_from_message_content(event),
+        encrypted_metadata_payload: extract_encrypted_metadata_payload_from_message_content(event),
         request_ordering: request_ordering_from_event(event),
         reason: ArkretInboundSkipReason::EncryptedContent,
     }))

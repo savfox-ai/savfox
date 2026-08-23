@@ -1082,7 +1082,7 @@ fn try_decrypt_applet_event(
     let message = event.as_message_create().ok()?;
     let strand_id = message.strand_id.as_str().to_owned();
     let reply_to = message.reply_to;
-    let payload = extract_encrypted_payload_from_message_content(&event.payload)?;
+    let payload = extract_encrypted_payload_from_message_content(event)?;
     if let Some(device_id) = state.config.device_id.as_deref() {
         match state.crypto_store.plan_bootstrap_for_payload(
             &state.config.bot_actor_id,
@@ -1550,13 +1550,13 @@ pub(crate) async fn send_via_applet(
     // result and treat a rejection (or zero accepted/duplicate events) as a
     // failure so it flows through the same bridge_error path as a transport
     // error (spec §14), instead of being silently dropped.
-    let submit_result = match edge.submit_event(event.event()).await {
+    let submit_result = match edge.submit_event(&event).await {
         Ok(_) => Ok(()),
         Err(first) => {
             debug!(config_id, error = %first, "arkret applet submit failed; refreshing edge once");
             let refreshed = refresh_applet_edge(&state).await?;
             refreshed
-                .submit_event(event.event())
+                .submit_event(&event)
                 .await
                 .map(|_| ())
                 .map_err(|err| anyhow::anyhow!(err.to_string()))
@@ -1624,7 +1624,7 @@ async fn emit_bridge_error(
     state: &Arc<AppletChannelState>,
     realm_id: &str,
     code: &str,
-    message: &str,
+    _message: &str,
     external_ref: Option<Value>,
 ) -> anyhow::Result<()> {
     use arkret::{
@@ -1656,8 +1656,7 @@ async fn emit_bridge_error(
         code,
         retriable,
         AppletBridgeVisibilityScope::RealmAdmins,
-    )
-    .with_message(message);
+    );
     if let Some(ext) = external_ref {
         builder = builder.with_external_ref(ext);
     }

@@ -42,7 +42,10 @@ pub use applet::{
     AppletNamespacesExt, ArkretAppletConfig, NamespacePattern, NamespacePatternExt,
     classify_inbound_event, load_arkret_applet_configs, mint_ghost_did, namespace_pattern_matches,
 };
-pub use arkret_crypto::UnableToDecryptReason;
+pub use crypto_state::UnableToDecryptReason;
+
+pub(crate) const DIGEST_SUITE: arkret::canonical::DigestSuite =
+    arkret::canonical::DigestSuite::Sha256;
 pub use arkret_wire::EventInitialSubmission;
 pub use client::{
     ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretFrameStream, ArkretHttpClient,

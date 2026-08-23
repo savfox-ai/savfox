@@ -82,7 +82,11 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
         ));
     }
     builder
-        .into_event_envelope(&EventDraftKindRegistry::default(), conversion)
+        .into_event_envelope(
+            &EventDraftKindRegistry::default(),
+            conversion,
+            super::DIGEST_SUITE,
+        )
         .map(AuthoredEvent::into_event)
         .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))
 }
@@ -90,7 +94,7 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
 /// Close producer authoring after all CBA, encryption and causal fields have
 /// been applied, deriving the final content-bound Event identity.
 pub fn finalize_outbound_event(event: Event) -> anyhow::Result<AuthoredEvent> {
-    AuthoredEvent::finalize(event)
+    AuthoredEvent::finalize_with_digest_suite(event, super::DIGEST_SUITE)
         .map_err(|err| anyhow::anyhow!("failed to finalize outbound event: {err}"))
 }
 

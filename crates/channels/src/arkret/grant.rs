@@ -113,7 +113,7 @@ pub async fn load_and_verify_grant(
         }
     }
     event
-        .validate_proof_bindings()
+        .validate_proof_bindings_with_digest_suite(super::DIGEST_SUITE)
         .map_err(|err| anyhow::anyhow!("grant proof binding invalid: {err}"))?;
 
     let payload: CapabilityGrantPayload = serde_json::from_value(
@@ -287,7 +287,12 @@ mod tests {
             "proofs": []
         });
         let parsed: Event = serde_json::from_value(event.clone()).expect("event");
-        let digest = Hash::new(parsed.event_digest().expect("digest")).expect("hash");
+        let digest = Hash::new(
+            parsed
+                .event_digest_with_digest_suite(crate::arkret::DIGEST_SUITE)
+                .expect("digest"),
+        )
+        .expect("hash");
         event["proofs"] = json!([{
             "kind": "detached_jws",
             "verification_method": "did:webvh:example.com:admin#key-1",

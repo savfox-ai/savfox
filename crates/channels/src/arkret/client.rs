@@ -87,7 +87,7 @@ impl ArkretInitialSubmissionProvider for PrincipalServerInitialSubmissionProvide
         event: &PreparedStandardEvent,
     ) -> anyhow::Result<EventInitialSubmission> {
         self.client
-            .prepare_initial_standard_submission(event)
+            .prepare_initial_standard_submission(event, super::DIGEST_SUITE)
             .await
             .map_err(|error| anyhow::anyhow!(error.to_string()))
     }
@@ -719,7 +719,7 @@ impl ArkretHttpClient {
             );
         }
         submission
-            .validate_structural()
+            .validate_structural(super::DIGEST_SUITE)
             .map_err(|error| anyhow::anyhow!("invalid Arkret initial submission: {error}"))?;
         Ok(submission)
     }
@@ -730,7 +730,7 @@ impl ArkretHttpClient {
         submission: &EventInitialSubmission,
     ) -> anyhow::Result<EventsSubmitOutcome> {
         submission
-            .validate_structural()
+            .validate_structural(super::DIGEST_SUITE)
             .map_err(|error| anyhow::anyhow!("invalid Arkret initial submission: {error}"))?;
         self.inner
             .events_submit(submission)
