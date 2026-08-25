@@ -1313,7 +1313,11 @@ impl FileArkretCryptoStore {
         _device_id: &str,
         authorized_event_ref: &str,
     ) -> anyhow::Result<()> {
-        if payload.recipient_principal_id.as_str() != principal_id {
+        if payload
+            .recipient_principal_id
+            .as_ref()
+            .is_none_or(|recipient| recipient.as_str() != principal_id)
+        {
             anyhow::bail!("MLS Welcome recipient does not match this Agent runtime");
         }
         let MlsWelcomeRecipient::NativeAgent {
@@ -1353,8 +1357,8 @@ impl FileArkretCryptoStore {
                 && agent_key_authorize_event_id.as_str() == authorized_event_ref => {}
             _ => anyhow::bail!("local KeyPackage does not belong to this Agent runtime"),
         }
-        if local_keypackage.keypackage_ref.as_str() != payload.keypackage_digest.as_str()
-            || payload.claim_ref.keypackage_digest != payload.keypackage_digest
+        if local_keypackage.keypackage_ref != payload.claim_envelope.keypackage_digest
+            || payload.claim_ref.keypackage_digest != payload.claim_envelope.keypackage_digest
             || payload.claim_ref.keypackage_ref != payload.keypackage_ref
         {
             anyhow::bail!("MLS Welcome KeyPackage claim binding does not match local state");
@@ -1855,9 +1859,7 @@ pub fn mls_key_package_record_from_claim(
             MlsEndpointIdentity::human_device(claim.principal_id.clone(), device_id.clone())
         }
         (None, Some(agent_id), Some(method), Some(authorization_ref)) => {
-            if agent_id != &claim.principal_id
-                || method.as_str() != claim.device_signature.kid.as_str()
-            {
+            if agent_id != &claim.principal_id {
                 anyhow::bail!("Native Agent KeyPackage claim endpoint binding mismatch");
             }
             MlsEndpointIdentity::native_agent_runtime(
@@ -1866,20 +1868,29 @@ pub fn mls_key_package_record_from_claim(
                 authorization_ref.clone(),
             )?
         }
+        (None, None, None, None) => MlsEndpointIdentity::minimal_metadata_pairwise(
+            claim.principal_id.clone(),
+            claim
+                .pairwise_verification_method
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("pairwise KeyPackage claim omits its method"))?,
+        )?,
         _ => anyhow::bail!("KeyPackage claim has an incomplete or mixed endpoint identity"),
     };
+    let keypackage = arkret::base64url_decode(claim.keypackage.as_bytes())?;
+    let keypackage_ref = arkret::Hash::new(arkret::canonical::sha256_digest(&keypackage))?;
     Ok(MlsKeyPackageRecord {
         keypackage_id: claim.keypackage_ref.clone(),
         endpoint,
         keypackage: claim.keypackage.clone(),
-        keypackage_ref: claim.keypackage_digest.clone(),
+        keypackage_ref,
         cipher_suites: Vec::new(),
         capabilities: claim.capabilities.clone(),
         state: MlsKeyPackageState::Claimed,
         claim_id: Some(claim.claim_id.clone()),
         created_at: Utc::now(),
         expires_at: Some(claim.expires_at),
-        device_signature: None,
+        endpoint_signature: None,
         last_resort: claim.last_resort.unwrap_or(false),
     })
 }
@@ -1967,7 +1978,7 @@ pub fn extract_mls_welcome_envelope(value: &Value) -> Option<MlsWelcomeEnvelope>
             MlsWelcomeRecipient::Device {
                 recipient_device_id,
             } => MlsEndpointIdentity::human_device(
-                payload.recipient_principal_id,
+                payload.recipient_principal_id?,
                 recipient_device_id,
             ),
             MlsWelcomeRecipient::NativeAgent {
@@ -1978,6 +1989,14 @@ pub fn extract_mls_welcome_envelope(value: &Value) -> Option<MlsWelcomeEnvelope>
                 recipient_agent_id,
                 recipient_agent_verification_method,
                 agent_key_authorize_event_id,
+            )
+            .ok()?,
+            MlsWelcomeRecipient::MinimalMetadataPairwise {
+                recipient_pairwise_actor_id,
+                recipient_pairwise_verification_method,
+            } => MlsEndpointIdentity::minimal_metadata_pairwise(
+                recipient_pairwise_actor_id,
+                recipient_pairwise_verification_method,
             )
             .ok()?,
         };
@@ -2116,7 +2135,7 @@ fn extract_mls_welcome_consume_binding_inner(
             strand_id: None,
             mls_group_id: payload.mls_group_id.to_string(),
             epoch: payload.epoch,
-            group_state_ref: payload.commit_ref.map(|event_id| event_id.to_string()),
+            group_state_ref: Some(payload.commit_ref.to_string()),
             recipient_durable_receipt: None,
         });
     }
@@ -2325,7 +2344,8 @@ fn mls_identity_signature_public_key(identity: &ArkretMlsIdentity) -> anyhow::Re
 fn endpoint_human_device_id(endpoint: &MlsEndpointIdentity) -> Option<&DeviceId> {
     match endpoint {
         MlsEndpointIdentity::HumanDevice { device_id, .. } => Some(device_id),
-        MlsEndpointIdentity::NativeAgentRuntime { .. } => None,
+        MlsEndpointIdentity::NativeAgentRuntime { .. }
+        | MlsEndpointIdentity::MinimalMetadataPairwise { .. } => None,
     }
 }
 
@@ -3379,24 +3399,18 @@ mod tests {
         let claim = KeyPackageClaimRecord {
             claim_id: "ak:claim:test-claim-record".to_owned(),
             keypackage_ref: "ak:mls:keypackage:test-claim-record".to_owned(),
-            keypackage_digest: bob_key_package.keypackage_ref.clone(),
             principal_id: DidCoreId::new(bob_principal.to_owned()).unwrap(),
             device_id: Some(DeviceId::new(bob_device.to_owned()).unwrap()),
             agent_id: None,
             agent_verification_method: None,
+            pairwise_verification_method: None,
             keypackage: bob_key_package.keypackage.clone(),
             capabilities: bob_key_package.capabilities.clone(),
-            capabilities_digest: Hash::new(format!("sha256:{}", "bb".repeat(32))).unwrap(),
             device_authorize_event_id: Some(
                 EventId::new("ak:event:01904100-0000-7000-8000-000000000009".to_owned()).unwrap(),
             ),
             agent_key_authorize_event_id: None,
             expires_at: Utc::now() + chrono::Duration::days(1),
-            device_signature: KeyOperationSignature {
-                kid: arkret::NonEmptyString::new(format!("{bob_principal}#runtime-1")).unwrap(),
-                signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
-                sig: arkret::Base64UrlString::new("c2ln").unwrap(),
-            },
             revocation_status: Some("active".to_owned()),
             last_resort: Some(false),
         };
@@ -3686,7 +3700,6 @@ mod tests {
                 "mls_group_id": add.welcome.group_id.clone(),
                 "claim_purpose": "realm_membership",
                 "required_capabilities": ["mimi.content.v1"],
-                "claim_nonce": "Y2xhaW0tcmVxdWVzdC1ub25jZQ",
                 "expires_at": "2099-01-01T00:00:00.000Z",
                 "target_device_ids": [device.as_str()]
             },
@@ -3698,13 +3711,12 @@ mod tests {
         let payload = MlsWelcomePayload {
             mls_group_id: MlsGroupId::new(add.welcome.group_id.clone()).expect("group id"),
             epoch: add.welcome.epoch,
-            recipient_principal_id: principal.clone(),
+            recipient_principal_id: Some(principal.clone()),
             recipient: MlsWelcomeRecipient::Device {
                 recipient_device_id: device.clone(),
             },
             sender_device_id: None,
             keypackage_ref: key_package.keypackage_ref.as_str().to_owned(),
-            keypackage_digest: key_package.keypackage_ref.clone(),
             claim_id,
             claim_ref,
             claim_envelope,
@@ -3715,7 +3727,8 @@ mod tests {
                 Some(NonEmptyString::new(add.welcome.welcome.clone()).expect("ciphertext")),
             )
             .expect("carrier"),
-            commit_ref: None,
+            commit_ref: EventId::new("ak:event:01904100-0000-7000-8000-000000000013".to_owned())
+                .expect("commit ref"),
             governance_binding,
             expires_at: Utc::now() + chrono::Duration::hours(1),
         };

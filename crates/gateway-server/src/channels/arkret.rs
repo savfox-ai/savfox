@@ -21,7 +21,7 @@ use arkret::{
     EventsFrontierView, KeyPackagesConsumeOutcome, KeyPackagesConsumeUnsignedRequest,
     KeyPackagesRevokeUnsignedRequest, KeyPackagesUploadRequestBody,
     KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord, PreparedDataEvent,
-    PreparedStandardEvent, RealmId, StrandId,
+    PreparedStandardEvent, RealmId,
 };
 use chrono::Utc;
 use garth::{
@@ -1451,18 +1451,6 @@ async fn publish_account_mls_key_packages(
             return;
         }
     };
-    let device = match DeviceId::new(account.device_id.clone()) {
-        Ok(device) => device,
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                "arkret: invalid device id for MLS KeyPackage upload: {err}"
-            );
-            return;
-        }
-    };
-
     let mut records = Vec::with_capacity(1);
     let Some(key_ref) = account.key_ref.as_ref() else {
         warn!(
@@ -1512,10 +1500,10 @@ async fn publish_account_mls_key_packages(
         channel,
         account,
         principal.clone(),
-        device.clone(),
         &records,
         key_ref,
         verification_method,
+        authorized_event_ref,
     )
     .await
     else {
@@ -1550,10 +1538,10 @@ async fn publish_account_mls_key_packages(
         channel,
         account,
         principal,
-        device,
         &fresh,
         key_ref,
         verification_method,
+        authorized_event_ref,
     )
     .await;
     if replenished_count.is_none_or(|count| count < KEYPACKAGE_MIN_AVAILABLE) {
@@ -1579,17 +1567,17 @@ async fn upload_account_mls_key_packages(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     principal: DidCoreId,
-    device: DeviceId,
     records: &[MlsKeyPackageRecord],
     key_ref: &ArkretKeyRef,
     verification_method: &str,
+    authorized_event_ref: &str,
 ) -> Option<u64> {
     let request = match build_signed_keypackage_upload_request(
         principal,
-        device,
         records,
         key_ref,
         verification_method,
+        authorized_event_ref,
     ) {
         Ok(request) => request,
         Err(err) => {
@@ -1745,7 +1733,7 @@ async fn revoke_account_mls_key_package_refs(
         key_package_refs: key_package_refs.clone(),
         device_id: device,
         reason: Some(
-            arkret::NonEmptyString::new(reason.to_owned())
+            arkret::AuditReasonText::new(reason.to_owned())
                 .map_err(|error| anyhow::anyhow!("invalid KeyPackage revoke reason: {error}"))?,
         ),
     };
@@ -1811,12 +1799,16 @@ fn keypackage_retirement_failure_is_terminal(reason_code: &arkret::ReasonCode) -
 
 fn consume_outcome_acknowledges_binding(
     outcome: &KeyPackagesConsumeOutcome,
+    claim_id: &str,
     keypackage_ref: &str,
 ) -> bool {
-    outcome.failures.is_empty()
-        || (outcome.failures.len() == 1
-            && outcome.failures[0].keypackage_ref.as_deref() == Some(keypackage_ref)
-            && keypackage_retirement_failure_is_terminal(&outcome.failures[0].reason_code))
+    outcome.consume_receipt.claim_id.as_str() == claim_id
+        && outcome
+            .consume_receipt
+            .recipient_durable_receipt
+            .key_package_ref
+            .as_str()
+            == keypackage_ref
 }
 
 /// Outcome of an explicit Agent runtime unbind, surfaced to the RPC caller.
@@ -1928,10 +1920,10 @@ fn terminal_agent_authorization_makes_pool_unclaimable(error: &anyhow::Error) ->
 
 fn build_signed_keypackage_upload_request(
     principal_id: DidCoreId,
-    device_id: DeviceId,
     records: &[MlsKeyPackageRecord],
     key_ref: &ArkretKeyRef,
     verification_method: &str,
+    authorized_event_ref: &str,
 ) -> anyhow::Result<KeyPackagesUploadRequestBody> {
     let key_packages = records
         .iter()
@@ -1941,15 +1933,21 @@ fn build_signed_keypackage_upload_request(
         .context("project canonical MLS KeyPackage upload entries")?;
     let unsigned = KeyPackagesUploadUnsignedRequest {
         principal_id,
-        device_id,
+        device_id: None,
+        pairwise_verification_method: None,
+        intended_realm_id: None,
+        agent_verification_method: Some(
+            arkret::DidUrl::new(verification_method.to_owned()).map_err(anyhow::Error::msg)?,
+        ),
+        agent_key_authorize_event_id: Some(EventId::new(authorized_event_ref.to_owned())?),
         keypackages: key_packages,
         expires_at: None,
         strand_id: None,
         mls_group_id: None,
     };
-    let device_signature =
+    let endpoint_signature =
         sign_keypackages_upload_request(key_ref, verification_method, &unsigned)?;
-    Ok(unsigned.into_signed(device_signature))
+    Ok(unsigned.into_signed(endpoint_signature))
 }
 
 async fn drain_account_device_messages_from_cursor(
@@ -2184,17 +2182,6 @@ async fn consume_account_mls_key_packages(
         );
         return;
     }
-    let consumer_device = match DeviceId::new(account.device_id.clone()) {
-        Ok(device) => device,
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                "arkret: invalid device id for MLS KeyPackage consume: {err}"
-            );
-            return;
-        }
-    };
     let Some(key_ref) = account.key_ref.as_ref() else {
         warn!(
             channel_id = %channel.id,
@@ -2226,30 +2213,6 @@ async fn consume_account_mls_key_packages(
             );
             continue;
         }
-        let realm_id = match optional_realm_id(binding.realm_id.as_deref()) {
-            Ok(realm_id) => realm_id,
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    keypackage_ref = %binding.keypackage_ref,
-                    "arkret: invalid Realm id in MLS Welcome consume binding: {err}"
-                );
-                continue;
-            }
-        };
-        let strand_id = match optional_strand_id(binding.strand_id.as_deref()) {
-            Ok(strand_id) => strand_id,
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    keypackage_ref = %binding.keypackage_ref,
-                    "arkret: invalid Strand id in MLS Welcome consume binding: {err}"
-                );
-                continue;
-            }
-        };
         let Some(recipient_durable_receipt) = binding.recipient_durable_receipt.clone() else {
             warn!(
                 channel_id = %channel.id,
@@ -2259,13 +2222,6 @@ async fn consume_account_mls_key_packages(
             );
             continue;
         };
-        let owner_account_id = match arkret::DidCoreId::new(account.id.clone()) {
-            Ok(value) => value,
-            Err(error) => {
-                warn!(channel_id = %channel.id, account_id = %account.id, "arkret: invalid account id for MLS KeyPackage consume: {error}");
-                continue;
-            }
-        };
         let claim_id = match arkret::NonEmptyString::new(binding.claim_id.clone()) {
             Ok(value) => value,
             Err(error) => {
@@ -2273,33 +2229,9 @@ async fn consume_account_mls_key_packages(
                 continue;
             }
         };
-        let welcome_ref = match arkret::NonEmptyString::new(binding.welcome_ref.clone().unwrap()) {
-            Ok(value) => value,
-            Err(error) => {
-                warn!(channel_id = %channel.id, account_id = %account.id, keypackage_ref = %binding.keypackage_ref, "arkret: invalid welcome ref: {error}");
-                continue;
-            }
-        };
-        let mls_group_id = match arkret::NonEmptyString::new(binding.mls_group_id.clone()) {
-            Ok(value) => value,
-            Err(error) => {
-                warn!(channel_id = %channel.id, account_id = %account.id, keypackage_ref = %binding.keypackage_ref, "arkret: invalid MLS group id: {error}");
-                continue;
-            }
-        };
         let unsigned = KeyPackagesConsumeUnsignedRequest {
-            owner_account_id,
-            key_package_refs: vec![binding.keypackage_ref.clone()],
-            consumer: arkret::KeyPackageConsumer::Device {
-                consumer_device_id: consumer_device.clone(),
-            },
-            claim_ids: vec![claim_id],
-            welcome_ref,
+            claim_id,
             recipient_durable_receipt,
-            realm_id,
-            strand_id,
-            mls_group_id: Some(mls_group_id),
-            epoch: Some(binding.epoch),
         };
         let signature =
             match sign_keypackages_consume_request(key_ref, verification_method, &unsigned) {
@@ -2317,7 +2249,11 @@ async fn consume_account_mls_key_packages(
         let request = unsigned.into_signed(signature);
         match client.inner().keypackages_consume(&request).await {
             Ok(outcome)
-                if consume_outcome_acknowledges_binding(&outcome, &binding.keypackage_ref) =>
+                if consume_outcome_acknowledges_binding(
+                    &outcome,
+                    &binding.claim_id,
+                    &binding.keypackage_ref,
+                ) =>
             {
                 consumed_any = true;
                 if let Err(err) =
@@ -2342,8 +2278,6 @@ async fn consume_account_mls_key_packages(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     keypackage_ref = %binding.keypackage_ref,
-                    consumed = outcome.consumed.len(),
-                    idempotent_terminal_replay = !outcome.failures.is_empty(),
                     "arkret: consumed MLS KeyPackage after Welcome decrypt"
                 );
             }
@@ -2352,8 +2286,8 @@ async fn consume_account_mls_key_packages(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     keypackage_ref = %binding.keypackage_ref,
-                    failures = ?outcome.failures,
-                    "arkret: MLS KeyPackage consume returned failures"
+                    receipt = ?outcome.consume_receipt,
+                    "arkret: MLS KeyPackage consume receipt does not match the pending binding"
                 );
             }
             Err(err) => warn!(
@@ -2370,18 +2304,6 @@ async fn consume_account_mls_key_packages(
         // the server-provided available_count remains the source of truth.
         publish_account_mls_key_packages(client, channel, account, crypto_store).await;
     }
-}
-
-fn optional_realm_id(value: Option<&str>) -> anyhow::Result<Option<RealmId>> {
-    value
-        .map(|value| RealmId::new(value.to_owned()).map_err(anyhow::Error::from))
-        .transpose()
-}
-
-fn optional_strand_id(value: Option<&str>) -> anyhow::Result<Option<StrandId>> {
-    value
-        .map(|value| StrandId::new(value.to_owned()).map_err(anyhow::Error::from))
-        .transpose()
 }
 
 async fn account_event_seen(
@@ -4941,15 +4863,15 @@ mod tests {
     }
 
     /// Signed consume receipt every `KeyPackagesConsumeOutcome` now carries.
-    /// Only `failures` is read by the assertions below, so the receipt just has
-    /// to be well-formed.
-    fn consume_receipt_fixture(keypackage_ref: &str) -> arkret::KeyPackageConsumeReceipt {
+    fn consume_receipt_fixture(
+        claim_id: &str,
+        keypackage_ref: &str,
+    ) -> arkret::KeyPackageConsumeReceipt {
         let device_verification_method = "did:webvh:example.org:service#key-1";
         arkret::KeyPackageConsumeReceipt {
             domain: arkret::NonEmptyString::new("ak.keypackage-consume-receipt.v1").unwrap(),
-            claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
-            claim_ids: vec![arkret::NonEmptyString::new("ak:claim:direct-welcome").unwrap()],
-            key_package_refs: vec![keypackage_ref.to_owned()],
+            request_digest: arkret::Hash::new(format!("sha256:{}", "22".repeat(32))).unwrap(),
+            claim_id: arkret::NonEmptyString::new(claim_id).unwrap(),
             recipient_durable_receipt: arkret::RecipientMlsDurableReceipt {
                 domain: arkret::NonEmptyString::new("ak.recipient-mls-durable-receipt.v1").unwrap(),
                 claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
@@ -4984,15 +4906,6 @@ mod tests {
                     sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
                 },
             },
-            welcome_ref: arkret::NonEmptyString::new(
-                "ak:event:01904100-0000-8000-8000-000000000007",
-            )
-            .unwrap(),
-            realm_id: realm_id(),
-            mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
-            mls_epoch: 1,
-            source_service_id: arkret::DidCoreId::new("did:webvh:example.org:service".to_owned())
-                .unwrap(),
             consumed_at: chrono::Utc::now(),
             signature: arkret::KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(device_verification_method).unwrap(),
@@ -5003,33 +4916,25 @@ mod tests {
     }
 
     #[test]
-    fn pending_welcome_consume_accepts_only_its_own_terminal_replay() {
+    fn pending_welcome_consume_accepts_only_its_own_receipt_binding() {
+        let claim_id = "ak:claim:direct-welcome";
         let keypackage_ref = "sha256:direct-welcome-keypackage";
-        let terminal = KeyPackagesConsumeOutcome {
-            consumed: Vec::new(),
-            consume_receipt: consume_receipt_fixture(keypackage_ref),
-            failures: vec![arkret::Failure {
-                keypackage_ref: Some(keypackage_ref.to_owned()),
-                device_id: None,
-                reason_code: arkret::ReasonCode::from_wire(
-                    arkret::ErrorCode::KEYPACKAGE_ALREADY_CONSUMED,
-                ),
-                retry_after_ms: None,
-            }],
+        let outcome = KeyPackagesConsumeOutcome {
+            consume_receipt: consume_receipt_fixture(claim_id, keypackage_ref),
         };
         assert!(consume_outcome_acknowledges_binding(
-            &terminal,
+            &outcome,
+            claim_id,
             keypackage_ref
         ));
         assert!(!consume_outcome_acknowledges_binding(
-            &terminal,
+            &outcome,
+            claim_id,
             "sha256:another-keypackage"
         ));
-
-        let mut non_terminal = terminal;
-        non_terminal.failures[0].reason_code = arkret::ReasonCode::ClaimInvalid;
         assert!(!consume_outcome_acknowledges_binding(
-            &non_terminal,
+            &outcome,
+            "ak:claim:another-claim",
             keypackage_ref
         ));
     }
@@ -5514,7 +5419,7 @@ mod tests {
             claim_id: None,
             created_at: Utc::now(),
             expires_at: None,
-            device_signature: None,
+            endpoint_signature: None,
             last_resort,
         }
     }
@@ -5547,10 +5452,10 @@ mod tests {
 
         let request = build_signed_keypackage_upload_request(
             principal_id.clone(),
-            device_id.clone(),
             &records,
             &key_ref,
             &verification_method,
+            "ak:event:01904100-0000-8000-8000-000000000008",
         )
         .unwrap();
 
@@ -5558,7 +5463,22 @@ mod tests {
             request
                 .keypackages
                 .iter()
-                .all(|entry| entry.device_signature.is_none())
+                .all(|entry| entry.endpoint_signature.is_none())
+        );
+        assert_eq!(request.device_id, None);
+        assert_eq!(
+            request
+                .agent_verification_method
+                .as_ref()
+                .map(arkret::DidUrl::as_str),
+            Some(verification_method.as_str())
+        );
+        assert_eq!(
+            request
+                .agent_key_authorize_event_id
+                .as_ref()
+                .map(arkret::EventId::as_str),
+            Some("ak:event:01904100-0000-8000-8000-000000000008")
         );
         assert_eq!(request.keypackages[0].last_resort, None);
         assert_eq!(request.keypackages[1].last_resort, Some(true));
@@ -5571,7 +5491,7 @@ mod tests {
             &public_key,
             &verification_method,
             &batch_input,
-            &request.device_signature,
+            &request.endpoint_signature,
         )
         .unwrap();
 
@@ -5587,7 +5507,7 @@ mod tests {
                 &public_key,
                 &verification_method,
                 &entry_input,
-                &request.device_signature,
+                &request.endpoint_signature,
             )
             .is_err()
         );

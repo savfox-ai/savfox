@@ -346,6 +346,7 @@ mod tests {
     use super::*;
 
     const TEST_DID: &str = "did:webvh:example.org:agents:support";
+    const TEST_CORE_DID: &str = "ak:did_core:webvh:example.org";
     const TEST_VM: &str = "did:webvh:example.org:agents:support#key-1";
     const TEST_SEED: [u8; 32] = [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
@@ -364,7 +365,7 @@ mod tests {
                 "ak:mls:kp:01904100-0000-7000-8000-000000000001",
             )
             .unwrap(),
-            recipient_principal_id: arkret::DidCoreId::new(TEST_DID).unwrap(),
+            recipient_principal_id: arkret::DidCoreId::new(TEST_CORE_DID).unwrap(),
             recipient: arkret::RecipientMlsDurableSigner::Device {
                 recipient_device_id: arkret::DeviceId::new(
                     "ak:device:01904100-0000-7000-8000-000000000001",
@@ -372,8 +373,9 @@ mod tests {
                 .unwrap(),
                 device_verification_method: arkret::DidUrl::new(TEST_VM).unwrap(),
             },
-            recipient_service_id: arkret::DidCoreId::new("did:webvh:example.org:service").unwrap(),
-            realm_id: arkret::RealmId::new("ak:realm:01904100-0000-8000-8000-000000000001")
+            recipient_service_id: arkret::DidCoreId::new("ak:did_core:web:service.example")
+                .unwrap(),
+            realm_id: arkret::RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI")
                 .unwrap(),
             mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
             mls_epoch: 3,
@@ -500,24 +502,8 @@ mod tests {
     fn keypackage_consume_signer_uses_sdk_canonical_input() {
         let key_ref = ArkretKeyRef::InlineSeedBase64 { value: seed_b64() };
         let unsigned = arkret::KeyPackagesConsumeUnsignedRequest {
-            owner_account_id: arkret::DidCoreId::new(TEST_DID).unwrap(),
-            key_package_refs: vec!["ak:mls:kp:01904100-0000-7000-8000-000000000001".to_owned()],
-            consumer: arkret::KeyPackageConsumer::Device {
-                consumer_device_id: arkret::DeviceId::new(
-                    "ak:device:01904100-0000-7000-8000-000000000001".to_owned(),
-                )
-                .unwrap(),
-            },
-            claim_ids: vec![arkret::NonEmptyString::new("ak:claim:fixture").unwrap()],
-            welcome_ref: arkret::NonEmptyString::new(
-                "ak:event:01904100-0000-8000-8000-000000000002",
-            )
-            .unwrap(),
+            claim_id: arkret::NonEmptyString::new("ak:claim:fixture").unwrap(),
             recipient_durable_receipt: test_recipient_durable_receipt(),
-            realm_id: None,
-            strand_id: None,
-            mls_group_id: Some(arkret::NonEmptyString::new("mls-group-fixture").unwrap()),
-            epoch: Some(3),
         };
 
         let signature = sign_keypackages_consume_request(&key_ref, TEST_VM, &unsigned).unwrap();

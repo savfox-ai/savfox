@@ -576,6 +576,7 @@ dependencies = [
  "arkret-canonical",
  "arkret-crypto",
  "arkret-identifiers",
+ "arkret-models-collaboration",
  "arkret-models-crypto",
  "arkret-policy",
  "arkret-signatures",
@@ -10189,7 +10190,6 @@ version = "0.3.1"
 dependencies = [
  "anyhow",
  "arkret",
- "arkret-bridge-runtime",
  "arkret-crypto",
  "arkret-models-collaboration",
  "arkret-schema",

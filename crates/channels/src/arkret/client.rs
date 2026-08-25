@@ -290,7 +290,6 @@ pub fn build_mls_key_packages_claim_request(
     requester: &str,
     claim_purpose: PeerKeyPackageClaimPurpose,
     required_capabilities: &[String],
-    claim_nonce: String,
     expires_at: DateTime<Utc>,
     target_device_ids: &[String],
     strand_id: Option<&str>,
@@ -303,11 +302,6 @@ pub fn build_mls_key_packages_claim_request(
     let claim_request_id = Base64UrlString::new(claim_request_id).map_err(|error| {
         anyhow::anyhow!("invalid Arkret MLS KeyPackage claim request id: {error}")
     })?;
-    if claim_nonce.trim().is_empty() {
-        anyhow::bail!("Arkret MLS KeyPackage claim nonce must not be empty");
-    }
-    let claim_nonce = Base64UrlString::new(claim_nonce)
-        .map_err(|error| anyhow::anyhow!("invalid Arkret MLS KeyPackage claim nonce: {error}"))?;
     let target_principal_id = DidCoreId::new(target_principal_id.to_owned())
         .with_context(|| format!("invalid Arkret KeyPackage target DID '{target_principal_id}'"))?;
     let intended_realm_id = RealmId::new(intended_realm_id.to_owned()).with_context(|| {
@@ -361,14 +355,13 @@ pub fn build_mls_key_packages_claim_request(
         mls_group_id,
         claim_purpose,
         required_capabilities,
-        claim_nonce,
         expires_at,
         target_device_ids,
         target_keypackage_ref: None,
         target_agent_id: None,
         target_agent_verification_method: None,
         target_agent_key_authorize_event_id: None,
-        minimal_metadata_allowed: None,
+        target_pairwise_verification_method: None,
         timeout_ms,
         strand_id,
         pair_key: None,
@@ -1087,9 +1080,9 @@ mod tests {
         let verification_method = "did:webvh:z6mkfixture:alice.example#runtime-key-1";
         let authorization = PeerKeyPackageRequesterAuthorization::NativeAgent {
             verification_method: DidUrl::new(verification_method).unwrap(),
-            requester_agent_id: DidCoreId::new("did:webvh:z6mkfixture:alice.example").unwrap(),
+            requester_agent_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture").unwrap(),
             agent_key_authorize_event_id: arkret::EventId::new(
-                "ak:event:01904100-0000-7000-8000-000000000011",
+                "ak:event:AT3ARBdH1FM6GjXK9ulTx-YMvQOXys39dlUzZV6KyID9",
             )
             .unwrap(),
             signed_at: Utc::now(),
@@ -1101,26 +1094,25 @@ mod tests {
         };
         let request = build_mls_key_packages_claim_request(
             "AQEBAQEBAQEBAQEBAQEBAQ".to_owned(),
-            "did:webvh:z6mkfixture:bob.example",
-            "ak:realm:01904100-0000-8000-8000-000000000001",
-            "did:webvh:z6mkfixture:alice.example",
+            "ak:did_core:webvh:z6mkbobfixture",
+            "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI",
+            "ak:did_core:webvh:z6mkfixture",
             PeerKeyPackageClaimPurpose::RealmMembership,
-            &["mimi.content.v1".to_owned(), "ak.content.v1".to_owned()],
-            "AQEBAQEBAQEBAQEBAQEBAQ".to_owned(),
+            &["ak.content.v1".to_owned(), "mimi.content.v1".to_owned()],
             Utc::now() + chrono::Duration::minutes(5),
             &["ak:device:01904100-0000-7000-8000-00000000000e".to_owned()],
-            Some("ak:strand:01904100-0000-8000-8000-000000000002"),
+            Some("ak:strand:AT_TSQZlyY7Fu85J33nzo3fSau9RjJOeu21RspghP1gC"),
             "group-1",
             Some(1500),
-            "did:webvh:z6mkfixture:service.example",
-            "did:webvh:z6mkfixture:peer-service.example",
+            "ak:did_core:webvh:z6mkservicefixture",
+            "ak:did_core:webvh:z6mkpeerservicefixture",
             authorization,
         )
         .expect("claim request should build");
 
         assert_eq!(
             request.target_principal_id.as_str(),
-            "did:webvh:z6mkfixture:bob.example"
+            "ak:did_core:webvh:z6mkbobfixture"
         );
         assert_eq!(request.claim_request_id.as_str(), "AQEBAQEBAQEBAQEBAQEBAQ");
         assert_eq!(
@@ -1131,12 +1123,12 @@ mod tests {
         assert_eq!(request.target_device_ids.len(), 1);
         assert_eq!(
             request.strand_id.as_ref().map(StrandId::as_str),
-            Some("ak:strand:01904100-0000-8000-8000-000000000002")
+            Some("ak:strand:AT_TSQZlyY7Fu85J33nzo3fSau9RjJOeu21RspghP1gC")
         );
         assert_eq!(request.mls_group_id.as_str(), "group-1");
         assert_eq!(
             request.service_binding.source_service_id.as_str(),
-            "did:webvh:z6mkfixture:service.example"
+            "ak:did_core:webvh:z6mkservicefixture"
         );
         let PeerKeyPackageRequesterAuthorization::NativeAgent {
             verification_method: authorized_method,
@@ -1154,19 +1146,18 @@ mod tests {
             keypackage_ref: "ak:mls:keypackage:test".to_owned(),
             keypackage_digest: arkret::Hash::new(format!("sha256:{}", "aa".repeat(32))).unwrap(),
             intended_realm_id: RealmId::new(
-                "ak:realm:01904100-0000-8000-8000-000000000001".to_owned(),
+                "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI".to_owned(),
             )
             .unwrap(),
             claim_id: arkret::NonEmptyString::new("ak:claim:test").unwrap(),
-            requester_actor_id: DidCoreId::new("did:webvh:z6mkfixture:alice.example".to_owned())
-                .unwrap(),
+            requester_actor_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture".to_owned()).unwrap(),
             trust_binding: arkret::MlsRequesterTrustBinding::RequesterDevice {
                 requester_device_id: DeviceId::new(
                     "ak:device:01904100-0000-7000-8000-000000000001".to_owned(),
                 )
                 .unwrap(),
                 requester_device_authorize_event_id: arkret::EventId::new(
-                    "ak:event:01904100-0000-7000-8000-000000000009".to_owned(),
+                    "ak:event:AT3ARBdH1FM6GjXK9ulTx-YMvQOXys39dlUzZV6KyID9".to_owned(),
                 )
                 .unwrap(),
             },

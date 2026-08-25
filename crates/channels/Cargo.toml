@@ -28,7 +28,6 @@ arkret = [
     "dep:arkret-signatures",
     "dep:arkret-wire",
     "dep:garth",
-    "dep:arkret-bridge-runtime",
     "dep:savfox-keyring-store",
     "dep:rand",
     "dep:chacha20poly1305",
@@ -73,7 +72,6 @@ arkret-models-collaboration = { workspace = true, optional = true }
 arkret-signatures = { workspace = true, optional = true }
 arkret-wire = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
-arkret-bridge-runtime = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

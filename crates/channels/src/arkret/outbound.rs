@@ -135,11 +135,13 @@ pub fn apply_data_event_basis(
     if event.seal_basis.is_some() || !event.preconditions.is_empty() {
         anyhow::bail!("DataEvent cannot carry seal_basis or preconditions");
     }
+    if event.actor_id != signer_did {
+        anyhow::bail!("DataEvent signer must match the Event actor");
+    }
     let key_id = OpaqueLocalId::new(key_id)
         .map_err(|err| anyhow::anyhow!("invalid DataEvent auth_context key id: {err}"))?;
     event.seal_ref = Some(seal_id);
     event.auth_context = Some(AuthContext {
-        actor_id: signer_did,
         key_id,
         key_epoch: 0,
         credential_epoch: None,
@@ -225,7 +227,7 @@ mod tests {
         assert!(event.seal_ref.is_some());
         let auth_context = event.auth_context.expect("auth context");
         assert_eq!(auth_context.key_id.as_str(), "agent-device");
-        assert_eq!(auth_context.actor_id.as_str(), valid_request().principal_id);
+        assert_eq!(event.actor_id.as_str(), valid_request().principal_id);
         assert!(event.seal_basis.is_none());
     }
 

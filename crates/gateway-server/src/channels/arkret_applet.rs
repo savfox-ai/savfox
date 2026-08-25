@@ -35,7 +35,7 @@ use arkret::http_signature::{
     parse_signature_input, public_key_from_bytes, verify_signed_http_message,
 };
 use arkret::{
-    AppletActorView, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
+    AppletActorView, AppletId, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, DidCoreId,
     EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity,
     IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe, ServiceKind,
@@ -352,7 +352,8 @@ async fn applet_ping(req: &mut Request, res: &mut Response) {
     };
     let body = AppletPingOutcome {
         ok: true,
-        applet_id: state.config.applet_id.clone(),
+        applet_id: AppletId::new(state.config.applet_id.clone())
+            .expect("applet_id validated at channel registration"),
         // `service_id` is strictly validated (DidCoreId::new) in
         // `ArkretAppletConfig::validate()` before the channel is registered,
         // so a registered applet always has a parseable DID here. No silent
@@ -1629,7 +1630,6 @@ async fn emit_bridge_error(
 ) -> anyhow::Result<()> {
     use arkret::{
         AppletBridgeErrorBuilder, AppletBridgeErrorClass, AppletBridgeVisibilityScope, AppletId,
-        AppletIdentifier,
     };
 
     let cfg = &state.config;
@@ -1649,7 +1649,7 @@ async fn emit_bridge_error(
     let retriable = !matches!(code, "external_rejected");
     let mut builder = AppletBridgeErrorBuilder::new(
         realm.clone(),
-        AppletIdentifier::Cx(applet_id),
+        applet_id,
         actor,
         failed_transaction_ref,
         AppletBridgeErrorClass::ExternalNetwork,
