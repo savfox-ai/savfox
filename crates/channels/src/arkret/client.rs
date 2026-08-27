@@ -18,10 +18,10 @@ use arkret::{
     AgentSessionRefreshProofContext, Base64UrlString, DeviceId, DidCoreId, DidUrl,
     EventsSubmitOutcome, EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
     KeyPackagesClaimRequestBody, KeyPackagesClaimServiceBinding, MlsWelcomeClaimEnvelope,
-    NonEmptyString, PeerKeyPackageClaimPurpose, PeerKeyPackageRequesterAuthorization,
-    PreparedStandardEvent, RealmId, ServiceDescribe, SessionGrantDpopBindingProof,
-    SessionGrantRefreshRequestBody, StrandId, SyncRequestBody, UnsignedAgentSessionGrantRequest,
-    UnsignedAgentSessionRefreshProof,
+    NonEmptyString, PeerKeyPackageClaimPurpose, PeerKeyPackageClaimReceipt,
+    PeerKeyPackageRequesterAuthorization, PreparedStandardEvent, RealmId, ServiceDescribe,
+    SessionGrantDpopBindingProof, SessionGrantRefreshRequestBody, StrandId, SyncRequestBody,
+    UnsignedAgentSessionGrantRequest, UnsignedAgentSessionRefreshProof,
 };
 use arkret_wire::EventInitialSubmission;
 use chrono::{DateTime, Utc};
@@ -252,6 +252,7 @@ pub type ArkretAgentSessionProvider = SessionTransportProvider<
 pub fn sign_mls_welcome_claim_envelope(
     key_ref: &ArkretKeyRef,
     verification_method: &str,
+    claim_receipt: &PeerKeyPackageClaimReceipt,
     envelope: &mut MlsWelcomeClaimEnvelope,
 ) -> anyhow::Result<()> {
     let verification_method = verification_method.trim();
@@ -260,7 +261,7 @@ pub fn sign_mls_welcome_claim_envelope(
     }
     let signing_key = load_ed25519_signing_key(key_ref)?;
     let signing_input = envelope
-        .canonical_signing_bytes()
+        .canonical_signing_bytes(claim_receipt)
         .map_err(|err| anyhow::anyhow!("MLS Welcome claim signing input: {err}"))?;
     let signature = signing_key.sign(&signing_input);
     envelope.signature = ed25519_key_operation_signature(verification_method, signature)?;
@@ -1161,7 +1162,6 @@ mod tests {
                 )
                 .unwrap(),
             },
-            nonce: arkret::NonEmptyString::new("nonce-1").unwrap(),
             welcome_digest: arkret::Hash::new(format!("sha256:{}", "bb".repeat(32))).unwrap(),
             created_at: Utc::now(),
             signature: KeyOperationSignature {
@@ -1170,18 +1170,41 @@ mod tests {
                 sig: arkret::Base64UrlString::new("cGVuZGluZw").unwrap(),
             },
         };
+        let claim_receipt: PeerKeyPackageClaimReceipt = serde_json::from_value(serde_json::json!({
+            "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
+            "request_digest": format!("sha256:{}", "cc".repeat(32)),
+            "claims_digest": format!("sha256:{}", "dd".repeat(32)),
+            "source_service_id": "ak:did_core:webvh:z6mkservicefixture",
+            "destination_service_id": "ak:did_core:webvh:z6mkpeerservicefixture",
+            "request": {
+                "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
+                "target_principal_id": "ak:did_core:webvh:z6mktargetfixture",
+                "requester": "ak:did_core:webvh:z6mkfixture",
+                "intended_realm_id": "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI",
+                "mls_group_id": "group-1",
+                "claim_purpose": "realm_membership",
+                "required_capabilities": ["ak.content.v1"],
+                "expires_at": "2099-01-01T00:00:00.000Z",
+                "target_device_ids": ["ak:device:01904100-0000-7000-8000-000000000001"]
+            },
+            "claimed_at": "2098-12-31T23:59:30.000Z",
+            "expires_at": "2099-01-01T00:00:00.000Z",
+            "signature": {"kid": "service-key", "sig": "AQ"}
+        }))
+        .expect("peer claim receipt should deserialize");
         let before = envelope
-            .canonical_signing_bytes()
+            .canonical_signing_bytes(&claim_receipt)
             .expect("SDK transcript should serialize");
 
         sign_mls_welcome_claim_envelope(
             &key_ref(),
             "did:webvh:z6mkfixture:alice.example#runtime-1",
+            &claim_receipt,
             &mut envelope,
         )
         .expect("signing should succeed");
         let after = envelope
-            .canonical_signing_bytes()
+            .canonical_signing_bytes(&claim_receipt)
             .expect("SDK transcript should remain stable");
         assert_eq!(before, after);
         envelope

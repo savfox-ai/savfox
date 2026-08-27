@@ -424,7 +424,6 @@ dependencies = [
  "hkdf 0.13.0",
  "hpke",
  "rand_core 0.9.5",
- "regex",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -645,9 +644,11 @@ dependencies = [
  "arkret-models-identity",
  "arkret-wire",
  "chrono",
+ "curve25519-dalek",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
+ "url",
 ]
 
 [[package]]
@@ -795,6 +796,7 @@ dependencies = [
  "hex",
  "idna",
  "precis-profiles",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -4341,8 +4343,8 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "tokio",
+ "tracing",
  "url",
- "uuid",
  "zeroize",
 ]
 

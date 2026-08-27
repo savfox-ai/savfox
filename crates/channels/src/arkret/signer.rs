@@ -379,10 +379,8 @@ mod tests {
                 .unwrap(),
             mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
             mls_epoch: 3,
-            welcome_ref: arkret::NonEmptyString::new(
-                "ak:event:01904100-0000-8000-8000-000000000002",
-            )
-            .unwrap(),
+            welcome_ref: arkret::EventId::new("ak:event:01904100-0000-8000-8000-000000000002")
+                .unwrap(),
             welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
             durable_at: chrono::Utc::now(),
             signature: arkret::KeyOperationSignature {

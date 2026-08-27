@@ -17,11 +17,10 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arkret::{
-    DeviceId, DeviceMessagesAckRequestBody, DidCoreId, EventId, EventRef, EventsFrontierSelector,
-    EventsFrontierView, KeyPackagesConsumeOutcome, KeyPackagesConsumeUnsignedRequest,
-    KeyPackagesRevokeUnsignedRequest, KeyPackagesUploadRequestBody,
-    KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord, PreparedDataEvent,
-    PreparedStandardEvent, RealmId,
+    DeviceId, DeviceMessagesAckRequestBody, DidCoreId, EventId, EventRef,
+    KeyPackagesConsumeOutcome, KeyPackagesConsumeUnsignedRequest, KeyPackagesRevokeUnsignedRequest,
+    KeyPackagesUploadRequestBody, KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord,
+    PreparedDataEvent, PreparedStandardEvent, RealmId,
 };
 use chrono::Utc;
 use garth::{
@@ -144,7 +143,7 @@ const DEVICE_MESSAGES_PULL_MAX_PAGES: usize = 16;
 const KEYPACKAGES_UPLOAD_SCOPE: &str = "ak.self.keys.keypackages.upload.create";
 const KEYPACKAGES_CONSUME_SCOPE: &str = "ak.self.keys.keypackages.command.consume";
 const KEYPACKAGES_REVOKE_SCOPE: &str = "ak.self.keys.keypackages.command.revoke";
-const KEYPACKAGE_MIN_AVAILABLE: u64 = 8;
+const KEYPACKAGE_MIN_AVAILABLE: usize = 8;
 const DEVICE_MESSAGES_LIST_SCOPE: &str = "ak.self.device_messages.query.list";
 const DEVICE_MESSAGES_ACK_SCOPE: &str = "ak.self.device_messages.command.ack";
 
@@ -795,10 +794,7 @@ async fn refresh_account_presence(
                 continue;
             }
         };
-        let selector = arkret::EventsFrontierSelector::RealmSeal {
-            realm_id: realm_id.clone(),
-        };
-        let frontier = match client.inner().events_frontier(&selector).await {
+        let frontier = match client.inner().seals_frontier(realm_id.clone()).await {
             Ok(frontier) => frontier,
             Err(error) => {
                 record_presence_failure(
@@ -809,23 +805,13 @@ async fn refresh_account_presence(
                 continue;
             }
         };
-        let seal_ref = match frontier.frontier {
-            arkret::EventsFrontierView::RealmSeal(frontier) => match frontier.sole_leaf() {
-                Ok(seal_id) => seal_id.clone(),
-                Err(error) => {
-                    record_presence_failure(
-                        channel,
-                        account,
-                        format!("Realm Seal frontier for '{realm}' has no sole leaf: {error}"),
-                    );
-                    continue;
-                }
-            },
-            _ => {
+        let seal_ref = match frontier.frontier.sole_leaf() {
+            Ok(seal_id) => seal_id.clone(),
+            Err(error) => {
                 record_presence_failure(
                     channel,
                     account,
-                    format!("frontier selector returned a non-Realm Seal for '{realm}'"),
+                    format!("Realm Seal frontier for '{realm}' has no sole leaf: {error}"),
                 );
                 continue;
             }
@@ -1495,70 +1481,51 @@ async fn publish_account_mls_key_packages(
         }
     }
 
-    let Some(available_count) = upload_account_mls_key_packages(
+    let deficit = match crypto_store
+        .mls_key_package_maintenance_deficit(&records[0].endpoint, KEYPACKAGE_MIN_AVAILABLE)
+    {
+        Ok(deficit) => deficit,
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: failed to inspect local MLS KeyPackage inventory: {err:#}"
+            );
+            return;
+        }
+    };
+    if deficit > 0 {
+        match crypto_store.create_fresh_agent_mls_key_packages(
+            &account.principal_id,
+            &account.device_id,
+            deficit,
+            key_ref,
+            verification_method,
+            authorized_event_ref,
+        ) {
+            Ok(fresh) => records.extend(fresh),
+            Err(err) => {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    deficit,
+                    "arkret: failed to replenish local MLS KeyPackage pool: {err:#}"
+                );
+                return;
+            }
+        }
+    }
+    upload_account_mls_key_packages(
         client,
         channel,
         account,
-        principal.clone(),
+        principal,
         &records,
         key_ref,
         verification_method,
         authorized_event_ref,
     )
-    .await
-    else {
-        return;
-    };
-
-    let Some(deficit) = keypackage_replenishment_deficit(Some(available_count)) else {
-        return;
-    };
-    let fresh = match crypto_store.create_fresh_agent_mls_key_packages(
-        &account.principal_id,
-        &account.device_id,
-        deficit,
-        key_ref,
-        verification_method,
-        authorized_event_ref,
-    ) {
-        Ok(records) => records,
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                available_count,
-                deficit,
-                "arkret: failed to replenish local MLS KeyPackage pool: {err:#}"
-            );
-            return;
-        }
-    };
-    let replenished_count = upload_account_mls_key_packages(
-        client,
-        channel,
-        account,
-        principal,
-        &fresh,
-        key_ref,
-        verification_method,
-        authorized_event_ref,
-    )
     .await;
-    if replenished_count.is_none_or(|count| count < KEYPACKAGE_MIN_AVAILABLE) {
-        warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            available_count = ?replenished_count,
-            minimum = KEYPACKAGE_MIN_AVAILABLE,
-            "arkret: MLS KeyPackage pool remains below its required maintenance low-watermark"
-        );
-    }
-}
-
-fn keypackage_replenishment_deficit(available_count: Option<u64>) -> Option<usize> {
-    let available_count = available_count?;
-    (available_count < KEYPACKAGE_MIN_AVAILABLE)
-        .then(|| (KEYPACKAGE_MIN_AVAILABLE - available_count) as usize)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1571,7 +1538,7 @@ async fn upload_account_mls_key_packages(
     key_ref: &ArkretKeyRef,
     verification_method: &str,
     authorized_event_ref: &str,
-) -> Option<u64> {
+) {
     let request = match build_signed_keypackage_upload_request(
         principal,
         records,
@@ -1586,7 +1553,7 @@ async fn upload_account_mls_key_packages(
                 account_id = %account.id,
                 "arkret: failed to build canonical MLS KeyPackage upload request: {err:#}"
             );
-            return None;
+            return;
         }
     };
 
@@ -1609,17 +1576,6 @@ async fn upload_account_mls_key_packages(
                     "arkret: published MLS KeyPackages"
                 );
             }
-            match outcome.available_count {
-                Some(available_count) => Some(available_count),
-                None => {
-                    warn!(
-                        channel_id = %channel.id,
-                        account_id = %account.id,
-                        "arkret: owning-device KeyPackage upload omitted available_count"
-                    );
-                    None
-                }
-            }
         }
         Err(err) => {
             warn!(
@@ -1627,7 +1583,6 @@ async fn upload_account_mls_key_packages(
                 account_id = %account.id,
                 "arkret: MLS KeyPackage upload failed: {err}"
             );
-            None
         }
     }
 }
@@ -1740,9 +1695,9 @@ async fn revoke_account_mls_key_package_refs(
     let signature = sign_keypackages_revoke_request(key_ref, verification_method, &unsigned)
         .context("sign canonical MLS KeyPackage revoke request")?;
     let request = unsigned.into_signed(signature);
-    let outcome = client
+    let outcome: arkret::KeyPackagesRevokeOutcome = client
         .inner()
-        .keypackages_revoke(&request)
+        .post("/_arkret/self/keys/keypackages/revoke", &request)
         .await
         .context("revoke MLS KeyPackage pool during unbind")?;
     let safely_retired_failures = outcome
@@ -2139,16 +2094,15 @@ async fn ack_account_device_messages(
         ack_token: ack_token.to_owned(),
     };
     match client.inner().ack_device_messages(&request).await {
-        Ok(outcome) if outcome.ok => true,
         Ok(outcome) => {
-            warn!(
+            debug!(
                 channel_id = %channel.id,
                 account_id = %account.id,
                 reason,
-                pruned_count = ?outcome.pruned_count,
-                "arkret: device_messages ack returned ok=false"
+                pruned_count = outcome.pruned_count,
+                "arkret: acknowledged standard device messages"
             );
-            false
+            true
         }
         Err(err) => {
             warn!(
@@ -4504,14 +4458,9 @@ pub(crate) async fn send_to_arkret_account(
     let realm_id_typed = RealmId::new(realm_id.to_owned())?;
     let frontier = client
         .inner()
-        .events_frontier(&EventsFrontierSelector::RealmSeal {
-            realm_id: realm_id_typed.clone(),
-        })
+        .seals_frontier(realm_id_typed.clone())
         .await
         .map_err(|error| anyhow::anyhow!("fetch current Arkret Realm Seal: {error}"))?;
-    let EventsFrontierView::RealmSeal(frontier) = frontier.frontier else {
-        anyhow::bail!("Arkret Realm Seal frontier response changed selector variant");
-    };
     // auth_context.key_id pins the deployment-local signing key name (the
     // verification-method fragment), never the ak:device: typed id — the wire
     // type rejects the ak: lexical space fail-closed.
@@ -4532,6 +4481,7 @@ pub(crate) async fn send_to_arkret_account(
     apply_data_event_basis(
         &mut event,
         frontier
+            .frontier
             .sole_leaf()
             .map_err(|error| {
                 anyhow::anyhow!("Arkret Realm Seal frontier has no sole leaf: {error}")
@@ -4894,10 +4844,8 @@ mod tests {
                 realm_id: realm_id(),
                 mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
                 mls_epoch: 1,
-                welcome_ref: arkret::NonEmptyString::new(
-                    "ak:event:01904100-0000-8000-8000-000000000007",
-                )
-                .unwrap(),
+                welcome_ref: arkret::EventId::new("ak:event:01904100-0000-8000-8000-000000000007")
+                    .unwrap(),
                 welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
                 durable_at: chrono::Utc::now(),
                 signature: arkret::KeyOperationSignature {
@@ -4942,10 +4890,13 @@ mod tests {
     #[test]
     fn account_sync_extracts_strongly_typed_mls_commit_event() {
         let realm_id = realm_id();
-        let identity = arkret::mls::ArkretMlsIdentity::new_basic(
+        let identity = arkret::mls::ArkretMlsIdentity::new_human_device(
             actor_id(),
             arkret::DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned())
                 .unwrap(),
+            arkret::mls::ArkretMlsSigner::from_ed25519_signing_key(
+                ed25519_dalek::SigningKey::from_bytes(&[7_u8; 32]),
+            ),
         )
         .unwrap();
         let mut group = identity.create_group(realm_id.as_str().as_bytes()).unwrap();
@@ -5419,28 +5370,17 @@ mod tests {
             claim_id: None,
             created_at: Utc::now(),
             expires_at: None,
-            endpoint_signature: None,
             last_resort,
         }
     }
 
     #[test]
-    fn keypackage_pool_replenishes_to_spec_low_watermark() {
-        assert_eq!(keypackage_replenishment_deficit(Some(0)), Some(8));
-        assert_eq!(keypackage_replenishment_deficit(Some(1)), Some(7));
-        assert_eq!(keypackage_replenishment_deficit(Some(7)), Some(1));
-        assert_eq!(keypackage_replenishment_deficit(Some(8)), None);
-        assert_eq!(keypackage_replenishment_deficit(Some(9)), None);
-        assert_eq!(keypackage_replenishment_deficit(None), None);
-    }
-
-    #[test]
     fn keypackage_upload_uses_sdk_batch_transcript_without_entry_signatures() {
-        let principal_id =
-            DidCoreId::new("did:webvh:z6mkfixture:agent.example".to_owned()).unwrap();
+        let principal_id = DidCoreId::new("ak:did_core:web:agent.example".to_owned()).unwrap();
         let device_id =
             DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned()).unwrap();
-        let verification_method = format!("{}#runtime-1", principal_id.as_str());
+        let verification_method = "did:web:agent.example#runtime-1".to_owned();
+        let authorize_event_id = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
         let seed = [7_u8; 32];
         let key_ref = ArkretKeyRef::InlineSeedBase64 {
             value: STANDARD_NO_PAD.encode(seed),
@@ -5455,16 +5395,10 @@ mod tests {
             &records,
             &key_ref,
             &verification_method,
-            "ak:event:01904100-0000-8000-8000-000000000008",
+            authorize_event_id,
         )
         .unwrap();
 
-        assert!(
-            request
-                .keypackages
-                .iter()
-                .all(|entry| entry.endpoint_signature.is_none())
-        );
         assert_eq!(request.device_id, None);
         assert_eq!(
             request
@@ -5478,7 +5412,7 @@ mod tests {
                 .agent_key_authorize_event_id
                 .as_ref()
                 .map(arkret::EventId::as_str),
-            Some("ak:event:01904100-0000-8000-8000-000000000008")
+            Some(authorize_event_id)
         );
         assert_eq!(request.keypackages[0].last_resort, None);
         assert_eq!(request.keypackages[1].last_resort, Some(true));
@@ -5494,23 +5428,6 @@ mod tests {
             &request.endpoint_signature,
         )
         .unwrap();
-
-        let entry_input = arkret::keypackage_upload_entry_signing_input(
-            &principal_id,
-            &device_id,
-            &request.keypackages[0],
-        )
-        .unwrap();
-        assert_ne!(batch_input, entry_input);
-        assert!(
-            arkret::verify_keypackage_signing_input(
-                &public_key,
-                &verification_method,
-                &entry_input,
-                &request.endpoint_signature,
-            )
-            .is_err()
-        );
     }
 
     fn message_event(body: &str) -> arkret::Event {

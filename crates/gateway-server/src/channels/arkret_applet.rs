@@ -36,10 +36,11 @@ use arkret::http_signature::{
 };
 use arkret::{
     AppletActorView, AppletId, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
-    AppletTransactionOutcome, AppletTransactionRequestBody, ContentBlock, DidCoreId,
-    EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity,
-    IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem, ServiceDescribe, ServiceKind,
-    ServiceOperationId, StrandId, TrustDomainId, canonical,
+    AppletTransactionOutcome, AppletTransactionRequestBody, AppletTransactionStatus, ContentBlock,
+    DidCoreId, EventPayloadExt as _, Hash, IdempotencyClaim, IdempotencyDirection,
+    IdempotencyIdentity, IdempotencyWindow, MessageCreatePayload, RealmId, RejectedItem,
+    ServiceDescribe, ServiceKind, ServiceOperationId, StrandId, TransportBinding, TrustDomainId,
+    canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -351,7 +352,6 @@ async fn applet_ping(req: &mut Request, res: &mut Response) {
         return;
     };
     let body = AppletPingOutcome {
-        ok: true,
         applet_id: AppletId::new(state.config.applet_id.clone())
             .expect("applet_id validated at channel registration"),
         // `service_id` is strictly validated (DidCoreId::new) in
@@ -398,18 +398,13 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
             .expect("service_id validated at channel registration"),
         trust_domain,
         ServiceKind::AppletService,
+        vec!["ak.operation_bundle.applet_service.describe.v1".to_owned()],
+        vec![TransportBinding::HttpJson {
+            base_url: cfg.base_url.clone(),
+            extension_profile_required: (),
+        }],
     );
-    body.supported_profiles = vec!["ak.profile.applet.v1".to_owned()];
-    body.supported_operations = vec![
-        ServiceOperationId::EDGE_APPLET_READ_PING.to_owned(),
-        ServiceOperationId::EDGE_APPLET_READ_DESCRIBE.to_owned(),
-        ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION.to_owned(),
-        ServiceOperationId::EDGE_APPLET_ACTOR_READ_RESOLVE.to_owned(),
-        ServiceOperationId::EDGE_APPLET_REALM_READ_RESOLVE.to_owned(),
-        ServiceOperationId::EDGE_APPLET_READ_PROTOCOL_METADATA.to_owned(),
-        ServiceOperationId::EDGE_APPLET_THIRD_PARTY_USERS_READ_LIST.to_owned(),
-        ServiceOperationId::EDGE_APPLET_THIRD_PARTY_LOCATIONS_READ_LIST.to_owned(),
-    ];
+    body.supported_profiles = vec![arkret::ProfileId::APPLET_SERVICE_V1.to_owned()];
     res.status_code(StatusCode::OK);
     res.render(Json(body));
 }
@@ -586,7 +581,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         idempotency_key.clone(),
     );
     let delivery_authentication_record = json!({
-        "operation_id": ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION,
+        "operation_id": ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION_V1,
         "direction": IdempotencyDirection::NodeToApplet.as_str(),
         "source_service_id": &signature.source_service_id,
         "destination_service_id": &signature.destination_service_id,
@@ -797,8 +792,15 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         });
     }
 
+    let status = if rejected.is_empty() {
+        AppletTransactionStatus::Accepted
+    } else if rejected.len() == body.events.len() {
+        AppletTransactionStatus::Rejected
+    } else {
+        AppletTransactionStatus::Partial
+    };
     let outcome = AppletTransactionOutcome {
-        ok: true,
+        status,
         rejected,
         retry_after_ms: None,
     };
