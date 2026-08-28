@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Savfox! This document provides gu
 
 ### Prerequisites
 
-- **Rust 1.89+** (edition 2024)
+- **Rust 1.98+** (edition 2024)
 - **Git**
 - **Cargo** (comes with Rust)
 

@@ -28,7 +28,7 @@ What actually happened. Include error messages or logs if available.
 
 - **OS**: [e.g. Ubuntu 24.04, macOS 15, Windows 11]
 - **Savfox Version**: [e.g. 0.3.0]
-- **Rust Version**: [e.g. 1.94.0]
+- **Rust Version**: [e.g. 1.98.0]
 - **Installation Method**: [e.g. cargo install, binary release, Docker]
 
 ## Additional Context

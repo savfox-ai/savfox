@@ -7,7 +7,7 @@
 # ---------------------------------------------------------------------------
 
 # Stage 1: Build the savfox binary
-FROM rust:1.89-bookworm AS builder
+FROM rust:bookworm AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

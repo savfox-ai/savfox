@@ -377,6 +377,7 @@ dependencies = [
  "arkret-wire",
  "async-trait",
  "chrono",
+ "hex",
  "parking_lot",
  "reqwest 0.13.4",
  "rustls 0.23.43",
@@ -606,7 +607,6 @@ dependencies = [
  "arkret-identifiers",
  "arkret-models-crypto",
  "arkret-models-identity",
- "arkret-schema",
  "arkret-wire",
  "chrono",
  "chrono-tz",
@@ -632,7 +632,6 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "thiserror 2.0.19",
 ]
 
@@ -696,7 +695,6 @@ dependencies = [
 name = "arkret-push-policy"
 version = "0.3.0"
 dependencies = [
- "arkret-identifiers",
  "arkret-models-integration",
  "serde",
  "serde_json",
