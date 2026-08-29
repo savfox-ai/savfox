@@ -1275,7 +1275,7 @@ impl FileArkretCryptoStore {
                 realm_id: payload.realm_id.to_string(),
                 strand_id: payload.main_strand_id.to_string(),
                 initial_exact_pair_generation_ref: Some(
-                    payload.initial_exact_pair_generation_ref.to_string(),
+                    payload.initial_exact_pair_group_state_ref.to_string(),
                 ),
             };
             // One binding per Realm: drop any record an older build keyed by the

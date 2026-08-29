@@ -20,8 +20,8 @@ use std::path::Path;
 
 use anyhow::Context as _;
 use arkret::{
-    CapabilityGrantPayload, CapabilitySubject, DidFullId, Event, EventProof, GrantConstraint,
-    GrantConstraintKind, project_full_id_to_core_id,
+    CapabilityGrantPayload, CapabilitySubject, Did, Event, EventProof, GrantConstraint,
+    GrantConstraintKind, project_did_to_core_id,
 };
 use chrono::{DateTime, Utc};
 
@@ -130,12 +130,12 @@ pub async fn load_and_verify_grant(
     .with_context(|| format!("decode CapabilityGrant payload in {}", path.display()))?;
     let grant = payload.grant;
 
-    if event.actor_id.as_str() != grant.issuer.as_str() {
+    if event.actor_id.as_str() != grant.issuer_id.as_str() {
         anyhow::bail!(
             "capability grant {}: event actor '{}' does not match grant issuer '{}'",
             path.display(),
             event.actor_id.as_str(),
-            grant.issuer.as_str()
+            grant.issuer_id.as_str()
         );
     }
     if !event
@@ -146,16 +146,16 @@ pub async fn load_and_verify_grant(
             let Some((controller, _)) = proof.verification_method.as_str().split_once('#') else {
                 return false;
             };
-            DidFullId::new(controller)
+            Did::new(controller)
                 .ok()
-                .and_then(|full_id| project_full_id_to_core_id(&full_id).ok())
-                .is_some_and(|core_id| core_id == grant.issuer)
+                .and_then(|did| project_did_to_core_id(&did).ok())
+                .is_some_and(|core_id| core_id == grant.issuer_id)
         })
     {
         anyhow::bail!(
             "capability grant {}: no proof verification_method belongs to issuer '{}'",
             path.display(),
-            grant.issuer.as_str()
+            grant.issuer_id.as_str()
         );
     }
 
@@ -236,7 +236,7 @@ pub async fn load_and_verify_grant(
     Ok(ArkretGrant {
         event_id: event.event_id.as_str().to_owned(),
         subject: subject.to_owned(),
-        issuer: grant.issuer.as_str().to_owned(),
+        issuer: grant.issuer_id.as_str().to_owned(),
         realm_id,
         actions: grant.actions,
         constraints: grant.constraints,

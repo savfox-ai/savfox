@@ -196,7 +196,7 @@ fn classify_sdk_message_create(
     }
     let body = content.body.as_str();
     let strand_id = Some(payload.strand_id.as_str().to_owned());
-    let thread_root_id = payload.reply_to.clone();
+    let thread_root_id = payload.reply_to_id.clone();
     let mentioned_actor_ids = structured_mention_actor_ids(content);
 
     ArkretInboundEventOutcome::Dispatchable(Box::new(ArkretInboundEvent {
@@ -668,7 +668,7 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
         strand_id: message
             .as_ref()
             .map(|payload| payload.strand_id.as_str().to_owned()),
-        reply_to: message.and_then(|payload| payload.reply_to),
+        reply_to: message.and_then(|payload| payload.reply_to_id),
         encrypted_payload: extract_encrypted_payload_from_message_content(event),
         encrypted_metadata_payload: extract_encrypted_metadata_payload_from_message_content(event),
         request_ordering: request_ordering_from_event(event),

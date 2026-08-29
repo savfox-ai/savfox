@@ -174,7 +174,7 @@ fn mint_agent_session_refresh_proof(
         &state.grant_jwt,
         &state.principal_id,
         device_id,
-        &state.audience,
+        &state.audience_id,
         verification_method,
     )
     .map_err(|error| garth::Error::Protocol(error.to_string()))?;
@@ -183,7 +183,7 @@ fn mint_agent_session_refresh_proof(
     let unsigned = UnsignedAgentSessionRefreshProof {
         context: AgentSessionRefreshProofContext::V1,
         request_canonical_digest,
-        audience: state.audience.clone(),
+        audience_id: state.audience_id.clone(),
         issued_at,
         expires_at,
         verification_method: verification_method.clone(),
@@ -233,7 +233,7 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
             request: Some(SessionGrantRefreshRequestBody::Agent(
                 AgentSessionGrantRefreshRequest {
                     grant_jwt: state.grant_jwt.clone(),
-                    audience: Some(state.audience.clone()),
+                    audience_id: Some(state.audience_id.clone()),
                     device_id,
                     agent_session_refresh_proof: proof,
                 },
@@ -336,10 +336,10 @@ pub fn build_mls_key_packages_claim_request(
         anyhow::anyhow!("invalid Arkret KeyPackage claim MLS group id: {error}")
     })?;
     let service_binding = KeyPackagesClaimServiceBinding {
-        source_service_id: DidCoreId::new(source_service_id.to_owned()).with_context(|| {
+        source_id: DidCoreId::new(source_service_id.to_owned()).with_context(|| {
             format!("invalid Arkret KeyPackage claim source Service DID '{source_service_id}'")
         })?,
-        destination_service_id: DidCoreId::new(destination_service_id.to_owned()).with_context(
+        destination_id: DidCoreId::new(destination_service_id.to_owned()).with_context(
             || {
                 format!(
                     "invalid Arkret KeyPackage claim destination Service DID \
@@ -351,7 +351,7 @@ pub fn build_mls_key_packages_claim_request(
     let request = KeyPackagesClaimRequestBody {
         claim_request_id,
         target_principal_id,
-        requester,
+        requester_id: requester,
         intended_realm_id,
         mls_group_id,
         claim_purpose,
@@ -517,7 +517,7 @@ impl ArkretHttpClient {
             None,
             arkret::UnsignedAgentSessionGrantProof {
                 challenge,
-                audience: audience.clone(),
+                audience_id: audience.clone(),
                 expires_at,
                 verification_method: verification_method.clone(),
                 nonce,
@@ -559,7 +559,7 @@ impl ArkretHttpClient {
         .map_err(|error| anyhow::anyhow!("restore agent session grant: {error}"))?;
         if let Some(state) = restored.session().current_state() {
             if state.principal_id == principal_did
-                && state.audience == audience
+                && state.audience_id == audience
                 && state.expires_at > Utc::now()
             {
                 let session = arkret_session_from_state(&state);
@@ -640,7 +640,9 @@ impl ArkretHttpClient {
         realm_id: &str,
         after: Option<&str>,
     ) -> anyhow::Result<ArkretFrameStream> {
-        let mut options = arkret::http_client::EventsSubscribeOptions::new().realm(realm_id);
+        let realm = RealmId::new(realm_id.to_owned())
+            .with_context(|| format!("invalid Arkret events subscribe Realm id '{realm_id}'"))?;
+        let mut options = arkret::http_client::EventsSubscribeOptions::new().realm(realm);
         if let Some(after) = after {
             options = options.after(after);
         }
@@ -914,24 +916,24 @@ async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Resu
         .auth_metadata
         .account_authority
         .context("Arkret service description omitted auth_metadata.account_authority")?;
-    let authority_url = Url::parse(&authority.origin).with_context(|| {
+    let authority_url = Url::parse(authority.origin.as_str()).with_context(|| {
         format!(
             "invalid Arkret account authority origin: {}",
             authority.origin
         )
     })?;
-    let advertised_gate = Url::parse(&authority.gate_account_base).with_context(|| {
+    let advertised_gate = Url::parse(&authority.gate_account_base_url).with_context(|| {
         format!(
-            "invalid Arkret account authority gate_account_base: {}",
-            authority.gate_account_base
+            "invalid Arkret account authority gate_account_base_url: {}",
+            authority.gate_account_base_url
         )
     })?;
     let expected_gate = joined_htu(&authority_url, "/_arkret/gate/account")?;
     if advertised_gate.as_str().trim_end_matches('/') != expected_gate.trim_end_matches('/') {
         anyhow::bail!(
-            "Arkret account authority metadata mismatch: origin '{}' does not own gate_account_base '{}'",
+            "Arkret account authority metadata mismatch: origin '{}' does not own              gate_account_base_url '{}'",
             authority.origin,
-            authority.gate_account_base
+            authority.gate_account_base_url
         );
     }
     Ok(authority_url)
@@ -966,13 +968,14 @@ mod tests {
     fn agent_session_state() -> SessionGrantState {
         SessionGrantState {
             principal_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture").unwrap(),
+            service_account_id: arkret::ServiceAccountId::new("arkret-agent-fixture").unwrap(),
             device_id: Some(
                 DeviceId::new("ak:device:0196419b-0000-7000-8000-000000000001").unwrap(),
             ),
             grant_id: arkret_wire::SessionGrantId::from_issuance_digest([0x11; 32]),
             grant_jwt: "agent.grant.jwt".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
-            audience: DidCoreId::new("ak:did_core:webvh:z6mkservice").unwrap(),
+            audience_id: DidCoreId::new("ak:did_core:webvh:z6mkservice").unwrap(),
             granted_scope: vec!["ak.self.events.stream.subscribe".to_owned()],
             session_public_key: Some("session-public-key".to_owned()),
             dpop_jkt: Some("agent-dpop-jkt".to_owned()),
@@ -993,7 +996,7 @@ mod tests {
         )
         .expect("first refresh proof");
         assert_eq!(first.context, arkret::AgentSessionRefreshProofContext::V1);
-        assert_eq!(first.audience, state.audience);
+        assert_eq!(first.audience_id, state.audience_id);
         assert_eq!(first.verification_method, verification_method);
         assert_eq!(
             first.request_canonical_digest,
@@ -1001,7 +1004,7 @@ mod tests {
                 &state.grant_jwt,
                 &state.principal_id,
                 device_id,
-                &state.audience,
+                &state.audience_id,
                 &first.verification_method,
             )
             .unwrap()
@@ -1128,7 +1131,7 @@ mod tests {
         );
         assert_eq!(request.mls_group_id.as_str(), "group-1");
         assert_eq!(
-            request.service_binding.source_service_id.as_str(),
+            request.service_binding.source_id.as_str(),
             "ak:did_core:webvh:z6mkservicefixture"
         );
         let PeerKeyPackageRequesterAuthorization::NativeAgent {

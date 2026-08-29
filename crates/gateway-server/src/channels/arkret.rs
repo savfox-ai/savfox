@@ -1205,7 +1205,7 @@ async fn handle_account_client_event(
             }
         }
         ClientEvent::ToDevice(message) => {
-            let content = Value::Object(message.content.into_iter().collect());
+            let content = serde_json::to_value(&message.content).unwrap_or(Value::Null);
             record_account_mls_welcome_from_value_tree(
                 crypto_store,
                 &content,
@@ -1559,12 +1559,12 @@ async fn upload_account_mls_key_packages(
 
     match client.inner().keypackages_upload(&request).await {
         Ok(outcome) => {
-            if !outcome.rejected.is_empty() {
+            if !outcome.rejections.is_empty() {
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     accepted = outcome.accepted,
-                    rejected = ?outcome.rejected,
+                    rejected = ?outcome.rejections,
                     "arkret: MLS KeyPackage upload returned rejected entries"
                 );
             } else {
@@ -1683,7 +1683,7 @@ async fn revoke_account_mls_key_package_refs(
         return Ok(None);
     }
     let unsigned = KeyPackagesRevokeUnsignedRequest {
-        owner_account_id: arkret::DidCoreId::new(account.id.clone())
+        owner_account_id: arkret::ServiceAccountId::new(account.id.clone())
             .map_err(|error| anyhow::anyhow!("invalid Arkret account id: {error}"))?,
         key_package_refs: key_package_refs.clone(),
         device_id: device,
@@ -1977,7 +1977,7 @@ async fn drain_account_device_messages_from_cursor(
         };
 
         for message in &outcome.messages {
-            let content = Value::Object(message.content.clone().into_iter().collect());
+            let content = serde_json::to_value(&message.content).unwrap_or(Value::Null);
             record_account_mls_welcome_from_value_tree(
                 crypto_store,
                 &content,
@@ -4307,14 +4307,14 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
                     ingress_receipts: response.ingress_receipts,
                 });
             }
-            if !response.rejected.is_empty() {
+            if !response.events_submit_rejected_rows.is_empty() {
                 warn!(
                     transaction_id = %item.transaction_id,
-                    rejected = ?response.rejected,
+                    rejected = ?response.events_submit_rejected_rows,
                     "arkret: outbound event submission was rejected"
                 );
                 return Ok(OutboundSubmitOutcome::Rejected {
-                    reason: format!("{:?}", response.rejected),
+                    reason: format!("{:?}", response.events_submit_rejected_rows),
                 });
             }
             Ok(OutboundSubmitOutcome::Terminal {
@@ -4560,10 +4560,13 @@ pub(crate) async fn send_to_arkret_account(
     // generation and lets the fence retire stale queued attempts.
     let authoring_generation = garth::AuthoringGeneration {
         authority_model: garth::AuthoringAuthorityModel::ManagedAgent,
-        authority_principal_id: account
-            .controller_id
-            .clone()
-            .unwrap_or_else(|| account.principal_id.clone()),
+        authority_principal_id: arkret::DidCoreId::new(
+            account
+                .controller_id
+                .clone()
+                .unwrap_or_else(|| account.principal_id.clone()),
+        )
+        .map_err(|error| anyhow::anyhow!("invalid Arkret authoring authority DID: {error}"))?,
         generation_ref: account
             .authorized_event_ref
             .clone()
@@ -4837,8 +4840,8 @@ mod tests {
                     )
                     .unwrap(),
                 },
-                recipient_service_id: arkret::DidCoreId::new(
-                    "did:webvh:example.org:service".to_owned(),
+                recipient_id: arkret::DidCoreId::new(
+                    "ak:did_core:webvh:example.org:service".to_owned(),
                 )
                 .unwrap(),
                 realm_id: realm_id(),
@@ -5104,8 +5107,8 @@ mod tests {
             to_device_next_cursor: None,
             to_device_lost: false,
             device_lists: arkret::AccountSubscribeDeviceListChanges {
-                changed: Vec::new(),
-                left: Vec::new(),
+                changed_ids: Vec::new(),
+                left_ids: Vec::new(),
             },
             account_data: Vec::new(),
             agent_signer_evidence: Vec::new(),
@@ -5171,7 +5174,7 @@ mod tests {
                 None,
                 garth::AuthoringGeneration {
                     authority_model: garth::AuthoringAuthorityModel::ManagedAgent,
-                    authority_principal_id: actor_id().as_str().to_owned(),
+                    authority_principal_id: actor_id(),
                     generation_ref: "ak:event:01904100-0000-8000-8000-0000000000aa".to_owned(),
                 },
                 None,
@@ -5204,11 +5207,13 @@ mod tests {
         let account = make_account();
         let mut state = garth::SessionGrantState {
             principal_id: DidCoreId::new(account.principal_id.clone()).unwrap(),
+            service_account_id: arkret::ServiceAccountId::new(account.id.clone()).unwrap(),
             device_id: Some(DeviceId::new(account.device_id.clone()).unwrap()),
             grant_id: arkret::identifiers::SessionGrantId::from_issuance_digest([0x11; 32]),
             grant_jwt: "redacted-test-grant".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
-            audience: DidCoreId::new("did:webvh:z6mkfixture:service.example").unwrap(),
+            audience_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example")
+                .unwrap(),
             granted_scope: vec!["ak.event.read".to_owned()],
             session_public_key: None,
             dpop_jkt: Some("test-jkt".to_owned()),

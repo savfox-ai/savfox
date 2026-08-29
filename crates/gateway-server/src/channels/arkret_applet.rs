@@ -394,7 +394,7 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
         return;
     };
     let mut body = ServiceDescribe::development(
-        arkret::DidFullId::new(cfg.service_id.clone())
+        arkret::Did::new(cfg.service_id.clone())
             .expect("service_id validated at channel registration"),
         trust_domain,
         ServiceKind::AppletService,
@@ -478,7 +478,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         }
     };
 
-    let source_service_id = body.source_service_id.as_str().to_owned();
+    let source_service_id = body.source_id.as_str().to_owned();
     if let Some(expected_source) = state.config.arkret_server_did.as_deref()
         && source_service_id != expected_source
     {
@@ -574,10 +574,19 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         );
         return;
     };
+    let Ok(destination_service_id) = DidCoreId::new(state.config.service_id.clone()) else {
+        render_error(
+            res,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid_service_id",
+            "Arkret applet channel service_id is not a valid DID core id",
+        );
+        return;
+    };
     let identity = IdempotencyIdentity::applet_transaction(
         IdempotencyDirection::NodeToApplet,
-        signature.source_service_id.clone(),
-        state.config.service_id.clone(),
+        body.source_id.clone(),
+        destination_service_id,
         idempotency_key.clone(),
     );
     let delivery_authentication_record = json!({
@@ -801,7 +810,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     };
     let outcome = AppletTransactionOutcome {
         status,
-        rejected,
+        rejections: rejected,
         retry_after_ms: None,
     };
     complete_transaction_claim(&state, &identity, outcome.clone());
@@ -1084,7 +1093,7 @@ fn try_decrypt_applet_event(
 ) -> Option<AppletInboundCommand> {
     let message = event.as_message_create().ok()?;
     let strand_id = message.strand_id.as_str().to_owned();
-    let reply_to = message.reply_to;
+    let reply_to = message.reply_to_id;
     let payload = extract_encrypted_payload_from_message_content(event)?;
     if let Some(device_id) = state.config.device_id.as_deref() {
         match state.crypto_store.plan_bootstrap_for_payload(
@@ -1524,7 +1533,7 @@ pub(crate) async fn send_via_applet(
         })?;
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
-    let actor = arkret::DidFullId::new(ghost_actor_did.to_owned())
+    let actor = arkret::Did::new(ghost_actor_did.to_owned())
         .map_err(|err| anyhow::anyhow!("invalid ghost actor DID '{ghost_actor_did}': {err}"))?;
     let strand = StrandId::new(strand_id.to_owned())
         .with_context(|| format!("invalid strand_id: {strand_id}"))?;

@@ -133,7 +133,7 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
         strand_id: payload.strand_id.into_string(),
         sender_did: actor.to_owned(),
         body,
-        thread_root_id: payload.reply_to,
+        thread_root_id: payload.reply_to_id,
     })
 }
 

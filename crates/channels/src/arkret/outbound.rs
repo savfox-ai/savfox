@@ -59,7 +59,7 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     let content = ContentBlock::text(req.body.clone());
     let mut payload = MessageCreatePayload::with_content(strand_id, "discussion", content);
     if let Some(thread_root) = &req.thread_root_id {
-        payload = payload.with_reply_to(thread_root.clone());
+        payload = payload.with_reply_to_id(thread_root.clone());
     }
     let builder = OperationEnvelopeBuilder::<event_spec::MessageCreate>::new(
         OperationId::new(new_prefixed_uuid7("ak:operation:"))
@@ -318,7 +318,7 @@ mod tests {
         let mut req = valid_request();
         req.thread_root_id = Some("ak:event:01H...".into());
         let event = build_message_create_event(&req).expect("build");
-        let tr = event.payload.get("reply_to").and_then(|v| v.as_str());
+        let tr = event.payload.get("reply_to_id").and_then(|v| v.as_str());
         assert_eq!(tr, Some("ak:event:01H..."));
         assert!(event.payload.get("thread_root_id").is_none());
     }

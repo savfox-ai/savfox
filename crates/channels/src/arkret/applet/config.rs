@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use arkret::signatures::PublicKeyMaterial;
-use arkret::{DeviceId, DidCoreId, DidFullId};
+use arkret::{DeviceId, DidCoreId, Did};
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};
@@ -242,7 +242,7 @@ impl ArkretAppletConfig {
                 )
             })?;
         }
-        let service_did = DidFullId::new(self.service_id.clone())?;
+        let service_did = Did::new(self.service_id.clone())?;
         if service_did.method() != "webvh" {
             anyhow::bail!(
                 "Arkret applet channel '{}' service_id must use did:webvh",

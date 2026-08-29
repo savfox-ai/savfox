@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use arkret::{AgentPairingBootstrap, DeviceId, DidCoreId, DidFullId, DidUrl};
+use arkret::{AgentPairingBootstrap, DeviceId, DidCoreId, Did, DidUrl};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -831,7 +831,7 @@ pub fn build_arkret_runtime_key_request_json(
         expected_verification_method
     );
     let signing_key = load_ed25519_signing_key(key_ref)?;
-    let agent_full_id = DidFullId::new(account.principal_id.clone()).map_err(|err| {
+    let agent_full_id = Did::new(account.principal_id.clone()).map_err(|err| {
         anyhow::anyhow!(
             "Arkret agent '{}' has invalid full principal DID '{}': {err}",
             account.id,

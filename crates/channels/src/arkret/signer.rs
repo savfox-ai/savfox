@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Context as _;
-use arkret::{DidFullId, DidUrl, Ed25519PayloadSigner};
+use arkret::{Did, DidUrl, Ed25519PayloadSigner};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use ed25519_dalek::SigningKey;
@@ -74,7 +74,7 @@ pub fn load_ed25519_signer(
 ) -> anyhow::Result<Ed25519PayloadSigner> {
     let mut seed_arr = load_seed_array(key_ref)?;
 
-    let did = DidFullId::new(did.to_owned())
+    let did = Did::new(did.to_owned())
         .with_context(|| format!("arkret signer: invalid DID '{did}'"))?;
     let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
         anyhow::anyhow!("arkret signer: invalid verification method '{verification_method}': {err}")
@@ -373,7 +373,7 @@ mod tests {
                 .unwrap(),
                 device_verification_method: arkret::DidUrl::new(TEST_VM).unwrap(),
             },
-            recipient_service_id: arkret::DidCoreId::new("ak:did_core:web:service.example")
+            recipient_id: arkret::DidCoreId::new("ak:did_core:web:service.example")
                 .unwrap(),
             realm_id: arkret::RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI")
                 .unwrap(),
