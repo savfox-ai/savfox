@@ -1,4 +1,4 @@
-//! Arkret personal-agent channel runtime.
+//! Arkret Agent channel runtime.
 //!
 //! Owns one async task per (channel, account) pair. Each task:
 //!
@@ -819,6 +819,10 @@ async fn refresh_account_presence(
         let envelope = match crypto_store.seal_online_presence_signal(
             realm_id.as_str(),
             &account.principal_id,
+            channel
+                .service_id
+                .as_deref()
+                .expect("validated Arkret channel service_id"),
             &account.device_id,
             verification_method,
             key_ref,
@@ -3661,7 +3665,7 @@ fn refreshed_grant_matches_account(
     account: &ArkretAccountConfig,
     required_scope: &str,
 ) -> bool {
-    state.principal_id.as_str() == account.principal_id
+    state.account_id.principal_id.as_str() == account.principal_id
         && state
             .device_id
             .as_ref()
@@ -4425,6 +4429,10 @@ pub(crate) async fn send_to_arkret_account(
         strand_id,
         body: body.to_owned(),
         principal_id: account.principal_id.clone(),
+        station_id: channel
+            .service_id
+            .clone()
+            .context("Arkret channel is missing service_id")?,
         actor_seq,
         thread_root_id: None,
         sidecar_exchange: sidecar_exchange.cloned(),
@@ -5206,14 +5214,15 @@ mod tests {
     fn refreshed_grant_must_preserve_exact_runtime_identity_and_required_scope() {
         let account = make_account();
         let mut state = garth::SessionGrantState {
-            principal_id: DidCoreId::new(account.principal_id.clone()).unwrap(),
-            service_account_id: arkret::ServiceAccountId::new(account.id.clone()).unwrap(),
+            account_id: arkret::AccountId::new(
+                DidCoreId::new(account.principal_id.clone()).unwrap(),
+                DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
+            ),
             device_id: Some(DeviceId::new(account.device_id.clone()).unwrap()),
             grant_id: arkret::identifiers::SessionGrantId::from_issuance_digest([0x11; 32]),
             grant_jwt: "redacted-test-grant".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
-            audience_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example")
-                .unwrap(),
+            audience_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
             granted_scope: vec!["ak.event.read".to_owned()],
             session_public_key: None,
             dpop_jkt: Some("test-jkt".to_owned()),
@@ -5246,7 +5255,8 @@ mod tests {
             "ak.event.read"
         ));
         state.device_id = Some(DeviceId::new(account.device_id.clone()).unwrap());
-        state.principal_id = DidCoreId::new("did:webvh:z6mkfixture:other.example").unwrap();
+        state.account_id.principal_id =
+            DidCoreId::new("did:webvh:z6mkfixture:other.example").unwrap();
         assert!(!refreshed_grant_matches_account(
             &state,
             &account,
@@ -5315,6 +5325,7 @@ mod tests {
             strand_id: "ak:strand:01904100-0000-8000-8000-000000000011".to_owned(),
             body: "final user-visible reply".to_owned(),
             principal_id: "did:webvh:z6mkfixture:agent.example".to_owned(),
+            station_id: "did:webvh:z6mkfixture:station.example".to_owned(),
             actor_seq: 1,
             thread_root_id: None,
             sidecar_exchange: Some(context.clone()),

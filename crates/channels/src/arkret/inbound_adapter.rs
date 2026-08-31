@@ -35,7 +35,7 @@ pub struct ArkretInboundEvent {
     /// Actor DIDs carried by structured `content.mentions` nodes.
     ///
     /// The gateway keeps this data through the host-dispatch boundary so a
-    /// personal-agent runtime can explain whether the event explicitly
+    /// Agent runtime can explain whether the event explicitly
     /// addressed its Arkret principal instead of routing on body text alone.
     pub mentioned_actor_ids: Vec<String>,
     /// Verified Agent Sidecar exchange identity (`zh/models/sidecar.md`
@@ -206,7 +206,7 @@ fn classify_sdk_message_create(
         chat_type: None,
         participant_count: None,
         strand_id,
-        sender_did: event.actor_id.as_str().to_owned(),
+        sender_did: event.actor_id.signing_principal_id().as_str().to_owned(),
         body: body.to_owned(),
         thread_root_id,
         mentioned_actor_ids,
@@ -601,7 +601,7 @@ fn classify_sidecar_exchange_control(
         realm_id: Some(event.realm_id.as_str().to_owned()),
         chat_type: None,
         participant_count: None,
-        sender_did: Some(event.actor_id.as_str().to_owned()),
+        sender_did: Some(event.actor_id.signing_principal_id().as_str().to_owned()),
         strand_id,
         reply_to: None,
         encrypted_payload,
@@ -622,7 +622,7 @@ fn skip_sdk_event(
         realm_id: Some(event.realm_id.as_str().to_owned()),
         chat_type: None,
         participant_count: None,
-        sender_did: Some(event.actor_id.as_str().to_owned()),
+        sender_did: Some(event.actor_id.signing_principal_id().as_str().to_owned()),
         strand_id: None,
         reply_to: None,
         encrypted_payload: None,
@@ -664,7 +664,7 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
         realm_id: Some(event.realm_id.as_str().to_owned()),
         chat_type: None,
         participant_count: None,
-        sender_did: Some(event.actor_id.as_str().to_owned()),
+        sender_did: Some(event.actor_id.signing_principal_id().as_str().to_owned()),
         strand_id: message
             .as_ref()
             .map(|payload| payload.strand_id.as_str().to_owned()),

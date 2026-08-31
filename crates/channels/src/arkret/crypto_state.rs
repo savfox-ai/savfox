@@ -13,12 +13,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::Context;
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity, ArkretMlsSigner};
 use arkret::{
-    ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload, EncryptedPayload,
-    EncryptedPayloadScheme, EventContentPreEncryptionHeader, EventContentRoutingContext, EventId,
-    EventProof, MessageMetadata, MlsCommitPayload, MlsCommitSource, MlsEncryptedPayload,
-    MlsEndpointIdentity, MlsKeyPackageRecord, MlsKeyPackageState, MlsPayloadType,
-    MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient, PresencePlaintext, PresenceState,
-    RealmId, ScopeRef, SealId, StrandCreatePayload, StrandId, seal_signal_plaintext,
+    AccountId, ActorId, ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload,
+    EncryptedPayload, EncryptedPayloadScheme, EventContentPreEncryptionHeader,
+    EventContentRoutingContext, EventId, EventProof, MessageMetadata, MlsCommitPayload,
+    MlsCommitSource, MlsEncryptedPayload, MlsEndpointIdentity, MlsKeyPackageRecord,
+    MlsKeyPackageState, MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient,
+    PresencePlaintext, PresenceState, RealmId, ScopeRef, SealId, StrandCreatePayload, StrandId,
+    seal_signal_plaintext,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -588,6 +589,7 @@ impl FileArkretCryptoStore {
         &self,
         realm_id: &str,
         principal_id: &str,
+        station_id: &str,
         device_id: &str,
         verification_method: &str,
         key_ref: &ArkretKeyRef,
@@ -620,7 +622,10 @@ impl FileArkretCryptoStore {
         // scan would become wrong as soon as a second suite is activated.
         let aead_profile = arkret::mls::ARKRET_MLS_CIPHERSUITE_CANONICAL_ID;
         let realm_id = RealmId::new(realm_id.to_owned())?;
-        let actor_id = DidCoreId::new(principal_id.to_owned())?;
+        let actor_id = ActorId::account(AccountId::new(
+            DidCoreId::new(principal_id.to_owned())?,
+            DidCoreId::new(station_id.to_owned())?,
+        ));
         let device_id = DeviceId::new(device_id.to_owned())?;
         let seal_ref = SealId::new(seal_ref.to_owned())?;
         let scope_ref = ScopeRef::Realm {
@@ -759,8 +764,7 @@ impl FileArkretCryptoStore {
         authorized_event_ref: &str,
     ) -> anyhow::Result<MlsKeyPackageRecord> {
         let signing_seed = super::signer::load_seed_array(key_ref)?;
-        let endpoint =
-            agent_mls_endpoint(principal_id, verification_method, authorized_event_ref)?;
+        let endpoint = agent_mls_endpoint(principal_id, verification_method, authorized_event_ref)?;
         self.ensure_mls_key_package_inner(
             principal_id,
             device_id,
@@ -1923,9 +1927,7 @@ pub fn mls_key_package_record_from_claim(
             MlsEndpointIdentity::human_device(claim.principal_id.clone(), device_id.clone())
         }
         (None, Some(agent_id), Some(method), Some(authorization_ref)) => {
-            if agent_id != &claim.principal_id
-                || method.as_str() != claim.device_signature.kid.as_str()
-            {
+            if agent_id != &claim.principal_id {
                 anyhow::bail!("Agent KeyPackage claim endpoint binding mismatch");
             }
             MlsEndpointIdentity::agent_runtime(
@@ -2007,7 +2009,7 @@ pub(crate) fn encrypted_payload_for_event(
             .as_str()
             .rsplit_once('#')
             .map(|(_, fragment)| fragment.to_owned()),
-        EventProof::PrincipalServerAdmission(_) => None,
+        EventProof::StationAdmission(_) => None,
     })?;
     let header = envelope
         .reconstruct_pre_encryption_header(
@@ -2282,9 +2284,10 @@ fn try_consume_stored_welcome_for_payload(
 ) -> anyhow::Result<Option<(MlsGroupStateRecord, MlsWelcomeEnvelope)>> {
     let mut candidates = Vec::new();
     for identity_record in state.mls_identities.values() {
+        let endpoint = restore_mls_identity(identity_record)?.endpoint_identity();
         candidates.extend(
             store
-                .welcomes_for_device(&identity_record.principal_id, &identity_record.device_id)
+                .welcomes_for_endpoint(&endpoint)
                 .into_iter()
                 .filter(|welcome| {
                     welcome.group_id == payload.group_id && welcome.epoch <= payload.epoch
@@ -2331,9 +2334,10 @@ fn consume_stored_welcome_for_commit(
 ) -> anyhow::Result<()> {
     let mut candidates = Vec::new();
     for identity_record in state.mls_identities.values() {
+        let endpoint = restore_mls_identity(identity_record)?.endpoint_identity();
         candidates.extend(
             store
-                .welcomes_for_device(&identity_record.principal_id, &identity_record.device_id)
+                .welcomes_for_endpoint(&endpoint)
                 .into_iter()
                 .filter(|welcome| welcome.group_id == group_id && welcome.epoch <= base_epoch)
                 .cloned()
@@ -2571,7 +2575,6 @@ fn safe_file_stem(scope_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use arkret::{EncryptedPayloadScheme, Hash, KeyOperationSignature, KeyPackageClaimRecord};
-    use base64::Engine as _;
     use serde_json::json;
 
     use super::*;
@@ -2758,6 +2761,9 @@ mod tests {
                 authorized_event_ref,
             )
             .unwrap();
+        let expected_endpoint =
+            agent_mls_endpoint(principal, verification_method, authorized_event_ref).unwrap();
+        assert_eq!(first.endpoint, expected_endpoint);
         assert_eq!(
             store
                 .mls_key_package_maintenance_deficit(&first.endpoint, 8)
@@ -2782,6 +2788,7 @@ mod tests {
 
         let state = store.load().unwrap();
         let identity = restore_mls_identity(state.mls_identities.values().next().unwrap()).unwrap();
+        assert_eq!(identity.endpoint_identity(), expected_endpoint);
         let expected = ed25519_dalek::SigningKey::from_bytes(&rotated_seed)
             .verifying_key()
             .to_bytes();
@@ -2790,6 +2797,97 @@ mod tests {
             expected
         );
         assert_ne!(first.keypackage_ref, rotated.keypackage_ref);
+
+        drop(store);
+        let reopened = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        let after_restart = reopened
+            .ensure_agent_mls_key_package(
+                principal,
+                device,
+                false,
+                &rotated_key_ref,
+                verification_method,
+                authorized_event_ref,
+            )
+            .unwrap();
+        assert_eq!(after_restart.keypackage_ref, rotated.keypackage_ref);
+        assert_eq!(after_restart.endpoint, expected_endpoint);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn agent_keypackage_rejects_mismatched_authorization_binding() {
+        let home = temp_home("agent-runtime-authorization-binding");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        let seed = [12_u8; 32];
+        let key_ref = crate::arkret::ArkretKeyRef::InlineSeedBase64 {
+            value: base64::engine::general_purpose::STANDARD_NO_PAD.encode(seed),
+        };
+        let principal = "ak:did_core:web:agent.example";
+        let device = "ak:device:01904100-0000-7000-8000-000000000012";
+        let verification_method = "did:web:agent.example#runtime-1";
+        let authorized_event_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
+        store
+            .ensure_agent_mls_key_package(
+                principal,
+                device,
+                false,
+                &key_ref,
+                verification_method,
+                authorized_event_ref,
+            )
+            .unwrap();
+
+        let wrong_method = "did:web:agent.example#runtime-2";
+        let method_error = store
+            .create_fresh_agent_mls_key_packages(
+                principal,
+                device,
+                1,
+                &key_ref,
+                wrong_method,
+                authorized_event_ref,
+            )
+            .unwrap_err();
+        assert!(
+            method_error
+                .to_string()
+                .contains("authorized runtime endpoint")
+        );
+
+        let wrong_authorization = store
+            .create_fresh_agent_mls_key_packages(
+                principal,
+                device,
+                1,
+                &key_ref,
+                verification_method,
+                "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6",
+            )
+            .unwrap_err();
+        assert!(
+            wrong_authorization
+                .to_string()
+                .contains("authorized runtime endpoint")
+        );
+
+        let wrong_principal = "ak:did_core:web:other-agent.example";
+        let wrong_principal_method = "did:web:other-agent.example#runtime-1";
+        let principal_error = store
+            .create_fresh_agent_mls_key_packages(
+                wrong_principal,
+                device,
+                1,
+                &key_ref,
+                wrong_principal_method,
+                authorized_event_ref,
+            )
+            .unwrap_err();
+        assert!(
+            principal_error
+                .to_string()
+                .contains("must be initialized before pool replenishment")
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -2801,17 +2899,17 @@ mod tests {
         let key_ref = crate::arkret::ArkretKeyRef::InlineSeedBase64 {
             value: base64::engine::general_purpose::STANDARD_NO_PAD.encode(seed),
         };
-        let principal = "did:webvh:z6mkfixture:agent.example";
+        let principal = "ak:did_core:web:agent.example";
         let device = "ak:device:01904100-0000-7000-8000-000000000010";
-        let verification_method = format!("{principal}#{device}");
-        let authorized_event_ref = "ak:event:01904100-0000-7000-8000-000000000011";
+        let verification_method = "did:web:agent.example#runtime-1";
+        let authorized_event_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
         let initial = store
             .ensure_agent_mls_key_package(
                 principal,
                 device,
                 false,
                 &key_ref,
-                &verification_method,
+                verification_method,
                 authorized_event_ref,
             )
             .unwrap();
@@ -2821,7 +2919,7 @@ mod tests {
                 device,
                 8,
                 &key_ref,
-                &verification_method,
+                verification_method,
                 authorized_event_ref,
             )
             .unwrap();
@@ -3063,7 +3161,7 @@ mod tests {
         .unwrap();
         let mut alice_group = alice.create_group(realm_id.as_bytes()).unwrap();
         let add = alice_group.add_member(&bob_key_package).unwrap();
-        let group_state_ref = "ak:event:01904100-0000-8000-8000-0000000000aa";
+        let group_state_ref = "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6";
         let welcome_carrier = json!({
             "keypackage_ref": bob_key_package.keypackage_ref.as_str(),
             "claim_ref": { "claim_id": "ak:claim:sidecar-metadata" },
@@ -3176,11 +3274,11 @@ mod tests {
     #[test]
     fn online_presence_is_encrypted_signed_and_monotonic_across_refreshes() {
         let home = temp_home("presence-heartbeat");
-        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000001";
-        let agent_id = "did:webvh:z6mkfixture:agent.example";
+        let realm_id = "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
+        let agent_id = "ak:did_core:web:agent.example";
+        let station_id = "ak:did_core:web:station.example";
         let agent_device = "ak:device:01904100-0000-7000-8000-00000000000e";
-        let verification_method =
-            "did:webvh:z6mkfixture:agent.example#ak:device:01904100-0000-7000-8000-00000000000e";
+        let verification_method = "did:web:agent.example#runtime-1";
         let seed = [42_u8; 32];
         let key_ref = crate::arkret::ArkretKeyRef::InlineSeedBase64 {
             value: base64::engine::general_purpose::STANDARD_NO_PAD.encode(seed),
@@ -3193,19 +3291,19 @@ mod tests {
                 false,
                 &key_ref,
                 verification_method,
-                "ak:event:01904100-0000-7000-8000-000000000011",
+                "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM",
             )
             .expect("Agent KeyPackage should use its authorized runtime key");
 
         let alice = new_human_mls_identity(
-            DidCoreId::new("did:webvh:z6mkfixture:alice.example").unwrap(),
+            DidCoreId::new("ak:did_core:web:alice.example").unwrap(),
             DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
         )
         .unwrap();
         let mut alice_group = alice.create_group(realm_id.as_bytes()).unwrap();
         let add = alice_group.add_member(&agent_key_package).unwrap();
         let group_id = add.welcome.group_id.clone();
-        let group_state_ref = "ak:event:01904100-0000-8000-8000-0000000000aa";
+        let group_state_ref = "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6";
         agent_store
             .record_mls_welcome_from_value(&json!({
                 "keypackage_ref": agent_key_package.keypackage_ref.as_str(),
@@ -3228,12 +3326,16 @@ mod tests {
                 &serde_json::to_vec(&json!({"kind":"ak.content.text","body":"ready"})).unwrap(),
             )
             .unwrap();
-        assert!(matches!(
-            agent_store
-                .try_decrypt_content_block_detailed(&inbound)
-                .expect("Agent should join and decrypt"),
-            ArkretDecryptDetailedOutcome::Decrypted { .. }
-        ));
+        let decrypt_outcome = agent_store
+            .try_decrypt_content_block_detailed(&inbound)
+            .expect("Agent should join and decrypt");
+        assert!(
+            matches!(
+                decrypt_outcome,
+                ArkretDecryptDetailedOutcome::Decrypted { .. }
+            ),
+            "unexpected Agent decrypt outcome: {decrypt_outcome:?}"
+        );
         agent_store
             .upsert_realm_policy(ArkretRealmCryptoPolicy {
                 realm_id: realm_id.to_owned(),
@@ -3255,6 +3357,7 @@ mod tests {
             .seal_online_presence_signal(
                 realm_id,
                 agent_id,
+                station_id,
                 agent_device,
                 verification_method,
                 &key_ref,
@@ -3266,6 +3369,7 @@ mod tests {
             .seal_online_presence_signal(
                 realm_id,
                 agent_id,
+                station_id,
                 agent_device,
                 verification_method,
                 &key_ref,
@@ -3298,7 +3402,7 @@ mod tests {
                 panic!("Signal plaintext must be ak.presence");
             };
             assert_eq!(presence.payload_sequence, expected_sequence);
-            assert_eq!(presence.actor_id.as_str(), agent_id);
+            assert_eq!(presence.actor_id.signing_principal_id().as_str(), agent_id);
             assert_eq!(presence.state, PresenceState::Online);
             assert_eq!(presence.ttl_ms, 30_000);
         }
@@ -3395,9 +3499,9 @@ mod tests {
     fn legacy_pool_cleanup_is_limited_to_the_current_agent_binding() {
         let home = temp_home("kp-revoke-agent-scope");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "legacy");
-        let current_principal = "did:web:current-agent.example";
+        let current_principal = "ak:did_core:web:current-agent.example";
         let current_device = "ak:device:01904100-0000-7000-8000-000000000011";
-        let replaced_principal = "did:web:replaced-agent.example";
+        let replaced_principal = "ak:did_core:web:replaced-agent.example";
         let replaced_device = "ak:device:01904100-0000-7000-8000-000000000012";
         let current = store
             .ensure_mls_key_package(current_principal, current_device, false)
@@ -3740,8 +3844,11 @@ mod tests {
             keypackage_digest: key_package.keypackage_ref.clone(),
             intended_realm_id: realm_id.clone(),
             claim_id: claim_id.clone(),
-            requester_actor_id: DidCoreId::new("ak:did_core:web:owner.example".to_owned())
-                .expect("requester"),
+            requester_actor_id: ActorId::account(AccountId::new(
+                DidCoreId::new("ak:did_core:web:owner.example".to_owned()).expect("requester"),
+                DidCoreId::new("ak:did_core:web:principal-server.example".to_owned())
+                    .expect("requester Station"),
+            )),
             trust_binding: MlsRequesterTrustBinding::RequesterDevice {
                 requester_device_id: DeviceId::new(
                     "ak:device:01904100-0000-7000-8000-000000000006".to_owned(),
@@ -3825,6 +3932,8 @@ mod tests {
 
         let repair_realm_id = payload.claim_envelope.intended_realm_id.clone();
         let repair_actor = DidCoreId::new("ak:did_core:web:owner.example".to_owned()).unwrap();
+        let repair_principal_server =
+            DidCoreId::new("ak:did_core:web:principal-server.example".to_owned()).unwrap();
         let repair_scope = ScopeRef::Realm {
             realm_id: repair_realm_id.clone(),
         };
@@ -3839,12 +3948,13 @@ mod tests {
                 strand_id.clone(),
                 repair_realm_id.clone(),
                 "Direct",
-                repair_actor.clone(),
+                ActorId::account(AccountId::new(
+                    repair_actor.clone(),
+                    repair_principal_server.clone(),
+                )),
             ),
             initial_relations: None,
         };
-        let repair_principal_server =
-            DidCoreId::new("ak:did_core:web:principal-server.example".to_owned()).unwrap();
         let mut strand_event = arkret_wire::test_support::raw_event_at(
             "ak.strand.create",
             repair_scope.clone(),

@@ -7,10 +7,10 @@
 use anyhow::Context;
 use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
-    AuthContext, AuthoredEvent, ContentBlock, DidCoreId, DidUrl, Ed25519PayloadSigner, Event,
-    EventDraftKindRegistry, EventId, EventRef, Hlc, MessageCreatePayload, OpaqueLocalId,
-    OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId, ScopeRef, SealId,
-    StrandId, event_spec, new_prefixed_uuid7,
+    AccountId, ActorId, AuthContext, AuthoredEvent, ContentBlock, DidCoreId, DidUrl,
+    Ed25519PayloadSigner, Event, EventDraftKindRegistry, EventId, EventRef, Hlc,
+    MessageCreatePayload, OpaqueLocalId, OperationEnvelopeBuilder, OperationEventConversion,
+    OperationId, RealmId, ScopeRef, SealId, StrandId, event_spec, new_prefixed_uuid7,
 };
 
 use super::sidecar::{EVENT_REF_ROLE_AFTER, SidecarExchangeContext};
@@ -21,6 +21,7 @@ pub struct MessageCreateRequest {
     pub strand_id: String,
     pub body: String,
     pub principal_id: String,
+    pub station_id: String,
     pub actor_seq: u64,
     pub thread_root_id: Option<String>,
     /// When replying inside an Agent Sidecar exchange, the verified exchange
@@ -50,8 +51,11 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     }
     let realm = RealmId::new(req.realm_id.clone())
         .with_context(|| format!("invalid realm_id: {}", req.realm_id))?;
-    let actor = DidCoreId::new(req.principal_id.clone())
+    let principal = DidCoreId::new(req.principal_id.clone())
         .with_context(|| format!("invalid principal DID: {}", req.principal_id))?;
+    let station = DidCoreId::new(req.station_id.clone())
+        .with_context(|| format!("invalid Station DID: {}", req.station_id))?;
+    let actor = ActorId::account(AccountId::new(principal, station));
     let hlc = current_hlc();
 
     let strand_id = StrandId::new(req.strand_id.clone())
@@ -135,7 +139,7 @@ pub fn apply_data_event_basis(
     if event.seal_basis.is_some() || !event.preconditions.is_empty() {
         anyhow::bail!("DataEvent cannot carry seal_basis or preconditions");
     }
-    if event.actor_id != signer_did {
+    if event.actor_id.signing_principal_id() != &signer_did {
         anyhow::bail!("DataEvent signer must match the Event actor");
     }
     let key_id = OpaqueLocalId::new(key_id)
@@ -176,6 +180,7 @@ mod tests {
             strand_id: strand_id.to_string(),
             body: "hello world".into(),
             principal_id: "ak:did_core:webvh:z6mksupport".into(),
+            station_id: "ak:did_core:webvh:z6mkstation".into(),
             actor_seq: 1,
             thread_root_id: None,
             sidecar_exchange: None,
@@ -187,7 +192,10 @@ mod tests {
         let event = build_message_create_event(&valid_request()).expect("build");
         assert_eq!(event.kind, "ak.message.create");
         assert_eq!(event.realm_id.as_str(), valid_request().realm_id);
-        assert_eq!(event.actor_id.as_str(), valid_request().principal_id);
+        assert_eq!(
+            event.actor_id.signing_principal_id().as_str(),
+            valid_request().principal_id
+        );
         // payload shape sanity
         let body = event
             .payload
@@ -227,7 +235,10 @@ mod tests {
         assert!(event.seal_ref.is_some());
         let auth_context = event.auth_context.expect("auth context");
         assert_eq!(auth_context.key_id.as_str(), "agent-device");
-        assert_eq!(event.actor_id.as_str(), valid_request().principal_id);
+        assert_eq!(
+            event.actor_id.signing_principal_id().as_str(),
+            valid_request().principal_id
+        );
         assert!(event.seal_basis.is_none());
     }
 

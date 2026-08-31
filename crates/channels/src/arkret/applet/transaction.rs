@@ -91,7 +91,7 @@ pub enum AppletEventOutcome {
 pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> AppletEventOutcome {
     // Loopback: an event signed by our own bot or one of our ghost actors
     // should not be dispatched back to the agent pipeline.
-    let actor = event.actor_id.as_str();
+    let actor = event.actor_id.signing_principal_id().as_str();
     if actor == cfg.bot_actor_id || cfg.namespaces.actor_matches(actor) {
         return AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet);
     }

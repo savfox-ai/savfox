@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use arkret::{AgentPairingBootstrap, DeviceId, DidCoreId, Did, DidUrl};
+use arkret::{AgentPairingBootstrap, DeviceId, Did, DidCoreId, DidUrl};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -99,7 +99,7 @@ pub struct ArkretAccountConfig {
     pub id: String,
     pub principal_id: String,
     pub device_id: String,
-    /// Local Ed25519 runtime key reference. In personal-agent mode this is the
+    /// Local Ed25519 runtime key reference. In Agent mode this is the
     /// savfox-owned runtime key authorized by Inkson/controller.
     pub key_ref: Option<ArkretKeyRef>,
     /// Authorized runtime verification method id for agent_key_proof and event
@@ -342,7 +342,7 @@ impl ArkretChannelConfig {
 
     /// Pick the account that should send to the given realm.
     ///
-    /// Personal-agent accounts are user-scoped, not Realm-scoped, so the
+    /// Agent accounts are user-scoped, not Realm-scoped, so the
     /// Arkret realm supplied by the incoming event is only the outbound target.
     #[must_use]
     pub fn select_send_account(&self, _realm_id: &str) -> Option<&ArkretAccountConfig> {
@@ -490,9 +490,7 @@ pub fn unknown_requested_scope_actions(actions: &[String]) -> anyhow::Result<Vec
         let canonical = canonical_requested_scope_action(trimmed);
         // requestedScope contains both content capabilities and Arkret service
         // operations, so validate against both SDK-owned canonical registries.
-        let is_capability_action = arkret_schema::embedded_capability_action(canonical)
-            .map_err(|error| anyhow::anyhow!("load Arkret action registry: {error}"))?
-            .is_some();
+        let is_capability_action = arkret_schema::capability_action(canonical).is_some();
         let is_service_operation = arkret::ServiceOperationId::from_wire(canonical).is_some();
         if trimmed != action
             || canonical.is_empty()

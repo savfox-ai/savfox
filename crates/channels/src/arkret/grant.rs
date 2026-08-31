@@ -109,7 +109,7 @@ pub async fn load_and_verify_grant(
             // Admission proofs are Principal Server attestations layered on
             // top of the producer proof; their kind is closed by the type, so
             // only the signature payload can be structurally absent.
-            EventProof::PrincipalServerAdmission(admission) => {
+            EventProof::StationAdmission(admission) => {
                 if admission.jws.is_empty() {
                     anyhow::bail!(
                         "capability grant {}: admission proof is missing its JWS",
@@ -130,12 +130,12 @@ pub async fn load_and_verify_grant(
     .with_context(|| format!("decode CapabilityGrant payload in {}", path.display()))?;
     let grant = payload.grant;
 
-    if event.actor_id.as_str() != grant.issuer_id.as_str() {
+    if event.actor_id != grant.issuer_id {
         anyhow::bail!(
             "capability grant {}: event actor '{}' does not match grant issuer '{}'",
             path.display(),
-            event.actor_id.as_str(),
-            grant.issuer_id.as_str()
+            event.actor_id,
+            grant.issuer_id
         );
     }
     if !event
@@ -149,13 +149,13 @@ pub async fn load_and_verify_grant(
             Did::new(controller)
                 .ok()
                 .and_then(|did| project_did_to_core_id(&did).ok())
-                .is_some_and(|core_id| core_id == grant.issuer_id)
+                .is_some_and(|core_id| core_id == *grant.issuer_id.signing_principal_id())
         })
     {
         anyhow::bail!(
             "capability grant {}: no proof verification_method belongs to issuer '{}'",
             path.display(),
-            grant.issuer_id.as_str()
+            grant.issuer_id
         );
     }
 
@@ -236,7 +236,7 @@ pub async fn load_and_verify_grant(
     Ok(ArkretGrant {
         event_id: event.event_id.as_str().to_owned(),
         subject: subject.to_owned(),
-        issuer: grant.issuer_id.as_str().to_owned(),
+        issuer: grant.issuer_id.to_string(),
         realm_id,
         actions: grant.actions,
         constraints: grant.constraints,
@@ -247,7 +247,7 @@ pub async fn load_and_verify_grant(
 
 fn capability_subject_did(subject: &CapabilitySubject) -> Option<&str> {
     match subject {
-        CapabilitySubject::CoreDid(did) => Some(did.as_str()),
+        CapabilitySubject::Actor(actor) => Some(actor.signing_principal_id().as_str()),
         CapabilitySubject::Condition(_) => None,
     }
 }

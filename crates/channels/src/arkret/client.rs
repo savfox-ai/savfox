@@ -4,7 +4,7 @@
 //! the upstream SDK; this type only exists so the gateway runtime never has
 //! to think about constructing the underlying client.
 //!
-//! Personal-agent mode uses `agent_key_proof` to mint a short-lived
+//! Agent mode uses `agent_key_proof` to mint a short-lived
 //! `ak.session.grant`, then presents that grant with a fresh DPoP proof on
 //! every protected self-surface call.
 
@@ -172,7 +172,7 @@ fn mint_agent_session_refresh_proof(
 ) -> garth::Result<AgentSessionRefreshProof> {
     let request_canonical_digest = arkret::agent_session_refresh_request_digest(
         &state.grant_jwt,
-        &state.principal_id,
+        &state.account_id.principal_id,
         device_id,
         &state.audience_id,
         verification_method,
@@ -339,14 +339,12 @@ pub fn build_mls_key_packages_claim_request(
         source_id: DidCoreId::new(source_service_id.to_owned()).with_context(|| {
             format!("invalid Arkret KeyPackage claim source Service DID '{source_service_id}'")
         })?,
-        destination_id: DidCoreId::new(destination_service_id.to_owned()).with_context(
-            || {
-                format!(
-                    "invalid Arkret KeyPackage claim destination Service DID \
+        destination_id: DidCoreId::new(destination_service_id.to_owned()).with_context(|| {
+            format!(
+                "invalid Arkret KeyPackage claim destination Service DID \
                      '{destination_service_id}'"
-                )
-            },
-        )?,
+            )
+        })?,
     };
     let request = KeyPackagesClaimRequestBody {
         claim_request_id,
@@ -417,7 +415,7 @@ impl ArkretHttpClient {
     }
 
     /// Build an applet HTTP client bound to `base_url`, authenticated via the
-    /// applet bearer token. Personal-agent account runtimes use
+    /// Applet bearer token. Agent account runtimes use
     /// [`Self::login_agent`] instead.
     pub fn new(base_url: &str, access_token: &str) -> anyhow::Result<Self> {
         let url =
@@ -429,7 +427,7 @@ impl ArkretHttpClient {
         Ok(Self::from_inner(inner))
     }
 
-    /// Construct a personal-agent HTTP client by exchanging a runtime-key
+    /// Construct an Agent HTTP client by exchanging a runtime-key
     /// `agent_key_proof` for a short-lived DPoP-bound session grant.
     #[allow(clippy::too_many_arguments)]
     pub async fn login_agent_provider(
@@ -558,7 +556,7 @@ impl ArkretHttpClient {
         )
         .map_err(|error| anyhow::anyhow!("restore agent session grant: {error}"))?;
         if let Some(state) = restored.session().current_state() {
-            if state.principal_id == principal_did
+            if state.account_id.principal_id == principal_did
                 && state.audience_id == audience
                 && state.expires_at > Utc::now()
             {
@@ -667,7 +665,7 @@ impl ArkretHttpClient {
     }
 
     /// `GET /_arkret/self/account/subscribe` — returns a user-scoped account
-    /// stream. Personal-agent runtimes consume this instead of binding the
+    /// stream. Agent runtimes consume this instead of binding the
     /// listener to a configured Realm.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn account_subscribe_stream(
@@ -850,7 +848,7 @@ fn validate_agent_key_ref(key_ref: &ArkretKeyRef) -> anyhow::Result<()> {
     if matches!(key_ref, ArkretKeyRef::Keyring { .. }) {
         Ok(())
     } else {
-        anyhow::bail!("Arkret personal-agent session keys must use key_ref kind=keyring")
+        anyhow::bail!("Arkret Agent session keys must use key_ref kind=keyring")
     }
 }
 
@@ -858,7 +856,7 @@ fn arkret_session_from_state(state: &SessionGrantState) -> ArkretSession {
     ArkretSession {
         session_grant: state.grant_jwt.clone(),
         expires_at: state.expires_at,
-        principal_did: state.principal_id.clone(),
+        principal_did: state.account_id.principal_id.clone(),
         device_id: state.device_id.clone(),
     }
 }
@@ -940,7 +938,7 @@ async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Resu
 }
 
 fn agent_client_builder(base_url: Url) -> ClientBuilder {
-    // Personal-agent conformance stacks run the resource and account authority
+    // Agent conformance stacks run the resource and account authority
     // on loopback. The SDK keeps plaintext HTTP rejected for every non-loopback
     // host, including when this opt-in is enabled.
     ClientBuilder::new(base_url).allow_insecure_localhost()
@@ -967,8 +965,10 @@ mod tests {
 
     fn agent_session_state() -> SessionGrantState {
         SessionGrantState {
-            principal_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture").unwrap(),
-            service_account_id: arkret::ServiceAccountId::new("arkret-agent-fixture").unwrap(),
+            account_id: arkret::AccountId::new(
+                DidCoreId::new("ak:did_core:webvh:z6mkfixture").unwrap(),
+                DidCoreId::new("ak:did_core:webvh:z6mkservice").unwrap(),
+            ),
             device_id: Some(
                 DeviceId::new("ak:device:0196419b-0000-7000-8000-000000000001").unwrap(),
             ),
@@ -1002,7 +1002,7 @@ mod tests {
             first.request_canonical_digest,
             arkret::agent_session_refresh_request_digest(
                 &state.grant_jwt,
-                &state.principal_id,
+                &state.account_id.principal_id,
                 device_id,
                 &state.audience_id,
                 &first.verification_method,
@@ -1154,7 +1154,10 @@ mod tests {
             )
             .unwrap(),
             claim_id: arkret::NonEmptyString::new("ak:claim:test").unwrap(),
-            requester_actor_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture".to_owned()).unwrap(),
+            requester_actor_id: arkret::ActorId::account(arkret::AccountId::new(
+                DidCoreId::new("ak:did_core:webvh:z6mkfixture".to_owned()).unwrap(),
+                DidCoreId::new("ak:did_core:webvh:z6mkstationfixture".to_owned()).unwrap(),
+            )),
             trust_binding: arkret::MlsRequesterTrustBinding::RequesterDevice {
                 requester_device_id: DeviceId::new(
                     "ak:device:01904100-0000-7000-8000-000000000001".to_owned(),

@@ -3,7 +3,7 @@
 //! The 32-byte ed25519 seed is loaded from a [`ArkretKeyRef`] location (env
 //! var, file, or — debug only — inline base64). The resulting
 //! [`arkret::Ed25519PayloadSigner`] is the savfox-owned runtime key in
-//! personal-agent mode, and also supports applet signer flows:
+//! Agent mode, and also supports Applet signer flows:
 //!
 //! * **Applet DID-proof login** for applet outbound authentication.
 //! * **Event signing** (`arkret_signatures::sign_event`) before every outbound submit.
@@ -43,7 +43,7 @@ pub enum ArkretKeyRef {
     /// * UTF-8 text holding base64-no-pad of the 32-byte seed.
     File { path: PathBuf },
     /// Read the seed from the platform credential vault (Keychain, DPAPI or
-    /// Secret Service). Personal-agent session providers require this form.
+    /// Secret Service). Agent session providers require this form.
     Keyring { service: String, account: String },
     /// **TEST ONLY** — inline base64-no-pad seed in the config JSON. Refused
     /// at runtime in release builds.
@@ -74,8 +74,8 @@ pub fn load_ed25519_signer(
 ) -> anyhow::Result<Ed25519PayloadSigner> {
     let mut seed_arr = load_seed_array(key_ref)?;
 
-    let did = Did::new(did.to_owned())
-        .with_context(|| format!("arkret signer: invalid DID '{did}'"))?;
+    let did =
+        Did::new(did.to_owned()).with_context(|| format!("arkret signer: invalid DID '{did}'"))?;
     let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
         anyhow::anyhow!("arkret signer: invalid verification method '{verification_method}': {err}")
     })?;
@@ -373,8 +373,7 @@ mod tests {
                 .unwrap(),
                 device_verification_method: arkret::DidUrl::new(TEST_VM).unwrap(),
             },
-            recipient_id: arkret::DidCoreId::new("ak:did_core:web:service.example")
-                .unwrap(),
+            recipient_id: arkret::DidCoreId::new("ak:did_core:web:service.example").unwrap(),
             realm_id: arkret::RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI")
                 .unwrap(),
             mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
