@@ -8,6 +8,8 @@
 //! 4. Dispatches each event to the agent pipeline.
 //!
 //! Outbound sends go through [`send_to_arkret_account`].
+//! Agent presence Signals are not emitted: v1 has no registered Agent endpoint
+//! carrier, and an Agent key must never impersonate an account device.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -70,9 +72,6 @@ struct ArkretListenerDiagnostic {
     last_event_id: Option<String>,
     last_realm_id: Option<String>,
     last_local_agent_id: Option<String>,
-    last_presence_at: Option<chrono::DateTime<Utc>>,
-    last_presence_error: Option<String>,
-    presence_heartbeats: u64,
     received_events: u64,
     dispatched_events: u64,
     baselined_events: u64,
@@ -93,9 +92,6 @@ impl ArkretListenerDiagnostic {
             last_event_id: None,
             last_realm_id: None,
             last_local_agent_id: None,
-            last_presence_at: None,
-            last_presence_error: None,
-            presence_heartbeats: 0,
             received_events: 0,
             dispatched_events: 0,
             baselined_events: 0,
@@ -117,9 +113,6 @@ impl ArkretListenerDiagnostic {
             "last_event_id": self.last_event_id,
             "last_realm_id": self.last_realm_id,
             "last_local_agent_id": self.last_local_agent_id,
-            "last_presence_at": self.last_presence_at,
-            "last_presence_error": self.last_presence_error,
-            "presence_heartbeats": self.presence_heartbeats,
             "received_events": self.received_events,
             "dispatched_events": self.dispatched_events,
             "baselined_events": self.baselined_events,
@@ -134,9 +127,6 @@ const ACCOUNT_SCAN_CATCHUP_LIMIT: u32 = 100;
 const ACCOUNT_SCAN_CATCHUP_MAX_PAGES: usize = 64;
 const ACCOUNT_DURABLE_WORK_POLL: Duration = Duration::from_millis(250);
 const ACCOUNT_AUTH_WARNING_INTERVAL: Duration = Duration::from_secs(30);
-/// v1 session Signals expire after 30 seconds. Twenty seconds leaves ten
-/// seconds for scheduling, network jitter and an in-band session refresh.
-const ACCOUNT_PRESENCE_REFRESH: Duration = Duration::from_secs(20);
 const DEVICE_MESSAGES_PULL_LIMIT: u32 = 100;
 const DEVICE_MESSAGES_PULL_MAX_PAGES: usize = 16;
 
@@ -690,8 +680,6 @@ async fn drive_account_subscription_engine(
     tokio::pin!(run);
     let mut delivery_poll = tokio::time::interval(ACCOUNT_DURABLE_WORK_POLL);
     delivery_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut presence_refresh = tokio::time::interval(ACCOUNT_PRESENCE_REFRESH);
-    presence_refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_auth_warning = None;
 
     loop {
@@ -723,168 +711,8 @@ async fn drive_account_subscription_engine(
                 )
                 .await;
             }
-            _ = presence_refresh.tick() => {
-                refresh_account_presence(
-                    provider,
-                    channel,
-                    account,
-                    &crypto_store,
-                )
-                .await;
-            }
         }
     }
-}
-
-async fn refresh_account_presence(
-    provider: &ArkretAgentSessionProvider,
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-    crypto_store: &FileArkretCryptoStore,
-) {
-    let ready_realms = match crypto_store.presence_ready_realm_ids() {
-        Ok(realms) => realms,
-        Err(error) => {
-            record_presence_failure(
-                channel,
-                account,
-                format!("load MLS presence scopes: {error:#}"),
-            );
-            return;
-        }
-    };
-    if ready_realms.is_empty() {
-        return;
-    }
-    let key_ref = match account.key_ref.as_ref() {
-        Some(key_ref) => key_ref,
-        None => {
-            record_presence_failure(channel, account, "missing runtime keyRef");
-            return;
-        }
-    };
-    let verification_method = match account.verification_method.as_deref() {
-        Some(method) => method,
-        None => {
-            record_presence_failure(channel, account, "missing runtime verificationMethod");
-            return;
-        }
-    };
-    let client = match provider.provide().await {
-        Ok(client) => ArkretHttpClient::from_inner(client),
-        Err(error) => {
-            record_presence_failure(
-                channel,
-                account,
-                format!("restore authenticated presence client: {error}"),
-            );
-            return;
-        }
-    };
-
-    for realm in ready_realms {
-        let realm_id = match RealmId::new(realm.clone()) {
-            Ok(realm_id) => realm_id,
-            Err(error) => {
-                record_presence_failure(
-                    channel,
-                    account,
-                    format!("invalid presence Realm id '{realm}': {error}"),
-                );
-                continue;
-            }
-        };
-        let frontier = match client.inner().seals_frontier(realm_id.clone()).await {
-            Ok(frontier) => frontier,
-            Err(error) => {
-                record_presence_failure(
-                    channel,
-                    account,
-                    format!("fetch current Seal for presence Realm '{realm}': {error}"),
-                );
-                continue;
-            }
-        };
-        let seal_ref = match frontier.frontier.sole_leaf() {
-            Ok(seal_id) => seal_id.clone(),
-            Err(error) => {
-                record_presence_failure(
-                    channel,
-                    account,
-                    format!("Realm Seal frontier for '{realm}' has no sole leaf: {error}"),
-                );
-                continue;
-            }
-        };
-        let envelope = match crypto_store.seal_online_presence_signal(
-            realm_id.as_str(),
-            &account.principal_id,
-            channel
-                .service_id
-                .as_deref()
-                .expect("validated Arkret channel service_id"),
-            &account.device_id,
-            verification_method,
-            key_ref,
-            seal_ref.as_str(),
-            Utc::now(),
-        ) {
-            Ok(envelope) => envelope,
-            Err(error) => {
-                record_presence_failure(
-                    channel,
-                    account,
-                    format!("seal encrypted presence for Realm '{realm}': {error:#}"),
-                );
-                continue;
-            }
-        };
-        match client.inner().signal_send(&envelope).await {
-            Ok(outcome) if outcome.accepted && outcome.realm_id == realm_id => {
-                update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
-                    diagnostic.last_presence_at = Some(Utc::now());
-                    diagnostic.last_presence_error = None;
-                    diagnostic.presence_heartbeats =
-                        diagnostic.presence_heartbeats.saturating_add(1);
-                });
-                debug!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    realm_id = %realm,
-                    "arkret: encrypted presence heartbeat accepted"
-                );
-            }
-            Ok(outcome) => record_presence_failure(
-                channel,
-                account,
-                format!(
-                    "presence submit for Realm '{realm}' returned accepted={} realm_id={}",
-                    outcome.accepted, outcome.realm_id
-                ),
-            ),
-            Err(error) => record_presence_failure(
-                channel,
-                account,
-                format!("submit presence for Realm '{realm}': {error}"),
-            ),
-        }
-    }
-}
-
-fn record_presence_failure(
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-    error: impl Into<String>,
-) {
-    let error = error.into();
-    update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
-        diagnostic.last_presence_error = Some(error.clone());
-    });
-    warn!(
-        channel_id = %channel.id,
-        account_id = %account.id,
-        "arkret: presence heartbeat unavailable: {error}"
-    );
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -20,7 +20,6 @@ pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.keys.keypackages.command.revoke",
     "ak.self.device_messages.query.list",
     "ak.self.device_messages.command.ack",
-    "ak.self.signal.command.send",
     "ak.event.read",
     "ak.message.create",
 ];
@@ -34,7 +33,6 @@ const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     "ak.self.keys.keypackages.command.revoke",
     "ak.self.device_messages.query.list",
     "ak.self.device_messages.command.ack",
-    "ak.self.signal.command.send",
     "ak.event.read",
 ];
 
@@ -967,6 +965,19 @@ mod strict_tests {
         json!(DEFAULT_AGENT_RUNTIME_SCOPE)
     }
 
+    fn signal_scope_config(scope: Value) -> ChannelConfig {
+        let mut config = canonical_config(scope);
+        config.config["inksonBootstrap"]["service_id"] =
+            json!("ak:did_core:web:arkret.example.org");
+        config.config["inksonBootstrap"]["agent_id"] = json!("ak:did_core:web:agent.example");
+        config.config["verificationMethod"] = json!("did:web:agent.example#runtime-1");
+        config.config["authorizedEventRef"] = json!(arkret::EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [0x63; 32],
+        ));
+        config
+    }
+
     #[test]
     fn agent_endpoint_derivation_is_stable_across_pairing_components() {
         assert_eq!(
@@ -1081,11 +1092,10 @@ mod strict_tests {
     }
 
     #[test]
-    fn interactive_agent_scope_requires_reply_submission_and_presence() {
+    fn agent_signal_scope_still_requires_frontier_and_reply_submission() {
         for required_action in [
             "ak.self.events.read.frontier",
             "ak.self.events.command.submit",
-            "ak.self.signal.command.send",
         ] {
             let scope = DEFAULT_AGENT_RUNTIME_SCOPE
                 .iter()
@@ -1093,13 +1103,22 @@ mod strict_tests {
                 .copied()
                 .collect::<Vec<_>>();
             let error =
-                ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
+                ArkretChannelConfig::from_strict_agent_config(&signal_scope_config(json!(scope)))
                     .expect_err("interactive Agent capability must fail closed");
             assert!(
                 error.to_string().contains(required_action),
                 "missing capability error must name {required_action}: {error:#}"
             );
         }
+    }
+
+    #[test]
+    fn agent_signal_scope_does_not_request_an_unregistered_carrier() {
+        assert!(!DEFAULT_AGENT_RUNTIME_SCOPE.contains(&"ak.self.signal.command.send"));
+        assert!(!REQUIRED_LISTEN_SCOPE.contains(&"ak.self.signal.command.send"));
+        assert!(!REQUIRED_SEND_SCOPE.contains(&"ak.self.signal.command.send"));
+        ArkretChannelConfig::from_strict_agent_config(&signal_scope_config(default_scope()))
+            .expect("Agent runtime must not require unsupported Signal presence");
     }
 
     #[test]

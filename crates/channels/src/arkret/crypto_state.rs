@@ -13,13 +13,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::Context;
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity, ArkretMlsSigner};
 use arkret::{
-    AccountId, ActorId, ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload,
-    EncryptedPayload, EncryptedPayloadScheme, EventContentPreEncryptionHeader,
-    EventContentRoutingContext, EventId, EventProof, MessageMetadata, MlsCommitPayload,
-    MlsCommitSource, MlsEncryptedPayload, MlsEndpointIdentity, MlsKeyPackageRecord,
-    MlsKeyPackageState, MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient,
-    PresencePlaintext, PresenceState, RealmId, ScopeRef, SealId, StrandCreatePayload, StrandId,
-    seal_signal_plaintext,
+    ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload, EncryptedPayload,
+    EncryptedPayloadScheme, EventContentPreEncryptionHeader, EventContentRoutingContext, EventId,
+    EventProof, MessageMetadata, MlsCommitPayload, MlsCommitSource, MlsEncryptedPayload,
+    MlsEndpointIdentity, MlsKeyPackageRecord, MlsKeyPackageState, MlsPayloadType,
+    MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient, RealmId, ScopeRef,
+    StrandCreatePayload, StrandId,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -31,8 +30,6 @@ use parking_lot::ReentrantMutex;
 use savfox_keyring_store::KeyringStore as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
 const STATE_VERSION: &str = "savfox.arkret.crypto_state.v1";
 const WRAPPED_STATE_VERSION: &str = "savfox.arkret.crypto_state.wrapped.v1";
@@ -260,11 +257,6 @@ pub struct ArkretCryptoStateFile {
     pub realm_policies: BTreeMap<String, ArkretRealmCryptoPolicy>,
     #[serde(default)]
     pub bootstrap: BTreeMap<String, ArkretBootstrapRecord>,
-    /// Next sender-device sequence per Signal scope. The value is advanced and
-    /// persisted before each submit so a failed HTTP request can skip but never
-    /// reuse a sequence or the MLS Signal nonce consumed alongside it.
-    #[serde(default)]
-    pub signal_sequences: BTreeMap<String, u64>,
     #[serde(default)]
     pub key_backup: ArkretKeyBackupState,
 }
@@ -285,7 +277,6 @@ impl ArkretCryptoStateFile {
             direct_conversation_welcome_bindings: BTreeMap::new(),
             realm_policies: BTreeMap::new(),
             bootstrap: BTreeMap::new(),
-            signal_sequences: BTreeMap::new(),
             key_backup: ArkretKeyBackupState::default(),
         })
     }
@@ -554,176 +545,6 @@ impl FileArkretCryptoStore {
             .realm_policies
             .get(realm_id)
             .is_some_and(ArkretRealmCryptoPolicy::requires_e2ee))
-    }
-
-    /// Realm ids for which the account has both an E2EE policy and mutable MLS
-    /// state accepted at a known group-state reference. Only these scopes can
-    /// safely advertise encrypted v1 presence.
-    pub fn presence_ready_realm_ids(&self) -> anyhow::Result<Vec<String>> {
-        let state = self.load()?;
-        let store = state.mls_store()?;
-        let mut realms = state
-            .realm_policies
-            .values()
-            .filter(|policy| policy.requires_e2ee())
-            .filter_map(|policy| {
-                let group_id = policy.group_id_for_realm();
-                let record = store.mls_group_state(group_id.as_ref())?;
-                group_state_ref_for_epoch(&state, group_id.as_ref(), record.epoch)?;
-                Some(policy.realm_id.clone())
-            })
-            .collect::<Vec<_>>();
-        realms.sort();
-        realms.dedup();
-        Ok(realms)
-    }
-
-    /// Seal and sign one Realm-scoped `ak.presence` Signal.
-    ///
-    /// The post-seal MLS state and strictly increasing payload sequence are
-    /// persisted before the caller performs HTTP submit. This intentionally
-    /// burns both values on an uncertain request and prevents replay/nonce
-    /// reuse after a crash.
-    #[allow(clippy::too_many_arguments)]
-    pub fn seal_online_presence_signal(
-        &self,
-        realm_id: &str,
-        principal_id: &str,
-        station_id: &str,
-        device_id: &str,
-        verification_method: &str,
-        key_ref: &ArkretKeyRef,
-        seal_ref: &str,
-        sent_at: DateTime<Utc>,
-    ) -> anyhow::Result<arkret_wire::SignalEnvelope> {
-        let _guard = self.mutation_lock.lock();
-        let mut state = self.load()?;
-        let policy = state
-            .realm_policies
-            .get(realm_id)
-            .filter(|policy| policy.requires_e2ee())
-            .cloned()
-            .with_context(|| format!("Realm '{realm_id}' has no E2EE Signal policy"))?;
-        let mut store = state.mls_store()?;
-        let group_id = policy.group_id_for_realm().into_owned();
-        let record = store
-            .mls_group_state(&group_id)
-            .cloned()
-            .with_context(|| format!("Realm '{realm_id}' has no accepted MLS group state"))?;
-        let group_state_ref = group_state_ref_for_epoch(&state, &group_id, record.epoch)
-            .with_context(|| {
-                format!(
-                    "Realm '{realm_id}' MLS epoch {} has no accepted group-state reference",
-                    record.epoch
-                )
-            })?;
-        // `ArkretMlsGroup` admits exactly the protocol ciphersuite exported by
-        // the SDK. Use that negotiated wire id directly; a global registry
-        // scan would become wrong as soon as a second suite is activated.
-        let aead_profile = arkret::mls::ARKRET_MLS_CIPHERSUITE_CANONICAL_ID;
-        let realm_id = RealmId::new(realm_id.to_owned())?;
-        let actor_id = ActorId::account(AccountId::new(
-            DidCoreId::new(principal_id.to_owned())?,
-            DidCoreId::new(station_id.to_owned())?,
-        ));
-        let device_id = DeviceId::new(device_id.to_owned())?;
-        let seal_ref = SealId::new(seal_ref.to_owned())?;
-        let scope_ref = ScopeRef::Realm {
-            realm_id: realm_id.clone(),
-        };
-        let expires_at = sent_at + chrono::Duration::seconds(30);
-        let sequence_key = format!("realm:{}", realm_id.as_str());
-        let payload_sequence = state
-            .signal_sequences
-            .get(&sequence_key)
-            .copied()
-            .unwrap_or(0);
-        let plaintext = PresencePlaintext::new(
-            payload_sequence,
-            actor_id.clone(),
-            PresenceState::Online,
-            30_000,
-        )?;
-        let plaintext = seal_signal_plaintext(&plaintext)?;
-        let signal_key_ref = arkret_wire::SignalKeyRef {
-            algorithm: "MLS-EXPORTER-AEAD".to_owned(),
-            group_state_ref: group_state_ref.clone(),
-        };
-        let mut group = ArkretMlsGroup::restore_from_state_record(&record)
-            .map_err(|error| anyhow::anyhow!("restore Arkret MLS group: {error}"))?;
-        let binding = arkret_wire::SignalAeadBinding {
-            realm_id: &realm_id,
-            scope_ref: &scope_ref,
-            sender_actor_id: &actor_id,
-            sender_device_id: &device_id,
-            seal_ref: &seal_ref,
-            signal_class: arkret_wire::SignalClass::Session,
-            sent_at,
-            expires_at,
-            scheme: arkret_wire::signal::SIGNAL_AEAD_SCHEME,
-            key_ref: &signal_key_ref,
-            purpose: arkret_wire::signal::SIGNAL_AEAD_PURPOSE,
-            aead_profile,
-            epoch: record.epoch,
-        };
-        let sealed = group
-            .seal_signal_payload(&binding, &plaintext)
-            .map_err(|error| anyhow::anyhow!("seal Arkret presence Signal: {error}"))?;
-
-        let updated = group
-            .persist_state(&mut store)
-            .map_err(|error| anyhow::anyhow!("persist post-Signal MLS group: {error}"))?;
-        state.set_mls_store(&store)?;
-        let next_sequence = payload_sequence
-            .checked_add(1)
-            .context("Arkret presence payload sequence exhausted")?;
-        state.signal_sequences.insert(sequence_key, next_sequence);
-        state.bootstrap.insert(
-            updated.group_id.clone(),
-            ArkretBootstrapRecord {
-                group_id: updated.group_id,
-                required_epoch: updated.epoch,
-                local_epoch: Some(updated.epoch),
-                group_state_ref: Some(group_state_ref),
-                action: MlsRecoveryAction::UseLocalState,
-                updated_at: sent_at,
-            },
-        );
-        self.save(&mut state)?;
-
-        let verification_method = arkret::DidUrl::new(verification_method.to_owned())
-            .map_err(|error| anyhow::anyhow!("invalid Arkret verification method: {error}"))?;
-        let mut envelope = arkret_wire::SignalEnvelope {
-            realm_id,
-            scope_ref,
-            sender_actor_id: actor_id,
-            sender_device_id: device_id,
-            seal_ref,
-            signal_class: arkret_wire::SignalClass::Session,
-            sent_at,
-            expires_at,
-            encrypted_payload: sealed.encrypted_payload,
-            proof: arkret_wire::SignalProof {
-                kind: arkret::proof_kind::DETACHED_JWS.to_owned(),
-                verification_method,
-                envelope_digest: arkret::Hash::new(format!("sha256:{}", "0".repeat(64)))?,
-                created_at: sent_at,
-                domain: None,
-                audience: None,
-                jws: String::new(),
-            },
-        };
-        let expected_aad = envelope.expected_aad_digest()?;
-        if envelope.encrypted_payload.aad_digest != expected_aad {
-            anyhow::bail!("Arkret presence ciphertext was sealed against a different header");
-        }
-        envelope.proof.envelope_digest = envelope.envelope_digest()?;
-        let proof_bytes = envelope.proof_binding_bytes()?;
-        let signing_key = load_ed25519_signing_key(key_ref)?;
-        envelope.proof.jws =
-            arkret_signatures::sign_ed25519_detached_jws(&signing_key, &proof_bytes)?;
-        envelope.validate_structural()?;
-        Ok(envelope)
     }
 
     pub fn update_realm_policies_from_sync(&self, realms_value: &Value) -> anyhow::Result<usize> {
@@ -2574,7 +2395,10 @@ fn safe_file_stem(scope_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use arkret::{EncryptedPayloadScheme, Hash, KeyOperationSignature, KeyPackageClaimRecord};
+    use arkret::{
+        AccountId, ActorId, EncryptedPayloadScheme, Hash, KeyOperationSignature,
+        KeyPackageClaimRecord,
+    };
     use serde_json::json;
 
     use super::*;
@@ -3267,152 +3091,6 @@ mod tests {
         assert_eq!(
             binding.request_event_id.as_ref().map(|id| id.as_str()),
             Some(context.request_event_id.as_str())
-        );
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn online_presence_is_encrypted_signed_and_monotonic_across_refreshes() {
-        let home = temp_home("presence-heartbeat");
-        let realm_id = "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
-        let agent_id = "ak:did_core:web:agent.example";
-        let station_id = "ak:did_core:web:station.example";
-        let agent_device = "ak:device:01904100-0000-7000-8000-00000000000e";
-        let verification_method = "did:web:agent.example#runtime-1";
-        let seed = [42_u8; 32];
-        let key_ref = crate::arkret::ArkretKeyRef::InlineSeedBase64 {
-            value: base64::engine::general_purpose::STANDARD_NO_PAD.encode(seed),
-        };
-        let agent_store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
-        let agent_key_package = agent_store
-            .ensure_agent_mls_key_package(
-                agent_id,
-                agent_device,
-                false,
-                &key_ref,
-                verification_method,
-                "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM",
-            )
-            .expect("Agent KeyPackage should use its authorized runtime key");
-
-        let alice = new_human_mls_identity(
-            DidCoreId::new("ak:did_core:web:alice.example").unwrap(),
-            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
-        )
-        .unwrap();
-        let mut alice_group = alice.create_group(realm_id.as_bytes()).unwrap();
-        let add = alice_group.add_member(&agent_key_package).unwrap();
-        let group_id = add.welcome.group_id.clone();
-        let group_state_ref = "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6";
-        agent_store
-            .record_mls_welcome_from_value(&json!({
-                "keypackage_ref": agent_key_package.keypackage_ref.as_str(),
-                "claim_ref": { "claim_id": "ak:claim:presence-heartbeat" },
-                "claim_envelope": { "intended_realm_id": realm_id },
-                "welcome_ref": "ak:welcome:presence-heartbeat",
-                "mls_group_id": group_id,
-                "epoch": add.welcome.epoch,
-                "commit_ref": group_state_ref,
-                "content": serde_json::to_value(&add.welcome).unwrap()
-            }))
-            .expect("Welcome carrier should persist")
-            .expect("Welcome should be extracted");
-
-        // Consuming one ordinary MLS payload admits the Welcome and persists
-        // the accepted group-state reference used by Signal exporter AEAD.
-        let inbound = alice_group
-            .encrypt_payload(
-                content_header(&alice_group, realm_id, group_state_ref, CONTENT_BLOCK_JSON),
-                &serde_json::to_vec(&json!({"kind":"ak.content.text","body":"ready"})).unwrap(),
-            )
-            .unwrap();
-        let decrypt_outcome = agent_store
-            .try_decrypt_content_block_detailed(&inbound)
-            .expect("Agent should join and decrypt");
-        assert!(
-            matches!(
-                decrypt_outcome,
-                ArkretDecryptDetailedOutcome::Decrypted { .. }
-            ),
-            "unexpected Agent decrypt outcome: {decrypt_outcome:?}"
-        );
-        agent_store
-            .upsert_realm_policy(ArkretRealmCryptoPolicy {
-                realm_id: realm_id.to_owned(),
-                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
-                encryption_profile: Some("mls_rfc9420".to_owned()),
-                mls_group_id: Some(group_id),
-                source: "test".to_owned(),
-                updated_at: Utc::now(),
-            })
-            .expect("presence Realm policy should persist");
-        assert_eq!(
-            agent_store.presence_ready_realm_ids().unwrap(),
-            vec![realm_id.to_owned()]
-        );
-
-        let sent_at = Utc::now();
-        let seal_ref = format!("ak:seal:sha256:{}", "d".repeat(64));
-        let first = agent_store
-            .seal_online_presence_signal(
-                realm_id,
-                agent_id,
-                station_id,
-                agent_device,
-                verification_method,
-                &key_ref,
-                &seal_ref,
-                sent_at,
-            )
-            .expect("first presence heartbeat should seal");
-        let second = agent_store
-            .seal_online_presence_signal(
-                realm_id,
-                agent_id,
-                station_id,
-                agent_device,
-                verification_method,
-                &key_ref,
-                &seal_ref,
-                sent_at + chrono::Duration::seconds(20),
-            )
-            .expect("second presence heartbeat should seal");
-
-        let verifying_key = ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key();
-        let public_key = arkret_signatures::PublicKeyMaterial::Ed25519Raw {
-            bytes: verifying_key.to_bytes().to_vec(),
-        };
-        arkret_signatures::verify_ed25519_signal_proof(&first, &public_key)
-            .expect("first Signal proof should verify");
-        arkret_signatures::verify_ed25519_signal_proof(&second, &public_key)
-            .expect("second Signal proof should verify");
-        assert_ne!(
-            first.encrypted_payload.nonce, second.encrypted_payload.nonce,
-            "each refresh must spend a distinct MLS Signal nonce"
-        );
-
-        let mut replay = arkret::AeadNonceReplayTracker::new();
-        for (expected_sequence, envelope) in [(0, &first), (1, &second)] {
-            let plaintext = alice_group
-                .open_signal_envelope(envelope, &mut replay)
-                .expect("peer should decrypt encrypted presence");
-            let arkret::SignalPlaintext::Presence(presence) =
-                arkret::open_signal_plaintext(&plaintext).expect("presence plaintext should open")
-            else {
-                panic!("Signal plaintext must be ak.presence");
-            };
-            assert_eq!(presence.payload_sequence, expected_sequence);
-            assert_eq!(presence.actor_id.signing_principal_id().as_str(), agent_id);
-            assert_eq!(presence.state, PresenceState::Online);
-            assert_eq!(presence.ttl_ms, 30_000);
-        }
-        assert_eq!(
-            agent_store
-                .load()
-                .unwrap()
-                .signal_sequences
-                .get(&format!("realm:{realm_id}")),
-            Some(&2)
         );
         let _ = std::fs::remove_dir_all(&home);
     }

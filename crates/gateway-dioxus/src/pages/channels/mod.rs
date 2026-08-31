@@ -2671,7 +2671,6 @@ const ARKRET_AGENT_RUNTIME_SCOPE: &[&str] = &[
     "ak.self.keys.keypackages.command.revoke",
     "ak.self.device_messages.query.list",
     "ak.self.device_messages.command.ack",
-    "ak.self.signal.command.send",
     "ak.event.read",
     "ak.message.create",
 ];
@@ -6407,6 +6406,11 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn arkret_agent_pairing_does_not_request_unsupported_signal_presence() {
+        assert!(!ARKRET_AGENT_RUNTIME_SCOPE.contains(&"ak.self.signal.command.send"));
+    }
 
     fn arkret_fields() -> Vec<ConfigField> {
         build_channel_types()
