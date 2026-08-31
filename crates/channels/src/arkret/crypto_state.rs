@@ -760,7 +760,7 @@ impl FileArkretCryptoStore {
     ) -> anyhow::Result<MlsKeyPackageRecord> {
         let signing_seed = super::signer::load_seed_array(key_ref)?;
         let endpoint =
-            native_agent_mls_endpoint(principal_id, verification_method, authorized_event_ref)?;
+            agent_mls_endpoint(principal_id, verification_method, authorized_event_ref)?;
         self.ensure_mls_key_package_inner(
             principal_id,
             device_id,
@@ -809,7 +809,7 @@ impl FileArkretCryptoStore {
         })?;
         let identity = restore_mls_identity(identity_record)?;
         let expected_endpoint =
-            native_agent_mls_endpoint(principal_id, verification_method, authorized_event_ref)?;
+            agent_mls_endpoint(principal_id, verification_method, authorized_event_ref)?;
         anyhow::ensure!(
             mls_identity_signature_public_key(&identity)? == expected_signature_key,
             "Agent MLS identity does not match the currently authorized runtime key"
@@ -1334,7 +1334,7 @@ impl FileArkretCryptoStore {
         {
             anyhow::bail!("MLS Welcome recipient does not match this Agent runtime");
         }
-        let MlsWelcomeRecipient::NativeAgent {
+        let MlsWelcomeRecipient::Agent {
             recipient_agent_id,
             agent_key_authorize_event_id,
             ..
@@ -1345,7 +1345,7 @@ impl FileArkretCryptoStore {
         if recipient_agent_id.as_str() != principal_id
             || agent_key_authorize_event_id.as_str() != authorized_event_ref
         {
-            anyhow::bail!("MLS Welcome Native Agent endpoint binding is stale or mismatched");
+            anyhow::bail!("MLS Welcome Agent endpoint binding is stale or mismatched");
         }
         match &payload.claim_ref.trust_binding {
             arkret::MlsClaimTrustBinding::AgentKeyAuthorizeEventId(event_id)
@@ -1363,7 +1363,7 @@ impl FileArkretCryptoStore {
             anyhow::bail!("MLS Welcome references no locally held Agent KeyPackage");
         };
         match &local_keypackage.endpoint {
-            MlsEndpointIdentity::NativeAgentRuntime {
+            MlsEndpointIdentity::AgentRuntime {
                 agent_id,
                 agent_key_authorize_event_id,
                 ..
@@ -1840,12 +1840,12 @@ pub enum ArkretEncryptOutcome<T: MlsPayloadType> {
     MissingRequiredGroupState { realm_id: String, group_id: String },
 }
 
-fn native_agent_mls_endpoint(
+fn agent_mls_endpoint(
     principal_id: &str,
     verification_method: &str,
     authorized_event_ref: &str,
 ) -> anyhow::Result<MlsEndpointIdentity> {
-    MlsEndpointIdentity::native_agent_runtime(
+    MlsEndpointIdentity::agent_runtime(
         DidCoreId::new(principal_id.to_owned())
             .with_context(|| format!("invalid Arkret Agent DID '{principal_id}'"))?,
         arkret::DidUrl::new(verification_method.to_owned()).map_err(|error| {
@@ -1877,11 +1877,11 @@ fn new_mls_identity(
             principal_id,
             device_id,
         } => ArkretMlsIdentity::new_human_device(principal_id, device_id, signer),
-        MlsEndpointIdentity::NativeAgentRuntime {
+        MlsEndpointIdentity::AgentRuntime {
             agent_id,
             verification_method,
             agent_key_authorize_event_id,
-        } => ArkretMlsIdentity::new_native_agent(
+        } => ArkretMlsIdentity::new_agent(
             agent_id,
             verification_method,
             agent_key_authorize_event_id,
@@ -1923,10 +1923,12 @@ pub fn mls_key_package_record_from_claim(
             MlsEndpointIdentity::human_device(claim.principal_id.clone(), device_id.clone())
         }
         (None, Some(agent_id), Some(method), Some(authorization_ref)) => {
-            if agent_id != &claim.principal_id {
-                anyhow::bail!("Native Agent KeyPackage claim endpoint binding mismatch");
+            if agent_id != &claim.principal_id
+                || method.as_str() != claim.device_signature.kid.as_str()
+            {
+                anyhow::bail!("Agent KeyPackage claim endpoint binding mismatch");
             }
-            MlsEndpointIdentity::native_agent_runtime(
+            MlsEndpointIdentity::agent_runtime(
                 agent_id.clone(),
                 method.clone(),
                 authorization_ref.clone(),
@@ -2044,11 +2046,11 @@ pub fn extract_mls_welcome_envelope(value: &Value) -> Option<MlsWelcomeEnvelope>
                 payload.recipient_principal_id?,
                 recipient_device_id,
             ),
-            MlsWelcomeRecipient::NativeAgent {
+            MlsWelcomeRecipient::Agent {
                 recipient_agent_id,
                 recipient_agent_verification_method,
                 agent_key_authorize_event_id,
-            } => MlsEndpointIdentity::native_agent_runtime(
+            } => MlsEndpointIdentity::agent_runtime(
                 recipient_agent_id,
                 recipient_agent_verification_method,
                 agent_key_authorize_event_id,
@@ -2409,7 +2411,7 @@ fn mls_identity_signature_public_key(identity: &ArkretMlsIdentity) -> anyhow::Re
 fn endpoint_human_device_id(endpoint: &MlsEndpointIdentity) -> Option<&DeviceId> {
     match endpoint {
         MlsEndpointIdentity::HumanDevice { device_id, .. } => Some(device_id),
-        MlsEndpointIdentity::NativeAgentRuntime { .. }
+        MlsEndpointIdentity::AgentRuntime { .. }
         | MlsEndpointIdentity::MinimalMetadataPairwise { .. } => None,
     }
 }

@@ -169,7 +169,7 @@ pub struct AgentIdleReplyConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-pub struct NativeAgentConfig {
+pub struct AgentConfig {
     pub provider: String,
     pub model: String,
     pub fallback_models: Option<Vec<String>>,
@@ -257,7 +257,7 @@ pub struct AgentEntry {
     /// Canonical agent shape. `native` agents run through Savfox model
     /// providers; `terminal` agents delegate to a supported local CLI runtime.
     pub kind: AgentKind,
-    pub native: Option<NativeAgentConfig>,
+    pub native: Option<AgentConfig>,
     pub terminal: Option<TerminalAgentConfig>,
     pub system_prompt: Option<String>,
     /// Operator-set status string (e.g. `"online"` / `"draft"` /
@@ -429,7 +429,7 @@ pub struct AgentPermissionPolicy {
 pub struct AgentDetail {
     pub name: String,
     pub kind: AgentKind,
-    pub native: Option<NativeAgentConfig>,
+    pub native: Option<AgentConfig>,
     pub terminal: Option<TerminalAgentConfig>,
     pub system_prompt: Option<String>,
     pub status: Option<String>,

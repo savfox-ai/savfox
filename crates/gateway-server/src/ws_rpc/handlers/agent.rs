@@ -1198,7 +1198,7 @@ fn legacy_fallback_models(config: &Value) -> Option<Value> {
     }
 }
 
-fn normalize_native_agent_config(config: &mut Value) {
+fn normalize_agent_config(config: &mut Value) {
     let legacy_model = legacy_primary_model(config);
     let legacy_fallbacks = legacy_fallback_models(config);
 
@@ -1302,7 +1302,7 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
         .unwrap_or_else(|| "native".to_owned());
     config["kind"] = json!(kind.as_str());
     if kind == "native" {
-        normalize_native_agent_config(config);
+        normalize_agent_config(config);
     } else if kind == "terminal"
         && let Some(terminal) = config.get_mut("terminal").and_then(Value::as_object_mut)
         && !terminal.contains_key("runtime")
@@ -1317,7 +1317,7 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
             .is_some_and(|kind| kind == "native")
         && !config.get("native").is_some_and(Value::is_object)
     {
-        normalize_native_agent_config(config);
+        normalize_agent_config(config);
     }
 
     if !builtin {

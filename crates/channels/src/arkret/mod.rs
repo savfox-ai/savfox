@@ -1,14 +1,14 @@
 //! Arkret v1 channel adapter.
 //!
 //! Supports two modes:
-//! * **agent** — personal agent runtime configuration seeded from an Inkson bootstrap. Runtime keys
+//! * **agent** — Agent runtime configuration seeded from an Inkson bootstrap. Runtime keys
 //!   use `agent_key_proof` to mint short-lived DPoP-bound `ak.session.grant` credentials for
 //!   protected self endpoints.
 //! * **applet** — register this node as an Arkret Applet (the Matrix-AppService equivalent), with
 //!   Ghost Actor minting and Ed25519 event signing (see the [`applet`] and [`signer`] submodules).
 //!
 //! Principal provisioning is performed by Inkson/Arkret; this adapter consumes the resulting
-//! bootstrap and runtime-key authorization. Native Agent MLS identities reuse that authorized
+//! bootstrap and runtime-key authorization. Agent MLS identities reuse that authorized
 //! runtime key so KeyPackage claims bind to the same accepted `ak.agent.key.authorize` chain.
 //!
 //! Layered like the other channel modules:

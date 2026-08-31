@@ -468,7 +468,7 @@ impl ArkretHttpClient {
         )?;
         let dpop_jkt = binding_proof.jkt.clone();
         let binding_proof = binding_proof.header_value;
-        let bootstrap = personal_agent_client_builder(grant_base_url.clone())
+        let bootstrap = agent_client_builder(grant_base_url.clone())
             .auth(Auth::Dpop(DpopAuth::proof_only({
                 let expected_htu = grant_htu.clone();
                 let proof_jwt = binding_proof.clone();
@@ -868,7 +868,7 @@ fn build_dpop_client(
     signing_key: Arc<SigningKey>,
     access_token: String,
 ) -> garth::Result<Client> {
-    personal_agent_client_builder(base_url)
+    agent_client_builder(base_url)
         .auth(Auth::Dpop(DpopAuth::with_dpop_token(
             access_token,
             move |request| {
@@ -905,7 +905,7 @@ fn joined_htu(base_url: &Url, path: &str) -> anyhow::Result<String> {
 }
 
 async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Result<Url> {
-    let discovery = personal_agent_client_builder(resource_url.clone())
+    let discovery = agent_client_builder(resource_url.clone())
         .build()
         .map_err(|error| anyhow::anyhow!("Arkret service discovery client: {error}"))?;
     let description = discovery
@@ -939,7 +939,7 @@ async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Resu
     Ok(authority_url)
 }
 
-fn personal_agent_client_builder(base_url: Url) -> ClientBuilder {
+fn agent_client_builder(base_url: Url) -> ClientBuilder {
     // Personal-agent conformance stacks run the resource and account authority
     // on loopback. The SDK keeps plaintext HTTP rejected for every non-loopback
     // host, including when this opt-in is enabled.
@@ -1082,7 +1082,7 @@ mod tests {
     #[test]
     fn claim_request_builder_validates_typed_claim_fields() {
         let verification_method = "did:webvh:z6mkfixture:alice.example#runtime-key-1";
-        let authorization = PeerKeyPackageRequesterAuthorization::NativeAgent {
+        let authorization = PeerKeyPackageRequesterAuthorization::Agent {
             verification_method: DidUrl::new(verification_method).unwrap(),
             requester_agent_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture").unwrap(),
             agent_key_authorize_event_id: arkret::EventId::new(
@@ -1134,7 +1134,7 @@ mod tests {
             request.service_binding.source_id.as_str(),
             "ak:did_core:webvh:z6mkservicefixture"
         );
-        let PeerKeyPackageRequesterAuthorization::NativeAgent {
+        let PeerKeyPackageRequesterAuthorization::Agent {
             verification_method: authorized_method,
             ..
         } = &request.requester_authorization
@@ -1225,7 +1225,7 @@ mod tests {
     }
 
     #[test]
-    fn personal_agent_provider_requires_platform_keyring_reference() {
+    fn agent_provider_requires_platform_keyring_reference() {
         let inline = key_ref();
         assert!(validate_agent_key_ref(&inline).is_err());
         assert!(
@@ -1238,15 +1238,15 @@ mod tests {
     }
 
     #[test]
-    fn personal_agent_client_allows_only_insecure_loopback() {
+    fn agent_client_allows_only_insecure_loopback() {
         for url in ["http://127.0.0.1:8787", "http://localhost:8787"] {
-            personal_agent_client_builder(Url::parse(url).unwrap())
+            agent_client_builder(Url::parse(url).unwrap())
                 .build()
                 .expect("loopback HTTP should be available for local conformance stacks");
         }
 
         assert!(
-            personal_agent_client_builder(Url::parse("http://accounts.example:8787").unwrap())
+            agent_client_builder(Url::parse("http://accounts.example:8787").unwrap())
                 .build()
                 .is_err(),
             "non-loopback HTTP must remain rejected"

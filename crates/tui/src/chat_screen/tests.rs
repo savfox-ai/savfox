@@ -5483,7 +5483,7 @@ async fn chat_screen_markdown_code_blocks_vt100_snapshot() {
     // Place viewport at the last line so that history lines insert above it
     term.set_viewport_area(Rect::new(0, height - 1, width, 1));
 
-    // Simulate streaming via AgentMessageDelta in 2-character chunks (no final AgentMessage).
+    // Simulate streaming vian AgentMessageDelta in 2-character chunks (no final AgentMessage).
     let source: &str = r#"
 
     -- Indented code block (4 spaces)

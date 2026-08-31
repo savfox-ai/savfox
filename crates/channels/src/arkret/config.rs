@@ -79,7 +79,7 @@ impl VerifiedArkretRuntimeScope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArkretAccountMode {
-    /// CKP-0008 personal agent runtime: Inkson bootstrap, local runtime key,
+    /// CKP-0008 Agent runtime: Inkson bootstrap, local runtime key,
     /// agent_key_proof session grant, and DPoP-bound self endpoints.
     Agent,
 }
@@ -113,7 +113,7 @@ pub struct ArkretAccountConfig {
     pub authorized_event_ref: Option<String>,
     /// DID of the controller that owns this Agent principal.
     ///
-    /// A Native Personal Agent has exactly one controller and that ownership
+    /// An Agent has exactly one controller and that ownership
     /// is immutable provisioning state (`zh/models/sidecar.md` §4), so it
     /// belongs with the other immutable runtime identity facts here rather
     /// than being re-derived per Event. It is required by the Sidecar

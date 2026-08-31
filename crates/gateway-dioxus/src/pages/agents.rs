@@ -2199,7 +2199,7 @@ fn AgentCreateForm(
                                 new_agent_kind.set("native".to_string());
                                 new_terminal_enabled.set(false);
                             },
-                            "Native Agent"
+                            "Agent"
                         }
                         button {
                             class: if is_terminal_agent { "tool-btn tool-btn--primary" } else { TOOL_BTN },
@@ -3846,7 +3846,7 @@ fn AgentOverviewTab(
                             form_agent_kind.set("native".to_string());
                             form_terminal_enabled.set(false);
                         },
-                        "Native Agent"
+                        "Agent"
                     }
                     button {
                         class: if form_is_terminal_agent { "tool-btn tool-btn--primary" } else { TOOL_BTN },
