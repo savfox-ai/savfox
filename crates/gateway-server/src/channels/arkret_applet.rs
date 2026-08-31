@@ -1130,7 +1130,7 @@ fn try_decrypt_applet_event(
                 event_id: event.event_id.as_str().to_owned(),
                 realm_id: event.realm_id.as_str().to_owned(),
                 strand_id,
-                sender_did: event.actor_id.as_str().to_owned(),
+                sender_did: event.actor_id.signing_principal_id().as_str().to_owned(),
                 body,
                 thread_root_id: reply_to,
             })
@@ -1185,7 +1185,7 @@ fn record_applet_unable_to_decrypt(
     if let Err(err) = state.crypto_store.record_unable_to_decrypt(
         event.event_id.as_str(),
         event.realm_id.as_str(),
-        event.actor_id.as_str(),
+        event.actor_id.signing_principal_id().as_str(),
         payload,
         reason,
     ) {
@@ -1231,7 +1231,7 @@ async fn applet_actor(req: &mut Request, res: &mut Response) {
     }
     let body = AppletActorView {
         exists: true,
-        actor_id: DidCoreId::new(actor_id).ok(),
+        actor_id: DidCoreId::new(actor_id).ok().map(arkret::ActorId::service),
         display_name: None,
         external_ref: None,
     };
@@ -1646,8 +1646,10 @@ async fn emit_bridge_error(
     let cfg = &state.config;
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
-    let actor = DidCoreId::new(cfg.bot_actor_id.clone())
-        .with_context(|| format!("invalid bot DID: {}", cfg.bot_actor_id))?;
+    let actor = arkret::ActorId::service(
+        DidCoreId::new(cfg.bot_actor_id.clone())
+            .with_context(|| format!("invalid bot DID: {}", cfg.bot_actor_id))?,
+    );
     let applet_id = AppletId::new(cfg.applet_id.clone())
         .with_context(|| format!("invalid applet_id: {}", cfg.applet_id))?;
     // SDK S-13 reshaped the payload: `severity` → `error_class` /

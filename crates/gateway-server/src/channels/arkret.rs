@@ -8,8 +8,9 @@
 //! 4. Dispatches each event to the agent pipeline.
 //!
 //! Outbound sends go through [`send_to_arkret_account`].
-//! Agent presence Signals are not emitted: v1 has no registered Agent endpoint
-//! carrier, and an Agent key must never impersonate an account device.
+//! Agent presence Signals are not emitted. The v1 wire has a distinct Agent
+//! sender branch, but Savfox has not closed its end-to-end authority evidence
+//! and recipient verification; an Agent key must never impersonate a device.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -1586,8 +1587,6 @@ async fn revoke_account_mls_key_package_refs(
         return Ok(None);
     }
     let unsigned = KeyPackagesRevokeUnsignedRequest {
-        owner_account_id: arkret::ServiceAccountId::new(account.id.clone())
-            .map_err(|error| anyhow::anyhow!("invalid Arkret account id: {error}"))?,
         key_package_refs: key_package_refs.clone(),
         device_id: device,
         reason: Some(
@@ -4493,7 +4492,7 @@ pub(crate) async fn send_to_arkret_account(
     // `ak.agent.key.authorize` approval; re-authorizing the key changes the
     // generation and lets the fence retire stale queued attempts.
     let authoring_generation = garth::AuthoringGeneration {
-        authority_model: garth::AuthoringAuthorityModel::ManagedAgent,
+        authority_model: garth::AuthoringAuthorityModel::Agent,
         authority_principal_id: arkret::DidCoreId::new(
             account
                 .controller_id
@@ -5107,7 +5106,7 @@ mod tests {
                 canonical_envelope_bytes,
                 None,
                 garth::AuthoringGeneration {
-                    authority_model: garth::AuthoringAuthorityModel::ManagedAgent,
+                    authority_model: garth::AuthoringAuthorityModel::Agent,
                     authority_principal_id: actor_id(),
                     generation_ref: "ak:event:01904100-0000-8000-8000-0000000000aa".to_owned(),
                 },
@@ -5266,6 +5265,7 @@ mod tests {
     #[test]
     fn agent_scope_refreshed_grant_preserves_exact_runtime_identity_and_scope() {
         let mut account = make_account();
+        account.principal_id = "ak:did_core:webvh:z6mkfixture:agent.example".to_owned();
         account.requested_scope = savfox_channels::arkret::default_agent_runtime_scope().unwrap();
         let mut state = garth::SessionGrantState {
             account_id: arkret::AccountId::new(

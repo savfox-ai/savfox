@@ -1059,7 +1059,7 @@ mod strict_tests {
     }
 
     #[test]
-    fn agent_signal_scope_does_not_request_an_unregistered_carrier() {
+    fn agent_signal_scope_stays_disabled_until_end_to_end_evidence_is_closed() {
         let signal = ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1;
         assert!(
             !default_agent_runtime_scope()
