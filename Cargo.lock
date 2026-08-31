@@ -10235,6 +10235,7 @@ dependencies = [
  "rand 0.10.2",
  "reqwest 0.13.4",
  "savfox-core",
+ "savfox-gateway-shared",
  "savfox-keyring-store",
  "savfox-utils",
  "serde",
@@ -10673,6 +10674,8 @@ dependencies = [
 name = "savfox-gateway-shared"
 version = "0.3.1"
 dependencies = [
+ "arkret-schema",
+ "arkret-wire",
  "serde",
  "serde_json",
 ]

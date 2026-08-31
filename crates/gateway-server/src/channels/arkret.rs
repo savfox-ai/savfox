@@ -22,7 +22,7 @@ use arkret::{
     DeviceId, DeviceMessagesAckRequestBody, DidCoreId, EventId, EventRef,
     KeyPackagesConsumeOutcome, KeyPackagesConsumeUnsignedRequest, KeyPackagesRevokeUnsignedRequest,
     KeyPackagesUploadRequestBody, KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord,
-    PreparedDataEvent, PreparedStandardEvent, RealmId,
+    PreparedDataEvent, PreparedStandardEvent, RealmId, ServiceOperationId,
 };
 use chrono::Utc;
 use garth::{
@@ -113,6 +113,7 @@ impl ArkretListenerDiagnostic {
             "last_event_id": self.last_event_id,
             "last_realm_id": self.last_realm_id,
             "last_local_agent_id": self.last_local_agent_id,
+            "scope_recovery": self.last_reason_code.as_deref().and_then(savfox_gateway_shared::arkret::agent_scope_recovery),
             "received_events": self.received_events,
             "dispatched_events": self.dispatched_events,
             "baselined_events": self.baselined_events,
@@ -130,12 +131,13 @@ const ACCOUNT_AUTH_WARNING_INTERVAL: Duration = Duration::from_secs(30);
 const DEVICE_MESSAGES_PULL_LIMIT: u32 = 100;
 const DEVICE_MESSAGES_PULL_MAX_PAGES: usize = 16;
 
-const KEYPACKAGES_UPLOAD_SCOPE: &str = "ak.self.keys.keypackages.upload.create";
-const KEYPACKAGES_CONSUME_SCOPE: &str = "ak.self.keys.keypackages.command.consume";
-const KEYPACKAGES_REVOKE_SCOPE: &str = "ak.self.keys.keypackages.command.revoke";
+const KEYPACKAGES_UPLOAD_SCOPE: &str = ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1;
+const KEYPACKAGES_CONSUME_SCOPE: &str =
+    ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1;
+const KEYPACKAGES_REVOKE_SCOPE: &str = ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_REVOKE_V1;
 const KEYPACKAGE_MIN_AVAILABLE: usize = 8;
-const DEVICE_MESSAGES_LIST_SCOPE: &str = "ak.self.device_messages.query.list";
-const DEVICE_MESSAGES_ACK_SCOPE: &str = "ak.self.device_messages.command.ack";
+const DEVICE_MESSAGES_LIST_SCOPE: &str = ServiceOperationId::SELF_DEVICE_MESSAGES_READ_LIST_V1;
+const DEVICE_MESSAGES_ACK_SCOPE: &str = ServiceOperationId::SELF_DEVICE_MESSAGES_COMMAND_ACK_V1;
 
 fn runtime_state() -> &'static StdMutex<ArkretRuntimeState> {
     static STATE: OnceLock<StdMutex<ArkretRuntimeState>> = OnceLock::new();
@@ -179,6 +181,41 @@ fn record_listener_failure(
     });
 }
 
+fn record_listener_service_failure(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    phase: &'static str,
+    error: impl std::fmt::Display,
+    reason: Option<&str>,
+) {
+    update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+        diagnostic.phase = phase;
+        diagnostic.last_reason_code = reason.map(str::to_owned);
+        diagnostic.last_error = Some(error.to_string());
+    });
+}
+
+fn transport_service_reason(error: &garth::Error) -> Option<&str> {
+    match error {
+        garth::Error::Api { error, .. } => error
+            .details()
+            .get("reason_code")
+            .and_then(Value::as_str)
+            .or_else(|| reason_code_from_message(error.message())),
+        _ => None,
+    }
+}
+
+fn listener_service_reason(error: &anyhow::Error) -> Option<&str> {
+    savfox_channels::arkret::agent_session_exchange_reason(error).or_else(|| {
+        error.chain().find_map(|source| {
+            source
+                .downcast_ref::<garth::Error>()
+                .and_then(transport_service_reason)
+        })
+    })
+}
+
 fn record_listener_phase(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
@@ -192,13 +229,17 @@ fn record_listener_phase(
 }
 
 fn arkret_reason_code(error: &str) -> Option<String> {
+    reason_code_from_message(error).map(str::to_owned)
+}
+
+fn reason_code_from_message(error: &str) -> Option<&str> {
     let marker = "reason_code=";
     let start = error.find(marker)? + marker.len();
     let code = error[start..]
         .split(|ch: char| !(ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_'))
         .next()
         .unwrap_or_default();
-    (!code.is_empty()).then(|| code.to_owned())
+    (!code.is_empty()).then_some(code)
 }
 
 pub(crate) fn arkret_account_runtime_diagnostics(channel_id: &str) -> Vec<Value> {
@@ -399,18 +440,22 @@ async fn run_account_listener_retry_loop<F, Fut>(
             },
         );
         run().await;
-        let migration_required = runtime_state()
-            .lock()
-            .ok()
-            .and_then(|state| {
-                state
-                    .diagnostics
-                    .get(&task_key(&diagnostic_channel_id, &diagnostic_account_id))
-                    .and_then(|diagnostic| diagnostic.last_reason_code.as_deref())
-                    .map(|reason| reason == "agent_requested_scope_commitment_invalid")
-            })
-            .unwrap_or(false);
-        if migration_required {
+        let migration_reason = runtime_state().lock().ok().and_then(|state| {
+            state
+                .diagnostics
+                .get(&task_key(&diagnostic_channel_id, &diagnostic_account_id))
+                .and_then(|diagnostic| diagnostic.last_reason_code.clone())
+        });
+        let recovery = migration_reason.as_deref().and_then(|reason| {
+            if reason == "agent_requested_scope_commitment_invalid" {
+                Some("provision_new_agent")
+            } else {
+                savfox_gateway_shared::arkret::agent_scope_recovery(reason)
+            }
+        });
+        if let Some(recovery) = recovery
+            .filter(|recovery| *recovery != "issue_session_within_provision_and_key_ceilings")
+        {
             update_listener_diagnostic(
                 &diagnostic_channel_id,
                 &diagnostic_account_id,
@@ -419,7 +464,8 @@ async fn run_account_listener_retry_loop<F, Fut>(
             warn!(
                 channel_id = %diagnostic_channel_id,
                 account_id = %diagnostic_account_id,
-                "arkret: immutable requested-scope commitment is invalid; listener stopped until the Agent is re-provisioned"
+                recovery,
+                "arkret: Agent scope requires an explicit authorization recovery; listener stopped without expanding scope"
             );
             break;
         }
@@ -447,15 +493,15 @@ async fn run_account_listener(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
-    if !account.has_requested_scope("ak.self.events.stream.subscribe") {
+    if !account.has_requested_scope(ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1) {
         record_listener_failure(
             &channel,
             &account,
             "scope_rejected",
-            "missing ak.self.events.stream.subscribe",
+            "missing ak.self.events.stream.subscribe.v1",
         );
         warn!(
-            "arkret: account '{}' listen=true but missing ak.self.events.stream.subscribe; refusing to open subscribe endpoint",
+            "arkret: account '{}' listen=true but missing ak.self.events.stream.subscribe.v1; refusing to open subscribe endpoint",
             account.id
         );
         runtime::record_channel_probe("arkret", "error").await;
@@ -501,6 +547,11 @@ async fn run_account_listener(
                 "session_provider_error",
                 format!("{err:#}"),
             );
+            if let Some(reason) = savfox_channels::arkret::agent_session_exchange_reason(&err) {
+                update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+                    diagnostic.last_reason_code = Some(reason.to_owned());
+                });
+            }
             runtime::record_channel_probe("arkret", "error").await;
             return;
         }
@@ -512,7 +563,13 @@ async fn run_account_listener(
                 "arkret: account '{}' failed to build authenticated HTTP client: {error}",
                 account.id
             );
-            record_listener_failure(&channel, &account, "authentication_error", &error);
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "authentication_error",
+                &error,
+                transport_service_reason(&error),
+            );
             runtime::record_channel_probe("arkret", "error").await;
             return;
         }
@@ -576,7 +633,13 @@ async fn run_account_listener(
     {
         AccountEngineOutcome::Unauthorized { reason } => {
             let detail = reason.as_deref().unwrap_or("unspecified");
-            record_listener_failure(&channel, &account, "unauthorized", detail);
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "unauthorized",
+                detail,
+                reason.as_deref(),
+            );
             warn!(
                 account_id = %account.id,
                 reason = detail,
@@ -590,7 +653,13 @@ async fn run_account_listener(
             );
         }
         AccountEngineOutcome::Retry { error } => {
-            record_listener_failure(&channel, &account, "subscribe_error", format!("{error:#}"));
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "subscribe_error",
+                format!("{error:#}"),
+                listener_service_reason(&error),
+            );
             warn!(
                 "arkret: subscribe engine for '{}/{}' failed: {error:#}",
                 channel.id, account.id
@@ -974,7 +1043,7 @@ fn account_engine_outcome_from_result(
             error: anyhow::anyhow!("account subscription engine stopped: {class:?}"),
         },
         Err(err) => AccountEngineOutcome::Retry {
-            error: anyhow::anyhow!("account subscription engine: {err}"),
+            error: anyhow::Error::new(err).context("account subscription engine"),
         },
     }
 }
@@ -1129,12 +1198,14 @@ async fn repair_and_consume_pending_mls_welcomes(
         .filter_map(|binding| binding.realm_id.as_deref())
         .collect::<HashSet<_>>();
 
-    if !realm_ids.is_empty() && !account.has_requested_scope("ak.self.events.read.scan") {
+    if !realm_ids.is_empty()
+        && !account.has_requested_scope(ServiceOperationId::SELF_EVENTS_READ_SCAN_V1)
+    {
         warn!(
             channel_id = %channel.id,
             account_id = %account.id,
             pending_realms = realm_ids.len(),
-            "arkret: cannot repair pending Direct Conversation Welcome bindings without ak.self.events.read.scan"
+            "arkret: cannot repair pending Direct Conversation Welcome bindings without ak.self.events.read.scan.v1"
         );
     } else {
         for realm_id in realm_ids {
@@ -2375,12 +2446,12 @@ async fn scan_limited_realm_timeline_for_account(
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    if !account.has_requested_scope("ak.self.events.read.scan") {
+    if !account.has_requested_scope(ServiceOperationId::SELF_EVENTS_READ_SCAN_V1) {
         warn!(
             channel_id = %channel.id,
             account_id = %account.id,
             realm_id = %request.realm_id.as_str(),
-            "arkret: limited account timeline cannot be scan-backfilled without ak.self.events.read.scan"
+            "arkret: limited account timeline cannot be scan-backfilled without ak.self.events.read.scan.v1"
         );
         return Ok(());
     }
@@ -3101,11 +3172,11 @@ async fn hydrate_conversation_before_trigger(
     if !snapshot.events.is_empty() || snapshot.history_unavailable.is_some() {
         return Ok(());
     }
-    if !account.has_requested_scope("ak.self.events.read.scan") {
+    if !account.has_requested_scope(ServiceOperationId::SELF_EVENTS_READ_SCAN_V1) {
         delivery_store
             .mark_history_unavailable(
                 conversation,
-                "history_unavailable: account lacks ak.self.events.read.scan",
+                "history_unavailable: account lacks ak.self.events.read.scan.v1",
             )
             .await?;
         return Ok(());
@@ -3494,6 +3565,17 @@ fn refreshed_grant_matches_account(
     required_scope: &str,
 ) -> bool {
     state.account_id.principal_id.as_str() == account.principal_id
+        && state.expires_at > Utc::now()
+        && savfox_gateway_shared::arkret::session_scope_matches_request(
+            &account.requested_scope,
+            &state.granted_scope,
+        )
+        && savfox_channels::arkret::missing_required_scope_actions(
+            &state.granted_scope,
+            account.listen,
+            account.send,
+        )
+        .is_empty()
         && state
             .device_id
             .as_ref()
@@ -3907,11 +3989,23 @@ async fn construct_account_provider(
         None,
     )
     .await?;
+    let granted = provider
+        .session()
+        .current_state()
+        .context("Agent session provider returned no accepted grant")?;
+    anyhow::ensure!(
+        savfox_gateway_shared::arkret::session_scope_matches_request(
+            &account.requested_scope,
+            &granted.granted_scope
+        ),
+        "Agent session grant differs from the exact requested runtime scope"
+    );
     savfox_channels::arkret::save_verified_runtime_scope(
         savfox_home,
         &channel.id,
         account,
         runtime_public_key_digest.clone(),
+        &granted.granted_scope,
     )
     .await?;
     info!(
@@ -4184,9 +4278,9 @@ pub(crate) async fn send_to_arkret_account(
             "no Arkret channel configured for realm {realm_id} and routed config {saved_channel_config_id:?}"
         );
     };
-    if !account.has_requested_scope("ak.self.events.command.submit") {
+    if !account.has_requested_scope(ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1) {
         anyhow::bail!(
-            "Arkret account '{}' send=true but missing service scope ak.self.events.command.submit; refusing to call submit endpoint",
+            "Arkret account '{}' send=true but missing service scope ak.self.events.command.submit.v1; refusing to call submit endpoint",
             account.id
         );
     }
@@ -4229,8 +4323,12 @@ pub(crate) async fn send_to_arkret_account(
     // Sidecar or not: work queued before a pause/revoke must not still be
     // publishable afterwards. It runs before session reuse, actor-sequence
     // mutation, encryption, queueing and submission.
-    ensure_fresh_runtime_authorization(&provider, &account, "ak.self.events.command.submit")
-        .await?;
+    ensure_fresh_runtime_authorization(
+        &provider,
+        &account,
+        ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1,
+    )
+    .await?;
     let inner = provider
         .provide()
         .await
@@ -4625,8 +4723,8 @@ mod tests {
             authorized_event_ref: None,
             controller_id: Some("did:webvh:z6mkfixture:controller.example".into()),
             requested_scope: vec![
-                "ak.self.events.stream.subscribe".into(),
-                "ak.self.events.read.scan".into(),
+                ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into(),
+                ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.into(),
                 "ak.event.read".into(),
             ],
             listen: true,
@@ -5039,8 +5137,136 @@ mod tests {
     }
 
     #[test]
-    fn refreshed_grant_must_preserve_exact_runtime_identity_and_required_scope() {
+    fn agent_scope_typed_refresh_and_bare_stream_reasons_reach_diagnostics() {
         let account = make_account();
+        let channel = ArkretChannelConfig {
+            id: format!("scope-reasons-{}", uuid::Uuid::now_v7()),
+            base_url: "https://arkret.example.org".to_owned(),
+            service_id: None,
+            delivery_mode: "interactive_chat".to_owned(),
+            accounts: vec![account.clone()],
+        };
+        let key = task_key(&channel.id, &account.id);
+        runtime_state().lock().unwrap().diagnostics.insert(
+            key.clone(),
+            ArkretListenerDiagnostic::new(&channel, &account),
+        );
+        for reason in [
+            "agent_provision_scope_migration_required",
+            "agent_key_scope_reauthorization_required",
+            "agent_session_scope_refresh_required",
+        ] {
+            let api_error = garth::Error::Api {
+                status: 412,
+                error: Box::new(
+                    arkret::ErrorEnvelope::new("failed_precondition", "rejected")
+                        .with_detail("reason_code", json!(reason)),
+                ),
+            };
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "authentication_error",
+                &api_error,
+                transport_service_reason(&api_error),
+            );
+            assert_eq!(
+                runtime_state().lock().unwrap().diagnostics[&key]
+                    .last_reason_code
+                    .as_deref(),
+                Some(reason)
+            );
+            let message_encoded_error = garth::Error::Api {
+                status: 412,
+                error: Box::new(arkret::ErrorEnvelope::new(
+                    "failed_precondition",
+                    format!("reason_code={reason}; rejected"),
+                )),
+            };
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "authentication_error",
+                &message_encoded_error,
+                transport_service_reason(&message_encoded_error),
+            );
+            assert_eq!(
+                runtime_state().lock().unwrap().diagnostics[&key]
+                    .last_reason_code
+                    .as_deref(),
+                Some(reason)
+            );
+            let outcome = account_engine_outcome_from_result(Err(garth::RunError {
+                class: garth::RunErrorClass::ProtocolViolation,
+                source: api_error,
+            }));
+            let AccountEngineOutcome::Retry { error } = outcome else {
+                panic!("typed runner error must remain retry outcome")
+            };
+            assert_eq!(listener_service_reason(&error), Some(reason));
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "subscribe_error",
+                &error,
+                listener_service_reason(&error),
+            );
+            assert_eq!(
+                runtime_state().lock().unwrap().diagnostics[&key]
+                    .last_reason_code
+                    .as_deref(),
+                Some(reason)
+            );
+            let AccountEngineOutcome::Unauthorized {
+                reason: wire_reason,
+            } = account_engine_outcome_from_result(Ok(RunStopReason::Unauthorized {
+                reason: Some(reason.to_owned()),
+            }))
+            else {
+                panic!("wire unauthorized outcome")
+            };
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "unauthorized",
+                "rejected",
+                wire_reason.as_deref(),
+            );
+            assert_eq!(
+                runtime_state().lock().unwrap().diagnostics[&key]
+                    .last_reason_code
+                    .as_deref(),
+                Some(reason)
+            );
+        }
+        let details_win = garth::Error::Api {
+            status: 412,
+            error: Box::new(
+                arkret::ErrorEnvelope::new(
+                    "failed_precondition",
+                    "reason_code=agent_session_scope_refresh_required; rejected",
+                )
+                .with_detail(
+                    "reason_code",
+                    json!("agent_key_scope_reauthorization_required"),
+                ),
+            ),
+        };
+        assert_eq!(
+            transport_service_reason(&details_win),
+            Some("agent_key_scope_reauthorization_required")
+        );
+        let generic = garth::Error::Protocol(
+            "reason_code=agent_provision_scope_migration_required; rejected".to_owned(),
+        );
+        assert_eq!(transport_service_reason(&generic), None);
+        runtime_state().lock().unwrap().diagnostics.remove(&key);
+    }
+
+    #[test]
+    fn agent_scope_refreshed_grant_preserves_exact_runtime_identity_and_scope() {
+        let mut account = make_account();
+        account.requested_scope = savfox_channels::arkret::default_agent_runtime_scope().unwrap();
         let mut state = garth::SessionGrantState {
             account_id: arkret::AccountId::new(
                 DidCoreId::new(account.principal_id.clone()).unwrap(),
@@ -5051,7 +5277,7 @@ mod tests {
             grant_jwt: "redacted-test-grant".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
             audience_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
-            granted_scope: vec!["ak.event.read".to_owned()],
+            granted_scope: account.requested_scope.clone(),
             session_public_key: None,
             dpop_jkt: Some("test-jkt".to_owned()),
         };
@@ -5065,8 +5291,34 @@ mod tests {
         assert!(!refreshed_grant_matches_account(
             &state,
             &account,
-            "ak.self.events.command.submit"
+            ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1
         ));
+
+        state
+            .granted_scope
+            .push(ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1.to_owned());
+        assert!(!refreshed_grant_matches_account(
+            &state,
+            &account,
+            "ak.event.read"
+        ));
+        state.granted_scope = account.requested_scope.clone();
+        state
+            .granted_scope
+            .retain(|action| action != ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1);
+        assert!(!refreshed_grant_matches_account(
+            &state,
+            &account,
+            "ak.event.read"
+        ));
+        state.granted_scope = account.requested_scope.clone();
+        state.expires_at = Utc::now() - chrono::Duration::seconds(1);
+        assert!(!refreshed_grant_matches_account(
+            &state,
+            &account,
+            "ak.event.read"
+        ));
+        state.expires_at = Utc::now() + chrono::Duration::minutes(5);
 
         state.granted_scope.clear();
         assert!(!refreshed_grant_matches_account(
@@ -5074,7 +5326,7 @@ mod tests {
             &account,
             "ak.event.read"
         ));
-        state.granted_scope.push("ak.event.read".to_owned());
+        state.granted_scope = account.requested_scope.clone();
         state.device_id =
             Some(DeviceId::new("ak:device:01904100-0000-7000-8000-000000000099").unwrap());
         assert!(!refreshed_grant_matches_account(
@@ -5084,7 +5336,7 @@ mod tests {
         ));
         state.device_id = Some(DeviceId::new(account.device_id.clone()).unwrap());
         state.account_id.principal_id =
-            DidCoreId::new("did:webvh:z6mkfixture:other.example").unwrap();
+            DidCoreId::new("ak:did_core:webvh:z6mkfixture:other.example").unwrap();
         assert!(!refreshed_grant_matches_account(
             &state,
             &account,

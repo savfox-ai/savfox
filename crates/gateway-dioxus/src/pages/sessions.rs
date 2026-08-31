@@ -122,7 +122,7 @@ fn should_show_thinking_for_message(mode: &str, is_streaming: bool, is_last: boo
     }
 }
 
-fn find_agent_entry<'a>(agents: &'a [AgentEntry], selected: &str) -> Option<&'an AgentEntry> {
+fn find_agent_entry<'a>(agents: &'a [AgentEntry], selected: &str) -> Option<&'a AgentEntry> {
     agents
         .iter()
         .find(|entry| entry.id.as_deref() == Some(selected) || entry.name == selected)

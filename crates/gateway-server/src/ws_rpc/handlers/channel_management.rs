@@ -176,6 +176,15 @@ async fn validate_arkret_config_before_save(
     let parsed = savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(config)
         .map_err(|error| error.to_string())?;
     let account = &parsed.accounts[0];
+    if let Some(previous) = savfox_core::config::channel_store::get_channel_config(
+        &savfox_home.to_path_buf(),
+        &config.id,
+    )
+    .await
+    .map_err(|error| error.to_string())?
+    {
+        validate_existing_arkret_scope_edit(&previous.config, &config.config)?;
+    }
     let key_ref = account
         .key_ref
         .as_ref()
@@ -184,30 +193,64 @@ async fn validate_arkret_config_before_save(
         .verification_method
         .as_deref()
         .ok_or_else(|| "Arkret agent config is missing verificationMethod".to_owned())?;
-    let runtime_public_key_digest =
-        savfox_channels::arkret::ed25519_runtime_public_key_digest(key_ref, verification_method)
-            .map_err(|error| error.to_string())?;
-    if account.authorized_event_ref.is_some()
-        && let Some(verified) = savfox_channels::arkret::load_verified_runtime_scope(
-            savfox_home,
-            &config.id,
-            account,
-            &runtime_public_key_digest,
-        )
-        .await
-        .map_err(|error| error.to_string())?
-        && !verified.permits(&account.requested_scope)
+    savfox_channels::arkret::ed25519_runtime_public_key_digest(key_ref, verification_method)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(feature = "arkret")]
+fn validate_existing_arkret_scope_edit(previous: &Value, candidate: &Value) -> Result<(), String> {
+    if previous.get("mode").and_then(Value::as_str) != Some("agent") {
+        return Ok(());
+    }
+    if [
+        "inksonBootstrap",
+        "keyRef",
+        "verificationMethod",
+        "authorizedEventRef",
+    ]
+    .iter()
+    .all(|key| previous.get(*key).is_none_or(Value::is_null))
     {
-        let excess = account
-            .requested_scope
-            .iter()
-            .filter(|action| !verified.actions.contains(action))
+        return Ok(());
+    }
+    let previous_agent = previous
+        .pointer("/inksonBootstrap/agent_id")
+        .and_then(Value::as_str);
+    let candidate_agent = candidate
+        .pointer("/inksonBootstrap/agent_id")
+        .and_then(Value::as_str);
+    if previous_agent.is_none() || candidate_agent.is_none() {
+        return Err(
+            "Existing Agent identity is unavailable; recover or unbind it before changing scope."
+                .to_owned(),
+        );
+    }
+    if previous_agent != candidate_agent {
+        if previous
+            .get("authorizedEventRef")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            return Err("Unbind the current Agent before pairing a different Agent.".to_owned());
+        }
+        return Ok(());
+    }
+    let previous_scope: Vec<String> = serde_json::from_value(
+        previous.get("requestedScope").cloned().unwrap_or(Value::Null)
+    ).map_err(|_| "Existing Agent scope is unavailable; recover its exact authorization scope instead of adding defaults.".to_owned())?;
+    let requested: Vec<String> = serde_json::from_value(
+        candidate
+            .get("requestedScope")
             .cloned()
-            .collect::<Vec<_>>();
-        return Err(format!(
-            "requestedScope exceeds the last service-accepted Agent authorization scope: {}",
-            excess.join(", ")
-        ));
+            .unwrap_or(Value::Null),
+    )
+    .map_err(|_| "requestedScope must be an exact string array".to_owned())?;
+    if requested
+        .iter()
+        .any(|action| !previous_scope.contains(action))
+    {
+        return Err("Editing a saved Agent cannot expand requestedScope. Revalidate provision and key ceilings through the authorization workflow; an expired or missing local session cache is not authority.".to_owned());
     }
     Ok(())
 }
@@ -805,17 +848,8 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
                 "message": "no Arkret channel config to unbind",
             }));
         };
-        let Ok(parsed) =
-            savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&config)
-        else {
-            return Ok(json!({
-                "platform": "arkret",
-                "ok": true,
-                "unbound": false,
-                "channel": config.id,
-                "message": "Arkret channel has no bound Agent runtime",
-            }));
-        };
+        let parsed = savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&config)
+            .map_err(|error| (INVALID_REQUEST, format!("Cannot safely unbind the saved Agent: {error}. Restore its exact identity/scope or revoke it through the controller; local state was retained.")))?;
         let account_id = params
             .get("account_id")
             .or_else(|| params.get("accountId"))
@@ -855,6 +889,7 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             "verificationMethod": Value::Null,
             "authorizedEventRef": Value::Null,
             "inksonBootstrap": Value::Null,
+            "requestedScope": Value::Null,
         });
         if let Err(e) =
             channel_store::merge_channel_config(&home, &config.kind, &config.name, &clear_patch)
@@ -890,6 +925,34 @@ mod credential_redaction_tests {
     use savfox_core::config::channel_store::{self, ChannelConfig};
 
     use super::*;
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn agent_scope_saved_edits_cannot_expand_without_current_authority() {
+        let scope = savfox_channels::arkret::default_agent_runtime_scope().unwrap();
+        let previous = json!({"mode":"agent", "inksonBootstrap":{"agent_id":"ak:did_core:web:agent.example"}, "authorizedEventRef":"accepted-key-authorization", "requestedScope":scope});
+        let mut candidate = previous.clone();
+        assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_ok());
+        candidate["requestedScope"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(
+                arkret::ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1
+            ));
+        assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_err());
+        candidate["authorizedEventRef"] = json!("replacement-authorization");
+        assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_err());
+        candidate["inksonBootstrap"]["agent_id"] = json!("ak:did_core:web:another.example");
+        assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_err());
+        let mut missing = previous.clone();
+        missing.as_object_mut().unwrap().remove("requestedScope");
+        assert!(validate_existing_arkret_scope_edit(&missing, &previous).is_err());
+        let mut narrower = previous.clone();
+        narrower["requestedScope"].as_array_mut().unwrap().pop();
+        assert!(validate_existing_arkret_scope_edit(&previous, &narrower).is_ok());
+        let unbound = json!({"mode":"agent", "inksonBootstrap":null, "keyRef":null, "verificationMethod":null, "authorizedEventRef":null, "requestedScope":null});
+        assert!(validate_existing_arkret_scope_edit(&unbound, &previous).is_ok());
+    }
 
     fn sample_channel_config() -> ChannelConfig {
         ChannelConfig {

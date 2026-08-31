@@ -162,6 +162,7 @@ pub struct AgentAuthenticatedTransportFactory {
     dpop_signing_key: Arc<SigningKey>,
     dpop_jkt: String,
     verification_method: DidUrl,
+    requested_scope: Vec<String>,
 }
 
 fn mint_agent_session_refresh_proof(
@@ -208,6 +209,16 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
     type Transport = Client;
 
     fn build(&self, state: &SessionGrantState) -> garth::Result<Self::Transport> {
+        if state.expires_at <= Utc::now()
+            || !savfox_gateway_shared::arkret::session_scope_matches_request(
+                &self.requested_scope,
+                &state.granted_scope,
+            )
+        {
+            return Err(garth::Error::Protocol(
+                "Agent session grant expired or changed its exact requested scope".to_owned(),
+            ));
+        }
         build_dpop_client(
             self.base_url.clone(),
             Arc::clone(&self.dpop_signing_key),
@@ -441,6 +452,9 @@ impl ArkretHttpClient {
         device_id: DeviceId,
         realm_id: Option<&str>,
     ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
+        savfox_gateway_shared::arkret::validate_agent_runtime_scope(&requested_scope)
+            .map_err(anyhow::Error::msg)?;
+        let expected_scope = requested_scope.clone();
         validate_agent_key_ref(key_ref)?;
         let audience = DidCoreId::new(audience.to_owned())
             .with_context(|| format!("invalid Arkret service audience DID '{audience}'"))?;
@@ -543,6 +557,7 @@ impl ArkretHttpClient {
             dpop_signing_key,
             dpop_jkt: dpop_jkt.clone(),
             verification_method: verification_method.clone(),
+            requested_scope: expected_scope,
         };
         let refresh_options = SessionRefreshOptions {
             request: None,
@@ -560,6 +575,9 @@ impl ArkretHttpClient {
                 && state.audience_id == audience
                 && state.expires_at > Utc::now()
             {
+                factory
+                    .build(&state)
+                    .map_err(|error| anyhow::anyhow!("restored Agent grant scope: {error}"))?;
                 let session = arkret_session_from_state(&state);
                 return Ok((restored, session));
             }
@@ -576,6 +594,9 @@ impl ArkretHttpClient {
         let state = session_engine
             .current_state()
             .context("agent_key_proof session grant exchange did not yield state")?;
+        factory
+            .build(&state)
+            .map_err(|error| anyhow::anyhow!("issued Agent grant scope: {error}"))?;
 
         let provider = SessionTransportProvider::with_store(
             session_engine,
@@ -976,10 +997,54 @@ mod tests {
             grant_jwt: "agent.grant.jwt".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
             audience_id: DidCoreId::new("ak:did_core:webvh:z6mkservice").unwrap(),
-            granted_scope: vec!["ak.self.events.stream.subscribe".to_owned()],
+            granted_scope: vec![
+                arkret::ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.to_owned(),
+            ],
             session_public_key: Some("session-public-key".to_owned()),
             dpop_jkt: Some("agent-dpop-jkt".to_owned()),
         }
+    }
+
+    #[test]
+    fn agent_scope_transport_factory_checks_every_initial_or_refreshed_grant() {
+        let requested_scope = savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
+        let factory = AgentAuthenticatedTransportFactory {
+            base_url: Url::parse("https://arkret.example.org").unwrap(),
+            runtime_signing_key: Arc::new(signing_key()),
+            dpop_signing_key: Arc::new(generate_session_dpop_signing_key()),
+            dpop_jkt: "test-jkt".to_owned(),
+            verification_method: DidUrl::new("did:web:agent.example#runtime-1").unwrap(),
+            requested_scope: requested_scope.clone(),
+        };
+        let mut state = agent_session_state();
+        state.granted_scope = requested_scope.clone();
+        factory
+            .build(&state)
+            .expect("exact current grant builds a transport");
+        for invalid in [
+            {
+                let mut scope = requested_scope.clone();
+                scope.push(
+                    arkret::ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1
+                        .to_owned(),
+                );
+                scope
+            },
+            {
+                let mut scope = requested_scope.clone();
+                scope.retain(|action| {
+                    action != arkret::ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1
+                });
+                scope
+            },
+            vec!["ak.self.events.read.scan".to_owned()],
+        ] {
+            state.granted_scope = invalid;
+            assert!(factory.build(&state).is_err());
+        }
+        state.granted_scope = requested_scope;
+        state.expires_at = Utc::now() - chrono::Duration::seconds(1);
+        assert!(factory.build(&state).is_err());
     }
 
     #[test]
@@ -1277,6 +1342,37 @@ mod tests {
             let rendered = error.to_string();
             assert!(rendered.contains(reason), "{rendered}");
             assert!(rendered.contains(expected), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn agent_scope_structured_service_reasons_keep_recovery_layers() {
+        for (reason, recovery) in [
+            (
+                "agent_provision_scope_migration_required",
+                "provision_new_agent",
+            ),
+            (
+                "agent_key_scope_reauthorization_required",
+                "reauthorize_key_within_provision_ceiling",
+            ),
+            (
+                "agent_session_scope_refresh_required",
+                "issue_session_within_provision_and_key_ceilings",
+            ),
+        ] {
+            let envelope = arkret::ErrorEnvelope::new("failed_precondition", "rejected")
+                .with_detail("reason_code", serde_json::json!(reason));
+            let error = agent_session_exchange_error(garth::Error::Api {
+                status: 412,
+                error: Box::new(envelope),
+            });
+            let actual = agent_session_exchange_reason(&error).unwrap();
+            assert_eq!(actual, reason);
+            assert_eq!(
+                savfox_gateway_shared::arkret::agent_scope_recovery(actual),
+                Some(recovery)
+            );
         }
     }
 

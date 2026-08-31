@@ -1567,7 +1567,7 @@ pub(crate) async fn handle_channels_status(
                     .await
                     {
                         Ok(Some(verified)) => {
-                            info.insert("authority_status".to_owned(), json!("verified"));
+                            info.insert("authority_status".to_owned(), json!("last_session"));
                             info.insert(
                                 "verified_authorization_scope".to_owned(),
                                 json!(verified.actions),
@@ -2505,7 +2505,7 @@ pub(crate) async fn handle_channels_arkret_inspect(
             .filter(|action| !verified.actions.contains(action))
             .cloned()
             .collect::<Vec<_>>();
-        ("verified", json!(verified.actions), json!(excess))
+        ("last_session", json!(verified.actions), json!(excess))
     } else {
         ("pending_session", Value::Null, Value::Null)
     };
@@ -4150,16 +4150,15 @@ pub(crate) async fn handle_directory_groups_members(
 mod tests {
     use serde_json::{Value, json};
 
-    use super::{SavedChannelState, insert_saved_channel_metadata};
+    use super::{
+        SavedChannelState, arkret_test_channel_config, insert_saved_channel_metadata,
+        matrix_test_channel_config, request_matches_channel_instance, saved_channel_config_ready,
+    };
     #[cfg(feature = "arkret")]
     use super::{
         arkret_pairing_resolve_target, arkret_runtime_key_status_flags,
         canonical_arkret_request_body, insert_arkret_listener_summary,
         sanitize_arkret_runtime_key_label, validate_arkret_pairing_bootstrap_value,
-    };
-    use super::{
-        arkret_test_channel_config, matrix_test_channel_config, request_matches_channel_instance,
-        saved_channel_config_ready,
     };
 
     #[cfg(feature = "arkret")]
@@ -4423,7 +4422,7 @@ mod tests {
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
                 "verificationMethod": sdk_agent_verification_method(),
                 "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
-                "requestedScope": savfox_channels::arkret::DEFAULT_AGENT_RUNTIME_SCOPE
+                "requestedScope": savfox_channels::arkret::default_agent_runtime_scope().unwrap()
             }),
         );
         let missing_authorization = channel_config(
@@ -4485,7 +4484,7 @@ mod tests {
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
                 "verificationMethod": sdk_agent_verification_method(),
                 "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
-                "requestedScope": savfox_channels::arkret::DEFAULT_AGENT_RUNTIME_SCOPE
+                "requestedScope": savfox_channels::arkret::default_agent_runtime_scope().unwrap()
             }),
         );
         let state = SavedChannelState {
@@ -4510,7 +4509,9 @@ mod tests {
         assert_eq!(info["verification_method"], sdk_agent_verification_method());
         assert_eq!(
             info["runtime_scope_count"],
-            savfox_channels::arkret::DEFAULT_AGENT_RUNTIME_SCOPE.len()
+            savfox_channels::arkret::default_agent_runtime_scope()
+                .unwrap()
+                .len()
         );
     }
 

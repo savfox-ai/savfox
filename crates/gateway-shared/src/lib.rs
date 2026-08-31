@@ -6,6 +6,8 @@
 
 mod agents;
 mod approvals;
+#[cfg(feature = "arkret")]
+pub mod arkret;
 mod channels;
 mod chat;
 mod config;

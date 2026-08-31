@@ -30,6 +30,7 @@ arkret = [
     "dep:arkret-wire",
     "dep:garth",
     "dep:savfox-keyring-store",
+    "dep:savfox-gateway-shared",
     "dep:rand",
     "dep:chacha20poly1305",
 ]
@@ -51,6 +52,7 @@ hmac = { workspace = true }
 reqwest = { workspace = true }
 savfox-core = { workspace = true }
 savfox-keyring-store = { workspace = true, optional = true }
+savfox-gateway-shared = { workspace = true, optional = true, features = ["arkret"] }
 savfox-utils = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

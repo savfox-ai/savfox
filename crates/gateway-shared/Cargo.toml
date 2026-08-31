@@ -12,6 +12,11 @@ path = "src/lib.rs"
 [lints]
 workspace = true
 
+[features]
+arkret = ["dep:arkret-schema", "dep:arkret-wire"]
+
 [dependencies]
+arkret-schema = { workspace = true, optional = true }
+arkret-wire = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

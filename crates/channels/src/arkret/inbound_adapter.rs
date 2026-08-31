@@ -896,7 +896,8 @@ mod tests {
     #[test]
     fn should_dispatch_filters_missing_event_read_scope() {
         let mut account = make_account(Some(REALM_1));
-        account.requested_scope = vec!["ak.self.events.stream.subscribe".into()];
+        account.requested_scope =
+            vec![arkret::ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into()];
         let event = message_event("did:webvh:z6mkfixture:bob.example", "secret");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
@@ -955,7 +956,8 @@ mod tests {
     #[test]
     fn parse_delta_without_event_read_does_not_dispatch_plaintext() {
         let mut account = make_account(Some(REALM_1));
-        account.requested_scope = vec!["ak.self.events.stream.subscribe".into()];
+        account.requested_scope =
+            vec![arkret::ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into()];
         let realms = json!({
             REALM_1: {
                 "timeline": {

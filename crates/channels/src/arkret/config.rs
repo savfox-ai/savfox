@@ -2,53 +2,33 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use arkret::{AgentPairingBootstrap, DeviceId, Did, DidCoreId, DidUrl};
+use arkret::{AgentPairingBootstrap, DeviceId, Did, DidCoreId, DidUrl, ServiceOperationId};
 use chrono::{DateTime, Utc};
+pub use savfox_gateway_shared::arkret::default_agent_runtime_scope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::signer::{ArkretKeyRef, ed25519_runtime_public_key, load_ed25519_signing_key};
 
-pub const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
-    "ak.self.events.stream.subscribe",
-    "ak.self.events.read.scan",
-    "ak.self.events.read.frontier",
-    "ak.self.events.command.submit",
-    "ak.self.keys.keypackages.upload.create",
-    "ak.self.keys.keypackages.command.consume",
-    "ak.self.keys.keypackages.command.revoke",
-    "ak.self.device_messages.query.list",
-    "ak.self.device_messages.command.ack",
+const REQUIRED_LISTEN_SCOPE: &[&str] = &[
+    ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1,
+    ServiceOperationId::SELF_EVENTS_READ_SCAN_V1,
+    ServiceOperationId::SELF_EVENTS_READ_FRONTIER_V1,
+    ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1,
+    ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1,
+    ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1,
+    ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_REVOKE_V1,
+    ServiceOperationId::SELF_DEVICE_MESSAGES_READ_LIST_V1,
+    ServiceOperationId::SELF_DEVICE_MESSAGES_COMMAND_ACK_V1,
     "ak.event.read",
+];
+
+const REQUIRED_SEND_SCOPE: &[&str] = &[
+    ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1,
     "ak.message.create",
 ];
-
-const REQUIRED_LISTEN_SCOPE: &[&str] = &[
-    "ak.self.events.stream.subscribe",
-    "ak.self.events.read.scan",
-    "ak.self.events.read.frontier",
-    "ak.self.keys.keypackages.upload.create",
-    "ak.self.keys.keypackages.command.consume",
-    "ak.self.keys.keypackages.command.revoke",
-    "ak.self.device_messages.query.list",
-    "ak.self.device_messages.command.ack",
-    "ak.event.read",
-];
-
-const REQUIRED_SEND_SCOPE: &[&str] = &["ak.self.events.command.submit", "ak.message.create"];
 const VERIFIED_SCOPE_SCHEMA: &str = "savfox.arkret.verified_runtime_scope.v1";
-
-/// Preserve persisted pre-read-API scope commitments while comparing them by
-/// their current service-operation names. The original spelling must remain
-/// on the wire because it is part of the immutable pairing authorization.
-fn canonical_requested_scope_action(action: &str) -> &str {
-    match action {
-        "ak.self.events.query.scan" => "ak.self.events.read.scan",
-        "ak.self.events.query.frontier" => "ak.self.events.read.frontier",
-        _ => action,
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,18 +41,6 @@ pub struct VerifiedArkretRuntimeScope {
     pub runtime_public_key_digest: String,
     pub actions: Vec<String>,
     pub verified_at: DateTime<Utc>,
-}
-
-impl VerifiedArkretRuntimeScope {
-    #[must_use]
-    pub fn permits(&self, requested: &[String]) -> bool {
-        requested.iter().all(|action| {
-            let action = canonical_requested_scope_action(action);
-            self.actions
-                .iter()
-                .any(|allowed| canonical_requested_scope_action(allowed) == action)
-        })
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +200,8 @@ impl ArkretChannelConfig {
                 missing.join(", ")
             );
         }
+        savfox_gateway_shared::arkret::validate_agent_runtime_scope(&account.requested_scope)
+            .map_err(anyhow::Error::msg)?;
         Ok(parsed)
     }
 
@@ -351,10 +321,7 @@ impl ArkretChannelConfig {
 impl ArkretAccountConfig {
     #[must_use]
     pub fn has_requested_scope(&self, action: &str) -> bool {
-        let action = canonical_requested_scope_action(action.trim());
-        self.requested_scope
-            .iter()
-            .any(|scope| canonical_requested_scope_action(scope.trim()) == action)
+        self.requested_scope.iter().any(|scope| scope == action)
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -464,6 +431,8 @@ impl ArkretAccountConfig {
                 missing_actions.join(", ")
             );
         }
+        savfox_gateway_shared::arkret::validate_agent_runtime_scope(&self.requested_scope)
+            .map_err(anyhow::Error::msg)?;
         Ok(())
     }
 }
@@ -473,8 +442,7 @@ pub fn duplicate_requested_scope_actions(actions: &[String]) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut duplicates = Vec::new();
     for action in actions {
-        let canonical = canonical_requested_scope_action(action.as_str());
-        if !seen.insert(canonical) && !duplicates.iter().any(|item| item == action) {
+        if !seen.insert(action.as_str()) && !duplicates.iter().any(|item| item == action) {
             duplicates.push(action.clone());
         }
     }
@@ -485,13 +453,12 @@ pub fn unknown_requested_scope_actions(actions: &[String]) -> anyhow::Result<Vec
     let mut unknown = Vec::new();
     for action in actions {
         let trimmed = action.trim();
-        let canonical = canonical_requested_scope_action(trimmed);
         // requestedScope contains both content capabilities and Arkret service
         // operations, so validate against both SDK-owned canonical registries.
-        let is_capability_action = arkret_schema::capability_action(canonical).is_some();
-        let is_service_operation = arkret::ServiceOperationId::from_wire(canonical).is_some();
+        let is_capability_action = arkret_schema::capability_action(trimmed).is_some();
+        let is_service_operation = ServiceOperationId::from_wire(trimmed).is_some();
         if trimmed != action
-            || canonical.is_empty()
+            || trimmed.is_empty()
             || (!is_capability_action && !is_service_operation)
         {
             unknown.push(action.clone());
@@ -508,11 +475,7 @@ pub fn missing_required_scope_actions(actions: &[String], listen: bool, send: bo
         .filter(|_| listen)
         .chain(REQUIRED_SEND_SCOPE.iter().copied().filter(|_| send));
     required
-        .filter(|required| {
-            !actions
-                .iter()
-                .any(|action| canonical_requested_scope_action(action) == *required)
-        })
+        .filter(|required| !actions.iter().any(|action| action == *required))
         .map(str::to_owned)
         .collect()
 }
@@ -538,7 +501,15 @@ pub async fn save_verified_runtime_scope(
     channel_id: &str,
     account: &ArkretAccountConfig,
     runtime_public_key_digest: String,
+    granted_actions: &[String],
 ) -> anyhow::Result<VerifiedArkretRuntimeScope> {
+    anyhow::ensure!(
+        savfox_gateway_shared::arkret::session_scope_matches_request(
+            &account.requested_scope,
+            granted_actions
+        ),
+        "Agent session grant differs from the exact requested runtime scope"
+    );
     let authorization_ref = account
         .authorized_event_ref
         .as_deref()
@@ -551,7 +522,7 @@ pub async fn save_verified_runtime_scope(
         principal_id: account.principal_id.clone(),
         authorization_ref,
         runtime_public_key_digest,
-        actions: account.requested_scope.clone(),
+        actions: granted_actions.to_vec(),
         verified_at: Utc::now(),
     };
     let path = verified_scope_path(savfox_home, channel_id, &account.id);
@@ -926,8 +897,7 @@ mod strict_tests {
     use super::*;
 
     fn canonical_config(scope: Value) -> ChannelConfig {
-        let principal_id = "did:webvh:example.org:agents:bb";
-        let device_id = derive_arkret_device_id(&[principal_id, "pair-bb"]);
+        let principal_id = "ak:did_core:web:agent.example";
         ChannelConfig {
             id: "arkret-agent".to_owned(),
             kind: "arkret".to_owned(),
@@ -938,7 +908,7 @@ mod strict_tests {
                 "mode": "agent",
                 "inksonBootstrap": {
                     "arkret_base_url": "https://arkret.example.org",
-                    "service_id": "did:webvh:arkret.example.org",
+                    "service_id": "ak:did_core:web:arkret.example.org",
                     "agent_id": principal_id,
                     "pairing_request_id": "pair-bb",
                     "pairing_code": "123456",
@@ -949,8 +919,8 @@ mod strict_tests {
                     "service": "savfox-arkret",
                     "account": "runtime-bb"
                 },
-                "verificationMethod": format!("{principal_id}#{device_id}"),
-                "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
+                "verificationMethod": "did:web:agent.example#runtime-1",
+                "authorizedEventRef": arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x63; 32]),
                 "requestedScope": scope
             }),
             router: None,
@@ -962,20 +932,7 @@ mod strict_tests {
     }
 
     fn default_scope() -> Value {
-        json!(DEFAULT_AGENT_RUNTIME_SCOPE)
-    }
-
-    fn signal_scope_config(scope: Value) -> ChannelConfig {
-        let mut config = canonical_config(scope);
-        config.config["inksonBootstrap"]["service_id"] =
-            json!("ak:did_core:web:arkret.example.org");
-        config.config["inksonBootstrap"]["agent_id"] = json!("ak:did_core:web:agent.example");
-        config.config["verificationMethod"] = json!("did:web:agent.example#runtime-1");
-        config.config["authorizedEventRef"] = json!(arkret::EventId::from_digest(
-            arkret::canonical::DigestSuite::Sha256,
-            [0x63; 32],
-        ));
-        config
+        json!(default_agent_runtime_scope().expect("SDK scope candidate"))
     }
 
     #[test]
@@ -1020,16 +977,13 @@ mod strict_tests {
         assert_eq!(parsed.accounts.len(), 1);
         assert_eq!(
             parsed.accounts[0].principal_id,
-            "did:webvh:example.org:agents:bb"
+            "ak:did_core:web:agent.example"
         );
     }
 
     #[test]
     fn historical_action_alias_is_rejected_without_migration() {
-        let mut scope = DEFAULT_AGENT_RUNTIME_SCOPE
-            .iter()
-            .map(|action| (*action).to_owned())
-            .collect::<Vec<_>>();
+        let mut scope = default_agent_runtime_scope().unwrap();
         scope[1] = "ak.self.events.scan".to_owned();
         let error = ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
             .expect_err("historical alias must fail");
@@ -1037,50 +991,41 @@ mod strict_tests {
     }
 
     #[test]
-    fn query_scope_aliases_preserve_existing_pairing_commitments() {
-        let scope = DEFAULT_AGENT_RUNTIME_SCOPE
-            .iter()
-            .map(|action| match *action {
-                "ak.self.events.read.scan" => "ak.self.events.query.scan".to_owned(),
-                "ak.self.events.read.frontier" => "ak.self.events.query.frontier".to_owned(),
-                action => action.to_owned(),
-            })
-            .collect::<Vec<_>>();
-
-        let parsed = ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
-            .expect("query aliases should remain valid for persisted pairings");
-        let account = &parsed.accounts[0];
-
-        assert!(account.has_requested_scope("ak.self.events.read.scan"));
-        assert!(account.has_requested_scope("ak.self.events.read.frontier"));
-        assert!(
-            account
-                .requested_scope
-                .iter()
-                .any(|action| action == "ak.self.events.query.scan"),
-            "the signed pairing spelling must not be rewritten"
-        );
+    fn agent_scope_old_query_and_versionless_tokens_are_not_upgraded() {
+        for invalid in [
+            "ak.self.events.query.scan",
+            "ak.self.events.read.scan",
+            "ak.self.events.query.scan.v1",
+        ] {
+            let mut scope = default_agent_runtime_scope().unwrap();
+            scope.push(invalid.to_owned());
+            let config = canonical_config(json!(scope));
+            let error = ArkretChannelConfig::from_strict_agent_config(&config)
+                .expect_err("old scope must fail closed");
+            assert!(error.to_string().contains("unknown canonical actions"));
+            assert_eq!(config.config["requestedScope"], json!(scope));
+        }
     }
 
     #[test]
-    fn query_and_read_spellings_are_duplicate_scopes() {
+    fn exact_repeated_tokens_are_duplicate_scopes() {
         let actions = vec![
-            "ak.self.events.query.scan".to_owned(),
-            "ak.self.events.read.scan".to_owned(),
+            ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.to_owned(),
+            ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.to_owned(),
         ];
 
         assert_eq!(
             duplicate_requested_scope_actions(&actions),
-            vec!["ak.self.events.read.scan".to_owned()]
+            vec![ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.to_owned()]
         );
     }
 
     #[test]
     fn missing_required_action_is_rejected() {
-        let scope = DEFAULT_AGENT_RUNTIME_SCOPE
-            .iter()
-            .filter(|action| **action != "ak.self.events.command.submit")
-            .copied()
+        let scope = default_agent_runtime_scope()
+            .unwrap()
+            .into_iter()
+            .filter(|action| action != ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1)
             .collect::<Vec<_>>();
         let error = ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
             .expect_err("missing action must fail");
@@ -1094,16 +1039,17 @@ mod strict_tests {
     #[test]
     fn agent_signal_scope_still_requires_frontier_and_reply_submission() {
         for required_action in [
-            "ak.self.events.read.frontier",
-            "ak.self.events.command.submit",
+            ServiceOperationId::SELF_EVENTS_READ_FRONTIER_V1,
+            ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1,
+            ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1,
         ] {
-            let scope = DEFAULT_AGENT_RUNTIME_SCOPE
-                .iter()
-                .filter(|action| **action != required_action)
-                .copied()
+            let scope = default_agent_runtime_scope()
+                .unwrap()
+                .into_iter()
+                .filter(|action| action != required_action)
                 .collect::<Vec<_>>();
             let error =
-                ArkretChannelConfig::from_strict_agent_config(&signal_scope_config(json!(scope)))
+                ArkretChannelConfig::from_strict_agent_config(&canonical_config(json!(scope)))
                     .expect_err("interactive Agent capability must fail closed");
             assert!(
                 error.to_string().contains(required_action),
@@ -1114,19 +1060,92 @@ mod strict_tests {
 
     #[test]
     fn agent_signal_scope_does_not_request_an_unregistered_carrier() {
-        assert!(!DEFAULT_AGENT_RUNTIME_SCOPE.contains(&"ak.self.signal.command.send"));
-        assert!(!REQUIRED_LISTEN_SCOPE.contains(&"ak.self.signal.command.send"));
-        assert!(!REQUIRED_SEND_SCOPE.contains(&"ak.self.signal.command.send"));
-        ArkretChannelConfig::from_strict_agent_config(&signal_scope_config(default_scope()))
+        let signal = ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1;
+        assert!(
+            !default_agent_runtime_scope()
+                .unwrap()
+                .iter()
+                .any(|action| action == signal)
+        );
+        assert!(!REQUIRED_LISTEN_SCOPE.contains(&signal));
+        assert!(!REQUIRED_SEND_SCOPE.contains(&signal));
+        ArkretChannelConfig::from_strict_agent_config(&canonical_config(default_scope()))
             .expect("Agent runtime must not require unsupported Signal presence");
+    }
+
+    #[tokio::test]
+    async fn agent_scope_cache_records_actual_grant_and_rejects_different_scopes() {
+        let home = tempfile::tempdir().unwrap();
+        let parsed =
+            ArkretChannelConfig::from_strict_agent_config(&canonical_config(default_scope()))
+                .unwrap();
+        let account = &parsed.accounts[0];
+        let mut actual = account.requested_scope.clone();
+        actual.reverse();
+        let saved = save_verified_runtime_scope(
+            home.path(),
+            &parsed.id,
+            account,
+            "key-digest".to_owned(),
+            &actual,
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved.actions, actual);
+        for granted in [vec!["ak.event.read".to_owned()], {
+            let mut excessive = actual.clone();
+            excessive
+                .push(ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1.to_owned());
+            excessive
+        }] {
+            assert!(
+                save_verified_runtime_scope(
+                    home.path(),
+                    &parsed.id,
+                    account,
+                    "key-digest".to_owned(),
+                    &granted
+                )
+                .await
+                .is_err()
+            );
+        }
+        let retained = load_verified_runtime_scope(home.path(), &parsed.id, account, "key-digest")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(retained.actions, actual);
+        let mut different_authorization = account.clone();
+        different_authorization.authorized_event_ref = Some(
+            arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x64; 32])
+                .to_string(),
+        );
+        assert!(
+            load_verified_runtime_scope(
+                home.path(),
+                &parsed.id,
+                &different_authorization,
+                "key-digest"
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
     }
 
     #[test]
     fn default_online_agent_scope_does_not_request_delayed_publication_leases() {
         assert!(
-            !DEFAULT_AGENT_RUNTIME_SCOPE.contains(&"ak.self.authorization_leases.command.issue")
+            !default_agent_runtime_scope()
+                .unwrap()
+                .iter()
+                .any(|action| action
+                    == ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1)
         );
-        assert!(!REQUIRED_SEND_SCOPE.contains(&"ak.self.authorization_leases.command.issue"));
+        assert!(
+            !REQUIRED_SEND_SCOPE
+                .contains(&ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1)
+        );
     }
 
     #[test]
@@ -1360,6 +1379,7 @@ mod strict_tests {
             &parsed.id,
             account,
             "sha256:original-runtime-key".to_owned(),
+            &account.requested_scope,
         )
         .await
         .expect("save verified scope");
@@ -1549,16 +1569,13 @@ mod tests {
         assert!(account.key_ref.is_some());
         assert_eq!(
             account.requested_scope,
-            DEFAULT_AGENT_RUNTIME_SCOPE
-                .iter()
-                .map(|scope| (*scope).to_owned())
-                .collect::<Vec<_>>()
+            default_agent_runtime_scope().unwrap()
         );
         for required_scope in [
-            "ak.self.keys.keypackages.upload.create",
-            "ak.self.keys.keypackages.command.consume",
-            "ak.self.device_messages.query.list",
-            "ak.self.device_messages.command.ack",
+            ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1,
+            ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1,
+            ServiceOperationId::SELF_DEVICE_MESSAGES_READ_LIST_V1,
+            ServiceOperationId::SELF_DEVICE_MESSAGES_COMMAND_ACK_V1,
             "ak.event.read",
         ] {
             assert!(

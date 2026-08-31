@@ -6,7 +6,30 @@ Signal envelope requires an ordinary account-device sender, and no Agent endpoin
 carrier is registered. An Agent key or a synthetic device ID cannot replace that
 device authorization.
 
-Pairing therefore does not request `ak.self.signal.command.send`. A connected
+Pairing therefore does not request `ak.self.signal.command.send.v1`. A connected
 Savfox listener indicates local runtime connectivity, not a remotely published
 Agent online-presence claim. Agent presence can be enabled only after the protocol
 defines a valid carrier and the complete sender and recipient checks are implemented.
+
+New pairing-request candidates use the shared Arkret SDK operation registry and
+its capability-floor completion, including both Event and Seal frontier operations.
+Service scopes use exact versioned operation IDs, for example
+`ak.self.events.read.scan.v1`; content actions such as `ak.event.read` stay unchanged.
+Online chat does not request delayed-publication leases by default.
+
+Editing a saved pairing preserves its exact scope array. Missing, old unversioned
+or `query` aliases are rejected, not upgraded. A new candidate is only a request:
+the Station must still check immutable provision, current key and session ceilings.
+The runtime requires the actual session grant to match its requested operation set;
+a narrower grant cannot run the full configured listener and an over-grant is rejected.
+The cached last successful session scope is diagnostic history, not current key or
+provision authority, and never authorizes adding permissions to a saved Agent.
+
+Use the service-reported recovery: provision a new Agent for a deficient immutable
+provision scope; reauthorize the key within that ceiling for a key-scope deficiency;
+refresh the session within both ceilings for a session-scope deficiency. These scope
+checks do not imply that the separate Agent identity/runtime migration is complete.
+An invalid saved binding cannot be reported as successfully disconnected. If its
+old identity or scope prevents safe revocation, Savfox retains local state and
+requires controller-side recovery. Only a confirmed unbind clears the saved scope
+and allows the same empty channel slot to form a new pairing candidate.

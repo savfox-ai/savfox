@@ -1,9 +1,9 @@
 //! Arkret v1 channel adapter.
 //!
 //! Supports two modes:
-//! * **agent** — Agent runtime configuration seeded from an Inkson bootstrap. Runtime keys
-//!   use `agent_key_proof` to mint short-lived DPoP-bound `ak.session.grant` credentials for
-//!   protected self endpoints.
+//! * **agent** — Agent runtime configuration seeded from an Inkson bootstrap. Runtime keys use
+//!   `agent_key_proof` to mint short-lived DPoP-bound `ak.session.grant` credentials for protected
+//!   self endpoints.
 //! * **applet** — register this node as an Arkret Applet (the Matrix-AppService equivalent), with
 //!   Ghost Actor minting and Ed25519 event signing (see the [`applet`] and [`signer`] submodules).
 //!
@@ -55,13 +55,13 @@ pub use client::{
     sign_mls_welcome_claim_envelope,
 };
 pub use config::{
-    ArkretAccountConfig, ArkretAccountMode, ArkretChannelConfig, DEFAULT_AGENT_RUNTIME_SCOPE,
-    VerifiedArkretRuntimeScope, build_arkret_runtime_key_request_json,
-    build_arkret_runtime_key_status_request_json, delete_verified_runtime_scope,
-    derive_arkret_device_id, duplicate_requested_scope_actions, load_arkret_channel_configs,
-    load_verified_runtime_scope, missing_required_scope_actions,
-    resolve_arkret_outbound_account_for_binding, resolve_arkret_outbound_account_for_config,
-    save_verified_runtime_scope, unknown_requested_scope_actions,
+    ArkretAccountConfig, ArkretAccountMode, ArkretChannelConfig, VerifiedArkretRuntimeScope,
+    build_arkret_runtime_key_request_json, build_arkret_runtime_key_status_request_json,
+    default_agent_runtime_scope, delete_verified_runtime_scope, derive_arkret_device_id,
+    duplicate_requested_scope_actions, load_arkret_channel_configs, load_verified_runtime_scope,
+    missing_required_scope_actions, resolve_arkret_outbound_account_for_binding,
+    resolve_arkret_outbound_account_for_config, save_verified_runtime_scope,
+    unknown_requested_scope_actions,
 };
 pub use crypto_state::{
     ArkretBootstrapRecord, ArkretContentEncryptionFloor, ArkretCryptoStateFile,
