@@ -4139,14 +4139,14 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
                     ingress_receipts: response.ingress_receipts,
                 });
             }
-            if !response.events_submit_rejected_rows.is_empty() {
+            if !response.rejections.is_empty() {
                 warn!(
                     transaction_id = %item.transaction_id,
-                    rejected = ?response.events_submit_rejected_rows,
+                    rejected = ?response.rejections,
                     "arkret: outbound event submission was rejected"
                 );
                 return Ok(OutboundSubmitOutcome::Rejected {
-                    reason: format!("{:?}", response.events_submit_rejected_rows),
+                    reason: format!("{:?}", response.rejections),
                 });
             }
             Ok(OutboundSubmitOutcome::Terminal {
