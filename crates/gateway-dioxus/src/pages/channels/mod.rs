@@ -6493,10 +6493,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn arkret_agent_pairing_does_not_request_unsupported_signal_presence() {
+    fn arkret_agent_pairing_requests_authenticated_signal_presence() {
         let scope = savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
         assert!(
-            !scope
+            scope
                 .iter()
                 .any(|action| action == "ak.self.signal.command.send.v1")
         );

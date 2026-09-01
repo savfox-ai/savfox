@@ -21,6 +21,7 @@ const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_REVOKE_V1,
     ServiceOperationId::SELF_DEVICE_MESSAGES_READ_LIST_V1,
     ServiceOperationId::SELF_DEVICE_MESSAGES_COMMAND_ACK_V1,
+    ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1,
     "ak.event.read",
 ];
 
@@ -1059,18 +1060,18 @@ mod strict_tests {
     }
 
     #[test]
-    fn agent_signal_scope_stays_disabled_until_end_to_end_evidence_is_closed() {
+    fn agent_signal_scope_is_required_for_runtime_presence() {
         let signal = ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1;
         assert!(
-            !default_agent_runtime_scope()
+            default_agent_runtime_scope()
                 .unwrap()
                 .iter()
                 .any(|action| action == signal)
         );
-        assert!(!REQUIRED_LISTEN_SCOPE.contains(&signal));
+        assert!(REQUIRED_LISTEN_SCOPE.contains(&signal));
         assert!(!REQUIRED_SEND_SCOPE.contains(&signal));
         ArkretChannelConfig::from_strict_agent_config(&canonical_config(default_scope()))
-            .expect("Agent runtime must not require unsupported Signal presence");
+            .expect("Agent runtime must admit encrypted Signal presence");
     }
 
     #[tokio::test]

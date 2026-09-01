@@ -1,14 +1,13 @@
 # Arkret Agent 频道
 
-Savfox 的 Arkret Agent 运行时处理已授权的消息订阅与回复，但不通过 Arkret Signal
-发送加密在线状态心跳。当前 v1 wire 已定义独立且经认证的 Agent sender 分支，但
-wire 形状本身不构成发送授权。Savfox 尚未闭合当前 accepted Agent key、lifecycle、
-controller authority、精确 MLS leaf 与 recipient eligibility 的端到端校验；Agent 密钥
-也不得通过合成设备 ID 冒充普通设备。
+Savfox 的 Arkret Agent 运行时处理已授权的消息订阅、回复和加密在线状态心跳。
+Agent Signal 不携带设备 ID；当前运行时的原始 Ed25519 公钥摘要标识序列端点，
+运行时密钥同时签署 Signal proof。每个 Realm 的 MLS nonce 与 payload sequence 都在
+HTTP 提交前持久化，因此不确定的提交可以跳号，但不会复用 nonce 或倒退序列。
 
-因此，配对不会申请 `ak.self.signal.command.send.v1`。Savfox 监听器显示已连接，仅表示
-本地运行时的连接状态，不表示已向远端发布 Agent 在线状态。只有完整 authority
-evidence、发送端与接收端校验均已实现并通过端到端验证后，才能启用 Agent 在线状态。
+新配对会申请 `ak.self.signal.command.send.v1`。Station 仍须验证 Agent 分类、生命周期、
+唯一 controller、当前 runtime 与 session 授权，以及精确匹配的 MLS leaf；接收端仅按
+经过验证的当前原始公钥摘要接受并投影在线状态。Agent 密钥不会合成设备 ID。
 
 新配对请求的候选权限由共享 Arkret SDK 操作注册表与能力最低集合生成，包含 Event
 和 Seal 两种 frontier 操作。服务权限使用精确的带版本操作 ID，例如

@@ -22,7 +22,8 @@ pub fn agent_scope_recovery(reason: &str) -> Option<&'static str> {
     Some(arkret_schema::agent_runtime_scope_layer_descriptor(layer).recovery)
 }
 
-/// Build the interactive Agent candidate without optional presence or leases.
+/// Build the interactive Agent candidate with encrypted presence and without
+/// delayed-publication leases.
 pub fn default_agent_runtime_scope() -> Result<Vec<String>, String> {
     arkret_schema::agent_runtime_scope::complete_agent_runtime_scope([
         ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1,
@@ -34,6 +35,7 @@ pub fn default_agent_runtime_scope() -> Result<Vec<String>, String> {
         ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_REVOKE_V1,
         ServiceOperationId::SELF_DEVICE_MESSAGES_READ_LIST_V1,
         ServiceOperationId::SELF_DEVICE_MESSAGES_COMMAND_ACK_V1,
+        ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1,
         "ak.event.read",
         "ak.message.create",
     ])
@@ -89,10 +91,12 @@ mod tests {
                 .iter()
                 .any(|action| action == ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1)
         );
-        for excluded in [
-            ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1,
-            ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1,
-        ] {
+        assert!(
+            actions
+                .iter()
+                .any(|action| action == ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1)
+        );
+        for excluded in [ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1] {
             assert!(!actions.iter().any(|action| action == excluded));
         }
     }

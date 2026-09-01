@@ -1,18 +1,17 @@
 # Arkret Agent channel
 
-Savfox's Arkret Agent runtime handles authorized message subscription and replies.
-It does not send encrypted presence heartbeats over Arkret Signal. The current v1
-wire has a distinct authenticated Agent sender branch, but its shape alone does
-not authorize a runtime to send. Savfox has not yet closed the end-to-end checks
-for the current accepted Agent key, lifecycle and controller authority, the exact
-MLS leaf, or recipient eligibility. An Agent key must not impersonate an ordinary
-device through a synthetic device ID.
+Savfox's Arkret Agent runtime handles authorized message subscription, replies,
+and encrypted presence heartbeats. Agent Signals omit the device id. The digest
+of the current runtime's raw Ed25519 key identifies the sequence endpoint, and
+that runtime key also signs the Signal proof. Each Realm's MLS nonce and payload
+sequence are persisted before HTTP submit, so an uncertain request may skip a
+value but cannot reuse a nonce or roll the sequence back.
 
-Pairing therefore does not request `ak.self.signal.command.send.v1`. A connected
-Savfox listener indicates local runtime connectivity, not a remotely published
-Agent online-presence claim. Agent presence can be enabled only after the protocol
-authority evidence and complete sender and recipient checks are implemented and
-verified end to end.
+New pairings request `ak.self.signal.command.send.v1`. The Station still verifies
+Agent classification, lifecycle, its sole controller, the current runtime and
+session authorization, and the exact MLS leaf. Recipients accept and project
+presence only under the verified current raw-key digest. No synthetic device id
+is created for an Agent key.
 
 New pairing-request candidates use the shared Arkret SDK operation registry and
 its capability-floor completion, including both Event and Seal frontier operations.
