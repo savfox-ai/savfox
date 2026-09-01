@@ -2,7 +2,7 @@
 # Stage 1: Build the Dioxus web UI (WASM)
 # ---------------------------------------------------------------------------
 FROM rust:bookworm AS web-builder
-ARG DIOXUS_CLI_VERSION=0.7.9
+ARG DIOXUS_CLI_VERSION=0.7.10
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
