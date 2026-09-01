@@ -135,7 +135,7 @@ impl SessionGrantTransport for AgentSessionGrantTransport {
     fn refresh_session_grant<'a>(
         &'a self,
         request: arkret::SessionGrantRefreshRequestBody,
-    ) -> BoxSessionFuture<'a, arkret::SessionGrantRefreshOutcome> {
+    ) -> BoxSessionFuture<'a, arkret::SessionGrantOutcome> {
         Box::pin(async move {
             let grant_jwt = match &request {
                 SessionGrantRefreshRequestBody::Human(request) => &request.grant_jwt,
@@ -468,6 +468,11 @@ impl ArkretHttpClient {
         let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
             anyhow::anyhow!("invalid Arkret verification method '{verification_method}': {err}")
         })?;
+        arkret_signatures::agent::validate_agent_verification_method(
+            &principal_did,
+            &verification_method,
+        )
+        .map_err(|error| anyhow::anyhow!("Agent session identity binding: {error}"))?;
         // Session grants can exceed the Windows Credential Manager 2560-byte
         // secret limit. Keep the short-lived grant in the provider's memory;
         // the long-lived runtime signing key remains keyring-backed.
@@ -483,7 +488,7 @@ impl ArkretHttpClient {
         let grant_htu = joined_htu(&grant_base_url, SESSION_GRANT_PATH)?;
         let binding_proof = arkret::dpop::build_dpop_proof(
             &arkret::dpop::DpopProofRequest::new("POST", grant_htu.clone()),
-            &dpop_signing_key,
+            dpop_signing_key.as_ref(),
         )?;
         let dpop_jkt = binding_proof.jkt.clone();
         let binding_proof = binding_proof.header_value;
@@ -898,7 +903,7 @@ fn build_dpop_client(
         .auth(Auth::Dpop(DpopAuth::with_dpop_token(
             access_token,
             move |request| {
-                arkret::dpop::build_dpop_proof(&request, &signing_key)
+                arkret::dpop::build_dpop_proof(&request, signing_key.as_ref())
                     .map(|proof| proof.header_value)
                     .map_err(arkret::http_client::Error::from)
             },
@@ -1195,6 +1200,7 @@ mod tests {
                 .as_str(),
             "ak:did_core:webvh:z6mkbobfixture"
         );
+        assert!(request.requester_account_id.is_none());
         assert_eq!(request.claim_request_id.as_str(), "AQEBAQEBAQEBAQEBAQEBAQ");
         assert_eq!(
             request.claim_purpose,
@@ -1213,12 +1219,14 @@ mod tests {
         );
         let PeerKeyPackageRequesterAuthorization::Agent {
             verification_method: authorized_method,
+            requester_agent_id,
             ..
         } = &request.requester_authorization
         else {
             panic!("requester authorization variant must round-trip");
         };
         assert_eq!(authorized_method.as_str(), verification_method);
+        assert_eq!(requester_agent_id.as_str(), "ak:did_core:webvh:z6mkfixture");
     }
 
     #[test]

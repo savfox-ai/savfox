@@ -4874,13 +4874,13 @@ mod tests {
         ArkretAccountConfig {
             mode: savfox_channels::arkret::ArkretAccountMode::Agent,
             id: "support".into(),
-            principal_id: "did:webvh:z6mkfixture:agent.example".into(),
+            principal_id: "ak:did_core:webvh:z6mkfixture:agent.example".into(),
             device_id: "ak:device:01904100-0000-7000-8000-000000000001".into(),
             key_ref: None,
             verification_method: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
-            controller_id: Some("did:webvh:z6mkfixture:controller.example".into()),
+            controller_id: Some("ak:did_core:webvh:z6mkfixture:controller.example".into()),
             requested_scope: vec![
                 ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into(),
                 ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.into(),
@@ -5180,15 +5180,15 @@ mod tests {
         let account = make_account();
 
         assert!(arkret_sender_is_account_principal(
-            Some("did:webvh:z6mkfixture:agent.example"),
+            Some("ak:did_core:webvh:z6mkfixture:agent.example"),
             &account,
         ));
         assert!(arkret_sender_is_account_principal(
-            Some("DID:WEBVH:Z6MKFIXTURE:AGENT.EXAMPLE"),
+            Some("AK:DID_CORE:WEBVH:Z6MKFIXTURE:AGENT.EXAMPLE"),
             &account,
         ));
         assert!(!arkret_sender_is_account_principal(
-            Some("did:webvh:z6mkfixture:controller.example"),
+            Some("ak:did_core:webvh:z6mkfixture:controller.example"),
             &account,
         ));
         assert!(!arkret_sender_is_account_principal(None, &account));
@@ -5568,8 +5568,8 @@ mod tests {
             realm_id: realm_id().to_string(),
             strand_id: "ak:strand:01904100-0000-8000-8000-000000000011".to_owned(),
             body: "final user-visible reply".to_owned(),
-            principal_id: "did:webvh:z6mkfixture:agent.example".to_owned(),
-            station_id: "did:webvh:z6mkfixture:station.example".to_owned(),
+            principal_id: "ak:did_core:webvh:z6mkfixture:agent.example".to_owned(),
+            station_id: "ak:did_core:webvh:z6mkfixture:station.example".to_owned(),
             actor_seq: 1,
             thread_root_id: None,
             sidecar_exchange: Some(context.clone()),
@@ -5601,11 +5601,11 @@ mod tests {
     }
 
     fn actor_id() -> DidCoreId {
-        DidCoreId::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap()
+        DidCoreId::new("ak:did_core:webvh:z6mkfixture:alice.example".to_owned()).unwrap()
     }
 
     fn principal_server_id() -> DidCoreId {
-        DidCoreId::new("did:webvh:z6mkfixture:principal-server.example".to_owned()).unwrap()
+        DidCoreId::new("ak:did_core:webvh:z6mkfixture:principal-server.example".to_owned()).unwrap()
     }
 
     fn keypackage_record(

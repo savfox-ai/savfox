@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use arkret::{AgentPairingBootstrap, DeviceId, Did, DidCoreId, DidUrl, ServiceOperationId};
+use arkret::{AgentPairingBootstrap, DeviceId, DidCoreId, DidUrl, ServiceOperationId};
 use chrono::{DateTime, Utc};
 pub use savfox_gateway_shared::arkret::default_agent_runtime_scope;
 use serde::{Deserialize, Serialize};
@@ -203,6 +203,7 @@ impl ArkretChannelConfig {
         }
         savfox_gateway_shared::arkret::validate_agent_runtime_scope(&account.requested_scope)
             .map_err(anyhow::Error::msg)?;
+        parsed.validate()?;
         Ok(parsed)
     }
 
@@ -332,9 +333,9 @@ impl ArkretAccountConfig {
         if self.principal_id.trim().is_empty() {
             anyhow::bail!("Arkret account '{}' missing principal_id (DID)", self.id);
         }
-        DidCoreId::new(self.principal_id.clone()).map_err(|err| {
+        let principal_id = DidCoreId::new(self.principal_id.clone()).map_err(|err| {
             anyhow::anyhow!(
-                "Arkret account '{}' principal_id must be a valid DID URI, got '{}': {err}",
+                "Arkret account '{}' principal_id must be a valid stable DID core id, got '{}': {err}",
                 self.id,
                 self.principal_id
             )
@@ -349,16 +350,23 @@ impl ArkretAccountConfig {
             })?;
         }
 
-        self.validate_agent_runtime()
+        self.validate_agent_runtime(&principal_id)
     }
 
-    fn validate_agent_runtime(&self) -> anyhow::Result<()> {
-        if self.inkson_bootstrap.is_none() {
+    fn validate_agent_runtime(&self, principal_id: &DidCoreId) -> anyhow::Result<()> {
+        let bootstrap = if let Some(bootstrap) = self.inkson_bootstrap.as_ref() {
+            bootstrap
+        } else {
             anyhow::bail!(
                 "Arkret agent '{}' missing inksonBootstrap; paste the Inkson pairing link or resolved bootstrap instead of a static session grant",
                 self.id
             );
-        }
+        };
+        anyhow::ensure!(
+            &bootstrap.agent_id == principal_id,
+            "Arkret agent '{}' principal_id must equal the stable agent_id from inksonBootstrap",
+            self.id
+        );
         if self.key_ref.is_none() {
             anyhow::bail!(
                 "Arkret agent '{}' missing keyRef for the local agent runtime key",
@@ -376,14 +384,14 @@ impl ArkretAccountConfig {
                 self.id
             )
             })?;
-        if !verification_method.eq(&format!("{}#{}", self.principal_id, self.device_id)) {
-            anyhow::bail!(
-                "Arkret agent '{}' verificationMethod must equal '{}#{}' so the authorized Agent runtime key is bound to its stable Signal/MLS endpoint",
-                self.id,
-                self.principal_id,
-                self.device_id
-            );
-        }
+        validate_agent_verification_method(principal_id, verification_method).with_context(
+            || {
+                format!(
+                    "Arkret agent '{}' verificationMethod does not belong to its stable agent_id",
+                    self.id
+                )
+            },
+        )?;
         let authorization_ref = self
             .authorized_event_ref
             .as_deref()
@@ -436,6 +444,17 @@ impl ArkretAccountConfig {
             .map_err(anyhow::Error::msg)?;
         Ok(())
     }
+}
+
+fn validate_agent_verification_method(
+    agent_id: &DidCoreId,
+    verification_method: &str,
+) -> anyhow::Result<DidUrl> {
+    let verification_method = DidUrl::new(verification_method.to_owned())
+        .map_err(|error| anyhow::anyhow!("invalid complete Agent DID URL: {error}"))?;
+    arkret_signatures::agent::validate_agent_verification_method(agent_id, &verification_method)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    Ok(verification_method)
 }
 
 #[must_use]
@@ -784,34 +803,15 @@ pub fn build_arkret_runtime_key_request_json(
                 account.id
             )
         })?;
-    let endpoint_device_id = DeviceId::new(account.device_id.trim().to_owned()).map_err(|err| {
-        anyhow::anyhow!(
-            "Arkret agent '{}' has invalid deviceId '{}' for runtime key request: {err}",
-            account.id,
-            account.device_id
-        )
-    })?;
-    let expected_verification_method = format!("{}#{endpoint_device_id}", bootstrap.agent_id);
-    anyhow::ensure!(
-        verification_method == expected_verification_method,
-        "Arkret agent '{}' verificationMethod must equal '{}' for runtime key request",
-        account.id,
-        expected_verification_method
-    );
+    let verification_method =
+        validate_agent_verification_method(&bootstrap.agent_id, verification_method)
+            .with_context(|| format!("Arkret agent '{}' runtime key request", account.id))?;
     let signing_key = load_ed25519_signing_key(key_ref)?;
-    let agent_full_id = Did::new(account.principal_id.clone()).map_err(|err| {
-        anyhow::anyhow!(
-            "Arkret agent '{}' has invalid full principal DID '{}': {err}",
-            account.id,
-            account.principal_id
-        )
-    })?;
     let proof_expires_at = runtime_key_proof_expires_at(now, bootstrap.pairing_expires_at);
-    let request = arkret_signatures::agent::RuntimeKeyRequestBuilder::new(
+    let request = arkret_signatures::agent::RuntimeKeyRequestBuilder::new_with_verification_method(
         &signing_key,
         bootstrap.clone(),
-        &agent_full_id,
-        endpoint_device_id,
+        &verification_method,
     )
     .proof_created_at(now)
     .proof_expires_at(proof_expires_at)
@@ -872,6 +872,17 @@ pub fn build_arkret_runtime_key_status_request_json(
             account.id
         )
     })?;
+    let agent_id = DidCoreId::new(account.principal_id.clone()).map_err(|error| {
+        anyhow::anyhow!(
+            "Arkret agent '{}' has invalid stable agent_id for runtime key status poll: {error}",
+            account.id
+        )
+    })?;
+    arkret_signatures::agent::validate_agent_verification_method(
+        &agent_id,
+        &verification_method_url,
+    )
+    .map_err(|error| anyhow::anyhow!("Agent runtime key status identity binding: {error}"))?;
     let local_public_key_digest = arkret_signatures::agent::validate_agent_runtime_public_key(
         &public_key,
         &verification_method_url,
@@ -955,10 +966,8 @@ mod strict_tests {
         let mut replacement_config = canonical_config(default_scope());
         replacement_config.config["inksonBootstrap"]["pairing_request_id"] =
             json!("pair-replacement");
-        let principal_id = "did:webvh:example.org:agents:bb";
-        let replacement_device = derive_arkret_device_id(&[principal_id, "pair-replacement"]);
         replacement_config.config["verificationMethod"] =
-            json!(format!("{principal_id}#{replacement_device}"));
+            json!("did:web:agent.example#replacement-runtime");
         let replacement = ArkretChannelConfig::from_strict_agent_config(&replacement_config)
             .expect("replacement pairing parses");
 
@@ -980,6 +989,28 @@ mod strict_tests {
             parsed.accounts[0].principal_id,
             "ak:did_core:web:agent.example"
         );
+    }
+
+    #[test]
+    fn agent_verification_method_must_project_to_stable_agent_id() {
+        let mut config = canonical_config(default_scope());
+        config.config["verificationMethod"] = json!("did:web:other.example#runtime-1");
+
+        let error = ArkretChannelConfig::from_strict_agent_config(&config)
+            .expect_err("foreign verification method must fail closed");
+
+        assert!(format!("{error:#}").contains("does not belong to its stable agent_id"));
+    }
+
+    #[test]
+    fn stable_agent_id_is_not_accepted_as_a_verification_method_controller() {
+        let mut config = canonical_config(default_scope());
+        config.config["verificationMethod"] = json!("ak:did_core:web:agent.example#runtime-1");
+
+        let error = ArkretChannelConfig::from_strict_agent_config(&config)
+            .expect_err("stable core reference is not a complete DID URL");
+
+        assert!(format!("{error:#}").contains("invalid complete Agent DID URL"));
     }
 
     #[test]

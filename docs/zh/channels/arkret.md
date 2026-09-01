@@ -5,6 +5,16 @@ Agent Signal 不携带设备 ID；当前运行时的原始 Ed25519 公钥摘要�
 运行时密钥同时签署 Signal proof。每个 Realm 的 MLS nonce 与 payload sequence 都在
 HTTP 提交前持久化，因此不确定的提交可以跳号，但不会复用 nonce 或倒退序列。
 
+配对 bootstrap 的 `agent_id` 承载稳定的 `ak:did_core:*` 身份；运行时密钥 DID URL
+是 Agent/controller 身份流程另行提供的完整 `did:<method>:...#<fragment>`。Savfox
+通过共享 DID method adapter 校验该 DID controller 能投影到 bootstrap 的 `agent_id`，
+不会把它拼成 `agent_id#device_id`，也不会把本地或会话设备标识当成 Agent MLS actor。
+
+审批完成后，Agent MLS endpoint 精确绑定
+`(agent_id, verificationMethod, authorizedEventRef)`。SessionGrant 以及所有
+KeyPackage、claim、Welcome、receipt 和 consume 操作都必须保持该绑定；主体、运行时
+密钥或授权 Event 任一不一致即拒绝，不回退到 human-device 身份。
+
 新配对会申请 `ak.self.signal.command.send.v1`。Station 仍须验证 Agent 分类、生命周期、
 唯一 controller、当前 runtime 与 session 授权，以及精确匹配的 MLS leaf；接收端仅按
 经过验证的当前原始公钥摘要接受并投影在线状态。Agent 密钥不会合成设备 ID。

@@ -4271,25 +4271,21 @@ mod tests {
     fn sdk_inkson_bootstrap() -> serde_json::Value {
         json!({
             "arkret_base_url": "https://arkret.example.org",
-            "service_id": "did:webvh:arkret.example.org",
-            "agent_id": "did:webvh:example.org:agents:support",
+            "service_id": "ak:did_core:web:arkret.example.org",
+            "agent_id": "ak:did_core:web:agent.example",
             "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
             "pairing_code": "12345678",
             "pairing_expires_at": "2999-01-01T00:00:00.000Z"
         })
     }
 
-    /// The only verificationMethod a paired Agent may carry: the runtime key is
-    /// bound to the device id derived from principal + pairing request.
+    /// Exact verificationMethod authorized for this Agent runtime key.
+    ///
+    /// It is supplied independently as a complete DID URL and is never derived
+    /// from the stable Agent core id or a synthetic Signal device identity.
     #[cfg(feature = "arkret")]
     fn sdk_agent_verification_method() -> String {
-        format!(
-            "did:webvh:example.org:agents:support#{}",
-            savfox_channels::arkret::derive_arkret_device_id(&[
-                "did:webvh:example.org:agents:support",
-                "agent_pairing_request:01904100-0000-7000-8000-000000000001",
-            ])
-        )
+        "did:web:agent.example#runtime-1".to_owned()
     }
 
     #[cfg(feature = "arkret")]
@@ -4416,12 +4412,12 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://arkret.example.org",
-                "serviceId": "did:webvh:arkret.example.org",
+                "serviceId": "ak:did_core:web:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "did:webvh:example.org:agents:support",
+                "principalId": "ak:did_core:web:agent.example",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
                 "verificationMethod": sdk_agent_verification_method(),
-                "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
+                "authorizedEventRef": "ak:event:AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
                 "requestedScope": savfox_channels::arkret::default_agent_runtime_scope().unwrap()
             }),
         );
@@ -4431,9 +4427,9 @@ mod tests {
                 "mode": "agent",
                 "baseUrl": "https://arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "did:webvh:example.org:agents:support",
+                "principalId": "ak:did_core:web:agent.example",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1"
+                "verificationMethod": "did:web:agent.example#runtime-1"
             }),
         );
 
@@ -4455,12 +4451,12 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://arkret.example.org",
-                "serviceId": "did:webvh:arkret.example.org",
+                "serviceId": "ak:did_core:web:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "did:webvh:example.org:agents:support",
+                "principalId": "ak:did_core:web:agent.example",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
+                "verificationMethod": "did:web:agent.example#runtime-1",
+                "authorizedEventRef": "ak:event:AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
                 "requestedScope": ["ak.event.read", "ak.message.create"],
                 "listen": true,
                 "send": false
@@ -4478,12 +4474,12 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://arkret.example.org",
-                "serviceId": "did:webvh:arkret.example.org",
+                "serviceId": "ak:did_core:web:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "did:webvh:example.org:agents:support",
+                "principalId": "ak:did_core:web:agent.example",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
                 "verificationMethod": sdk_agent_verification_method(),
-                "authorizedEventRef": "ak:event:01904100-0000-8000-8000-000000000099",
+                "authorizedEventRef": "ak:event:AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
                 "requestedScope": savfox_channels::arkret::default_agent_runtime_scope().unwrap()
             }),
         );
@@ -4504,7 +4500,7 @@ mod tests {
         assert_eq!(info["runtime_ready"], false);
         assert_eq!(
             info["authorized_event_ref"],
-            "ak:event:01904100-0000-8000-8000-000000000099"
+            "ak:event:AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
         );
         assert_eq!(info["verification_method"], sdk_agent_verification_method());
         assert_eq!(

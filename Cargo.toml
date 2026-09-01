@@ -120,7 +120,7 @@ derive_builder = "0.20.2"
 derive_more = "2"
 diffy = "0.4.2"
 dirs = "6"
-ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+ed25519-dalek = { version = "3", default-features = false, features = ["alloc", "rand_core"] }
 dirs-next = "2.0"
 dotenvy = "0.15.7"
 aws-lc-rs = "1"

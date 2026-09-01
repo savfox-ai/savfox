@@ -7,6 +7,20 @@ that runtime key also signs the Signal proof. Each Realm's MLS nonce and payload
 sequence are persisted before HTTP submit, so an uncertain request may skip a
 value but cannot reuse a nonce or roll the sequence back.
 
+The pairing bootstrap carries the Agent's stable `ak:did_core:*` identity in
+`agent_id`. The runtime-key DID URL is a separate, complete
+`did:<method>:...#<fragment>` value supplied by the Agent/controller identity flow.
+Savfox verifies through the shared DID-method adapter that the DID controller
+projects to the bootstrap `agent_id`; it never constructs a verification method
+as `agent_id#device_id` or treats a local/session device identifier as the Agent
+MLS actor.
+
+After approval, the Agent MLS endpoint is exactly the tuple
+`(agent_id, verificationMethod, authorizedEventRef)`. Session grants and every
+KeyPackage, claim, Welcome, receipt, and consume operation must retain that
+binding. A different Agent subject, runtime key, or authorization Event is
+rejected instead of falling back to a human-device identity.
+
 New pairings request `ak.self.signal.command.send.v1`. The Station still verifies
 Agent classification, lifecycle, its sole controller, the current runtime and
 session authorization, and the exact MLS leaf. Recipients accept and project

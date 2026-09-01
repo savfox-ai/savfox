@@ -4,7 +4,32 @@
 //! key and session scopes must retain their exact commitments and are never
 //! upgraded by this module.
 
-use arkret_wire::ServiceOperationId;
+use arkret_wire::{Did, DidCoreId, DidUrl, ServiceOperationId, project_did_to_core_id};
+
+/// Check that a complete verification-method DID URL projects to the stable
+/// Agent identity core carried by pairing and runtime records.
+///
+/// This is validation only: callers must obtain the complete DID URL from the
+/// Agent/controller identity flow and must not manufacture it from a core id.
+#[must_use]
+pub fn agent_verification_method_matches_core_id(
+    agent_id: &str,
+    verification_method: &str,
+) -> bool {
+    let Ok(agent_id) = DidCoreId::new(agent_id.to_owned()) else {
+        return false;
+    };
+    let Ok(verification_method) = DidUrl::new(verification_method.to_owned()) else {
+        return false;
+    };
+    let Some((controller, _)) = verification_method.as_str().rsplit_once('#') else {
+        return false;
+    };
+    let Ok(controller) = Did::new(controller.to_owned()) else {
+        return false;
+    };
+    project_did_to_core_id(&controller).is_ok_and(|projected| projected == agent_id)
+}
 
 /// Return only a recovery selected by a service-supplied registered reason.
 pub fn agent_scope_recovery(reason: &str) -> Option<&'static str> {
@@ -99,6 +124,22 @@ mod tests {
         for excluded in [ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1] {
             assert!(!actions.iter().any(|action| action == excluded));
         }
+    }
+
+    #[test]
+    fn agent_verification_method_uses_a_complete_did_and_projects_to_the_core_id() {
+        assert!(agent_verification_method_matches_core_id(
+            "ak:did_core:web:agent.example",
+            "did:web:agent.example#runtime-1",
+        ));
+        assert!(!agent_verification_method_matches_core_id(
+            "ak:did_core:web:agent.example",
+            "ak:did_core:web:agent.example#runtime-1",
+        ));
+        assert!(!agent_verification_method_matches_core_id(
+            "ak:did_core:web:agent.example",
+            "did:web:other.example#runtime-1",
+        ));
     }
 
     #[test]
