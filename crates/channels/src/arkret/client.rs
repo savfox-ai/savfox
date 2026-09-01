@@ -357,10 +357,17 @@ pub fn build_mls_key_packages_claim_request(
             )
         })?,
     };
+    let target_account_id =
+        arkret::AccountId::new(target_principal_id, service_binding.destination_id.clone());
+    let requester_account_id = matches!(
+        &requester_authorization,
+        PeerKeyPackageRequesterAuthorization::Device { .. }
+    )
+    .then(|| arkret::AccountId::new(requester, service_binding.source_id.clone()));
     let request = KeyPackagesClaimRequestBody {
         claim_request_id,
-        target_principal_id,
-        requester_id: requester,
+        target_account_id: Some(target_account_id),
+        requester_account_id,
         intended_realm_id,
         mls_group_id,
         claim_purpose,
@@ -1180,7 +1187,12 @@ mod tests {
         .expect("claim request should build");
 
         assert_eq!(
-            request.target_principal_id.as_str(),
+            request
+                .target_account_id
+                .as_ref()
+                .expect("human target account")
+                .principal_id
+                .as_str(),
             "ak:did_core:webvh:z6mkbobfixture"
         );
         assert_eq!(request.claim_request_id.as_str(), "AQEBAQEBAQEBAQEBAQEBAQ");
@@ -1249,8 +1261,10 @@ mod tests {
             "destination_service_id": "ak:did_core:webvh:z6mkpeerservicefixture",
             "request": {
                 "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
-                "target_principal_id": "ak:did_core:webvh:z6mktargetfixture",
-                "requester": "ak:did_core:webvh:z6mkfixture",
+                "target_account_id": {
+                    "principal_id": "ak:did_core:webvh:z6mktargetfixture",
+                    "station_id": "ak:did_core:webvh:z6mkpeerservicefixture"
+                },
                 "intended_realm_id": "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI",
                 "mls_group_id": "group-1",
                 "claim_purpose": "realm_membership",

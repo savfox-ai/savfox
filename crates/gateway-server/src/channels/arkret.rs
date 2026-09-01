@@ -4922,8 +4922,12 @@ mod tests {
                 domain: arkret::NonEmptyString::new("ak.recipient-mls-durable-receipt.v1").unwrap(),
                 claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
                 key_package_ref: arkret::NonEmptyString::new(keypackage_ref).unwrap(),
-                recipient_principal_id: actor_id(),
                 recipient: arkret::RecipientMlsDurableSigner::Device {
+                    recipient_account_id: arkret::AccountId::new(
+                        actor_id(),
+                        arkret::DidCoreId::new("ak:did_core:webvh:example.org:service".to_owned())
+                            .unwrap(),
+                    ),
                     recipient_device_id: arkret::DeviceId::new(
                         "ak:device:01904100-0000-7000-8000-000000000006".to_owned(),
                     )

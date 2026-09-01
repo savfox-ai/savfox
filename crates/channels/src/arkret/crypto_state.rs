@@ -3940,8 +3940,14 @@ mod tests {
             "destination_service_id": "ak:did_core:web:service.example",
             "request": {
                 "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
-                "target_principal_id": principal.as_str(),
-                "requester": "ak:did_core:web:owner.example",
+                "target_account_id": {
+                    "principal_id": principal.as_str(),
+                    "station_id": "ak:did_core:web:service.example"
+                },
+                "requester_account_id": {
+                    "principal_id": "ak:did_core:web:owner.example",
+                    "station_id": "ak:did_core:web:service.example"
+                },
                 "intended_realm_id": realm_id.as_str(),
                 "mls_group_id": add.welcome.group_id.clone(),
                 "claim_purpose": "realm_membership",

@@ -365,8 +365,11 @@ mod tests {
                 "ak:mls:kp:01904100-0000-7000-8000-000000000001",
             )
             .unwrap(),
-            recipient_principal_id: arkret::DidCoreId::new(TEST_CORE_DID).unwrap(),
             recipient: arkret::RecipientMlsDurableSigner::Device {
+                recipient_account_id: arkret::AccountId::new(
+                    arkret::DidCoreId::new(TEST_CORE_DID).unwrap(),
+                    arkret::DidCoreId::new("ak:did_core:web:service.example").unwrap(),
+                ),
                 recipient_device_id: arkret::DeviceId::new(
                     "ak:device:01904100-0000-7000-8000-000000000001",
                 )
