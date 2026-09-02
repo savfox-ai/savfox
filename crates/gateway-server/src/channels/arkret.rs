@@ -1395,7 +1395,6 @@ async fn repair_and_consume_pending_mls_welcomes(
                             None,
                             None,
                             Some(limit),
-                            None,
                         )
                         .await
                         .map_err(anyhow::Error::from)
@@ -2626,7 +2625,6 @@ async fn scan_limited_realm_timeline_for_account(
                     None,
                     None,
                     Some(limit),
-                    None,
                 )
                 .await
                 .map_err(anyhow::Error::from)
@@ -3349,7 +3347,6 @@ async fn hydrate_conversation_before_trigger(
             None,
             None,
             Some(ACCOUNT_SCAN_CATCHUP_LIMIT),
-            None,
         )
         .await
     {
