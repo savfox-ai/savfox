@@ -4851,10 +4851,8 @@ mod tests {
             id: "support".into(),
             principal_id: "ak:did_core:webvh:z6mkfixture:agent.example".into(),
             actor_account_id: arkret::AccountId::new(
-                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:agent.example".into())
-                    .unwrap(),
-                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:station.example".into())
-                    .unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:agent.example").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:station.example").unwrap(),
             ),
             device_id: "ak:device:01904100-0000-7000-8000-000000000001".into(),
             key_ref: None,
@@ -4862,12 +4860,9 @@ mod tests {
             inkson_bootstrap: None,
             authorized_event_ref: None,
             controller_account_id: arkret::AccountId::new(
-                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:controller.example".into())
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:controller.example").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:controller-station.example")
                     .unwrap(),
-                arkret::DidCoreId::new(
-                    "ak:did_core:webvh:z6mkfixture:controller-station.example".into(),
-                )
-                .unwrap(),
             ),
             requested_scope: vec![
                 ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into(),
@@ -5196,6 +5191,7 @@ mod tests {
                 left_ids: Vec::new(),
             },
             account_data: Vec::new(),
+            station_cas_account_data: Vec::new(),
             agent_signer_evidence: Vec::new(),
             partial: false,
         });
@@ -5557,10 +5553,8 @@ mod tests {
             strand_id: "ak:strand:01904100-0000-8000-8000-000000000011".to_owned(),
             body: "final user-visible reply".to_owned(),
             actor_account_id: arkret::AccountId::new(
-                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:agent.example".into())
-                    .unwrap(),
-                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:station.example".into())
-                    .unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:agent.example").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:station.example").unwrap(),
             ),
             actor_seq: 1,
             thread_root_id: None,
@@ -5973,7 +5967,6 @@ mod tests {
                     prev_cursor: Some("ak:cursor:older-2".to_owned()),
                     next_cursor: None,
                     has_more: true,
-                    range_completeness: None,
                 },
                 arkret::EventsQueryOutcome {
                     events: vec![message_event_with_seq("older two", 3).into()],
@@ -5981,7 +5974,6 @@ mod tests {
                     prev_cursor: None,
                     next_cursor: None,
                     has_more: false,
-                    range_completeness: None,
                 },
             ])));
         let requests_for_fetch = std::sync::Arc::clone(&requests);
