@@ -4537,10 +4537,10 @@ mod tests {
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "did:webvh:slack-bridge.example",
-                "controllerId": "did:webvh:example.com:admin",
+                "serviceId": "ak:did_core:web:slack-bridge.example",
+                "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "botActorId": "did:webvh:slack-bridge.example:bot",
+                "botActorId": "ak:did_core:web:slack-bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",
                 "arkretServerDid": "did:webvh:arkret.example.org",
                 "accessToken": "applet-bearer-1",
@@ -4565,10 +4565,10 @@ mod tests {
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "did:webvh:slack-bridge.example",
-                "controllerId": "did:webvh:example.com:admin",
+                "serviceId": "ak:did_core:web:slack-bridge.example",
+                "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "botActorId": "did:webvh:slack-bridge.example:bot",
+                "botActorId": "ak:did_core:web:slack-bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",
                 "accessToken": "applet-bearer-1",
                 "protocols": ["slack"]

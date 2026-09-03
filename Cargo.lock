@@ -4543,15 +4543,21 @@ dependencies = [
  "arkret-signatures",
  "arkret-state",
  "arkret-wire",
+ "base64 0.23.1",
+ "chacha20poly1305 0.11.0",
  "chrono",
  "ed25519-dalek 3.0.0",
  "getrandom 0.4.3",
+ "hex",
+ "hkdf 0.13.0",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
  "url",
+ "x25519-dalek 3.0.0",
  "zeroize",
 ]
 
@@ -10973,6 +10979,7 @@ name = "savfox-gateway-dioxus"
 version = "0.3.1"
 dependencies = [
  "arkret-models-collaboration",
+ "arkret-wire",
  "base64 0.22.1",
  "chrono",
  "console_error_panic_hook",
@@ -15505,6 +15512,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7e8131a03190127fb2263afc72b322ecadae46b6ff8c6f399ff5d02f5559af6"
 dependencies = [
  "curve25519-dalek 5.0.0",
+ "getrandom 0.4.3",
  "rand_core 0.10.1",
 ]
 

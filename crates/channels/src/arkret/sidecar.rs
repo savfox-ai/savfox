@@ -14,8 +14,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::Context;
 use arkret::{
-    AgentSidecarEventExchangeBinding, AgentSidecarExchangeBindingRole, AgentSidecarExchangeControl,
-    AgentSidecarExchangeControlAction, AgentSidecarExchangeId, EventId, MessageMetadata,
+    AccountId, ActorId, AgentSidecarEventExchangeBinding, AgentSidecarExchangeBindingRole,
+    AgentSidecarExchangeControl, AgentSidecarExchangeControlAction, AgentSidecarExchangeId,
+    EventId, MessageMetadata,
 };
 use serde_json::Value;
 
@@ -85,15 +86,14 @@ pub enum SidecarRequestGate {
 pub fn gate_inbound_request_binding(
     binding: &AgentSidecarEventExchangeBinding,
     request_event_id: &str,
-    request_event_actor_id: &str,
-    controller_id: &str,
+    request_event_actor_id: &ActorId,
+    controller_account_id: &AccountId,
     principal_id: &str,
 ) -> SidecarRequestGate {
     if binding.role != AgentSidecarExchangeBindingRole::Request {
         return SidecarRequestGate::NotARequest;
     }
-    let controller = controller_id.trim();
-    if controller.is_empty() || request_event_actor_id.trim() != controller {
+    if request_event_actor_id.as_account_id() != Some(controller_account_id) {
         return SidecarRequestGate::NotController;
     }
     // `MessageMetadata::sidecar_exchange_binding` already validated, but the
@@ -172,11 +172,10 @@ pub fn gate_inbound_exchange_control(
     plaintext: &Value,
     payload_strand_id: &str,
     delivered_strand_id: &str,
-    control_event_actor_id: &str,
-    controller_id: &str,
+    control_event_actor_id: &ActorId,
+    controller_account_id: &AccountId,
 ) -> Option<AgentSidecarExchangeControl> {
-    let controller = controller_id.trim();
-    if controller.is_empty() || control_event_actor_id.trim() != controller {
+    if control_event_actor_id.as_account_id() != Some(controller_account_id) {
         return None;
     }
     if payload_strand_id.is_empty() || payload_strand_id != delivered_strand_id {
@@ -233,7 +232,7 @@ pub enum SidecarTerminalAdmission {
 /// of the garth account store).
 ///
 /// The normative idempotency domain is
-/// `(controller_id, private_strand_id, exchange_id)`. Observing a request is
+/// `(controller_account_id, private_strand_id, exchange_id)`. Observing a request is
 /// deliberately separate from authorizing or consuming it: callers first
 /// preserve the identity here, then apply the complete runtime authorization
 /// gate. Writes are serialized per path and use the workspace atomic writer,
@@ -335,13 +334,14 @@ impl SidecarExchangeStore {
     /// control blocks this one. The remaining §7.2.2 gates are the caller's.
     pub fn record_request_identity(
         &self,
-        controller_id: &str,
+        controller_account_id: &AccountId,
         private_strand_id: &str,
         exchange_id: &str,
         request_event_id: &str,
         ordering: &SidecarRequestOrdering,
     ) -> anyhow::Result<SidecarExchangeAdmission> {
-        let controller_id = arkret::DidCoreId::new(controller_id.to_owned())?;
+        controller_account_id.validate()?;
+        let controller_account_key = controller_account_id.canonical_key()?;
         let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
         let exchange_id = AgentSidecarExchangeId::new(exchange_id.to_owned())?;
         let request_event_id = EventId::new(request_event_id.to_owned())?;
@@ -357,7 +357,7 @@ impl SidecarExchangeStore {
         let mut state = self.load()?;
         let exchanges = state
             .controllers
-            .entry(controller_id.to_string())
+            .entry(controller_account_key)
             .or_default()
             .entry(private_strand_id.to_string())
             .or_default();
@@ -422,12 +422,13 @@ impl SidecarExchangeStore {
     /// "canonical request" cross-check and first-terminal-wins ordering.
     pub fn record_terminal_control(
         &self,
-        controller_id: &str,
+        controller_account_id: &AccountId,
         private_strand_id: &str,
         control: &AgentSidecarExchangeControl,
         control_event_id: &str,
     ) -> anyhow::Result<SidecarTerminalAdmission> {
-        let controller_id = arkret::DidCoreId::new(controller_id.to_owned())?;
+        controller_account_id.validate()?;
+        let controller_account_key = controller_account_id.canonical_key()?;
         let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
         let control_event_id = EventId::new(control_event_id.to_owned())?;
         let Some(action) = control.action.is_terminal().then_some(control.action) else {
@@ -441,7 +442,7 @@ impl SidecarExchangeStore {
         let mut state = self.load()?;
         let Some(existing) = state
             .controllers
-            .get_mut(controller_id.as_str())
+            .get_mut(&controller_account_key)
             .and_then(|strands| strands.get_mut(private_strand_id.as_str()))
             .and_then(|exchanges| exchanges.get_mut(control.exchange_id.as_str()))
         else {
@@ -470,11 +471,13 @@ impl SidecarExchangeStore {
     /// response after the controller closed the exchange (§7.2.2/§7.2.3).
     pub fn exchange_accepts_new_response(
         &self,
-        controller_id: &str,
+        controller_account_id: &AccountId,
         private_strand_id: &str,
         exchange_id: &str,
         request_event_id: &str,
     ) -> anyhow::Result<bool> {
+        controller_account_id.validate()?;
+        let controller_account_key = controller_account_id.canonical_key()?;
         let lock = sidecar_exchange_lock(&self.path);
         let _guard = lock
             .lock()
@@ -482,7 +485,7 @@ impl SidecarExchangeStore {
         let state = self.load()?;
         let Some(existing) = state
             .controllers
-            .get(controller_id)
+            .get(&controller_account_key)
             .and_then(|strands| strands.get(private_strand_id))
             .and_then(|exchanges| exchanges.get(exchange_id))
         else {
@@ -628,15 +631,32 @@ mod tests {
 
     use super::*;
 
-    const AGENT_DID: &str = "did:webvh:example.org:agents:support";
-    const OTHER_DID: &str = "did:webvh:example.org:agents:other";
-    const CONTROLLER_DID: &str = "did:webvh:example.org:users:alice";
+    const AGENT_DID: &str = "ak:did_core:web:example.org:agents:support";
+    const OTHER_DID: &str = "ak:did_core:web:example.org:agents:other";
+    const CONTROLLER_DID: &str = "ak:did_core:web:example.org:users:alice";
+    const CONTROLLER_STATION_DID: &str = "ak:did_core:web:example.org:stations:alice-phone";
+    const OTHER_STATION_DID: &str = "ak:did_core:web:example.org:stations:alice-tablet";
     const EXCHANGE_ID: &str = "01904100-0000-7000-8000-0000000000aa";
     const REQUEST_EVENT_ID: &str = "ak:event:01904100-0000-8000-8000-000000000031";
     const OTHER_EVENT_ID: &str = "ak:event:01904100-0000-8000-8000-000000000032";
     const CONTROL_EVENT_ID: &str = "ak:event:01904100-0000-8000-8000-000000000041";
     const REALM_ID: &str = "ak:realm:01904100-0000-8000-8000-000000000001";
     const STRAND_ID: &str = "ak:strand:01904100-0000-8000-8000-000000000011";
+
+    fn account(principal_id: &str, station_id: &str) -> AccountId {
+        AccountId::new(
+            DidCoreId::new(principal_id.to_owned()).unwrap(),
+            DidCoreId::new(station_id.to_owned()).unwrap(),
+        )
+    }
+
+    fn controller_account() -> AccountId {
+        account(CONTROLLER_DID, CONTROLLER_STATION_DID)
+    }
+
+    fn account_actor(principal_id: &str, station_id: &str) -> ActorId {
+        ActorId::account(account(principal_id, station_id))
+    }
 
     fn ordering(actor_seq: u64, digest_suffix: &str) -> SidecarRequestOrdering {
         SidecarRequestOrdering {
@@ -758,8 +778,8 @@ mod tests {
             gate_inbound_request_binding(
                 &binding,
                 REQUEST_EVENT_ID,
-                CONTROLLER_DID,
-                CONTROLLER_DID,
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account(),
                 AGENT_DID
             ),
             SidecarRequestGate::NotAddressed
@@ -773,8 +793,8 @@ mod tests {
             gate_inbound_request_binding(
                 &binding,
                 REQUEST_EVENT_ID,
-                OTHER_DID,
-                CONTROLLER_DID,
+                &account_actor(OTHER_DID, CONTROLLER_STATION_DID),
+                &controller_account(),
                 AGENT_DID
             ),
             SidecarRequestGate::NotController,
@@ -784,23 +804,23 @@ mod tests {
             gate_inbound_request_binding(
                 &binding,
                 REQUEST_EVENT_ID,
-                CONTROLLER_DID,
-                &CONTROLLER_DID.to_ascii_uppercase(),
+                &account_actor(CONTROLLER_DID, OTHER_STATION_DID),
+                &controller_account(),
                 AGENT_DID
             ),
             SidecarRequestGate::NotController,
-            "controller identity matching is bit-identical, never case-folded"
+            "the same principal at a different Station is not the controller account"
         );
         assert_eq!(
             gate_inbound_request_binding(
                 &binding,
                 REQUEST_EVENT_ID,
-                CONTROLLER_DID,
-                "  ",
+                &ActorId::service(DidCoreId::new(CONTROLLER_DID.to_owned()).unwrap()),
+                &controller_account(),
                 AGENT_DID
             ),
             SidecarRequestGate::NotController,
-            "an unconfigured controller fails closed instead of admitting every actor"
+            "a service actor cannot impersonate the controller account"
         );
     }
 
@@ -810,8 +830,8 @@ mod tests {
         let SidecarRequestGate::Addressed(context) = gate_inbound_request_binding(
             &binding,
             REQUEST_EVENT_ID,
-            CONTROLLER_DID,
-            CONTROLLER_DID,
+            &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+            &controller_account(),
             AGENT_DID,
         ) else {
             panic!("expected addressed gate");
@@ -822,8 +842,8 @@ mod tests {
         let SidecarRequestGate::Addressed(coordinator_context) = gate_inbound_request_binding(
             &request_binding(&[AGENT_DID]),
             REQUEST_EVENT_ID,
-            CONTROLLER_DID,
-            CONTROLLER_DID,
+            &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+            &controller_account(),
             AGENT_DID,
         ) else {
             panic!("expected coordinator gate");
@@ -838,8 +858,8 @@ mod tests {
             gate_inbound_request_binding(
                 &request_binding(&[AGENT_DID]),
                 REQUEST_EVENT_ID,
-                CONTROLLER_DID,
-                CONTROLLER_DID,
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account(),
                 &AGENT_DID.to_ascii_uppercase(),
             ),
             SidecarRequestGate::NotAddressed,
@@ -858,8 +878,8 @@ mod tests {
             gate_inbound_request_binding(
                 &binding,
                 REQUEST_EVENT_ID,
-                CONTROLLER_DID,
-                CONTROLLER_DID,
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account(),
                 AGENT_DID
             ),
             SidecarRequestGate::NotARequest
@@ -878,7 +898,7 @@ mod tests {
         assert_eq!(
             store
                 .record_request_identity(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID,
@@ -890,7 +910,7 @@ mod tests {
         assert_eq!(
             store
                 .record_request_identity(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID,
@@ -906,7 +926,7 @@ mod tests {
         assert_eq!(
             reopened
                 .record_request_identity(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID,
@@ -922,7 +942,7 @@ mod tests {
         assert_eq!(
             reopened
                 .record_request_identity(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     OTHER_EVENT_ID,
@@ -939,7 +959,7 @@ mod tests {
         assert_eq!(
             reopened
                 .record_request_identity(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     other_strand,
                     EXCHANGE_ID,
                     OTHER_EVENT_ID,
@@ -951,7 +971,7 @@ mod tests {
         assert_eq!(
             reopened
                 .record_request_identity(
-                    AGENT_DID,
+                    &account(AGENT_DID, CONTROLLER_STATION_DID),
                     STRAND_ID,
                     EXCHANGE_ID,
                     OTHER_EVENT_ID,
@@ -975,7 +995,7 @@ mod tests {
         assert_eq!(
             store
                 .record_request_identity(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID,
@@ -991,7 +1011,7 @@ mod tests {
         assert_eq!(
             store
                 .record_request_identity(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     OTHER_EVENT_ID,
@@ -1005,7 +1025,7 @@ mod tests {
         assert!(
             !store
                 .exchange_accepts_new_response(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID
@@ -1019,7 +1039,7 @@ mod tests {
         assert_eq!(
             store
                 .record_request_identity(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     sibling,
@@ -1044,7 +1064,7 @@ mod tests {
         let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
         store
             .record_request_identity(
-                CONTROLLER_DID,
+                &controller_account(),
                 STRAND_ID,
                 EXCHANGE_ID,
                 REQUEST_EVENT_ID,
@@ -1054,7 +1074,7 @@ mod tests {
         assert!(
             store
                 .exchange_accepts_new_response(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID
@@ -1066,7 +1086,7 @@ mod tests {
         assert_eq!(
             store
                 .record_terminal_control(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     &terminal_control(OTHER_EVENT_ID),
                     CONTROL_EVENT_ID,
@@ -1078,7 +1098,7 @@ mod tests {
         assert_eq!(
             store
                 .record_terminal_control(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     &terminal_control(REQUEST_EVENT_ID),
                     CONTROL_EVENT_ID,
@@ -1091,7 +1111,7 @@ mod tests {
         assert_eq!(
             store
                 .record_terminal_control(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     &terminal_control(REQUEST_EVENT_ID),
                     "ak:event:01904100-0000-8000-8000-000000000042",
@@ -1107,7 +1127,7 @@ mod tests {
         assert!(
             !store
                 .exchange_accepts_new_response(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID
@@ -1117,7 +1137,7 @@ mod tests {
         assert_eq!(
             store
                 .record_request_identity(
-                    CONTROLLER_DID,
+                    &controller_account(),
                     STRAND_ID,
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID,
@@ -1139,8 +1159,8 @@ mod tests {
                 &plaintext,
                 STRAND_ID,
                 STRAND_ID,
-                CONTROLLER_DID,
-                CONTROLLER_DID
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account()
             )
             .is_some()
         );
@@ -1149,8 +1169,8 @@ mod tests {
                 &plaintext,
                 STRAND_ID,
                 STRAND_ID,
-                AGENT_DID,
-                CONTROLLER_DID
+                &account_actor(AGENT_DID, CONTROLLER_STATION_DID),
+                &controller_account()
             )
             .is_none(),
             "Agent-authored exchange control is always invalid (§7.2.3)"
@@ -1160,8 +1180,8 @@ mod tests {
                 &plaintext,
                 STRAND_ID,
                 "ak:strand:01904100-0000-8000-8000-000000000012",
-                CONTROLLER_DID,
-                CONTROLLER_DID
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account()
             )
             .is_none(),
             "the payload strand must match the private Strand it was delivered on"
@@ -1171,8 +1191,8 @@ mod tests {
                 &json!({"schema": "ak.schema.agent_sidecar_exchange_control.v1"}),
                 STRAND_ID,
                 STRAND_ID,
-                CONTROLLER_DID,
-                CONTROLLER_DID
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account()
             )
             .is_none(),
             "non-closed control plaintext fails closed"
@@ -1194,7 +1214,7 @@ mod tests {
                 std::thread::spawn(move || {
                     store
                         .record_request_identity(
-                            CONTROLLER_DID,
+                            &controller_account(),
                             STRAND_ID,
                             EXCHANGE_ID,
                             REQUEST_EVENT_ID,

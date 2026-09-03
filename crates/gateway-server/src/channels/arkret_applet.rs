@@ -1943,10 +1943,10 @@ mod tests {
             config: json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "did:webvh:bridge.example",
-                "controllerId": "did:webvh:example.com:admin",
+                "serviceId": "ak:did_core:web:bridge.example",
+                "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/applet-test",
-                "botActorId": "did:webvh:bridge.example:bot",
+                "botActorId": "ak:did_core:web:bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",
                 "arkretServerDid": "did:webvh:arkret.example.org",
                 "accessToken": "test-bearer",

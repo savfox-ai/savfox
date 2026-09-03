@@ -730,13 +730,22 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Registered Arkret applet identifier.",
                 },
                 ConfigField {
-                    key: "controllerId".into(),
-                    label: "Controller DID".into(),
-                    field_type: FieldType::Text,
-                    placeholder: "did:webvh:arkret.example.org".into(),
+                    key: "controllerAccountId".into(),
+                    label: "Controller Account ID".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: r#"{"principal_id":"ak:did_core:webvh:zControllerScid","station_id":"ak:did_core:web:station.example"}"#.into(),
                     secret: false,
                     required: true,
-                    help: "Applet mode: controller DID that owns or signs the applet registration. Agent mode: DID of the controller that owns this Agent principal. Agent Sidecar requests fail closed until it is set, because a request binding from a non-controller actor is invalid.",
+                    help: "Agent mode: exact principal-plus-Station AccountId of the controller that owns this Agent. Sidecar authority checks compare the complete account identity.",
+                },
+                ConfigField {
+                    key: "controllerPrincipalId".into(),
+                    label: "Controller Principal ID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "ak:did_core:webvh:zControllerScid".into(),
+                    secret: false,
+                    required: true,
+                    help: "Applet mode: stable principal identity core that owns or signs the applet registration. It must not be the applet service identity.",
                 },
                 ConfigField {
                     key: "botActorId".into(),
@@ -2316,8 +2325,11 @@ fn field_display_required(
 ) -> bool {
     if ch_id == "arkret" {
         let mode = current_arkret_mode(ch_id, values);
-        if field.key == "serviceId" || field.key == "controllerId" {
+        if field.key == "serviceId" || field.key == "controllerPrincipalId" {
             return mode == "applet";
+        }
+        if field.key == "controllerAccountId" {
+            return mode != "applet";
         }
         if mode != "applet" && field.key == "inksonBootstrap" {
             return true;
@@ -2330,6 +2342,7 @@ fn is_arkret_account_only_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "inksonBootstrap"
+            | "controllerAccountId"
             | "principalId"
             | "defaultRealmId"
             | "agentId"
@@ -2369,6 +2382,7 @@ fn is_arkret_applet_only_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "appletId"
+            | "controllerPrincipalId"
             | "botActorId"
             | "accessToken"
             | "loginChallenge"
@@ -2556,6 +2570,17 @@ fn build_arkret_channel_patch(
                 }
                 patch[&field.key] = parsed;
             }
+            "controllerAccountId" => {
+                let parsed = parse_json_config_field("Controller Account ID", value)?;
+                let account = serde_json::from_value::<arkret_wire::AccountId>(parsed)
+                    .map_err(|error| format!("Controller Account ID is invalid: {error}"))?;
+                account
+                    .validate()
+                    .map_err(|error| format!("Controller Account ID is invalid: {error}"))?;
+                let parsed = serde_json::to_value(account)
+                    .map_err(|error| format!("Controller Account ID is invalid: {error}"))?;
+                patch[&field.key] = parsed;
+            }
             "inksonBootstrap" => {
                 if !value.starts_with('{') {
                     return Err(
@@ -2681,14 +2706,6 @@ fn apply_arkret_hidden_agent_runtime_values(
         patch["authorizedEventRef"] = json!(authorized_event_ref);
     }
 
-    if let Some(value) = values
-        .get(&field_value_key(channel_id, "controllerId"))
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
-        patch["controllerId"] = json!(value);
-    }
-
     Ok(())
 }
 
@@ -2711,6 +2728,15 @@ fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
         return Err(
             "Arkret agent mode needs a generated local runtime key. Click Request approval so Savfox can generate it automatically."
                 .to_string(),
+        );
+    }
+    if patch
+        .get("controllerAccountId")
+        .and_then(Value::as_object)
+        .is_none()
+    {
+        return Err(
+            "Arkret agent mode requires an exact Controller Account ID object.".to_string(),
         );
     }
     if patch
@@ -6885,6 +6911,7 @@ mod tests {
     fn arkret_agent_hides_legacy_fields_even_when_advanced_is_set() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(field_value_key("arkret", "advanced"), "true".to_owned());
         let visible = |key: &str| {
             fields
@@ -6911,6 +6938,7 @@ mod tests {
     fn arkret_agent_hides_approval_result_internal_field() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         let field = fields
             .iter()
             .find(|field| field.key == "authorizationResult")
@@ -6938,6 +6966,7 @@ mod tests {
             .find(|field| field.key == "serviceId")
             .expect("serviceId");
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
 
         assert!(!field_is_visible("arkret", base_url_field, &values));
         assert!(!field_is_visible("arkret", service_id_field, &values));
@@ -7008,6 +7037,7 @@ mod tests {
     fn arkret_runtime_key_request_can_start_from_pairing_link_for_auto_resolve() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             "https://arkret.example.org/_arkret/open/agent-pairing/resolve#token=abcdefghijklmnopqrstuvwxyz"
@@ -7029,9 +7059,10 @@ mod tests {
     }
 
     #[test]
-    fn arkret_runtime_key_ref_generation_params_use_bootstrap_principal_only() {
+    fn arkret_runtime_key_ref_generation_params_use_bootstrap_core_and_verified_method() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
@@ -7065,6 +7096,7 @@ mod tests {
     fn arkret_agent_patch_rejects_missing_key_ref() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
@@ -7079,6 +7111,7 @@ mod tests {
     fn arkret_agent_patch_rejects_unresolved_pairing_link() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             "https://arkret.example.org/_arkret/open/agent-pairing/resolve#token=abcdefghijklmnopqrstuvwxyz"
@@ -7099,6 +7132,7 @@ mod tests {
     fn arkret_account_patch_builds_flat_account_config() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
@@ -7154,6 +7188,13 @@ mod tests {
         let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert_eq!(patch["mode"], json!("agent"));
+        assert_eq!(
+            patch["controllerAccountId"],
+            json!({
+                "principal_id": "ak:did_core:webvh:zControllerScid",
+                "station_id": "ak:did_core:web:station.example"
+            })
+        );
         assert!(patch["listen"].is_null());
         assert!(patch["send"].is_null());
         assert!(patch["deviceId"].is_null());
@@ -7189,9 +7230,24 @@ mod tests {
     }
 
     #[test]
+    fn arkret_agent_patch_rejects_principal_only_controller_value() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
+        values.insert(
+            field_value_key("arkret", "controllerAccountId"),
+            json!("ak:did_core:web:example.org:users:alice").to_string(),
+        );
+
+        let error = build_channel_patch("arkret", &fields, &values)
+            .expect_err("controller authority must carry a complete AccountId");
+        assert!(error.contains("invalid"));
+    }
+
+    #[test]
     fn arkret_account_patch_ignores_hidden_external_ai_endpoint_config() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(field_value_key("arkret", "advanced"), "true".to_owned());
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
@@ -7220,6 +7276,7 @@ mod tests {
     fn arkret_agent_patch_rejects_legacy_runtime_key_sources() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
@@ -7299,7 +7356,7 @@ mod tests {
         );
         values.insert(
             field_value_key("arkret", "serviceId"),
-            "did:web:slack-bridge.example".to_owned(),
+            "ak:did_core:web:slack-bridge.example".to_owned(),
         );
         values.insert(
             field_value_key("arkret", "accessToken"),
@@ -7310,8 +7367,8 @@ mod tests {
             "ak:applet:21532600-0000-7000-8000-000000000000".to_owned(),
         );
         values.insert(
-            field_value_key("arkret", "controllerId"),
-            "did:webvh:example.com:admin".to_owned(),
+            field_value_key("arkret", "controllerPrincipalId"),
+            "ak:did_core:webvh:zAdminScid".to_owned(),
         );
         values.insert(
             field_value_key("arkret", "arkretServerUrl"),
@@ -7334,7 +7391,10 @@ mod tests {
         let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert_eq!(patch["mode"], json!("applet"));
-        assert_eq!(patch["controllerId"], json!("did:webvh:example.com:admin"));
+        assert_eq!(
+            patch["controllerPrincipalId"],
+            json!("ak:did_core:webvh:zAdminScid")
+        );
         assert!(patch["receiveEvents"].is_null());
         assert!(patch["principalId"].is_null());
         assert_eq!(

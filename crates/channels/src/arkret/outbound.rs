@@ -20,8 +20,7 @@ pub struct MessageCreateRequest {
     pub realm_id: String,
     pub strand_id: String,
     pub body: String,
-    pub principal_id: String,
-    pub station_id: String,
+    pub actor_account_id: AccountId,
     pub actor_seq: u64,
     pub thread_root_id: Option<String>,
     /// When replying inside an Agent Sidecar exchange, the verified exchange
@@ -51,11 +50,10 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     }
     let realm = RealmId::new(req.realm_id.clone())
         .with_context(|| format!("invalid realm_id: {}", req.realm_id))?;
-    let principal = DidCoreId::new(req.principal_id.clone())
-        .with_context(|| format!("invalid principal DID: {}", req.principal_id))?;
-    let station = DidCoreId::new(req.station_id.clone())
-        .with_context(|| format!("invalid Station DID: {}", req.station_id))?;
-    let actor = ActorId::account(AccountId::new(principal, station));
+    req.actor_account_id
+        .validate()
+        .context("invalid author AccountId")?;
+    let actor = ActorId::account(req.actor_account_id.clone());
     let hlc = current_hlc();
 
     let strand_id = StrandId::new(req.strand_id.clone())
@@ -179,8 +177,10 @@ mod tests {
             realm_id: realm_id.to_string(),
             strand_id: strand_id.to_string(),
             body: "hello world".into(),
-            principal_id: "ak:did_core:webvh:z6mksupport".into(),
-            station_id: "ak:did_core:webvh:z6mkstation".into(),
+            actor_account_id: AccountId::new(
+                DidCoreId::new("ak:did_core:webvh:z6mksupport").unwrap(),
+                DidCoreId::new("ak:did_core:webvh:z6mkstation").unwrap(),
+            ),
             actor_seq: 1,
             thread_root_id: None,
             sidecar_exchange: None,
@@ -193,8 +193,8 @@ mod tests {
         assert_eq!(event.kind, "ak.message.create");
         assert_eq!(event.realm_id.as_str(), valid_request().realm_id);
         assert_eq!(
-            event.actor_id.signing_principal_id().as_str(),
-            valid_request().principal_id
+            event.actor_id.as_account_id(),
+            Some(&valid_request().actor_account_id)
         );
         // payload shape sanity
         let body = event
@@ -227,7 +227,7 @@ mod tests {
         apply_data_event_basis(
             &mut event,
             SealId::new(format!("ak:seal:sha256:{}", "11".repeat(32))).unwrap(),
-            DidCoreId::new(valid_request().principal_id).unwrap(),
+            valid_request().actor_account_id.principal_id,
             "agent-device".to_owned(),
         )
         .expect("basis");
@@ -236,8 +236,8 @@ mod tests {
         let auth_context = event.auth_context.expect("auth context");
         assert_eq!(auth_context.key_id.as_str(), "agent-device");
         assert_eq!(
-            event.actor_id.signing_principal_id().as_str(),
-            valid_request().principal_id
+            event.actor_id.as_account_id(),
+            Some(&valid_request().actor_account_id)
         );
         assert!(event.seal_basis.is_none());
     }
@@ -275,10 +275,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_principal_did() {
-        let mut req = valid_request();
-        req.principal_id = "not-a-did".into();
-        assert!(build_message_create_event(&req).is_err());
+    fn data_event_basis_rejects_a_different_signing_principal() {
+        let mut event = build_message_create_event(&valid_request()).expect("build");
+        let error = apply_data_event_basis(
+            &mut event,
+            SealId::new(format!("ak:seal:sha256:{}", "22".repeat(32))).unwrap(),
+            DidCoreId::new("ak:did_core:web:example.org:agents:other").unwrap(),
+            "agent-device".to_owned(),
+        )
+        .expect_err("signer must project to the Event account principal");
+        assert!(error.to_string().contains("Event actor"));
     }
 
     #[test]

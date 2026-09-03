@@ -169,8 +169,8 @@ impl CompactionService {
     /// 1. Separate **pinned** messages (kept unconditionally).
     /// 2. Separate **tool-result** messages when `preserve_tool_results` is set.
     /// 3. Keep the most recent `tail_count` messages untouched.
-    /// 4. If any other messages would be removed, fail until a semantic
-    ///    summary is supplied through [`Self::compact_with_summary`].
+    /// 4. If any other messages would be removed, fail until a semantic summary is supplied through
+    ///    [`Self::compact_with_summary`].
     ///
     /// `tail_count` controls how many recent messages are preserved verbatim
     /// (in addition to pinned and tool messages). A value of 0 means only

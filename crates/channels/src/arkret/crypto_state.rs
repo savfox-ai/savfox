@@ -11,15 +11,17 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::Context;
+#[cfg(test)]
+use arkret::AccountId;
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity, ArkretMlsSigner};
 use arkret::{
-    AccountId, ActorId, ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload,
-    EncryptedPayload, EncryptedPayloadScheme, EventContentPreEncryptionHeader,
-    EventContentRoutingContext, EventId, EventProof, MessageMetadata, MlsCommitPayload,
-    MlsCommitSource, MlsEncryptedPayload, MlsEndpointIdentity, MlsKeyPackageRecord,
-    MlsKeyPackageState, MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient,
-    PresencePlaintext, PresenceState, RealmId, ScopeRef, SealId, SignalSequenceDomain,
-    SignalSequenceEndpoint, StrandCreatePayload, StrandId, seal_signal_plaintext,
+    ActorId, ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload, EncryptedPayload,
+    EncryptedPayloadScheme, EventContentPreEncryptionHeader, EventContentRoutingContext, EventId,
+    EventProof, MessageMetadata, MlsCommitPayload, MlsCommitSource, MlsEncryptedPayload,
+    MlsEndpointIdentity, MlsKeyPackageRecord, MlsKeyPackageState, MlsPayloadType,
+    MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient, PresencePlaintext, PresenceState,
+    RealmId, ScopeRef, SealId, SignalSequenceDomain, SignalSequenceEndpoint, StrandCreatePayload,
+    StrandId, seal_signal_plaintext,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -588,8 +590,7 @@ impl FileArkretCryptoStore {
     pub fn seal_online_presence_signal(
         &self,
         realm_id: &str,
-        principal_id: &str,
-        station_id: &str,
+        actor_account_id: &arkret::AccountId,
         verification_method: &str,
         key_ref: &ArkretKeyRef,
         seal_ref: &str,
@@ -621,10 +622,8 @@ impl FileArkretCryptoStore {
         // scan would become wrong as soon as a second suite is activated.
         let aead_profile = arkret::mls::ARKRET_MLS_CIPHERSUITE_CANONICAL_ID;
         let realm_id = RealmId::new(realm_id.to_owned())?;
-        let actor_id = ActorId::account(AccountId::new(
-            DidCoreId::new(principal_id.to_owned())?,
-            DidCoreId::new(station_id.to_owned())?,
-        ));
+        actor_account_id.validate()?;
+        let actor_id = ActorId::account(actor_account_id.clone());
         let seal_ref = SealId::new(seal_ref.to_owned())?;
         let scope_ref = ScopeRef::Realm {
             realm_id: realm_id.clone(),
@@ -3403,8 +3402,7 @@ mod tests {
         let first = agent_store
             .seal_online_presence_signal(
                 realm_id,
-                agent_id,
-                station_id,
+                agent_actor.as_account_id().expect("Agent account actor"),
                 verification_method,
                 &key_ref,
                 &seal_ref,
@@ -3414,8 +3412,7 @@ mod tests {
         let second = agent_store
             .seal_online_presence_signal(
                 realm_id,
-                agent_id,
-                station_id,
+                agent_actor.as_account_id().expect("Agent account actor"),
                 verification_method,
                 &key_ref,
                 &seal_ref,
@@ -3460,7 +3457,7 @@ mod tests {
                 panic!("Signal plaintext must be ak.presence");
             };
             assert_eq!(presence.payload_sequence, expected_sequence);
-            assert_eq!(presence.actor_id.signing_principal_id().as_str(), agent_id);
+            assert_eq!(presence.actor_id, agent_actor);
             assert_eq!(presence.state, PresenceState::Online);
             assert_eq!(presence.ttl_ms, 30_000);
         }
@@ -4024,7 +4021,6 @@ mod tests {
                     repair_principal_server.clone(),
                 )),
             ),
-            initial_relations: None,
         };
         let mut strand_event = arkret_wire::test_support::raw_event_at(
             "ak.strand.create",

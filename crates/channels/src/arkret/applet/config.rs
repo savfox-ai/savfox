@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use arkret::signatures::PublicKeyMaterial;
-use arkret::{DeviceId, DidCoreId, Did};
+use arkret::{DeviceId, Did, DidCoreId};
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};
@@ -29,10 +29,10 @@ pub struct ArkretAppletConfig {
     pub id: String,
     /// `ak:applet:<uuidv7>` — stable across registrations.
     pub applet_id: String,
-    /// Applet service DID (e.g. `did:web:slack-bridge.example`).
+    /// Applet service identity core (e.g. `ak:did_core:webvh:zSlackBridgeScid`).
     pub service_id: String,
-    /// Controller DID that signs the registration (typically `did:webvh:...`).
-    pub controller_id: String,
+    /// Controller principal identity core that signs the registration.
+    pub controller_principal_id: String,
     /// Public URL where this savfox node accepts inbound transactions
     /// (mounted under `/appservices/arkret/{id}/_arkret/edge/applet`).
     pub base_url: String,
@@ -114,10 +114,14 @@ impl ArkretAppletConfig {
         if mode != "applet" {
             return None;
         }
+        if raw.contains_key("controllerId") || raw.contains_key("controller_id") {
+            return None;
+        }
 
         let applet_id = first_non_empty(raw, &["appletId", "applet_id"])?;
         let service_id = first_non_empty(raw, &["serviceId", "service_id"])?;
-        let controller_id = first_non_empty(raw, &["controllerId", "controller_id"])?;
+        let controller_principal_id =
+            first_non_empty(raw, &["controllerPrincipalId", "controller_principal_id"])?;
         let base_url = first_non_empty(raw, &["baseUrl", "base_url"])?;
         let bot_actor_id = first_non_empty(raw, &["botActorId", "bot_actor_id"])
             .unwrap_or_else(|| format!("{service_id}:bot"));
@@ -188,7 +192,7 @@ impl ArkretAppletConfig {
             id: config.id.clone(),
             applet_id,
             service_id,
-            controller_id,
+            controller_principal_id,
             base_url,
             bot_actor_id,
             device_id,
@@ -217,7 +221,7 @@ impl ArkretAppletConfig {
         for (label, value) in [
             ("applet_id", &self.applet_id),
             ("service_id", &self.service_id),
-            ("controller_id", &self.controller_id),
+            ("controller_principal_id", &self.controller_principal_id),
             ("base_url", &self.base_url),
             ("bot_actor_id", &self.bot_actor_id),
             ("arkret_server_url", &self.arkret_server_url),
@@ -231,7 +235,7 @@ impl ArkretAppletConfig {
         // downstream applet registration and edge construction.
         for (label, value) in [
             ("service_id", &self.service_id),
-            ("controller_id", &self.controller_id),
+            ("controller_principal_id", &self.controller_principal_id),
             ("bot_actor_id", &self.bot_actor_id),
         ] {
             DidCoreId::new(value.clone()).map_err(|err| {
@@ -242,13 +246,17 @@ impl ArkretAppletConfig {
                 )
             })?;
         }
-        let service_did = Did::new(self.service_id.clone())?;
-        if service_did.method() != "webvh" {
+        if !self.service_id.starts_with("ak:did_core:webvh:") {
             anyhow::bail!(
                 "Arkret applet channel '{}' service_id must use did:webvh",
                 self.id
             );
         }
+        anyhow::ensure!(
+            self.controller_principal_id != self.service_id,
+            "Arkret applet channel '{}' controller_principal_id must name a principal and cannot reuse service_id",
+            self.id
+        );
         if self.key_ref.is_none() {
             anyhow::bail!(
                 "Arkret applet channel '{}' requires key_ref for signed outbound events",
@@ -265,7 +273,7 @@ impl ArkretAppletConfig {
             })?;
         }
         if let Some(value) = self.arkret_server_did.as_deref() {
-            DidCoreId::new(value.to_owned()).map_err(|err| {
+            Did::new(value.to_owned()).map_err(|err| {
                 anyhow::anyhow!(
                     "Arkret applet channel '{}' arkret_server_did must be a valid DID URI, got '{}': {err}",
                     self.id,
@@ -502,10 +510,10 @@ mod tests {
         json!({
             "mode": "applet",
             "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-            "serviceId": "did:webvh:slack-bridge.example",
-            "controllerId": "did:webvh:example.com:admin",
+            "serviceId": "ak:did_core:webvh:z6mkfixture:slack.example",
+            "controllerPrincipalId": "ak:did_core:webvh:z6mkfixture:admin.example",
             "baseUrl": "https://savfox.example/appservices/arkret/arkret-applet-test",
-            "botActorId": "did:webvh:slack-bridge.example:bot",
+            "botActorId": "ak:did_core:webvh:z6mkfixture:slack-bot.example",
             "arkretServerUrl": "https://arkret.example.org",
             "arkretServerDid": "did:webvh:arkret.example.org",
             "accessToken": "applet-bearer-1",
@@ -547,25 +555,51 @@ mod tests {
     }
 
     #[test]
-    fn parses_snake_case_controller_id() {
+    fn parses_snake_case_controller_principal_id() {
         let mut body = valid_body();
         let object = body
             .as_object_mut()
             .expect("valid body should be an object");
-        object.remove("controllerId");
+        object.remove("controllerPrincipalId");
         object.insert(
-            "controller_id".to_owned(),
-            json!("did:webvh:example.com:snake-case-admin"),
+            "controller_principal_id".to_owned(),
+            json!("ak:did_core:webvh:z6mkfixture:snake-admin.example"),
         );
 
         let cfg = make_channel_config(body);
         let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
 
         assert_eq!(
-            parsed.controller_id,
-            "did:webvh:example.com:snake-case-admin"
+            parsed.controller_principal_id,
+            "ak:did_core:webvh:z6mkfixture:snake-admin.example"
         );
         parsed.validate().expect("validate");
+    }
+
+    #[test]
+    fn retired_principal_only_field_name_is_not_accepted() {
+        let mut body = valid_body();
+        let object = body.as_object_mut().expect("valid body object");
+        object.remove("controllerPrincipalId");
+        object.insert(
+            "controllerId".to_owned(),
+            json!("did:webvh:example.com:admin"),
+        );
+
+        let cfg = make_channel_config(body);
+        assert!(ArkretAppletConfig::from_channel_config(&cfg).is_none());
+    }
+
+    #[test]
+    fn validate_rejects_service_id_impersonating_controller_principal() {
+        let mut body = valid_body();
+        body["controllerPrincipalId"] = body["serviceId"].clone();
+        let cfg = make_channel_config(body);
+        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let error = parsed
+            .validate()
+            .expect_err("service identity is not a controller principal");
+        assert!(error.to_string().contains("cannot reuse service_id"));
     }
 
     #[test]

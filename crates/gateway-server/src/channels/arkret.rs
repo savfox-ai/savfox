@@ -877,11 +877,7 @@ async fn refresh_account_presence(
         };
         let envelope = match crypto_store.seal_online_presence_signal(
             realm_id.as_str(),
-            &account.principal_id,
-            channel
-                .service_id
-                .as_deref()
-                .expect("validated Arkret channel service_id"),
+            &account.actor_account_id,
             verification_method,
             key_ref,
             seal_ref.as_str(),
@@ -3796,9 +3792,8 @@ async fn fold_sidecar_exchange_control(
     if !account_allows_event_read(account) {
         return Ok(());
     }
-    let (Some(controller_id), Some(actor_id), Some(strand_id), Some(payload), Some(event_id)) = (
-        account.controller_id.as_deref(),
-        skipped.sender_did.as_deref(),
+    let (Some(actor_id), Some(strand_id), Some(payload), Some(event_id)) = (
+        skipped.sender_actor_id.as_ref(),
         skipped.strand_id.as_deref(),
         skipped.encrypted_payload.as_ref(),
         skipped.event_id.as_deref(),
@@ -3819,9 +3814,13 @@ async fn fold_sidecar_exchange_control(
     // The outer payload strand and the delivery strand are the same value here
     // because the delivery strand is read from that payload; passing both keeps
     // the §7.2.3 check owned by the gate instead of implied by the caller.
-    let Some(control) =
-        gate_inbound_exchange_control(&plaintext, strand_id, strand_id, actor_id, controller_id)
-    else {
+    let Some(control) = gate_inbound_exchange_control(
+        &plaintext,
+        strand_id,
+        strand_id,
+        actor_id,
+        &account.controller_account_id,
+    ) else {
         debug!(
             account_id = %account.id,
             event_id,
@@ -3834,7 +3833,12 @@ async fn fold_sidecar_exchange_control(
         &channel.id,
         &account.id,
     );
-    match store.record_terminal_control(controller_id, strand_id, &control, event_id)? {
+    match store.record_terminal_control(
+        &account.controller_account_id,
+        strand_id,
+        &control,
+        event_id,
+    )? {
         SidecarTerminalAdmission::Recorded => {
             info!(
                 account_id = %account.id,
@@ -3924,24 +3928,14 @@ async fn consume_sidecar_exchange_binding(
     let Some(binding) = sidecar_binding_from_metadata_plaintext(&metadata_plaintext) else {
         return Ok(SidecarConsumeOutcome::NoBinding);
     };
-    let Some(controller_id) = account.controller_id.as_deref() else {
-        // Without a known controller the §7.2.1 authorship check cannot be
-        // evaluated, so the request is indistinguishable from nonexistent.
-        warn!(
-            account_id = %account.id,
-            event_id,
-            "arkret: Sidecar request cannot be authenticated without a configured controllerId; failing closed"
-        );
-        return Ok(SidecarConsumeOutcome::DropSilently);
-    };
-    let Some(actor_id) = skipped.sender_did.as_deref() else {
+    let Some(actor_id) = skipped.sender_actor_id.as_ref() else {
         return Ok(SidecarConsumeOutcome::DropSilently);
     };
     match gate_inbound_request_binding(
         &binding,
         event_id,
         actor_id,
-        controller_id,
+        &account.controller_account_id,
         &account.principal_id,
     ) {
         SidecarRequestGate::NotARequest => Ok(SidecarConsumeOutcome::NoBinding),
@@ -3987,7 +3981,7 @@ async fn consume_sidecar_exchange_binding(
                 &account.id,
             );
             match store.record_request_identity(
-                controller_id,
+                &account.controller_account_id,
                 private_strand_id,
                 &context.exchange_id,
                 &context.request_event_id,
@@ -4456,16 +4450,10 @@ pub(crate) async fn send_to_arkret_account(
         // (§7.2.2/§7.2.3). The terminal fact is durable and controller-authored,
         // so this is decided locally, not inferred from elapsed time — and it
         // runs before the network, the session, the actor chain and the store.
-        let controller_id = account.controller_id.as_deref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "Arkret account '{}' cannot answer a Sidecar exchange without a configured controllerId",
-                account.id
-            )
-        })?;
         let store = SidecarExchangeStore::for_account(savfox_home, &channel.id, &account.id);
         anyhow::ensure!(
             store.exchange_accepts_new_response(
-                controller_id,
+                &account.controller_account_id,
                 &strand_id,
                 &context.exchange_id,
                 &context.request_event_id,
@@ -4510,11 +4498,7 @@ pub(crate) async fn send_to_arkret_account(
         realm_id: realm_id.to_owned(),
         strand_id,
         body: body.to_owned(),
-        principal_id: account.principal_id.clone(),
-        station_id: channel
-            .service_id
-            .clone()
-            .context("Arkret channel is missing service_id")?,
+        actor_account_id: account.actor_account_id.clone(),
         actor_seq,
         thread_root_id: None,
         sidecar_exchange: sidecar_exchange.cloned(),
@@ -4650,13 +4634,7 @@ pub(crate) async fn send_to_arkret_account(
     // generation and lets the fence retire stale queued attempts.
     let authoring_generation = garth::AuthoringGeneration {
         authority_model: garth::AuthoringAuthorityModel::Agent,
-        authority_principal_id: arkret::DidCoreId::new(
-            account
-                .controller_id
-                .clone()
-                .unwrap_or_else(|| account.principal_id.clone()),
-        )
-        .map_err(|error| anyhow::anyhow!("invalid Arkret authoring authority DID: {error}"))?,
+        authority_principal_id: account.controller_account_id.principal_id.clone(),
         generation_ref: account
             .authorized_event_ref
             .clone()
@@ -4872,12 +4850,25 @@ mod tests {
             mode: savfox_channels::arkret::ArkretAccountMode::Agent,
             id: "support".into(),
             principal_id: "ak:did_core:webvh:z6mkfixture:agent.example".into(),
+            actor_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:agent.example".into())
+                    .unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:station.example".into())
+                    .unwrap(),
+            ),
             device_id: "ak:device:01904100-0000-7000-8000-000000000001".into(),
             key_ref: None,
             verification_method: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
-            controller_id: Some("ak:did_core:webvh:z6mkfixture:controller.example".into()),
+            controller_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:controller.example".into())
+                    .unwrap(),
+                arkret::DidCoreId::new(
+                    "ak:did_core:webvh:z6mkfixture:controller-station.example".into(),
+                )
+                .unwrap(),
+            ),
             requested_scope: vec![
                 ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into(),
                 ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.into(),
@@ -5565,8 +5556,12 @@ mod tests {
             realm_id: realm_id().to_string(),
             strand_id: "ak:strand:01904100-0000-8000-8000-000000000011".to_owned(),
             body: "final user-visible reply".to_owned(),
-            principal_id: "ak:did_core:webvh:z6mkfixture:agent.example".to_owned(),
-            station_id: "ak:did_core:webvh:z6mkfixture:station.example".to_owned(),
+            actor_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:agent.example".into())
+                    .unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:station.example".into())
+                    .unwrap(),
+            ),
             actor_seq: 1,
             thread_root_id: None,
             sidecar_exchange: Some(context.clone()),

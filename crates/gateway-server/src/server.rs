@@ -1236,8 +1236,7 @@ mod tests {
 
     #[test]
     fn protected_http_routes_have_least_privilege_scope_mappings() {
-        use HttpAuthorization::AnyAuthenticated;
-        use HttpAuthorization::Scope;
+        use HttpAuthorization::{AnyAuthenticated, Scope};
 
         for (method, path, expected) in [
             ("POST", "/api/token/validate", AnyAuthenticated),

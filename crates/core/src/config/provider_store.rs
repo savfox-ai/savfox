@@ -517,8 +517,9 @@ fn apply_provider_fallback(savfox_home: &Path, new_provider_id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn provider_store_path_cannot_escape_models_dir() {

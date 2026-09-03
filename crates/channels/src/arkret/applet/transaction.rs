@@ -150,7 +150,7 @@ mod tests {
             id: "applet-1".into(),
             applet_id: "ak:applet:1".into(),
             service_id: "did:web:bridge.example".into(),
-            controller_id: "did:webvh:acme:admin".into(),
+            controller_principal_id: "did:webvh:acme:admin".into(),
             base_url: "https://savfox.example/applet".into(),
             bot_actor_id: "did:web:bridge.example:bot".into(),
             device_id: None,

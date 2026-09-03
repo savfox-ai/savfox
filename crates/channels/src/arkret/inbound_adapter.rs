@@ -60,6 +60,10 @@ pub struct ArkretInboundSkippedEvent {
     pub chat_type: Option<String>,
     pub participant_count: Option<u32>,
     pub sender_did: Option<String>,
+    /// Full Event-author identity retained for authority-sensitive consumers.
+    /// `sender_did` is presentation/routing data and must never substitute for
+    /// this Account-vs-Service plus Station-qualified identity.
+    pub sender_actor_id: Option<arkret::ActorId>,
     pub strand_id: Option<String>,
     pub reply_to: Option<String>,
     pub encrypted_payload: Option<arkret::EncryptedPayload>,
@@ -325,6 +329,7 @@ pub fn parse_delta_frame_for_account(
                             chat_type: parsed.chat_type.clone(),
                             participant_count: parsed.participant_count,
                             sender_did: Some(parsed.sender_did.clone()),
+                            sender_actor_id: None,
                             strand_id: parsed.strand_id.clone(),
                             reply_to: parsed.thread_root_id.clone(),
                             encrypted_payload: None,
@@ -373,6 +378,7 @@ pub fn parse_notification_delta_for_account(
                         chat_type: parsed.chat_type.clone(),
                         participant_count: parsed.participant_count,
                         sender_did: Some(parsed.sender_did.clone()),
+                        sender_actor_id: None,
                         strand_id: parsed.strand_id.clone(),
                         reply_to: parsed.thread_root_id.clone(),
                         encrypted_payload: None,
@@ -547,6 +553,7 @@ fn skip_event(
             .get("actor_id")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        sender_actor_id: None,
         strand_id: None,
         reply_to: None,
         encrypted_payload: None,
@@ -602,6 +609,7 @@ fn classify_sidecar_exchange_control(
         chat_type: None,
         participant_count: None,
         sender_did: Some(event.actor_id.signing_principal_id().as_str().to_owned()),
+        sender_actor_id: Some(event.actor_id.clone()),
         strand_id,
         reply_to: None,
         encrypted_payload,
@@ -623,6 +631,7 @@ fn skip_sdk_event(
         chat_type: None,
         participant_count: None,
         sender_did: Some(event.actor_id.signing_principal_id().as_str().to_owned()),
+        sender_actor_id: Some(event.actor_id.clone()),
         strand_id: None,
         reply_to: None,
         encrypted_payload: None,
@@ -647,6 +656,7 @@ fn skip_notification(
             notification,
             &["source_actor_id", "sender_actor_id", "sender", "actor_id"],
         ),
+        sender_actor_id: None,
         strand_id: notification_strand_id(notification),
         reply_to: None,
         encrypted_payload: None,
@@ -665,6 +675,7 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
         chat_type: None,
         participant_count: None,
         sender_did: Some(event.actor_id.signing_principal_id().as_str().to_owned()),
+        sender_actor_id: Some(event.actor_id.clone()),
         strand_id: message
             .as_ref()
             .map(|payload| payload.strand_id.as_str().to_owned()),
@@ -687,12 +698,19 @@ mod tests {
             mode: crate::arkret::ArkretAccountMode::Agent,
             id: "support".into(),
             principal_id: "did:webvh:example.org:agents:support".into(),
+            actor_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:web:example.org:agents:support").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:web:example.org:stations:agent").unwrap(),
+            ),
             device_id: "ak:device:01".into(),
             key_ref: None,
             verification_method: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
-            controller_id: Some("did:webvh:example.org:users:alice".into()),
+            controller_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:web:example.org:users:alice").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:web:example.org:stations:alice-phone").unwrap(),
+            ),
             requested_scope: vec!["ak.event.read".into()],
             listen: true,
             send: true,

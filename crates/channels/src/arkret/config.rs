@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use arkret::{AgentPairingBootstrap, DeviceId, DidCoreId, DidUrl, ServiceOperationId};
+use arkret::{AccountId, AgentPairingBootstrap, DeviceId, DidCoreId, DidUrl, ServiceOperationId};
 use chrono::{DateTime, Utc};
 pub use savfox_gateway_shared::arkret::default_agent_runtime_scope;
 use serde::{Deserialize, Serialize};
@@ -65,6 +65,8 @@ pub struct ArkretAccountConfig {
     pub mode: ArkretAccountMode,
     pub id: String,
     pub principal_id: String,
+    /// Complete author identity for Events emitted by this runtime.
+    pub actor_account_id: AccountId,
     pub device_id: String,
     /// Local Ed25519 runtime key reference. In Agent mode this is the
     /// savfox-owned runtime key authorized by Inkson/controller.
@@ -78,16 +80,17 @@ pub struct ArkretAccountConfig {
     /// Durable `ak.agent.key.authorize` reference proving the runtime key has
     /// been approved by the controller.
     pub authorized_event_ref: Option<String>,
-    /// DID of the controller that owns this Agent principal.
+    /// Exact controller account that owns this Agent principal.
     ///
     /// An Agent has exactly one controller and that ownership
     /// is immutable provisioning state (`zh/models/sidecar.md` §4), so it
     /// belongs with the other immutable runtime identity facts here rather
     /// than being re-derived per Event. It is required by the Sidecar
     /// consumption gate: §7.2.1 makes a `role=request` binding carried by a
-    /// non-controller actor wholly invalid, and without this value the gate
-    /// fails closed instead of trusting the Event actor.
-    pub controller_id: Option<String>,
+    /// non-controller actor wholly invalid. The Station component is part of
+    /// the authority identity: another account at the same principal must not
+    /// pass the gate.
+    pub controller_account_id: AccountId,
     /// Requested service/content runtime scope saved as typed list.
     pub requested_scope: Vec<String>,
     pub listen: bool,
@@ -126,7 +129,7 @@ impl ArkretChannelConfig {
             "keyRef",
             "verificationMethod",
             "authorizedEventRef",
-            "controllerId",
+            "controllerAccountId",
             "requestedScope",
             "deliveryMode",
         ];
@@ -141,6 +144,17 @@ impl ArkretChannelConfig {
                 unknown.join(", ")
             );
         }
+        let controller_account_id = raw
+            .get("controllerAccountId")
+            .ok_or_else(|| anyhow::anyhow!("Arkret agent config is missing controllerAccountId"))?;
+        serde_json::from_value::<AccountId>(controller_account_id.clone())
+            .map_err(|error| {
+                anyhow::anyhow!("Arkret agent controllerAccountId is invalid: {error}")
+            })?
+            .validate()
+            .map_err(|error| {
+                anyhow::anyhow!("Arkret agent controllerAccountId is invalid: {error}")
+            })?;
         let mut enabled = config.clone();
         enabled.enabled = true;
         let parsed = Self::from_channel_config(&enabled).ok_or_else(|| {
@@ -230,10 +244,14 @@ impl ArkretChannelConfig {
         // inherit Realm/MLS state from the previous principal.
         let account_id =
             derive_agent_runtime_account_id(&config.id, &principal_id, &pairing_request_id);
+        let actor_account_id =
+            AccountId::new(bootstrap.agent_id.clone(), bootstrap.service_id.clone());
+        let controller_account_id = parse_controller_account_id(raw)?;
         let account = ArkretAccountConfig {
             mode: ArkretAccountMode::Agent,
             id: account_id,
             principal_id: principal_id.clone(),
+            actor_account_id,
             device_id,
             key_ref: raw.get("keyRef").and_then(ArkretKeyRef::from_value),
             verification_method: raw
@@ -245,7 +263,7 @@ impl ArkretChannelConfig {
                 .get("authorizedEventRef")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
-            controller_id: parse_controller_id(raw),
+            controller_account_id,
             requested_scope: parse_string_list(raw.get("requestedScope")),
             listen: true,
             send: true,
@@ -340,6 +358,13 @@ impl ArkretAccountConfig {
                 self.principal_id
             )
         })?;
+        self.actor_account_id.validate()?;
+        if self.actor_account_id.principal_id.as_str() != self.principal_id {
+            anyhow::bail!(
+                "Arkret account '{}' actor AccountId principal does not match principal_id",
+                self.id
+            );
+        }
         if !self.device_id.trim().is_empty() {
             DeviceId::new(self.device_id.clone()).map_err(|err| {
                 anyhow::anyhow!(
@@ -406,6 +431,12 @@ impl ArkretAccountConfig {
         arkret::EventId::new(authorization_ref.to_owned()).map_err(|error| {
             anyhow::anyhow!(
                 "Arkret agent '{}' authorizedEventRef must be a valid Arkret Event id: {error}",
+                self.id
+            )
+        })?;
+        self.controller_account_id.validate().map_err(|error| {
+            anyhow::anyhow!(
+                "Arkret agent '{}' controllerAccountId must be an exact valid AccountId: {error}",
                 self.id
             )
         })?;
@@ -643,22 +674,16 @@ fn derive_agent_runtime_account_id(
     format!("{channel_id}-{}", &digest[..24])
 }
 
-/// Read the controller DID from the saved account slot.
+/// Read the exact controller account from the saved account slot.
 ///
-/// Both spellings are accepted because the Arkret channel config already mixes
-/// camelCase UI keys with snake_case protocol keys. A value that is not a
-/// well-formed DID is dropped rather than stored, so the Sidecar gate fails
-/// closed instead of comparing Event actors against a malformed string.
-fn parse_controller_id(raw: &serde_json::Map<String, Value>) -> Option<String> {
-    let value = raw
-        .get("controllerId")
-        .or_else(|| raw.get("controller_id"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
-    arkret::DidCoreId::new(value.to_owned())
-        .ok()
-        .map(|did| did.to_string())
+/// This deliberately accepts only the canonical object field. The retired
+/// principal-only spellings cannot represent Station identity and are not
+/// compatibility aliases.
+fn parse_controller_account_id(raw: &serde_json::Map<String, Value>) -> Option<AccountId> {
+    let account: AccountId =
+        serde_json::from_value(raw.get("controllerAccountId")?.clone()).ok()?;
+    account.validate().ok()?;
+    Some(account)
 }
 
 fn parse_string_list(value: Option<&Value>) -> Vec<String> {
@@ -933,6 +958,10 @@ mod strict_tests {
                 },
                 "verificationMethod": "did:web:agent.example#runtime-1",
                 "authorizedEventRef": arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x63; 32]),
+                "controllerAccountId": {
+                    "principal_id": "ak:did_core:web:controller.example",
+                    "station_id": "ak:did_core:web:controller-station.example"
+                },
                 "requestedScope": scope
             }),
             router: None,
@@ -989,6 +1018,25 @@ mod strict_tests {
             parsed.accounts[0].principal_id,
             "ak:did_core:web:agent.example"
         );
+        assert_eq!(
+            parsed.accounts[0].controller_account_id.station_id.as_str(),
+            "ak:did_core:web:controller-station.example"
+        );
+    }
+
+    #[test]
+    fn principal_only_controller_config_is_rejected_without_compatibility_alias() {
+        let mut config = canonical_config(default_scope());
+        config
+            .config
+            .as_object_mut()
+            .expect("config object")
+            .remove("controllerAccountId");
+        config.config["controllerId"] = json!("ak:did_core:web:controller.example");
+
+        let error = ArkretChannelConfig::from_strict_agent_config(&config)
+            .expect_err("principal-only controller identity must fail closed");
+        assert!(error.to_string().contains("unsupported fields"));
     }
 
     #[test]

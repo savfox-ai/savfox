@@ -336,8 +336,8 @@ impl std::fmt::Display for Scope {
 ///   create/update/delete/patch/set/compact/reset/promote/run
 /// - approval reads -> `ApprovalsRead`; resolution -> `ApprovalsResolve`
 /// - `chat.*`, `send` -> `Chat`
-/// - credential-bearing `channels.config.*` and `channels.nostr.profile.*` -> `Admin`;
-///   other `channels.*` -> `Write`
+/// - credential-bearing `channels.config.*` and `channels.nostr.profile.*` -> `Admin`; other
+///   `channels.*` -> `Write`
 /// - `directory.*` -> `Read`
 /// - `node.pair.*`, `device.*` -> `Pairing`
 /// - `security.audit`, `security.analyze` -> `Read`; `security.rotate` -> `Write`
