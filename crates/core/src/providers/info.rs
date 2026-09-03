@@ -32,6 +32,16 @@ const DEFAULT_STREAM_IDLE_TIMEOUT_MS: u64 = 300_000;
 const DEFAULT_STREAM_MAX_RETRIES: u64 = 5;
 const DEFAULT_REQUEST_MAX_RETRIES: u64 = 4;
 const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/";
+
+/// Kimi Code (marketed as "Kimi for Coding") serves the coding subscription
+/// from its own host and exposes an OpenAI-compatible surface under
+/// `/coding/v1` — `/coding/v1/chat/completions` and `/coding/v1/models` — so
+/// it rides the same chat wire as the other OpenAI-compatible providers.
+const KIMI_FOR_CODING_BASE_URL: &str = "https://api.kimi.com/coding/v1";
+/// Moonshot's general Kimi open platform (pay-as-you-go, separate from the
+/// coding subscription above), global and mainland-China endpoints.
+const MOONSHOTAI_BASE_URL: &str = "https://api.moonshot.ai/v1";
+const MOONSHOTAI_CN_BASE_URL: &str = "https://api.moonshot.cn/v1";
 /// Hard cap for user-configured `stream_max_retries`.
 const MAX_STREAM_MAX_RETRIES: u64 = 100;
 /// Hard cap for user-configured `request_max_retries`.
@@ -658,6 +668,33 @@ pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
                 "MINIMAX_API_KEY",
             ),
         ),
+        (
+            "kimi-for-coding",
+            create_cloud_chat_provider_with_id(
+                "kimi-for-coding",
+                "Kimi for Coding",
+                KIMI_FOR_CODING_BASE_URL,
+                "KIMI_API_KEY",
+            ),
+        ),
+        (
+            "moonshotai",
+            create_cloud_chat_provider_with_id(
+                "moonshotai",
+                "Moonshot AI",
+                MOONSHOTAI_BASE_URL,
+                "MOONSHOT_API_KEY",
+            ),
+        ),
+        (
+            "moonshotai-cn",
+            create_cloud_chat_provider_with_id(
+                "moonshotai-cn",
+                "Moonshot AI (CN)",
+                MOONSHOTAI_CN_BASE_URL,
+                "MOONSHOT_API_KEY",
+            ),
+        ),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v))
@@ -713,8 +750,20 @@ fn create_anthropic_provider() -> ModelProviderInfo {
 }
 
 fn create_cloud_chat_provider(name: &str, base_url: &str, env_key: &str) -> ModelProviderInfo {
+    create_cloud_chat_provider_with_id(&name.to_lowercase(), name, base_url, env_key)
+}
+
+/// Same as [`create_cloud_chat_provider`], but keeps the registry id separate
+/// from the display name. Needed whenever lowercasing the name would not
+/// produce the registry id (e.g. `"Kimi for Coding"` -> `kimi-for-coding`).
+fn create_cloud_chat_provider_with_id(
+    id: &str,
+    name: &str,
+    base_url: &str,
+    env_key: &str,
+) -> ModelProviderInfo {
     ModelProviderInfo {
-        id: name.to_lowercase(),
+        id: id.into(),
         name: name.into(),
         base_url: Some(base_url.into()),
         env_key: Some(env_key.into()),
@@ -1249,6 +1298,49 @@ env_key = "GEMINI_API_KEY"
         assert!(
             message.contains("other") && message.contains("base_url"),
             "unexpected error message: {message}"
+        );
+    }
+
+    #[test]
+    fn kimi_and_moonshot_providers_are_built_in() {
+        let providers = built_in_model_providers();
+
+        for (provider_id, expected_name, expected_env_key) in [
+            ("kimi-for-coding", "Kimi for Coding", "KIMI_API_KEY"),
+            ("moonshotai", "Moonshot AI", "MOONSHOT_API_KEY"),
+            ("moonshotai-cn", "Moonshot AI (CN)", "MOONSHOT_API_KEY"),
+        ] {
+            let provider = providers
+                .get(provider_id)
+                .unwrap_or_else(|| panic!("missing built-in provider {provider_id}"));
+            assert_eq!(provider.id, provider_id);
+            assert_eq!(provider.name, expected_name);
+            assert_eq!(provider.env_key.as_deref(), Some(expected_env_key));
+            // All three speak the OpenAI-compatible chat wire.
+            assert_eq!(provider.wire_api, WireApi::Chat);
+            // The built-in base_url wins over the shared registry table in
+            // `provider_default_base_url`, so the two must not drift apart.
+            assert_eq!(
+                provider.base_url.as_deref(),
+                provider_default_base_url_registry_entry(provider_id).flatten(),
+                "built-in base_url drifted from the registry for {provider_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn kimi_aliases_resolve_to_the_coding_plan_base_url() {
+        assert_eq!(
+            provider_default_base_url("kimi").as_deref(),
+            Some(KIMI_FOR_CODING_BASE_URL)
+        );
+        assert_eq!(
+            provider_default_base_url("moonshot").as_deref(),
+            Some(MOONSHOTAI_BASE_URL)
+        );
+        assert_eq!(
+            provider_default_base_url("moonshot-cn").as_deref(),
+            Some(MOONSHOTAI_CN_BASE_URL)
         );
     }
 

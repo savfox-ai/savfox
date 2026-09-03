@@ -19,6 +19,15 @@ pub fn canonical_provider_id(provider_id: &str) -> String {
         "zhipu" | "zhipu-ai" => "zhipuai".to_owned(),
         "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_owned(),
         "volc" | "volc-engine" | "ark" => "volcengine".to_owned(),
+        // Moonshot ships two distinct products: the general Kimi/Moonshot
+        // open platform (`platform.moonshot.ai`) and the Kimi Code coding
+        // subscription (`api.kimi.com/coding`). A bare `kimi` follows the
+        // kimi.com branding and resolves to the coding plan.
+        "kimi" | "kimi-code" | "kimi-coding" | "kimi-for-code" | "kimicode" => {
+            "kimi-for-coding".to_owned()
+        }
+        "moonshot" | "moonshot-ai" => "moonshotai".to_owned(),
+        "moonshot-cn" | "moonshot-ai-cn" => "moonshotai-cn".to_owned(),
         "together" | "together-ai" => "togetherai".to_owned(),
         "gemini" => "google".to_owned(),
         "bedrock" => "amazon-bedrock".to_owned(),
@@ -154,6 +163,10 @@ mod tests {
         assert_eq!(canonical_provider_id("ark"), "volcengine");
         assert_eq!(canonical_provider_id("gemini"), "google");
         assert_eq!(canonical_provider_id("qwen"), "alibaba");
+        assert_eq!(canonical_provider_id("kimi"), "kimi-for-coding");
+        assert_eq!(canonical_provider_id("Kimi-For-Code"), "kimi-for-coding");
+        assert_eq!(canonical_provider_id("moonshot"), "moonshotai");
+        assert_eq!(canonical_provider_id("moonshot-cn"), "moonshotai-cn");
     }
 
     #[test]

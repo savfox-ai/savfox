@@ -22,7 +22,7 @@ pub struct WizardCommand {
 
 const SUPPORTED_CHANNELS: [&str; 4] = ["discord", "telegram", "slack", "webhook"];
 const PROVIDER_LIST_DISPLAY_LIMIT: usize = 12;
-const WIZARD_PROVIDER_PRIORITY: [&str; 15] = [
+const WIZARD_PROVIDER_PRIORITY: [&str; 17] = [
     "openai",
     "anthropic",
     "gemini",
@@ -34,6 +34,8 @@ const WIZARD_PROVIDER_PRIORITY: [&str; 15] = [
     "together",
     "qwen",
     "minimax",
+    "kimi-for-coding",
+    "moonshotai",
     "bedrock",
     "ollama",
     "ollama-chat",
@@ -197,20 +199,6 @@ struct ProviderOption {
     requires_api_key: bool,
 }
 
-fn canonical_provider_alias(value: &str) -> String {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "zhipu" | "zhipu-ai" => "zhipuai".to_owned(),
-        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_owned(),
-        "together" | "together-ai" => "togetherai".to_owned(),
-        "gemini" => "google".to_owned(),
-        "bedrock" => "amazon-bedrock".to_owned(),
-        "qwen" => "alibaba".to_owned(),
-        "googlevertex" | "google_vertex" => "google-vertex".to_owned(),
-        "google_vertex_anthropic" => "google-vertex-anthropic".to_owned(),
-        other => other.to_owned(),
-    }
-}
-
 fn provider_options() -> Vec<ProviderOption> {
     let model_providers = savfox_core::built_in_model_providers();
 
@@ -280,7 +268,7 @@ fn resolve_provider_input(input: &str, providers: &[ProviderOption]) -> Option<S
         return Some(found.id.clone());
     }
 
-    let canonical = canonical_provider_alias(raw);
+    let canonical = savfox_core::canonical_provider_id(raw);
     providers
         .iter()
         .find(|provider| provider.id.eq_ignore_ascii_case(canonical.as_str()))
