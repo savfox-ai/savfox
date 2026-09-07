@@ -2704,8 +2704,8 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
         ));
     };
     let parsed =
-        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&raw_config)
-            .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
+        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_pairing_config(&raw_config)
+            .map_err(|error| (INVALID_REQUEST, format!("{error:#}")))?;
     let account_id = params
         .get("account_id")
         .or_else(|| params.get("accountId"))
@@ -2728,7 +2728,7 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
     })?;
     let request =
         savfox_channels::arkret::build_arkret_runtime_key_request_json(account, chrono::Utc::now())
-            .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+            .map_err(|err| (INVALID_REQUEST, format!("{err:#}")))?;
     let approval =
         submit_arkret_runtime_key_approval_request(channel.http_client(), account, request)
             .await
@@ -2782,6 +2782,10 @@ async fn submit_arkret_runtime_key_approval_request(
     );
     let response = client
         .post(&endpoint)
+        .header(
+            "Arkret-Operation",
+            arkret::ServiceOperationId::OPEN_AGENT_PAIRING_COMMAND_SUBMIT_RUNTIME_KEY_REQUEST_V1,
+        )
         .header(CONTENT_TYPE, "application/json")
         .body(request_body)
         .send()
@@ -2827,8 +2831,8 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
         ));
     };
     let parsed =
-        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&raw_config)
-            .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
+        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_pairing_config(&raw_config)
+            .map_err(|error| (INVALID_REQUEST, format!("{error:#}")))?;
     let account_id = params
         .get("account_id")
         .or_else(|| params.get("accountId"))
@@ -2851,7 +2855,7 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
     })?;
     let (request, local_public_key_digest) =
         savfox_channels::arkret::build_arkret_runtime_key_status_request_json(account)
-            .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+            .map_err(|err| (INVALID_REQUEST, format!("{err:#}")))?;
     let outcome = poll_arkret_runtime_key_status(channel.http_client(), account, request)
         .await
         .map_err(|err| (INVALID_REQUEST, err))?;
@@ -2931,6 +2935,10 @@ async fn poll_arkret_runtime_key_status(
     );
     let response = client
         .post(&endpoint)
+        .header(
+            "Arkret-Operation",
+            arkret::ServiceOperationId::OPEN_AGENT_PAIRING_READ_RUNTIME_KEY_REQUEST_STATUS_V1,
+        )
         .header(CONTENT_TYPE, "application/json")
         .body(request_body)
         .send()
@@ -3094,6 +3102,10 @@ async fn fetch_arkret_pairing_bootstrap(
         .map_err(|err| format!("serialize pairing resolver request: {err}"))?;
     let response = client
         .post(resolve_url)
+        .header(
+            "Arkret-Operation",
+            arkret::ServiceOperationId::OPEN_AGENT_PAIRING_READ_RESOLVE_V1,
+        )
         .header(CONTENT_TYPE, "application/json")
         .body(body)
         .send()
@@ -3128,6 +3140,7 @@ fn validate_arkret_pairing_bootstrap_value(value: Value) -> Result<Value, String
     {
         return Err("Arkret pairing bootstrap contains empty required fields".to_owned());
     }
+    bootstrap.validated_runtime_identity()?;
     Ok(value)
 }
 
@@ -4289,6 +4302,72 @@ mod tests {
     }
 
     #[cfg(feature = "arkret")]
+    #[tokio::test]
+    async fn arkret_pairing_resolver_sends_operation_selector() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind resolver");
+        let endpoint = format!(
+            "http://{}/_arkret/open/agent-pairing/resolve",
+            listener.local_addr().unwrap()
+        );
+        let token = "abcdefghijklmnopqrstuvwxyz";
+        let expected_body = serde_json::to_vec(&json!({ "pairing_token": token })).unwrap();
+        let mut bootstrap = sdk_inkson_bootstrap();
+        bootstrap["runtime_identity"] = json!({
+            "controller_account_id": {
+                "principal_id": "ak:did_core:web:controller.example",
+                "station_id": "ak:did_core:web:station.example"
+            },
+            "verification_method": "did:web:agent.example#runtime-pairing"
+        });
+        let response_body = serde_json::to_string(&bootstrap).unwrap();
+        let server = async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let header_end = loop {
+                let mut buf = [0_u8; 1024];
+                let len = stream.read(&mut buf).await.unwrap();
+                assert!(len > 0, "request ended before its body arrived");
+                request.extend_from_slice(&buf[..len]);
+                if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n")
+                    && request.len() >= end + 4 + expected_body.len()
+                {
+                    break end;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+            assert!(headers.starts_with("post /_arkret/open/agent-pairing/resolve http/1.1\r\n"));
+            assert_eq!(
+                headers
+                    .lines()
+                    .filter(|line| line.starts_with("arkret-operation:"))
+                    .collect::<Vec<_>>(),
+                vec!["arkret-operation: ak.open.agent_pairing.read.resolve.v1"]
+            );
+            assert!(headers.contains("content-type: application/json"));
+            assert_eq!(&request[header_end + 4..], expected_body.as_slice());
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response_body}",
+                response_body.len()
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        };
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let ((), result) = tokio::join!(
+                server,
+                super::fetch_arkret_pairing_bootstrap(&client, &endpoint, token)
+            );
+            assert_eq!(result.expect("resolve bootstrap"), bootstrap);
+        })
+        .await
+        .expect("pairing resolver timed out");
+    }
+
+    #[cfg(feature = "arkret")]
     #[test]
     fn arkret_pairing_resolver_target_accepts_fragment_link() {
         let token = "abcdefghijklmnopqrstuvwxyz_123456";
@@ -4341,6 +4420,31 @@ mod tests {
             .expect_err("legacy bootstrap fields must fail validation");
 
         assert!(err.contains("unknown field"));
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_pairing_resolver_requires_valid_runtime_identity() {
+        let mut value = sdk_inkson_bootstrap();
+        assert!(
+            validate_arkret_pairing_bootstrap_value(value.clone())
+                .unwrap_err()
+                .contains("Upgrade")
+        );
+        value["runtime_identity"] = json!({
+            "controller_account_id": {
+                "principal_id": "ak:did_core:web:controller.example",
+                "station_id": "ak:did_core:web:station.example"
+            },
+            "verification_method": "did:web:agent.example#runtime-pairing"
+        });
+        assert_eq!(
+            validate_arkret_pairing_bootstrap_value(value.clone()).unwrap(),
+            value
+        );
+        value["runtime_identity"]["verification_method"] =
+            json!("did:web:foreign.example#runtime-pairing");
+        assert!(validate_arkret_pairing_bootstrap_value(value).is_err());
     }
 
     #[test]

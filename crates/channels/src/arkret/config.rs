@@ -112,6 +112,16 @@ impl ArkretChannelConfig {
     pub fn from_strict_agent_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> anyhow::Result<Self> {
+        let parsed = Self::from_strict_agent_pairing_config(config)?;
+        parsed.validate()?;
+        Ok(parsed)
+    }
+
+    /// Validate a pairing candidate before the controller has authorized its key.
+    /// Runtime startup must use `from_strict_agent_config` instead.
+    pub fn from_strict_agent_pairing_config(
+        config: &savfox_core::config::channel_store::ChannelConfig,
+    ) -> anyhow::Result<Self> {
         let raw = config
             .config
             .as_object()
@@ -217,7 +227,7 @@ impl ArkretChannelConfig {
         }
         savfox_gateway_shared::arkret::validate_agent_runtime_scope(&account.requested_scope)
             .map_err(anyhow::Error::msg)?;
-        parsed.validate()?;
+        parsed.validate_for_stage(false)?;
         Ok(parsed)
     }
 
@@ -284,6 +294,10 @@ impl ArkretChannelConfig {
 
     /// Validate that the channel has at least one usable account.
     pub fn validate(&self) -> anyhow::Result<()> {
+        self.validate_for_stage(true)
+    }
+
+    fn validate_for_stage(&self, require_authorization: bool) -> anyhow::Result<()> {
         if self.base_url.trim().is_empty() {
             anyhow::bail!("Arkret channel '{}' missing base_url", self.id);
         }
@@ -312,12 +326,14 @@ impl ArkretChannelConfig {
             );
         }
         for account in &self.accounts {
-            account.validate().with_context(|| {
-                format!(
-                    "Arkret channel '{}' account '{}' is invalid",
-                    self.id, account.id
-                )
-            })?;
+            account
+                .validate_for_stage(require_authorization)
+                .with_context(|| {
+                    format!(
+                        "Arkret channel '{}' account '{}' is invalid",
+                        self.id, account.id
+                    )
+                })?;
         }
         Ok(())
     }
@@ -345,6 +361,10 @@ impl ArkretAccountConfig {
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
+        self.validate_for_stage(true)
+    }
+
+    fn validate_for_stage(&self, require_authorization: bool) -> anyhow::Result<()> {
         if self.id.trim().is_empty() {
             anyhow::bail!("Arkret account missing id");
         }
@@ -375,10 +395,14 @@ impl ArkretAccountConfig {
             })?;
         }
 
-        self.validate_agent_runtime(&principal_id)
+        self.validate_agent_runtime(&principal_id, require_authorization)
     }
 
-    fn validate_agent_runtime(&self, principal_id: &DidCoreId) -> anyhow::Result<()> {
+    fn validate_agent_runtime(
+        &self,
+        principal_id: &DidCoreId,
+        require_authorization: bool,
+    ) -> anyhow::Result<()> {
         let bootstrap = if let Some(bootstrap) = self.inkson_bootstrap.as_ref() {
             bootstrap
         } else {
@@ -421,19 +445,20 @@ impl ArkretAccountConfig {
             .authorized_event_ref
             .as_deref()
             .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
+            .filter(|value| !value.is_empty());
+        if let Some(authorization_ref) = authorization_ref {
+            arkret::EventId::new(authorization_ref.to_owned()).map_err(|error| {
                 anyhow::anyhow!(
-                    "Arkret agent '{}' missing authorizedEventRef for ak.agent.key.authorize; pairing must complete before the channel can run",
+                    "Arkret agent '{}' authorizedEventRef must be a valid Arkret Event id: {error}",
                     self.id
                 )
             })?;
-        arkret::EventId::new(authorization_ref.to_owned()).map_err(|error| {
-            anyhow::anyhow!(
-                "Arkret agent '{}' authorizedEventRef must be a valid Arkret Event id: {error}",
+        } else if require_authorization {
+            anyhow::bail!(
+                "Arkret agent '{}' missing authorizedEventRef for ak.agent.key.authorize; pairing must complete before the channel can run",
                 self.id
-            )
-        })?;
+            );
+        }
         self.controller_account_id.validate().map_err(|error| {
             anyhow::anyhow!(
                 "Arkret agent '{}' controllerAccountId must be an exact valid AccountId: {error}",
@@ -1037,6 +1062,59 @@ mod strict_tests {
         let error = ArkretChannelConfig::from_strict_agent_config(&config)
             .expect_err("principal-only controller identity must fail closed");
         assert!(error.to_string().contains("unsupported fields"));
+    }
+
+    #[test]
+    fn pairing_candidate_does_not_require_completed_authorization() {
+        for authorization in [None, Some(Value::Null), Some(json!(""))] {
+            let mut config = canonical_config(default_scope());
+            config
+                .config
+                .as_object_mut()
+                .unwrap()
+                .remove("authorizedEventRef");
+            if let Some(authorization) = authorization {
+                config.config["authorizedEventRef"] = authorization;
+            }
+            let candidate = ArkretChannelConfig::from_strict_agent_pairing_config(&config)
+                .expect("unapproved candidate can submit and poll approval");
+            assert!(candidate.validate().is_err(), "candidate cannot run yet");
+            let error = ArkretChannelConfig::from_strict_agent_config(&config)
+                .expect_err("runtime still requires approval");
+            assert!(format!("{error:#}").contains("missing authorizedEventRef"));
+
+            config.config["authorizedEventRef"] =
+                canonical_config(default_scope()).config["authorizedEventRef"].clone();
+            ArkretChannelConfig::from_strict_agent_config(&config)
+                .expect("approved candidate can run");
+        }
+    }
+
+    #[test]
+    fn pairing_candidate_preserves_identity_key_and_scope_validation() {
+        for (field, value) in [
+            (
+                "verificationMethod",
+                json!("did:web:foreign.example#runtime-1"),
+            ),
+            ("controllerAccountId", json!({})),
+            ("keyRef", json!({"kind": "env", "var": "TEST_KEY"})),
+            ("requestedScope", json!([])),
+            ("requestedScope", json!(["ak.self.events.scan"])),
+            ("authorizedEventRef", json!("invalid-event")),
+        ] {
+            let mut config = canonical_config(default_scope());
+            config
+                .config
+                .as_object_mut()
+                .unwrap()
+                .remove("authorizedEventRef");
+            config.config[field] = value;
+            assert!(
+                ArkretChannelConfig::from_strict_agent_pairing_config(&config).is_err(),
+                "invalid {field} must still be rejected before pairing"
+            );
+        }
     }
 
     #[test]

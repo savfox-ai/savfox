@@ -1,5 +1,19 @@
 # Arkret Agent 频道
 
+提交审批和轮询审批状态时，校验的是尚未获批的配对配置，不要求提前提供
+`authorizedEventRef`。该引用在 Inkson 批准运行时密钥后返回；保存后的频道启动时
+仍必须具备该引用。配对错误会显示具体的校验失败原因。
+
+配对链接解析、运行时密钥审批提交和审批状态轮询均发送 Station 要求的精确版本
+`Arkret-Operation` 请求头。如果配对提示 `operation_selector_required`，请先使用
+包含此支持的代码重新构建并重启网关，再重试配对。
+
+Agent 模式下粘贴 Inkson pairing link 后即可点击 **Start pairing**。Controller Account ID
+和 Runtime key DID URL 是内部字段，由链接解析响应中的 `runtime_identity` 自动提供，
+随后 Savfox 生成本地密钥并请求 Inkson 审批。若服务仍只返回旧的六字段 bootstrap，
+需更新配对服务；界面会明确报告身份信息缺失，不要求手填身份，也不会让按钮一直禁用。
+已有保存的完整绑定仍可使用。
+
 Savfox 的 Arkret Agent 运行时处理已授权的消息订阅、回复和加密在线状态心跳。
 Agent Signal 不携带设备 ID；当前运行时的原始 Ed25519 公钥摘要标识序列端点，
 运行时密钥同时签署 Signal proof。每个 Realm 的 MLS nonce 与 payload sequence 都在

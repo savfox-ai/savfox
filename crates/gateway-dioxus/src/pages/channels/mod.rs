@@ -2362,6 +2362,8 @@ fn is_arkret_agent_hidden_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "advanced"
+            | "controllerAccountId"
+            | "verificationMethod"
             | "baseUrl"
             | "serviceId"
             | "arkretServerDid"
@@ -2659,6 +2661,19 @@ fn apply_arkret_hidden_agent_runtime_values(
     values: &std::collections::HashMap<String, String>,
     patch: &mut Value,
 ) -> Result<(), String> {
+    if let Some(value) = values
+        .get(&field_value_key(channel_id, "controllerAccountId"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        let account: arkret_wire::AccountId = serde_json::from_str(value)
+            .map_err(|error| format!("Controller Account ID is invalid: {error}"))?;
+        account
+            .validate()
+            .map_err(|error| format!("Controller Account ID is invalid: {error}"))?;
+        patch["controllerAccountId"] = serde_json::to_value(account)
+            .map_err(|error| format!("Controller Account ID is invalid: {error}"))?;
+    }
     if let Some(value) = values.get(&field_value_key(channel_id, "requestedScope")) {
         let actions: Vec<String> = serde_json::from_str(value).map_err(|_| {
             "Saved Arkret requestedScope must be an exact JSON string array; migrate the pairing instead of rewriting its authorization.".to_owned()
@@ -2770,6 +2785,15 @@ fn apply_arkret_bootstrap_defaults(patch: &mut Value) -> Result<(), String> {
     let Ok(bootstrap) = parse_arkret_agent_pairing_bootstrap(bootstrap_value) else {
         return Ok(());
     };
+    if bootstrap.runtime_identity.is_some() {
+        let identity = bootstrap.validated_runtime_identity()?;
+        if patch_value_empty(patch.get("controllerAccountId")) {
+            patch["controllerAccountId"] = json!(identity.controller_account_id);
+        }
+        if patch_value_empty(patch.get("verificationMethod")) {
+            patch["verificationMethod"] = json!(identity.verification_method);
+        }
+    }
 
     if patch_value_empty(patch.get("baseUrl")) {
         patch["baseUrl"] = Value::Null;
@@ -4715,6 +4739,7 @@ fn render_single_field(
         let pairing_link_key_for_input = pairing_link_key.clone();
         let key_ref_key_for_input = field_value_key(ch_id, "keyRef");
         let verification_method_key_for_input = field_value_key(ch_id, "verificationMethod");
+        let controller_account_key_for_input = field_value_key(ch_id, "controllerAccountId");
         let authorized_event_ref_key_for_input = field_value_key(ch_id, "authorizedEventRef");
         let pairing_state_key_for_input = arkret_pairing_state_key(ch_id);
         drop(value_map);
@@ -4742,6 +4767,7 @@ fn render_single_field(
                         values.insert(pairing_link_key_for_input.clone(), input);
                         values.remove(&key_ref_key_for_input);
                         values.remove(&verification_method_key_for_input);
+                        values.remove(&controller_account_key_for_input);
                         values.remove(&authorized_event_ref_key_for_input);
                         values.remove(&pairing_state_key_for_input);
                     },
@@ -5101,6 +5127,20 @@ fn render_single_field(
                                                 .write()
                                                 .insert(pairing_state_key, "error".to_owned());
                                             return;
+                                        }
+                                    }
+                                }
+                                if let Err(error) = apply_arkret_pairing_identity(&ch_id, &mut snapshot) {
+                                    values.write().insert(key, error);
+                                    values.write().insert(pairing_state_key, "error".to_owned());
+                                    return;
+                                }
+                                {
+                                    let mut current_values = values.write();
+                                    for field in ["controllerAccountId", "verificationMethod"] {
+                                        let identity_key = field_value_key(&ch_id, field);
+                                        if let Some(value) = snapshot.get(&identity_key) {
+                                            current_values.insert(identity_key, value.clone());
                                         }
                                     }
                                 }
@@ -5654,15 +5694,34 @@ fn arkret_runtime_key_request_can_request(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
 ) -> bool {
-    let has_bootstrap = values
+    values
         .get(&field_value_key(channel_id, "inksonBootstrap"))
         .map(|value| value.trim())
-        .is_some_and(|value| !value.is_empty());
-    let has_verification_method = values
-        .get(&field_value_key(channel_id, "verificationMethod"))
-        .map(|value| value.trim())
-        .is_some_and(|value| value.starts_with("did:") && value.contains('#'));
-    has_bootstrap && has_verification_method
+        .is_some_and(|value| !value.is_empty())
+}
+
+fn apply_arkret_pairing_identity(
+    channel_id: &str,
+    values: &mut std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    let input = values
+        .get(&field_value_key(channel_id, "inksonBootstrap"))
+        .ok_or_else(|| "Pairing input is required.".to_owned())?;
+    let bootstrap = parse_arkret_agent_pairing_bootstrap(
+        serde_json::from_str(input)
+            .map_err(|error| format!("Invalid pairing bootstrap: {error}"))?,
+    )?;
+    let identity = bootstrap.validated_runtime_identity()?;
+    values.insert(
+        field_value_key(channel_id, "controllerAccountId"),
+        serde_json::to_string(&identity.controller_account_id)
+            .map_err(|error| error.to_string())?,
+    );
+    values.insert(
+        field_value_key(channel_id, "verificationMethod"),
+        identity.verification_method.to_string(),
+    );
+    Ok(())
 }
 
 fn arkret_pairing_code_from_bootstrap_text(input: &str) -> Option<String> {
@@ -6477,6 +6536,7 @@ mod tests {
     fn agent_scope_form() -> (Vec<ConfigField>, std::collections::HashMap<String, String>) {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             json!({
@@ -6646,6 +6706,17 @@ mod tests {
             .config_fields
     }
 
+    fn insert_controller_account(values: &mut std::collections::HashMap<String, String>) {
+        values.insert(
+            field_value_key("arkret", "controllerAccountId"),
+            json!({
+                "principal_id": "ak:did_core:webvh:zControllerScid",
+                "station_id": "ak:did_core:web:station.example"
+            })
+            .to_string(),
+        );
+    }
+
     fn sdk_inkson_bootstrap_value() -> Value {
         json!({
             "arkret_base_url": "https://arkret.example.org",
@@ -6659,6 +6730,56 @@ mod tests {
 
     fn sdk_inkson_bootstrap_json() -> String {
         serde_json::to_string(&sdk_inkson_bootstrap_value()).expect("bootstrap JSON")
+    }
+
+    #[test]
+    fn arkret_pairing_resolved_identity_prepares_complete_patch_without_manual_fields() {
+        let fields = arkret_fields();
+        let mut values = default_channel_values("arkret", &fields);
+        let mut bootstrap = sdk_inkson_bootstrap_value();
+        bootstrap["runtime_identity"] = json!({
+            "controller_account_id": {
+                "principal_id": "ak:did_core:web:controller.example",
+                "station_id": "ak:did_core:web:station.example"
+            },
+            "verification_method": "did:web:agent.example#runtime-pairing"
+        });
+        values.insert(
+            field_value_key("arkret", "inksonBootstrap"),
+            bootstrap.to_string(),
+        );
+        apply_arkret_pairing_identity("arkret", &mut values).unwrap();
+        values.insert(
+            field_value_key("arkret", "keyRef"),
+            json!({"kind":"keyring", "service":"savfox-arkret", "account":"runtime"}).to_string(),
+        );
+        let patch = build_channel_patch("arkret", &fields, &values).unwrap();
+        assert_eq!(
+            patch["controllerAccountId"],
+            bootstrap["runtime_identity"]["controller_account_id"]
+        );
+        assert_eq!(
+            patch["verificationMethod"],
+            "did:web:agent.example#runtime-pairing"
+        );
+        bootstrap["runtime_identity"]["verification_method"] =
+            json!("did:web:other.example#runtime-pairing");
+        values.insert(
+            field_value_key("arkret", "inksonBootstrap"),
+            bootstrap.to_string(),
+        );
+        assert!(apply_arkret_pairing_identity("arkret", &mut values).is_err());
+    }
+
+    #[test]
+    fn arkret_pairing_missing_identity_reports_service_upgrade() {
+        let mut values = std::collections::HashMap::new();
+        values.insert(
+            field_value_key("arkret", "inksonBootstrap"),
+            sdk_inkson_bootstrap_json(),
+        );
+        let error = apply_arkret_pairing_identity("arkret", &mut values).unwrap_err();
+        assert!(error.contains("Upgrade the Arkret pairing service"));
     }
 
     #[test]
@@ -6889,7 +7010,8 @@ mod tests {
         assert!(visible("runtimeKeyRequest"));
         assert!(!visible("authorizationResult"));
         assert!(!visible("keyRef"));
-        assert!(visible("verificationMethod"));
+        assert!(!visible("verificationMethod"));
+        assert!(!visible("controllerAccountId"));
         assert!(!visible("authorizedEventRef"));
         assert!(!visible("advanced"));
         assert!(!visible("baseUrl"));
@@ -7013,7 +7135,7 @@ mod tests {
     }
 
     #[test]
-    fn arkret_runtime_key_request_requires_bootstrap_and_complete_verification_method() {
+    fn arkret_runtime_key_request_can_start_without_internal_identity_fields() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
         values.insert(
@@ -7025,7 +7147,7 @@ mod tests {
             r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
                 .to_owned(),
         );
-        assert!(!arkret_runtime_key_request_can_request("arkret", &values));
+        assert!(arkret_runtime_key_request_can_request("arkret", &values));
         values.insert(
             field_value_key("arkret", "verificationMethod"),
             "did:web:agent.example#runtime-1".to_owned(),
@@ -7037,22 +7159,11 @@ mod tests {
     fn arkret_runtime_key_request_can_start_from_pairing_link_for_auto_resolve() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
-        insert_controller_account(&mut values);
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             "https://arkret.example.org/_arkret/open/agent-pairing/resolve#token=abcdefghijklmnopqrstuvwxyz"
                 .to_owned(),
         );
-        values.insert(
-            field_value_key("arkret", "keyRef"),
-            r#"{"kind":"keyring","service":"savfox-arkret","account":"runtime-support"}"#
-                .to_owned(),
-        );
-        values.insert(
-            field_value_key("arkret", "verificationMethod"),
-            "did:web:agent.example#runtime-1".to_owned(),
-        );
-
         assert!(arkret_runtime_key_request_can_request("arkret", &values));
         values.insert(field_value_key("arkret", "inksonBootstrap"), String::new());
         assert!(!arkret_runtime_key_request_can_request("arkret", &values));
@@ -7296,6 +7407,7 @@ mod tests {
     fn arkret_bootstrap_does_not_manufacture_runtime_verification_method() {
         let fields = arkret_fields();
         let mut values = default_channel_values("arkret", &fields);
+        insert_controller_account(&mut values);
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),

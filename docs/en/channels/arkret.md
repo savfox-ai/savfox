@@ -1,5 +1,22 @@
 # Arkret Agent channel
 
+Approval submission and status polling validate a pending pairing candidate without
+requiring `authorizedEventRef`. That reference is returned after Inkson approves
+the runtime key; it is still mandatory before the saved channel can run. Pairing
+errors include the underlying validation reason.
+
+Pairing resolution, runtime key approval submission, and approval status polling
+send the exact versioned `Arkret-Operation` header required by the Station.
+If pairing reports `operation_selector_required`, rebuild and restart the gateway
+with this support before retrying.
+
+In Agent mode, paste the Inkson pairing link and click **Start pairing**. Controller
+Account ID and Runtime key DID URL are internal values obtained automatically from
+the resolver's `runtime_identity` object. Savfox then generates the local key and
+requests Inkson approval. A resolver returning only the older six-field bootstrap
+must be upgraded; Savfox reports the missing identity instead of requiring manual
+identity entry or leaving the button disabled. Existing saved bindings remain usable.
+
 Savfox's Arkret Agent runtime handles authorized message subscription, replies,
 and encrypted presence heartbeats. Agent Signals omit the device id. The digest
 of the current runtime's raw Ed25519 key identifies the sequence endpoint, and
