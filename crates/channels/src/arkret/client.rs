@@ -836,10 +836,10 @@ pub fn agent_session_reason_is_irreversibly_terminal(reason: &str) -> bool {
 fn agent_session_exchange_error(error: garth::Error) -> anyhow::Error {
     let reason = match &error {
         garth::Error::Api { error, .. } => error
-            .details()
+            .extensions
             .get("reason_code")
             .and_then(serde_json::Value::as_str)
-            .or_else(|| reason_code_from_message(error.message()))
+            .or_else(|| reason_code_from_message(&error.detail))
             .unwrap_or_else(|| error.code()),
         _ => "unknown",
     };
@@ -861,10 +861,11 @@ fn agent_session_exchange_error(error: garth::Error) -> anyhow::Error {
 }
 
 /// Coauth's Arkret session-grant boundary currently carries the specific
-/// rejection reason in the protocol message (`reason_code=...`) while keeping
-/// the envelope code at the broad `failed_precondition` category. Accept that
-/// wire-compatible representation as well as the preferred structured detail
-/// so callers never have to parse the rendered `anyhow` chain.
+/// rejection reason in the Problem `detail` string (`reason_code=...`) while
+/// keeping the problem type at the broad `failed_precondition` category.
+/// Accept that wire-compatible representation as well as the preferred
+/// structured extension so callers never have to parse the rendered `anyhow`
+/// chain.
 fn reason_code_from_message(message: &str) -> Option<&str> {
     const MARKER: &str = "reason_code=";
     let value = message.split_once(MARKER)?.1;
@@ -1354,8 +1355,8 @@ mod tests {
             ("agent_deactivated", "must be provisioned again"),
             ("superseded_by_repairing", "new pairing bootstrap"),
         ] {
-            let envelope = arkret::ErrorEnvelope::new("failed_precondition", "rejected")
-                .with_detail("reason_code", serde_json::json!(reason));
+            let envelope = arkret::Problem::from_code("failed_precondition", "rejected")
+                .with_extension("reason_code", serde_json::json!(reason));
             let error = agent_session_exchange_error(garth::Error::Api {
                 status: 412,
                 error: Box::new(envelope),
@@ -1383,8 +1384,8 @@ mod tests {
                 "issue_session_within_provision_and_key_ceilings",
             ),
         ] {
-            let envelope = arkret::ErrorEnvelope::new("failed_precondition", "rejected")
-                .with_detail("reason_code", serde_json::json!(reason));
+            let envelope = arkret::Problem::from_code("failed_precondition", "rejected")
+                .with_extension("reason_code", serde_json::json!(reason));
             let error = agent_session_exchange_error(garth::Error::Api {
                 status: 412,
                 error: Box::new(envelope),
@@ -1400,7 +1401,7 @@ mod tests {
 
     #[test]
     fn agent_session_errors_preserve_message_encoded_reason_codes() {
-        let envelope = arkret::ErrorEnvelope::new(
+        let envelope = arkret::Problem::from_code(
             "failed_precondition",
             "reason_code=agent_deactivated; failed_precondition",
         );

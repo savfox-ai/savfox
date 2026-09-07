@@ -210,10 +210,10 @@ fn record_listener_service_failure(
 fn transport_service_reason(error: &garth::Error) -> Option<&str> {
     match error {
         garth::Error::Api { error, .. } => error
-            .details()
+            .extensions
             .get("reason_code")
             .and_then(Value::as_str)
-            .or_else(|| reason_code_from_message(error.message())),
+            .or_else(|| reason_code_from_message(&error.detail)),
         _ => None,
     }
 }
@@ -4660,6 +4660,9 @@ pub(crate) async fn send_to_arkret_account(
         )
         .map_err(|error| anyhow::anyhow!("build durable Arkret queue record: {error}"))?,
     ));
+    // The enqueue and its AuthorizationLease binding are one logical write, so
+    // they share a single timestamp rather than each reading the clock.
+    let queued_at = Utc::now();
     if let Err(error) = outbound_store
         .mutate_outbound(move |queue| {
             let item = queue.enqueue(
@@ -4667,9 +4670,14 @@ pub(crate) async fn send_to_arkret_account(
                 realm_id_typed,
                 queued_record,
                 Vec::new(),
+                queued_at,
             )?;
             if let Some(authorization_lease) = authorization_lease {
-                queue.bind_authorization_lease(&item.transaction_id, authorization_lease)?;
+                queue.bind_authorization_lease(
+                    &item.transaction_id,
+                    authorization_lease,
+                    queued_at,
+                )?;
             }
             queue.get(&item.transaction_id).cloned().ok_or_else(|| {
                 garth::Error::Protocol(
@@ -5268,6 +5276,7 @@ mod tests {
                 realm_id.clone(),
                 record,
                 Vec::new(),
+                Utc::now(),
             )
             .expect("queue online submission");
         assert!(item.authorization_lease.is_none());
@@ -5306,8 +5315,8 @@ mod tests {
             let api_error = garth::Error::Api {
                 status: 412,
                 error: Box::new(
-                    arkret::ErrorEnvelope::new("failed_precondition", "rejected")
-                        .with_detail("reason_code", json!(reason)),
+                    arkret::Problem::from_code("failed_precondition", "rejected")
+                        .with_extension("reason_code", json!(reason)),
                 ),
             };
             record_listener_service_failure(
@@ -5325,7 +5334,7 @@ mod tests {
             );
             let message_encoded_error = garth::Error::Api {
                 status: 412,
-                error: Box::new(arkret::ErrorEnvelope::new(
+                error: Box::new(arkret::Problem::from_code(
                     "failed_precondition",
                     format!("reason_code={reason}; rejected"),
                 )),
@@ -5389,11 +5398,11 @@ mod tests {
         let details_win = garth::Error::Api {
             status: 412,
             error: Box::new(
-                arkret::ErrorEnvelope::new(
+                arkret::Problem::from_code(
                     "failed_precondition",
                     "reason_code=agent_session_scope_refresh_required; rejected",
                 )
-                .with_detail(
+                .with_extension(
                     "reason_code",
                     json!("agent_key_scope_reauthorization_required"),
                 ),
@@ -5963,14 +5972,14 @@ mod tests {
             std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from([
                 arkret::EventsQueryOutcome {
                     events: vec![message_event_with_seq("older one", 2).into()],
-                    snapshot_bootstrap: None,
+                    realm_state_snapshot_bootstrap: None,
                     prev_cursor: Some("ak:cursor:older-2".to_owned()),
                     next_cursor: None,
                     has_more: true,
                 },
                 arkret::EventsQueryOutcome {
                     events: vec![message_event_with_seq("older two", 3).into()],
-                    snapshot_bootstrap: None,
+                    realm_state_snapshot_bootstrap: None,
                     prev_cursor: None,
                     next_cursor: None,
                     has_more: false,

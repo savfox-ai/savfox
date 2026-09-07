@@ -73,8 +73,11 @@ impl AppletDispatchSkip {
             }
             Self::KindNotMessageCreate => arkret::ReasonCode::UnsupportedEventKind,
             Self::EncryptedContent => arkret::ReasonCode::DecryptionFailed,
-            Self::ContentKindUnsupported => arkret::ReasonCode::UnknownKind,
-            Self::EmptyBody => arkret::ReasonCode::CardinalityViolation,
+            // The registry dropped the generic `cardinality_violation` reason,
+            // and it carries no successor for "a known payload field violates
+            // its constraint". An empty body and an unsupported content kind
+            // therefore collapse onto the same closed content-shape reason.
+            Self::ContentKindUnsupported | Self::EmptyBody => arkret::ReasonCode::UnknownKind,
         }
     }
 }
