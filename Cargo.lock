@@ -720,6 +720,7 @@ dependencies = [
  "arkret-canonical",
  "arkret-event-draft",
  "arkret-models-collaboration",
+ "arkret-models-integration",
  "arkret-schema",
  "arkret-wire",
  "chrono",
