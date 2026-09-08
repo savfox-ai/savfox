@@ -1699,7 +1699,7 @@ async fn retire_legacy_account_keypackages(
     }
     let legacy_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &channel.id);
     let refs = legacy_store
-        .revocable_keypackage_refs_for_agent(&account.principal_id, &account.device_id)
+        .legacy_revocable_keypackage_refs_for_agent(&account.principal_id)
         .context("enumerate current Agent KeyPackages in legacy crypto scope")?;
     revoke_account_mls_key_package_refs(
         client,
@@ -1782,7 +1782,14 @@ async fn revoke_account_mls_key_package_refs(
         );
     }
     for keypackage_ref in &key_package_refs {
-        if let Err(err) = crypto_store.mark_mls_key_package_revoked(keypackage_ref) {
+        let marked = if accept_terminally_unclaimable {
+            crypto_store.mark_legacy_keypackage_revoked(keypackage_ref)
+        } else {
+            crypto_store
+                .mark_mls_key_package_revoked(keypackage_ref)
+                .map(|_| ())
+        };
+        if let Err(err) = marked {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,

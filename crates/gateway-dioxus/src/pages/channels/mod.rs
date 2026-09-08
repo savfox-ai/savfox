@@ -5029,6 +5029,8 @@ fn render_single_field(
         let authorized_event_ref_key_for_generate = field_value_key(ch_id, "authorizedEventRef");
         let unbind_status_key_for_generate = field_value_key(ch_id, "unbind");
         let ws_generate = ws.clone();
+        let pairing_state_key_for_restart = pairing_state_key.clone();
+        let status_key_for_restart = key.clone();
         let mut refresh_after_pairing = refresh_tick;
         drop(value_map);
         return rsx! {
@@ -5283,8 +5285,27 @@ fn render_single_field(
                             "Waiting for Inkson…"
                         } else if pairing_state == "finalizing" {
                             "Saving connection…"
+                        } else if pairing_state == "error" {
+                            "Pair again"
                         } else {
                             "Start pairing"
+                        }
+                    }
+                    if pairing_state == "waiting" {
+                        button {
+                            class: "channels-action-btn",
+                            r#type: "button",
+                            onclick: move |_| {
+                                ARKRET_APPROVAL_POLL_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                let mut current = values.write();
+                                finish_arkret_pairing_wait(
+                                    &mut current,
+                                    &pairing_state_key_for_restart,
+                                    &status_key_for_restart,
+                                    "Stopped waiting. Check the Inkson pairing link, then choose Pair again.",
+                                );
+                            },
+                            "Pair again"
                         }
                     }
                 }
@@ -5765,6 +5786,16 @@ fn arkret_waiting_for_approval_status(pairing_code: Option<&str>) -> String {
 static ARKRET_APPROVAL_POLL_GENERATION: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
+fn finish_arkret_pairing_wait(
+    values: &mut std::collections::HashMap<String, String>,
+    state_key: &str,
+    status_key: &str,
+    message: &str,
+) {
+    values.insert(state_key.to_owned(), "error".to_owned());
+    values.insert(status_key.to_owned(), message.to_owned());
+}
+
 /// Poll the Arkret server for the Inkson controller decision after a
 /// `Request approval` submission and drive the pairing status line to a
 /// terminal state (approved / expired / paired-by-another-runtime / timeout).
@@ -5807,11 +5838,15 @@ async fn arkret_poll_runtime_key_approval(
         let payload = match response {
             Ok(payload) => payload,
             Err(err) => {
-                values.write().insert(
-                    status_key.clone(),
-                    format!("Approval status check failed: {err}. Retrying..."),
+                finish_arkret_pairing_wait(
+                    &mut values.write(),
+                    &arkret_pairing_state_key(&channel_id),
+                    &status_key,
+                    &format!(
+                        "Approval status check failed: {err}. Check the pairing link and choose Pair again."
+                    ),
                 );
-                continue;
+                return;
             }
         };
         let approved = payload
@@ -7173,6 +7208,28 @@ mod tests {
         assert!(arkret_runtime_key_request_can_request("arkret", &values));
         values.insert(field_value_key("arkret", "inksonBootstrap"), String::new());
         assert!(!arkret_runtime_key_request_can_request("arkret", &values));
+    }
+
+    #[test]
+    fn arkret_pairing_failure_unlocks_retry_without_discarding_runtime_key() {
+        let state_key = arkret_pairing_state_key("arkret");
+        let status_key = field_value_key("arkret", "runtimeKeyRequest");
+        let key_ref_key = field_value_key("arkret", "keyRef");
+        let mut values = std::collections::HashMap::from([
+            (state_key.clone(), "waiting".to_owned()),
+            (
+                field_value_key("arkret", "inksonBootstrap"),
+                "pairing-link".to_owned(),
+            ),
+            (key_ref_key.clone(), "existing-runtime-key".to_owned()),
+        ]);
+        finish_arkret_pairing_wait(&mut values, &state_key, &status_key, "Status check failed");
+        assert_eq!(values.get(&state_key).map(String::as_str), Some("error"));
+        assert!(arkret_runtime_key_request_can_request("arkret", &values));
+        assert_eq!(
+            values.get(&key_ref_key).map(String::as_str),
+            Some("existing-runtime-key")
+        );
     }
 
     #[test]

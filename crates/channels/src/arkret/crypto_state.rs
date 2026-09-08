@@ -1067,6 +1067,133 @@ impl FileArkretCryptoStore {
         ))
     }
 
+    /// Read only the retirement inventory from a previous pairing's file.
+    /// Obsolete message and MLS state must never be imported or parsed here.
+    pub fn legacy_revocable_keypackage_refs_for_agent(
+        &self,
+        principal_id: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        let _guard = self.mutation_lock.lock();
+        let Some(document) = self.legacy_retirement_document()? else {
+            return Ok(Vec::new());
+        };
+        let principal = DidCoreId::new(principal_id.to_owned())?;
+        let records = document
+            .get("mls_key_packages")
+            .and_then(Value::as_object)
+            .context("legacy KeyPackage inventory is not an object")?;
+        let mut refs = Vec::new();
+        for record in records.values() {
+            let owner = if let Some(endpoint) = record.get("endpoint") {
+                serde_json::from_value::<MlsEndpointIdentity>(endpoint.clone())?
+                    .actor_id()
+                    .clone()
+            } else {
+                let value = record
+                    .get("principal_id")
+                    .and_then(Value::as_str)
+                    .context("legacy KeyPackage has no owner")?;
+                DidCoreId::new(value.to_owned()).or_else(|_| {
+                    arkret::project_did_to_core_id(&arkret::Did::new(value.to_owned())?)
+                })?
+            };
+            if owner != principal {
+                continue;
+            }
+            let state: MlsKeyPackageState = serde_json::from_value(
+                record
+                    .get("state")
+                    .cloned()
+                    .context("legacy KeyPackage has no state")?,
+            )?;
+            if matches!(
+                state,
+                MlsKeyPackageState::Consumed | MlsKeyPackageState::Revoked
+            ) {
+                continue;
+            }
+            let reference = arkret::Hash::new(
+                record
+                    .get("keypackage_ref")
+                    .and_then(Value::as_str)
+                    .context("legacy KeyPackage has no canonical ref")?
+                    .to_owned(),
+            )?
+            .to_string();
+            if !refs.contains(&reference) {
+                refs.push(reference);
+            }
+        }
+        Ok(refs)
+    }
+
+    fn legacy_retirement_document(&self) -> anyhow::Result<Option<Value>> {
+        let bytes = match std::fs::read(&self.path) {
+            Ok(bytes) if bytes.is_empty() => return Ok(None),
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let mut document: Value = serde_json::from_slice(&bytes)?;
+        if document.get("version").and_then(Value::as_str) == Some(WRAPPED_STATE_VERSION) {
+            let wrapped = serde_json::from_value(document)?;
+            let mut plaintext = self.decrypt_wrapped_state(&wrapped)?;
+            let decoded = serde_json::from_slice(&plaintext);
+            use zeroize::Zeroize as _;
+            plaintext.zeroize();
+            document = decoded?;
+        }
+        anyhow::ensure!(
+            document.get("version").and_then(Value::as_str) == Some(STATE_VERSION),
+            "unsupported legacy crypto state version"
+        );
+        anyhow::ensure!(
+            document.get("scope_id").and_then(Value::as_str) == Some(self.scope_id.as_str()),
+            "legacy crypto state scope mismatch"
+        );
+        Ok(Some(document))
+    }
+
+    /// Record remote retirement without decoding or discarding unrelated old state.
+    pub fn mark_legacy_keypackage_revoked(&self, keypackage_ref: &str) -> anyhow::Result<()> {
+        let _guard = self.mutation_lock.lock();
+        let Some(mut document) = self.legacy_retirement_document()? else {
+            return Ok(());
+        };
+        let records = document
+            .get_mut("mls_key_packages")
+            .and_then(Value::as_object_mut)
+            .context("legacy KeyPackage inventory is not an object")?;
+        let mut changed = false;
+        for record in records.values_mut() {
+            if record.get("keypackage_ref").and_then(Value::as_str) == Some(keypackage_ref) {
+                record["state"] = serde_json::to_value(MlsKeyPackageState::Revoked)?;
+                changed = true;
+            }
+        }
+        if !changed {
+            return Ok(());
+        }
+        document["generation"] = Value::from(
+            document
+                .get("generation")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .checked_add(1)
+                .context("legacy crypto generation overflow")?,
+        );
+        let mut plaintext = serde_json::to_vec(&document)?;
+        let wrapped = self.encrypt_wrapped_state(&plaintext);
+        use zeroize::Zeroize as _;
+        plaintext.zeroize();
+        savfox_utils::fs::write_atomically(
+            &self.path,
+            &serde_json::to_vec_pretty(&wrapped?)?,
+            Some(0o600),
+        )?;
+        Ok(())
+    }
+
     fn revocable_keypackage_refs_matching(
         state: &ArkretCryptoStateFile,
         principal_id: Option<&DidCoreId>,
@@ -3578,6 +3705,64 @@ mod tests {
         assert_eq!(refs, vec![current.keypackage_ref.as_str().to_owned()]);
         assert!(!refs.contains(&replaced.keypackage_ref.as_str().to_owned()));
 
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn legacy_retirement_ignores_obsolete_messages_and_preserves_foreign_keys() {
+        let home = temp_home("legacy-retirement-obsolete-events");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "legacy");
+        let current_ref = format!("sha256:{}", "1".repeat(64));
+        let other_ref = format!("sha256:{}", "2".repeat(64));
+        let document = serde_json::json!({
+            "version": STATE_VERSION,
+            "scope_id": store.scope_id,
+            "binding": {"unable_to_decrypt": {"ak:event:019fa28f-de87-7af2-b744-c2113b294e45": {"obsolete": true}}},
+            "mls_key_packages": {
+                "old-current": {"principal_id": "did:web:current-agent.example", "device_id": "obsolete", "keypackage_ref": current_ref, "state": "published", "private_marker": "preserve"},
+                "old-other": {"principal_id": "did:web:other-agent.example", "keypackage_ref": other_ref, "state": "published"}
+            }
+        });
+        std::fs::create_dir_all(store.path().parent().unwrap()).unwrap();
+        std::fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+        assert!(store.load().is_err());
+        assert_eq!(
+            store
+                .legacy_revocable_keypackage_refs_for_agent("ak:did_core:web:current-agent.example")
+                .unwrap(),
+            vec![current_ref.clone()]
+        );
+        store.mark_legacy_keypackage_revoked(&current_ref).unwrap();
+        assert!(
+            store
+                .legacy_revocable_keypackage_refs_for_agent("ak:did_core:web:current-agent.example")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            store
+                .legacy_revocable_keypackage_refs_for_agent("ak:did_core:web:other-agent.example")
+                .unwrap(),
+            vec![other_ref]
+        );
+        let preserved = store.legacy_retirement_document().unwrap().unwrap();
+        assert_eq!(preserved["binding"], document["binding"]);
+        assert_eq!(
+            preserved["mls_key_packages"]["old-current"]["private_marker"],
+            "preserve"
+        );
+        assert_eq!(
+            preserved["mls_key_packages"]["old-other"],
+            document["mls_key_packages"]["old-other"]
+        );
+        let mut wrong_scope = preserved;
+        wrong_scope["scope_id"] = Value::from("another-account");
+        std::fs::write(store.path(), serde_json::to_vec(&wrong_scope).unwrap()).unwrap();
+        assert!(
+            store
+                .legacy_revocable_keypackage_refs_for_agent("ak:did_core:web:current-agent.example")
+                .is_err()
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 

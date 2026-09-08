@@ -1,5 +1,10 @@
 # Arkret Agent channel
 
+If an approval status check fails or a pairing RPC times out, Savfox stops waiting
+and enables **Pair again**. While waiting for Inkson, **Pair again** also stops the
+local wait so you can replace the pairing link. It does not revoke a request in
+Inkson. A newer attempt ignores late responses from the previous approval poll.
+
 Approval submission and status polling validate a pending pairing candidate without
 requiring `authorizedEventRef`. That reference is returned after Inkson approves
 the runtime key; it is still mandatory before the saved channel can run. Pairing
@@ -66,3 +71,8 @@ An invalid saved binding cannot be reported as successfully disconnected. If its
 old identity or scope prevents safe revocation, Savfox retains local state and
 requires controller-side recovery. Only a confirmed unbind clears the saved scope
 and allows the same empty channel slot to form a new pairing candidate.
+
+Retiring a previous pairing's KeyPackage pool reads only its inventory and verifies
+the owning Agent. Obsolete message IDs in that file do not prevent the new runtime
+from starting. Remote revocation must be acknowledged before the local retirement
+marker is written; unrelated state and other Agents' keys are preserved.
