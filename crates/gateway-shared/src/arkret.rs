@@ -95,11 +95,14 @@ pub fn validate_agent_runtime_scope(actions: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Require a canonical service grant for exactly this local request.
+/// Accept the authority's canonical narrowing of this local request.
+///
+/// Every granted action must have been requested, while the schema-owned
+/// runtime floor must remain complete. Content capabilities can legitimately
+/// be removed when no Realm capability/policy evidence grants them.
 pub fn session_scope_matches_request(requested: &[String], granted: &[String]) -> bool {
     validate_agent_runtime_scope(requested).is_ok()
         && validate_agent_runtime_scope(granted).is_ok()
-        && requested.iter().all(|action| granted.contains(action))
         && granted.iter().all(|action| requested.contains(action))
 }
 
@@ -180,7 +183,8 @@ mod tests {
     }
 
     #[test]
-    fn agent_scope_session_rejects_overgrant_missing_floor_and_old_tokens() {
+    fn agent_scope_session_accepts_authoritative_narrowing_but_rejects_overgrant_and_missing_floor()
+    {
         let requested = default_agent_runtime_scope().unwrap();
         assert!(session_scope_matches_request(&requested, &requested));
         let mut extra = requested.clone();
@@ -189,6 +193,9 @@ mod tests {
         let mut reduced = requested.clone();
         reduced.retain(|action| action != ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1);
         assert!(!session_scope_matches_request(&requested, &reduced));
+        let mut content_narrowed = requested.clone();
+        content_narrowed.retain(|action| action != "ak.message.create");
+        assert!(session_scope_matches_request(&requested, &content_narrowed));
         let mut old = requested.clone();
         old.push("ak.self.events.read.scan".to_owned());
         assert!(!session_scope_matches_request(&old, &old));

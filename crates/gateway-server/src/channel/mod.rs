@@ -175,10 +175,13 @@ impl GatewayChannel {
             args.cloud_requirements.clone(),
         );
 
-        let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .unwrap_or_default();
+        let http_client = savfox_http_client::custom_ca::build_reqwest_client_with_custom_ca(
+            reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)),
+        )
+        .unwrap_or_else(|err| {
+            tracing::warn!(%err, "failed to apply the configured custom CA to gateway requests");
+            reqwest::Client::default()
+        });
         let approval_coordinator = ApprovalCoordinator::new(args.config.savfox_home.clone());
 
         Self {

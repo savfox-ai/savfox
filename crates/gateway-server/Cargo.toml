@@ -36,6 +36,7 @@ savfox-keyring-store = { workspace = true }
 savfox-login-oauth = { workspace = true }
 savfox-feedback = { workspace = true }
 savfox-gateway-shared = { workspace = true }
+savfox-http-client = { workspace = true }
 savfox-protocol = { workspace = true }
 savfox-utils = { workspace = true }
 savfox-skill-registry = { workspace = true }

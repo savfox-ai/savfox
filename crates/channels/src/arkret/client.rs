@@ -216,7 +216,8 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
             )
         {
             return Err(garth::Error::Protocol(
-                "Agent session grant expired or changed its exact requested scope".to_owned(),
+                "Agent session grant expired, widened scope, or omitted the runtime floor"
+                    .to_owned(),
             ));
         }
         build_dpop_client(
@@ -492,7 +493,7 @@ impl ArkretHttpClient {
         )?;
         let dpop_jkt = binding_proof.jkt.clone();
         let binding_proof = binding_proof.header_value;
-        let bootstrap = agent_client_builder(grant_base_url.clone())
+        let bootstrap = agent_client_builder(grant_base_url.clone())?
             .auth(Auth::Dpop(DpopAuth::proof_only({
                 let expected_htu = grant_htu.clone();
                 let proof_jwt = binding_proof.clone();
@@ -901,6 +902,7 @@ fn build_dpop_client(
     access_token: String,
 ) -> garth::Result<Client> {
     agent_client_builder(base_url)
+        .map_err(|error| garth::Error::Http(error.to_string()))?
         .auth(Auth::Dpop(DpopAuth::with_dpop_token(
             access_token,
             move |request| {
@@ -937,7 +939,7 @@ fn joined_htu(base_url: &Url, path: &str) -> anyhow::Result<String> {
 }
 
 async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Result<Url> {
-    let discovery = agent_client_builder(resource_url.clone())
+    let discovery = agent_client_builder(resource_url.clone())?
         .build()
         .map_err(|error| anyhow::anyhow!("Arkret service discovery client: {error}"))?;
     let description = discovery
@@ -971,11 +973,17 @@ async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Resu
     Ok(authority_url)
 }
 
-fn agent_client_builder(base_url: Url) -> ClientBuilder {
+fn agent_client_builder(base_url: Url) -> anyhow::Result<ClientBuilder> {
     // Agent conformance stacks run the resource and account authority
     // on loopback. The SDK keeps plaintext HTTP rejected for every non-loopback
     // host, including when this opt-in is enabled.
-    ClientBuilder::new(base_url).allow_insecure_localhost()
+    let http = savfox_http_client::custom_ca::build_reqwest_client_with_custom_ca(
+        reqwest::Client::builder(),
+    )
+    .context("build Arkret Agent HTTP transport")?;
+    Ok(ClientBuilder::new(base_url)
+        .http_client(http)
+        .allow_insecure_localhost())
 }
 
 #[cfg(test)]
@@ -1332,12 +1340,14 @@ mod tests {
     fn agent_client_allows_only_insecure_loopback() {
         for url in ["http://127.0.0.1:8787", "http://localhost:8787"] {
             agent_client_builder(Url::parse(url).unwrap())
+                .expect("Arkret Agent HTTP transport should build")
                 .build()
                 .expect("loopback HTTP should be available for local conformance stacks");
         }
 
         assert!(
             agent_client_builder(Url::parse("http://accounts.example:8787").unwrap())
+                .expect("Arkret Agent HTTP transport should build")
                 .build()
                 .is_err(),
             "non-loopback HTTP must remain rejected"
