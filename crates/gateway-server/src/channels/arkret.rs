@@ -1674,7 +1674,7 @@ pub(crate) async fn revoke_account_mls_key_packages(
         crypto_store,
         key_package_refs,
         "agent runtime unbind",
-        false,
+        true,
     )
     .await
 }
@@ -1875,6 +1875,13 @@ pub(crate) async fn unbind_arkret_account(
             return Err(error).context("construct Agent session provider for unbind");
         }
     };
+
+    let key_ref = account
+        .key_ref
+        .as_ref()
+        .context("Agent unbind requires the authorized runtime key reference")?;
+    savfox_channels::arkret::delete_ed25519_key_ref_from_keyring(key_ref)
+        .context("delete retired Agent runtime key from the platform credential vault")?;
 
     if let Err(err) = crypto_store.delete_persisted() {
         warn!(

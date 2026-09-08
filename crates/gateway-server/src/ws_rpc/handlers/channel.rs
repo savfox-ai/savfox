@@ -3161,7 +3161,9 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let label = params
-        .get("account_id")
+        .get("pairing_request_id")
+        .or_else(|| params.get("pairingRequestId"))
+        .or_else(|| params.get("account_id"))
         .or_else(|| params.get("accountId"))
         .or_else(|| params.get("agent_id"))
         .or_else(|| params.get("agentId"))

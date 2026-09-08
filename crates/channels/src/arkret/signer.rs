@@ -136,6 +136,21 @@ pub fn get_or_generate_ed25519_key_ref_in_keyring(
     )
 }
 
+/// Delete an Arkret runtime key from the platform credential vault after its
+/// remote authority and published KeyPackages have been retired.
+pub fn delete_ed25519_key_ref_from_keyring(key_ref: &ArkretKeyRef) -> anyhow::Result<bool> {
+    use savfox_keyring_store::KeyringStore as _;
+
+    let ArkretKeyRef::Keyring { service, account } = key_ref else {
+        anyhow::bail!("arkret signer: only keyring runtime keys can be deleted automatically");
+    };
+    savfox_keyring_store::DefaultKeyringStore
+        .delete(service, account)
+        .with_context(|| {
+            format!("arkret signer: delete platform keyring entry {service}/{account}")
+        })
+}
+
 fn get_or_generate_ed25519_key_ref_in_store(
     store: &impl savfox_keyring_store::KeyringStore,
     service: String,

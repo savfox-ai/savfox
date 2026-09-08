@@ -5943,6 +5943,12 @@ fn arkret_runtime_key_ref_generation_params(
     if let Some(principal_id) = principal_id {
         params.insert("agent_id".to_owned(), json!(principal_id));
     }
+    if let Some(pairing_request_id) = bootstrap
+        .as_ref()
+        .map(|bootstrap| bootstrap.pairing_request_id.to_string())
+    {
+        params.insert("pairing_request_id".to_owned(), json!(pairing_request_id));
+    }
     if let Some(verification_method) = verification_method {
         params.insert("verification_method".to_owned(), json!(verification_method));
     }
@@ -7195,6 +7201,7 @@ mod tests {
 
         assert_eq!(params["platform"], "arkret");
         assert_eq!(params["agent_id"], "ak:did_core:web:agent.example");
+        assert_eq!(params["pairing_request_id"], "pair-123");
         assert_eq!(
             params["verification_method"],
             "did:web:agent.example#runtime-1"

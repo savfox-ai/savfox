@@ -93,8 +93,9 @@ pub use sidecar::{
     sidecar_binding_from_metadata_plaintext, split_sidecar_reply_target,
 };
 pub use signer::{
-    ArkretKeyRef, ed25519_runtime_public_key, ed25519_runtime_public_key_digest,
-    generate_ed25519_key_ref_in_keyring, get_or_generate_ed25519_key_ref_in_keyring,
-    load_ed25519_seed_hex, load_ed25519_signer, sign_keypackages_consume_request,
-    sign_keypackages_revoke_request, sign_keypackages_upload_request,
+    ArkretKeyRef, delete_ed25519_key_ref_from_keyring, ed25519_runtime_public_key,
+    ed25519_runtime_public_key_digest, generate_ed25519_key_ref_in_keyring,
+    get_or_generate_ed25519_key_ref_in_keyring, load_ed25519_seed_hex, load_ed25519_signer,
+    sign_keypackages_consume_request, sign_keypackages_revoke_request,
+    sign_keypackages_upload_request,
 };
