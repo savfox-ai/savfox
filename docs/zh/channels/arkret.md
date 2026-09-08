@@ -58,3 +58,8 @@ KeyPackage、claim、Welcome、receipt 和 consume 操作都必须保持该绑�
 清理旧配对的 KeyPackage 池时，仅读取密钥包清单并核对所属 Agent，旧文件中的过期
 消息 ID 格式不会阻止新运行时启动。远端确认撤销后才写入本地退休标记；其他状态
 和其他 Agent 的密钥保持原样。
+
+自有 Agent 私聊必须先完成已验证的 MLS Welcome 入群，运行时才能解密消息或发布
+加密在线状态。Savfox 验证治理闭包与 controller/Agent 成员密钥归属，将入群状态
+持久化并回读后才签署接收端持久回执。内容加密方案由 accepted 治理绑定决定；
+exporter AEAD 回复在提交前保留并持久化计数器，重启后也不会复用计数器。

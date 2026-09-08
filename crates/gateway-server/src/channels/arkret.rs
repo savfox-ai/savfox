@@ -53,6 +53,8 @@ use super::{ChannelRegistry, runtime};
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
+mod governance;
+
 /// Per-(channel, account) runtime handles. Indexed by `{channel_id}::{account_id}`.
 #[derive(Default)]
 struct ArkretRuntimeState {
@@ -1233,6 +1235,16 @@ async fn handle_account_client_event(
             let scan_request = account_scan_catchup_request_for_update(&update);
             record_account_realm_crypto_policy_from_update(&update, crypto_store, channel, account);
             record_account_mls_welcomes_from_realm_update(&update, crypto_store, channel, account);
+            if let Err(error) = governance::admit_owned_agent_welcomes(
+                client.inner(),
+                crypto_store,
+                &update.realm_id,
+                account,
+            )
+            .await
+            {
+                warn!(channel_id = %channel.id, realm_id = %update.realm_id, "arkret: verified MLS admission pending: {error:#}");
+            }
             let parsed = parse_realm_update_for_account(update, account);
             handle_parsed_account_events(
                 provider,
@@ -1351,7 +1363,11 @@ async fn repair_and_consume_pending_mls_welcomes(
     };
     let realm_ids = pending
         .iter()
-        .filter(|binding| binding.welcome_ref.is_none() || binding.strand_id.is_none())
+        .filter(|binding| {
+            binding.welcome_ref.is_none()
+                || binding.strand_id.is_none()
+                || binding.recipient_durable_receipt.is_none()
+        })
         .filter_map(|binding| binding.realm_id.as_deref())
         .collect::<HashSet<_>>();
 
@@ -1377,6 +1393,17 @@ async fn repair_and_consume_pending_mls_welcomes(
                     continue;
                 }
             };
+            if let Err(error) = governance::admit_owned_agent_welcomes(
+                client.inner(),
+                crypto_store,
+                &realm_id,
+                account,
+            )
+            .await
+            {
+                warn!(channel_id = %channel.id, account_id = %account.id,
+                    realm_id = %realm_id, "arkret: pending Welcome admission is not ready: {error:#}");
+            }
             let outcome = collect_account_scan_catchup(
                 AccountScanCatchupRequest {
                     realm_id: realm_id.clone(),
@@ -3187,7 +3214,7 @@ async fn handle_parsed_account_events(
                     account_id = %skipped.account_id,
                     event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
                     realm_id = skipped.realm_id.as_deref().unwrap_or("<unknown>"),
-                    "arkret: encrypted account message skipped; crypto session decrypt is not wired"
+                    "arkret: encrypted account message remains pending; local MLS decryption is not ready"
                 );
             }
             reason => {

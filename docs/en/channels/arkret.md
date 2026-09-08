@@ -76,3 +76,11 @@ Retiring a previous pairing's KeyPackage pool reads only its inventory and verif
 the owning Agent. Obsolete message IDs in that file do not prevent the new runtime
 from starting. Remote revocation must be acknowledged before the local retirement
 marker is written; unrelated state and other Agents' keys are preserved.
+
+Owned-Agent direct conversations require a verified accepted MLS Welcome before
+the runtime can decrypt messages or publish encrypted presence. Savfox verifies
+the governance closure and the controller/Agent leaf attribution, persists and
+reads back the joined state, then signs the recipient durable receipt. The
+accepted governance binding selects the content encryption scheme; exporter AEAD
+replies reserve and persist their counter before submission, including across
+runtime restarts.
