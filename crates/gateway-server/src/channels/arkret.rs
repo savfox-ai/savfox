@@ -4353,7 +4353,7 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
             let submission = EventInitialSubmission {
                 event: attempt.envelope.into_event(),
                 authorization_lease: item.authorization_lease.clone(),
-                cba_proof_bundles: Vec::new(),
+                cbs_proof_bundles: Vec::new(),
                 control_proposal_ack: None,
                 membership_compensation_evidence: None,
             };
@@ -4601,13 +4601,13 @@ pub(crate) async fn send_to_arkret_account(
     // The typed durable queue persists only the signed envelope plus the bound
     // AuthorizationLease; refuse wrappers carrying side material it would
     // silently drop on replay.
-    if !submission.cba_proof_bundles.is_empty()
+    if !submission.cbs_proof_bundles.is_empty()
         || submission.control_proposal_ack.is_some()
         || submission.membership_compensation_evidence.is_some()
     {
         anyhow::bail!(
             "Arkret initial submission carries side material the durable outbound queue cannot \
-             persist (CBA proof bundles / control-proposal ack / membership compensation evidence)"
+             persist (CBS proof bundles / control-proposal ack / membership compensation evidence)"
         );
     }
     let authorization_lease = submission.authorization_lease.clone();
