@@ -34,7 +34,6 @@ use garth::{
     SessionGrantTransport, SessionRefreshOptions, SessionTransportProvider, TransportProvider,
 };
 use url::Url;
-use uuid::Uuid;
 
 use super::session::ArkretSession;
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
@@ -496,7 +495,7 @@ impl ArkretHttpClient {
         let bootstrap = agent_client_builder(grant_base_url.clone())?
             .auth(Auth::Dpop(DpopAuth::proof_only({
                 let expected_htu = grant_htu.clone();
-                let proof_jwt = binding_proof.clone();
+                let holder_key = Arc::clone(&dpop_signing_key);
                 move |request| {
                     if request.method != "POST"
                         || request.htu != expected_htu
@@ -506,15 +505,20 @@ impl ArkretHttpClient {
                             "unexpected DPoP kickoff request shape".to_owned(),
                         ));
                     }
-                    Ok(proof_jwt.clone())
+                    arkret::dpop::build_dpop_proof(
+                        &arkret::dpop::DpopProofRequest::new("POST", expected_htu.clone()),
+                        holder_key.as_ref(),
+                    )
+                    .map(|proof| proof.header_value)
+                    .map_err(|error| arkret::http_client::Error::Protocol(error.to_string()))
                 }
             })))
             .build()
             .map_err(|err| anyhow::anyhow!("agent session bootstrap HTTP client: {err}"))?;
 
-        let expires_at = Utc::now() + chrono::Duration::minutes(5);
-        let challenge = format!("savfox-agent-session-{}", Uuid::now_v7());
-        let nonce = Uuid::now_v7().to_string();
+        let issued_at = Utc::now();
+        let expires_at = issued_at + chrono::Duration::minutes(5);
+        let challenge = arkret::base64url_encode(rand::random::<[u8; 32]>());
         let agent_scope_request = arkret::SessionGrantAgentScopeRequest {
             realm_ids: realm_id
                 .map(|realm_id| {
@@ -543,9 +547,9 @@ impl ArkretHttpClient {
             arkret::UnsignedAgentSessionGrantProof {
                 challenge,
                 audience_id: audience.clone(),
+                issued_at,
                 expires_at,
                 verification_method: verification_method.clone(),
-                nonce,
             },
         )
         .map_err(|err| anyhow::anyhow!("author agent_key_proof request: {err}"))?;
@@ -1274,8 +1278,8 @@ mod tests {
             "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
             "request_digest": format!("sha256:{}", "cc".repeat(32)),
             "claims_digest": format!("sha256:{}", "dd".repeat(32)),
-            "source_service_id": "ak:did_core:webvh:z6mkservicefixture",
-            "destination_service_id": "ak:did_core:webvh:z6mkpeerservicefixture",
+            "source_id": "ak:did_core:webvh:z6mkservicefixture",
+            "destination_id": "ak:did_core:webvh:z6mkpeerservicefixture",
             "request": {
                 "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
                 "target_account_id": {
