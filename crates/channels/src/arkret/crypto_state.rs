@@ -714,7 +714,6 @@ impl FileArkretCryptoStore {
                 kind: arkret::proof_kind::DETACHED_JWS.to_owned(),
                 verification_method,
                 envelope_digest: arkret::Hash::new(format!("sha256:{}", "0".repeat(64)))?,
-                created_at: sent_at,
                 domain: None,
                 audience: None,
                 jws: String::new(),
