@@ -25,6 +25,10 @@ use crate::terminal_agent::{
     TerminalWorkspaceManager, TerminalWorkspaceRequest, TerminalWorkspaceState,
     parse_terminal_output, record_terminal_runtime_metrics, render_terminal_template, resolve_cwd,
 };
+use crate::terminal_pty::{
+    TerminalPtyCompletion, TerminalPtySessionKey, TerminalPtySize, TerminalPtySpawnSpec,
+    TerminalPtyWrite, TerminalPtyWriteKind, terminal_pty_manager,
+};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
 const MIN_TIMEOUT_SECS: u64 = 5;
@@ -1049,6 +1053,15 @@ async fn run_command(
     attachments: &[ChatAttachment],
     stream_sink: Option<TerminalEventSink>,
 ) -> anyhow::Result<TerminalRunResult> {
+    let managed = configured_mode(delegate) == "managed_pty";
+    if managed
+        && (configured_session_scope(delegate) == "per_turn"
+            || configured_cleanup_policy(delegate) == "per_turn")
+    {
+        anyhow::bail!(
+            "managed_pty requires per_session or manual retention; per_turn cleanup would remove a live process workspace"
+        );
+    }
     let persisted_attachments =
         persist_terminal_attachments(&terminal_context.log_dir, attachments).await?;
     let history =
@@ -1081,7 +1094,11 @@ async fn run_command(
         session_workspace_dir: terminal_context.workspace_dir.clone(),
         log_dir: terminal_context.log_dir.clone(),
         session_id: terminal_context.session_id.clone(),
-        cleanup_policy: configured_workspace_cleanup_policy(delegate),
+        cleanup_policy: if managed {
+            "manual".to_owned()
+        } else {
+            configured_workspace_cleanup_policy(delegate)
+        },
     })
     .await?;
     let values = build_prompt_values_with_workspace(
@@ -1131,7 +1148,7 @@ async fn run_command(
     let mut running_state = metadata_state.clone();
     running_state.status = "running".to_owned();
     let supervisor_started = Instant::now();
-    let output_callback = stream_sink.map(|sink| {
+    let output_callback = stream_sink.clone().map(|sink| {
         Arc::new(move |stream: &'static str, text: String| {
             sink(TerminalAgentEvent::OutputDelta {
                 stream: stream.to_owned(),
@@ -1139,28 +1156,40 @@ async fn run_command(
             });
         }) as TerminalOutputCallback
     });
-    let supervised = TerminalSupervisor::run_with_spawn_and_output_callback(
-        resolved_command.spec,
-        move |pid| {
-            let delegate_for_spawn = delegate_for_spawn.clone();
-            let context_for_spawn = context_for_spawn.clone();
-            let mut running_state = running_state;
-            running_state.pid = pid;
-            async move {
-                if let Err(err) = write_terminal_session_metadata(
-                    &delegate_for_spawn,
-                    &context_for_spawn,
-                    &running_state,
-                )
-                .await
-                {
-                    warn!("failed to write terminal delegate metadata: {err}");
+    let supervised = if managed {
+        run_managed_command(
+            delegate,
+            terminal_context,
+            &values,
+            &resolved_command.spec,
+            &mut running_state,
+            stream_sink,
+        )
+        .await
+    } else {
+        TerminalSupervisor::run_with_spawn_and_output_callback(
+            resolved_command.spec,
+            move |pid| {
+                let delegate_for_spawn = delegate_for_spawn.clone();
+                let context_for_spawn = context_for_spawn.clone();
+                let mut running_state = running_state;
+                running_state.pid = pid;
+                async move {
+                    if let Err(err) = write_terminal_session_metadata(
+                        &delegate_for_spawn,
+                        &context_for_spawn,
+                        &running_state,
+                    )
+                    .await
+                    {
+                        warn!("failed to write terminal delegate metadata: {err}");
+                    }
                 }
-            }
-        },
-        output_callback,
-    )
-    .await;
+            },
+            output_callback,
+        )
+        .await
+    };
     record_terminal_runtime_metrics(&supervised.exit_reason, supervisor_started.elapsed());
 
     append_terminal_log(&terminal_context.log_dir, "stdout.log", &supervised.stdout).await;
@@ -1215,6 +1244,120 @@ async fn run_command(
         events,
         attachments: persisted_attachments,
     })
+}
+
+async fn run_managed_command(
+    delegate: &ResolvedTerminalDelegate,
+    context: &TerminalSessionContext,
+    values: &TerminalTemplateValues,
+    command: &crate::terminal_agent::TerminalCommandSpec,
+    state: &mut TerminalSessionMetadataState,
+    stream_sink: Option<TerminalEventSink>,
+) -> TerminalSupervisorResult {
+    let key = TerminalPtySessionKey::new(&delegate.agent_id, &context.session_id);
+    let spec = TerminalPtySpawnSpec {
+        program: render_terminal_template(
+            delegate
+                .config
+                .interactive_command
+                .as_deref()
+                .unwrap_or(&command.program),
+            values,
+        ),
+        // One-shot args (e.g. `exec <prompt>` / `-p <prompt>`) must never be
+        // reused as the interactive startup command.
+        args: delegate
+            .config
+            .interactive_args
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .map(|arg| render_terminal_template(arg, values))
+            .collect(),
+        cwd: command.cwd.clone(),
+        env: command.env.clone(),
+        size: TerminalPtySize::default(),
+    };
+    let result = async {
+        let session = terminal_pty_manager()
+            .get_or_spawn(key.clone(), spec)
+            .await?;
+        state.pid = session.metadata().await.pid;
+        write_terminal_session_metadata(delegate, context, state).await?;
+        let text = if let Some(template) = delegate.config.stdin.as_deref() {
+            // Explicit stdin templates are for line-oriented managed programs.
+            format!(
+                "{}\r",
+                render_terminal_template(template, values).trim_end_matches(['\r', '\n'])
+            )
+        } else {
+            // Bracketed paste keeps a multiline context package in one TUI
+            // prompt. Submit only after the end-of-paste sequence.
+            format!(
+                "\u{1b}[200~{}\u{1b}[201~\r",
+                values.full_prompt.replace('\u{1b}', "")
+            )
+        };
+        terminal_pty_manager()
+            .run_turn(
+                &key,
+                TerminalPtyWrite {
+                    kind: TerminalPtyWriteKind::ControlSequence,
+                    text,
+                },
+                command.timeout,
+                |entry| {
+                    if let Some(sink) = &stream_sink {
+                        sink(TerminalAgentEvent::OutputDelta {
+                            stream: entry.stream.clone(),
+                            text: entry.text.clone(),
+                        });
+                    }
+                },
+            )
+            .await
+    }
+    .await;
+    let (stdout, exit_code, exit_reason, error) = match result {
+        Ok((output, metadata)) => {
+            let success = matches!(
+                metadata.completion,
+                TerminalPtyCompletion::Manual | TerminalPtyCompletion::Sentinel
+            ) || (metadata.completion == TerminalPtyCompletion::Exited
+                && metadata.exit_code == Some(0));
+            let reason = if success {
+                TerminalExitReason::Completed
+            } else if metadata.exit_code.is_some() {
+                TerminalExitReason::NonZero
+            } else {
+                TerminalExitReason::IoError
+            };
+            (
+                output,
+                metadata.exit_code,
+                reason,
+                (!success).then(|| format!("managed terminal stopped: {:?}", metadata.completion)),
+            )
+        }
+        Err(error) => {
+            let reason = if error.kind() == std::io::ErrorKind::TimedOut {
+                TerminalExitReason::Timeout
+            } else {
+                TerminalExitReason::IoError
+            };
+            (String::new(), None, reason, Some(error.to_string()))
+        }
+    };
+    TerminalSupervisorResult {
+        stdout,
+        stderr: String::new(),
+        stdout_truncated: false,
+        stderr_truncated: false,
+        pid: state.pid,
+        exit_code,
+        exit_reason,
+        error,
+    }
 }
 
 fn terminal_supervisor_error_message(
@@ -1446,22 +1589,26 @@ impl GatewayChannel {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use savfox_core::config::ConfigBuilder;
     use savfox_gateway_shared::ChatAttachment;
     use savfox_protocol::protocol::{AgentMessageEvent, EventMsg, RolloutItem};
     use serde_json::json;
+    use uuid::Uuid;
 
     use super::{
-        ResolvedTerminalDelegate, TerminalSessionMetadataState, build_terminal_session_context,
-        configured_mode, configured_profile, persist_terminal_delegate_rollout,
-        resolve_agent_config, run_command, terminal_delegate_from_agent_config,
-        validate_terminal_session_id, write_rollout_line, write_terminal_session_metadata,
+        ResolvedTerminalDelegate, TerminalEventSink, TerminalSessionMetadataState,
+        build_terminal_session_context, configured_mode, configured_profile,
+        persist_terminal_delegate_rollout, resolve_agent_config, run_command,
+        terminal_delegate_from_agent_config, validate_terminal_session_id, write_rollout_line,
+        write_terminal_session_metadata,
     };
     use crate::agent_terminal_delegate::{
         AgentTerminalDelegateConfig, render_template, rendered_args,
     };
-    use crate::terminal_agent::TerminalTemplateValues;
+    use crate::terminal_agent::{TerminalAgentEvent, TerminalTemplateValues};
+    use crate::terminal_pty::{TerminalPtySessionKey, terminal_pty_manager};
 
     #[cfg(windows)]
     fn fake_terminal_echo_command() -> (String, Vec<String>, Option<String>) {
@@ -2039,6 +2186,87 @@ mod tests {
             metadata["rollout_path"].as_str(),
             Some(rollout_path.as_ref())
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn managed_pty_chat_reuses_native_process_and_streams_before_completion() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let mut config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .expect("config");
+        config.cwd = home.path().to_path_buf();
+        let (program, args) = if cfg!(windows) {
+            (
+                "powershell.exe",
+                vec![
+                    "-NoProfile",
+                    "-Command",
+                    r#"
+while (($line = [Console]::ReadLine()) -ne $null) {
+  [Console]::WriteLine("turn:$line")
+  Start-Sleep -Milliseconds 100
+  [Console]::WriteLine('::savfox-complete')
+}
+"#,
+                ],
+            )
+        } else {
+            (
+                "sh",
+                vec![
+                    "-c",
+                    "while IFS= read -r line; do printf 'turn:%s\n' \"$line\"; sleep 0.1; printf '::savfox-complete\n'; done",
+                ],
+            )
+        };
+        let delegate = terminal_delegate_from_agent_config(
+            "managed-test".to_owned(),
+            json!({
+                "id":"managed-test", "kind":"terminal", "terminal": {
+                    "enabled":true, "mode":"managed_pty", "command":"must-not-run-one-shot",
+                    "interactive_command":program, "interactive_args":args,
+                    "stdin":"{{user_prompt}}", "io_protocol":"sentinel", "timeout_secs":10
+                }
+            }),
+        )
+        .expect("delegate");
+        let session_id = Uuid::now_v7().to_string();
+        let context = build_terminal_session_context(&config, &delegate, &session_id)
+            .await
+            .expect("context");
+        let chunks = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink_chunks = Arc::clone(&chunks);
+        let sink: TerminalEventSink = Arc::new(move |event| {
+            sink_chunks.lock().expect("chunks").push(event);
+        });
+        let first = run_command(
+            &config,
+            &delegate,
+            &context,
+            "first",
+            "default",
+            &[],
+            Some(sink),
+        )
+        .await
+        .expect("first managed turn");
+        let second = run_command(&config, &delegate, &context, "second", "default", &[], None)
+            .await
+            .expect("second managed turn");
+        assert!(first.reply.contains("turn:first"), "{:?}", first.reply);
+        assert!(second.reply.contains("turn:second"), "{:?}", second.reply);
+        assert_eq!(first.pid, second.pid);
+        assert!(first.pid.is_some());
+        assert!(chunks.lock().expect("chunks").iter().any(|event| matches!(event, TerminalAgentEvent::OutputDelta { text, .. } if text.contains("turn:first"))));
+        terminal_pty_manager()
+            .close(
+                &TerminalPtySessionKey::new("managed-test", session_id),
+                crate::terminal_pty::TerminalPtyCloseReason::ExplicitClose,
+            )
+            .await
+            .expect("close");
     }
 
     #[tokio::test]

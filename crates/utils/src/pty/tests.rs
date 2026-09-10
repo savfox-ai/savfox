@@ -18,6 +18,40 @@ fn find_python() -> Option<String> {
     None
 }
 
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pty_windows_npm_shim_preserves_arguments() -> anyhow::Result<()> {
+    let temp = tempfile::Builder::new().prefix("pty shim ").tempdir()?;
+    std::fs::write(temp.path().join("test-pty-shim"), "#!/bin/sh\nexit 99\n")?;
+    std::fs::write(
+        temp.path().join("test-pty-shim.ps1"),
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n[Console]::WriteLine(($args | ConvertTo-Json -Compress))",
+    )?;
+    let mut env_map: HashMap<String, String> = std::env::vars().collect();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let paths = std::iter::once(temp.path().to_path_buf()).chain(std::env::split_paths(&path));
+    env_map.retain(|key, _| !key.eq_ignore_ascii_case("PATH"));
+    env_map.insert(
+        "PATH".to_owned(),
+        std::env::join_paths(paths)?.to_string_lossy().into_owned(),
+    );
+    let args = vec![
+        "space argument".to_owned(),
+        "a&b".to_owned(),
+        "中文".to_owned(),
+    ];
+    let spawned = spawn_pty_process("test-pty-shim", &args, temp.path(), &env_map, &None).await?;
+    assert!(spawned.session.process_id().is_some());
+    let (output, code) =
+        collect_output_until_exit(spawned.output_rx, spawned.exit_rx, 10_000).await;
+    assert_eq!(code, 0);
+    let text = String::from_utf8_lossy(&output);
+    let start = text.find("[\"").expect("JSON array in terminal output");
+    let mut values = serde_json::Deserializer::from_str(&text[start..]).into_iter::<Vec<String>>();
+    assert_eq!(values.next().expect("JSON output")?, args);
+    Ok(())
+}
+
 fn setsid_available() -> bool {
     if cfg!(windows) {
         return false;

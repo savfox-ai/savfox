@@ -80,441 +80,477 @@ pub(crate) async fn dispatch_rpc(
         );
     }
 
-    let result = match method.as_str() {
+    // Store only the selected handler future. Embedding all handler variants
+    // in this async dispatcher overflows default Windows worker stacks, even
+    // for lightweight terminal requests.
+    let handler: futures_util::future::BoxFuture<'_, RpcResult> = match method.as_str() {
         // ── Core ────────────────────────────────────────────────────────
-        "connect" => handle_connect(&params).await,
-        "health" => handle_health().await,
-        "status" => handle_status(session_mgr, channel).await,
-        "account/login/start" => handle_account_login_start(&params, channel).await,
-        "account/login/cancel" => handle_account_login_cancel(&params).await,
-        "account/read" => handle_account_read(&params, channel).await,
+        "connect" => Box::pin(handle_connect(&params)),
+        "health" => Box::pin(handle_health()),
+        "status" => Box::pin(handle_status(session_mgr, channel)),
+        "account/login/start" => Box::pin(handle_account_login_start(&params, channel)),
+        "account/login/cancel" => Box::pin(handle_account_login_cancel(&params)),
+        "account/read" => Box::pin(handle_account_read(&params, channel)),
 
         // ── Agent (single-agent operations) ─────────────────────────────
-        "agent" => handle_agent(&params, channel).await,
-        "agent.identity" => handle_agent_identity().await,
-        "agent.wait" => handle_agent_wait(&params, channel).await,
-        "agent.capabilities" => handle_agent_capabilities(&params, channel).await,
-        "agent.terminal.profile.list" => handle_agent_terminal_profile_list().await,
-        "agent.terminal.health" => handle_agent_terminal_health(&params, channel).await,
-        "agent.terminal.launch" => handle_agent_terminal_launch(&params, channel).await,
-        "agent.terminal.cleanup" => handle_agent_terminal_cleanup(&params, channel).await,
-        "agent.terminal.metrics" => handle_agent_terminal_metrics().await,
-        "agent.terminal.pty.start" => handle_agent_terminal_pty_start(&params, channel).await,
-        "agent.terminal.pty.write" => handle_agent_terminal_pty_write(&params).await,
-        "agent.terminal.pty.read" => handle_agent_terminal_pty_read(&params).await,
-        "agent.terminal.pty.resize" => handle_agent_terminal_pty_resize(&params).await,
-        "agent.terminal.pty.close" => handle_agent_terminal_pty_close(&params).await,
-        "agent.terminal.pty.list" => handle_agent_terminal_pty_list().await,
-        "agent.terminal.pty.close_idle" => handle_agent_terminal_pty_close_idle().await,
-        "agent.delegation.list" => handle_agent_delegation_list().await,
-        "agent.delegation.chain" => handle_agent_delegation_chain(&params).await,
-        "agent.delegation.record" => handle_agent_delegation_record(&params).await,
-        "agent.delegation.remove" => handle_agent_delegation_remove(&params).await,
+        "agent" => Box::pin(handle_agent(&params, channel)),
+        "agent.identity" => Box::pin(handle_agent_identity()),
+        "agent.wait" => Box::pin(handle_agent_wait(&params, channel)),
+        "agent.capabilities" => Box::pin(handle_agent_capabilities(&params, channel)),
+        "agent.terminal.profile.list" => Box::pin(handle_agent_terminal_profile_list()),
+        "agent.terminal.health" => Box::pin(handle_agent_terminal_health(&params, channel)),
+        "agent.terminal.launch" => Box::pin(handle_agent_terminal_launch(&params, channel)),
+        "agent.terminal.cleanup" => Box::pin(handle_agent_terminal_cleanup(&params, channel)),
+        "agent.terminal.metrics" => Box::pin(handle_agent_terminal_metrics()),
+        "agent.terminal.pty.start" => Box::pin(handle_agent_terminal_pty_start(&params, channel)),
+        "agent.terminal.pty.write" => Box::pin(handle_agent_terminal_pty_write(&params)),
+        "agent.terminal.pty.read" => Box::pin(handle_agent_terminal_pty_read(&params)),
+        "agent.terminal.pty.resize" => Box::pin(handle_agent_terminal_pty_resize(&params)),
+        "agent.terminal.pty.close" => Box::pin(handle_agent_terminal_pty_close(&params)),
+        "agent.terminal.pty.list" => Box::pin(handle_agent_terminal_pty_list()),
+        "agent.terminal.pty.close_idle" => Box::pin(handle_agent_terminal_pty_close_idle()),
+        "agent.delegation.list" => Box::pin(handle_agent_delegation_list()),
+        "agent.delegation.chain" => Box::pin(handle_agent_delegation_chain(&params)),
+        "agent.delegation.record" => Box::pin(handle_agent_delegation_record(&params)),
+        "agent.delegation.remove" => Box::pin(handle_agent_delegation_remove(&params)),
 
         // ── Agents (multi-agent CRUD) ───────────────────────────────────
-        "agents.list" => handle_agents_list(channel).await,
-        "agents.get" => handle_agents_get(&params, channel).await,
-        "agents.create" => handle_agents_create(&params, channel).await,
-        "agents.update" => handle_agents_update(&params, channel).await,
-        "agents.delete" => handle_agents_delete(&params, channel).await,
-        "agents.reset" => handle_agents_reset(&params, channel).await,
-        "agents.files.list" => handle_agents_files_list(&params, channel).await,
-        "agents.files.get" => handle_agents_files_get(&params, channel).await,
-        "agents.files.set" => handle_agents_files_set(&params, channel).await,
-        "agents.files.delete" => handle_agents_files_delete(&params, channel).await,
-        "agents.skills.get" => handle_agents_skills_get(&params, channel).await,
-        "agents.skills.set" => handle_agents_skills_set(&params, channel).await,
+        "agents.list" => Box::pin(handle_agents_list(channel)),
+        "agents.get" => Box::pin(handle_agents_get(&params, channel)),
+        "agents.create" => Box::pin(handle_agents_create(&params, channel)),
+        "agents.update" => Box::pin(handle_agents_update(&params, channel)),
+        "agents.delete" => Box::pin(handle_agents_delete(&params, channel)),
+        "agents.reset" => Box::pin(handle_agents_reset(&params, channel)),
+        "agents.files.list" => Box::pin(handle_agents_files_list(&params, channel)),
+        "agents.files.get" => Box::pin(handle_agents_files_get(&params, channel)),
+        "agents.files.set" => Box::pin(handle_agents_files_set(&params, channel)),
+        "agents.files.delete" => Box::pin(handle_agents_files_delete(&params, channel)),
+        "agents.skills.get" => Box::pin(handle_agents_skills_get(&params, channel)),
+        "agents.skills.set" => Box::pin(handle_agents_skills_set(&params, channel)),
 
         // ── Chat ────────────────────────────────────────────────────────
-        "chat.send" => handle_chat_send(&params, channel, session_mgr, session_store).await,
-        "chat.history" => handle_chat_history(&params, session_store, channel).await,
-        "chat.abort" => handle_chat_abort(&params, channel, session_store).await,
+        "chat.send" => Box::pin(handle_chat_send(
+            &params,
+            channel,
+            session_mgr,
+            session_store,
+        )),
+        "chat.history" => Box::pin(handle_chat_history(&params, session_store, channel)),
+        "chat.abort" => Box::pin(handle_chat_abort(&params, channel, session_store)),
 
         // ── Sessions ────────────────────────────────────────────────────
-        "sessions.list" => handle_sessions_list(session_mgr, session_store, channel).await,
+        "sessions.list" => Box::pin(handle_sessions_list(session_mgr, session_store, channel)),
         "sessions.ambient.get" => {
-            handle_sessions_ambient_get(&params, session_store, channel).await
+            Box::pin(handle_sessions_ambient_get(&params, session_store, channel))
         }
-        "sessions.idle_reply.get" => {
-            handle_sessions_idle_reply_get(&params, session_store, channel).await
-        }
-        "sessions.preview" => handle_sessions_preview(&params, session_store, channel).await,
+        "sessions.idle_reply.get" => Box::pin(handle_sessions_idle_reply_get(
+            &params,
+            session_store,
+            channel,
+        )),
+        "sessions.preview" => Box::pin(handle_sessions_preview(&params, session_store, channel)),
         #[cfg(feature = "arkret")]
-        "sessions.arkret.delivery.preview" => {
-            handle_sessions_arkret_delivery_preview(&params, session_store, channel).await
-        }
+        "sessions.arkret.delivery.preview" => Box::pin(handle_sessions_arkret_delivery_preview(
+            &params,
+            session_store,
+            channel,
+        )),
         #[cfg(feature = "arkret")]
-        "sessions.arkret.delivery.publish" => {
-            handle_sessions_arkret_delivery_publish(&params, session_store, channel).await
-        }
-        "sessions.patch" => handle_sessions_patch(&params, session_store).await,
-        "sessions.reset" => {
-            handle_sessions_reset(&params, session_mgr, session_store, channel).await
-        }
-        "sessions.delete" => {
-            handle_sessions_delete(&params, session_mgr, session_store, channel).await
-        }
-        "sessions.overrides.get" => handle_sessions_overrides_get(&params, session_store).await,
-        "sessions.overrides.set" => handle_sessions_overrides_set(&params, session_store).await,
-        "sessions.identity_links.get" => handle_identity_links_get(channel).await,
-        "sessions.identity_links.set" => handle_identity_links_set(&params, channel).await,
-        "identity.link" => handle_identity_link(&params, channel).await,
-        "sessions.dm_scope.get" => handle_dm_scope_policy_get(channel).await,
-        "sessions.dm_scope.set" => handle_dm_scope_policy_set(&params, channel).await,
-        "sessions.dm_scope.migrate" => handle_dm_scope_migrate(&params, session_store).await,
-        "sessions.usage" => handle_sessions_usage(&params, session_store).await,
-        "media.staging.list" => handle_media_staging_list(&params, channel).await,
-        "media.staging.import" => handle_media_staging_import(&params, channel).await,
-        "media.staging.cleanup" => handle_media_staging_cleanup(&params, channel).await,
+        "sessions.arkret.delivery.publish" => Box::pin(handle_sessions_arkret_delivery_publish(
+            &params,
+            session_store,
+            channel,
+        )),
+        "sessions.patch" => Box::pin(handle_sessions_patch(&params, session_store)),
+        "sessions.reset" => Box::pin(handle_sessions_reset(
+            &params,
+            session_mgr,
+            session_store,
+            channel,
+        )),
+        "sessions.delete" => Box::pin(handle_sessions_delete(
+            &params,
+            session_mgr,
+            session_store,
+            channel,
+        )),
+        "sessions.overrides.get" => Box::pin(handle_sessions_overrides_get(&params, session_store)),
+        "sessions.overrides.set" => Box::pin(handle_sessions_overrides_set(&params, session_store)),
+        "sessions.identity_links.get" => Box::pin(handle_identity_links_get(channel)),
+        "sessions.identity_links.set" => Box::pin(handle_identity_links_set(&params, channel)),
+        "identity.link" => Box::pin(handle_identity_link(&params, channel)),
+        "sessions.dm_scope.get" => Box::pin(handle_dm_scope_policy_get(channel)),
+        "sessions.dm_scope.set" => Box::pin(handle_dm_scope_policy_set(&params, channel)),
+        "sessions.dm_scope.migrate" => Box::pin(handle_dm_scope_migrate(&params, session_store)),
+        "sessions.usage" => Box::pin(handle_sessions_usage(&params, session_store)),
+        "media.staging.list" => Box::pin(handle_media_staging_list(&params, channel)),
+        "media.staging.import" => Box::pin(handle_media_staging_import(&params, channel)),
+        "media.staging.cleanup" => Box::pin(handle_media_staging_cleanup(&params, channel)),
 
         // ── Typing indicators ────────────────────────────────────────────
-        "typing.start" => handle_typing_start(&params, session_mgr).await,
-        "typing.stop" => handle_typing_stop(&params, session_mgr).await,
+        "typing.start" => Box::pin(handle_typing_start(&params, session_mgr)),
+        "typing.stop" => Box::pin(handle_typing_stop(&params, session_mgr)),
 
         // ── Events (server-push subscriptions) ──────────────────────────
-        "events.subscribe" => handle_events_subscribe(&params).await,
-        "events.unsubscribe" => handle_events_unsubscribe(&params).await,
-        "events.list" => handle_events_list().await,
+        "events.subscribe" => Box::pin(handle_events_subscribe(&params)),
+        "events.unsubscribe" => Box::pin(handle_events_unsubscribe(&params)),
+        "events.list" => Box::pin(handle_events_list()),
 
         // ── Send / Wake / Channels ──────────────────────────────────────
-        "send" => handle_send(&params, channel).await,
-        "send.metrics" => handle_send_metrics().await,
-        "wake" => handle_wake(&params, channel).await,
-        "channels.list" => handle_channels_list(channel).await,
-        "channels.status" => handle_channels_status(&params, channel).await,
-        "channels.login" => handle_channels_login(&params, channel, session_store).await,
-        "channels.logout" => handle_channels_logout(&params, channel).await,
-        "channels.test" => handle_channels_test(&params, channel).await,
-        "channels.arkret.inspect" => handle_channels_arkret_inspect(&params, channel).await,
+        "send" => Box::pin(handle_send(&params, channel)),
+        "send.metrics" => Box::pin(handle_send_metrics()),
+        "wake" => Box::pin(handle_wake(&params, channel)),
+        "channels.list" => Box::pin(handle_channels_list(channel)),
+        "channels.status" => Box::pin(handle_channels_status(&params, channel)),
+        "channels.login" => Box::pin(handle_channels_login(&params, channel, session_store)),
+        "channels.logout" => Box::pin(handle_channels_logout(&params, channel)),
+        "channels.test" => Box::pin(handle_channels_test(&params, channel)),
+        "channels.arkret.inspect" => Box::pin(handle_channels_arkret_inspect(&params, channel)),
         "channels.arkret.runtime_key_request" => {
-            handle_channels_arkret_runtime_key_request(&params, channel).await
+            Box::pin(handle_channels_arkret_runtime_key_request(&params, channel))
         }
-        "channels.arkret.runtime_key_request_status" => {
-            handle_channels_arkret_runtime_key_request_status(&params, channel).await
-        }
-        "channels.arkret.resolve_pairing_bootstrap" => {
-            handle_channels_arkret_resolve_pairing_bootstrap(&params, channel).await
-        }
-        "channels.arkret.generate_runtime_key_ref" => {
-            handle_channels_arkret_generate_runtime_key_ref(&params, channel).await
-        }
-        "channels.arkret.unbind" => handle_channels_arkret_unbind(&params, channel).await,
-        "channels.matrix.invites" => handle_channels_matrix_invites(&params, channel).await,
+        "channels.arkret.runtime_key_request_status" => Box::pin(
+            handle_channels_arkret_runtime_key_request_status(&params, channel),
+        ),
+        "channels.arkret.resolve_pairing_bootstrap" => Box::pin(
+            handle_channels_arkret_resolve_pairing_bootstrap(&params, channel),
+        ),
+        "channels.arkret.generate_runtime_key_ref" => Box::pin(
+            handle_channels_arkret_generate_runtime_key_ref(&params, channel),
+        ),
+        "channels.arkret.unbind" => Box::pin(handle_channels_arkret_unbind(&params, channel)),
+        "channels.matrix.invites" => Box::pin(handle_channels_matrix_invites(&params, channel)),
         "channels.matrix.invite.accept" => {
-            handle_channels_matrix_invite_accept(&params, channel).await
+            Box::pin(handle_channels_matrix_invite_accept(&params, channel))
         }
         "channels.matrix.invite.reject" => {
-            handle_channels_matrix_invite_reject(&params, channel).await
+            Box::pin(handle_channels_matrix_invite_reject(&params, channel))
         }
         "channels.matrix.invite.dismiss" => {
-            handle_channels_matrix_invite_dismiss(&params, channel).await
+            Box::pin(handle_channels_matrix_invite_dismiss(&params, channel))
         }
-        "channels.account.update" => handle_channels_account_update(&params, channel).await,
-        "web.login.start" => handle_web_login_start(&params, channel, session_store).await,
-        "web.login.wait" => handle_web_login_wait(&params, channel).await,
-        "channels.nostr.profile.get" => handle_channels_nostr_profile_get(channel).await,
-        "channels.nostr.profile.set" => handle_channels_nostr_profile_set(&params, channel).await,
+        "channels.account.update" => Box::pin(handle_channels_account_update(&params, channel)),
+        "web.login.start" => Box::pin(handle_web_login_start(&params, channel, session_store)),
+        "web.login.wait" => Box::pin(handle_web_login_wait(&params, channel)),
+        "channels.nostr.profile.get" => Box::pin(handle_channels_nostr_profile_get(channel)),
+        "channels.nostr.profile.set" => {
+            Box::pin(handle_channels_nostr_profile_set(&params, channel))
+        }
         "channels.nostr.profile.import" => {
-            handle_channels_nostr_profile_import(&params, channel).await
+            Box::pin(handle_channels_nostr_profile_import(&params, channel))
         }
-        "channels.nostr.profile.export" => handle_channels_nostr_profile_export(channel).await,
-        "channels.nostr.relays.get" => handle_channels_nostr_relays_get(channel).await,
-        "channels.nostr.relays.set" => handle_channels_nostr_relays_set(&params, channel).await,
-        "channels.config.list" => handle_channels_config_list(channel).await,
-        "channels.config.get" => handle_channels_config_get(&params, channel).await,
+        "channels.nostr.profile.export" => Box::pin(handle_channels_nostr_profile_export(channel)),
+        "channels.nostr.relays.get" => Box::pin(handle_channels_nostr_relays_get(channel)),
+        "channels.nostr.relays.set" => Box::pin(handle_channels_nostr_relays_set(&params, channel)),
+        "channels.config.list" => Box::pin(handle_channels_config_list(channel)),
+        "channels.config.get" => Box::pin(handle_channels_config_get(&params, channel)),
         "channels.config.save" => {
-            handle_channels_config_save(&params, channel, session_store).await
+            Box::pin(handle_channels_config_save(&params, channel, session_store))
         }
-        "channels.config.delete" => handle_channels_config_delete(&params, channel).await,
+        "channels.config.delete" => Box::pin(handle_channels_config_delete(&params, channel)),
 
         // ── Directory service ────────────────────────────────────────
-        "directory.self" => handle_directory_self(&params, channel, session_store).await,
-        "directory.peers.list" => handle_directory_peers_list(&params, session_store).await,
-        "directory.groups.list" => handle_directory_groups_list(&params, session_store).await,
-        "directory.groups.members" => handle_directory_groups_members(&params, session_store).await,
+        "directory.self" => Box::pin(handle_directory_self(&params, channel, session_store)),
+        "directory.peers.list" => Box::pin(handle_directory_peers_list(&params, session_store)),
+        "directory.groups.list" => Box::pin(handle_directory_groups_list(&params, session_store)),
+        "directory.groups.members" => {
+            Box::pin(handle_directory_groups_members(&params, session_store))
+        }
 
         // ── Config ──────────────────────────────────────────────────────
-        "config.get" => handle_config_get(channel).await,
-        "config.set" => handle_config_set(&params, channel).await,
-        "config.apply" => handle_config_apply(&params, channel).await,
-        "config.patch" => handle_config_patch(&params, channel).await,
-        "config.export" => handle_config_export(&params, channel).await,
-        "config.schema" => handle_config_schema().await,
+        "config.get" => Box::pin(handle_config_get(channel)),
+        "config.set" => Box::pin(handle_config_set(&params, channel)),
+        "config.apply" => Box::pin(handle_config_apply(&params, channel)),
+        "config.patch" => Box::pin(handle_config_patch(&params, channel)),
+        "config.export" => Box::pin(handle_config_export(&params, channel)),
+        "config.schema" => Box::pin(handle_config_schema()),
 
         // ── Cron ────────────────────────────────────────────────────────
-        "cron.list" => handle_cron_list(cron_service).await,
-        "cron.status" => handle_cron_status(cron_service).await,
-        "cron.add" => handle_cron_add(&params, cron_service).await,
-        "cron.update" => handle_cron_update(&params, cron_service).await,
-        "cron.remove" => handle_cron_remove(&params, cron_service).await,
-        "cron.run" => handle_cron_run(&params, cron_service, channel).await,
-        "cron.runs" => handle_cron_runs(&params, cron_service).await,
+        "cron.list" => Box::pin(handle_cron_list(cron_service)),
+        "cron.status" => Box::pin(handle_cron_status(cron_service)),
+        "cron.add" => Box::pin(handle_cron_add(&params, cron_service)),
+        "cron.update" => Box::pin(handle_cron_update(&params, cron_service)),
+        "cron.remove" => Box::pin(handle_cron_remove(&params, cron_service)),
+        "cron.run" => Box::pin(handle_cron_run(&params, cron_service, channel)),
+        "cron.runs" => Box::pin(handle_cron_runs(&params, cron_service)),
 
         // ── Nodes ───────────────────────────────────────────────────────
-        "node.list" => handle_node_list().await,
-        "node.describe" => handle_node_describe(&params).await,
-        "node.capabilities.list" => handle_node_capabilities_list().await,
-        "node.invoke" => handle_node_invoke(&params, channel).await,
-        "node.invoke.result" => handle_node_invoke_result(&params).await,
-        "node.event" => handle_node_event(&params, channel).await,
-        "node.camera.snap" => handle_node_tool_alias("camera.snap", &params, channel).await,
-        "node.camera.clip" => handle_node_tool_alias("camera.clip", &params, channel).await,
-        "node.screen.record" => handle_node_tool_alias("screen.record", &params, channel).await,
-        "node.location.get" => handle_node_tool_alias("location.get", &params, channel).await,
-        "node.notify" => handle_node_tool_alias("notify", &params, channel).await,
+        "node.list" => Box::pin(handle_node_list()),
+        "node.describe" => Box::pin(handle_node_describe(&params)),
+        "node.capabilities.list" => Box::pin(handle_node_capabilities_list()),
+        "node.invoke" => Box::pin(handle_node_invoke(&params, channel)),
+        "node.invoke.result" => Box::pin(handle_node_invoke_result(&params)),
+        "node.event" => Box::pin(handle_node_event(&params, channel)),
+        "node.camera.snap" => Box::pin(handle_node_tool_alias("camera.snap", &params, channel)),
+        "node.camera.clip" => Box::pin(handle_node_tool_alias("camera.clip", &params, channel)),
+        "node.screen.record" => Box::pin(handle_node_tool_alias("screen.record", &params, channel)),
+        "node.location.get" => Box::pin(handle_node_tool_alias("location.get", &params, channel)),
+        "node.notify" => Box::pin(handle_node_tool_alias("notify", &params, channel)),
 
         // ── Device pairing ──────────────────────────────────────────────
-        "node.pair.request" => handle_node_pair_request(&params).await,
-        "node.pair.list" => handle_node_pair_list().await,
-        "node.pair.approve" => handle_node_pair_approve(&params).await,
-        "node.pair.reject" => handle_node_pair_reject(&params).await,
-        "node.pair.verify" => handle_node_pair_verify(&params).await,
-        "device.pair.list" => handle_device_pair_list().await,
-        "device.pair.approve" => handle_device_pair_approve(&params).await,
-        "device.pair.reject" => handle_device_pair_reject(&params).await,
-        "device.token.rotate" => handle_device_token_rotate(&params).await,
-        "device.token.revoke" => handle_device_token_revoke(&params).await,
+        "node.pair.request" => Box::pin(handle_node_pair_request(&params)),
+        "node.pair.list" => Box::pin(handle_node_pair_list()),
+        "node.pair.approve" => Box::pin(handle_node_pair_approve(&params)),
+        "node.pair.reject" => Box::pin(handle_node_pair_reject(&params)),
+        "node.pair.verify" => Box::pin(handle_node_pair_verify(&params)),
+        "device.pair.list" => Box::pin(handle_device_pair_list()),
+        "device.pair.approve" => Box::pin(handle_device_pair_approve(&params)),
+        "device.pair.reject" => Box::pin(handle_device_pair_reject(&params)),
+        "device.token.rotate" => Box::pin(handle_device_token_rotate(&params)),
+        "device.token.revoke" => Box::pin(handle_device_token_revoke(&params)),
 
         // ── TTS (text-to-speech) ────────────────────────────────────────
-        "tts.status" => handle_tts_status(channel).await,
-        "tts.providers" => handle_tts_providers(channel).await,
-        "tts.voices" => handle_tts_voices(&params).await,
-        "tts.enable" => handle_tts_enable(&params, channel).await,
-        "tts.disable" => handle_tts_disable(channel).await,
-        "tts.convert" => handle_tts_convert(&params, channel).await,
-        "tts.setProvider" => handle_tts_set_provider(&params, channel).await,
-        "tts.setVoice" => handle_tts_set_voice(&params, channel).await,
-        "tts.settings" => handle_tts_settings(&params, channel).await,
+        "tts.status" => Box::pin(handle_tts_status(channel)),
+        "tts.providers" => Box::pin(handle_tts_providers(channel)),
+        "tts.voices" => Box::pin(handle_tts_voices(&params)),
+        "tts.enable" => Box::pin(handle_tts_enable(&params, channel)),
+        "tts.disable" => Box::pin(handle_tts_disable(channel)),
+        "tts.convert" => Box::pin(handle_tts_convert(&params, channel)),
+        "tts.setProvider" => Box::pin(handle_tts_set_provider(&params, channel)),
+        "tts.setVoice" => Box::pin(handle_tts_set_voice(&params, channel)),
+        "tts.settings" => Box::pin(handle_tts_settings(&params, channel)),
 
         // ── Log level ──────────────────────────────────────────────────
-        "log.get_level" => handle_log_get_level().await,
-        "log.set_level" => handle_log_set_level(&params).await,
+        "log.get_level" => Box::pin(handle_log_get_level()),
+        "log.set_level" => Box::pin(handle_log_set_level(&params)),
 
         // ── Skills ──────────────────────────────────────────────────────
-        "skills.status" => handle_skills_status(channel).await,
-        "skills.bins" => handle_skills_bins(&params, channel).await,
-        "skills.update" => handle_skills_update(&params, channel).await,
-        "skills.setEnv" => handle_skills_set_env(&params, channel).await,
-        "skills.install_url" => handle_skills_install_url(&params, channel).await,
-        "skills.install_zip" => handle_skills_install_zip(&params, channel).await,
+        "skills.status" => Box::pin(handle_skills_status(channel)),
+        "skills.bins" => Box::pin(handle_skills_bins(&params, channel)),
+        "skills.update" => Box::pin(handle_skills_update(&params, channel)),
+        "skills.setEnv" => Box::pin(handle_skills_set_env(&params, channel)),
+        "skills.install_url" => Box::pin(handle_skills_install_url(&params, channel)),
+        "skills.install_zip" => Box::pin(handle_skills_install_zip(&params, channel)),
 
         // ── Exec approvals ──────────────────────────────────────────────
-        "exec.approvals.get" => handle_exec_approvals_get(channel).await,
-        "exec.approvals.set" => handle_exec_approvals_set(&params, channel).await,
-        "exec.approvals.node.get" => handle_exec_approvals_node_get(&params, channel).await,
-        "exec.approvals.node.set" => handle_exec_approvals_node_set(&params, channel).await,
+        "exec.approvals.get" => Box::pin(handle_exec_approvals_get(channel)),
+        "exec.approvals.set" => Box::pin(handle_exec_approvals_set(&params, channel)),
+        "exec.approvals.node.get" => Box::pin(handle_exec_approvals_node_get(&params, channel)),
+        "exec.approvals.node.set" => Box::pin(handle_exec_approvals_node_set(&params, channel)),
         "exec.approval.request" => {
-            handle_exec_approval_request(&params, channel, session_mgr).await
+            Box::pin(handle_exec_approval_request(&params, channel, session_mgr))
         }
-        "exec.approval.resolve" => {
-            handle_exec_approval_resolve(&params, channel, session_mgr, &token_info.label).await
-        }
-        "security.policy.simulate" => handle_security_policy_simulate(&params, channel).await,
-        "security.rules.list" => handle_security_rules_list(channel).await,
-        "security.rules.add" => handle_security_rules_add(&params, channel).await,
-        "security.rules.remove" => handle_security_rules_remove(&params, channel).await,
+        "exec.approval.resolve" => Box::pin(handle_exec_approval_resolve(
+            &params,
+            channel,
+            session_mgr,
+            &token_info.label,
+        )),
+        "security.policy.simulate" => Box::pin(handle_security_policy_simulate(&params, channel)),
+        "security.rules.list" => Box::pin(handle_security_rules_list(channel)),
+        "security.rules.add" => Box::pin(handle_security_rules_add(&params, channel)),
+        "security.rules.remove" => Box::pin(handle_security_rules_remove(&params, channel)),
 
         // ── Usage ───────────────────────────────────────────────────────
-        "usage.status" => handle_usage_status(session_store).await,
-        "usage.cost" => handle_usage_cost(&params, session_store).await,
+        "usage.status" => Box::pin(handle_usage_status(session_store)),
+        "usage.cost" => Box::pin(handle_usage_cost(&params, session_store)),
 
         // ── Logs ────────────────────────────────────────────────────────
-        "logs.tail" => handle_logs_tail(&params).await,
+        "logs.tail" => Box::pin(handle_logs_tail(&params)),
 
         // ── System ──────────────────────────────────────────────────────
         // The dash-style names below pre-date the `domain.action` convention
         // used elsewhere; they're kept as deprecated aliases so existing
         // Dioxus + scope-guard call sites keep working while clients migrate.
-        "system.heartbeat" | "last-heartbeat" => handle_last_heartbeat(&params).await,
-        "system.heartbeats.set" | "set-heartbeats" => handle_set_heartbeats(&params, channel).await,
-        "system.presence" | "system-presence" => handle_system_presence(&params, session_mgr).await,
-        "system.event" | "system-event" => {
-            handle_system_event(&params, channel, session_mgr, cron_service).await
+        "system.heartbeat" | "last-heartbeat" => Box::pin(handle_last_heartbeat(&params)),
+        "system.heartbeats.set" | "set-heartbeats" => {
+            Box::pin(handle_set_heartbeats(&params, channel))
         }
+        "system.presence" | "system-presence" => {
+            Box::pin(handle_system_presence(&params, session_mgr))
+        }
+        "system.event" | "system-event" => Box::pin(handle_system_event(
+            &params,
+            channel,
+            session_mgr,
+            cron_service,
+        )),
         "system.disconnect" | "system-disconnect" => {
-            handle_system_disconnect(&params, session_mgr).await
+            Box::pin(handle_system_disconnect(&params, session_mgr))
         }
-        "system.kick" | "system-kick" => handle_system_kick(&params, session_mgr).await,
-        "approvals.policy" => handle_approvals_policy(&params, channel).await,
+        "system.kick" | "system-kick" => Box::pin(handle_system_kick(&params, session_mgr)),
+        "approvals.policy" => Box::pin(handle_approvals_policy(&params, channel)),
 
         // ── Models ──────────────────────────────────────────────────────
-        "models.list" => handle_models_list(&params, channel).await,
-        "models.test" => handle_models_test(&params, channel).await,
-        "models.add" => handle_models_add(&params, channel).await,
-        "models.update" => handle_models_update(&params, channel).await,
-        "models.delete" => handle_models_delete(&params, channel).await,
-        "models.deleteAccount" => handle_models_account_delete(&params, channel).await,
-        "models.setdefault" => handle_models_setdefault(&params, channel).await,
-        "models.import" => handle_models_import(&params, channel).await,
+        "models.list" => Box::pin(handle_models_list(&params, channel)),
+        "models.test" => Box::pin(handle_models_test(&params, channel)),
+        "models.add" => Box::pin(handle_models_add(&params, channel)),
+        "models.update" => Box::pin(handle_models_update(&params, channel)),
+        "models.delete" => Box::pin(handle_models_delete(&params, channel)),
+        "models.deleteAccount" => Box::pin(handle_models_account_delete(&params, channel)),
+        "models.setdefault" => Box::pin(handle_models_setdefault(&params, channel)),
+        "models.import" => Box::pin(handle_models_import(&params, channel)),
 
         // ── Tools ───────────────────────────────────────────────────────
-        "tools.invoke" => handle_tools_invoke(&params, channel).await,
+        "tools.invoke" => Box::pin(handle_tools_invoke(&params, channel)),
 
         // ── Browser ─────────────────────────────────────────────────────
-        "browser.request" => handle_browser_request(&params, channel).await,
-        "browser.start" => handle_browser_start(&params, channel).await,
-        "browser.stop" => handle_browser_stop(&params, channel).await,
-        "browser.tabs.list" => handle_browser_tabs_list(&params, channel).await,
-        "browser.tabs.open" => handle_browser_tabs_open(&params, channel).await,
-        "browser.tabs.switch" => handle_browser_tabs_switch(&params, channel).await,
-        "browser.tabs.close" => handle_browser_tabs_close(&params, channel).await,
-        "browser.snapshot" => handle_browser_snapshot(&params, channel).await,
-        "browser.storage.get" => handle_browser_storage_get(&params, channel).await,
-        "browser.storage.set" => handle_browser_storage_set(&params, channel).await,
-        "browser.storage.clear" => handle_browser_storage_clear(&params, channel).await,
-        "browser.download" => handle_browser_download(&params, channel).await,
-        "browser.network.capture" => handle_browser_network_capture(&params, channel).await,
-        "browser.profiles.list" => handle_browser_profiles_list(channel).await,
-        "browser.profiles.create" => handle_browser_profiles_create(&params, channel).await,
-        "browser.profiles.delete" => handle_browser_profiles_delete(&params, channel).await,
+        "browser.request" => Box::pin(handle_browser_request(&params, channel)),
+        "browser.start" => Box::pin(handle_browser_start(&params, channel)),
+        "browser.stop" => Box::pin(handle_browser_stop(&params, channel)),
+        "browser.tabs.list" => Box::pin(handle_browser_tabs_list(&params, channel)),
+        "browser.tabs.open" => Box::pin(handle_browser_tabs_open(&params, channel)),
+        "browser.tabs.switch" => Box::pin(handle_browser_tabs_switch(&params, channel)),
+        "browser.tabs.close" => Box::pin(handle_browser_tabs_close(&params, channel)),
+        "browser.snapshot" => Box::pin(handle_browser_snapshot(&params, channel)),
+        "browser.storage.get" => Box::pin(handle_browser_storage_get(&params, channel)),
+        "browser.storage.set" => Box::pin(handle_browser_storage_set(&params, channel)),
+        "browser.storage.clear" => Box::pin(handle_browser_storage_clear(&params, channel)),
+        "browser.download" => Box::pin(handle_browser_download(&params, channel)),
+        "browser.network.capture" => Box::pin(handle_browser_network_capture(&params, channel)),
+        "browser.profiles.list" => Box::pin(handle_browser_profiles_list(channel)),
+        "browser.profiles.create" => Box::pin(handle_browser_profiles_create(&params, channel)),
+        "browser.profiles.delete" => Box::pin(handle_browser_profiles_delete(&params, channel)),
         "browser.profiles.default.set" => {
-            handle_browser_profiles_default_set(&params, channel).await
+            Box::pin(handle_browser_profiles_default_set(&params, channel))
         }
 
         // ── Wizard ──────────────────────────────────────────────────────
-        "wizard.start" => handle_wizard_start(&params, channel).await,
-        "wizard.next" => handle_wizard_next(&params, channel).await,
-        "wizard.cancel" => handle_wizard_cancel(&params, channel).await,
-        "wizard.status" => handle_wizard_status(channel).await,
+        "wizard.start" => Box::pin(handle_wizard_start(&params, channel)),
+        "wizard.next" => Box::pin(handle_wizard_next(&params, channel)),
+        "wizard.cancel" => Box::pin(handle_wizard_cancel(&params, channel)),
+        "wizard.status" => Box::pin(handle_wizard_status(channel)),
 
         // ── Memory (Markdown 4-layer system) ────────────────────────────
-        "memory.list" => handle_memory_list(&params, channel).await,
-        "memory.get" => handle_memory_get(&params, channel).await,
-        "memory.create" => handle_memory_create(&params, channel).await,
-        "memory.update" => handle_memory_update(&params, channel).await,
-        "memory.delete" => handle_memory_delete(&params, channel).await,
-        "memory.search" => handle_memory_search(&params, channel).await,
-        "memory.promote" => handle_memory_promote(&params, channel).await,
-        "memory.layers" => handle_memory_layers(channel).await,
+        "memory.list" => Box::pin(handle_memory_list(&params, channel)),
+        "memory.get" => Box::pin(handle_memory_get(&params, channel)),
+        "memory.create" => Box::pin(handle_memory_create(&params, channel)),
+        "memory.update" => Box::pin(handle_memory_update(&params, channel)),
+        "memory.delete" => Box::pin(handle_memory_delete(&params, channel)),
+        "memory.search" => Box::pin(handle_memory_search(&params, channel)),
+        "memory.promote" => Box::pin(handle_memory_promote(&params, channel)),
+        "memory.layers" => Box::pin(handle_memory_layers(channel)),
 
         // ── Misc ────────────────────────────────────────────────────────
-        "talk.mode" => handle_talk_mode(&params, channel).await,
-        "voicewake.get" => handle_voicewake_get(channel).await,
-        "voicewake.set" => handle_voicewake_set(&params, channel).await,
-        "update.run" => handle_update_run(channel).await,
+        "talk.mode" => Box::pin(handle_talk_mode(&params, channel)),
+        "voicewake.get" => Box::pin(handle_voicewake_get(channel)),
+        "voicewake.set" => Box::pin(handle_voicewake_set(&params, channel)),
+        "update.run" => Box::pin(handle_update_run(channel)),
 
         // ── Webhooks ─────────────────────────────────────────────────────
-        "webhooks.list" => handle_webhooks_list(channel).await,
-        "webhooks.get" => handle_webhooks_get(&params, channel).await,
-        "webhooks.create" => handle_webhooks_create(&params, channel).await,
-        "webhooks.update" => handle_webhooks_update(&params, channel).await,
-        "webhooks.delete" => handle_webhooks_delete(&params, channel).await,
-        "webhooks.test" => handle_webhooks_test(&params, channel).await,
+        "webhooks.list" => Box::pin(handle_webhooks_list(channel)),
+        "webhooks.get" => Box::pin(handle_webhooks_get(&params, channel)),
+        "webhooks.create" => Box::pin(handle_webhooks_create(&params, channel)),
+        "webhooks.update" => Box::pin(handle_webhooks_update(&params, channel)),
+        "webhooks.delete" => Box::pin(handle_webhooks_delete(&params, channel)),
+        "webhooks.test" => Box::pin(handle_webhooks_test(&params, channel)),
 
         // ── Skill Registry ──────────────────────────────────────────────
-        "skills.registry.search" => handle_skills_registry_search(&params, channel).await,
-        "skills.registry.install" => handle_skills_registry_install(&params, channel).await,
-        "skills.registry.uninstall" => handle_skills_registry_uninstall(&params, channel).await,
+        "skills.registry.search" => Box::pin(handle_skills_registry_search(&params, channel)),
+        "skills.registry.install" => Box::pin(handle_skills_registry_install(&params, channel)),
+        "skills.registry.uninstall" => Box::pin(handle_skills_registry_uninstall(&params, channel)),
 
         // ── Plugins ──────────────────────────────────────────────────────
-        "plugins.list" => handle_plugins_list(channel).await,
-        "plugins.enable" => handle_plugins_enable(&params, channel).await,
-        "plugins.disable" => handle_plugins_disable(&params, channel).await,
-        "plugins.config" => handle_plugins_config(&params, channel).await,
+        "plugins.list" => Box::pin(handle_plugins_list(channel)),
+        "plugins.enable" => Box::pin(handle_plugins_enable(&params, channel)),
+        "plugins.disable" => Box::pin(handle_plugins_disable(&params, channel)),
+        "plugins.config" => Box::pin(handle_plugins_config(&params, channel)),
 
         // ── DM Policy ───────────────────────────────────────────────────
-        "dm.policy.get" => handle_dm_policy_get(&params, channel).await,
-        "dm.policy.set" => handle_dm_policy_set(&params, channel).await,
-        "dm.allowlist.get" => handle_dm_allowlist_get(&params, channel).await,
-        "dm.allowlist.set" => handle_dm_allowlist_set(&params, channel).await,
+        "dm.policy.get" => Box::pin(handle_dm_policy_get(&params, channel)),
+        "dm.policy.set" => Box::pin(handle_dm_policy_set(&params, channel)),
+        "dm.allowlist.get" => Box::pin(handle_dm_allowlist_get(&params, channel)),
+        "dm.allowlist.set" => Box::pin(handle_dm_allowlist_set(&params, channel)),
 
         // ── Provider Health ─────────────────────────────────────────────
-        "providers.health" => handle_providers_health(channel).await,
+        "providers.health" => Box::pin(handle_providers_health(channel)),
 
         // ── Config Reload ───────────────────────────────────────────────
-        "config.reload" => handle_config_reload(channel).await,
-        "config.validate" => handle_config_validate(&params, channel).await,
+        "config.reload" => Box::pin(handle_config_reload(channel)),
+        "config.validate" => Box::pin(handle_config_validate(&params, channel)),
 
         // ── STT (speech-to-text) ────────────────────────────────────────
-        "stt.transcribe" => handle_stt_transcribe(&params, channel).await,
-        "stt.providers" => handle_stt_providers().await,
+        "stt.transcribe" => Box::pin(handle_stt_transcribe(&params, channel)),
+        "stt.providers" => Box::pin(handle_stt_providers()),
 
         // ── Canvas ─────────────────────────────────────────────────────
-        "canvas.create" => handle_canvas_create(&params).await,
-        "canvas.render" => handle_canvas_render(&params).await,
-        "canvas.action" => handle_canvas_action(&params).await,
-        "canvas.state" => handle_canvas_state(&params).await,
-        "canvas.close" => handle_canvas_close(&params).await,
+        "canvas.create" => Box::pin(handle_canvas_create(&params)),
+        "canvas.render" => Box::pin(handle_canvas_render(&params)),
+        "canvas.action" => Box::pin(handle_canvas_action(&params)),
+        "canvas.state" => Box::pin(handle_canvas_state(&params)),
+        "canvas.close" => Box::pin(handle_canvas_close(&params)),
 
         // ── Config Snapshots (#33) ────────────────────────────────────
-        "config.snapshot" => handle_config_snapshot(channel).await,
-        "config.snapshots.list" => handle_config_snapshots_list(channel).await,
-        "config.restore" => handle_config_restore(&params, channel).await,
+        "config.snapshot" => Box::pin(handle_config_snapshot(channel)),
+        "config.snapshots.list" => Box::pin(handle_config_snapshots_list(channel)),
+        "config.restore" => Box::pin(handle_config_restore(&params, channel)),
 
         // ── Model Aliases (#34) ───────────────────────────────────────
-        "models.aliases.get" => handle_models_aliases_get(channel).await,
-        "models.aliases.set" => handle_models_aliases_set(&params, channel).await,
-        "models.resolve" => handle_models_resolve(&params, channel).await,
+        "models.aliases.get" => Box::pin(handle_models_aliases_get(channel)),
+        "models.aliases.set" => Box::pin(handle_models_aliases_set(&params, channel)),
+        "models.resolve" => Box::pin(handle_models_resolve(&params, channel)),
 
         // ── Session Elevation (#46) ───────────────────────────────────
-        "sessions.elevate" => handle_sessions_elevate(&params, session_store).await,
-        "sessions.unelevate" => handle_sessions_unelevate(&params, session_store).await,
+        "sessions.elevate" => Box::pin(handle_sessions_elevate(&params, session_store)),
+        "sessions.unelevate" => Box::pin(handle_sessions_unelevate(&params, session_store)),
 
         // ── Heartbeat Config (#51) ────────────────────────────────────
-        "heartbeat.config.get" => handle_heartbeat_config_get(channel).await,
-        "heartbeat.config.set" => handle_heartbeat_config_set(&params, channel).await,
+        "heartbeat.config.get" => Box::pin(handle_heartbeat_config_get(channel)),
+        "heartbeat.config.set" => Box::pin(handle_heartbeat_config_set(&params, channel)),
 
         // ── Browser CDP (#52) ─────────────────────────────────────────
-        "browser.goto" => handle_browser_goto(&params, channel).await,
-        "browser.click" => handle_browser_click(&params, channel).await,
-        "browser.type" => handle_browser_type(&params, channel).await,
-        "browser.screenshot" => handle_browser_screenshot(&params, channel).await,
-        "browser.eval" => handle_browser_eval(&params, channel).await,
+        "browser.goto" => Box::pin(handle_browser_goto(&params, channel)),
+        "browser.click" => Box::pin(handle_browser_click(&params, channel)),
+        "browser.type" => Box::pin(handle_browser_type(&params, channel)),
+        "browser.screenshot" => Box::pin(handle_browser_screenshot(&params, channel)),
+        "browser.eval" => Box::pin(handle_browser_eval(&params, channel)),
         "browser.extension.relay.start" => {
-            handle_browser_extension_relay_start(&params, channel).await
+            Box::pin(handle_browser_extension_relay_start(&params, channel))
         }
         "browser.extension.relay.status" => {
-            handle_browser_extension_relay_status(&params, channel).await
+            Box::pin(handle_browser_extension_relay_status(&params, channel))
         }
         "browser.extension.relay.stop" => {
-            handle_browser_extension_relay_stop(&params, channel).await
+            Box::pin(handle_browser_extension_relay_stop(&params, channel))
         }
         "browser.extension.relay.poll" => {
-            handle_browser_extension_relay_poll(&params, channel).await
+            Box::pin(handle_browser_extension_relay_poll(&params, channel))
         }
         "browser.extension.relay.send" => {
-            handle_browser_extension_relay_send(&params, channel).await
+            Box::pin(handle_browser_extension_relay_send(&params, channel))
         }
         "browser.content_script.inject" => {
-            handle_browser_content_script_inject(&params, channel).await
+            Box::pin(handle_browser_content_script_inject(&params, channel))
         }
-        "browser.page.extract" => handle_browser_page_extract(&params, channel).await,
+        "browser.page.extract" => Box::pin(handle_browser_page_extract(&params, channel)),
 
         // ── Hooks Event Bus (#31) ─────────────────────────────────────
-        "hooks.list" => handle_hooks_list(channel).await,
-        "hooks.enable" => handle_hooks_enable(&params, channel).await,
-        "hooks.disable" => handle_hooks_disable(&params, channel).await,
+        "hooks.list" => Box::pin(handle_hooks_list(channel)),
+        "hooks.enable" => Box::pin(handle_hooks_enable(&params, channel)),
+        "hooks.disable" => Box::pin(handle_hooks_disable(&params, channel)),
 
         // ── Streaming Config (#36) ────────────────────────────────────
-        "streaming.config.get" => handle_streaming_config_get(channel).await,
-        "streaming.config.set" => handle_streaming_config_set(&params, channel).await,
+        "streaming.config.get" => Box::pin(handle_streaming_config_get(channel)),
+        "streaming.config.set" => Box::pin(handle_streaming_config_set(&params, channel)),
 
         // ── YAML Config Support (#59) ────────────────────────────────
-        "config.format" => handle_config_format(channel).await,
-        "config.convert" => handle_config_convert(&params, channel).await,
+        "config.format" => Box::pin(handle_config_format(channel)),
+        "config.convert" => Box::pin(handle_config_convert(&params, channel)),
 
         // ── QR Code Pairing (#62) ────────────────────────────────────
-        "device.pair.qr" => handle_device_pair_qr(&params, channel).await,
+        "device.pair.qr" => Box::pin(handle_device_pair_qr(&params, channel)),
 
         // ── Agent Avatar Management (#63) ────────────────────────────
-        "agent.avatar.set" => handle_agent_avatar_set(&params, channel).await,
-        "agent.avatar.get" => handle_agent_avatar_get(&params, channel).await,
+        "agent.avatar.set" => Box::pin(handle_agent_avatar_set(&params, channel)),
+        "agent.avatar.get" => Box::pin(handle_agent_avatar_get(&params, channel)),
 
         // ── Usage Export (#64) ───────────────────────────────────────
-        "usage.export" => handle_usage_export(&params, session_store).await,
+        "usage.export" => Box::pin(handle_usage_export(&params, session_store)),
 
         // ── Log Rotation (#65) ──────────────────────────────────────
-        "logs.rotate" => handle_logs_rotate(channel).await,
-        "logs.export" => handle_logs_export(&params).await,
-        "logs.config" => handle_logs_config(&params, channel).await,
+        "logs.rotate" => Box::pin(handle_logs_rotate(channel)),
+        "logs.export" => Box::pin(handle_logs_export(&params)),
+        "logs.config" => Box::pin(handle_logs_config(&params, channel)),
 
         // ── Security (#66, #79) ──────────────────────────────────────
-        "security.audit" => handle_security_audit(&params, channel).await,
-        "security.rotate" => handle_security_rotate(&params, channel).await,
-        "security.analyze" => handle_security_analyze(&params).await,
+        "security.audit" => Box::pin(handle_security_audit(&params, channel)),
+        "security.rotate" => Box::pin(handle_security_rotate(&params, channel)),
+        "security.analyze" => Box::pin(handle_security_analyze(&params)),
 
-        _ => Err((METHOD_NOT_FOUND, format!("method not found: {method}"))),
+        _ => return rpc_error(id, METHOD_NOT_FOUND, format!("method not found: {method}")),
     };
+
+    let result = handler.await;
 
     match result {
         Ok(value) => rpc_success(id, value),

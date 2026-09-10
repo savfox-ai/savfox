@@ -183,6 +183,14 @@ fn agent_has_terminal_delegate(agents: &[AgentEntry], selected: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn agent_has_managed_terminal(agents: &[AgentEntry], selected: &str) -> bool {
+    find_agent_entry(agents, selected)
+        .filter(|entry| entry.kind.as_str() == "terminal")
+        .and_then(|entry| entry.terminal.as_ref())
+        .and_then(|terminal| terminal.delegate.mode.as_ref())
+        .is_some_and(|mode| mode.as_str() == "managed_pty")
+}
+
 fn parse_terminal_events(value: Option<&Value>) -> Vec<ChatTerminalEvent> {
     value
         .and_then(Value::as_array)
@@ -375,6 +383,9 @@ pub fn Sessions() -> Element {
     let mut ambient_loading = use_signal(|| false);
     let mut idle_loading = use_signal(|| false);
     let mut active_terminal_request_id = use_signal(|| Option::<String>::None);
+    let mut terminal_control_error = use_signal(|| Option::<String>::None);
+    let mut terminal_input = use_signal(String::new);
+    let mut terminal_snapshot = use_signal(|| Option::<(String, String, String)>::None);
 
     let mut sidebar_content = use_signal(|| Option::<String>::None);
     let mut session_search_query = use_signal(String::new);
@@ -820,7 +831,63 @@ pub fn Sessions() -> Element {
         });
     };
 
+    let ws_terminal_control = ws.clone();
+    let terminal_control = use_callback(move |kind: String| {
+        let Some(session_id) = current_session_id() else {
+            return;
+        };
+        let agent = selected_agent();
+        let ws = ws_terminal_control.clone();
+        let text = if kind == "line" {
+            terminal_input()
+        } else {
+            String::new()
+        };
+        spawn(async move {
+            terminal_control_error.set(None);
+            let method = match kind.as_str() {
+                "close" => "agent.terminal.pty.close",
+                "read" => "agent.terminal.pty.read",
+                _ => "agent.terminal.pty.write",
+            };
+            match ws
+                .call::<Value>(
+                    method,
+                    Some(json!({
+                        "agent": agent, "session_id": session_id, "kind": kind, "text": text
+                    })),
+                )
+                .await
+            {
+                Err(error) => terminal_control_error.set(Some(error)),
+                Ok(result) if kind == "read" => {
+                    let text = result["entries"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|entry| entry["text"].as_str())
+                        .collect::<String>();
+                    let ansi = regex_lite::Regex::new(
+                        r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))",
+                    )
+                    .expect("terminal ANSI pattern");
+                    terminal_snapshot.set(Some((
+                        agent,
+                        session_id,
+                        ansi.replace_all(&text, "").into_owned(),
+                    )));
+                }
+                Ok(_) if kind == "line" => terminal_input.set(String::new()),
+                Ok(_) => {}
+            }
+        });
+    });
     let on_abort = move |_: ()| {
+        let agents = agents_data.read().as_ref().cloned().unwrap_or_default();
+        if agent_has_managed_terminal(&agents, &selected_agent()) {
+            terminal_control.call("interrupt".to_owned());
+            return;
+        }
         if let Some(controller) = abort_ctl.write().take() {
             controller.abort();
         }
@@ -1430,6 +1497,38 @@ pub fn Sessions() -> Element {
                         }
                     }
 
+                    if agent_has_managed_terminal(&agents_list, &selected_agent()) && current_session_id().is_some() {
+                        div { class: "terminal-session-controls", style: "display:flex;gap:8px;align-items:center;padding:8px 16px;flex-wrap:wrap;",
+                            input { aria_label: "Terminal input", placeholder: "Reply to a terminal prompt", value: "{terminal_input}",
+                                oninput: move |event| terminal_input.set(event.value()),
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("line".to_owned()), "Send to terminal"
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("interrupt".to_owned()), "Interrupt"
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("read".to_owned()), "Refresh terminal output"
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("manual_complete".to_owned()),
+                                "Complete turn"
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("close".to_owned()),
+                                "Close terminal"
+                            }
+                            span { style: "color:var(--text-secondary);font-size:12px;", "Complete the turn when the agent is ready for another prompt." }
+                            if let Some(error) = terminal_control_error() {
+                                span { role: "alert", "{error}" }
+                            }
+                        }
+                        if let Some((agent, session, text)) = terminal_snapshot()
+                            && agent == selected_agent() && current_session_id().as_deref() == Some(session.as_str()) {
+                            pre { aria_label: "Terminal output", style: "max-height:240px;overflow:auto;white-space:pre-wrap;margin:0 16px 8px;padding:12px;background:var(--bg-secondary);", "{text}" }
+                        }
+                    }
                     ChatInput {
                         on_send: on_send,
                         on_abort: on_abort,

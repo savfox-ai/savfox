@@ -8,6 +8,10 @@ Lightweight helpers for spawning interactive processes either under a PTY (pseud
 - `spawn_pipe_process(program, args, cwd, env, arg0)` → `SpawnedProcess`
 - `spawn_pipe_process_no_stdin(program, args, cwd, env, arg0)` → `SpawnedProcess`
 - `conpty_supported()` → `bool` (Windows only; always true elsewhere)
+- `pty::spawn_process_with_size(..., rows, cols)` sets dimensions before spawn.
+- `ProcessHandle::process_id()` identifies the original process;
+  `ProcessHandle::resize(rows, cols)` resizes the native terminal and rejects pipe
+  sessions and dimensions outside `1..=32767`.
 - `ProcessHandle` exposes:
   - `writer_sender()` → `mpsc::Sender<Vec<u8>>` (stdin)
   - `output_receiver()` → `broadcast::Receiver<Vec<u8>>` (stdout/stderr merged)

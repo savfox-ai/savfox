@@ -310,11 +310,24 @@ async fn handle_ws_connection(
 
     info!(session_id = %session_id, "WebSocket client authenticated");
 
+    // RPC work must not occupy the socket read/write loop: a terminal turn
+    // needs outgoing deltas and incoming input/completion on this same socket.
+    let mut rpc_tasks = tokio::task::JoinSet::new();
+    const MAX_IN_FLIGHT_RPC: usize = 32;
     // --- Message loop ---
     // We use a select loop to handle both reading from the WebSocket
     // and sending outgoing messages from the channel.
     loop {
         tokio::select! {
+            reply = rpc_tasks.join_next(), if !rpc_tasks.is_empty() => {
+                match reply {
+                    Some(Ok(reply)) => {
+                        if ws.send(Message::text(reply)).await.is_err() { break; }
+                    }
+                    Some(Err(err)) => warn!(error = %err, "WebSocket RPC task failed"),
+                    None => {}
+                }
+            }
             // Outgoing messages from the session channel.
             outgoing = outgoing_rx.recv() => {
                 let Some(msg) = outgoing else {
@@ -360,9 +373,24 @@ async fn handle_ws_connection(
                 // well-formed message; `dispatch_rpc` runs the typed parse
                 // and surfaces parse errors as JSON-RPC error responses.
                 if looks_like_jsonrpc(text) {
+                    if rpc_tasks.len() >= MAX_IN_FLIGHT_RPC {
+                        let id = serde_json::from_str::<Value>(text).ok()
+                            .and_then(|request| request.get("id").cloned()).unwrap_or(Value::Null);
+                        let reply = serde_json::json!({"jsonrpc":"2.0", "id":id,
+                            "error":{"code":-32000,"message":"too many in-flight requests"}});
+                        if ws.send(Message::text(reply.to_string())).await.is_err() { break; }
+                        continue;
+                    }
                     let session_id_str = session_id.to_string();
-                    let reply = crate::ws_rpc::dispatch_rpc(
-                        text,
+                    let text = text.to_owned();
+                    let auth = Arc::clone(&auth);
+                    let session_mgr = Arc::clone(&session_mgr);
+                    let channel = Arc::clone(&channel);
+                    let session_store = Arc::clone(&session_store);
+                    let cron_service = Arc::clone(&cron_service);
+                    let rpc_token_info = rpc_token_info.clone();
+                    rpc_tasks.spawn(async move { Box::pin(crate::ws_rpc::dispatch_rpc(
+                        &text,
                         &session_id_str,
                         &auth,
                         &session_mgr,
@@ -370,12 +398,8 @@ async fn handle_ws_connection(
                         &session_store,
                         &cron_service,
                         &rpc_token_info,
-                    )
-                    .await;
-                    // Send the raw JSON-RPC response directly.
-                    if ws.send(Message::text(reply)).await.is_err() {
-                        break;
-                    }
+                    ))
+                    .await });
                     continue;
                 }
 
@@ -391,16 +415,19 @@ async fn handle_ws_connection(
                 };
 
                 let session_id_str = session_id.to_string();
-                handle_client_message(
+                Box::pin(handle_client_message(
                     &session_id_str,
                     gateway_msg,
                     &session_mgr,
                     &channel,
-                ).await;
+                )).await;
             }
         }
     }
 
+    // Browser detach does not cancel accepted work. Managed terminal ownership
+    // stays with the gateway, which closes processes on explicit close/shutdown.
+    rpc_tasks.detach_all();
     // Cleanup — disarm guard and do it explicitly so we log properly.
     _guard.disarm();
     session_mgr.remove_session(&session_id).await;
@@ -508,5 +535,264 @@ mod discriminator_tests {
         let payload = format!(r#"{{"type":"chat","text":"{}"}}"#, "x".repeat(200));
         // The first 64 bytes do not contain "jsonrpc".
         assert!(!looks_like_jsonrpc(&payload));
+    }
+}
+
+#[cfg(test)]
+mod terminal_ws_tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use futures_util::{SinkExt, StreamExt};
+    use salvo::prelude::*;
+    use savfox_core::config::ConfigBuilder;
+    use serde_json::{Value, json};
+    use tokio::sync::mpsc;
+    use tokio_tungstenite::tungstenite::Message;
+
+    use crate::auth::GatewayAuth;
+    use crate::channel::{GatewayBridgeArgs, GatewayChannel};
+    use crate::config::GatewayConfig;
+    use crate::cron_service::CronService;
+    use crate::session::{GatewaySessionManager, SessionStore};
+
+    type Socket = tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >;
+
+    async fn receive(ws: &mut Socket) -> Value {
+        let message = tokio::time::timeout(Duration::from_secs(10), ws.next())
+            .await
+            .expect("socket response timeout")
+            .expect("socket closed")
+            .expect("socket read");
+        serde_json::from_str(message.to_text().expect("text")).expect("JSON")
+    }
+
+    async fn send(ws: &mut Socket, id: u64, method: &str, params: Value) {
+        ws.send(Message::text(
+            json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}).to_string(),
+        ))
+        .await
+        .expect("send");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn terminal_rpc_long_read_allows_input_and_browser_reattach() {
+        let home = tempfile::tempdir().expect("tempdir");
+        // Keep this transport test offline: core startup otherwise clones the
+        // default skills registry into each fresh test home.
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry"))
+                .expect("registry placeholder");
+        }
+        let mut config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .expect("config");
+        config.cwd = home.path().to_path_buf();
+        let config = Arc::new(config);
+        let auth = Arc::new(GatewayAuth::single_token("terminal-test-token".to_owned()));
+        let sessions = Arc::new(GatewaySessionManager::new());
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let (outgoing_tx, _outgoing_rx) = mpsc::channel(128);
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config,
+            session_store: Arc::clone(&store),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            feedback: savfox_feedback::SavfoxFeedback::new(),
+            savfox_linux_sandbox_exe: None,
+            websocket_manager: (*sessions).clone(),
+            outgoing_tx,
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let reservation = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve port");
+        let port = reservation.local_addr().expect("address").port();
+        drop(reservation);
+        let gateway_config = GatewayConfig::default();
+        let router = crate::server::build_router(
+            auth,
+            sessions,
+            channel,
+            &gateway_config,
+            store,
+            Arc::new(CronService::from_home(home.path())),
+            home.path().to_path_buf(),
+        );
+        let acceptor = TcpListener::new(format!("127.0.0.1:{port}")).bind().await;
+        let server = Server::new(acceptor);
+        let shutdown = server.handle();
+        let server_task = tokio::spawn(async move { server.serve(router).await });
+        let client = reqwest::Client::new();
+        let index = client
+            .get(format!("http://127.0.0.1:{port}/"))
+            .send()
+            .await
+            .expect("serve frontend")
+            .error_for_status()
+            .expect("frontend status")
+            .text()
+            .await
+            .expect("frontend HTML");
+        assert!(index.contains("Savfox"), "gateway must serve its frontend");
+        let module = regex::Regex::new(r#"<script[^>]*src="([^"]+\.js)""#).expect("module pattern");
+        if let Some(captures) = module.captures(&index) {
+            let asset = client
+                .get(format!("http://127.0.0.1:{port}{}", &captures[1]))
+                .send()
+                .await
+                .expect("serve frontend module")
+                .error_for_status()
+                .expect("module status");
+            assert!(
+                asset.headers()["content-type"]
+                    .to_str()
+                    .expect("MIME type")
+                    .contains("javascript")
+            );
+        }
+        let url = format!("ws://127.0.0.1:{port}/ws?token=terminal-test-token");
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("connect");
+        assert_eq!(receive(&mut ws).await["type"], "connected");
+        let session_id = uuid::Uuid::now_v7().to_string();
+        let key = json!({"agent":"ws-native-test", "session_id":session_id});
+        let (program, args) = if cfg!(windows) {
+            (
+                "powershell.exe",
+                vec![
+                    "-NoProfile",
+                    "-Command",
+                    "[Console]::WriteLine('ready'); while (($line = [Console]::ReadLine()) -ne $null) { [Console]::WriteLine('pong') }",
+                ],
+            )
+        } else {
+            (
+                "sh",
+                vec![
+                    "-c",
+                    "printf 'ready\\n'; while IFS= read -r line; do printf 'pong\\n'; done",
+                ],
+            )
+        };
+        let mut start = key.clone();
+        start["command"] = json!(program);
+        start["args"] = json!(args);
+        send(&mut ws, 1, "agent.terminal.pty.start", start).await;
+        let started = receive(&mut ws).await;
+        assert_eq!(
+            started["result"]["metadata"]["native_pty"], true,
+            "{started}"
+        );
+        let pid = started["result"]["metadata"]["pid"].clone();
+        let mut wait = key.clone();
+        wait["wait_for_text"] = json!("pong");
+        wait["timeout_ms"] = json!(8000);
+        send(&mut ws, 2, "agent.terminal.pty.read", wait).await;
+        let mut input = key.clone();
+        input["text"] = json!("ping");
+        send(&mut ws, 3, "agent.terminal.pty.write", input).await;
+        let responses = tokio::time::timeout(Duration::from_secs(6), async {
+            vec![receive(&mut ws).await, receive(&mut ws).await]
+        })
+        .await
+        .expect("long read must not block input on the same socket");
+        let read = responses
+            .iter()
+            .find(|response| response["id"] == 2)
+            .expect("read reply");
+        assert!(
+            read["result"]["entries"].to_string().contains("pong"),
+            "{read}"
+        );
+        ws.close(None).await.expect("detach");
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("reattach");
+        receive(&mut ws).await;
+        send(&mut ws, 4, "agent.terminal.pty.read", key.clone()).await;
+        let restored = receive(&mut ws).await;
+        assert_eq!(restored["result"]["metadata"]["pid"], pid);
+        assert!(restored["result"]["entries"].to_string().contains("pong"));
+        send(&mut ws, 5, "agent.terminal.pty.close", key).await;
+        let closed = receive(&mut ws).await;
+        assert!(closed.get("error").is_none(), "{closed}");
+
+        // Exercise chat.send through the same public socket. The REPL has no
+        // completion marker: streamed output must arrive before manual_complete.
+        let agents = home.path().join("agents");
+        std::fs::create_dir_all(&agents).expect("agents directory");
+        std::fs::write(
+            agents.join("ws-chat-test.json"),
+            json!({
+                "id":"ws-chat-test", "kind":"terminal", "terminal":{
+                    "enabled":true, "mode":"managed_pty", "command":program,
+                    "interactive_command":program, "interactive_args":args,
+                    "stdin":"{{user_prompt}}", "timeout_secs":10
+                }
+            })
+            .to_string(),
+        )
+        .expect("managed agent config");
+        send(
+            &mut ws,
+            6,
+            "chat.send",
+            json!({"agent":"ws-chat-test", "session_id":session_id,
+            "message":"chat ping", "request_id":"terminal-chat-test"}),
+        )
+        .await;
+        tokio::time::timeout(Duration::from_secs(6), async {
+            loop {
+                let event = receive(&mut ws).await;
+                assert_ne!(
+                    event["id"], 6,
+                    "chat must remain pending until explicit completion: {event}"
+                );
+                if event.to_string().contains("pong") {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("live chat output before turn completion");
+        let chat_key = json!({"agent":"ws-chat-test", "session_id":session_id});
+        let mut complete = chat_key.clone();
+        complete["kind"] = json!("manual_complete");
+        send(&mut ws, 7, "agent.terminal.pty.write", complete).await;
+        let mut chat_done = false;
+        let mut completed = false;
+        while !chat_done || !completed {
+            let reply = receive(&mut ws).await;
+            if reply["id"] == 6 {
+                assert!(reply.get("error").is_none(), "{reply}");
+                assert!(reply["result"].to_string().contains("pong"), "{reply}");
+                chat_done = true;
+            } else if reply["id"] == 7 {
+                assert!(reply.get("error").is_none(), "{reply}");
+                completed = true;
+            }
+        }
+        send(&mut ws, 8, "agent.terminal.pty.close", chat_key).await;
+        loop {
+            let reply = receive(&mut ws).await;
+            if reply["id"] == 8 {
+                assert!(reply.get("error").is_none(), "{reply}");
+                break;
+            }
+        }
+        ws.close(None).await.expect("close socket");
+        shutdown.stop_graceful(Duration::from_secs(1));
+        tokio::time::timeout(Duration::from_secs(3), server_task)
+            .await
+            .expect("server shutdown")
+            .expect("server task");
     }
 }

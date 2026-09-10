@@ -34,8 +34,6 @@ struct ManagedPtyDelegateSpec {
     #[serde(default)]
     command: Option<String>,
     #[serde(default)]
-    args: Vec<String>,
-    #[serde(default)]
     stdin: Option<String>,
     #[serde(default)]
     cwd: Option<String>,
@@ -65,18 +63,13 @@ fn parse_pty_size(params: &Value) -> TerminalPtySize {
 }
 
 fn parse_string_array(value: Option<&Value>) -> Option<Vec<String>> {
-    value
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .filter(|items| !items.is_empty())
+    value.and_then(Value::as_array).map(|items| {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>()
+    })
 }
 
 fn parse_string_map(value: Option<&Value>) -> std::collections::BTreeMap<String, String> {
@@ -170,7 +163,7 @@ async fn resolve_terminal_pty_spawn_spec(
         })?;
     let args = parse_string_array(params.get("args"))
         .or_else(|| spec.interactive_args.clone())
-        .unwrap_or(spec.args.clone());
+        .unwrap_or_default();
     let cwd = params
         .get("cwd")
         .and_then(Value::as_str)
@@ -2623,8 +2616,9 @@ mod tests {
 
         assert_eq!(
             parse_string_array(Some(&json!([" run ", "", 1, "now"]))),
-            Some(vec!["run".to_owned(), "now".to_owned()])
+            Some(vec![" run ".to_owned(), "".to_owned(), "now".to_owned()])
         );
+        assert_eq!(parse_string_array(Some(&json!([]))), Some(vec![]));
         assert_eq!(
             parse_string_map(Some(&json!({
                 " FOO ": "bar",

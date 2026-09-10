@@ -5241,7 +5241,6 @@ mod tests {
             },
             account_data: Vec::new(),
             station_cas_account_data: Vec::new(),
-            agent_signer_evidence: Vec::new(),
             partial: false,
         });
         let ClientEvent::AccountUpdates(mut live_context) = initial.clone() else {

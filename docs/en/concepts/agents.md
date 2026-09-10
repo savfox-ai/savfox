@@ -112,12 +112,57 @@ branch. A terminal agent must declare `kind = "terminal"` and
 for vendor CLIs whose native process carries its own login, quota, context,
 plugins, and interactive behavior.
 
-The current terminal runtime supports the existing one-shot flow: Savfox starts
+The terminal runtime supports the existing one-shot flow: Savfox starts
 the configured command, renders the prompt into arguments or stdin, captures
 stdout/stderr, stores the exchange in the session rollout, and returns the
 captured reply. Interactive launch through `agent.terminal.launch` remains the
 operator-controlled path for logging in, using a TUI, or taking over a complex
 agent session directly.
+
+### Managed native terminals
+
+`terminal.mode = "managed_pty"` uses the shared native PTY runtime: ConPTY on
+Windows, and a Unix PTY on Linux/macOS. It starts `interactive_command` (falling
+back to `command`) with `interactive_args` (empty by default). One-shot `args`
+are not reused. The same `(agent_id, session_id)` keeps the same process across
+chat turns. `agent.terminal.pty.start/write/read/resize/close/list` use this
+runtime too. Metadata reports `native_pty: true`, backend `conpty` or `unix_pty`,
+the process PID, exit code, and whether a turn is pending. stdout/stderr merge
+into a single ANSI terminal stream; this is not a vendor-specific event parser.
+
+Managed chat submits the context as a bracketed paste followed by Enter. An
+explicit `stdin` template instead submits line-oriented input, for example
+`"stdin": "{{user_prompt}}"` for a custom REPL. A turn ends only on a standalone
+`::savfox-complete` output line, `pty.write` with `kind: "manual_complete"`, or
+process exit. Codex/Claude do not emit Savfox markers automatically: use
+**Complete turn** in Sessions when the agent is ready. The stop button sends
+Ctrl+C; **Close terminal** terminates the process and releases the session.
+**Send to terminal** writes a line directly, including while a chat turn is
+running, so the user can answer the CLI's own interactive prompts.
+After reconnecting or a chat timeout, **Refresh terminal output** reads the
+retained transcript for the selected agent and session.
+These controls require the existing terminal Admin scope. Automatic vendor
+approval/status integration remains separate work.
+
+`timeout_secs` bounds the chat wait, not the lifetime of the managed process.
+After a timeout the pending turn must be completed or the terminal closed before
+another prompt is submitted. `per_turn` session/cleanup policies are rejected
+for managed chat. Managed worktrees are retained while the process can use them.
+Changing startup command, arguments, cwd, or environment requires closing the
+existing session first.
+
+Browser/WebSocket detach leaves the managed process alive. Reconnect with the
+same key and read using `since_sequence`; each session retains up to 2 MiB of
+recent transcript in memory. Reads may include ANSI escapes. Input `text` and
+`control_sequence` preserve bytes, while `line` and `newline` send terminal
+Enter (CR). Resize changes the actual PTY. Gateway shutdown closes its terminals;
+gateway restart does not reattach old processes or restore vendor conversations.
+Idle collection does not terminate a pending managed chat turn.
+
+On Windows, native executables and PowerShell scripts work directly. npm shims
+use the adjacent `.ps1` script through PowerShell `-File`, preserving argv and
+avoiding the extensionless Unix shim. Batch-only commands require explicitly
+configuring `cmd.exe` and its arguments.
 
 The one-shot path runs through the Terminal Supervisor. The supervisor validates
 the resolved cwd, spawns the process, writes stdin, captures stdout/stderr with a
@@ -307,21 +352,19 @@ terminal sessions while preserving the current one-shot command behavior.
 
 ### Managed PTY platform status
 
-Managed PTY is implemented as a gateway-managed session registry with a
-process-backed backend. It supports public WS-RPC start/write/read/resize/close
-operations, transcript reads, resize/kill trait calls, idle and explicit close,
-and sentinel/manual completion for fake REPL tests. It is not yet a native
-terminal emulator.
+Managed PTY uses the shared native terminal backend and a gateway-owned session
+registry. Both managed chat and public WS-RPC use the same processes. The web
+chat displays a terminal transcript; it is not a full terminal screen emulator.
 
-| Platform | Current backend | Native PTY hook | Status |
-|----------|-----------------|-----------------|--------|
-| Windows  | process-backed stdio backend | ConPTY hook planned | WS-RPC usable; not native PTY |
-| macOS    | process-backed stdio backend | Unix pty hook planned | WS-RPC usable; not native PTY |
-| Linux    | process-backed stdio backend | Unix pty hook planned | WS-RPC usable; not native PTY |
+| Platform | Current backend | Status |
+|----------|-----------------|--------|
+| Windows  | Shared ConPTY runtime | Native input/output, resize and process lifecycle |
+| macOS    | Shared Unix PTY runtime | Native backend wired; verify on macOS before release |
+| Linux    | Shared Unix PTY runtime | Native backend wired; verify on Linux before release |
 
-Clients should not assume full Codex or Claude interactive protocol support
-until native PTY backends and approval bridge support are explicitly reported by
-the runtime.
+Native PTY support does not imply a Codex/Claude semantic adapter or an approval
+bridge. Use explicit turn completion and direct terminal input for interactive
+prompts; vendor-specific automatic state detection is not implemented.
 
 ## Gateway agent management
 

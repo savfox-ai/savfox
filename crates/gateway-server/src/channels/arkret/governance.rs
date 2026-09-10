@@ -402,7 +402,7 @@ async fn fetch_available_dependency_batches_for_realm(
         if batch.is_empty() {
             continue;
         }
-        let resolve = arkret::SelfGovernanceDependencyResolveRequest {
+        let resolve = arkret::SelfGovernanceDependencyResolveRequestBody {
             realm_id: realm_id.clone(),
             selectors: batch.clone(),
             byte_limit: arkret::MAX_GOVERNANCE_DEPENDENCY_RESPONSE_BYTES,

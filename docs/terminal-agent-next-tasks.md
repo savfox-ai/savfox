@@ -34,11 +34,15 @@ Claude terminal agents through the top-level `terminal` branch.
 - [x] Document the new terminal agent context and attachment contract.
 - [x] Add targeted tests for context packaging, attachment persistence, and
   streaming events.
+- [x] Connect native Windows ConPTY / Unix PTY to managed terminal RPC and
+  managed chat, with reusable processes and explicit turn completion.
+- [x] Add direct input, interruption, manual completion, output recovery, and
+  close controls to Sessions.
+- [x] Verify live chat output, concurrent socket input, and browser reattachment
+  against a real Windows terminal.
 
 ## Deferred
 
-- Native Windows ConPTY / Unix PTY backend for true interactive terminal
-  semantics.
 - Vendor-specific Codex and Claude profile parsers beyond plain text/JSONL/
   sentinel.
 - Approval bridging for vendor CLI tool prompts.

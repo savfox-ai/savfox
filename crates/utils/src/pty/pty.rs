@@ -57,14 +57,30 @@ pub async fn spawn_process(
     env: &HashMap<String, String>,
     arg0: &Option<String>,
 ) -> Result<SpawnedProcess> {
+    spawn_process_with_size(program, args, cwd, env, arg0, 24, 80).await
+}
+
+/// Spawn a PTY with its initial size set before the child starts.
+pub async fn spawn_process_with_size(
+    program: &str,
+    args: &[String],
+    cwd: &Path,
+    env: &HashMap<String, String>,
+    arg0: &Option<String>,
+    rows: u16,
+    cols: u16,
+) -> Result<SpawnedProcess> {
     if program.is_empty() {
         anyhow::bail!("missing program for PTY spawn");
     }
 
+    if rows == 0 || cols == 0 || rows > i16::MAX as u16 || cols > i16::MAX as u16 {
+        anyhow::bail!("invalid terminal size");
+    }
     let pty_system = platform_native_pty_system();
     let pair = pty_system.openpty(PtySize {
-        rows: 24,
-        cols: 80,
+        rows,
+        cols,
         pixel_width: 0,
         pixel_height: 0,
     })?;
@@ -80,6 +96,7 @@ pub async fn spawn_process(
     }
 
     let mut child = pair.slave.spawn_command(command_builder)?;
+    let pid = child.process_id();
     let killer = child.clone_killer();
 
     let (writer_tx, mut writer_rx) = mpsc::channel::<Vec<u8>>(128);
@@ -147,6 +164,7 @@ pub async fn spawn_process(
     };
 
     let (handle, output_rx) = ProcessHandle::new(
+        pid,
         writer_tx,
         output_tx,
         initial_output_rx,
