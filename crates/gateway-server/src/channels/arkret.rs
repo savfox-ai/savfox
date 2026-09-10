@@ -2806,13 +2806,6 @@ fn realm_sync_chat_type(entry: &arkret::RealmSyncEntry) -> Option<String> {
         .timeline
         .iter()
         .flat_map(|container| &container.events)
-        .chain(
-            entry
-                .state
-                .iter()
-                .chain(entry.state_after.iter())
-                .flat_map(|container| &container.events),
-        )
         .find(|event| event.kind.as_str() == "ak.realm.create")?;
     Some(
         if event_declares_direct_conversation_realm(realm_create) {
@@ -2899,32 +2892,6 @@ fn record_account_mls_welcomes_from_realm_update(
                     channel,
                     account,
                     "realm_timeline",
-                );
-            }
-        }
-    }
-    for state in [
-        update.entry.state.as_ref(),
-        update.entry.state_after.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        for state_event in &state.events {
-            if let Ok(state_event) = serde_json::to_value(state_event) {
-                recorded += record_account_mls_welcome_from_value_tree(
-                    crypto_store,
-                    &state_event,
-                    channel,
-                    account,
-                    "realm_state",
-                );
-                recorded += apply_account_mls_commits_from_value_tree(
-                    crypto_store,
-                    &state_event,
-                    channel,
-                    account,
-                    "realm_state",
                 );
             }
         }
@@ -4393,6 +4360,7 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
             // the queue item, so wrapper and lease cannot diverge.
             let submission = EventInitialSubmission {
                 event: attempt.envelope.into_event(),
+                mls_frontier_leaves: None,
                 authorization_lease: item.authorization_lease.clone(),
                 cbs_proof_bundles: Vec::new(),
                 control_proposal_ack: None,

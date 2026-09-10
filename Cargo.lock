@@ -642,6 +642,7 @@ dependencies = [
  "arkret-identifiers",
  "arkret-models-crypto",
  "arkret-models-identity",
+ "arkret-schema",
  "arkret-wire",
  "chrono",
  "chrono-tz",

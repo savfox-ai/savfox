@@ -714,7 +714,8 @@ impl ArkretHttpClient {
             after: after.map(str::to_owned),
             catchup: None,
             filter: None,
-            subscriptions: None,
+            realm_list: None,
+            replace_filter: None,
         };
         let stream = self
             .inner
