@@ -183,6 +183,7 @@ mod tests {
             registration_epoch: None,
             key_ref: None,
             verification_method: None,
+            signer_resolution_evidence_ref: None,
             grant_event_path: None,
         }
     }

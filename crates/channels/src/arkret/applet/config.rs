@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use arkret::signatures::PublicKeyMaterial;
-use arkret::{DeviceId, Did, DidCoreId};
+use arkret::{DeviceId, Did, DidCoreId, SignerEvidenceRef};
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};
@@ -91,6 +91,8 @@ pub struct ArkretAppletConfig {
     /// Phase 8: verification method id used by the signer. Defaults to
     /// `{bot_actor_id}#key-1` when missing.
     pub verification_method: Option<String>,
+    /// Content address of the retained authenticated service signer evidence.
+    pub signer_resolution_evidence_ref: Option<SignerEvidenceRef>,
     /// Phase 8: path to a pre-signed `ak.capability.grant` Event JSON.
     pub grant_event_path: Option<PathBuf>,
 }
@@ -185,6 +187,11 @@ impl ArkretAppletConfig {
                 "verificationMethodId",
             ],
         );
+        let signer_resolution_evidence_ref = raw
+            .get("signerResolutionEvidenceRef")
+            .or_else(|| raw.get("signer_resolution_evidence_ref"))
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok());
         let grant_event_path =
             first_non_empty(raw, &["grantEventPath", "grant_event_path"]).map(PathBuf::from);
 
@@ -212,6 +219,7 @@ impl ArkretAppletConfig {
             registration_epoch,
             key_ref,
             verification_method,
+            signer_resolution_evidence_ref,
             grant_event_path,
         })
     }
@@ -260,6 +268,12 @@ impl ArkretAppletConfig {
         if self.key_ref.is_none() {
             anyhow::bail!(
                 "Arkret applet channel '{}' requires key_ref for signed outbound events",
+                self.id
+            );
+        }
+        if self.signer_resolution_evidence_ref.is_none() {
+            anyhow::bail!(
+                "Arkret applet channel '{}' requires signer_resolution_evidence_ref for offline Event authoring",
                 self.id
             );
         }
@@ -518,6 +532,7 @@ mod tests {
             "arkretServerDid": "did:webvh:arkret.example.org",
             "accessToken": "applet-bearer-1",
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" },
+            "signerResolutionEvidenceRef": "ak:signer_evidence:sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "loginChallenge": "arkret-applet-login-challenge",
             "protocols": ["slack"],
             "namespaces": {

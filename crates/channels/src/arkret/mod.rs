@@ -49,7 +49,6 @@ pub(crate) const DIGEST_SUITE: arkret::canonical::DigestSuite =
 pub use arkret_wire::EventInitialSubmission;
 pub use client::{
     ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretFrameStream, ArkretHttpClient,
-    ArkretInitialSubmissionProvider, PrincipalServerInitialSubmissionProvider,
     SavfoxArkretClientCore, SavfoxDurableArkretClientCore, agent_session_exchange_reason,
     agent_session_reason_is_irreversibly_terminal, build_mls_key_packages_claim_request,
     sign_mls_welcome_claim_envelope,
@@ -81,7 +80,7 @@ pub use inbound_adapter::{
     parse_notification_delta_for_account, should_dispatch_event,
 };
 pub use outbound::{
-    MessageCreateRequest, apply_data_event_basis, build_message_create_event,
+    MessageCreateRequest, apply_data_event_authority, build_message_create_event,
     finalize_outbound_event, sign_outbound_event,
 };
 pub use session::ArkretSession;

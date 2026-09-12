@@ -94,10 +94,10 @@ pub(crate) async fn resolve_mls_governance_checkpoint_with_http(
             pending.remove(seal_ref);
         }
         for seal in fetch_seals_for_realm(http, realm_id, batch).await? {
-            for predecessor in &seal.predecessor_refs {
-                if !seals.contains_key(predecessor) {
-                    pending.insert(predecessor.clone());
-                }
+            if let Some(predecessor) = &seal.predecessor_ref
+                && !seals.contains_key(predecessor)
+            {
+                pending.insert(predecessor.clone());
             }
             if seals.insert(seal.id.clone(), seal).is_some() {
                 return Err("MLS governance checkpoint Seal closure contains duplicates".to_owned());

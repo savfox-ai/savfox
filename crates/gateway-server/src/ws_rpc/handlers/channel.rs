@@ -2862,13 +2862,51 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
     // Two orthogonal axes (key-management.md §3.6.1): `status` is the lifecycle
     // intent (active/paused/deactivated); `runtime_state` is the derived runtime
     // readiness (pending_runtime_key/ready/replacing/pairing_expired).
-    let status = outcome.status;
+    let status = outcome.lifecycle;
     let runtime_state = outcome.runtime_state;
     let authorized_public_key_digest = outcome.authorized_public_key_digest.as_deref();
     let key_digest_matches =
         authorized_public_key_digest.map(|digest| digest == local_public_key_digest);
     let (approved, ready, paired_by_other_runtime) =
         arkret_runtime_key_status_flags(status, key_digest_matches);
+    if approved {
+        let method = outcome
+            .authorized_verification_method
+            .as_ref()
+            .ok_or_else(|| {
+                (
+                    INVALID_REQUEST,
+                    "active Agent omitted its verification method".to_owned(),
+                )
+            })?;
+        let evidence = outcome.current_signer_evidence.as_ref().ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "active Agent omitted its signer evidence".to_owned(),
+            )
+        })?;
+        let arkret_models_collaboration::current_signer_evidence::CurrentSignerEvidence::Agent {
+            actor,
+            verification_method,
+            ..
+        } = evidence
+        else {
+            return Err((
+                INVALID_REQUEST,
+                "active Agent returned non-Agent signer evidence".to_owned(),
+            ));
+        };
+        if actor.signing_principal_id().as_str() != account.principal_id
+            || verification_method != method
+            || account.verification_method.as_deref() != Some(method.as_str())
+        {
+            return Err((
+                INVALID_REQUEST,
+                "active Agent signer evidence does not match the paired runtime identity"
+                    .to_owned(),
+            ));
+        }
+    }
     let message = if ready {
         "Runtime key approved by Inkson; agent is active"
     } else if status == arkret::AgentLifecycleState::Paused && approved {
@@ -2896,6 +2934,8 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
         "key_digest_matches": key_digest_matches,
         "paired_by_other_runtime": paired_by_other_runtime,
         "authorized_event_ref": outcome.authorized_event_ref,
+        "signer_resolution_evidence_ref": outcome.signer_resolution_evidence_ref,
+        "current_signer_evidence": outcome.current_signer_evidence,
         "message": message,
     }))
 }
@@ -2956,9 +2996,14 @@ async fn poll_arkret_runtime_key_status(
             "Arkret runtime key status endpoint returned HTTP {status}: {detail}"
         ));
     }
-    serde_json::from_slice::<arkret::AgentRuntimeApprovalStatusOutcome>(&bytes).map_err(|err| {
-        format!("Arkret runtime key status endpoint returned invalid outcome: {err}")
-    })
+    let outcome = serde_json::from_slice::<arkret::AgentRuntimeApprovalStatusOutcome>(&bytes)
+        .map_err(|err| {
+            format!("Arkret runtime key status endpoint returned invalid outcome: {err}")
+        })?;
+    outcome
+        .validate()
+        .map_err(|err| format!("Arkret runtime key status outcome failed validation: {err}"))?;
+    Ok(outcome)
 }
 
 #[cfg(not(feature = "arkret"))]

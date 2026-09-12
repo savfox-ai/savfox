@@ -18,6 +18,7 @@ default = []
 arkret = [
     "dep:arkret",
     "dep:arkret-wire",
+    "dep:arkret-models-collaboration",
     "dep:garth",
     "dep:arkret-bridge-runtime",
     "savfox-channels/arkret",
@@ -90,6 +91,7 @@ url = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v7"] }
 arkret = { workspace = true, optional = true }
 arkret-wire = { workspace = true, optional = true }
+arkret-models-collaboration = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
 arkret-bridge-runtime = { workspace = true, optional = true }
 

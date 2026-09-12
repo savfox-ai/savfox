@@ -44,52 +44,6 @@ const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 #[allow(missing_debug_implementations)]
 pub struct ArkretHttpClient {
     inner: Client,
-    initial_submission_provider: Arc<dyn ArkretInitialSubmissionProvider>,
-}
-
-/// Host-owned integration that wraps a fully-authored, fully-signed Event for
-/// initial publication.
-///
-/// Online submissions carry no authorization lease. Implementations may also
-/// obtain delayed-publication evidence from a local authority component or a
-/// remote authz service. They must return the exact Event supplied by Savfox
-/// inside an [`EventInitialSubmission`]; Savfox validates that invariant and
-/// the wrapper structure before enqueueing or sending it.
-#[async_trait::async_trait]
-pub trait ArkretInitialSubmissionProvider: Send + Sync + 'static {
-    async fn initial_submission(
-        &self,
-        event: &PreparedStandardEvent,
-    ) -> anyhow::Result<EventInitialSubmission>;
-}
-
-/// Production publication provider backed by the authenticated Arkret client.
-/// The default path produces an online submission without an authorization
-/// lease; delayed-publication providers remain pluggable through the trait.
-#[derive(Clone)]
-#[allow(missing_debug_implementations)]
-pub struct PrincipalServerInitialSubmissionProvider {
-    client: Client,
-}
-
-impl PrincipalServerInitialSubmissionProvider {
-    #[must_use]
-    pub fn new(client: Client) -> Self {
-        Self { client }
-    }
-}
-
-#[async_trait::async_trait]
-impl ArkretInitialSubmissionProvider for PrincipalServerInitialSubmissionProvider {
-    async fn initial_submission(
-        &self,
-        event: &PreparedStandardEvent,
-    ) -> anyhow::Result<EventInitialSubmission> {
-        self.client
-            .prepare_initial_standard_submission(event, super::DIGEST_SUITE)
-            .await
-            .map_err(|error| anyhow::anyhow!(error.to_string()))
-    }
 }
 
 /// Stream of [`EventsSubscribeFrame`] yielded by
@@ -400,23 +354,19 @@ impl ArkretHttpClient {
 
     #[must_use]
     pub fn from_inner(inner: Client) -> Self {
-        let provider: Arc<dyn ArkretInitialSubmissionProvider> =
-            Arc::new(PrincipalServerInitialSubmissionProvider::new(inner.clone()));
-        Self {
-            inner,
-            initial_submission_provider: provider,
-        }
+        Self { inner }
     }
 
-    /// Override the default authenticated Principal Server publication
-    /// provider with another production authority transport.
-    #[must_use]
-    pub fn with_initial_submission_provider(
-        mut self,
-        provider: Arc<dyn ArkretInitialSubmissionProvider>,
-    ) -> Self {
-        self.initial_submission_provider = provider;
-        self
+    /// Build a client for proof-authenticated Event publication. The Event's
+    /// producer proof carries admission evidence, so this transport does not
+    /// require a session grant.
+    pub fn publication(base_url: &str) -> anyhow::Result<Self> {
+        let url =
+            Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
+        let inner = ClientBuilder::new(url)
+            .build()
+            .map_err(|err| anyhow::anyhow!("failed to build Arkret publication client: {err}"))?;
+        Ok(Self::from_inner(inner))
     }
 
     #[must_use]
@@ -738,23 +688,25 @@ impl ArkretHttpClient {
     }
 
     /// Build the initial-publication wrapper for an exact signed Event.
-    pub async fn prepare_initial_submission(
+    pub fn prepare_initial_submission(
         &self,
         event: &PreparedStandardEvent,
     ) -> anyhow::Result<EventInitialSubmission> {
-        let submission = self
-            .initial_submission_provider
-            .initial_submission(event)
-            .await?;
-        if &submission.event != event.event() {
-            anyhow::bail!(
-                "Arkret EventInitialSubmissionProvider replaced or mutated the signed Event"
-            );
-        }
+        let submission = EventInitialSubmission::online(event.event().clone());
         submission
             .validate_structural(super::DIGEST_SUITE)
             .map_err(|error| anyhow::anyhow!("invalid Arkret initial submission: {error}"))?;
         Ok(submission)
+    }
+
+    /// Build the session-free wrapper for one ordinary producer-authenticated Event.
+    pub fn prepare_proof_authenticated_publication(
+        &self,
+        event: &PreparedStandardEvent,
+    ) -> anyhow::Result<arkret_wire::ProofAuthenticatedPublication> {
+        let submission = self.prepare_initial_submission(event)?;
+        arkret_wire::ProofAuthenticatedPublication::new(submission, super::DIGEST_SUITE)
+            .map_err(anyhow::Error::from)
     }
 
     /// Submit one validated initial-publication wrapper.
@@ -777,7 +729,7 @@ impl ArkretHttpClient {
         &self,
         event: &PreparedStandardEvent,
     ) -> anyhow::Result<EventsSubmitOutcome> {
-        let submission = self.prepare_initial_submission(event).await?;
+        let submission = self.prepare_initial_submission(event)?;
         self.submit_initial(&submission).await
     }
 

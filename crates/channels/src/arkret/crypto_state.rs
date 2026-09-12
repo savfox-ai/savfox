@@ -17,11 +17,11 @@ use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity, ArkretMlsSigner};
 use arkret::{
     ActorId, ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload, EncryptedPayload,
     EncryptedPayloadScheme, EventContentPreEncryptionHeader, EventContentRoutingContext, EventId,
-    EventProof, MessageMetadata, MlsCommitPayload, MlsCommitSource, MlsEncryptedPayload,
-    MlsEndpointIdentity, MlsKeyPackageRecord, MlsKeyPackageState, MlsPayloadType,
-    MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient, PresencePlaintext, PresenceState,
-    RealmId, ScopeRef, SealId, SignalSequenceDomain, SignalSequenceEndpoint, StrandCreatePayload,
-    StrandId, seal_signal_plaintext,
+    MessageMetadata, MlsCommitPayload, MlsCommitSource, MlsEncryptedPayload, MlsEndpointIdentity,
+    MlsKeyPackageRecord, MlsKeyPackageState, MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload,
+    MlsWelcomeRecipient, PresencePlaintext, PresenceState, RealmId, ScopeRef, SealId,
+    SignalSequenceDomain, SignalSequenceEndpoint, StrandCreatePayload, StrandId,
+    seal_signal_plaintext,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -236,6 +236,9 @@ impl ArkretMlsWelcomeConsumeBinding {
 pub struct ArkretDirectConversationWelcomeBinding {
     pub realm_id: String,
     pub strand_id: String,
+    /// Accepted `ak.direct_conversation.bound` Event that authorizes messages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_event_ref: Option<String>,
     /// `generation 1` activation Event: the first exact-pair MLS generation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initial_exact_pair_generation_ref: Option<String>,
@@ -260,6 +263,10 @@ pub struct ArkretCryptoStateFile {
         BTreeMap<String, ArkretDirectConversationWelcomeBinding>,
     #[serde(default)]
     pub realm_policies: BTreeMap<String, ArkretRealmCryptoPolicy>,
+    /// Last authority decision set observed on an accepted Event for each
+    /// Realm. This lets ordinary authoring proceed from verified local state.
+    #[serde(default)]
+    pub realm_authority_refs: BTreeMap<String, Vec<SealId>>,
     #[serde(default)]
     pub bootstrap: BTreeMap<String, ArkretBootstrapRecord>,
     /// Next verified sender-endpoint sequence per Signal scope. The value is
@@ -286,6 +293,7 @@ impl ArkretCryptoStateFile {
             mls_welcome_consume_bindings: BTreeMap::new(),
             direct_conversation_welcome_bindings: BTreeMap::new(),
             realm_policies: BTreeMap::new(),
+            realm_authority_refs: BTreeMap::new(),
             bootstrap: BTreeMap::new(),
             signal_sequences: BTreeMap::new(),
             key_backup: ArkretKeyBackupState::default(),
@@ -556,6 +564,29 @@ impl FileArkretCryptoStore {
             .realm_policies
             .get(realm_id)
             .is_some_and(ArkretRealmCryptoPolicy::requires_e2ee))
+    }
+
+    pub fn record_realm_authority_refs(
+        &self,
+        realm_id: &str,
+        authority_refs: &[SealId],
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !authority_refs.is_empty()
+                && authority_refs.len() <= 64
+                && authority_refs.windows(2).all(|pair| pair[0] < pair[1]),
+            "Realm authority references must be non-empty, sorted, and unique"
+        );
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load()?;
+        state
+            .realm_authority_refs
+            .insert(realm_id.to_owned(), authority_refs.to_vec());
+        self.save(&mut state)
+    }
+
+    pub fn realm_authority_refs(&self, realm_id: &str) -> anyhow::Result<Option<Vec<SealId>>> {
+        Ok(self.load()?.realm_authority_refs.get(realm_id).cloned())
     }
 
     /// Realm ids for which the account has both an E2EE policy and mutable MLS
@@ -1693,10 +1724,11 @@ impl FileArkretCryptoStore {
         }
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
-        for payload in &payloads {
+        for (payload, binding_event_ref) in &payloads {
             let binding = ArkretDirectConversationWelcomeBinding {
                 realm_id: payload.realm_id.to_string(),
                 strand_id: payload.main_strand_id.to_string(),
+                binding_event_ref: binding_event_ref.clone(),
                 initial_exact_pair_generation_ref: Some(
                     payload.initial_exact_pair_group_state_ref.to_string(),
                 ),
@@ -1718,6 +1750,30 @@ impl FileArkretCryptoStore {
         }
         self.save(&mut state)?;
         Ok(payloads.len())
+    }
+
+    pub fn direct_conversation_binding_event_ref(
+        &self,
+        realm_id: &str,
+    ) -> anyhow::Result<Option<EventId>> {
+        self.load()?
+            .direct_conversation_welcome_bindings
+            .get(realm_id)
+            .and_then(|binding| binding.binding_event_ref.as_deref())
+            .map(|reference| {
+                EventId::new(reference.to_owned()).map_err(|error| {
+                    anyhow::anyhow!("stored Direct Conversation binding is invalid: {error}")
+                })
+            })
+            .transpose()
+    }
+
+    pub fn realm_is_direct_conversation(&self, realm_id: &str) -> anyhow::Result<bool> {
+        Ok(self
+            .load()?
+            .realm_policies
+            .get(realm_id)
+            .is_some_and(|policy| policy.source == "account_subscribe_direct_conversation"))
     }
 
     pub fn validate_agent_mls_welcome_value_tree(
@@ -2463,13 +2519,12 @@ pub(crate) fn encrypted_payload_for_event(
     } else {
         EncryptedPayloadScheme::MlsRfc9420
     };
-    let sender_domain = event.proofs.iter().find_map(|proof| match proof {
-        EventProof::Producer(producer) => producer
+    let sender_domain = event.proofs.iter().find_map(|producer| {
+        producer
             .verification_method
             .as_str()
             .rsplit_once('#')
-            .map(|(_, fragment)| fragment.to_owned()),
-        EventProof::StationAdmission(_) => None,
+            .map(|(_, fragment)| fragment.to_owned())
     })?;
     let header = envelope
         .reconstruct_pre_encryption_header(
@@ -2583,10 +2638,23 @@ fn collect_typed_mls_welcome_payloads(
 fn collect_direct_conversation_bound_payloads(
     value: &Value,
     remaining_depth: usize,
-    payloads: &mut Vec<DirectConversationBoundPayload>,
+    payloads: &mut Vec<(DirectConversationBoundPayload, Option<String>)>,
 ) {
+    if let Value::Object(object) = value
+        && object.get("kind").and_then(Value::as_str) == Some("ak.direct_conversation.bound")
+        && let Some(payload) = object.get("payload")
+        && let Ok(payload) =
+            serde_json::from_value::<DirectConversationBoundPayload>(payload.clone())
+    {
+        let event_ref = object
+            .get("event_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        payloads.push((payload, event_ref));
+        return;
+    }
     if let Ok(payload) = serde_json::from_value::<DirectConversationBoundPayload>(value.clone()) {
-        payloads.push(payload);
+        payloads.push((payload, None));
         return;
     }
     if remaining_depth == 0 {
@@ -3158,11 +3226,24 @@ mod tests {
             .expect("pending binding should persist");
 
         let bound = direct_conversation_bound_payload(realm_id, strand_id);
+        let binding_event_ref = "ak:event:01904100-0000-8000-8000-000000000014";
         assert_eq!(
             store
-                .record_direct_conversation_binding_from_value(&json!({"payload": bound}))
+                .record_direct_conversation_binding_from_value(&json!({
+                    "event_id": binding_event_ref,
+                    "kind": "ak.direct_conversation.bound",
+                    "payload": bound
+                }))
                 .expect("typed Direct Conversation binding should persist"),
             1
+        );
+        assert_eq!(
+            store
+                .direct_conversation_binding_event_ref(realm_id)
+                .expect("binding lookup should succeed")
+                .as_ref()
+                .map(EventId::as_str),
+            Some(binding_event_ref)
         );
         let state = store.load().expect("enriched state should load");
         let enriched = state

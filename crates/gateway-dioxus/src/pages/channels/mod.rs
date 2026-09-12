@@ -1788,6 +1788,8 @@ fn restore_arkret_derived_values(
         "keyRef",
         "verificationMethod",
         "authorizedEventRef",
+        "signerResolutionEvidenceRef",
+        "currentSignerEvidence",
     ]
     .iter()
     .any(|key| config_obj.get(*key).is_some_and(|value| !value.is_null()));
@@ -1816,6 +1818,8 @@ fn restore_arkret_derived_values(
         "keyRef",
         "trustedVerificationMethods",
         "requestedScope",
+        "signerResolutionEvidenceRef",
+        "currentSignerEvidence",
     ] {
         if let Some(raw) = config_obj.get(key) {
             if key == "requestedScope" && raw.is_null() && !has_binding {
@@ -2719,6 +2723,21 @@ fn apply_arkret_hidden_agent_runtime_values(
         });
     if let Some(authorized_event_ref) = authorized_event_ref {
         patch["authorizedEventRef"] = json!(authorized_event_ref);
+    }
+    if let Some(value) = values
+        .get(&field_value_key(channel_id, "signerResolutionEvidenceRef"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        patch["signerResolutionEvidenceRef"] =
+            parse_json_config_field("Signer Resolution Evidence Reference", value)?;
+    }
+    if let Some(value) = values
+        .get(&field_value_key(channel_id, "currentSignerEvidence"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        patch["currentSignerEvidence"] = parse_json_config_field("Current Signer Evidence", value)?;
     }
 
     Ok(())
@@ -4848,6 +4867,10 @@ fn render_single_field(
         let bootstrap_key_for_unbind = field_value_key(ch_id, "inksonBootstrap");
         let verification_method_key_for_unbind = field_value_key(ch_id, "verificationMethod");
         let authorized_event_ref_key_for_unbind = field_value_key(ch_id, "authorizedEventRef");
+        let signer_evidence_ref_key_for_unbind =
+            field_value_key(ch_id, "signerResolutionEvidenceRef");
+        let current_signer_evidence_key_for_unbind =
+            field_value_key(ch_id, "currentSignerEvidence");
         let scope_key_for_unbind = field_value_key(ch_id, "requestedScope");
         let binding_key_for_unbind = saved_arkret_binding_key(ch_id);
         let pairing_link_key_for_unbind = arkret_pairing_link_input_key(ch_id);
@@ -4916,6 +4939,10 @@ fn render_single_field(
                                             verification_method_key_for_unbind.clone();
                                         let authorized_event_ref_key =
                                             authorized_event_ref_key_for_unbind.clone();
+                                        let signer_evidence_ref_key =
+                                            signer_evidence_ref_key_for_unbind.clone();
+                                        let current_signer_evidence_key =
+                                            current_signer_evidence_key_for_unbind.clone();
                                         let scope_key = scope_key_for_unbind.clone();
                                         let binding_key = binding_key_for_unbind.clone();
                                         let pairing_link_key = pairing_link_key_for_unbind.clone();
@@ -4944,6 +4971,8 @@ fn render_single_field(
                                                     values.remove(&bootstrap_key);
                                                     values.remove(&verification_method_key);
                                                     values.remove(&authorized_event_ref_key);
+                                                    values.remove(&signer_evidence_ref_key);
+                                                    values.remove(&current_signer_evidence_key);
                                                     values.remove(&scope_key);
                                                     values.insert(binding_key, "false".to_owned());
                                                     values.remove(&pairing_link_key);
@@ -5886,7 +5915,37 @@ async fn arkret_poll_runtime_key_approval(
                 );
                 return;
             };
-            values.write().insert(authorized_event_ref_key, event_ref);
+            let signer_evidence_ref = payload
+                .get("signer_resolution_evidence_ref")
+                .filter(|value| !value.is_null())
+                .and_then(|value| serde_json::to_string(value).ok());
+            let current_signer_evidence = payload
+                .get("current_signer_evidence")
+                .filter(|value| !value.is_null())
+                .and_then(|value| serde_json::to_string(value).ok());
+            let (Some(signer_evidence_ref), Some(current_signer_evidence)) =
+                (signer_evidence_ref, current_signer_evidence)
+            else {
+                let mut values = values.write();
+                values.insert(arkret_pairing_state_key(&channel_id), "error".to_owned());
+                values.insert(
+                    status_key,
+                    "Inkson approved the request but did not return complete signer evidence."
+                        .to_owned(),
+                );
+                return;
+            };
+            let mut current = values.write();
+            current.insert(authorized_event_ref_key, event_ref);
+            current.insert(
+                field_value_key(&channel_id, "signerResolutionEvidenceRef"),
+                signer_evidence_ref,
+            );
+            current.insert(
+                field_value_key(&channel_id, "currentSignerEvidence"),
+                current_signer_evidence,
+            );
+            drop(current);
             finalize_arkret_pairing(
                 &ws,
                 values,

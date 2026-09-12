@@ -20,8 +20,8 @@ use std::path::Path;
 
 use anyhow::Context as _;
 use arkret::{
-    CapabilityGrantPayload, CapabilitySubject, Did, Event, EventProof, GrantConstraint,
-    GrantConstraintKind, project_did_to_core_id,
+    CapabilityGrantPayload, CapabilitySubject, Did, Event, GrantConstraint, GrantConstraintKind,
+    project_did_to_core_id,
 };
 use chrono::{DateTime, Utc};
 
@@ -101,23 +101,10 @@ pub async fn load_and_verify_grant(
     if event.proofs.is_empty() {
         anyhow::bail!("capability grant {}: missing proofs", path.display());
     }
-    for proof in &event.proofs {
-        match proof {
-            EventProof::Producer(producer) => producer
-                .validate_production()
-                .map_err(|err| anyhow::anyhow!("grant proof is not production-grade: {err}"))?,
-            // Admission proofs are Principal Server attestations layered on
-            // top of the producer proof; their kind is closed by the type, so
-            // only the signature payload can be structurally absent.
-            EventProof::StationAdmission(admission) => {
-                if admission.jws.is_empty() {
-                    anyhow::bail!(
-                        "capability grant {}: admission proof is missing its JWS",
-                        path.display()
-                    );
-                }
-            }
-        }
+    for producer in &event.proofs {
+        producer
+            .validate_production()
+            .map_err(|err| anyhow::anyhow!("grant proof is not production-grade: {err}"))?;
     }
     event
         .validate_proof_bindings_with_digest_suite(super::DIGEST_SUITE)
@@ -138,20 +125,15 @@ pub async fn load_and_verify_grant(
             grant.issuer_id
         );
     }
-    if !event
-        .proofs
-        .iter()
-        .filter_map(EventProof::as_producer)
-        .any(|proof| {
-            let Some((controller, _)) = proof.verification_method.as_str().split_once('#') else {
-                return false;
-            };
-            Did::new(controller)
-                .ok()
-                .and_then(|did| project_did_to_core_id(&did).ok())
-                .is_some_and(|core_id| core_id == *grant.issuer_id.signing_principal_id())
-        })
-    {
+    if !event.proofs.iter().any(|proof| {
+        let Some((controller, _)) = proof.verification_method.as_str().split_once('#') else {
+            return false;
+        };
+        Did::new(controller)
+            .ok()
+            .and_then(|did| project_did_to_core_id(&did).ok())
+            .is_some_and(|core_id| core_id == *grant.issuer_id.signing_principal_id())
+    }) {
         anyhow::bail!(
             "capability grant {}: no proof verification_method belongs to issuer '{}'",
             path.display(),

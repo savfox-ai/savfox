@@ -37,10 +37,10 @@ use arkret::http_signature::{
 use arkret::{
     AppletActorView, AppletEventRejection, AppletId, AppletPingOutcome, AppletProtocolMetadata,
     AppletRealmView, AppletTransactionOutcome, AppletTransactionRequestBody,
-    AppletTransactionStatus, ContentBlock, DidCoreId, EventPayloadExt as _, Hash, IdempotencyClaim,
-    IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow, MessageCreatePayload, RealmId,
-    ServiceDescribe, ServiceKind, ServiceOperationId, StrandId, TransportBinding, TrustDomainId,
-    canonical,
+    AppletTransactionStatus, AuthContext, ContentBlock, DidCoreId, EventPayloadExt as _, Hash,
+    IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow,
+    MessageCreatePayload, OpaqueLocalId, RealmId, ServiceDescribe, ServiceKind, ServiceOperationId,
+    StrandId, TransportBinding, TrustDomainId, canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -681,6 +681,16 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     let mut rejected: Vec<AppletEventRejection> = Vec::new();
     let mut dispatched_commands = Vec::new();
     for event in body.events.iter() {
+        if let Some(context) = event.auth_context.as_ref()
+            && let Err(error) = state
+                .crypto_store
+                .record_realm_authority_refs(event.realm_id.as_str(), &context.authority_refs)
+        {
+            warn!(
+                realm_id = event.realm_id.as_str(),
+                "arkret applet: failed to retain verified Realm authority: {error:#}"
+            );
+        }
         if record_applet_mls_welcome_from_event(state.as_ref(), event) {
             continue;
         }
@@ -1552,7 +1562,8 @@ pub(crate) async fn send_via_applet(
             &authorization_ref,
         )
         .map_err(|err| anyhow::anyhow!("arkret edge intent: {err}"))?
-        .with_external_ref(external_ref_object.into_iter().collect());
+        .with_external_ref(external_ref_object.into_iter().collect())
+        .with_auth_context(applet_authoring_context(&state, realm_id)?);
     let event = edge
         .author_and_sign(&realm, intent)
         .await
@@ -1674,10 +1685,47 @@ async fn emit_bridge_error(
         builder = builder.with_external_ref(ext);
     }
     let edge = applet_edge(state).await?;
-    edge.submit_bridge_error(&realm, builder)
-        .await
-        .map_err(|err| anyhow::anyhow!("arkret bridge_error submit: {err}"))?;
+    edge.submit_bridge_error_with_auth_context(
+        &realm,
+        builder,
+        applet_authoring_context(state, realm_id)?,
+    )
+    .await
+    .map_err(|err| anyhow::anyhow!("arkret bridge_error submit: {err}"))?;
     Ok(())
+}
+
+fn applet_authoring_context(
+    state: &AppletChannelState,
+    realm_id: &str,
+) -> anyhow::Result<AuthContext> {
+    let authority_refs = state
+        .crypto_store
+        .realm_authority_refs(realm_id)?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "frontier_unavailable: no locally verified Realm authority decision is cached"
+            )
+        })?;
+    let verification_method = state
+        .config
+        .verification_method
+        .as_deref()
+        .unwrap_or("#key-1");
+    let key_id = verification_method
+        .rsplit_once('#')
+        .map(|(_, fragment)| fragment)
+        .or_else(|| verification_method.strip_prefix('#'))
+        .filter(|fragment| !fragment.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("applet verification method has no key fragment"))?;
+    let context = AuthContext {
+        key_id: OpaqueLocalId::new(key_id.to_owned())?,
+        key_epoch: 0,
+        credential_epoch: None,
+        authority_refs,
+    };
+    context.validate()?;
+    Ok(context)
 }
 
 /// Build the outbound HTTP client for an applet config using its registered
@@ -1734,6 +1782,13 @@ async fn build_applet_edge(
         .verification_method
         .clone()
         .unwrap_or_else(|| format!("{}#key-1", cfg.bot_actor_id));
+    let signer_resolution_evidence_ref =
+        cfg.signer_resolution_evidence_ref.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "arkret applet '{}' requires signer_resolution_evidence_ref for outbound events",
+                cfg.id
+            )
+        })?;
     let signer = savfox_channels::arkret::load_ed25519_signer(
         key_ref,
         &cfg.bot_actor_id,
@@ -1753,6 +1808,7 @@ async fn build_applet_edge(
             "access_token": "",
             "signing_key_seed_hex": "",
             "verification_method_id": verification_method,
+            "signer_resolution_evidence_ref": signer_resolution_evidence_ref,
             "trusted_server_did": trusted_server_did,
         },
         "app": Value::Null,

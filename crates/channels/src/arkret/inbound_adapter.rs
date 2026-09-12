@@ -707,6 +707,8 @@ mod tests {
             verification_method: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
+            signer_resolution_evidence_ref: None,
+            current_signer_evidence: None,
             controller_account_id: arkret::AccountId::new(
                 arkret::DidCoreId::new("ak:did_core:web:example.org:users:alice").unwrap(),
                 arkret::DidCoreId::new("ak:did_core:web:example.org:stations:alice-phone").unwrap(),

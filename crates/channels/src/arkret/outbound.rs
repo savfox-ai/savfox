@@ -23,6 +23,8 @@ pub struct MessageCreateRequest {
     pub actor_account_id: AccountId,
     pub actor_seq: u64,
     pub thread_root_id: Option<String>,
+    /// Exact accepted Direct Conversation participant binding.
+    pub direct_conversation_binding: Option<EventId>,
     /// When replying inside an Agent Sidecar exchange, the verified exchange
     /// identity from the inbound request Event. The built Event carries a
     /// top-level `refs[role=after]` to the request Event id
@@ -73,6 +75,12 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
         payload,
     );
     let mut conversion = OperationEventConversion::default();
+    if let Some(direct_conversation_binding) = &req.direct_conversation_binding {
+        conversion.refs.push(EventRef::new(
+            direct_conversation_binding.to_string(),
+            "direct_conversation_binding",
+        ));
+    }
     if let Some(exchange) = &req.sidecar_exchange {
         // Sidecar exchange Events MUST reference the accepted request Event
         // via a top-level `refs[role=after]` (zh/models/sidecar.md §7.2.1).
@@ -108,6 +116,7 @@ pub fn sign_outbound_event(
     event: &mut AuthoredEvent,
     signer: &Ed25519PayloadSigner,
     verification_method: &str,
+    signer_resolution_evidence_ref: arkret::SignerEvidenceRef,
 ) -> anyhow::Result<()> {
     let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
         anyhow::anyhow!("invalid verification method '{verification_method}': {err}")
@@ -116,21 +125,21 @@ pub fn sign_outbound_event(
         event,
         signer,
         &verification_method,
-        SignEventOptions::default(),
+        SignEventOptions::new(signer_resolution_evidence_ref),
     )
     .map_err(|err| anyhow::anyhow!("sign_event failed: {err}"))?;
     Ok(())
 }
 
-/// Stamp the accepted Realm Seal and signing identity required by the CBA
-/// DataEvent shape before encryption and signing.
+/// Stamp the verified Realm authority evidence and signing identity required
+/// by an ordinary DataEvent before encryption and signing.
 ///
-/// `key_id` is the deployment-local signing key name pinned at `seal_ref` —
+/// `key_id` is the deployment-local signing key name pinned by the verified authority state —
 /// the verification-method fragment (`"key-1"` in `did:...#key-1`), never an
 /// `ak:` typed id: the wire type rejects the `ak:` lexical space fail-closed.
-pub fn apply_data_event_basis(
+pub fn apply_data_event_authority(
     event: &mut Event,
-    seal_id: SealId,
+    authority_refs: Vec<SealId>,
     signer_did: DidCoreId,
     key_id: String,
 ) -> anyhow::Result<()> {
@@ -142,11 +151,20 @@ pub fn apply_data_event_basis(
     }
     let key_id = OpaqueLocalId::new(key_id)
         .map_err(|err| anyhow::anyhow!("invalid DataEvent auth_context key id: {err}"))?;
-    event.seal_ref = Some(seal_id);
+    if authority_refs.is_empty() || authority_refs.len() > 64 {
+        anyhow::bail!("DataEvent authority_refs must contain between 1 and 64 references");
+    }
+    if authority_refs
+        .windows(2)
+        .any(|pair| pair[0].as_str() >= pair[1].as_str())
+    {
+        anyhow::bail!("DataEvent authority_refs must be strictly sorted and unique");
+    }
     event.auth_context = Some(AuthContext {
         key_id,
         key_epoch: 0,
         credential_epoch: None,
+        authority_refs,
     });
     Ok(())
 }
@@ -183,6 +201,10 @@ mod tests {
             ),
             actor_seq: 1,
             thread_root_id: None,
+            direct_conversation_binding: Some(EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [0x44; 32],
+            )),
             sidecar_exchange: None,
         }
     }
@@ -224,17 +246,17 @@ mod tests {
     #[test]
     fn data_event_basis_is_explicit_before_signing() {
         let mut event = build_message_create_event(&valid_request()).expect("build");
-        apply_data_event_basis(
+        apply_data_event_authority(
             &mut event,
-            SealId::new(format!("ak:seal:sha256:{}", "11".repeat(32))).unwrap(),
+            vec![SealId::new(format!("ak:seal:sha256:{}", "11".repeat(32))).unwrap()],
             valid_request().actor_account_id.principal_id,
             "agent-device".to_owned(),
         )
         .expect("basis");
 
-        assert!(event.seal_ref.is_some());
         let auth_context = event.auth_context.expect("auth context");
         assert_eq!(auth_context.key_id.as_str(), "agent-device");
+        assert_eq!(auth_context.authority_refs.len(), 1);
         assert_eq!(
             event.actor_id.as_account_id(),
             Some(&valid_request().actor_account_id)
@@ -275,11 +297,11 @@ mod tests {
     }
 
     #[test]
-    fn data_event_basis_rejects_a_different_signing_principal() {
+    fn data_event_authority_rejects_a_different_signing_principal() {
         let mut event = build_message_create_event(&valid_request()).expect("build");
-        let error = apply_data_event_basis(
+        let error = apply_data_event_authority(
             &mut event,
-            SealId::new(format!("ak:seal:sha256:{}", "22".repeat(32))).unwrap(),
+            vec![SealId::new(format!("ak:seal:sha256:{}", "22".repeat(32))).unwrap()],
             DidCoreId::new("ak:did_core:web:example.org:agents:other").unwrap(),
             "agent-device".to_owned(),
         )

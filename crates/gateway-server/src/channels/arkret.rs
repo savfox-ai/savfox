@@ -38,7 +38,7 @@ use savfox_channels::arkret::{
     ArkretMlsWelcomeConsumeBinding, EventInitialSubmission, FileArkretCryptoStore,
     MessageCreateRequest, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
     SidecarRequestGate, SidecarTerminalAdmission, UnableToDecryptReason, account_allows_event_read,
-    apply_data_event_basis, build_message_create_event, build_user_facing_response_metadata,
+    apply_data_event_authority, build_message_create_event, build_user_facing_response_metadata,
     device_messages_scope, encode_sidecar_reply_target, gate_inbound_exchange_control,
     gate_inbound_request_binding, open_account_store, parse_delta_frame_for_account,
     resolve_arkret_outbound_account_for_binding, sidecar_binding_from_metadata_plaintext,
@@ -60,6 +60,22 @@ mod governance;
 struct ArkretRuntimeState {
     handles: HashMap<String, tokio::task::JoinHandle<()>>,
     diagnostics: HashMap<String, ArkretListenerDiagnostic>,
+}
+
+fn known_revoked_authorizations() -> &'static StdMutex<HashSet<(String, String, String)>> {
+    static REVOKED: OnceLock<StdMutex<HashSet<(String, String, String)>>> = OnceLock::new();
+    REVOKED.get_or_init(|| StdMutex::new(HashSet::new()))
+}
+
+fn authorization_fence_key(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> Option<(String, String, String)> {
+    Some((
+        channel.id.clone(),
+        account.id.clone(),
+        account.authorized_event_ref.clone()?,
+    ))
 }
 
 #[derive(Debug, Clone)]
@@ -1021,6 +1037,16 @@ async fn process_durable_account_work(
     drain_pending_account_outbound(&client, account_store, channel, account, crypto_store).await;
 }
 
+fn account_authoring_generation(
+    account: &ArkretAccountConfig,
+) -> Option<garth::AuthoringGeneration> {
+    Some(garth::AuthoringGeneration {
+        authority_model: garth::AuthoringAuthorityModel::Agent,
+        authority_principal_id: account.controller_account_id.principal_id.clone(),
+        generation_ref: account.authorized_event_ref.clone()?,
+    })
+}
+
 async fn drain_pending_account_outbound(
     client: &ArkretHttpClient,
     account_store: &garth::FileStore,
@@ -1043,9 +1069,18 @@ async fn drain_pending_account_outbound(
     let submitter = AccountOutboundSubmitter {
         client: client.clone(),
     };
+    let Some(authoring_generation) = account_authoring_generation(account) else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: cannot drain durable outbound work without locally retained Agent authorization"
+        );
+        return;
+    };
     let fence = AccountOutboundEncryptionFence {
         crypto_store: crypto_store.clone(),
         actor_chain_path: account_actor_chain_path(&savfox_home, &account.id),
+        authoring_generation,
     };
     loop {
         match outbound
@@ -1234,6 +1269,16 @@ async fn handle_account_client_event(
         ClientEvent::RealmDelta { update, .. } => {
             let scan_request = account_scan_catchup_request_for_update(&update);
             record_account_realm_crypto_policy_from_update(&update, crypto_store, channel, account);
+            record_account_realm_authority_refs_from_events(
+                update.realm_id.as_str(),
+                update
+                    .entry
+                    .timeline
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|timeline| timeline.events.iter()),
+                crypto_store,
+            );
             record_account_mls_welcomes_from_realm_update(&update, crypto_store, channel, account);
             if let Err(error) = governance::admit_owned_agent_welcomes(
                 client.inner(),
@@ -2681,6 +2726,11 @@ async fn scan_limited_realm_timeline_for_account(
         };
 
     for event in &outcome.events {
+        record_account_realm_authority_refs_from_events(
+            realm_id.as_str(),
+            std::iter::once(event),
+            crypto_store,
+        );
         if let Ok(value) = serde_json::to_value(event) {
             record_account_mls_welcome_from_value_tree(
                 crypto_store,
@@ -2782,6 +2832,29 @@ fn record_account_realm_crypto_policy_from_update(
                 "arkret: failed to persist account realm crypto policy: {err:#}"
             );
             0
+        }
+    }
+}
+
+fn record_account_realm_authority_refs_from_events<'a>(
+    realm_id: &str,
+    events: impl IntoIterator<Item = &'a arkret::Event>,
+    crypto_store: &FileArkretCryptoStore,
+) {
+    for event in events {
+        if event.realm_id.as_str() != realm_id {
+            continue;
+        }
+        let Some(context) = event.auth_context.as_ref() else {
+            continue;
+        };
+        if let Err(error) =
+            crypto_store.record_realm_authority_refs(realm_id, &context.authority_refs)
+        {
+            warn!(
+                realm_id,
+                "arkret: failed to persist Realm authority decision: {error:#}"
+            );
         }
     }
 }
@@ -4258,6 +4331,7 @@ fn load_account_actor_chain_head(
 struct AccountOutboundEncryptionFence {
     crypto_store: FileArkretCryptoStore,
     actor_chain_path: PathBuf,
+    authoring_generation: garth::AuthoringGeneration,
 }
 
 impl OutboundGenerationFence for AccountOutboundEncryptionFence {
@@ -4281,6 +4355,11 @@ impl OutboundGenerationFence for AccountOutboundEncryptionFence {
                 ),
             });
         };
+        if queued.authoring_generation != self.authoring_generation {
+            return Ok(OutboundGenerationFenceDecision::Quarantine {
+                reason: "queued Event was signed under a superseded Agent authorization".to_owned(),
+            });
+        }
         let Some(attempt) = queued.authored_attempt.as_ref() else {
             return Ok(OutboundGenerationFenceDecision::Quarantine {
                 reason: format!(
@@ -4437,18 +4516,21 @@ pub(crate) async fn send_to_arkret_account(
             "no Arkret channel configured for realm {realm_id} and routed config {saved_channel_config_id:?}"
         );
     };
-    if !account.has_requested_scope(ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1) {
-        anyhow::bail!(
-            "Arkret account '{}' send=true but missing service scope ak.self.events.command.submit.v1; refusing to call submit endpoint",
-            account.id
-        );
-    }
+    let realm_id_typed = RealmId::new(realm_id.to_owned())?;
     let strand_id = strand_id.map(str::to_owned).ok_or_else(|| {
         anyhow::anyhow!(
             "Arkret account '{}' cannot send without an inbound Arkret strand id",
             account.id
         )
     })?;
+    if authorization_fence_key(&channel, &account).is_some_and(|key| {
+        known_revoked_authorizations()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .contains(&key)
+    }) {
+        anyhow::bail!("Arkret runtime authorization is known revoked");
+    }
 
     // One-shot send restores the same keyring-backed session grant as the
     // listener and participates in the shared refresh/client rebuild path.
@@ -4471,22 +4553,11 @@ pub(crate) async fn send_to_arkret_account(
             context.exchange_id
         );
     }
-    let provider = construct_account_provider(savfox_home, &channel, &account).await?;
-    // Authorization freshness is an agent-level precondition of writing at all,
-    // Sidecar or not: work queued before a pause/revoke must not still be
-    // publishable afterwards. It runs before session reuse, actor-sequence
-    // mutation, encryption, queueing and submission.
-    ensure_fresh_runtime_authorization(
-        &provider,
-        &account,
-        ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1,
-    )
-    .await?;
-    let inner = provider
-        .provide()
-        .await
-        .map_err(|error| anyhow::anyhow!("build authenticated Arkret client: {error}"))?;
-    let client = ArkretHttpClient::from_inner(inner);
+    anyhow::ensure!(
+        account.authorized_event_ref.is_some(),
+        "Arkret runtime has no locally verified active key authorization"
+    );
+    let client = ArkretHttpClient::publication(&channel.base_url)?;
     let outbound_store = open_account_store(
         savfox_home,
         &channel.id,
@@ -4502,7 +4573,29 @@ pub(crate) async fn send_to_arkret_account(
         .get(realm_id)
         .cloned()
         .unwrap_or_default();
+    let signer_evidence_ref = account
+        .signer_resolution_evidence_ref
+        .clone()
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "signer_evidence_unavailable: no locally verified Agent signer evidence"
+            )
+        })?;
     let actor_seq = actor_chain_head.next_seq;
+    let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
+    let direct_conversation_binding = if crypto_store.realm_is_direct_conversation(realm_id)? {
+        Some(
+            crypto_store
+                .direct_conversation_binding_event_ref(realm_id)?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "direct_conversation_binding_unavailable: no verified participant binding for Realm {realm_id}"
+                    )
+                })?,
+        )
+    } else {
+        None
+    };
     let request = MessageCreateRequest {
         realm_id: realm_id.to_owned(),
         strand_id,
@@ -4510,6 +4603,7 @@ pub(crate) async fn send_to_arkret_account(
         actor_account_id: account.actor_account_id.clone(),
         actor_seq,
         thread_root_id: None,
+        direct_conversation_binding,
         sidecar_exchange: sidecar_exchange.cloned(),
     };
     let mut event = build_message_create_event(&request)?;
@@ -4532,18 +4626,19 @@ pub(crate) async fn send_to_arkret_account(
             "authorization_ref": realm_id,
         }),
     );
-    if let Some(previous_event_id) = actor_chain_head.last_event_id {
+    if let Some(previous_event_id) = actor_chain_head.last_event_id.as_ref() {
         event.prev_refs.push(
-            EventId::new(previous_event_id)
+            EventId::new(previous_event_id.clone())
                 .context("persisted Arkret actor chain contains an invalid Event id")?,
         );
     }
-    let realm_id_typed = RealmId::new(realm_id.to_owned())?;
-    let frontier = client
-        .inner()
-        .seals_frontier(realm_id_typed.clone())
-        .await
-        .map_err(|error| anyhow::anyhow!("fetch current Arkret Realm Seal: {error}"))?;
+    let authority_refs = crypto_store
+        .realm_authority_refs(realm_id)?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "frontier_unavailable: no locally verified Realm authority decision is cached"
+            )
+        })?;
     // auth_context.key_id pins the deployment-local signing key name (the
     // verification-method fragment), never the ak:device: typed id — the wire
     // type rejects the ak: lexical space fail-closed.
@@ -4561,19 +4656,12 @@ pub(crate) async fn send_to_arkret_account(
                  fragment to pin as the DataEvent auth_context key id"
             )
         })?;
-    apply_data_event_basis(
+    apply_data_event_authority(
         &mut event,
-        frontier
-            .frontier
-            .sole_leaf()
-            .map_err(|error| {
-                anyhow::anyhow!("Arkret Realm Seal frontier has no sole leaf: {error}")
-            })?
-            .clone(),
+        authority_refs.clone(),
         DidCoreId::new(account.principal_id.clone())?,
         signing_key_id,
     )?;
-    let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     apply_account_outbound_encryption(
         &crypto_store,
         realm_id,
@@ -4595,6 +4683,7 @@ pub(crate) async fn send_to_arkret_account(
             &mut event,
             &signer,
             &signing_verification_method,
+            signer_evidence_ref.clone(),
         )?;
     }
     let prepared_event = PreparedStandardEvent::from(
@@ -4602,11 +4691,11 @@ pub(crate) async fn send_to_arkret_account(
             .map_err(|error| anyhow::anyhow!("prepare outbound Arkret DataEvent: {error}"))?,
     );
 
-    // Online publication uses a structurally validated wrapper without an
-    // AuthorizationLease. A custom provider may still return a lease-bound
-    // delayed-publication wrapper. In either case, validate the exact wrapper
-    // before advancing the actor chain or enqueueing durable work.
-    let submission = client.prepare_initial_submission(&prepared_event).await?;
+    // Ordinary publication is wrapped and validated locally. The signed
+    // authority context is sufficient; no origin callback or lease is needed.
+    let submission = client
+        .prepare_proof_authenticated_publication(&prepared_event)?
+        .into_submission();
     // The typed durable queue persists only the signed envelope plus the bound
     // AuthorizationLease; refuse wrappers carrying side material it would
     // silently drop on replay.
@@ -4632,24 +4721,18 @@ pub(crate) async fn send_to_arkret_account(
         },
     );
     save_account_actor_chains(&actor_chain_path, &actor_chains).await?;
+    // Authoring generation: this runtime key authors under its controller's
+    // `ak.agent.key.authorize` approval; re-authorizing the key changes the
+    // generation and lets the fence retire stale queued attempts.
+    let authoring_generation = account_authoring_generation(&account)
+        .ok_or_else(|| anyhow::anyhow!("Arkret runtime has no active key authorization"))?;
     let outbound = OutboundEngine::new(outbound_store.clone());
     let fence = AccountOutboundEncryptionFence {
         crypto_store: crypto_store.clone(),
         actor_chain_path: actor_chain_path.clone(),
+        authoring_generation: authoring_generation.clone(),
     };
     let queued_transaction_id = transaction_id.clone();
-    // Authoring generation: this runtime key authors under its controller's
-    // `ak.agent.key.authorize` approval; re-authorizing the key changes the
-    // generation and lets the fence retire stale queued attempts.
-    let authoring_generation = garth::AuthoringGeneration {
-        authority_model: garth::AuthoringAuthorityModel::Agent,
-        authority_principal_id: account.controller_account_id.principal_id.clone(),
-        generation_ref: account
-            .authorized_event_ref
-            .clone()
-            .or_else(|| account.verification_method.clone())
-            .unwrap_or_else(|| format!("{}#key-1", account.principal_id)),
-    };
     let canonical_envelope_bytes = arkret::canonical::canonical_json_bytes(&submission.event)
         .map_err(|error| anyhow::anyhow!("canonicalize queued Arkret Event envelope: {error}"))?;
     let queued_intent = garth::QueuedEventIntent::new(
@@ -4876,6 +4959,8 @@ mod tests {
             verification_method: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
+            signer_resolution_evidence_ref: None,
+            current_signer_evidence: None,
             controller_account_id: arkret::AccountId::new(
                 arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:controller.example").unwrap(),
                 arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:controller-station.example")
@@ -5292,6 +5377,11 @@ mod tests {
         let fence = AccountOutboundEncryptionFence {
             crypto_store,
             actor_chain_path: home.join("actor-chains.json"),
+            authoring_generation: garth::AuthoringGeneration {
+                authority_model: garth::AuthoringAuthorityModel::Agent,
+                authority_principal_id: actor_id(),
+                generation_ref: "ak:event:01904100-0000-8000-8000-0000000000aa".to_owned(),
+            },
         };
         assert_eq!(
             fence.evaluate(&item).expect("evaluate online submission"),
@@ -5575,6 +5665,10 @@ mod tests {
             ),
             actor_seq: 1,
             thread_root_id: None,
+            direct_conversation_binding: Some(arkret::EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [0x44; 32],
+            )),
             sidecar_exchange: Some(context.clone()),
         };
         let mut event = build_message_create_event(&request).expect("build");
