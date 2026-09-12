@@ -4437,9 +4437,12 @@ impl OutboundSubmitter for AccountOutboundSubmitter {
             // The typed queue record persists the signed envelope; the
             // submission wrapper is rebuilt around it with the lease bound on
             // the queue item, so wrapper and lease cannot diverge.
+            let publication_event = attempt.envelope.publication_event().cloned();
+            let mls_frontier_leaves = attempt.envelope.mls_frontier_leaves().map(<[_]>::to_vec);
             let submission = EventInitialSubmission {
                 event: attempt.envelope.into_event(),
-                mls_frontier_leaves: None,
+                publication_event,
+                mls_frontier_leaves,
                 authorization_lease: item.authorization_lease.clone(),
                 cbs_proof_bundles: Vec::new(),
                 control_proposal_ack: None,
