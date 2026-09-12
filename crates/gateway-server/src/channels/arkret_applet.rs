@@ -1907,7 +1907,7 @@ fn build_applet_authoring_journal(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
-    let path = dir.join(format!("{safe_id}.jsonl"));
+    let path = dir.join(format!("{safe_id}.redb"));
     let store = arkret_bridge_runtime::FileAuthoringStore::shared(path)
         .map_err(|e| anyhow::anyhow!("arkret applet authoring journal: {e}"))?;
     Ok(arkret_bridge_runtime::AuthoringJournal::new(store))
