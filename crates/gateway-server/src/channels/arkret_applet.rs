@@ -1522,17 +1522,6 @@ pub(crate) async fn send_via_applet(
     let cfg = &state.config;
     let edge = applet_edge(&state).await?;
 
-    // Phase 8 (T8.E): if a grant is configured, attach its event_id as
-    // authorization_ref on the outbound event.
-    let authorization_ref = load_applet_grant_event_id(cfg)
-        .await
-        .or_else(|| cfg.authorization_grant_id.clone())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "arkret applet '{}' requires an authorization grant for delegated outbound",
-                cfg.id
-            )
-        })?;
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
     ghost_account_id.validate()?;
@@ -1561,6 +1550,17 @@ pub(crate) async fn send_via_applet(
         edge.submit_event(&event).await?;
         return Ok(());
     }
+    // New publications use the grant identity derived by the shared SDK.
+    // Exact retries above do not reopen local grant files or reinterpret authority.
+    let authorization_ref = match load_applet_grant_ref(cfg).await? {
+        Some(grant) => grant,
+        None => arkret::GrantId::new(cfg.authorization_grant_id.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "arkret applet '{}' requires an authorization grant for delegated outbound",
+                cfg.id
+            )
+        })?)?,
+    };
     let content = ContentBlock::text(body.to_owned());
     let mut payload = MessageCreatePayload::with_content(strand, "discussion", content);
     apply_applet_outbound_encryption(&state.crypto_store, realm_id, &mut payload)?;
@@ -1569,7 +1569,7 @@ pub(crate) async fn send_via_applet(
             ghost_account_id,
             &realm,
             payload,
-            &authorization_ref,
+            authorization_ref.as_str(),
         )
         .map_err(|err| anyhow::anyhow!("arkret edge intent: {err}"))?
         .with_external_ref(external_ref_object.into_iter().collect())
@@ -1840,33 +1840,22 @@ async fn build_applet_edge(
     .map_err(|err| anyhow::anyhow!("build arkret outbound edge: {err}"))
 }
 
-/// Phase 8 (T8.E): if `grant_event_path` is set, load + verify the
-/// capability grant and return its `event_id` for use as
-/// `authorization_ref`. Logs and returns `None` on load failure (grant
-/// is operator-managed; missing files shouldn't crash outbound).
-async fn load_applet_grant_event_id(
+/// Load a grant locator from the configured original Event. This loader's
+/// structural checks do not establish confirmed authorization; bootstrap must
+/// independently authenticate the exact installation and committing decision.
+async fn load_applet_grant_ref(
     cfg: &savfox_channels::arkret::ArkretAppletConfig,
-) -> Option<String> {
-    let path = cfg.grant_event_path.as_ref()?;
-    match savfox_channels::arkret::load_and_verify_grant(path, &cfg.service_id, None).await {
-        Ok(grant) if grant.covers_action("ak.message.create") => Some(grant.event_id),
-        Ok(_) => {
-            warn!(
-                "arkret applet '{}': capability grant at {} does not cover ak.message.create",
-                cfg.id,
-                path.display()
-            );
-            None
-        }
-        Err(err) => {
-            warn!(
-                "arkret applet '{}': capability grant load failed at {}: {err:#}",
-                cfg.id,
-                path.display()
-            );
-            None
-        }
-    }
+) -> anyhow::Result<Option<arkret::GrantId>> {
+    let Some(path) = cfg.grant_event_path.as_ref() else {
+        return Ok(None);
+    };
+    let grant = savfox_channels::arkret::load_and_verify_grant(path, &cfg.service_id, None).await?;
+    anyhow::ensure!(
+        grant.covers_action("ak.message.create"),
+        "configured Applet grant does not cover ak.message.create"
+    );
+    let event_id = arkret::EventId::new(grant.event_id)?;
+    Ok(Some(arkret::GrantId::from_event_id(&event_id)))
 }
 
 // ─── Router ─────────────────────────────────────────────────────────────────
