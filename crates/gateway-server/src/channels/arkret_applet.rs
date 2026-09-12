@@ -39,8 +39,8 @@ use arkret::{
     AppletRealmView, AppletTransactionOutcome, AppletTransactionRequestBody,
     AppletTransactionStatus, AuthContext, ContentBlock, DidCoreId, EventPayloadExt as _, Hash,
     IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow,
-    MessageCreatePayload, OpaqueLocalId, RealmId, ServiceDescribe, ServiceKind, ServiceOperationId,
-    StrandId, TransportBinding, TrustDomainId, canonical,
+    MessageCreatePayload, RealmId, ServiceDescribe, ServiceKind, ServiceOperationId, StrandId,
+    TransportBinding, TrustDomainId, canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -1716,23 +1716,7 @@ fn applet_authoring_context(
                 "frontier_unavailable: no locally verified Realm authority decision is cached"
             )
         })?;
-    let verification_method = state
-        .config
-        .verification_method
-        .as_deref()
-        .unwrap_or("#key-1");
-    let key_id = verification_method
-        .rsplit_once('#')
-        .map(|(_, fragment)| fragment)
-        .or_else(|| verification_method.strip_prefix('#'))
-        .filter(|fragment| !fragment.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("applet verification method has no key fragment"))?;
-    let context = AuthContext {
-        key_id: OpaqueLocalId::new(key_id.to_owned())?,
-        key_epoch: 0,
-        credential_epoch: None,
-        authority_refs,
-    };
+    let context = AuthContext { authority_refs };
     context.validate()?;
     Ok(context)
 }

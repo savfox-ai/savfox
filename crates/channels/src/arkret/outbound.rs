@@ -9,8 +9,8 @@ use arkret::signatures::{SignEventOptions, sign_event};
 use arkret::{
     AccountId, ActorId, AuthContext, AuthoredEvent, ContentBlock, DidCoreId, DidUrl,
     Ed25519PayloadSigner, Event, EventDraftKindRegistry, EventId, EventRef, Hlc,
-    MessageCreatePayload, OpaqueLocalId, OperationEnvelopeBuilder, OperationEventConversion,
-    OperationId, RealmId, ScopeRef, SealId, StrandId, event_spec, new_prefixed_uuid7,
+    MessageCreatePayload, OperationEnvelopeBuilder, OperationEventConversion, OperationId, RealmId,
+    ScopeRef, SealId, StrandId, event_spec, new_prefixed_uuid7,
 };
 
 use super::sidecar::{EVENT_REF_ROLE_AFTER, SidecarExchangeContext};
@@ -131,17 +131,12 @@ pub fn sign_outbound_event(
     Ok(())
 }
 
-/// Stamp the verified Realm authority evidence and signing identity required
-/// by an ordinary Event before encryption and signing.
-///
-/// `key_id` is the deployment-local signing key name pinned by the verified authority state —
-/// the verification-method fragment (`"key-1"` in `did:...#key-1`), never an
-/// `ak:` typed id: the wire type rejects the `ak:` lexical space fail-closed.
+/// Freeze verified Realm authority references before encryption and signing.
+/// The actual signer is authenticated by the producer proof and its evidence.
 pub fn apply_ordinary_event_authority(
     event: &mut Event,
     authority_refs: Vec<SealId>,
     signer_did: DidCoreId,
-    key_id: String,
 ) -> anyhow::Result<()> {
     if event.seal_basis.is_some() {
         anyhow::bail!("ordinary Event cannot carry seal_basis");
@@ -149,8 +144,6 @@ pub fn apply_ordinary_event_authority(
     if event.actor_id.signing_principal_id() != &signer_did {
         anyhow::bail!("ordinary Event signer must match the Event actor");
     }
-    let key_id = OpaqueLocalId::new(key_id)
-        .map_err(|err| anyhow::anyhow!("invalid ordinary Event auth_context key id: {err}"))?;
     if authority_refs.is_empty() || authority_refs.len() > 64 {
         anyhow::bail!("ordinary Event authority_refs must contain between 1 and 64 references");
     }
@@ -160,12 +153,7 @@ pub fn apply_ordinary_event_authority(
     {
         anyhow::bail!("ordinary Event authority_refs must be strictly sorted and unique");
     }
-    event.auth_context = Some(AuthContext {
-        key_id,
-        key_epoch: 0,
-        credential_epoch: None,
-        authority_refs,
-    });
+    event.auth_context = Some(AuthContext { authority_refs });
     Ok(())
 }
 
@@ -250,12 +238,10 @@ mod tests {
             &mut event,
             vec![SealId::new(format!("ak:seal:sha256:{}", "11".repeat(32))).unwrap()],
             valid_request().actor_account_id.principal_id,
-            "agent-device".to_owned(),
         )
         .expect("basis");
 
         let auth_context = event.auth_context.expect("auth context");
-        assert_eq!(auth_context.key_id.as_str(), "agent-device");
         assert_eq!(auth_context.authority_refs.len(), 1);
         assert_eq!(
             event.actor_id.as_account_id(),
@@ -303,7 +289,6 @@ mod tests {
             &mut event,
             vec![SealId::new(format!("ak:seal:sha256:{}", "22".repeat(32))).unwrap()],
             DidCoreId::new("ak:did_core:web:example.org:agents:other").unwrap(),
-            "agent-device".to_owned(),
         )
         .expect_err("signer must project to the Event account principal");
         assert!(error.to_string().contains("Event actor"));

@@ -4544,28 +4544,14 @@ pub(crate) async fn send_to_arkret_account(
                 "frontier_unavailable: no locally verified Realm authority decision is cached"
             )
         })?;
-    // auth_context.key_id pins the deployment-local signing key name (the
-    // verification-method fragment), never the ak:device: typed id — the wire
-    // type rejects the ak: lexical space fail-closed.
     let signing_verification_method = account
         .verification_method
         .clone()
         .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
-    let signing_key_id = signing_verification_method
-        .rsplit_once('#')
-        .map(|(_, fragment)| fragment.to_owned())
-        .filter(|fragment| !fragment.is_empty())
-        .with_context(|| {
-            format!(
-                "Arkret account verification method '{signing_verification_method}' has no key \
-                 fragment to pin as the ordinary Event auth_context key id"
-            )
-        })?;
     apply_ordinary_event_authority(
         &mut event,
         authority_refs.clone(),
         DidCoreId::new(account.principal_id.clone())?,
-        signing_key_id,
     )?;
     apply_account_outbound_encryption(
         &crypto_store,
