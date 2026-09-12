@@ -739,7 +739,7 @@ fn insert_saved_channel_metadata(
                         )
                     {
                         info.insert("applet_id".to_owned(), json!(&parsed.applet_id));
-                        info.insert("bot_actor_id".to_owned(), json!(&parsed.bot_actor_id));
+                        info.insert("bot_account_id".to_owned(), json!(&parsed.bot_account_id));
                         info.insert("base_url".to_owned(), json!(&parsed.base_url));
                         info.insert("service_id".to_owned(), json!(&parsed.service_id));
                         info.insert("protocol_count".to_owned(), json!(parsed.protocols.len()));
@@ -753,12 +753,6 @@ fn insert_saved_channel_metadata(
                             &["appletId", "applet_id"],
                         ) {
                             info.insert("applet_id".to_owned(), json!(applet_id));
-                        }
-                        if let Some(bot_actor_id) = first_non_empty_channel_config_string(
-                            config_obj,
-                            &["botActorId", "bot_actor_id"],
-                        ) {
-                            info.insert("bot_actor_id".to_owned(), json!(bot_actor_id));
                         }
                         if let Some(protocol_count) =
                             channel_config_collection_len(config_obj, &["protocols"])
@@ -4688,10 +4682,15 @@ mod tests {
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "ak:did_core:web:slack-bridge.example",
+                "serviceId": "ak:did_core:webvh:z6mkbridge",
+                "service_did":"did:webvh:z6mkbridge:bridge.example",
+                "trust_domain":"ak:trust_domain:example.net",
+                "verification_method":"did:webvh:z6mkbridge:bridge.example#key-1",
+                "signer_resolution_evidence_ref": format!("ak:signer_evidence:sha256:{}", "11".repeat(32)),
+                "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
                 "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "botActorId": "ak:did_core:web:slack-bridge.example:bot",
+                "bot_account_id":{"principal_id":"ak:did_core:web:slack-bridge.example:bot", "station_id":"ak:did_core:webvh:z6mkstation"},
                 "arkretServerUrl": "https://arkret.example.org",
                 "arkretServerDid": "did:webvh:arkret.example.org",
                 "accessToken": "applet-bearer-1",
@@ -4716,10 +4715,15 @@ mod tests {
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "ak:did_core:web:slack-bridge.example",
+                "serviceId": "ak:did_core:webvh:z6mkbridge",
+                "service_did":"did:webvh:z6mkbridge:bridge.example",
+                "trust_domain":"ak:trust_domain:example.net",
+                "verification_method":"did:webvh:z6mkbridge:bridge.example#key-1",
+                "signer_resolution_evidence_ref": format!("ak:signer_evidence:sha256:{}", "11".repeat(32)),
+                "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
                 "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "botActorId": "ak:did_core:web:slack-bridge.example:bot",
+                "bot_account_id":{"principal_id":"ak:did_core:web:slack-bridge.example:bot", "station_id":"ak:did_core:webvh:z6mkstation"},
                 "arkretServerUrl": "https://arkret.example.org",
                 "accessToken": "applet-bearer-1",
                 "protocols": ["slack"]

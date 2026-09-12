@@ -63,3 +63,15 @@ KeyPackage、claim、Welcome、receipt 和 consume 操作都必须保持该绑�
 加密在线状态。Savfox 验证治理闭包与 controller/Agent 成员密钥归属，将入群状态
 持久化并回读后才签署接收端持久回执。内容加密方案由 accepted 治理绑定决定；
 exporter AEAD 回复在提交前保留并持久化计数器，重启后也不会复用计数器。
+
+### Applet 出站身份
+
+Applet 模式必须配置由已接受 provision 结果保留的完整 `bot_account_id`，其值为
+Arkret `AccountId` 对象，包含 `principal_id` 和 `station_id`。旧字符串配置
+`botActorId` / `bot_actor_id` 不再接受；服务 DID 或目标服务器地址不能补出账户 Station。
+
+同时明确配置可解析的 `service_did`、与其对应的 `serviceId`、`trust_domain` 和服务
+`verification_method`；`keyRef` 必须对应该服务签名密钥。出站运行时还需要已有的
+`namespaces` 以及 `managed_actor_authoring`，后者包含 `principal_endpoint` 与
+`key_encryption_key_hex`，应使用实际安装的身份托管配置。消息 `actor_id` 保留完整
+Bot Account，`executed_by` 为 Applet 服务。普通发送使用本地保留的授权上下文。

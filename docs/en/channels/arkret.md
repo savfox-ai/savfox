@@ -84,3 +84,18 @@ reads back the joined state, then signs the recipient durable receipt. The
 accepted governance binding selects the content encryption scheme; exporter AEAD
 replies reserve and persist their counter before submission, including across
 runtime restarts.
+
+### Applet outbound identity
+
+Applet mode requires `bot_account_id` as the complete Arkret `AccountId` object
+(`principal_id` and `station_id`) retained from accepted provisioning. The retired
+`botActorId` / `bot_actor_id` string is rejected; a service DID or destination URL
+cannot supply an omitted account Station.
+
+Configure the resolvable `service_did`, matching `serviceId`, `trust_domain`, and
+an explicit service `verification_method`. `keyRef` selects that service signing
+key. Outbound bridge configuration also requires the existing `namespaces` and
+`managed_actor_authoring` object with `principal_endpoint` and
+`key_encryption_key_hex`; use the actual installed identity-custody settings.
+The bridge preserves the Bot Account as `actor_id` and signs as the Applet service
+in `executed_by`. Ordinary sends use retained local authority context.

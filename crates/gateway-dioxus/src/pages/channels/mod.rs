@@ -748,13 +748,28 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Applet mode: stable principal identity core that owns or signs the applet registration. It must not be the applet service identity.",
                 },
                 ConfigField {
-                    key: "botActorId".into(),
-                    label: "Bot Actor DID".into(),
-                    field_type: FieldType::Text,
-                    placeholder: "did:web:savfox.example:bot".into(),
+                    key: "service_did".into(), label: "Applet Service DID".into(),
+                    field_type: FieldType::Text, placeholder: r#"did:webvh:zServiceScid:service.example"#.into(),
+                    secret: false, required: true, help: "Resolvable DID for the registered Applet service identity.",
+                },
+                ConfigField {
+                    key: "trust_domain".into(), label: "Trust Domain".into(),
+                    field_type: FieldType::Text, placeholder: r#"ak:trust_domain:example.net"#.into(),
+                    secret: false, required: true, help: "Trust domain from the installed Applet configuration.",
+                },
+                ConfigField {
+                    key: "managed_actor_authoring".into(), label: "Managed Actor Custody".into(),
+                    field_type: FieldType::Textarea, placeholder: r#"{"principal_endpoint":"https://actors.example","key_encryption_key_hex":"..."}"#.into(),
+                    secret: true, required: true, help: "Existing managed identity endpoint and encryption key configuration.",
+                },
+                ConfigField {
+                    key: "bot_account_id".into(),
+                    label: "Bot Account".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: r#"{"principal_id":"ak:did_core:webvh:zBotScid","station_id":"ak:did_core:web:station.example"}"#.into(),
                     secret: false,
-                    required: false,
-                    help: "Visible applet bot actor DID. Defaults to serviceId:bot.",
+                    required: true,
+                    help: "Complete Bot Account from accepted provisioning, including its Station.",
                 },
                 ConfigField {
                     key: "arkretServerUrl".into(),
@@ -1817,6 +1832,8 @@ fn restore_arkret_derived_values(
         "inksonBootstrap",
         "keyRef",
         "trustedVerificationMethods",
+        "bot_account_id",
+        "managed_actor_authoring",
         "requestedScope",
         "signerResolutionEvidenceRef",
         "currentSignerEvidence",
@@ -1845,7 +1862,6 @@ fn arkret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>
         return false;
     }
     let applet_advanced = [
-        "botActorId",
         "arkretServerDid",
         "ghostDidPrefix",
         "requestedScopes",
@@ -2389,7 +2405,10 @@ fn is_arkret_applet_only_field(field_key: &str) -> bool {
         field_key,
         "appletId"
             | "controllerPrincipalId"
-            | "botActorId"
+            | "bot_account_id"
+            | "service_did"
+            | "trust_domain"
+            | "managed_actor_authoring"
             | "accessToken"
             | "loginChallenge"
             | "arkretServerUrl"
@@ -2426,8 +2445,7 @@ fn is_arkret_advanced_field(field_key: &str, mode: &str) -> bool {
         || (mode == "applet"
             && matches!(
                 field_key,
-                "botActorId"
-                    | "ghostDidPrefix"
+                "ghostDidPrefix"
                     | "requestedScopes"
                     | "receiveEvents"
                     | "receiveEphemeral"
@@ -2576,8 +2594,8 @@ fn build_arkret_channel_patch(
                 }
                 patch[&field.key] = parsed;
             }
-            "controllerAccountId" => {
-                let parsed = parse_json_config_field("Controller Account ID", value)?;
+            "controllerAccountId" | "bot_account_id" => {
+                let parsed = parse_json_config_field(&field.label, value)?;
                 let account = serde_json::from_value::<arkret_wire::AccountId>(parsed)
                     .map_err(|error| format!("Controller Account ID is invalid: {error}"))?;
                 account
@@ -2596,6 +2614,13 @@ fn build_arkret_channel_patch(
                 }
                 let parsed = parse_json_config_field("Inkson Bootstrap JSON", value)?;
                 parse_arkret_agent_pairing_bootstrap(parsed.clone())?;
+                patch[&field.key] = parsed;
+            }
+            "managed_actor_authoring" => {
+                let parsed = parse_json_config_field("Managed Actor Custody", value)?;
+                if !parsed.is_object() {
+                    return Err("Managed Actor Custody must be a JSON object.".into());
+                }
                 patch[&field.key] = parsed;
             }
             "trustedVerificationMethods" => {

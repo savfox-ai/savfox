@@ -95,7 +95,9 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
     // Loopback: an event signed by our own bot or one of our ghost actors
     // should not be dispatched back to the agent pipeline.
     let actor = event.actor_id.signing_principal_id().as_str();
-    if actor == cfg.bot_actor_id || cfg.namespaces.actor_matches(actor) {
+    if event.actor_id.as_account_id() == Some(&cfg.bot_account_id)
+        || cfg.namespaces.actor_matches(actor)
+    {
         return AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet);
     }
 
@@ -155,7 +157,16 @@ mod tests {
             service_id: "did:web:bridge.example".into(),
             controller_principal_id: "did:webvh:acme:admin".into(),
             base_url: "https://savfox.example/applet".into(),
-            bot_actor_id: "did:web:bridge.example:bot".into(),
+            bot_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:web:bridge.example:bot").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkstation").unwrap(),
+            ),
+            service_did: arkret::Did::new("did:webvh:z6mkbridge:bridge.example").unwrap(),
+            trust_domain: arkret::TrustDomainId::new("ak:trust_domain:example.net").unwrap(),
+            managed_actor_authoring: super::super::config::ManagedActorAuthoringSettings {
+                principal_endpoint: "https://actors.example".into(),
+                key_encryption_key_hex: "22".repeat(32),
+            },
             device_id: None,
             arkret_server_url: "https://arkret.example.org".into(),
             arkret_server_did: Some("did:webvh:arkret.example.org".into()),
@@ -186,6 +197,36 @@ mod tests {
             signer_resolution_evidence_ref: None,
             grant_event_path: None,
         }
+    }
+
+    #[test]
+    fn bot_loopback_uses_the_complete_account() {
+        let mut config = cfg();
+        config.namespaces.actors.clear();
+        let mut event = arkret_wire::test_support::raw_event(
+            "ak.message.create",
+            ScopeRef::Realm {
+                realm_id: RealmId::new("ak:realm:ATv-vc4S1M4y2UKNOZKUnGUsh_44w_q2QJ5JjDBYjZw5")
+                    .unwrap(),
+            },
+            config.bot_account_id.principal_id.clone(),
+            config.bot_account_id.station_id.clone(),
+            1,
+            hlc(),
+            serde_json::json!({"body":"hello"}),
+        )
+        .unwrap();
+        assert_eq!(
+            classify_inbound_event(&config, &event),
+            AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet)
+        );
+        let mut foreign = config.bot_account_id.clone();
+        foreign.station_id = arkret::DidCoreId::new("ak:did_core:web:other.example").unwrap();
+        event.actor_id = arkret::ActorId::account(foreign);
+        assert_ne!(
+            classify_inbound_event(&config, &event),
+            AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet)
+        );
     }
 
     fn realm(id: &str) -> RealmId {

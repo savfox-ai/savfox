@@ -253,7 +253,8 @@ pub struct ArkretStatus {
     pub account_id: Option<String>,
     pub principal_id: Option<String>,
     pub applet_id: Option<String>,
-    pub bot_actor_id: Option<String>,
+    #[cfg(feature = "arkret")]
+    pub bot_account_id: Option<arkret_wire::AccountId>,
     pub protocol_count: Option<u32>,
     pub namespace_count: Option<u32>,
     pub instance_count: Option<u32>,

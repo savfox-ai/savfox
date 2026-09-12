@@ -747,7 +747,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     let session_store = session_store.clone();
     let config_id = state.config.id.clone();
     let applet_account_id = state.config.applet_id.clone();
-    let applet_agent_did = state.config.bot_actor_id.clone();
+    let applet_agent_did = state.config.bot_account_id.principal_id.to_string();
 
     for cmd in dispatched_commands {
         let gw = gateway_channel.clone();
@@ -1107,7 +1107,7 @@ fn try_decrypt_applet_event(
     let payload = extract_encrypted_payload_from_message_content(event)?;
     if let Some(device_id) = state.config.device_id.as_deref() {
         match state.crypto_store.plan_bootstrap_for_payload(
-            &state.config.bot_actor_id,
+            state.config.bot_account_id.principal_id.as_str(),
             device_id,
             &payload,
         ) {
@@ -1496,7 +1496,7 @@ pub(crate) async fn send_to_arkret_applet_for_realm(
         &state.config.id,
         realm_id,
         strand_id,
-        &state.config.bot_actor_id,
+        &state.config.bot_account_id,
         body,
         external_ref,
     )
@@ -1520,7 +1520,7 @@ pub(crate) async fn send_via_applet(
     config_id: &str,
     realm_id: &str,
     strand_id: &str,
-    ghost_actor_did: &str,
+    ghost_account_id: &arkret::AccountId,
     body: &str,
     external_ref: Value,
 ) -> anyhow::Result<()> {
@@ -1543,8 +1543,11 @@ pub(crate) async fn send_via_applet(
         })?;
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
-    let actor = arkret::Did::new(ghost_actor_did.to_owned())
-        .map_err(|err| anyhow::anyhow!("invalid ghost actor DID '{ghost_actor_did}': {err}"))?;
+    ghost_account_id.validate()?;
+    anyhow::ensure!(
+        ghost_account_id == &cfg.bot_account_id,
+        "outbound Bot Account differs from the registered Applet configuration"
+    );
     let strand = StrandId::new(strand_id.to_owned())
         .with_context(|| format!("invalid strand_id: {strand_id}"))?;
     let content = ContentBlock::text(body.to_owned());
@@ -1556,7 +1559,7 @@ pub(crate) async fn send_via_applet(
         .ok_or_else(|| anyhow::anyhow!("Arkret external_ref must be an object"))?;
     let intent = edge
         .delegated_intent::<arkret::event_spec::MessageCreate>(
-            &actor,
+            ghost_account_id,
             &realm,
             payload,
             &authorization_ref,
@@ -1658,8 +1661,7 @@ async fn emit_bridge_error(
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
     let actor = arkret::ActorId::service(
-        DidCoreId::new(cfg.bot_actor_id.clone())
-            .with_context(|| format!("invalid bot DID: {}", cfg.bot_actor_id))?,
+        DidCoreId::new(cfg.service_id.clone()).context("invalid Applet service identity")?,
     );
     let applet_id = AppletId::new(cfg.applet_id.clone())
         .with_context(|| format!("invalid applet_id: {}", cfg.applet_id))?;
@@ -1778,10 +1780,15 @@ async fn build_applet_edge(
             cfg.id
         )
     })?;
+    cfg.validate()?;
     let verification_method = cfg
         .verification_method
         .clone()
-        .unwrap_or_else(|| format!("{}#key-1", cfg.bot_actor_id));
+        .context("Applet service verification_method is required")?;
+    let verification_method_fragment = verification_method
+        .split_once('#')
+        .map(|(_, fragment)| fragment)
+        .context("Applet service method has no fragment")?;
     let signer_resolution_evidence_ref =
         cfg.signer_resolution_evidence_ref.clone().ok_or_else(|| {
             anyhow::anyhow!(
@@ -1791,7 +1798,7 @@ async fn build_applet_edge(
         })?;
     let signer = savfox_channels::arkret::load_ed25519_signer(
         key_ref,
-        &cfg.bot_actor_id,
+        cfg.service_did.as_str(),
         &verification_method,
     )?;
     let http = construct_applet_client(cfg).await?;
@@ -1803,11 +1810,14 @@ async fn build_applet_edge(
         "bridge": { "bridge_id": cfg.id },
         "arkret": {
             "server_url": cfg.arkret_server_url,
-            "service_id": cfg.service_id,
+            "service_did": cfg.service_did,
+            "trust_domain": cfg.trust_domain,
             "applet_id": cfg.applet_id,
-            "access_token": "",
-            "signing_key_seed_hex": "",
-            "verification_method_id": verification_method,
+            "access_token": cfg.arkret_bearer_token.as_ref().context("Applet outbound bearer credential is required")?,
+            "signing_key_seed_hex": savfox_channels::arkret::load_ed25519_seed_hex(key_ref)?,
+            "verification_method_fragment": verification_method_fragment,
+            "applet_namespaces": cfg.namespaces,
+            "managed_actor_authoring": cfg.managed_actor_authoring,
             "signer_resolution_evidence_ref": signer_resolution_evidence_ref,
             "trusted_server_did": trusted_server_did,
         },
@@ -1831,7 +1841,7 @@ async fn load_applet_grant_event_id(
     cfg: &savfox_channels::arkret::ArkretAppletConfig,
 ) -> Option<String> {
     let path = cfg.grant_event_path.as_ref()?;
-    match savfox_channels::arkret::load_and_verify_grant(path, &cfg.bot_actor_id, None).await {
+    match savfox_channels::arkret::load_and_verify_grant(path, &cfg.service_id, None).await {
         Ok(grant) if grant.covers_action("ak.message.create") => Some(grant.event_id),
         Ok(_) => {
             warn!(
@@ -1999,10 +2009,15 @@ mod tests {
             config: json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "ak:did_core:web:bridge.example",
+                "serviceId": "ak:did_core:webvh:z6mkbridge",
+                "service_did":"did:webvh:z6mkbridge:bridge.example",
+                "trust_domain":"ak:trust_domain:example.net",
+                "verification_method":"did:webvh:z6mkbridge:bridge.example#key-1",
+                "signer_resolution_evidence_ref": format!("ak:signer_evidence:sha256:{}", "11".repeat(32)),
+                "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
                 "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/applet-test",
-                "botActorId": "ak:did_core:web:bridge.example:bot",
+                "bot_account_id": {"principal_id":"ak:did_core:web:bridge.example:bot", "station_id":"ak:did_core:webvh:z6mkstation"},
                 "arkretServerUrl": "https://arkret.example.org",
                 "arkretServerDid": "did:webvh:arkret.example.org",
                 "accessToken": "test-bearer",

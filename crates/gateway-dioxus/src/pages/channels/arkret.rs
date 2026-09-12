@@ -45,8 +45,11 @@ impl ChannelStatusView for ArkretStatus {
         if let Some(applet_id) = &self.applet_id {
             stats.push(("Applet".into(), applet_id.clone()));
         }
-        if let Some(bot_actor_id) = &self.bot_actor_id {
-            stats.push(("Bot Actor".into(), bot_actor_id.clone()));
+        if let Some(account) = &self.bot_account_id {
+            stats.push((
+                "Bot Account".into(),
+                format!("{} @ {}", account.principal_id, account.station_id),
+            ));
         }
         if let Some(protocol_count) = self.protocol_count {
             stats.push(("Protocols".into(), protocol_count.to_string()));

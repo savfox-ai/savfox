@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use arkret::signatures::PublicKeyMaterial;
-use arkret::{DeviceId, Did, DidCoreId, SignerEvidenceRef};
+use arkret::{AccountId, DeviceId, Did, DidCoreId, SignerEvidenceRef, TrustDomainId};
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};
@@ -21,6 +21,22 @@ use crate::arkret::signer::ArkretKeyRef;
 pub struct ArkretAppletTrustedVerificationMethod {
     pub verification_method: String,
     pub public_key: PublicKeyMaterial,
+}
+
+/// Local bridge identity-key custody configuration, not a protocol carrier.
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedActorAuthoringSettings {
+    pub principal_endpoint: String,
+    pub key_encryption_key_hex: String,
+}
+impl std::fmt::Debug for ManagedActorAuthoringSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ManagedActorAuthoringSettings")
+            .field("principal_endpoint", &self.principal_endpoint)
+            .field("key_encryption_key_hex", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,9 +52,13 @@ pub struct ArkretAppletConfig {
     /// Public URL where this savfox node accepts inbound transactions
     /// (mounted under `/appservices/arkret/{id}/_arkret/edge/applet`).
     pub base_url: String,
-    /// Bot actor DID — the visible identity of the applet in Realms it joins
-    /// (usually `<service_id>:bot`).
-    pub bot_actor_id: String,
+    /// Exact Bot Account retained from accepted Applet provisioning.
+    pub bot_account_id: AccountId,
+    /// Resolvable Applet service DID; its projected core must equal service_id.
+    pub service_did: Did,
+    pub trust_domain: TrustDomainId,
+    /// Explicit runtime identity-custody settings; never synthesized from the Bot.
+    pub managed_actor_authoring: ManagedActorAuthoringSettings,
     /// Optional Arkret device id for the bot/applet local MLS member. Required
     /// for generating precise MLS recovery plans, but kept optional for
     /// existing bearer-only applet deployments.
@@ -89,7 +109,7 @@ pub struct ArkretAppletConfig {
     /// Ed25519 key used to sign outbound Applet events.
     pub key_ref: Option<ArkretKeyRef>,
     /// Phase 8: verification method id used by the signer. Defaults to
-    /// `{bot_actor_id}#key-1` when missing.
+    /// the configured Applet service DID and key when signing.
     pub verification_method: Option<String>,
     /// Content address of the retained authenticated service signer evidence.
     pub signer_resolution_evidence_ref: Option<SignerEvidenceRef>,
@@ -125,8 +145,14 @@ impl ArkretAppletConfig {
         let controller_principal_id =
             first_non_empty(raw, &["controllerPrincipalId", "controller_principal_id"])?;
         let base_url = first_non_empty(raw, &["baseUrl", "base_url"])?;
-        let bot_actor_id = first_non_empty(raw, &["botActorId", "bot_actor_id"])
-            .unwrap_or_else(|| format!("{service_id}:bot"));
+        if raw.contains_key("botActorId") || raw.contains_key("bot_actor_id") {
+            return None;
+        }
+        let bot_account_id = serde_json::from_value(raw.get("bot_account_id")?.clone()).ok()?;
+        let service_did = serde_json::from_value(raw.get("service_did")?.clone()).ok()?;
+        let trust_domain = serde_json::from_value(raw.get("trust_domain")?.clone()).ok()?;
+        let managed_actor_authoring =
+            serde_json::from_value(raw.get("managed_actor_authoring")?.clone()).ok()?;
         let device_id = first_non_empty(raw, &["deviceId", "device_id", "botDeviceId"]);
         let arkret_server_url =
             first_non_empty(raw, &["arkretServerUrl", "arkret_server_url", "homeserver"])
@@ -201,7 +227,10 @@ impl ArkretAppletConfig {
             service_id,
             controller_principal_id,
             base_url,
-            bot_actor_id,
+            bot_account_id,
+            service_did,
+            trust_domain,
+            managed_actor_authoring,
             device_id,
             arkret_server_url,
             arkret_server_did,
@@ -231,7 +260,6 @@ impl ArkretAppletConfig {
             ("service_id", &self.service_id),
             ("controller_principal_id", &self.controller_principal_id),
             ("base_url", &self.base_url),
-            ("bot_actor_id", &self.bot_actor_id),
             ("arkret_server_url", &self.arkret_server_url),
         ] {
             if value.trim().is_empty() {
@@ -244,7 +272,6 @@ impl ArkretAppletConfig {
         for (label, value) in [
             ("service_id", &self.service_id),
             ("controller_principal_id", &self.controller_principal_id),
-            ("bot_actor_id", &self.bot_actor_id),
         ] {
             DidCoreId::new(value.clone()).map_err(|err| {
                 anyhow::anyhow!(
@@ -254,6 +281,32 @@ impl ArkretAppletConfig {
                 )
             })?;
         }
+        self.bot_account_id.validate()?;
+        let custody_endpoint = url::Url::parse(&self.managed_actor_authoring.principal_endpoint)?;
+        anyhow::ensure!(
+            custody_endpoint.scheme() == "https"
+                || matches!(
+                    custody_endpoint.host_str(),
+                    Some("127.0.0.1" | "localhost" | "::1")
+                ),
+            "managed_actor_authoring requires HTTPS outside loopback"
+        );
+        anyhow::ensure!(
+            hex::decode(&self.managed_actor_authoring.key_encryption_key_hex)?.len() == 32,
+            "managed_actor_authoring key must encode exactly 32 bytes"
+        );
+        anyhow::ensure!(
+            arkret::project_did_to_core_id(&self.service_did)?.as_str() == self.service_id,
+            "Applet service_did does not match its registered service_id"
+        );
+        let method = self
+            .verification_method
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Applet service verification_method is required"))?;
+        anyhow::ensure!(
+            verification_method_did(method) == Some(self.service_did.as_str()),
+            "Applet verification method belongs to a different service DID"
+        );
         if !self.service_id.starts_with("ak:did_core:webvh:") {
             anyhow::bail!(
                 "Arkret applet channel '{}' service_id must use did:webvh",
@@ -491,10 +544,24 @@ pub async fn load_arkret_applet_configs(
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home)
         .await
         .context("failed to load channel configs for arkret applet")?;
-    Ok(all_configs
-        .iter()
-        .filter_map(ArkretAppletConfig::from_channel_config)
-        .collect())
+    let mut applets = Vec::new();
+    for config in &all_configs {
+        if !config.enabled
+            || !config.kind.eq_ignore_ascii_case("arkret")
+            || !config
+                .config
+                .get("mode")
+                .and_then(Value::as_str)
+                .is_some_and(|mode| mode.eq_ignore_ascii_case("applet"))
+        {
+            continue;
+        }
+        let parsed = ArkretAppletConfig::from_channel_config(config).ok_or_else(||
+            anyhow::anyhow!("Arkret Applet '{}' requires complete bot_account_id, service_did, trust_domain and managed_actor_authoring configuration", config.id))?;
+        parsed.validate()?;
+        applets.push(parsed);
+    }
+    Ok(applets)
 }
 
 #[cfg(test)]
@@ -524,10 +591,14 @@ mod tests {
         json!({
             "mode": "applet",
             "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-            "serviceId": "ak:did_core:webvh:z6mkfixture:slack.example",
-            "controllerPrincipalId": "ak:did_core:webvh:z6mkfixture:admin.example",
+            "serviceId": "ak:did_core:webvh:z6mkfixture",
+            "controllerPrincipalId": "ak:did_core:webvh:z6mkcontroller",
             "baseUrl": "https://savfox.example/appservices/arkret/arkret-applet-test",
-            "botActorId": "ak:did_core:webvh:z6mkfixture:slack-bot.example",
+            "bot_account_id": {"principal_id":"ak:did_core:webvh:z6mkbot", "station_id":"ak:did_core:webvh:z6mkstation"},
+            "service_did":"did:webvh:z6mkfixture:slack.example",
+            "trust_domain":"ak:trust_domain:example.net",
+            "verification_method":"did:webvh:z6mkfixture:slack.example#key-1",
+            "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
             "arkretServerUrl": "https://arkret.example.org",
             "arkretServerDid": "did:webvh:arkret.example.org",
             "accessToken": "applet-bearer-1",
@@ -548,6 +619,29 @@ mod tests {
             },
             "requestedScopes": ["ak.strand.create", "ak.message.create"]
         })
+    }
+
+    #[test]
+    fn applet_bot_requires_the_exact_account_and_service_binding() {
+        let mut body = valid_body();
+        body.as_object_mut().unwrap().remove("bot_account_id");
+        body["bot_actor_id"] = json!("did:webvh:z6mkbot:bot.example");
+        assert!(ArkretAppletConfig::from_channel_config(&make_channel_config(body)).is_none());
+        let mut body = valid_body();
+        body["service_did"] = json!("did:webvh:z6mkother:other.example");
+        assert!(
+            ArkretAppletConfig::from_channel_config(&make_channel_config(body))
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+        let parsed =
+            ArkretAppletConfig::from_channel_config(&make_channel_config(valid_body())).unwrap();
+        assert_eq!(
+            parsed.bot_account_id.station_id.as_str(),
+            "ak:did_core:webvh:z6mkstation"
+        );
+        assert_ne!(parsed.bot_account_id.station_id.as_str(), parsed.service_id);
     }
 
     #[test]
@@ -578,7 +672,7 @@ mod tests {
         object.remove("controllerPrincipalId");
         object.insert(
             "controller_principal_id".to_owned(),
-            json!("ak:did_core:webvh:z6mkfixture:snake-admin.example"),
+            json!("ak:did_core:webvh:z6mksnakeadmin"),
         );
 
         let cfg = make_channel_config(body);
@@ -586,7 +680,7 @@ mod tests {
 
         assert_eq!(
             parsed.controller_principal_id,
-            "ak:did_core:webvh:z6mkfixture:snake-admin.example"
+            "ak:did_core:webvh:z6mksnakeadmin"
         );
         parsed.validate().expect("validate");
     }
