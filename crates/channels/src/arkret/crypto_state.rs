@@ -1625,7 +1625,7 @@ impl FileArkretCryptoStore {
     }
 
     /// Apply one accepted durable `ak.mls.commit` to the local MLS group and
-    /// persist the post-Commit snapshot before any later encrypted DataEvent is
+    /// persist the post-Commit snapshot before any later encrypted ordinary Event is
     /// handled. Replaying the same accepted Commit is idempotent; an epoch gap
     /// fails closed instead of fabricating ratchet state.
     pub fn apply_mls_commit(

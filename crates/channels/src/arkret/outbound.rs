@@ -132,33 +132,33 @@ pub fn sign_outbound_event(
 }
 
 /// Stamp the verified Realm authority evidence and signing identity required
-/// by an ordinary DataEvent before encryption and signing.
+/// by an ordinary Event before encryption and signing.
 ///
 /// `key_id` is the deployment-local signing key name pinned by the verified authority state —
 /// the verification-method fragment (`"key-1"` in `did:...#key-1`), never an
 /// `ak:` typed id: the wire type rejects the `ak:` lexical space fail-closed.
-pub fn apply_data_event_authority(
+pub fn apply_ordinary_event_authority(
     event: &mut Event,
     authority_refs: Vec<SealId>,
     signer_did: DidCoreId,
     key_id: String,
 ) -> anyhow::Result<()> {
-    if event.seal_basis.is_some() || !event.preconditions.is_empty() {
-        anyhow::bail!("DataEvent cannot carry seal_basis or preconditions");
+    if event.seal_basis.is_some() {
+        anyhow::bail!("ordinary Event cannot carry seal_basis");
     }
     if event.actor_id.signing_principal_id() != &signer_did {
-        anyhow::bail!("DataEvent signer must match the Event actor");
+        anyhow::bail!("ordinary Event signer must match the Event actor");
     }
     let key_id = OpaqueLocalId::new(key_id)
-        .map_err(|err| anyhow::anyhow!("invalid DataEvent auth_context key id: {err}"))?;
+        .map_err(|err| anyhow::anyhow!("invalid ordinary Event auth_context key id: {err}"))?;
     if authority_refs.is_empty() || authority_refs.len() > 64 {
-        anyhow::bail!("DataEvent authority_refs must contain between 1 and 64 references");
+        anyhow::bail!("ordinary Event authority_refs must contain between 1 and 64 references");
     }
     if authority_refs
         .windows(2)
         .any(|pair| pair[0].as_str() >= pair[1].as_str())
     {
-        anyhow::bail!("DataEvent authority_refs must be strictly sorted and unique");
+        anyhow::bail!("ordinary Event authority_refs must be strictly sorted and unique");
     }
     event.auth_context = Some(AuthContext {
         key_id,
@@ -244,9 +244,9 @@ mod tests {
     }
 
     #[test]
-    fn data_event_basis_is_explicit_before_signing() {
+    fn ordinary_event_basis_is_explicit_before_signing() {
         let mut event = build_message_create_event(&valid_request()).expect("build");
-        apply_data_event_authority(
+        apply_ordinary_event_authority(
             &mut event,
             vec![SealId::new(format!("ak:seal:sha256:{}", "11".repeat(32))).unwrap()],
             valid_request().actor_account_id.principal_id,
@@ -297,9 +297,9 @@ mod tests {
     }
 
     #[test]
-    fn data_event_authority_rejects_a_different_signing_principal() {
+    fn ordinary_event_authority_rejects_a_different_signing_principal() {
         let mut event = build_message_create_event(&valid_request()).expect("build");
-        let error = apply_data_event_authority(
+        let error = apply_ordinary_event_authority(
             &mut event,
             vec![SealId::new(format!("ak:seal:sha256:{}", "22".repeat(32))).unwrap()],
             DidCoreId::new("ak:did_core:web:example.org:agents:other").unwrap(),

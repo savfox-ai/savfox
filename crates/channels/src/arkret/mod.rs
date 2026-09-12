@@ -80,7 +80,7 @@ pub use inbound_adapter::{
     parse_notification_delta_for_account, should_dispatch_event,
 };
 pub use outbound::{
-    MessageCreateRequest, apply_data_event_authority, build_message_create_event,
+    MessageCreateRequest, apply_ordinary_event_authority, build_message_create_event,
     finalize_outbound_event, sign_outbound_event,
 };
 pub use session::ArkretSession;

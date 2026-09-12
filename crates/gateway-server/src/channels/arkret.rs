@@ -22,7 +22,7 @@ use arkret::{
     DeviceId, DeviceMessagesAckRequestBody, DidCoreId, EventId, EventRef,
     KeyPackagesConsumeOutcome, KeyPackagesConsumeUnsignedRequest, KeyPackagesRevokeUnsignedRequest,
     KeyPackagesUploadRequestBody, KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord,
-    PreparedDataEvent, PreparedStandardEvent, RealmId, ServiceOperationId,
+    PreparedOrdinaryEvent, PreparedStandardEvent, RealmId, ServiceOperationId,
 };
 use chrono::Utc;
 use garth::{
@@ -38,12 +38,12 @@ use savfox_channels::arkret::{
     ArkretMlsWelcomeConsumeBinding, EventInitialSubmission, FileArkretCryptoStore,
     MessageCreateRequest, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
     SidecarRequestGate, SidecarTerminalAdmission, UnableToDecryptReason, account_allows_event_read,
-    apply_data_event_authority, build_message_create_event, build_user_facing_response_metadata,
-    device_messages_scope, encode_sidecar_reply_target, gate_inbound_exchange_control,
-    gate_inbound_request_binding, open_account_store, parse_delta_frame_for_account,
-    resolve_arkret_outbound_account_for_binding, sidecar_binding_from_metadata_plaintext,
-    sign_keypackages_consume_request, sign_keypackages_revoke_request,
-    sign_keypackages_upload_request,
+    apply_ordinary_event_authority, build_message_create_event,
+    build_user_facing_response_metadata, device_messages_scope, encode_sidecar_reply_target,
+    gate_inbound_exchange_control, gate_inbound_request_binding, open_account_store,
+    parse_delta_frame_for_account, resolve_arkret_outbound_account_for_binding,
+    sidecar_binding_from_metadata_plaintext, sign_keypackages_consume_request,
+    sign_keypackages_revoke_request, sign_keypackages_upload_request,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -4653,10 +4653,10 @@ pub(crate) async fn send_to_arkret_account(
         .with_context(|| {
             format!(
                 "Arkret account verification method '{signing_verification_method}' has no key \
-                 fragment to pin as the DataEvent auth_context key id"
+                 fragment to pin as the ordinary Event auth_context key id"
             )
         })?;
-    apply_data_event_authority(
+    apply_ordinary_event_authority(
         &mut event,
         authority_refs.clone(),
         DidCoreId::new(account.principal_id.clone())?,
@@ -4687,8 +4687,8 @@ pub(crate) async fn send_to_arkret_account(
         )?;
     }
     let prepared_event = PreparedStandardEvent::from(
-        PreparedDataEvent::try_from(event.event().clone())
-            .map_err(|error| anyhow::anyhow!("prepare outbound Arkret DataEvent: {error}"))?,
+        PreparedOrdinaryEvent::try_from(event.event().clone())
+            .map_err(|error| anyhow::anyhow!("prepare outbound Arkret ordinary Event: {error}"))?,
     );
 
     // Ordinary publication is wrapped and validated locally. The signed
