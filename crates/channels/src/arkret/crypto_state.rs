@@ -1264,10 +1264,6 @@ impl FileArkretCryptoStore {
         }
     }
 
-    pub fn record_mls_welcome(&self, welcome: MlsWelcomeEnvelope) -> anyhow::Result<()> {
-        self.record_mls_welcome_inner(welcome, None)
-    }
-
     /// Admit a controller/owned-Agent pair only from a completely verified
     /// accepted governance closure, binding both active leaves before T3 save.
     pub fn admit_verified_owned_agent_welcomes(
@@ -1290,9 +1286,7 @@ impl FileArkretCryptoStore {
                 .recipient_principal_id
                 .as_ref()
                 .is_none_or(|id| id.as_str() != agent_id)
-                || store
-                    .mls_group_state(payload.mls_group_id.as_str())
-                    .is_some()
+                || store.mls_group_state(payload.mls_group_id()).is_some()
             {
                 continue;
             }
@@ -1350,8 +1344,12 @@ impl FileArkretCryptoStore {
                 .iter()
                 .find(|accepted| {
                     accepted.kind == arkret::EventKind::MlsGenesis
-                        && accepted.payload.get("mls_group_id").and_then(Value::as_str)
-                            == Some(payload.mls_group_id.as_str())
+                        && serde_json::to_value(&accepted.payload)
+                            .ok()
+                            .and_then(|value| {
+                                serde_json::from_value::<arkret::MlsGenesisPayload>(value).ok()
+                            })
+                            .is_some_and(|genesis| genesis.mls_group_id() == payload.mls_group_id())
                 })
                 .context("Welcome group has no accepted Genesis")?;
             anyhow::ensure!(
@@ -1366,8 +1364,7 @@ impl FileArkretCryptoStore {
             else {
                 anyhow::bail!("owned-Agent Welcome requires its controller device authority");
             };
-            let envelope = extract_mls_welcome_envelope(&serde_json::to_value(&payload)?)
-                .context("invalid accepted Welcome")?;
+            let envelope = mls_welcome_envelope(&payload)?;
             let identity = state
                 .mls_identities
                 .values()
@@ -1448,6 +1445,7 @@ impl FileArkretCryptoStore {
                 "owned-Agent admission requires exactly one Agent leaf"
             );
             group.install_verified_leaf_bindings(bindings)?;
+            stage_verified_welcome(&mut state, &mut store, &payload, &event.event_id)?;
             let record = group.persist_state(&mut store)?;
             state.bootstrap.insert(
                 record.group_id.clone(),
@@ -1484,11 +1482,11 @@ impl FileArkretCryptoStore {
                 continue;
             }
             self.validate_agent_mls_welcome_payload(&payload, agent_id, "", authorization_ref)?;
-            let Some(record) = durable_store.mls_group_state(payload.mls_group_id.as_str()) else {
+            let Some(record) = durable_store.mls_group_state(payload.mls_group_id()) else {
                 continue;
             };
             anyhow::ensure!(
-                record.epoch == payload.epoch,
+                record.epoch == payload.epoch(),
                 "durable Welcome epoch mismatch"
             );
             ArkretMlsGroup::restore_from_state_record(&record)?.verified_leaf_bindings()?;
@@ -1519,9 +1517,9 @@ impl FileArkretCryptoStore {
                 },
                 recipient_id: payload.claim_receipt.destination_id.clone(),
                 realm_id: checkpoint.realm_id.clone(),
-                mls_group_id: arkret::NonEmptyString::new(payload.mls_group_id.as_str())
+                mls_group_id: arkret::NonEmptyString::new(payload.mls_group_id())
                     .map_err(anyhow::Error::msg)?,
-                mls_epoch: payload.epoch,
+                mls_epoch: payload.epoch(),
                 welcome_ref: event.event_id.clone(),
                 welcome_digest: payload.claim_envelope.welcome_digest.clone(),
                 durable_at: Utc::now(),
@@ -1539,9 +1537,10 @@ impl FileArkretCryptoStore {
             for binding in durable.mls_welcome_consume_bindings.values_mut() {
                 if binding.keypackage_ref == payload.keypackage_ref
                     && binding.claim_id == payload.claim_id.as_str()
+                    && binding.welcome_ref.as_deref() == Some(event.event_id.as_str())
+                    && binding.group_state_ref.as_deref() == Some(payload.commit_ref.as_str())
                     && binding.recipient_durable_receipt.is_none()
                 {
-                    binding.welcome_ref = Some(event.event_id.to_string());
                     binding.recipient_durable_receipt = Some(receipt.clone());
                     receipts_changed = true;
                 }
@@ -1551,77 +1550,6 @@ impl FileArkretCryptoStore {
             self.save(&mut durable)?;
         }
         Ok(admitted)
-    }
-
-    fn record_mls_welcome_inner(
-        &self,
-        welcome: MlsWelcomeEnvelope,
-        consume_binding: Option<ArkretMlsWelcomeConsumeBinding>,
-    ) -> anyhow::Result<()> {
-        let _guard = self.mutation_lock.lock();
-        let mut state = self.load()?;
-        let mut store = state.mls_store()?;
-        let local_epoch = store
-            .mls_group_state(&welcome.group_id)
-            .map(|record| record.epoch);
-        store
-            .put_welcome(welcome.clone())
-            .map_err(|err| anyhow::anyhow!("persist Arkret MLS Welcome: {err}"))?;
-        state.bootstrap.insert(
-            welcome.group_id.clone(),
-            ArkretBootstrapRecord {
-                group_id: welcome.group_id,
-                required_epoch: welcome.epoch,
-                local_epoch,
-                group_state_ref: consume_binding
-                    .as_ref()
-                    .and_then(|binding| binding.group_state_ref.clone()),
-                action: MlsRecoveryAction::ConsumeWelcome,
-                updated_at: Utc::now(),
-            },
-        );
-        if let Some(binding) = consume_binding {
-            if let Some(cache_key) =
-                find_mls_key_package_cache_key(&state.mls_key_packages, &binding.keypackage_ref)
-                && let Some(record) = state.mls_key_packages.get_mut(&cache_key)
-                && !matches!(
-                    record.state,
-                    MlsKeyPackageState::Consumed | MlsKeyPackageState::Revoked
-                )
-            {
-                record.state = MlsKeyPackageState::Claimed;
-                record.claim_id = Some(binding.claim_id.clone());
-            }
-            state
-                .mls_welcome_consume_bindings
-                .insert(binding.cache_key(), binding);
-        }
-        state.set_mls_store(&store)?;
-        self.save(&mut state)
-    }
-
-    pub fn record_mls_welcome_from_value(
-        &self,
-        value: &Value,
-    ) -> anyhow::Result<Option<MlsWelcomeEnvelope>> {
-        let Some(welcome) = extract_mls_welcome_envelope(value) else {
-            return Ok(None);
-        };
-        let state = self.load()?;
-        let mut consume_binding = extract_mls_welcome_consume_binding(value);
-        if let Some(binding) = consume_binding.as_mut() {
-            binding.welcome_ref = binding
-                .welcome_ref
-                .clone()
-                .or_else(|| extract_mls_welcome_event_ref(value));
-            enrich_mls_welcome_consume_binding(
-                binding,
-                &state.direct_conversation_welcome_bindings,
-            );
-        }
-        drop(state);
-        self.record_mls_welcome_inner(welcome.clone(), consume_binding)?;
-        Ok(Some(welcome))
     }
 
     /// Apply one accepted durable `ak.mls.commit` to the local MLS group and
@@ -1776,29 +1704,6 @@ impl FileArkretCryptoStore {
             .is_some_and(|policy| policy.source == "account_subscribe_direct_conversation"))
     }
 
-    pub fn validate_agent_mls_welcome_value_tree(
-        &self,
-        value: &Value,
-        principal_id: &str,
-        _device_id: &str,
-        authorized_event_ref: &str,
-    ) -> anyhow::Result<bool> {
-        let mut payloads = Vec::new();
-        collect_typed_mls_welcome_payloads(value, 8, &mut payloads);
-        if payloads.is_empty() {
-            return Ok(false);
-        }
-        for payload in &payloads {
-            self.validate_agent_mls_welcome_payload(
-                payload,
-                principal_id,
-                _device_id,
-                authorized_event_ref,
-            )?;
-        }
-        Ok(true)
-    }
-
     fn validate_agent_mls_welcome_payload(
         &self,
         payload: &MlsWelcomePayload,
@@ -1918,12 +1823,13 @@ impl FileArkretCryptoStore {
             for binding in state.mls_welcome_consume_bindings.values_mut() {
                 if binding.keypackage_ref == payload.keypackage_ref
                     && binding.claim_id == payload.claim_id.to_string()
-                    && binding.mls_group_id == payload.mls_group_id.to_string()
-                    && binding.epoch == payload.epoch
+                    && binding.mls_group_id == payload.mls_group_id().to_owned()
+                    && binding.epoch == payload.epoch()
+                    && binding.welcome_ref.as_deref() == Some(event.event_id.as_str())
+                    && binding.group_state_ref.as_deref() == Some(payload.commit_ref.as_str())
                     && binding.realm_id.as_deref()
                         == Some(payload.claim_envelope.intended_realm_id.as_str())
                 {
-                    binding.welcome_ref = Some(event.event_id.to_string());
                     binding.strand_id = Some(strand_id.clone());
                     repaired += 1;
                 }
@@ -2543,96 +2449,98 @@ pub fn message_content_has_encrypted_carrier(content: &BTreeMap<String, Value>) 
     content.get("encrypted_content").is_some()
 }
 
-#[must_use]
-pub fn extract_mls_welcome_envelope(value: &Value) -> Option<MlsWelcomeEnvelope> {
-    if let Ok(welcome) = serde_json::from_value::<MlsWelcomeEnvelope>(value.clone()) {
-        return Some(welcome);
-    }
-    if let Ok(payload) = serde_json::from_value::<MlsWelcomePayload>(value.clone()) {
-        let ciphertext = payload.carrier.ciphertext();
-        let welcome_bytes = arkret::base64url_decode(ciphertext.as_bytes()).ok()?;
-        let welcome_hash =
-            arkret::Hash::new(arkret::canonical::sha256_digest(&welcome_bytes)).ok()?;
-        if welcome_hash != payload.claim_envelope.welcome_digest {
-            return None;
-        }
-        let recipient = match payload.recipient {
-            MlsWelcomeRecipient::Device {
-                recipient_device_id,
-            } => MlsEndpointIdentity::human_device(
-                payload.recipient_principal_id?,
-                recipient_device_id,
-            ),
-            MlsWelcomeRecipient::Agent {
-                recipient_agent_id,
-                recipient_agent_verification_method,
-                agent_key_authorize_event_id,
-            } => MlsEndpointIdentity::agent_runtime(
-                recipient_agent_id,
-                recipient_agent_verification_method,
-                agent_key_authorize_event_id,
-            )
-            .ok()?,
-            MlsWelcomeRecipient::MinimalMetadataPairwise {
-                recipient_pairwise_actor_id,
-                recipient_pairwise_verification_method,
-            } => MlsEndpointIdentity::minimal_metadata_pairwise(
-                recipient_pairwise_actor_id,
-                recipient_pairwise_verification_method,
-            )
-            .ok()?,
-        };
-        return Some(MlsWelcomeEnvelope {
-            group_id: payload.mls_group_id.as_str().to_owned(),
-            epoch: payload.epoch,
-            recipient,
-            welcome: ciphertext,
-            welcome_hash,
-            ratchet_tree: None,
-        });
-    }
-    for key in ["mls_welcome", "welcome_envelope", "payload", "content"] {
-        if let Some(candidate) = value.get(key)
-            && let Ok(welcome) = serde_json::from_value::<MlsWelcomeEnvelope>(candidate.clone())
-        {
-            return Some(welcome);
-        }
-    }
-    None
+fn mls_welcome_envelope(payload: &MlsWelcomePayload) -> anyhow::Result<MlsWelcomeEnvelope> {
+    // The shared codec validates the closed carrier and its byte digest.
+    let payload: MlsWelcomePayload = serde_json::from_value(serde_json::to_value(payload)?)?;
+    let recipient = match &payload.recipient {
+        MlsWelcomeRecipient::Device {
+            recipient_device_id,
+        } => MlsEndpointIdentity::human_device(
+            payload
+                .recipient_principal_id
+                .clone()
+                .context("Welcome principal is missing")?,
+            recipient_device_id.clone(),
+        ),
+        MlsWelcomeRecipient::Agent {
+            recipient_agent_id,
+            recipient_agent_verification_method,
+            agent_key_authorize_event_id,
+        } => MlsEndpointIdentity::agent_runtime(
+            recipient_agent_id.clone(),
+            recipient_agent_verification_method.clone(),
+            agent_key_authorize_event_id.clone(),
+        )?,
+        MlsWelcomeRecipient::MinimalMetadataPairwise {
+            recipient_pairwise_actor_id,
+            recipient_pairwise_verification_method,
+        } => MlsEndpointIdentity::minimal_metadata_pairwise(
+            recipient_pairwise_actor_id.clone(),
+            recipient_pairwise_verification_method.clone(),
+        )?,
+    };
+    Ok(MlsWelcomeEnvelope {
+        group_id: payload.mls_group_id().to_owned(),
+        epoch: payload.epoch(),
+        recipient,
+        welcome: payload.carrier.ciphertext(),
+        welcome_hash: payload.claim_envelope.welcome_digest.clone(),
+        ratchet_tree: None,
+    })
 }
 
-#[must_use]
-pub fn extract_mls_welcome_consume_binding(
-    value: &Value,
-) -> Option<ArkretMlsWelcomeConsumeBinding> {
-    extract_mls_welcome_consume_binding_inner(value, 6)
-}
-
-fn collect_typed_mls_welcome_payloads(
-    value: &Value,
-    remaining_depth: usize,
-    payloads: &mut Vec<MlsWelcomePayload>,
-) {
-    if let Ok(payload) = serde_json::from_value::<MlsWelcomePayload>(value.clone()) {
-        payloads.push(payload);
-        return;
+/// Stage only after the caller has verified the exact accepted Event and MLS leaves.
+/// The caller commits this cache together with the verified group snapshot.
+fn stage_verified_welcome(
+    state: &mut ArkretCryptoStateFile,
+    store: &mut MemoryCryptoStore,
+    payload: &MlsWelcomePayload,
+    welcome_ref: &EventId,
+) -> anyhow::Result<MlsWelcomeEnvelope> {
+    let welcome = mls_welcome_envelope(payload)?;
+    let mut binding = ArkretMlsWelcomeConsumeBinding {
+        keypackage_ref: payload.keypackage_ref.clone(),
+        claim_id: payload.claim_id.to_string(),
+        welcome_ref: Some(welcome_ref.to_string()),
+        realm_id: Some(payload.claim_envelope.intended_realm_id.to_string()),
+        strand_id: None,
+        mls_group_id: payload.mls_group_id().to_owned(),
+        epoch: payload.epoch(),
+        group_state_ref: Some(payload.commit_ref.to_string()),
+        recipient_durable_receipt: None,
+    };
+    enrich_mls_welcome_consume_binding(&mut binding, &state.direct_conversation_welcome_bindings);
+    store
+        .put_welcome(welcome.clone())
+        .map_err(anyhow::Error::msg)?;
+    state.bootstrap.insert(
+        welcome.group_id.clone(),
+        ArkretBootstrapRecord {
+            group_id: welcome.group_id.clone(),
+            required_epoch: welcome.epoch,
+            local_epoch: store
+                .mls_group_state(&welcome.group_id)
+                .map(|record| record.epoch),
+            group_state_ref: binding.group_state_ref.clone(),
+            action: MlsRecoveryAction::ConsumeWelcome,
+            updated_at: Utc::now(),
+        },
+    );
+    if let Some(key) =
+        find_mls_key_package_cache_key(&state.mls_key_packages, &binding.keypackage_ref)
+        && let Some(record) = state.mls_key_packages.get_mut(&key)
+        && !matches!(
+            record.state,
+            MlsKeyPackageState::Consumed | MlsKeyPackageState::Revoked
+        )
+    {
+        record.state = MlsKeyPackageState::Claimed;
+        record.claim_id = Some(binding.claim_id.clone());
     }
-    if remaining_depth == 0 {
-        return;
-    }
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                collect_typed_mls_welcome_payloads(item, remaining_depth - 1, payloads);
-            }
-        }
-        Value::Object(object) => {
-            for item in object.values() {
-                collect_typed_mls_welcome_payloads(item, remaining_depth - 1, payloads);
-            }
-        }
-        _ => {}
-    }
+    state
+        .mls_welcome_consume_bindings
+        .insert(binding.cache_key(), binding);
+    Ok(welcome)
 }
 
 fn collect_direct_conversation_bound_payloads(
@@ -2675,128 +2583,19 @@ fn collect_direct_conversation_bound_payloads(
     }
 }
 
-fn extract_mls_welcome_event_ref(value: &Value) -> Option<String> {
-    let Value::Object(object) = value else {
-        return None;
-    };
-    if string_field(object, &["kind"]).as_deref() == Some("ak.mls.welcome") {
-        return string_field(object, &["event_id", "eventId"]);
-    }
-    object.values().find_map(extract_mls_welcome_event_ref)
-}
-
 fn enrich_mls_welcome_consume_binding(
     binding: &mut ArkretMlsWelcomeConsumeBinding,
     direct_bindings: &BTreeMap<String, ArkretDirectConversationWelcomeBinding>,
 ) {
-    // The binding endorses Realm coordinates, so the Realm is the identity to
-    // match on; a consume that never learned its own falls back to the single
-    // binding on file, if there is exactly one.
-    let by_realm = binding.realm_id.as_deref().and_then(|realm_id| {
+    let Some(direct) = binding.realm_id.as_deref().and_then(|realm_id| {
         direct_bindings
             .values()
             .find(|candidate| candidate.realm_id == realm_id)
-    });
-    let unique = || {
-        if binding.realm_id.is_some() {
-            return None;
-        }
-        let mut candidates = direct_bindings.values();
-        let candidate = candidates.next()?;
-        candidates.next().is_none().then_some(candidate)
-    };
-    let Some(direct) = by_realm.or_else(unique) else {
+    }) else {
         return;
     };
     binding.realm_id = Some(direct.realm_id.clone());
     binding.strand_id = Some(direct.strand_id.clone());
-}
-
-fn extract_mls_welcome_consume_binding_inner(
-    value: &Value,
-    remaining_depth: usize,
-) -> Option<ArkretMlsWelcomeConsumeBinding> {
-    if let Ok(payload) = serde_json::from_value::<MlsWelcomePayload>(value.clone()) {
-        return Some(ArkretMlsWelcomeConsumeBinding {
-            keypackage_ref: payload.keypackage_ref.clone(),
-            claim_id: payload.claim_id.into_string(),
-            welcome_ref: None,
-            realm_id: Some(payload.claim_envelope.intended_realm_id.as_str().to_owned()),
-            strand_id: None,
-            mls_group_id: payload.mls_group_id.to_string(),
-            epoch: payload.epoch,
-            group_state_ref: Some(payload.commit_ref.to_string()),
-            recipient_durable_receipt: None,
-        });
-    }
-
-    if let Value::Object(object) = value
-        && let Some(binding) = extract_mls_welcome_consume_binding_from_object(object)
-    {
-        return Some(binding);
-    }
-
-    if remaining_depth == 0 {
-        return None;
-    }
-
-    match value {
-        Value::Array(items) => items
-            .iter()
-            .find_map(|item| extract_mls_welcome_consume_binding_inner(item, remaining_depth - 1)),
-        Value::Object(object) => object
-            .values()
-            .find_map(|item| extract_mls_welcome_consume_binding_inner(item, remaining_depth - 1)),
-        _ => None,
-    }
-}
-
-fn extract_mls_welcome_consume_binding_from_object(
-    object: &serde_json::Map<String, Value>,
-) -> Option<ArkretMlsWelcomeConsumeBinding> {
-    let keypackage_ref = string_field(object, &["keypackage_ref", "keyPackageRef"])?;
-    let claim_id = string_field(object, &["claim_id", "claimId"]).or_else(|| {
-        object
-            .get("claim_ref")
-            .or_else(|| object.get("claimRef"))
-            .and_then(Value::as_object)
-            .and_then(|claim_ref| string_field(claim_ref, &["claim_id", "claimId"]))
-    })?;
-    let mls_group_id = string_field(
-        object,
-        &["mls_group_id", "mlsGroupId", "group_id", "groupId"],
-    )?;
-    let epoch = object.get("epoch").and_then(Value::as_u64)?;
-    let realm_id = string_field(object, &["realm_id", "realmId"]).or_else(|| {
-        object
-            .get("claim_envelope")
-            .or_else(|| object.get("claimEnvelope"))
-            .and_then(Value::as_object)
-            .and_then(|envelope| string_field(envelope, &["intended_realm_id", "intendedRealmId"]))
-    });
-    let strand_id = string_field(object, &["strand_id", "strandId"]);
-    let welcome_ref = string_field(
-        object,
-        &[
-            "welcome_ref",
-            "welcomeRef",
-            "encrypted_welcome_ref",
-            "encryptedWelcomeRef",
-        ],
-    );
-    let group_state_ref = string_field(object, &["commit_ref", "commitRef"]);
-
-    Some(ArkretMlsWelcomeConsumeBinding {
-        keypackage_ref,
-        claim_id,
-        welcome_ref,
-        realm_id,
-        strand_id,
-        mls_group_id,
-        epoch,
-        group_state_ref,
-        recipient_durable_receipt: None,
-    })
 }
 
 fn string_field(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
@@ -3270,8 +3069,7 @@ mod tests {
         // Welcome Event a consume is still missing.
         assert_eq!(later.welcome_ref, None);
 
-        // A consume that never learned its Realm still resolves while exactly
-        // one binding is on file.
+        // A missing Realm never borrows an unrelated stored binding.
         let mut orphan = ArkretMlsWelcomeConsumeBinding {
             keypackage_ref: "ak:mls:keypackage:orphan".to_owned(),
             claim_id: "ak:claim:orphan".to_owned(),
@@ -3287,8 +3085,8 @@ mod tests {
             &mut orphan,
             &state.direct_conversation_welcome_bindings,
         );
-        assert_eq!(orphan.realm_id.as_deref(), Some(realm_id));
-        assert_eq!(orphan.strand_id.as_deref(), Some(strand_id));
+        assert_eq!(orphan.realm_id, None);
+        assert_eq!(orphan.strand_id, None);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -3672,7 +3470,6 @@ mod tests {
         let binding = |previous, next| {
             arkret::MlsGovernanceBindingPayload::realm(
                 RealmId::new(realm).unwrap(),
-                URL_SAFE_NO_PAD.encode(realm.as_bytes()),
                 previous,
                 next,
                 Hash::new(format!("sha256:{}", "c".repeat(64))).unwrap(),
@@ -3694,12 +3491,14 @@ mod tests {
         let add = group
             .add_member_with_governance_binding(&bob_package, &binding(0, 1))
             .unwrap();
-        bob_store.record_mls_welcome_from_value(&json!({
-            "keypackage_ref": bob_package.keypackage_ref, "claim_ref":{"claim_id":"exporter-claim"},
-            "claim_envelope":{"intended_realm_id":realm}, "welcome_ref":genesis,
-            "mls_group_id":add.welcome.group_id, "epoch":add.welcome.epoch,
-            "commit_ref":transition, "content":add.welcome,
-        })).unwrap().unwrap();
+        let payload = test_welcome_payload(
+            &bob_package,
+            &add.welcome,
+            realm,
+            transition.as_str(),
+            Some(binding(0, 1)),
+        );
+        persist_test_accepted_welcome(&bob_store, &payload, genesis);
         let endpoints = vec![
             MlsEndpointIdentity::human_device(
                 DidCoreId::new("ak:did_core:web:alice.example").unwrap(),
@@ -3860,20 +3659,18 @@ mod tests {
         let mut alice_group = alice.create_group(realm_id.as_bytes()).unwrap();
         let add = alice_group.add_member(&bob_key_package).unwrap();
         let group_state_ref = "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6";
-        let welcome_carrier = json!({
-            "keypackage_ref": bob_key_package.keypackage_ref.as_str(),
-            "claim_ref": { "claim_id": "ak:claim:sidecar-metadata" },
-            "claim_envelope": { "intended_realm_id": realm_id },
-            "welcome_ref": "ak:welcome:sidecar-metadata",
-            "mls_group_id": add.welcome.group_id.as_str(),
-            "epoch": add.welcome.epoch,
-            "commit_ref": group_state_ref,
-            "content": serde_json::to_value(&add.welcome).unwrap()
-        });
-        bob_store
-            .record_mls_welcome_from_value(&welcome_carrier)
-            .expect("welcome carrier should persist")
-            .expect("welcome should be extracted");
+        let payload = test_welcome_payload(
+            &bob_key_package,
+            &add.welcome,
+            realm_id,
+            group_state_ref,
+            None,
+        );
+        persist_test_accepted_welcome(
+            &bob_store,
+            &payload,
+            "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM",
+        );
 
         // Bob joins by decrypting one inbound payload, which also seeds the
         // bootstrap record (group_state_ref) that outbound encryption needs.
@@ -4447,38 +4244,34 @@ mod tests {
             DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
         )
         .unwrap();
-        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000001";
+        let realm_id = "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
         let mut alice_group = alice.create_group(realm_id.as_bytes()).unwrap();
         let add = alice_group.add_member(&bob_key_package).unwrap();
         let expected_binding = ArkretMlsWelcomeConsumeBinding {
             keypackage_ref: bob_key_package.keypackage_ref.as_str().to_owned(),
-            claim_id: "ak:claim:test-welcome".to_owned(),
-            welcome_ref: Some("ak:welcome:test".to_owned()),
-            realm_id: Some("ak:realm:01904100-0000-8000-8000-000000000001".to_owned()),
+            claim_id: "claim-agent-welcome-001".to_owned(),
+            welcome_ref: Some("ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM".to_owned()),
+            realm_id: Some("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI".to_owned()),
             strand_id: None,
             mls_group_id: add.welcome.group_id.clone(),
             epoch: add.welcome.epoch,
-            group_state_ref: Some("ak:event:01904100-0000-8000-8000-0000000000aa".to_owned()),
+            group_state_ref: Some(
+                "ak:event:AbnHJt4q4qY18zqvLiy3Emmqy7weTAuApx42RmRgPr2h".to_owned(),
+            ),
             recipient_durable_receipt: None,
         };
-        let welcome_carrier = json!({
-            "keypackage_ref": expected_binding.keypackage_ref.as_str(),
-            "claim_ref": {
-                "claim_id": expected_binding.claim_id.as_str()
-            },
-            "claim_envelope": {
-                "intended_realm_id": expected_binding.realm_id.as_deref().unwrap()
-            },
-            "welcome_ref": expected_binding.welcome_ref.as_deref().unwrap(),
-            "mls_group_id": expected_binding.mls_group_id.as_str(),
-            "epoch": expected_binding.epoch,
-            "commit_ref": expected_binding.group_state_ref.as_deref().unwrap(),
-            "content": serde_json::to_value(&add.welcome).unwrap()
-        });
-        let recorded = bob_store
-            .record_mls_welcome_from_value(&welcome_carrier)
-            .expect("welcome carrier should persist")
-            .expect("welcome should be extracted");
+        let payload = test_welcome_payload(
+            &bob_key_package,
+            &add.welcome,
+            realm_id,
+            expected_binding.group_state_ref.as_deref().unwrap(),
+            None,
+        );
+        let recorded = persist_test_accepted_welcome(
+            &bob_store,
+            &payload,
+            expected_binding.welcome_ref.as_deref().unwrap(),
+        );
         assert_eq!(recorded.group_id, add.welcome.group_id);
         let state = bob_store.load().expect("state should load");
         assert_eq!(
@@ -4504,10 +4297,10 @@ mod tests {
             .self_update_commit()
             .expect("Alice self-update Commit should build");
         let commit_event =
-            EventId::new("ak:event:01904100-0000-8000-8000-0000000000ab".to_owned()).unwrap();
+            EventId::new("ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6".to_owned())
+                .unwrap();
         let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
             RealmId::new(realm_id.to_owned()).unwrap(),
-            commit.group_id.clone(),
             expected_binding.epoch,
             commit.epoch,
             Hash::new(format!("sha256:{}", "c".repeat(64))).unwrap(),
@@ -4518,7 +4311,6 @@ mod tests {
         )
         .unwrap();
         let commit_payload = MlsCommitPayload::new(
-            expected_binding.epoch,
             expected_binding.group_state_ref.as_deref().unwrap(),
             Vec::new(),
             &commit,
@@ -4594,52 +4386,42 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
-    #[test]
-    fn durable_mls_welcome_payload_is_converted_and_persisted() {
+    fn test_welcome_payload(
+        key_package: &MlsKeyPackageRecord,
+        welcome: &MlsWelcomeEnvelope,
+        realm: &str,
+        commit_ref: &str,
+        binding: Option<arkret::MlsGovernanceBindingPayload>,
+    ) -> MlsWelcomePayload {
         use arkret::{
-            Base64UrlString, EventId, MlsClaimTrustBinding, MlsGovernanceBindingPayload,
-            MlsGroupId, MlsRequesterTrustBinding, MlsWelcomeCarrier, MlsWelcomeClaimEnvelope,
-            MlsWelcomePayloadClaimRef, NonEmptyString, RealmId,
+            Base64UrlString, MlsClaimTrustBinding, MlsGovernanceBindingPayload,
+            MlsRequesterTrustBinding, MlsWelcomeCarrier, MlsWelcomeClaimEnvelope,
+            MlsWelcomePayloadClaimRef, NonEmptyString,
         };
-
-        let home = temp_home("durable-welcome-payload");
-        let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
-        let principal =
-            DidCoreId::new("ak:did_core:web:agent.example".to_owned()).expect("principal");
-        let device = DeviceId::new("ak:device:01904100-0000-7000-8000-00000000000f".to_owned())
-            .expect("device");
-        let key_package = store
-            .ensure_mls_key_package(principal.as_str(), device.as_str(), false)
-            .expect("KeyPackage");
-
-        let owner = new_human_mls_identity(
-            DidCoreId::new("ak:did_core:web:owner.example".to_owned()).expect("owner"),
-            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned())
-                .expect("owner device"),
-        )
-        .expect("owner identity");
-        let realm_id =
-            RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI".to_owned())
-                .expect("realm");
-        let mut group = owner
-            .create_group(realm_id.as_str().as_bytes())
-            .expect("group");
-        let add = group.add_member(&key_package).expect("add member");
+        let MlsEndpointIdentity::HumanDevice {
+            principal_id: principal,
+            device_id: device,
+        } = &welcome.recipient
+        else {
+            panic!("human recipient fixture required");
+        };
+        let realm_id = RealmId::new(realm).unwrap();
         let hash = |marker: char| {
             Hash::new(format!("sha256:{}", marker.to_string().repeat(64))).expect("hash")
         };
-        let governance_binding = MlsGovernanceBindingPayload::realm(
-            realm_id.clone(),
-            add.welcome.group_id.clone(),
-            0,
-            add.welcome.epoch,
-            hash('c'),
-            arkret::ContentScheme::MlsRfc9420,
-            None,
-            arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
-            "arkret.reducer.v1",
-        )
-        .expect("governance binding");
+        let governance_binding = binding.unwrap_or_else(|| {
+            MlsGovernanceBindingPayload::realm(
+                realm_id.clone(),
+                0,
+                welcome.epoch,
+                hash('c'),
+                arkret::ContentScheme::MlsRfc9420,
+                None,
+                arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
+                "arkret.reducer.v1",
+            )
+            .expect("governance binding")
+        });
         let claim_id = NonEmptyString::new("claim-agent-welcome-001").expect("claim id");
         let authorize_event =
             NonEmptyString::new("ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM")
@@ -4671,7 +4453,7 @@ mod tests {
                 )
                 .expect("requester authorization"),
             },
-            welcome_digest: add.welcome.welcome_hash.clone(),
+            welcome_digest: welcome.welcome_hash.clone(),
             created_at: Utc::now(),
             signature: KeyOperationSignature {
                 kid: NonEmptyString::new("did:web:owner.example#ssk-1").expect("kid"),
@@ -4696,7 +4478,7 @@ mod tests {
                     "station_id": "ak:did_core:web:service.example"
                 },
                 "intended_realm_id": realm_id.as_str(),
-                "mls_group_id": add.welcome.group_id.clone(),
+                "mls_group_id": welcome.group_id.clone(),
                 "claim_purpose": "realm_membership",
                 "required_capabilities": ["mimi.content.v1"],
                 "expires_at": "2099-01-01T00:00:00.000Z",
@@ -4707,9 +4489,7 @@ mod tests {
             "signature": {"kid": "service-key", "sig": "AQ"}
         }))
         .expect("peer claim receipt");
-        let payload = MlsWelcomePayload {
-            mls_group_id: MlsGroupId::new(add.welcome.group_id.clone()).expect("group id"),
-            epoch: add.welcome.epoch,
+        MlsWelcomePayload {
             recipient_principal_id: Some(principal.clone()),
             recipient: MlsWelcomeRecipient::Device {
                 recipient_device_id: device.clone(),
@@ -4721,24 +4501,100 @@ mod tests {
             claim_envelope,
             claim_receipt,
             carrier: MlsWelcomeCarrier::new(
-                arkret::base64url_decode(add.welcome.welcome.as_bytes())
-                    .expect("Welcome ciphertext"),
+                arkret::base64url_decode(welcome.welcome.as_bytes()).expect("Welcome ciphertext"),
             )
             .expect("carrier"),
-            commit_ref: EventId::new(
-                "ak:event:AbnHJt4q4qY18zqvLiy3Emmqy7weTAuApx42RmRgPr2h".to_owned(),
-            )
-            .expect("commit ref"),
+            commit_ref: EventId::new(commit_ref).expect("commit ref"),
             governance_binding,
             expires_at: Utc::now() + chrono::Duration::hours(1),
-        };
+        }
+    }
 
-        let recorded = store
-            .record_mls_welcome_from_value(
-                &serde_json::to_value(&payload).expect("serialize durable payload"),
-            )
-            .expect("record durable payload")
-            .expect("extract durable Welcome");
+    fn persist_test_accepted_welcome(
+        store: &FileArkretCryptoStore,
+        payload: &MlsWelcomePayload,
+        welcome_ref: &str,
+    ) -> MlsWelcomeEnvelope {
+        // Exercise the post-verification staging boundary without inventing wire proofs.
+        let mut state = store.load().unwrap();
+        let mut crypto = state.mls_store().unwrap();
+        let welcome = stage_verified_welcome(
+            &mut state,
+            &mut crypto,
+            payload,
+            &EventId::new(welcome_ref).unwrap(),
+        )
+        .unwrap();
+        state.set_mls_store(&crypto).unwrap();
+        store.save(&mut state).unwrap();
+        welcome
+    }
+
+    #[test]
+    fn durable_mls_welcome_payload_is_converted_and_persisted() {
+        let home = temp_home("durable-welcome-payload");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        let principal =
+            DidCoreId::new("ak:did_core:web:agent.example".to_owned()).expect("principal");
+        let device = DeviceId::new("ak:device:01904100-0000-7000-8000-00000000000f".to_owned())
+            .expect("device");
+        let key_package = store
+            .ensure_mls_key_package(principal.as_str(), device.as_str(), false)
+            .expect("KeyPackage");
+
+        let owner = new_human_mls_identity(
+            DidCoreId::new("ak:did_core:web:owner.example".to_owned()).expect("owner"),
+            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned())
+                .expect("owner device"),
+        )
+        .expect("owner identity");
+        let realm_id =
+            RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI".to_owned())
+                .expect("realm");
+        let mut group = owner
+            .create_group(realm_id.as_str().as_bytes())
+            .expect("group");
+        let add = group.add_member(&key_package).expect("add member");
+        let payload = test_welcome_payload(
+            &key_package,
+            &add.welcome,
+            realm_id.as_str(),
+            "ak:event:AbnHJt4q4qY18zqvLiy3Emmqy7weTAuApx42RmRgPr2h",
+            None,
+        );
+
+        let value = serde_json::to_value(&payload).expect("serialize durable payload");
+        assert!(value.get("mls_group_id").is_none());
+        assert!(value.get("epoch").is_none());
+        let decoded: MlsWelcomePayload = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(decoded.mls_group_id(), add.welcome.group_id);
+        assert_eq!(decoded.epoch(), add.welcome.epoch);
+        for retired in [
+            serde_json::to_value(&add.welcome).unwrap(),
+            json!({"content": value.clone()}),
+            json!({"payload": value.clone()}),
+            json!({"mls_welcome": value.clone()}),
+            json!({"mlsGroupId": decoded.mls_group_id(), "epoch": decoded.epoch(), "keyPackageRef": decoded.keypackage_ref}),
+        ] {
+            assert!(serde_json::from_value::<MlsWelcomePayload>(retired).is_err());
+        }
+        for retired_field in ["mls_group_id", "mlsGroupId", "epoch"] {
+            let mut retired = value.clone();
+            retired[retired_field] = serde_json::json!("copied-coordinate");
+            assert!(serde_json::from_value::<MlsWelcomePayload>(retired).is_err());
+        }
+        assert!(
+            store
+                .load()
+                .unwrap()
+                .mls_welcome_consume_bindings
+                .is_empty()
+        );
+        let recorded = persist_test_accepted_welcome(
+            &store,
+            &decoded,
+            "ak:event:AfOnmtYgQpP17IGXP_64dE-weM-8C_AfXXXfYpJ3ubJG",
+        );
         let mut expected = add.welcome;
         expected.ratchet_tree = None;
         assert_eq!(recorded, expected);
@@ -4799,6 +4655,19 @@ mod tests {
         )
         .unwrap();
         welcome_event.event_id = welcome_event_id.clone();
+        let mut other_welcome = welcome_event.clone();
+        other_welcome.event_id =
+            EventId::new("ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM").unwrap();
+        assert_eq!(
+            store
+                .repair_pending_direct_conversation_bindings_from_accepted_events(&[
+                    strand_event.clone(),
+                    other_welcome,
+                ])
+                .unwrap(),
+            0
+        );
+
         assert_eq!(
             store
                 .repair_pending_direct_conversation_bindings_from_accepted_events(&[

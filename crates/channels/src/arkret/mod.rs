@@ -68,8 +68,7 @@ pub use crypto_state::{
     ArkretMlsIdentityStateRecord, ArkretMlsWelcomeConsumeBinding, ArkretRealmCryptoPolicy,
     FileArkretCryptoStore, account_scope_id, applet_scope_id,
     extract_encrypted_metadata_payload_from_message_content,
-    extract_encrypted_payload_from_message_content, extract_mls_welcome_consume_binding,
-    extract_mls_welcome_envelope, message_content_has_encrypted_carrier,
+    extract_encrypted_payload_from_message_content, message_content_has_encrypted_carrier,
     mls_key_package_record_from_claim,
 };
 pub use grant::{ArkretGrant, load_and_verify_grant};

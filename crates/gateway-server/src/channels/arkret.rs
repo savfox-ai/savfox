@@ -1279,7 +1279,7 @@ async fn handle_account_client_event(
                     .flat_map(|timeline| timeline.events.iter()),
                 crypto_store,
             );
-            record_account_mls_welcomes_from_realm_update(&update, crypto_store, channel, account);
+            apply_account_mls_commits_from_realm_update(&update, crypto_store, channel, account);
             if let Err(error) = governance::admit_owned_agent_welcomes(
                 client.inner(),
                 crypto_store,
@@ -1321,13 +1321,15 @@ async fn handle_account_client_event(
         }
         ClientEvent::ToDevice(message) => {
             let content = serde_json::to_value(&message.content).unwrap_or(Value::Null);
-            record_account_mls_welcome_from_value_tree(
+            refresh_account_mls_from_welcome_hint(
+                client,
                 crypto_store,
                 &content,
                 channel,
                 account,
                 "to_device",
-            );
+            )
+            .await;
         }
         other => {
             debug!(
@@ -1491,13 +1493,15 @@ async fn repair_and_consume_pending_mls_welcomes(
                         });
                     for event in &outcome.events {
                         if let Ok(value) = serde_json::to_value(event) {
-                            record_account_mls_welcome_from_value_tree(
+                            refresh_account_mls_from_welcome_hint(
+                                client,
                                 crypto_store,
                                 &value,
                                 channel,
                                 account,
                                 "startup_pending_welcome_repair",
-                            );
+                            )
+                            .await;
                             apply_account_mls_commits_from_value_tree(
                                 crypto_store,
                                 &value,
@@ -2121,13 +2125,15 @@ async fn drain_account_device_messages_from_cursor(
 
         for message in &outcome.messages {
             let content = serde_json::to_value(&message.content).unwrap_or(Value::Null);
-            record_account_mls_welcome_from_value_tree(
+            refresh_account_mls_from_welcome_hint(
+                client,
                 crypto_store,
                 &content,
                 channel,
                 account,
                 "device_messages",
-            );
+            )
+            .await;
         }
         if outcome.lost {
             warn!(
@@ -2452,16 +2458,6 @@ async fn handle_sync_updates_for_account(
     let to_device_ack_token = updates.to_device_ack_token.clone();
     let to_device_limited = updates.to_device_limited;
     let to_device_next_cursor = updates.to_device_next_cursor.clone();
-    for item in &updates.account_data {
-        let payload = Value::Object(item.payload.clone().into_iter().collect());
-        record_account_mls_welcome_from_value_tree(
-            crypto_store,
-            &payload,
-            channel,
-            account,
-            "account_data",
-        );
-    }
     // Typed account notifications carry Agent runtime-approval state. They are
     // not Realm events and must not wake the channel's chat agent.
     match account_to_device_ack_plan(
@@ -2732,13 +2728,15 @@ async fn scan_limited_realm_timeline_for_account(
             crypto_store,
         );
         if let Ok(value) = serde_json::to_value(event) {
-            record_account_mls_welcome_from_value_tree(
+            refresh_account_mls_from_welcome_hint(
+                client,
                 crypto_store,
                 &value,
                 channel,
                 account,
                 "realm_scan_catchup",
-            );
+            )
+            .await;
             apply_account_mls_commits_from_value_tree(
                 crypto_store,
                 &value,
@@ -2942,7 +2940,7 @@ fn parse_backfill_events_for_account(
     parse_realm_update_for_account(update, account)
 }
 
-fn record_account_mls_welcomes_from_realm_update(
+fn apply_account_mls_commits_from_realm_update(
     update: &arkret::RealmUpdate,
     crypto_store: &FileArkretCryptoStore,
     channel: &ArkretChannelConfig,
@@ -2952,13 +2950,6 @@ fn record_account_mls_welcomes_from_realm_update(
     if let Some(timeline) = &update.entry.timeline {
         for event in &timeline.events {
             if let Ok(event) = serde_json::to_value(event) {
-                recorded += record_account_mls_welcome_from_value_tree(
-                    crypto_store,
-                    &event,
-                    channel,
-                    account,
-                    "realm_timeline",
-                );
                 recorded += apply_account_mls_commits_from_value_tree(
                     crypto_store,
                     &event,
@@ -2972,133 +2963,44 @@ fn record_account_mls_welcomes_from_realm_update(
     recorded
 }
 
-fn record_account_mls_welcome_from_value_tree(
-    crypto_store: &FileArkretCryptoStore,
-    value: &Value,
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-    source: &'static str,
-) -> usize {
-    match crypto_store.record_direct_conversation_binding_from_value(value) {
-        Ok(0) => {}
-        Ok(recorded) => {
-            debug!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                source,
-                recorded,
-                "arkret: recorded Direct Conversation MLS binding from account inbound event"
-            );
+fn mls_welcome_hint_realm(value: &Value) -> Option<arkret::RealmId> {
+    // This is only a fetch hint; acceptance comes from the verified checkpoint.
+    let payload = if let Ok(event) = serde_json::from_value::<arkret::Event>(value.clone()) {
+        if event.kind != arkret::EventKind::MlsWelcome {
+            return None;
         }
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                source,
-                "arkret: failed to persist Direct Conversation MLS binding: {err:#}"
-            );
+        let payload: arkret::MlsWelcomePayload =
+            serde_json::from_value(serde_json::to_value(&event.payload).ok()?).ok()?;
+        if payload.governance_binding.effective_scope() != &event.scope_ref {
+            return None;
         }
-    }
-    let Some(authorized_event_ref) = account.authorized_event_ref.as_deref() else {
-        warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            source,
-            "arkret: refusing MLS Welcome without current Agent key authorization"
-        );
-        return 0;
+        payload
+    } else {
+        serde_json::from_value::<arkret::MlsWelcomePayload>(value.clone()).ok()?
     };
-    match crypto_store.validate_agent_mls_welcome_value_tree(
-        value,
-        &account.principal_id,
-        &account.device_id,
-        authorized_event_ref,
-    ) {
-        Ok(true) => {}
-        Ok(false) => return 0,
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                source,
-                "arkret: refusing MLS Welcome with invalid Agent claim binding: {err:#}"
-            );
-            return 0;
-        }
-    }
-    record_account_mls_welcome_from_value_tree_inner(
-        crypto_store,
-        value,
-        channel,
-        account,
-        source,
-        6,
-    )
+    payload
+        .governance_binding
+        .effective_scope()
+        .realm_id_opt()
+        .cloned()
 }
 
-fn record_account_mls_welcome_from_value_tree_inner(
+async fn refresh_account_mls_from_welcome_hint(
+    client: &ArkretHttpClient,
     crypto_store: &FileArkretCryptoStore,
     value: &Value,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     source: &'static str,
-    remaining_depth: usize,
-) -> usize {
-    match crypto_store.record_mls_welcome_from_value(value) {
-        Ok(Some(welcome)) => {
-            debug!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                source,
-                group_id = %welcome.group_id,
-                epoch = welcome.epoch,
-                recipient = ?welcome.recipient,
-                "arkret: recorded MLS Welcome from account inbound event"
-            );
-            return 1;
-        }
-        Ok(None) => {}
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                source,
-                "arkret: failed to persist MLS Welcome from account inbound event: {err:#}"
-            );
-            return 1;
-        }
-    }
-    if remaining_depth == 0 {
-        return 0;
-    }
-    match value {
-        Value::Array(items) => items
-            .iter()
-            .map(|item| {
-                record_account_mls_welcome_from_value_tree_inner(
-                    crypto_store,
-                    item,
-                    channel,
-                    account,
-                    source,
-                    remaining_depth - 1,
-                )
-            })
-            .sum(),
-        Value::Object(object) => object
-            .values()
-            .map(|item| {
-                record_account_mls_welcome_from_value_tree_inner(
-                    crypto_store,
-                    item,
-                    channel,
-                    account,
-                    source,
-                    remaining_depth - 1,
-                )
-            })
-            .sum(),
-        _ => 0,
+) {
+    let Some(realm) = mls_welcome_hint_realm(value) else {
+        return;
+    };
+    if let Err(error) =
+        governance::admit_owned_agent_welcomes(client.inner(), crypto_store, &realm, account).await
+    {
+        warn!(channel_id = %channel.id, account_id = %account.id, source, realm_id = %realm,
+            "arkret: verified MLS admission pending: {error:#}");
     }
 }
 
@@ -5094,7 +4996,6 @@ mod tests {
         };
         let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
             realm_id,
-            commit.group_id.clone(),
             0,
             commit.epoch,
             hash('c'),
@@ -5105,7 +5006,6 @@ mod tests {
         )
         .unwrap();
         let payload = arkret::MlsCommitPayload::new(
-            0,
             "ak:event:01904100-0000-8000-8000-000000000001",
             Vec::new(),
             &commit,
@@ -6184,14 +6084,9 @@ mod tests {
             },
         };
 
-        let recorded = record_account_mls_welcomes_from_realm_update(
-            &update,
-            &crypto_store,
-            &channel,
-            &account,
-        );
-
-        assert_eq!(recorded, 0);
+        let value =
+            serde_json::to_value(&update.entry.timeline.as_ref().unwrap().events[0]).unwrap();
+        assert!(mls_welcome_hint_realm(&value).is_none());
         let state = crypto_store.load().expect("crypto state should load");
         assert!(!state.bootstrap.contains_key(group_id));
     }
