@@ -85,18 +85,15 @@ struct AppletChannelState {
     config: ArkretAppletConfig,
     runtime: Mutex<AppletRuntimeState>,
     crypto_store: FileArkretCryptoStore,
-    /// Restart-safe monotonic allocator for this applet's outbound
-    /// `actor_seq`. Backed by a file-backed [`SeqStore`] under the savfox
-    /// home dir; replaces the previous `timestamp_millis()` hack which was
-    /// neither monotonic across calls nor restart-safe. `SeqAllocator` is
-    /// internally synchronized, so it lives outside the `runtime` Mutex.
-    seq: arkret_bridge_runtime::SeqAllocator,
+    /// Exact signed publications and accepted Realm/full Actor frontiers,
+    /// persisted under the Savfox home directory and shared across edge refresh.
+    journal: arkret_bridge_runtime::AuthoringJournal,
     /// Authenticated outbound edge, initialized lazily and refreshed after a
     /// failed submission so expired DID-proof grants cannot wedge the applet.
     edge: tokio::sync::Mutex<Option<Arc<arkret_bridge_runtime::ArkretEdge>>>,
 }
 
-// `SeqAllocator` is not `Debug`; provide a manual impl that elides it so
+// `AuthoringJournal` is not `Debug`; provide a manual impl that elides it so
 // `AppletChannelState` keeps a `Debug` representation for tracing/asserts.
 impl std::fmt::Debug for AppletChannelState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1472,6 +1469,7 @@ pub(crate) async fn send_to_arkret_applet_for_realm(
     realm_id: &str,
     strand_id: Option<&str>,
     body: &str,
+    operation_id: &str,
 ) -> anyhow::Result<bool> {
     let Some(state) = lookup_by_realm(realm_id)? else {
         return Ok(false);
@@ -1486,12 +1484,9 @@ pub(crate) async fn send_to_arkret_applet_for_realm(
     let external_ref = json!({
         "protocol": "savfox",
         "network_id": state.config.id,
-        "external_id": format!("{realm_id}:{strand_id}"),
+        "external_id": operation_id,
         "kind": "agent_reply",
     });
-    // `actor_seq` is no longer derived from a wall-clock timestamp here — it
-    // is sourced inside `send_via_applet` from the per-applet
-    // `arkret-bridge-runtime` `SeqAllocator` (monotonic, restart-safe).
     send_via_applet(
         &state.config.id,
         realm_id,
@@ -1512,10 +1507,7 @@ pub(crate) async fn send_to_arkret_applet_for_realm(
 /// `config_id` looks up the registered applet; `external_ref` is the
 /// bridge-side origin (protocol/network/external_id) for audit.
 ///
-/// The outbound `actor_seq` is allocated from the applet's
-/// `arkret-bridge-runtime` [`SeqAllocator`] (file-backed [`SeqStore`]),
-/// giving a monotonic, restart-safe sequence — no longer
-/// `chrono::Utc::now().timestamp_millis()`.
+/// The runtime freezes one exact signed publication before the first HTTP attempt.
 pub(crate) async fn send_via_applet(
     config_id: &str,
     realm_id: &str,
@@ -1550,13 +1542,28 @@ pub(crate) async fn send_via_applet(
     );
     let strand = StrandId::new(strand_id.to_owned())
         .with_context(|| format!("invalid strand_id: {strand_id}"))?;
+    let external_ref_object: std::collections::BTreeMap<String, Value> = external_ref
+        .as_object()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("Arkret external_ref must be an object"))?
+        .into_iter()
+        .collect();
+    let operation_id =
+        arkret_bridge_runtime::external_operation_key("ak.message.create", &external_ref_object)?;
+    if let Some(event) = edge
+        .retained_publication(
+            &realm,
+            &arkret::ActorId::account(ghost_account_id.clone()),
+            &operation_id,
+        )
+        .await?
+    {
+        edge.submit_event(&event).await?;
+        return Ok(());
+    }
     let content = ContentBlock::text(body.to_owned());
     let mut payload = MessageCreatePayload::with_content(strand, "discussion", content);
     apply_applet_outbound_encryption(&state.crypto_store, realm_id, &mut payload)?;
-    let external_ref_object = external_ref
-        .as_object()
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("Arkret external_ref must be an object"))?;
     let intent = edge
         .delegated_intent::<arkret::event_spec::MessageCreate>(
             ghost_account_id,
@@ -1568,7 +1575,7 @@ pub(crate) async fn send_via_applet(
         .with_external_ref(external_ref_object.into_iter().collect())
         .with_auth_context(applet_authoring_context(&state, realm_id)?);
     let event = edge
-        .author_and_sign(&realm, intent)
+        .author_and_sign(&realm, &operation_id, intent)
         .await
         .map_err(|err| anyhow::anyhow!("arkret edge author/sign: {err}"))?;
 
@@ -1757,7 +1764,7 @@ async fn applet_edge(
     if let Some(edge) = slot.as_ref() {
         return Ok(edge.clone());
     }
-    let edge = Arc::new(build_applet_edge(&state.config, state.seq.clone()).await?);
+    let edge = Arc::new(build_applet_edge(&state.config, state.journal.clone()).await?);
     *slot = Some(edge.clone());
     Ok(edge)
 }
@@ -1765,14 +1772,14 @@ async fn applet_edge(
 async fn refresh_applet_edge(
     state: &AppletChannelState,
 ) -> anyhow::Result<Arc<arkret_bridge_runtime::ArkretEdge>> {
-    let edge = Arc::new(build_applet_edge(&state.config, state.seq.clone()).await?);
+    let edge = Arc::new(build_applet_edge(&state.config, state.journal.clone()).await?);
     *state.edge.lock().await = Some(edge.clone());
     Ok(edge)
 }
 
 async fn build_applet_edge(
     cfg: &savfox_channels::arkret::ArkretAppletConfig,
-    seq: arkret_bridge_runtime::SeqAllocator,
+    journal: arkret_bridge_runtime::AuthoringJournal,
 ) -> anyhow::Result<arkret_bridge_runtime::ArkretEdge> {
     let key_ref = cfg.key_ref.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
@@ -1828,7 +1835,7 @@ async fn build_applet_edge(
         Arc::new(runtime_config),
         http.inner().clone(),
         signer,
-        seq,
+        journal,
     )
     .map_err(|err| anyhow::anyhow!("build arkret outbound edge: {err}"))
 }
@@ -1884,40 +1891,26 @@ pub(crate) fn arkret_appservices_router() -> Router {
 
 // ─── Startup glue ───────────────────────────────────────────────────────────
 
-/// Build the restart-safe monotonic [`SeqAllocator`] for an applet.
-///
-/// The backing [`SeqStore`] is a file under
-/// `{savfox_home}/gateway/arkret-applet-seq/{config_id}.seq`; the allocator
-/// is keyed `applet:{config_id}:actor_seq` so each applet has an independent
-/// monotonic counter. Persisting the high-water mark makes `actor_seq`
-/// restart-safe — the previous `timestamp_millis()` approach was neither
-/// monotonic across rapid calls nor durable across restarts.
-fn build_applet_seq_allocator(
+/// Open the Applet's durable ordinary publication journal. Each Realm/full Actor
+/// has its own accepted frontier; pending signed bytes survive edge refresh/restart.
+fn build_applet_authoring_journal(
     savfox_home: &std::path::Path,
     config_id: &str,
-) -> anyhow::Result<arkret_bridge_runtime::SeqAllocator> {
+) -> anyhow::Result<arkret_bridge_runtime::AuthoringJournal> {
     let dir = savfox_home
         .join(savfox_utils::home_dir::GATEWAY_SUBDIR)
-        .join("arkret-applet-seq");
-    // Sanitize the config id for use as a filename (ids are operator-defined
-    // and may contain path separators / colons).
+        .join("arkret-applet-authoring");
+    // Encode the complete config id reversibly; punctuation replacement would
+    // collide between independent Applets such as `a/b` and `a:b`.
     let safe_id: String = config_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
         .collect();
-    let path = dir.join(format!("{safe_id}.seq"));
-    let store = arkret_bridge_runtime::FileSeqStore::shared(path)
-        .map_err(|e| anyhow::anyhow!("arkret applet seq store: {e}"))?;
-    Ok(arkret_bridge_runtime::SeqAllocator::new(
-        store,
-        format!("applet:{config_id}:actor_seq"),
-    ))
+    let path = dir.join(format!("{safe_id}.jsonl"));
+    let store = arkret_bridge_runtime::FileAuthoringStore::shared(path)
+        .map_err(|e| anyhow::anyhow!("arkret applet authoring journal: {e}"))?;
+    Ok(arkret_bridge_runtime::AuthoringJournal::new(store))
 }
 
 /// Start (register) an Arkret Applet channel. Mounts no extra HTTP listener
@@ -1938,11 +1931,7 @@ pub(crate) async fn start_arkret_applet_channel(
         )
     })?;
 
-    // Restart-safe monotonic `actor_seq` source for outbound events. The
-    // allocator persists its high-water mark in a per-applet file under the
-    // savfox home dir, so sequence numbers never regress across restarts
-    // (replacing the old `timestamp_millis()` hack). `SeqAllocator` is keyed
-    // per-applet (`config.id`) so multiple applets don't share a counter.
+    // Restore immutable pending publications and accepted Actor frontiers.
     let savfox_home = channel.config().savfox_home.clone();
     let crypto_store = FileArkretCryptoStore::for_applet(&savfox_home, &applet_cfg.id);
     if let Err(err) = crypto_store.ensure_created() {
@@ -1952,20 +1941,41 @@ pub(crate) async fn start_arkret_applet_channel(
             crypto_store.path().display()
         );
     }
-    let seq = build_applet_seq_allocator(&savfox_home, &applet_cfg.id)?;
+    let journal = build_applet_authoring_journal(&savfox_home, &applet_cfg.id)?;
 
     let state = AppletChannelState {
         config: applet_cfg,
         runtime: Mutex::new(AppletRuntimeState::default()),
         crypto_store,
-        seq,
+        journal,
         edge: tokio::sync::Mutex::new(None),
     };
     info!(
         "arkret: applet channel '{}' registered (applet_id={}, service_id={})",
         state.config.id, state.config.applet_id, state.config.service_id
     );
+    let config_id = state.config.id.clone();
     register_channel(state)?;
+    let registered = lookup_by_config_id(&config_id)?
+        .ok_or_else(|| anyhow::anyhow!("registered Applet disappeared"))?;
+    let weak = Arc::downgrade(&registered);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            let Some(state) = weak.upgrade() else {
+                break;
+            };
+            match applet_edge(&state).await {
+                Ok(edge) => {
+                    if let Err(error) = edge.retry_pending_publications().await {
+                        warn!(%error, "Applet publication recovery failed");
+                    }
+                }
+                Err(error) => warn!(%error, "Applet publication transport unavailable"),
+            }
+        }
+    });
     Ok(())
 }
 
@@ -2052,7 +2062,8 @@ mod tests {
             config: applet.clone(),
             runtime: Mutex::new(AppletRuntimeState::default()),
             crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
-            seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
+            journal: build_applet_authoring_journal(tmp.path(), &applet.id)
+                .expect("authoring journal"),
             edge: tokio::sync::Mutex::new(None),
         }
     }
@@ -2141,7 +2152,8 @@ mod tests {
             config: applet.clone(),
             runtime: Mutex::new(AppletRuntimeState::default()),
             crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
-            seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
+            journal: build_applet_authoring_journal(tmp.path(), &applet.id)
+                .expect("authoring journal"),
             edge: tokio::sync::Mutex::new(None),
         };
         register_channel(state).expect("register");
@@ -2161,7 +2173,8 @@ mod tests {
             config: applet.clone(),
             runtime: Mutex::new(AppletRuntimeState::default()),
             crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
-            seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
+            journal: build_applet_authoring_journal(tmp.path(), &applet.id)
+                .expect("authoring journal"),
             edge: tokio::sync::Mutex::new(None),
         };
         let group_id = "group-applet-welcome";
@@ -2248,13 +2261,20 @@ mod tests {
         );
     }
 
-    #[test]
-    fn seq_allocator_is_strictly_increasing() {
+    #[tokio::test]
+    async fn authoring_journal_reopens_without_reserving_actor_positions() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let seq = build_applet_seq_allocator(tmp.path(), "applet-seq-test").expect("seq allocator");
-        let a = seq.alloc().expect("alloc a");
-        let b = seq.alloc().expect("alloc b");
-        assert!(b > a, "expected strictly increasing seq: a={a}, b={b}");
+        let journal = build_applet_authoring_journal(tmp.path(), "applet-test").expect("journal");
+        assert!(journal.pending_events().await.unwrap().is_empty());
+        drop(journal);
+        assert!(
+            build_applet_authoring_journal(tmp.path(), "applet-test")
+                .unwrap()
+                .pending_events()
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

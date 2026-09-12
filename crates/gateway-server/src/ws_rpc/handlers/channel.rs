@@ -46,6 +46,7 @@ pub(crate) async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -
             thread_id,
             reply_target,
             saved_channel_config_id,
+            params.get("operation_id").and_then(Value::as_str),
         )
         .await
     {
