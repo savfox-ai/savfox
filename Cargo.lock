@@ -414,6 +414,7 @@ dependencies = [
  "chrono",
  "hex",
  "parking_lot",
+ "redb",
  "reqwest 0.13.4",
  "rustls 0.23.43",
  "serde",
@@ -541,6 +542,8 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -642,6 +645,7 @@ dependencies = [
  "arkret-identifiers",
  "arkret-models-crypto",
  "arkret-models-identity",
+ "arkret-models-integration",
  "arkret-schema",
  "arkret-wire",
  "chrono",
@@ -9582,6 +9586,15 @@ dependencies = [
  "time",
  "x509-parser",
  "yasna",
+]
+
+[[package]]
+name = "redb"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de6c3b63e007e90ce536ec2ae4690826136a20ec8dbbbb400daef1bb999d2e36"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
