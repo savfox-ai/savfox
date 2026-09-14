@@ -161,19 +161,30 @@ async fn fetch_seals_for_realm_with_access(
         }
         let resolve = arkret::SelfSealResolveRequestBody {
             realm_id: realm_id.clone(),
-            seal_refs: batch.clone(),
+            selection: arkret::SealResolveSelection::SealRefs {
+                seal_refs: batch.clone(),
+            },
             history_traversal_access: history_traversal_access.clone(),
         };
         match http.seals_resolve(&resolve).await {
-            Ok(outcome) => {
-                if !outcome.missing_seal_refs.is_empty() {
+            Ok(arkret::SealResolveOutcome::Seals {
+                seals: resolved,
+                missing_seal_refs,
+            }) => {
+                if !missing_seal_refs.is_empty() {
                     return Err("MLS governance Seal resolution is incomplete".to_owned());
                 }
-                for seal in outcome.seals {
+                for seal in resolved {
                     if seals.insert(seal.id.clone(), seal).is_some() {
                         return Err("MLS governance Seal resolution returned duplicates".to_owned());
                     }
                 }
+            }
+            Ok(arkret::SealResolveOutcome::Conclusions { .. }) => {
+                return Err(
+                    "MLS governance Seal resolution returned conclusions for a seal_refs selection"
+                        .to_owned(),
+                );
             }
             Err(error) if limit_exceeded(&error) && batch.len() > 1 => {
                 let right = batch.len() / 2;

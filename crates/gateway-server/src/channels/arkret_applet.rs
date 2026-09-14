@@ -475,7 +475,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         }
     };
 
-    let source_service_id = body.source_id.as_str().to_owned();
+    let source_service_id = body.source_id().as_str().to_owned();
     if let Some(expected_source) = state.config.arkret_server_did.as_deref()
         && source_service_id != expected_source
     {
@@ -582,7 +582,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     };
     let identity = IdempotencyIdentity::applet_transaction(
         IdempotencyDirection::NodeToApplet,
-        body.source_id.clone(),
+        body.source_id().clone(),
         destination_service_id,
         idempotency_key.clone(),
     );
@@ -620,6 +620,21 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 return;
             }
         };
+
+    // `ak.edge.applet.command.transaction.v1` carries two mutually exclusive
+    // closed branches (applet-integration.md §7.3.2). This runtime only installs
+    // the Event/Signal branch; a Station-to-Applet managed Actor authoring
+    // result is refused before the idempotency window is claimed, so no claim is
+    // left holding an outcome this runtime cannot durably produce.
+    let AppletTransactionRequestBody::Events(body) = &body else {
+        render_error(
+            res,
+            StatusCode::NOT_IMPLEMENTED,
+            "unsupported_transaction_branch",
+            "managed Actor authoring completion installation is not available",
+        );
+        return;
+    };
 
     // Idempotency check (SDK S-5 IdempotencyWindow). The claim is persisted
     // before any gateway dispatch side effect runs.
@@ -688,7 +703,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 "arkret applet: failed to retain verified Realm authority: {error:#}"
             );
         }
-        if record_applet_mls_welcome_from_event(state.as_ref(), event) {
+        if skip_applet_mls_welcome_event(state.as_ref(), event) {
             continue;
         }
         match classify_inbound_event(&state.config, event) {
@@ -1039,59 +1054,26 @@ fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error 
     }
 }
 
-fn record_applet_mls_welcome_from_event(state: &AppletChannelState, event: &arkret::Event) -> bool {
-    let payload = Value::Object(event.payload.clone().into_iter().collect());
-    record_applet_mls_welcome_from_value_tree(state, event, &payload, 6) > 0
-}
-
-fn record_applet_mls_welcome_from_value_tree(
-    state: &AppletChannelState,
-    event: &arkret::Event,
-    value: &Value,
-    remaining_depth: usize,
-) -> usize {
-    match state.crypto_store.record_mls_welcome_from_value(value) {
-        Ok(Some(welcome)) => {
-            debug!(
-                config_id = %state.config.id,
-                event_id = event.event_id.as_str(),
-                realm_id = event.realm_id.as_str(),
-                group_id = %welcome.group_id,
-                epoch = welcome.epoch,
-                recipient = ?welcome.recipient,
-                "arkret applet: recorded MLS Welcome from inbound transaction event"
-            );
-            return 1;
-        }
-        Ok(None) => {}
-        Err(err) => {
-            warn!(
-                config_id = %state.config.id,
-                event_id = event.event_id.as_str(),
-                realm_id = event.realm_id.as_str(),
-                "arkret applet: failed to persist MLS Welcome from inbound transaction event: {err:#}"
-            );
-            return 1;
-        }
+/// Inbound `ak.mls.welcome` delivered over the Applet edge.
+///
+/// Group state is admitted only from a fully verified governance closure (see
+/// `channels::arkret::governance::admit_owned_agent_welcomes`). That admission
+/// path binds an owned-Agent recipient and an Agent key authorization, neither
+/// of which an Applet Bot `Principal` runtime holds, so this edge has no
+/// verified Welcome admission today. The Welcome is therefore never installed
+/// from the transaction body; it is only consumed here so the Event is not
+/// classified as a chat command.
+fn skip_applet_mls_welcome_event(state: &AppletChannelState, event: &arkret::Event) -> bool {
+    if event.kind != arkret::EventKind::MlsWelcome {
+        return false;
     }
-    if remaining_depth == 0 {
-        return 0;
-    }
-    match value {
-        Value::Array(items) => items
-            .iter()
-            .map(|item| {
-                record_applet_mls_welcome_from_value_tree(state, event, item, remaining_depth - 1)
-            })
-            .sum(),
-        Value::Object(object) => object
-            .values()
-            .map(|item| {
-                record_applet_mls_welcome_from_value_tree(state, event, item, remaining_depth - 1)
-            })
-            .sum(),
-        _ => 0,
-    }
+    warn!(
+        config_id = %state.config.id,
+        event_id = event.event_id.as_str(),
+        realm_id = event.realm_id.as_str(),
+        "arkret applet: MLS Welcome not admitted — the Applet edge has no verified governance admission path"
+    );
+    true
 }
 
 fn try_decrypt_applet_event(
@@ -2137,7 +2119,7 @@ mod tests {
     }
 
     #[test]
-    fn applet_transaction_event_records_nested_mls_welcome() {
+    fn applet_transaction_event_does_not_admit_unverified_mls_welcome() {
         let cfg = valid_channel_config();
         let applet = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         applet.validate().expect("validate");
@@ -2168,9 +2150,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(record_applet_mls_welcome_from_event(&state, &event));
+        assert!(skip_applet_mls_welcome_event(&state, &event));
         let saved = state.crypto_store.load().expect("crypto state should load");
-        assert!(saved.bootstrap.contains_key(group_id));
+        assert!(!saved.bootstrap.contains_key(group_id));
     }
 
     #[test]
