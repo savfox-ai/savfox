@@ -188,9 +188,6 @@ fn classify_sdk_message_create(
         );
     };
     let content_kind = content.kind.as_str();
-    if content_kind == "ak.content.encrypted" {
-        return skip_encrypted_sdk_event(event, account_id);
-    }
     if content_kind != "ak.content.text" {
         return skip_sdk_event(
             event,
@@ -689,6 +686,8 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use serde_json::json;
 
     use super::*;
@@ -697,7 +696,7 @@ mod tests {
         ArkretAccountConfig {
             mode: crate::arkret::ArkretAccountMode::Agent,
             id: "support".into(),
-            principal_id: "did:webvh:example.org:agents:support".into(),
+            principal_id: "ak:did_core:web:example.org:agents:support".into(),
             actor_account_id: arkret::AccountId::new(
                 arkret::DidCoreId::new("ak:did_core:web:example.org:agents:support").unwrap(),
                 arkret::DidCoreId::new("ak:did_core:web:example.org:stations:agent").unwrap(),
@@ -719,13 +718,21 @@ mod tests {
         }
     }
 
-    const REALM_1: &str = "ak:realm:01904100-0000-8000-8000-000000000001";
-    const REALM_2: &str = "ak:realm:01904100-0000-8000-8000-000000000002";
-    const STRAND_1: &str = "ak:strand:01904100-0000-8000-8000-000000000011";
-    const STRAND_2: &str = "ak:strand:01904100-0000-8000-8000-000000000012";
+    fn fixture_event_id(seed: u8) -> arkret::EventId {
+        arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [seed; 32])
+    }
+
+    static REALM_1: LazyLock<arkret::RealmId> =
+        LazyLock::new(|| arkret::RealmId::from_event_id(&fixture_event_id(0x11)));
+    static REALM_2: LazyLock<arkret::RealmId> =
+        LazyLock::new(|| arkret::RealmId::from_event_id(&fixture_event_id(0x12)));
+    static STRAND_1: LazyLock<arkret::StrandId> =
+        LazyLock::new(|| arkret::StrandId::from_event_id(&fixture_event_id(0x21)));
+    static STRAND_2: LazyLock<arkret::StrandId> =
+        LazyLock::new(|| arkret::StrandId::from_event_id(&fixture_event_id(0x22)));
 
     fn message_event(actor: &str, body: &str) -> Value {
-        message_event_in_realm(REALM_1, actor, STRAND_1, body)
+        message_event_in_realm(REALM_1.as_str(), actor, STRAND_1.as_str(), body)
     }
 
     fn message_event_in_realm(realm: &str, actor: &str, strand: &str, body: &str) -> Value {
@@ -745,7 +752,7 @@ mod tests {
     }
 
     fn sdk_message_event(actor: &str, body: &str) -> Value {
-        message_event_in_realm(REALM_1, actor, STRAND_1, body)
+        message_event_in_realm(REALM_1.as_str(), actor, STRAND_1.as_str(), body)
     }
 
     fn event_value(kind: &str, realm: &str, actor: &str, payload: Value) -> Value {
@@ -755,8 +762,7 @@ mod tests {
                 realm_id: arkret::RealmId::new(realm).unwrap(),
             },
             arkret::DidCoreId::new(actor.to_owned()).unwrap(),
-            arkret::DidCoreId::new("did:webvh:z6mkfixture:principal-server.example".to_owned())
-                .unwrap(),
+            arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixtureserver".to_owned()).unwrap(),
             1,
             arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             payload,
@@ -767,32 +773,32 @@ mod tests {
 
     #[test]
     fn extracts_text_message() {
-        let event = message_event("did:webvh:example.org:user-alice", "hello");
+        let event = message_event("ak:did_core:web:example.org:user-alice", "hello");
         let parsed = extract_message_event(&event, "support").expect("parse");
         assert_eq!(parsed.body, "hello");
-        assert_eq!(parsed.realm_id, REALM_1);
-        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1));
-        assert_eq!(parsed.sender_did, "did:webvh:example.org:user-alice");
+        assert_eq!(parsed.realm_id, REALM_1.as_str());
+        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1.as_str()));
+        assert_eq!(parsed.sender_did, "ak:did_core:web:example.org:user-alice");
     }
 
     #[test]
     fn extracts_sdk_standard_text_message() {
-        let event = sdk_message_event("did:webvh:z6mkfixture:alice.example", "hello sdk");
+        let event = sdk_message_event("ak:did_core:webvh:z6mkfixturealice", "hello sdk");
         let parsed = extract_message_event(&event, "support").expect("parse");
         assert_eq!(parsed.body, "hello sdk");
-        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1));
-        assert_eq!(parsed.sender_did, "did:webvh:z6mkfixture:alice.example");
+        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1.as_str()));
+        assert_eq!(parsed.sender_did, "ak:did_core:webvh:z6mkfixturealice");
     }
 
     #[test]
     fn preserves_structured_agent_mention_targets_for_gateway_routing() {
-        let agent_id = "did:webvh:example.org:agents:support";
+        let agent_id = "ak:did_core:web:example.org:agents:support";
         let event = event_value(
             "ak.message.create",
-            REALM_1,
-            "did:webvh:z6mkfixture:alice.example",
+            REALM_1.as_str(),
+            "ak:did_core:webvh:z6mkfixturealice",
             json!({
-                "strand_id": STRAND_1,
+                "strand_id": STRAND_1.as_str(),
                 "track_name": "discussion",
                 "content": {
                     "kind": "ak.content.text",
@@ -814,8 +820,8 @@ mod tests {
     fn ignores_non_message_kind() {
         let event = event_value(
             "ak.strand.update",
-            REALM_1,
-            "did:webvh:z6mkfixture:alice.example",
+            REALM_1.as_str(),
+            "ak:did_core:webvh:z6mkfixturealice",
             json!({}),
         );
         assert!(extract_message_event(&event, "x").is_none());
@@ -823,13 +829,13 @@ mod tests {
 
     #[test]
     fn ignores_non_text_content() {
-        let actor = "did:webvh:z6mkfixture:alice.example";
+        let actor = "ak:did_core:webvh:z6mkfixturealice";
         let event = event_value(
             "ak.message.create",
-            REALM_1,
+            REALM_1.as_str(),
             actor,
             json!({
-                "strand_id": STRAND_1,
+                "strand_id": STRAND_1.as_str(),
                 "track_name": "discussion",
                 "content": {"kind":"ak.content.image","body":""}
             }),
@@ -839,7 +845,7 @@ mod tests {
             panic!("expected skip");
         };
         assert_eq!(skipped.account_id, "x");
-        assert_eq!(skipped.realm_id.as_deref(), Some(REALM_1));
+        assert_eq!(skipped.realm_id.as_deref(), Some(REALM_1.as_str()));
         assert_eq!(skipped.sender_did.as_deref(), Some(actor));
         assert_eq!(
             skipped.reason,
@@ -848,31 +854,13 @@ mod tests {
     }
 
     #[test]
-    fn classifies_encrypted_content_block() {
-        let event = event_value(
-            "ak.message.create",
-            REALM_1,
-            "did:webvh:z6mkfixture:alice.example",
-            json!({
-                "strand_id": STRAND_1,
-                "track_name": "discussion",
-                "content": {"kind":"ak.content.encrypted","body":""}
-            }),
-        );
-        let ArkretInboundEventOutcome::Skip(skipped) = classify_message_event(&event, "x") else {
-            panic!("expected skip");
-        };
-        assert_eq!(skipped.reason, ArkretInboundSkipReason::EncryptedContent);
-    }
-
-    #[test]
     fn classifies_spec_encrypted_content_carrier() {
         let event = event_value(
             "ak.message.create",
-            REALM_1,
-            "did:webvh:z6mkfixture:alice.example",
+            REALM_1.as_str(),
+            "ak:did_core:webvh:z6mkfixturealice",
             json!({
-                "strand_id": STRAND_1,
+                "strand_id": STRAND_1.as_str(),
                 "track_name": "discussion",
                 "encrypted_content":{
                     "scheme":"mls_rfc9420",
@@ -888,7 +876,7 @@ mod tests {
 
     #[test]
     fn should_dispatch_filters_self_messages() {
-        let account = make_account(Some(REALM_1));
+        let account = make_account(Some(REALM_1.as_str()));
         let event = message_event(&account.principal_id, "echo");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
@@ -897,8 +885,8 @@ mod tests {
 
     #[test]
     fn should_dispatch_accepts_any_realm_for_user_agent() {
-        let account = make_account(Some(REALM_2));
-        let event = message_event("did:webvh:z6mkfixture:bob.example", "hi");
+        let account = make_account(Some(REALM_2.as_str()));
+        let event = message_event("ak:did_core:webvh:z6mkfixturebob", "hi");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
         assert!(should_dispatch_event(&parsed, &account));
@@ -907,7 +895,7 @@ mod tests {
     #[test]
     fn should_dispatch_filters_empty_body() {
         let account = make_account(None);
-        let event = message_event("did:webvh:z6mkfixture:bob.example", "   ");
+        let event = message_event("ak:did_core:webvh:z6mkfixturebob", "   ");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
         assert!(!should_dispatch_event(&parsed, &account));
@@ -915,10 +903,10 @@ mod tests {
 
     #[test]
     fn should_dispatch_filters_missing_event_read_scope() {
-        let mut account = make_account(Some(REALM_1));
+        let mut account = make_account(Some(REALM_1.as_str()));
         account.requested_scope =
             vec![arkret::ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into()];
-        let event = message_event("did:webvh:z6mkfixture:bob.example", "secret");
+        let event = message_event("ak:did_core:webvh:z6mkfixturebob", "secret");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
 
@@ -927,23 +915,23 @@ mod tests {
 
     #[test]
     fn parse_delta_frame_walks_realms() {
-        let account = make_account(Some(REALM_1));
+        let account = make_account(Some(REALM_1.as_str()));
         let realms = json!({
-            REALM_1: {
+            REALM_1.as_str(): {
                 "timeline": {
                     "events": [
-                        message_event("did:webvh:z6mkfixture:bob.example", "hello bob"),
+                        message_event("ak:did_core:webvh:z6mkfixturebob", "hello bob"),
                         message_event(&account.principal_id, "self echo"),
-                        message_event("did:webvh:z6mkfixture:carol.example", "")
+                        message_event("ak:did_core:webvh:z6mkfixturecarol", "")
                     ]
                 }
             },
-            REALM_2: {
+            REALM_2.as_str(): {
                 "timeline": {
                     "events": [message_event_in_realm(
-                        REALM_2,
-                        "did:webvh:z6mkfixture:dan.example",
-                        STRAND_2,
+                        REALM_2.as_str(),
+                        "ak:did_core:webvh:z6mkfixturedan",
+                        STRAND_2.as_str(),
                         "from other realm"
                     )]
                 }
@@ -952,10 +940,10 @@ mod tests {
         let result = parse_delta_frame_for_account(&realms, &account);
         assert_eq!(result.events.len(), 2);
         assert!(result.events.iter().any(|event| {
-            event.sender_did == "did:webvh:z6mkfixture:bob.example" && event.body == "hello bob"
+            event.sender_did == "ak:did_core:webvh:z6mkfixturebob" && event.body == "hello bob"
         }));
         assert!(result.events.iter().any(|event| {
-            event.sender_did == "did:webvh:z6mkfixture:dan.example"
+            event.sender_did == "ak:did_core:webvh:z6mkfixturedan"
                 && event.body == "from other realm"
         }));
         assert_eq!(result.skipped.len(), 2);
@@ -975,13 +963,13 @@ mod tests {
 
     #[test]
     fn parse_delta_without_event_read_does_not_dispatch_plaintext() {
-        let mut account = make_account(Some(REALM_1));
+        let mut account = make_account(Some(REALM_1.as_str()));
         account.requested_scope =
             vec![arkret::ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into()];
         let realms = json!({
-            REALM_1: {
+            REALM_1.as_str(): {
                 "timeline": {
-                    "events": [message_event("did:webvh:z6mkfixture:bob.example", "plain text")]
+                    "events": [message_event("ak:did_core:webvh:z6mkfixturebob", "plain text")]
                 }
             }
         });
@@ -1001,16 +989,16 @@ mod tests {
         let account = make_account(None);
         let encrypted_event = event_value(
             "ak.message.create",
-            REALM_1,
-            "did:webvh:z6mkfixture:bob.example",
+            REALM_1.as_str(),
+            "ak:did_core:webvh:z6mkfixturebob",
             json!({
-                "strand_id": STRAND_1,
+                "strand_id": STRAND_1.as_str(),
                 "track_name": "discussion",
                 "encrypted_content":{"scheme":"mls_rfc9420","ciphertext":"..."}
             }),
         );
         let realms = json!({
-            REALM_1: {
+            REALM_1.as_str(): {
                 "timeline": {
                     "events": [encrypted_event]
                 }
@@ -1035,7 +1023,7 @@ mod tests {
                 "realm_id": "ak:realm:r1",
                 "strand_id": "ak:strand:s1",
                 "source_event_id": "ak:event:rel1",
-                "source_actor_id": "did:webvh:example.org:user-alice",
+                "source_actor_id": "ak:did_core:web:example.org:user-alice",
                 "body": "You were assigned to a Strand."
             }]
         });
@@ -1049,7 +1037,7 @@ mod tests {
         assert_eq!(event.realm_id, "ak:realm:r1");
         assert_eq!(
             event.sender_did,
-            "did:webvh:example.org:user-alice".to_owned()
+            "ak:did_core:web:example.org:user-alice".to_owned()
         );
         assert_eq!(event.strand_id.as_deref(), Some("ak:strand:s1"));
         assert_eq!(event.thread_root_id, None);
@@ -1066,7 +1054,7 @@ mod tests {
             "realm_id": "ak:realm:r1",
             "source_ref": "ak:strand:s2",
             "source_event_id": "ak:event:update1",
-            "sender": "did:webvh:example.org:user-bob"
+            "sender": "ak:did_core:web:example.org:user-bob"
         }]);
 
         let result = parse_notification_delta_for_account(&notifications, &account);

@@ -857,20 +857,22 @@ impl FileArkretCryptoStore {
         Ok(updated)
     }
 
+    /// Author one ordinary (single-use) KeyPackage. The Arkret SDK no longer
+    /// authors last-resort KeyPackages, so this endpoint has no variant for
+    /// them; `MlsKeyPackageRecord::last_resort` still carries the wire flag of
+    /// packages received from a peer.
     pub fn ensure_mls_key_package(
         &self,
         principal_id: &str,
         device_id: &str,
-        last_resort: bool,
     ) -> anyhow::Result<MlsKeyPackageRecord> {
-        self.ensure_mls_key_package_inner(principal_id, device_id, last_resort, None, None)
+        self.ensure_mls_key_package_inner(principal_id, device_id, None, None)
     }
 
     pub fn ensure_agent_mls_key_package(
         &self,
         principal_id: &str,
         device_id: &str,
-        last_resort: bool,
         key_ref: &super::signer::ArkretKeyRef,
         verification_method: &str,
         authorized_event_ref: &str,
@@ -880,7 +882,6 @@ impl FileArkretCryptoStore {
         self.ensure_mls_key_package_inner(
             principal_id,
             device_id,
-            last_resort,
             Some(signing_seed),
             Some(endpoint),
         )
@@ -966,7 +967,6 @@ impl FileArkretCryptoStore {
         &self,
         principal_id: &str,
         device_id: &str,
-        last_resort: bool,
         mut signing_seed: Option<[u8; 32]>,
         endpoint: Option<MlsEndpointIdentity>,
     ) -> anyhow::Result<MlsKeyPackageRecord> {
@@ -982,7 +982,7 @@ impl FileArkretCryptoStore {
             MlsEndpointIdentity::human_device(principal.clone(), device.clone())
         });
         let identity_key = mls_identity_key(&principal, &device);
-        let cache_key = mls_key_package_cache_key(&principal, &device, last_resort);
+        let cache_key = mls_key_package_cache_key(&principal, &device);
 
         let expected_signature_key = signing_seed.as_ref().map(|seed| {
             ed25519_dalek::SigningKey::from_bytes(seed)
@@ -1008,7 +1008,7 @@ impl FileArkretCryptoStore {
                 .get(&cache_key)
                 .or_else(|| state.mls_key_packages.get(&identity_key))
                 .cloned()
-            && local_key_package_can_be_published(&record, last_resort)
+            && local_key_package_can_be_published(&record)
         {
             if let Some(seed) = signing_seed.as_mut() {
                 seed.zeroize();
@@ -1031,10 +1031,6 @@ impl FileArkretCryptoStore {
             new_mls_identity(endpoint, signing_seed.take())
                 .map_err(|err| anyhow::anyhow!("create Arkret MLS identity: {err}"))?
         };
-        anyhow::ensure!(
-            !last_resort,
-            "Arkret SDK no longer supports authoring last-resort MLS KeyPackages"
-        );
         let record = identity
             .key_package_record()
             .map_err(|err| anyhow::anyhow!("create Arkret MLS KeyPackage: {err}"))?;
@@ -1052,7 +1048,7 @@ impl FileArkretCryptoStore {
                 principal_id: principal,
                 device_id: device,
                 private_state,
-                last_resort_key_package: last_resort,
+                last_resort_key_package: false,
                 keypackage_id: Some(record.keypackage_id.clone()),
                 updated_at: Utc::now(),
             },
@@ -2930,12 +2926,6 @@ fn enrich_mls_welcome_consume_binding(
     binding.strand_id = Some(direct.strand_id.clone());
 }
 
-fn string_field(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| object.get(*key).and_then(Value::as_str))
-        .map(str::to_owned)
-}
-
 fn try_consume_stored_welcome_for_payload(
     state: &ArkretCryptoStateFile,
     store: &mut MemoryCryptoStore,
@@ -3095,27 +3085,16 @@ fn mls_identity_key(principal_id: &DidCoreId, device_id: &DeviceId) -> String {
     format!("{}#{}", principal_id.as_str(), device_id.as_str())
 }
 
-fn mls_key_package_cache_key(
-    principal_id: &DidCoreId,
-    device_id: &DeviceId,
-    last_resort: bool,
-) -> String {
-    let kind = if last_resort {
-        "last_resort"
-    } else {
-        "single_use"
-    };
-    format!("{}#{kind}", mls_identity_key(principal_id, device_id))
+fn mls_key_package_cache_key(principal_id: &DidCoreId, device_id: &DeviceId) -> String {
+    format!("{}#single_use", mls_identity_key(principal_id, device_id))
 }
 
 fn mls_fresh_key_package_cache_key(identity_key: &str, keypackage_id: &str) -> String {
     format!("{identity_key}#single_use#{keypackage_id}")
 }
 
-fn local_key_package_can_be_published(record: &MlsKeyPackageRecord, last_resort: bool) -> bool {
-    record.last_resort == last_resort
-        && record.is_usable()
-        && (record.last_resort || record.state == MlsKeyPackageState::Published)
+fn local_key_package_can_be_published(record: &MlsKeyPackageRecord) -> bool {
+    !record.last_resort && record.is_usable() && record.state == MlsKeyPackageState::Published
 }
 
 fn find_mls_key_package_cache_key(
@@ -3245,10 +3224,33 @@ fn safe_file_stem(scope_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arkret::{EncryptedPayloadScheme, Hash, KeyOperationSignature, KeyPackageClaimRecord};
     use serde_json::json;
 
     use super::*;
+
+    fn fixture_event_id(seed: u8) -> EventId {
+        EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [seed; 32])
+    }
+
+    static FIXTURE_REALM: LazyLock<RealmId> =
+        LazyLock::new(|| RealmId::from_event_id(&fixture_event_id(0x01)));
+    static FIXTURE_REALM_B: LazyLock<RealmId> =
+        LazyLock::new(|| RealmId::from_event_id(&fixture_event_id(0x02)));
+    static FIXTURE_CLAIM_REALM: LazyLock<RealmId> =
+        LazyLock::new(|| RealmId::from_event_id(&fixture_event_id(0x03)));
+    static FIXTURE_STRAND: LazyLock<StrandId> =
+        LazyLock::new(|| StrandId::from_event_id(&fixture_event_id(0x04)));
+    static FIXTURE_EVENT_1: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x51));
+    static FIXTURE_EVENT_2: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x52));
+    static FIXTURE_EVENT_6: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x56));
+    static FIXTURE_EVENT_9: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x59));
+    static FIXTURE_EVENT_13: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x5d));
+    static FIXTURE_EVENT_14: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x5e));
+    static FIXTURE_EVENT_31: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x71));
+    static FIXTURE_EVENT_AA: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x7a));
 
     fn content_header(
         group: &ArkretMlsGroup,
@@ -3309,9 +3311,15 @@ mod tests {
     fn direct_conversation_bound_payload(realm_id: &str, strand_id: &str) -> Value {
         json!({
             "pair_key": format!("sha256:{}", "aa".repeat(32)),
-            "participants_unordered": [
-                "did:webvh:z6mkfixture:alice.example",
-                "did:webvh:z6mkfixture:agent.example"
+            "unordered_participant_ids": [
+                {"kind": "account", "account_id": {
+                    "principal_id": "ak:did_core:webvh:z6mkfixturealice",
+                    "station_id": "ak:did_core:webvh:z6mkfixturestation"
+                }},
+                {"kind": "account", "account_id": {
+                    "principal_id": "ak:did_core:webvh:z6mkfixtureagent",
+                    "station_id": "ak:did_core:webvh:z6mkfixturestation"
+                }}
             ],
             "realm_id": realm_id,
             "main_strand_id": strand_id,
@@ -3319,12 +3327,11 @@ mod tests {
             "authorization_basis": {
                 "kind": "accepted_contact",
                 "event_refs": [
-                    "ak:event:01904100-0000-8000-8000-000000000001",
-                    "ak:event:01904100-0000-8000-8000-000000000002"
+                    FIXTURE_EVENT_1.as_str(),
+                    FIXTURE_EVENT_2.as_str()
                 ]
             },
-            "initial_exact_pair_generation_ref":
-                "ak:event:01904100-0000-8000-8000-000000000006",
+            "initial_exact_pair_group_state_ref": FIXTURE_EVENT_6.as_str(),
             "created_at": "2026-08-01T00:00:00.000Z"
         })
     }
@@ -3333,10 +3340,10 @@ mod tests {
     fn direct_conversation_binding_enriches_pending_welcome_consume_in_either_order() {
         let home = temp_home("direct-welcome-binding-order");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
-        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000011";
-        let strand_id = "ak:strand:01904100-0000-8000-8000-000000000012";
+        let realm_id = FIXTURE_REALM_B.as_str();
+        let strand_id = FIXTURE_STRAND.as_str();
         let group_id = "AZZBmwAAAACAAAAAAAAAAQ";
-        let welcome_ref = "ak:event:01904100-0000-8000-8000-000000000013";
+        let welcome_ref = FIXTURE_EVENT_13.as_str();
         let pending = ArkretMlsWelcomeConsumeBinding {
             keypackage_ref: "ak:mls:keypackage:pending".to_owned(),
             claim_id: "ak:claim:pending".to_owned(),
@@ -3357,7 +3364,7 @@ mod tests {
             .expect("pending binding should persist");
 
         let bound = direct_conversation_bound_payload(realm_id, strand_id);
-        let binding_event_ref = "ak:event:01904100-0000-8000-8000-000000000014";
+        let binding_event_ref = FIXTURE_EVENT_14.as_str();
         assert_eq!(
             store
                 .record_direct_conversation_binding_from_value(&json!({
@@ -3438,7 +3445,6 @@ mod tests {
             .ensure_agent_mls_key_package(
                 principal,
                 device,
-                false,
                 &key_ref,
                 &verification_method,
                 authorized_event_ref,
@@ -3462,7 +3468,6 @@ mod tests {
             .ensure_agent_mls_key_package(
                 principal,
                 device,
-                false,
                 &rotated_key_ref,
                 &verification_method,
                 authorized_event_ref,
@@ -3487,7 +3492,6 @@ mod tests {
             .ensure_agent_mls_key_package(
                 principal,
                 device,
-                false,
                 &rotated_key_ref,
                 verification_method,
                 authorized_event_ref,
@@ -3514,7 +3518,6 @@ mod tests {
             .ensure_agent_mls_key_package(
                 principal,
                 device,
-                false,
                 &key_ref,
                 verification_method,
                 authorized_event_ref,
@@ -3590,7 +3593,6 @@ mod tests {
             .ensure_agent_mls_key_package(
                 principal,
                 device,
-                false,
                 &key_ref,
                 verification_method,
                 authorized_event_ref,
@@ -3632,7 +3634,7 @@ mod tests {
     }
 
     fn encrypted_payload() -> EncryptedPayload {
-        let realm_id = RealmId::new("ak:realm:01904100-0000-8000-8000-000000000001").unwrap();
+        let realm_id = RealmId::new(FIXTURE_REALM.as_str()).unwrap();
         let effective_scope = ScopeRef::Realm { realm_id };
         let group_id = effective_scope.canonical_mls_group_id().unwrap();
         EncryptedPayload {
@@ -3649,7 +3651,7 @@ mod tests {
                 effective_scope,
                 "ak.message.create",
                 3,
-                EventId::new("ak:event:01904100-0000-8000-8000-000000000002").unwrap(),
+                EventId::new(FIXTURE_EVENT_2.as_str()).unwrap(),
                 "ak:device:01904100-0000-7000-8000-000000000003",
                 None,
                 EventContentRoutingContext::None,
@@ -3669,9 +3671,9 @@ mod tests {
         store.ensure_created().expect("create");
         store
             .record_unable_to_decrypt(
-                "ak:event:01904100-0000-8000-8000-000000000001",
-                "ak:realm:01904100-0000-8000-8000-000000000001",
-                "did:webvh:example.org:alice",
+                FIXTURE_EVENT_1.as_str(),
+                FIXTURE_REALM.as_str(),
+                "ak:did_core:webvh:z6mkfixturealice",
                 encrypted_payload(),
                 UnableToDecryptReason::NoSession,
             )
@@ -3703,7 +3705,7 @@ mod tests {
         let home = temp_home("policy");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
         let realms = json!({
-            "ak:realm:01904100-0000-8000-8000-000000000001": {
+            FIXTURE_REALM.as_str(): {
                 "state": {
                     "realm": {
                         "content_encryption_floor": "e2ee_required",
@@ -3722,7 +3724,7 @@ mod tests {
         let state = store.load().expect("state should load");
         let policy = state
             .realm_policies
-            .get("ak:realm:01904100-0000-8000-8000-000000000001")
+            .get(FIXTURE_REALM.as_str())
             .expect("policy should be present");
         assert!(policy.requires_e2ee());
         assert_eq!(policy.group_id_for_realm(), "group1");
@@ -3733,7 +3735,7 @@ mod tests {
     fn direct_conversation_sync_projection_persists_required_e2ee_policy() {
         let home = temp_home("direct-conversation-policy");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
-        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000001";
+        let realm_id = FIXTURE_REALM.as_str();
         let realms = json!({
             realm_id: {
                 "state_at_window_start": {
@@ -3761,7 +3763,7 @@ mod tests {
         assert!(policy.requires_e2ee());
         assert_eq!(
             policy.group_id_for_realm(),
-            "YWs6cmVhbG06MDE5MDQxMDAtMDAwMC04MDAwLTgwMDAtMDAwMDAwMDAwMDAx"
+            URL_SAFE_NO_PAD.encode(realm_id.as_bytes())
         );
         assert_eq!(policy.encryption_profile.as_deref(), Some("mls_rfc9420"));
         let _ = std::fs::remove_dir_all(&home);
@@ -3769,7 +3771,7 @@ mod tests {
 
     #[test]
     fn legacy_direct_conversation_policy_derives_canonical_group_id() {
-        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000001";
+        let realm_id = FIXTURE_REALM.as_str();
         let policy = ArkretRealmCryptoPolicy {
             realm_id: realm_id.to_owned(),
             content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
@@ -3780,7 +3782,7 @@ mod tests {
         };
         assert_eq!(
             policy.group_id_for_realm(),
-            "YWs6cmVhbG06MDE5MDQxMDAtMDAwMC04MDAwLTgwMDAtMDAwMDAwMDAwMDAx"
+            URL_SAFE_NO_PAD.encode(realm_id.as_bytes())
         );
     }
 
@@ -3796,7 +3798,6 @@ mod tests {
             .ensure_mls_key_package(
                 "ak:did_core:web:bob.example",
                 "ak:device:01904100-0000-7000-8000-00000000000e",
-                false,
             )
             .unwrap();
         let binding = |previous, next| {
@@ -3936,7 +3937,7 @@ mod tests {
         let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
         store
             .upsert_realm_policy(ArkretRealmCryptoPolicy {
-                realm_id: "ak:realm:01904100-0000-8000-8000-000000000001".to_owned(),
+                realm_id: FIXTURE_REALM.as_str().to_owned(),
                 content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
                 encryption_profile: Some("mls".to_owned()),
                 mls_group_id: Some("group1".to_owned()),
@@ -3946,14 +3947,14 @@ mod tests {
             .expect("policy should persist");
         let outcome = store
             .encrypt_content_block_for_realm(
-                "ak:realm:01904100-0000-8000-8000-000000000001",
+                FIXTURE_REALM.as_str(),
                 &json!({"kind":"ak.content.text","body":"secret"}),
             )
             .expect("encryption decision should complete");
         assert_eq!(
             outcome,
             ArkretEncryptOutcome::MissingRequiredGroupState {
-                realm_id: "ak:realm:01904100-0000-8000-8000-000000000001".to_owned(),
+                realm_id: FIXTURE_REALM.as_str().to_owned(),
                 group_id: "group1".to_owned()
             }
         );
@@ -3965,6 +3966,13 @@ mod tests {
     /// MLS group used for `encrypted_content`, and the resulting envelope is a
     /// ciphertext carrier whose plaintext parses back into a valid
     /// `user_facing_response` binding.
+    /// Known red: `consume_stored_welcome_for_commit` joins from a staged
+    /// Welcome and calls `persist_state` without first installing the accepted
+    /// transition leaf bindings, so the SDK refuses to export the state record
+    /// ("MLS member attribution is unavailable until accepted transition
+    /// bindings are installed"). Only `admit_verified_welcomes` installs them.
+    /// Do not weaken this assertion; the recovery path needs the accepted leaf
+    /// authority plumbed through `apply_mls_commit`.
     #[test]
     fn sidecar_reply_metadata_encrypts_and_round_trips_through_group() {
         use super::super::sidecar::{
@@ -3973,18 +3981,17 @@ mod tests {
         };
 
         let home = temp_home("sidecar-metadata-encrypt");
-        let realm_id = "ak:realm:01904100-0000-8000-8000-000000000001";
+        let realm_id = FIXTURE_REALM.as_str();
         let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
         let bob_key_package = bob_store
             .ensure_mls_key_package(
-                "did:webvh:z6mkfixture:bob.example",
+                "ak:did_core:webvh:z6mkfixturebob",
                 "ak:device:01904100-0000-7000-8000-00000000000e",
-                false,
             )
             .expect("Bob KeyPackage should be stored");
 
         let alice = new_human_mls_identity(
-            DidCoreId::new("did:webvh:z6mkfixture:alice.example").unwrap(),
+            DidCoreId::new("ak:did_core:webvh:z6mkfixturealice").unwrap(),
             DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
         )
         .unwrap();
@@ -4020,14 +4027,14 @@ mod tests {
         };
         let bootstrap = bob_store
             .plan_bootstrap_for_payload(
-                "did:webvh:z6mkfixture:bob.example",
+                "ak:did_core:webvh:z6mkfixturebob",
                 "ak:device:01904100-0000-7000-8000-00000000000e",
                 &inbound,
             )
             .expect("planning with local state should preserve the verified commit ref");
         assert_eq!(
             bootstrap.group_state_ref.as_deref(),
-            Some("ak:event:01904100-0000-8000-8000-0000000000aa")
+            Some(FIXTURE_EVENT_AA.as_str())
         );
         bob_store
             .upsert_realm_policy(ArkretRealmCryptoPolicy {
@@ -4042,10 +4049,8 @@ mod tests {
 
         let context = SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
-            request_event_id: "ak:event:01904100-0000-8000-8000-000000000031".to_owned(),
-            coordinator_assignment_event_id: Some(
-                "ak:event:01904100-0000-8000-8000-000000000031".to_owned(),
-            ),
+            request_event_id: FIXTURE_EVENT_31.as_str().to_owned(),
+            coordinator_assignment_event_id: Some(FIXTURE_EVENT_31.as_str().to_owned()),
         };
         let metadata_plaintext = build_user_facing_response_metadata(&context).expect("metadata");
         let ArkretEncryptOutcome::Encrypted(encrypted_metadata) = bob_store
@@ -4117,7 +4122,6 @@ mod tests {
             .ensure_agent_mls_key_package(
                 agent_id,
                 agent_device,
-                false,
                 &key_ref,
                 verification_method,
                 agent_key_authorize_event_id.as_str(),
@@ -4306,7 +4310,7 @@ mod tests {
         let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
         let record = store
             .plan_bootstrap_for_payload(
-                "did:webvh:example.org:alice",
+                "ak:did_core:webvh:z6mkfixturealice",
                 "ak:device:01904100-0000-7000-8000-000000000001",
                 &encrypted_payload(),
             )
@@ -4318,8 +4322,8 @@ mod tests {
         let state = store.load().expect("state should load");
         assert!(state.key_backup.restore_needed);
         assert_eq!(
-            state.key_backup.last_needed_for_group_id.as_deref(),
-            Some("group1")
+            state.key_backup.last_needed_for_group_id,
+            Some(encrypted_payload().group_id)
         );
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -4328,10 +4332,10 @@ mod tests {
     fn single_use_key_package_claim_rotates_local_cache() {
         let home = temp_home("kp-single-use");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
-        let principal = "did:webvh:z6mkfixture:bob.example";
+        let principal = "ak:did_core:webvh:z6mkfixturebob";
         let device = "ak:device:01904100-0000-7000-8000-00000000000e";
         let first = store
-            .ensure_mls_key_package(principal, device, false)
+            .ensure_mls_key_package(principal, device)
             .expect("single-use KeyPackage should be created");
 
         let claimed = store
@@ -4342,7 +4346,7 @@ mod tests {
         assert_eq!(claimed.claim_id.as_deref(), Some("ak:claim:test"));
 
         let rotated = store
-            .ensure_mls_key_package(principal, device, false)
+            .ensure_mls_key_package(principal, device)
             .expect("claimed single-use KeyPackage should rotate");
         assert_ne!(rotated.keypackage_id, first.keypackage_id);
         assert_eq!(rotated.state, MlsKeyPackageState::Published);
@@ -4354,10 +4358,10 @@ mod tests {
     fn revocable_pool_uses_wire_refs_instead_of_local_ids() {
         let home = temp_home("kp-revoke-refs");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
-        let principal = "did:web:agent.example";
+        let principal = "ak:did_core:web:agent.example";
         let device = "ak:device:01904100-0000-7000-8000-000000000001";
         let record = store
-            .ensure_mls_key_package(principal, device, false)
+            .ensure_mls_key_package(principal, device)
             .expect("KeyPackage should be created");
 
         let refs = store
@@ -4387,10 +4391,10 @@ mod tests {
         let replaced_principal = "ak:did_core:web:replaced-agent.example";
         let replaced_device = "ak:device:01904100-0000-7000-8000-000000000012";
         let current = store
-            .ensure_mls_key_package(current_principal, current_device, false)
+            .ensure_mls_key_package(current_principal, current_device)
             .expect("current Agent KeyPackage should be created");
         let replaced = store
-            .ensure_mls_key_package(replaced_principal, replaced_device, false)
+            .ensure_mls_key_package(replaced_principal, replaced_device)
             .expect("replaced Agent KeyPackage should be created");
 
         let refs = store
@@ -4413,8 +4417,8 @@ mod tests {
             "scope_id": store.scope_id,
             "binding": {"unable_to_decrypt": {"ak:event:019fa28f-de87-7af2-b744-c2113b294e45": {"obsolete": true}}},
             "mls_key_packages": {
-                "old-current": {"principal_id": "did:web:current-agent.example", "device_id": "obsolete", "keypackage_ref": current_ref, "state": "published", "private_marker": "preserve"},
-                "old-other": {"principal_id": "did:web:other-agent.example", "keypackage_ref": other_ref, "state": "published"}
+                "old-current": {"principal_id": "ak:did_core:web:current-agent.example", "device_id": "obsolete", "keypackage_ref": current_ref, "state": "published", "private_marker": "preserve"},
+                "old-other": {"principal_id": "ak:did_core:web:other-agent.example", "keypackage_ref": other_ref, "state": "published"}
             }
         });
         std::fs::create_dir_all(store.path().parent().unwrap()).unwrap();
@@ -4461,58 +4465,13 @@ mod tests {
     }
 
     #[test]
-    fn last_resort_key_package_survives_claim_and_consume_markers() {
-        let home = temp_home("kp-last-resort");
-        let store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
-        let principal = "did:webvh:z6mkfixture:bob.example";
-        let device = "ak:device:01904100-0000-7000-8000-00000000000e";
-        let single_use = store
-            .ensure_mls_key_package(principal, device, false)
-            .expect("single-use KeyPackage should be created");
-        let last_resort = store
-            .ensure_mls_key_package(principal, device, true)
-            .expect("last-resort KeyPackage should be created");
-        assert_ne!(single_use.keypackage_id, last_resort.keypackage_id);
-
-        let claimed = store
-            .mark_mls_key_package_claimed(last_resort.keypackage_id.as_str(), "ak:claim:last")
-            .expect("claim marker should persist")
-            .expect("last-resort KeyPackage should be found");
-        assert_eq!(claimed.state, MlsKeyPackageState::Claimed);
-        assert!(claimed.last_resort);
-
-        let cached = store
-            .ensure_mls_key_package(principal, device, true)
-            .expect("claimed last-resort KeyPackage should stay reusable");
-        assert_eq!(cached.keypackage_id, last_resort.keypackage_id);
-
-        let consumed = store
-            .mark_mls_key_package_consumed(last_resort.keypackage_ref.as_str())
-            .expect("consume marker should persist")
-            .expect("last-resort KeyPackage should be found");
-        assert_eq!(consumed.state, MlsKeyPackageState::Claimed);
-        assert!(consumed.last_resort);
-
-        let cached_after_consume = store
-            .ensure_mls_key_package(principal, device, true)
-            .expect("last-resort KeyPackage should stay reusable after consume ack");
-        assert_eq!(
-            cached_after_consume.keypackage_id,
-            last_resort.keypackage_id
-        );
-        let state = store.load().expect("state should load");
-        assert_eq!(state.mls_key_packages.len(), 2);
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
     fn claimed_key_package_record_can_feed_group_add_member() {
         let home = temp_home("kp-claim-record");
         let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
-        let bob_principal = "did:webvh:z6mkfixture:bob.example";
+        let bob_principal = "ak:did_core:webvh:z6mkfixturebob";
         let bob_device = "ak:device:01904100-0000-7000-8000-00000000000e";
         let bob_key_package = bob_store
-            .ensure_mls_key_package(bob_principal, bob_device, false)
+            .ensure_mls_key_package(bob_principal, bob_device)
             .expect("Bob KeyPackage should be created");
         let claim = KeyPackageClaimRecord {
             claim_id: "ak:claim:test-claim-record".to_owned(),
@@ -4525,7 +4484,7 @@ mod tests {
             keypackage: bob_key_package.keypackage.clone(),
             capabilities: bob_key_package.capabilities.clone(),
             device_authorize_event_id: Some(
-                EventId::new("ak:event:01904100-0000-7000-8000-000000000009".to_owned()).unwrap(),
+                EventId::new(FIXTURE_EVENT_9.as_str().to_owned()).unwrap(),
             ),
             agent_key_authorize_event_id: None,
             expires_at: Utc::now() + chrono::Duration::days(1),
@@ -4540,12 +4499,12 @@ mod tests {
         assert_eq!(claimed.keypackage_ref, bob_key_package.keypackage_ref);
 
         let alice = new_human_mls_identity(
-            DidCoreId::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap(),
+            DidCoreId::new("ak:did_core:webvh:z6mkfixturealice".to_owned()).unwrap(),
             DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned()).unwrap(),
         )
         .unwrap();
         let mut alice_group = alice
-            .create_group(b"ak:realm:01904100-0000-8000-8000-f7claim00001")
+            .create_group(FIXTURE_CLAIM_REALM.as_str().as_bytes())
             .unwrap();
         let add = alice_group
             .add_member(&claimed)
@@ -4558,21 +4517,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// Known red: `consume_stored_welcome_for_commit` joins from a staged
+    /// Welcome and calls `persist_state` without first installing the accepted
+    /// transition leaf bindings, so the SDK refuses to export the state record
+    /// ("MLS member attribution is unavailable until accepted transition
+    /// bindings are installed"). Only `admit_verified_welcomes` installs them.
+    /// Do not weaken this assertion; the recovery path needs the accepted leaf
+    /// authority plumbed through `apply_mls_commit`.
     #[test]
     fn stored_welcome_admits_group_and_decrypts_content_block() {
         let home = temp_home("welcome-admit");
         let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
-        let bob_principal = "did:webvh:z6mkfixture:bob.example";
+        let bob_principal = "ak:did_core:webvh:z6mkfixturebob";
         let bob_device = "ak:device:01904100-0000-7000-8000-00000000000e";
         let bob_key_package = bob_store
-            .ensure_mls_key_package(bob_principal, bob_device, false)
+            .ensure_mls_key_package(bob_principal, bob_device)
             .expect("Bob KeyPackage should be stored with private identity state");
         let state = bob_store.load().expect("state should load");
         assert_eq!(state.mls_identities.len(), 1);
         assert_eq!(state.mls_key_packages.len(), 1);
 
         let alice = new_human_mls_identity(
-            DidCoreId::new("did:webvh:z6mkfixture:alice.example").unwrap(),
+            DidCoreId::new("ak:did_core:webvh:z6mkfixturealice").unwrap(),
             DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
         )
         .unwrap();
@@ -4774,7 +4740,7 @@ mod tests {
         let home = temp_home(label);
         let store = FileArkretCryptoStore::for_applet(&home, "applet-1");
         let bot_key_package = store
-            .ensure_mls_key_package(APPLET_BOT_PRINCIPAL, APPLET_BOT_DEVICE, false)
+            .ensure_mls_key_package(APPLET_BOT_PRINCIPAL, APPLET_BOT_DEVICE)
             .expect("Applet Bot KeyPackage");
         let realm_id = RealmId::new(APPLET_REALM_ID).unwrap();
         let hash =
@@ -5237,7 +5203,7 @@ mod tests {
         let device = DeviceId::new("ak:device:01904100-0000-7000-8000-00000000000f".to_owned())
             .expect("device");
         let key_package = store
-            .ensure_mls_key_package(principal.as_str(), device.as_str(), false)
+            .ensure_mls_key_package(principal.as_str(), device.as_str())
             .expect("KeyPackage");
 
         let owner = new_human_mls_identity(

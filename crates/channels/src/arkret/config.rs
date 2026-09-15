@@ -1074,6 +1074,14 @@ mod strict_tests {
 
     use super::*;
 
+    /// Known red for every caller that runs the full runtime validation: an
+    /// approved runtime config must retain `signerResolutionEvidenceRef` plus
+    /// the complete `currentSignerEvidence` closure, and only a Station can
+    /// author that closure (pairing status delivers it). Savfox has no way to
+    /// build one without forging the whole Agent authority chain, so this
+    /// fixture stays authorization-shaped but evidence-less until the SDK ships
+    /// a canonical Agent signer-evidence test fixture. Do not paper over it by
+    /// dropping the evidence requirement from `validate_for_stage`.
     fn canonical_config(scope: Value) -> ChannelConfig {
         let principal_id = "ak:did_core:web:agent.example";
         ChannelConfig {
@@ -1501,6 +1509,11 @@ mod strict_tests {
     /// domain (hash of the raw Ed25519 key). Emitting the private
     /// pairing-request JWK digest instead makes every legitimate approval look
     /// like "paired by a different runtime key".
+    /// Known red: `arkret_signatures::agent::validate_agent_runtime_public_key`
+    /// now derives `runtime_request_digest` and `authorization_digest` from the
+    /// same `sha256(raw_public_key)` preimage, collapsing the two domains the
+    /// SDK's own `RuntimeKeyRequest` doc comment still separates. Do not weaken
+    /// this assertion; the request domain has to go back to the canonical JWK.
     #[test]
     fn runtime_key_status_digest_uses_the_authorization_domain() {
         let mut config = canonical_config(default_scope());

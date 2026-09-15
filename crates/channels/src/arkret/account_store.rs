@@ -110,7 +110,7 @@ mod tests {
         let store = open_account_store(&home, "channel", "account", 16).unwrap();
         let scope = device_messages_scope(
             None,
-            "did:webvh:z6mkfixture:alice.example",
+            "ak:did_core:webvh:z6mkfixturealice",
             "ak:device:01904100-0000-7000-8000-000000000001",
         )
         .unwrap();

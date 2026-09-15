@@ -121,9 +121,6 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
         return AppletEventOutcome::Skip(AppletDispatchSkip::ContentKindUnsupported);
     };
     let content_kind = content.kind.as_str();
-    if content_kind == "ak.content.encrypted" {
-        return AppletEventOutcome::Skip(AppletDispatchSkip::EncryptedContent);
-    }
     if content_kind != "ak.content.text" {
         return AppletEventOutcome::Skip(AppletDispatchSkip::ContentKindUnsupported);
     }
@@ -144,6 +141,8 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arkret::{DidCoreId, Hlc, RealmId, ScopeRef};
     use serde_json::json;
 
@@ -178,10 +177,12 @@ mod tests {
                     "did:web:bridge.example:ghost:*",
                 )],
                 // In production Arkret, the Applet maps external aliases
-                // (e.g. `slack:team:T123:channel:C456`) to internal
-                // `ak:realm:<uuid>` ids and filters inbound on the internal id.
-                // For test setup we match a known uuid prefix family.
-                realms: vec![NamespacePattern::exclusive("ak:realm:01904100-**")],
+                // (e.g. `slack:team:T123:channel:C456`) to the internal
+                // Event-derived Realm id and filters inbound on that id.
+                realms: vec![
+                    NamespacePattern::exclusive(REALM_IN_A.as_str()),
+                    NamespacePattern::exclusive(REALM_IN_B.as_str()),
+                ],
                 handles: vec![],
             },
             protocols: vec!["slack".into()],
@@ -206,8 +207,7 @@ mod tests {
         let mut event = arkret_wire::test_support::raw_event(
             "ak.message.create",
             ScopeRef::Realm {
-                realm_id: RealmId::new("ak:realm:ATv-vc4S1M4y2UKNOZKUnGUsh_44w_q2QJ5JjDBYjZw5")
-                    .unwrap(),
+                realm_id: REALM_IN_A.clone(),
             },
             config.bot_account_id.principal_id.clone(),
             config.bot_account_id.station_id.clone(),
@@ -229,6 +229,21 @@ mod tests {
         );
     }
 
+    fn fixture_event_id(seed: u8) -> arkret::EventId {
+        arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [seed; 32])
+    }
+
+    /// Realms the fixture Applet declares in its namespace.
+    static REALM_IN_A: LazyLock<RealmId> =
+        LazyLock::new(|| RealmId::from_event_id(&fixture_event_id(0x31)));
+    static REALM_IN_B: LazyLock<RealmId> =
+        LazyLock::new(|| RealmId::from_event_id(&fixture_event_id(0x32)));
+    /// Realm deliberately outside the declared namespace.
+    static REALM_OUT: LazyLock<RealmId> =
+        LazyLock::new(|| RealmId::from_event_id(&fixture_event_id(0x33)));
+    static STRAND: LazyLock<arkret::StrandId> =
+        LazyLock::new(|| arkret::StrandId::from_event_id(&fixture_event_id(0x34)));
+
     fn realm(id: &str) -> RealmId {
         RealmId::new(id.to_owned()).expect("realm id")
     }
@@ -248,7 +263,7 @@ mod tests {
                 realm_id: realm(realm_id),
             },
             did(actor),
-            did("did:webvh:z6mkfixture:principal-server.example"),
+            did("ak:did_core:webvh:z6mkfixtureserver"),
             1,
             hlc(),
             content,
@@ -258,7 +273,7 @@ mod tests {
 
     fn text_content(body: &str) -> serde_json::Value {
         json!({
-            "strand_id": "ak:strand:01904100-0000-8000-8000-000000000001",
+            "strand_id": STRAND.as_str(),
             "track_name": "discussion",
             "content": { "kind": "ak.content.text", "body": body },
         })
@@ -267,25 +282,19 @@ mod tests {
     #[test]
     fn dispatches_text_message_in_realm_namespace() {
         let ev = make_event(
-            "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-8000-8000-000000000123",
+            "ak:did_core:webvh:z6mkfixturealice",
+            REALM_IN_A.as_str(),
             "ak.message.create",
             text_content("hello"),
         );
         let outcome = classify_inbound_event(&cfg(), &ev);
         match outcome {
             AppletEventOutcome::Dispatch(cmd) => {
-                assert_eq!(
-                    cmd.realm_id,
-                    "ak:realm:01904100-0000-8000-8000-000000000123"
-                );
+                assert_eq!(cmd.realm_id, REALM_IN_A.as_str());
                 assert!(matches!(cmd.body.as_str(), "hello"));
-                assert_eq!(cmd.sender_did, "did:webvh:acme:alice");
+                assert_eq!(cmd.sender_did, "ak:did_core:webvh:z6mkfixturealice");
                 assert_eq!(cmd.body, "hello");
-                assert_eq!(
-                    cmd.strand_id,
-                    "ak:strand:01904100-0000-8000-8000-000000000001"
-                );
+                assert_eq!(cmd.strand_id, STRAND.as_str());
             }
             other => panic!("expected Dispatch, got {other:?}"),
         }
@@ -294,8 +303,8 @@ mod tests {
     #[test]
     fn skips_events_outside_realm_namespace() {
         let ev = make_event(
-            "did:webvh:acme:alice",
-            "ak:realm:99999999-0000-8000-8000-000000000abc",
+            "ak:did_core:webvh:z6mkfixturealice",
+            REALM_OUT.as_str(),
             "ak.message.create",
             text_content("hi"),
         );
@@ -306,11 +315,17 @@ mod tests {
         );
     }
 
+    /// Known red: `classify_inbound_event` matches `namespaces.actors` against
+    /// the Event's `ak:did_core:*` actor, but a registration declares those
+    /// namespaces as DID patterns and `applet-integration.md` §3.4 requires the
+    /// match to run against the method-evidence-verified `did`, never against
+    /// the `did_core_id`. Ghost loopback suppression is therefore unreachable
+    /// with a spec-legal Event. Do not weaken this assertion; fix the matcher.
     #[test]
     fn skips_loopback_from_ghost_actor() {
         let ev = make_event(
-            "did:web:bridge.example:ghost:u1",
-            "ak:realm:01904100-0000-8000-8000-000000000456",
+            "ak:did_core:web:bridge.example:ghost:u1",
+            REALM_IN_B.as_str(),
             "ak.message.create",
             text_content("loopback"),
         );
@@ -323,13 +338,20 @@ mod tests {
 
     #[test]
     fn skips_loopback_from_bot() {
-        let ev = make_event(
-            "did:web:bridge.example:bot",
-            "ak:realm:01904100-0000-8000-8000-000000000456",
+        let config = cfg();
+        let ev = arkret_wire::test_support::raw_event(
             "ak.message.create",
+            ScopeRef::Realm {
+                realm_id: REALM_IN_B.clone(),
+            },
+            config.bot_account_id.principal_id.clone(),
+            config.bot_account_id.station_id.clone(),
+            1,
+            hlc(),
             text_content("loopback"),
-        );
-        let outcome = classify_inbound_event(&cfg(), &ev);
+        )
+        .expect("event new");
+        let outcome = classify_inbound_event(&config, &ev);
         assert_eq!(
             outcome,
             AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet)
@@ -339,11 +361,11 @@ mod tests {
     #[test]
     fn skips_non_text_content() {
         let ev = make_event(
-            "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-8000-8000-000000000456",
+            "ak:did_core:webvh:z6mkfixturealice",
+            REALM_IN_B.as_str(),
             "ak.message.create",
             json!({
-                "strand_id": "ak:strand:01904100-0000-8000-8000-000000000001",
+                "strand_id": STRAND.as_str(),
                 "track_name": "discussion",
                 "content": { "kind": "ak.content.image", "ref": "ak:blob:..." }
             }),
@@ -356,32 +378,13 @@ mod tests {
     }
 
     #[test]
-    fn skips_encrypted_content_block() {
-        let ev = make_event(
-            "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-8000-8000-000000000456",
-            "ak.message.create",
-            json!({
-                "strand_id": "ak:strand:01904100-0000-8000-8000-000000000001",
-                "track_name": "discussion",
-                "content": { "kind": "ak.content.encrypted", "body": "" }
-            }),
-        );
-        let outcome = classify_inbound_event(&cfg(), &ev);
-        assert_eq!(
-            outcome,
-            AppletEventOutcome::Skip(AppletDispatchSkip::EncryptedContent)
-        );
-    }
-
-    #[test]
     fn skips_spec_encrypted_content_carrier() {
         let ev = make_event(
-            "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-8000-8000-000000000456",
+            "ak:did_core:webvh:z6mkfixturealice",
+            REALM_IN_B.as_str(),
             "ak.message.create",
             json!({
-                "strand_id": "ak:strand:01904100-0000-8000-8000-000000000001",
+                "strand_id": STRAND.as_str(),
                 "track_name": "discussion",
                 "encrypted_content": {
                     "scheme": "mls_rfc9420",
@@ -399,8 +402,8 @@ mod tests {
     #[test]
     fn skips_empty_body() {
         let ev = make_event(
-            "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-8000-8000-000000000456",
+            "ak:did_core:webvh:z6mkfixturealice",
+            REALM_IN_B.as_str(),
             "ak.message.create",
             text_content("   "),
         );
@@ -414,8 +417,8 @@ mod tests {
     #[test]
     fn skips_non_message_kind() {
         let ev = make_event(
-            "did:webvh:acme:alice",
-            "ak:realm:01904100-0000-8000-8000-000000000456",
+            "ak:did_core:webvh:z6mkfixturealice",
+            REALM_IN_B.as_str(),
             "ak.strand.create",
             json!({"title": "irrelevant"}),
         );

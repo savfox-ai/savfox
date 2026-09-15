@@ -243,6 +243,10 @@ mod tests {
 
     use super::*;
 
+    const DEFAULT_REALM: &str = "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
+    const ISSUER_PRINCIPAL: &str = "ak:did_core:webvh:z6mkadminfixture";
+    const STATION_PRINCIPAL: &str = "ak:did_core:web:principal.example";
+
     fn unique_path(label: &str) -> std::path::PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
         std::env::temp_dir().join(format!(
@@ -262,64 +266,62 @@ mod tests {
         action: &str,
         expires: Option<DateTime<Utc>>,
     ) -> serde_json::Value {
-        let mut grant = serde_json::Map::new();
-        let issuer = "ak:did_core:webvh:z6mkadminfixture";
-        grant.insert("schema".into(), json!("ak.schema.capability.v1"));
-        grant.insert("issuer".into(), json!(issuer));
-        grant.insert("subject".into(), json!(subject));
-        grant.insert("actions".into(), json!([action]));
-        grant.insert("resources".into(), json!([{"kind": "*"}]));
-        grant.insert("issued_at".into(), json!("2026-05-27T00:00:00.000Z"));
-        grant.insert(
-            "issuer_authority_refs".into(),
-            json!([{
-                "kind": "realm_root",
-                "realm_id": realm.unwrap_or("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI"),
-                "cell_ref": "ak:cell:ak.component.realm.authority_root.v1:null",
-                "controller_epoch_at_issuance": 1,
-                "authority_generation": 1
-            }]),
+        let realm_id = arkret::RealmId::new(realm.unwrap_or(DEFAULT_REALM)).expect("realm id");
+        let issuer_account = arkret::AccountId::new(
+            arkret::DidCoreId::new(ISSUER_PRINCIPAL).expect("issuer core id"),
+            arkret::DidCoreId::new(STATION_PRINCIPAL).expect("station core id"),
         );
-        if let Some(realm) = realm {
-            grant.insert("realm_id".into(), json!(realm));
-        }
-        if let Some(exp) = expires {
-            grant.insert(
-                "constraints".into(),
-                json!([{
-                    "constraint_kind": "temporal",
-                    "effect": "allow",
-                    "expires_at": exp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-                }]),
-            );
-        }
-        let mut content = serde_json::Map::new();
-        content.insert("grant".into(), serde_json::Value::Object(grant));
-        let mut event = json!({
-            "event_id": "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6",
-            "kind": "ak.capability.grant",
-            "realm_id": realm.unwrap_or("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI"),
-            "scope_ref": {
-                "kind": "realm",
-                "realm_id": realm.unwrap_or("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI")
+        let subject_account = arkret::AccountId::new(
+            arkret::DidCoreId::new(subject.to_owned()).expect("subject core id"),
+            arkret::DidCoreId::new(STATION_PRINCIPAL).expect("station core id"),
+        );
+        let constraints = expires
+            .map(|exp| {
+                let mut constraint = GrantConstraint::new(
+                    GrantConstraintKind::Temporal,
+                    arkret::GrantConstraintEffect::Allow,
+                );
+                constraint.expires_at = Some(exp);
+                vec![constraint]
+            })
+            .unwrap_or_default();
+        let payload = arkret::CapabilityGrantPayload {
+            grant: arkret::CapabilityGrantCreateBody {
+                schema: arkret::SchemaId::CAPABILITY_V1.to_owned(),
+                realm_id: realm.map(|_| realm_id.clone()),
+                issuer_id: arkret::ActorId::account(issuer_account.clone()),
+                subject: CapabilitySubject::Actor(arkret::ActorId::account(subject_account)),
+                actions: vec![action.to_owned()],
+                resources: vec![arkret::WireResourceSelector::realm(realm_id.clone())],
+                constraints,
+                issuer_authority_refs: vec![arkret::IssuerAuthorityRef::RealmRoot {
+                    realm_id: realm_id.clone(),
+                    cell_ref: "ak:cell:ak.component.realm.authority_root.v1:null".to_owned(),
+                    controller_epoch_at_issuance: 1,
+                    authority_generation: 1,
+                }],
+                issued_at: DateTime::from_timestamp_millis(0).expect("epoch timestamp"),
             },
-            "actor_id": issuer,
-            "principal_server_id": "ak:did_core:web:principal.example",
-            "actor_seq": 1,
-            "created_at": "2026-05-27T00:00:00.000Z",
-            "hlc": "000000000000-0000-00000000",
-            "prev_refs": [],
-            "refs": [],
-            "payload": serde_json::Value::Object(content),
-            "proofs": []
-        });
-        let parsed: Event = serde_json::from_value(event.clone()).expect("event");
+        };
+        // Author the envelope through the SDK so `event_id`, `actor_id` and the
+        // canonical digest are derived, never hand-written.
+        let parsed = arkret_wire::test_support::raw_event(
+            "ak.capability.grant",
+            arkret::ScopeRef::Realm { realm_id },
+            issuer_account.principal_id.clone(),
+            issuer_account.station_id.clone(),
+            1,
+            arkret::Hlc::new("000000000000-0000-00000000").expect("hlc"),
+            serde_json::to_value(&payload).expect("grant payload value"),
+        )
+        .expect("grant event");
         let digest = Hash::new(
             parsed
                 .event_digest_with_digest_suite(crate::arkret::DIGEST_SUITE)
                 .expect("digest"),
         )
         .expect("hash");
+        let mut event = serde_json::to_value(&parsed).expect("grant event value");
         event["proofs"] = json!([{
             "kind": "detached_jws",
             "verification_method": "did:webvh:z6mkadminfixture:admin.example#key-1",

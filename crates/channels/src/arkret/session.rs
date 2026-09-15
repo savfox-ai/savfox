@@ -32,7 +32,7 @@ mod tests {
         let s = ArkretSession {
             session_grant: "g".into(),
             expires_at: Utc::now() + chrono::Duration::seconds(10),
-            principal_did: DidCoreId::new("did:web:alice.example".to_owned())
+            principal_did: DidCoreId::new("ak:did_core:web:alice.example".to_owned())
                 .expect("test DID should parse"),
             device_id: Some(
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
@@ -50,7 +50,7 @@ mod tests {
         let s = ArkretSession {
             session_grant: "g".into(),
             expires_at: Utc::now() - chrono::Duration::seconds(10),
-            principal_did: DidCoreId::new("did:web:alice.example".to_owned())
+            principal_did: DidCoreId::new("ak:did_core:web:alice.example".to_owned())
                 .expect("test DID should parse"),
             device_id: Some(
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())

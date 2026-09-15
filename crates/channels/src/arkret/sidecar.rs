@@ -623,6 +623,8 @@ pub fn build_user_facing_response_metadata(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arkret::{
         AgentSidecarExchangeCompletionPolicy, AgentSidecarExchangeRequestContext,
         AgentSidecarSourceTrackRef, DidCoreId, Hlc, NonEmptyString, RealmId, StrandId,
@@ -637,11 +639,23 @@ mod tests {
     const CONTROLLER_STATION_DID: &str = "ak:did_core:web:example.org:stations:alice-phone";
     const OTHER_STATION_DID: &str = "ak:did_core:web:example.org:stations:alice-tablet";
     const EXCHANGE_ID: &str = "01904100-0000-7000-8000-0000000000aa";
-    const REQUEST_EVENT_ID: &str = "ak:event:01904100-0000-8000-8000-000000000031";
-    const OTHER_EVENT_ID: &str = "ak:event:01904100-0000-8000-8000-000000000032";
-    const CONTROL_EVENT_ID: &str = "ak:event:01904100-0000-8000-8000-000000000041";
-    const REALM_ID: &str = "ak:realm:01904100-0000-8000-8000-000000000001";
-    const STRAND_ID: &str = "ak:strand:01904100-0000-8000-8000-000000000011";
+
+    fn fixture_event_id(seed: u8) -> arkret::EventId {
+        arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [seed; 32])
+    }
+
+    static REQUEST_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x31));
+    static OTHER_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x32));
+    static SIBLING_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x33));
+    static CONTROL_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x41));
+    static OTHER_CONTROL_EVENT_ID: LazyLock<arkret::EventId> =
+        LazyLock::new(|| fixture_event_id(0x42));
+    static REALM_ID: LazyLock<RealmId> =
+        LazyLock::new(|| RealmId::from_event_id(&fixture_event_id(0x01)));
+    static STRAND_ID: LazyLock<StrandId> =
+        LazyLock::new(|| StrandId::from_event_id(&fixture_event_id(0x11)));
+    static OTHER_STRAND_ID: LazyLock<StrandId> =
+        LazyLock::new(|| StrandId::from_event_id(&fixture_event_id(0x12)));
 
     fn account(principal_id: &str, station_id: &str) -> AccountId {
         AccountId::new(
@@ -668,8 +682,8 @@ mod tests {
     fn request_context(addressed: &[&str]) -> AgentSidecarExchangeRequestContext {
         AgentSidecarExchangeRequestContext {
             source_track_ref: AgentSidecarSourceTrackRef {
-                realm_id: RealmId::new(REALM_ID).unwrap(),
-                strand_id: StrandId::new(STRAND_ID).unwrap(),
+                realm_id: RealmId::new(REALM_ID.as_str()).unwrap(),
+                strand_id: StrandId::new(STRAND_ID.as_str()).unwrap(),
                 track_name: "discussion".to_owned(),
             },
             source_hlc: Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
@@ -744,7 +758,7 @@ mod tests {
                 "schema": "ak.schema.agent_sidecar_event_exchange_binding.v1",
                 "exchange_id": EXCHANGE_ID,
                 "role": "supervisor",
-                "request_event_id": REQUEST_EVENT_ID
+                "request_event_id": REQUEST_EVENT_ID.as_str()
             }
         });
         assert_eq!(sidecar_binding_from_metadata_plaintext(&unknown_role), None);
@@ -777,7 +791,7 @@ mod tests {
         assert_eq!(
             gate_inbound_request_binding(
                 &binding,
-                REQUEST_EVENT_ID,
+                REQUEST_EVENT_ID.as_str(),
                 &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
                 &controller_account(),
                 AGENT_DID
@@ -792,7 +806,7 @@ mod tests {
         assert_eq!(
             gate_inbound_request_binding(
                 &binding,
-                REQUEST_EVENT_ID,
+                REQUEST_EVENT_ID.as_str(),
                 &account_actor(OTHER_DID, CONTROLLER_STATION_DID),
                 &controller_account(),
                 AGENT_DID
@@ -803,7 +817,7 @@ mod tests {
         assert_eq!(
             gate_inbound_request_binding(
                 &binding,
-                REQUEST_EVENT_ID,
+                REQUEST_EVENT_ID.as_str(),
                 &account_actor(CONTROLLER_DID, OTHER_STATION_DID),
                 &controller_account(),
                 AGENT_DID
@@ -814,7 +828,7 @@ mod tests {
         assert_eq!(
             gate_inbound_request_binding(
                 &binding,
-                REQUEST_EVENT_ID,
+                REQUEST_EVENT_ID.as_str(),
                 &ActorId::service(DidCoreId::new(CONTROLLER_DID.to_owned()).unwrap()),
                 &controller_account(),
                 AGENT_DID
@@ -829,7 +843,7 @@ mod tests {
         let binding = request_binding(&[OTHER_DID, AGENT_DID]);
         let SidecarRequestGate::Addressed(context) = gate_inbound_request_binding(
             &binding,
-            REQUEST_EVENT_ID,
+            REQUEST_EVENT_ID.as_str(),
             &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
             &controller_account(),
             AGENT_DID,
@@ -837,11 +851,11 @@ mod tests {
             panic!("expected addressed gate");
         };
         assert_eq!(context.exchange_id, EXCHANGE_ID);
-        assert_eq!(context.request_event_id, REQUEST_EVENT_ID);
+        assert_eq!(context.request_event_id, REQUEST_EVENT_ID.as_str());
         assert_eq!(context.coordinator_assignment_event_id, None);
         let SidecarRequestGate::Addressed(coordinator_context) = gate_inbound_request_binding(
             &request_binding(&[AGENT_DID]),
-            REQUEST_EVENT_ID,
+            REQUEST_EVENT_ID.as_str(),
             &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
             &controller_account(),
             AGENT_DID,
@@ -852,12 +866,12 @@ mod tests {
             coordinator_context
                 .coordinator_assignment_event_id
                 .as_deref(),
-            Some(REQUEST_EVENT_ID)
+            Some(REQUEST_EVENT_ID.as_str())
         );
         assert_eq!(
             gate_inbound_request_binding(
                 &request_binding(&[AGENT_DID]),
-                REQUEST_EVENT_ID,
+                REQUEST_EVENT_ID.as_str(),
                 &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
                 &controller_account(),
                 &AGENT_DID.to_ascii_uppercase(),
@@ -871,13 +885,13 @@ mod tests {
     fn gate_treats_response_bindings_as_non_requests() {
         let binding = AgentSidecarEventExchangeBinding::user_facing_response(
             AgentSidecarExchangeId::new(EXCHANGE_ID).unwrap(),
-            EventId::new(REQUEST_EVENT_ID.to_owned()).unwrap(),
+            EventId::new(REQUEST_EVENT_ID.as_str().to_owned()).unwrap(),
         )
         .unwrap();
         assert_eq!(
             gate_inbound_request_binding(
                 &binding,
-                REQUEST_EVENT_ID,
+                REQUEST_EVENT_ID.as_str(),
                 &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
                 &controller_account(),
                 AGENT_DID
@@ -899,9 +913,9 @@ mod tests {
             store
                 .record_request_identity(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    REQUEST_EVENT_ID,
+                    REQUEST_EVENT_ID.as_str(),
                     &ordering(7, "aa")
                 )
                 .unwrap(),
@@ -911,9 +925,9 @@ mod tests {
             store
                 .record_request_identity(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    REQUEST_EVENT_ID,
+                    REQUEST_EVENT_ID.as_str(),
                     &ordering(7, "aa")
                 )
                 .unwrap(),
@@ -927,9 +941,9 @@ mod tests {
             reopened
                 .record_request_identity(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    REQUEST_EVENT_ID,
+                    REQUEST_EVENT_ID.as_str(),
                     &ordering(7, "aa")
                 )
                 .unwrap(),
@@ -943,26 +957,26 @@ mod tests {
             reopened
                 .record_request_identity(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    OTHER_EVENT_ID,
+                    OTHER_EVENT_ID.as_str(),
                     &ordering(9, "ff")
                 )
                 .unwrap(),
             SidecarExchangeAdmission::Conflict {
-                canonical_request_event_id: REQUEST_EVENT_ID.to_owned(),
+                canonical_request_event_id: REQUEST_EVENT_ID.as_str().to_owned(),
             }
         );
 
         // The same exchange id in another normative scope is independent.
-        let other_strand = "ak:strand:01904100-0000-8000-8000-000000000012";
+        let other_strand = OTHER_STRAND_ID.as_str();
         assert_eq!(
             reopened
                 .record_request_identity(
                     &controller_account(),
                     other_strand,
                     EXCHANGE_ID,
-                    OTHER_EVENT_ID,
+                    OTHER_EVENT_ID.as_str(),
                     &ordering(9, "ff")
                 )
                 .unwrap(),
@@ -972,9 +986,9 @@ mod tests {
             reopened
                 .record_request_identity(
                     &account(AGENT_DID, CONTROLLER_STATION_DID),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    OTHER_EVENT_ID,
+                    OTHER_EVENT_ID.as_str(),
                     &ordering(9, "ff")
                 )
                 .unwrap(),
@@ -996,9 +1010,9 @@ mod tests {
             store
                 .record_request_identity(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    REQUEST_EVENT_ID,
+                    REQUEST_EVENT_ID.as_str(),
                     &ordering(9, "bb")
                 )
                 .unwrap(),
@@ -1012,35 +1026,35 @@ mod tests {
             store
                 .record_request_identity(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    OTHER_EVENT_ID,
+                    OTHER_EVENT_ID.as_str(),
                     &ordering(4, "01")
                 )
                 .unwrap(),
             SidecarExchangeAdmission::Conflict {
-                canonical_request_event_id: OTHER_EVENT_ID.to_owned(),
+                canonical_request_event_id: OTHER_EVENT_ID.as_str().to_owned(),
             }
         );
         assert!(
             !store
                 .exchange_accepts_new_response(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    REQUEST_EVENT_ID
+                    REQUEST_EVENT_ID.as_str()
                 )
                 .unwrap(),
             "the admitted request lost the canonical contest, so it may no longer reply"
         );
 
         // Same-sequence sibling: bytewise-max event digest decides.
-        let sibling = "ak:event:01904100-0000-8000-8000-000000000033";
+        let sibling = SIBLING_EVENT_ID.as_str();
         assert_eq!(
             store
                 .record_request_identity(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
                     sibling,
                     &ordering(4, "ff")
@@ -1065,9 +1079,9 @@ mod tests {
         store
             .record_request_identity(
                 &controller_account(),
-                STRAND_ID,
+                STRAND_ID.as_str(),
                 EXCHANGE_ID,
-                REQUEST_EVENT_ID,
+                REQUEST_EVENT_ID.as_str(),
                 &ordering(3, "aa"),
             )
             .unwrap();
@@ -1075,9 +1089,9 @@ mod tests {
             store
                 .exchange_accepts_new_response(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    REQUEST_EVENT_ID
+                    REQUEST_EVENT_ID.as_str()
                 )
                 .unwrap()
         );
@@ -1087,9 +1101,9 @@ mod tests {
             store
                 .record_terminal_control(
                     &controller_account(),
-                    STRAND_ID,
-                    &terminal_control(OTHER_EVENT_ID),
-                    CONTROL_EVENT_ID,
+                    STRAND_ID.as_str(),
+                    &terminal_control(OTHER_EVENT_ID.as_str()),
+                    CONTROL_EVENT_ID.as_str(),
                 )
                 .unwrap(),
             SidecarTerminalAdmission::NotCanonicalRequest
@@ -1099,9 +1113,9 @@ mod tests {
             store
                 .record_terminal_control(
                     &controller_account(),
-                    STRAND_ID,
-                    &terminal_control(REQUEST_EVENT_ID),
-                    CONTROL_EVENT_ID,
+                    STRAND_ID.as_str(),
+                    &terminal_control(REQUEST_EVENT_ID.as_str()),
+                    CONTROL_EVENT_ID.as_str(),
                 )
                 .unwrap(),
             SidecarTerminalAdmission::Recorded
@@ -1112,13 +1126,13 @@ mod tests {
             store
                 .record_terminal_control(
                     &controller_account(),
-                    STRAND_ID,
-                    &terminal_control(REQUEST_EVENT_ID),
-                    "ak:event:01904100-0000-8000-8000-000000000042",
+                    STRAND_ID.as_str(),
+                    &terminal_control(REQUEST_EVENT_ID.as_str()),
+                    OTHER_CONTROL_EVENT_ID.as_str(),
                 )
                 .unwrap(),
             SidecarTerminalAdmission::AlreadyTerminal {
-                control_event_id: CONTROL_EVENT_ID.to_owned(),
+                control_event_id: CONTROL_EVENT_ID.as_str().to_owned(),
             }
         );
 
@@ -1128,9 +1142,9 @@ mod tests {
             !store
                 .exchange_accepts_new_response(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    REQUEST_EVENT_ID
+                    REQUEST_EVENT_ID.as_str()
                 )
                 .unwrap()
         );
@@ -1138,14 +1152,14 @@ mod tests {
             store
                 .record_request_identity(
                     &controller_account(),
-                    STRAND_ID,
+                    STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    REQUEST_EVENT_ID,
+                    REQUEST_EVENT_ID.as_str(),
                     &ordering(3, "aa")
                 )
                 .unwrap(),
             SidecarExchangeAdmission::Terminal {
-                control_event_id: CONTROL_EVENT_ID.to_owned(),
+                control_event_id: CONTROL_EVENT_ID.as_str().to_owned(),
             }
         );
         let _ = std::fs::remove_dir_all(&home);
@@ -1153,12 +1167,12 @@ mod tests {
 
     #[test]
     fn exchange_control_gate_requires_controller_actor_and_matching_strand() {
-        let plaintext = serde_json::to_value(terminal_control(REQUEST_EVENT_ID)).unwrap();
+        let plaintext = serde_json::to_value(terminal_control(REQUEST_EVENT_ID.as_str())).unwrap();
         assert!(
             gate_inbound_exchange_control(
                 &plaintext,
-                STRAND_ID,
-                STRAND_ID,
+                STRAND_ID.as_str(),
+                STRAND_ID.as_str(),
                 &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
                 &controller_account()
             )
@@ -1167,8 +1181,8 @@ mod tests {
         assert!(
             gate_inbound_exchange_control(
                 &plaintext,
-                STRAND_ID,
-                STRAND_ID,
+                STRAND_ID.as_str(),
+                STRAND_ID.as_str(),
                 &account_actor(AGENT_DID, CONTROLLER_STATION_DID),
                 &controller_account()
             )
@@ -1178,8 +1192,8 @@ mod tests {
         assert!(
             gate_inbound_exchange_control(
                 &plaintext,
-                STRAND_ID,
-                "ak:strand:01904100-0000-8000-8000-000000000012",
+                STRAND_ID.as_str(),
+                OTHER_STRAND_ID.as_str(),
                 &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
                 &controller_account()
             )
@@ -1189,8 +1203,8 @@ mod tests {
         assert!(
             gate_inbound_exchange_control(
                 &json!({"schema": "ak.schema.agent_sidecar_exchange_control.v1"}),
-                STRAND_ID,
-                STRAND_ID,
+                STRAND_ID.as_str(),
+                STRAND_ID.as_str(),
                 &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
                 &controller_account()
             )
@@ -1215,9 +1229,9 @@ mod tests {
                     store
                         .record_request_identity(
                             &controller_account(),
-                            STRAND_ID,
+                            STRAND_ID.as_str(),
                             EXCHANGE_ID,
-                            REQUEST_EVENT_ID,
+                            REQUEST_EVENT_ID.as_str(),
                             &ordering(3, "aa"),
                         )
                         .unwrap()
@@ -1249,23 +1263,24 @@ mod tests {
     fn reply_target_round_trips_and_fails_closed() {
         let context = SidecarExchangeContext {
             exchange_id: EXCHANGE_ID.to_owned(),
-            request_event_id: REQUEST_EVENT_ID.to_owned(),
-            coordinator_assignment_event_id: Some(REQUEST_EVENT_ID.to_owned()),
+            request_event_id: REQUEST_EVENT_ID.as_str().to_owned(),
+            coordinator_assignment_event_id: Some(REQUEST_EVENT_ID.as_str().to_owned()),
         };
-        let encoded = encode_sidecar_reply_target(STRAND_ID, &context);
+        let encoded = encode_sidecar_reply_target(STRAND_ID.as_str(), &context);
         assert!(encoded.starts_with("ak:strand:"));
         let (strand, parsed) = split_sidecar_reply_target(&encoded);
-        assert_eq!(strand, STRAND_ID);
+        assert_eq!(strand, STRAND_ID.as_str());
         assert_eq!(parsed, Some(context));
 
         assert_eq!(
-            split_sidecar_reply_target(STRAND_ID),
-            (STRAND_ID.to_owned(), None)
+            split_sidecar_reply_target(STRAND_ID.as_str()),
+            (STRAND_ID.as_str().to_owned(), None)
         );
-        let truncated = format!("{STRAND_ID}{REPLY_TARGET_EXCHANGE_KEY}{EXCHANGE_ID}");
+        let strand_id = STRAND_ID.as_str();
+        let truncated = format!("{strand_id}{REPLY_TARGET_EXCHANGE_KEY}{EXCHANGE_ID}");
         assert_eq!(
             split_sidecar_reply_target(&truncated),
-            (STRAND_ID.to_owned(), None)
+            (STRAND_ID.as_str().to_owned(), None)
         );
     }
 
@@ -1273,8 +1288,8 @@ mod tests {
     fn user_facing_response_metadata_carries_binding_and_validates() {
         let context = SidecarExchangeContext {
             exchange_id: EXCHANGE_ID.to_owned(),
-            request_event_id: REQUEST_EVENT_ID.to_owned(),
-            coordinator_assignment_event_id: Some(REQUEST_EVENT_ID.to_owned()),
+            request_event_id: REQUEST_EVENT_ID.as_str().to_owned(),
+            coordinator_assignment_event_id: Some(REQUEST_EVENT_ID.as_str().to_owned()),
         };
         let plaintext = build_user_facing_response_metadata(&context).expect("metadata");
         let plaintext = serde_json::to_value(plaintext).expect("serialize metadata");
@@ -1286,7 +1301,7 @@ mod tests {
         assert_eq!(binding.exchange_id.as_str(), EXCHANGE_ID);
         assert_eq!(
             binding.request_event_id.as_ref().map(|id| id.as_str()),
-            Some(REQUEST_EVENT_ID)
+            Some(REQUEST_EVENT_ID.as_str())
         );
         assert_eq!(binding.completes_exchange, Some(true));
         assert_eq!(
@@ -1294,7 +1309,7 @@ mod tests {
                 .coordinator_assignment_event_id
                 .as_ref()
                 .map(EventId::as_str),
-            Some(REQUEST_EVENT_ID)
+            Some(REQUEST_EVENT_ID.as_str())
         );
     }
 
@@ -1302,7 +1317,7 @@ mod tests {
     fn user_facing_response_metadata_rejects_invalid_identity() {
         let bad = SidecarExchangeContext {
             exchange_id: "short".to_owned(),
-            request_event_id: REQUEST_EVENT_ID.to_owned(),
+            request_event_id: REQUEST_EVENT_ID.as_str().to_owned(),
             coordinator_assignment_event_id: None,
         };
         assert!(build_user_facing_response_metadata(&bad).is_err());

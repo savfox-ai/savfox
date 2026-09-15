@@ -1600,7 +1600,6 @@ async fn publish_account_mls_key_packages(
     match crypto_store.ensure_agent_mls_key_package(
         &account.principal_id,
         &account.device_id,
-        false,
         key_ref,
         verification_method,
         authorized_event_ref,
