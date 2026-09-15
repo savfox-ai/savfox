@@ -11,17 +11,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::Context;
-#[cfg(test)]
-use arkret::AccountId;
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity, ArkretMlsSigner};
 use arkret::{
-    ActorId, ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload, EncryptedPayload,
-    EncryptedPayloadScheme, EventContentPreEncryptionHeader, EventContentRoutingContext, EventId,
-    MessageMetadata, MlsCommitPayload, MlsCommitSource, MlsEncryptedPayload, MlsEndpointIdentity,
-    MlsKeyPackageRecord, MlsKeyPackageState, MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload,
-    MlsWelcomeRecipient, PresencePlaintext, PresenceState, RealmId, ScopeRef, SealId,
-    SignalSequenceDomain, SignalSequenceEndpoint, StrandCreatePayload, StrandId,
-    seal_signal_plaintext,
+    AccountId, ActorId, ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload,
+    EncryptedPayload, EncryptedPayloadScheme, EventContentPreEncryptionHeader,
+    EventContentRoutingContext, EventId, MessageMetadata, MlsCommitPayload, MlsCommitSource,
+    MlsEncryptedPayload, MlsEndpointIdentity, MlsKeyPackageRecord, MlsKeyPackageState,
+    MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient, PresencePlaintext,
+    PresenceState, RealmId, ScopeRef, SealId, SignalSequenceDomain, SignalSequenceEndpoint,
+    StrandCreatePayload, StrandId, seal_signal_plaintext,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -63,6 +61,84 @@ pub struct UnableToDecryptRecord {
     pub reason: UnableToDecryptReason,
     pub encrypted_content: EncryptedPayload,
     pub first_seen_at: DateTime<Utc>,
+}
+
+/// The closed local subject a verified `ak.mls.welcome` may be admitted for.
+///
+/// Recipient selection and the authorization anchors that must accompany it are
+/// the only part of Welcome admission that differs between an owned Agent
+/// runtime and an Applet Bot `Principal` runtime. Both edges reach
+/// [`FileArkretCryptoStore::admit_verified_welcomes`] with this subject, and the
+/// governance closure verification that produces the checkpoint has exactly one
+/// implementation, so the two edges can never drift apart on what "verified"
+/// means.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MlsWelcomeAdmissionSubject {
+    /// Owned Agent runtime: the recipient is the Agent endpoint branch bound to
+    /// its current `ak.agent.key.authorize` Event.
+    OwnedAgent {
+        agent_id: DidCoreId,
+        agent_key_authorize_event_id: String,
+    },
+    /// Applet Bot `Principal` runtime. A Bot is an independent long-lived
+    /// principal with its own Account and a runtime device, so it publishes and
+    /// is welcomed through the ordinary closed endpoint
+    /// (`recipient_principal_id` + `recipient_device_id`), never the Agent
+    /// branch. `applet-integration.md` §12 additionally requires a separate
+    /// E2EE join authorization carrying Applet provenance; `applet_id` and
+    /// `install_authorization_ref` are the anchors that authorization must cite.
+    AppletBot {
+        bot_account_id: AccountId,
+        device_id: DeviceId,
+        applet_id: String,
+        install_authorization_ref: String,
+    },
+}
+
+impl MlsWelcomeAdmissionSubject {
+    #[must_use]
+    pub const fn recipient_principal_id(&self) -> &DidCoreId {
+        match self {
+            Self::OwnedAgent { agent_id, .. } => agent_id,
+            Self::AppletBot { bot_account_id, .. } => &bot_account_id.principal_id,
+        }
+    }
+
+    /// Exact closed recipient endpoint match. A Welcome addressed to any other
+    /// endpoint branch, principal or device is not this subject's Welcome.
+    #[must_use]
+    pub fn matches_welcome_recipient(&self, payload: &MlsWelcomePayload) -> bool {
+        if payload
+            .recipient_principal_id
+            .as_ref()
+            .is_none_or(|recipient| recipient != self.recipient_principal_id())
+        {
+            return false;
+        }
+        match (self, &payload.recipient) {
+            (
+                Self::OwnedAgent { agent_id, .. },
+                MlsWelcomeRecipient::Agent {
+                    recipient_agent_id, ..
+                },
+            ) => recipient_agent_id == agent_id,
+            (
+                Self::AppletBot { device_id, .. },
+                MlsWelcomeRecipient::Device {
+                    recipient_device_id,
+                },
+            ) => recipient_device_id == device_id,
+            _ => false,
+        }
+    }
+
+    /// An Applet Bot joins ordinary multi-member Realm groups, so every
+    /// occupied leaf needs its accepted historical authority before the joined
+    /// snapshot can be persisted at all.
+    #[must_use]
+    pub const fn needs_accepted_leaf_authority(&self) -> bool {
+        matches!(self, Self::AppletBot { .. })
+    }
 }
 
 /// Savfox-owned subset of the removed generic Arkret crypto-store binding.
@@ -1264,13 +1340,22 @@ impl FileArkretCryptoStore {
         }
     }
 
-    /// Admit a controller/owned-Agent pair only from a completely verified
-    /// accepted governance closure, binding both active leaves before T3 save.
-    pub fn admit_verified_owned_agent_welcomes(
+    /// Admit a Welcome only from a completely verified accepted governance
+    /// closure, binding every active leaf before the T3 save. The subject is the
+    /// only thing that decides which recipient endpoint and which authorization
+    /// anchors are acceptable; every other admission requirement is shared, and
+    /// the closure verification that produced `checkpoint` has one caller.
+    ///
+    /// `accepted_leaf_authority` carries, keyed by Welcome Event id, the
+    /// Station's accepted historical leaf authority. It is only consulted for
+    /// subjects that join ordinary multi-member groups, and it is checked
+    /// against the joined group's own governance binding and its RFC 9420 leaf
+    /// credentials and keys before anything is persisted.
+    pub fn admit_verified_welcomes(
         &self,
         checkpoint: &arkret::MlsGovernanceVerificationCheckpoint,
-        agent_id: &str,
-        authorization_ref: &str,
+        subject: &MlsWelcomeAdmissionSubject,
+        accepted_leaf_authority: &BTreeMap<EventId, arkret::MlsAcceptedArtifactOutcome>,
     ) -> anyhow::Result<usize> {
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
@@ -1282,47 +1367,15 @@ impl FileArkretCryptoStore {
             }
             let payload: MlsWelcomePayload =
                 serde_json::from_value(serde_json::to_value(&event.payload)?)?;
-            if payload
-                .recipient_principal_id
-                .as_ref()
-                .is_none_or(|id| id.as_str() != agent_id)
+            if !subject.matches_welcome_recipient(&payload)
                 || store.mls_group_state(payload.mls_group_id()).is_some()
             {
                 continue;
             }
-            self.validate_agent_mls_welcome_payload(&payload, agent_id, "", authorization_ref)?;
+            self.validate_local_mls_welcome_payload(&payload, subject)?;
             anyhow::ensure!(
                 payload.claim_envelope.intended_realm_id == checkpoint.realm_id,
                 "Welcome checkpoint Realm mismatch"
-            );
-            let mut founding = checkpoint
-                .accepted_events
-                .iter()
-                .filter(|accepted| {
-                    accepted.realm_id == checkpoint.realm_id
-                        && accepted.actor_id == payload.claim_envelope.requester_actor_id
-                        && accepted.actor_seq < 4
-                })
-                .collect::<Vec<_>>();
-            founding.sort_by_key(|accepted| accepted.actor_seq);
-            let unit: [&arkret::Event; 4] = founding.try_into().map_err(|_| {
-                anyhow::anyhow!("Welcome lacks the complete accepted founding unit")
-            })?;
-            let plan = arkret::DirectConversationFoundingPlan::from_events(unit)?;
-            let peer: arkret::MembershipPayload =
-                serde_json::from_value(serde_json::to_value(&unit[2].payload)?)?;
-            let controller_binding = peer
-                .agent_controller_binding
-                .as_ref()
-                .context("Agent founding membership lacks its explicit controller binding")?;
-            anyhow::ensure!(
-                plan.realm_id == checkpoint.realm_id
-                    && peer.member_id.signing_principal_id().as_str() == agent_id
-                    && peer.member_id.route_service_id() == &payload.claim_receipt.destination_id
-                    && unit[0].actor_id == payload.claim_envelope.requester_actor_id
-                    && unit[0].actor_id.as_account_id()
-                        == Some(&controller_binding.controller_account_id),
-                "Welcome does not bind the accepted controller-Agent founding pair"
             );
             let commit_event = checkpoint
                 .accepted_events
@@ -1339,36 +1392,24 @@ impl FileArkretCryptoStore {
                 commit.governance_binding() == &payload.governance_binding,
                 "Welcome governance binding differs from accepted Commit"
             );
-            let genesis = checkpoint
-                .accepted_events
-                .iter()
-                .find(|accepted| {
-                    accepted.kind == arkret::EventKind::MlsGenesis
-                        && serde_json::to_value(&accepted.payload)
-                            .ok()
-                            .and_then(|value| {
-                                serde_json::from_value::<arkret::MlsGenesisPayload>(value).ok()
-                            })
-                            .is_some_and(|genesis| genesis.mls_group_id() == payload.mls_group_id())
-                })
-                .context("Welcome group has no accepted Genesis")?;
-            anyhow::ensure!(
-                genesis.actor_id == payload.claim_envelope.requester_actor_id
-                    && event.actor_id == genesis.actor_id,
-                "owned-Agent Welcome must be authored by the original controller"
-            );
-            let arkret::MlsRequesterTrustBinding::RequesterDevice {
-                requester_device_id,
-                requester_device_authorize_event_id,
-            } = &payload.claim_envelope.trust_binding
-            else {
-                anyhow::bail!("owned-Agent Welcome requires its controller device authority");
-            };
+            let genesis = accepted_mls_genesis(checkpoint, &payload)?;
             let envelope = mls_welcome_envelope(&payload)?;
             let identity = state
                 .mls_identities
                 .values()
-                .find(|identity| identity.principal_id.as_str() == agent_id)
+                .find(|identity| match subject {
+                    MlsWelcomeAdmissionSubject::OwnedAgent { agent_id, .. } => {
+                        &identity.principal_id == agent_id
+                    }
+                    MlsWelcomeAdmissionSubject::AppletBot {
+                        bot_account_id,
+                        device_id,
+                        ..
+                    } => {
+                        identity.principal_id == bot_account_id.principal_id
+                            && &identity.device_id == device_id
+                    }
+                })
                 .context("Welcome private KeyPackage is unavailable")?;
             let mut group =
                 ArkretMlsGroup::join_from_welcome(restore_mls_identity(identity)?, &envelope)?;
@@ -1376,75 +1417,31 @@ impl FileArkretCryptoStore {
                 group.current_governance_binding()?.as_ref() == Some(&payload.governance_binding),
                 "joined MLS group differs from verified accepted binding"
             );
-            let leaves = group.active_author_leaves();
-            anyhow::ensure!(
-                leaves.len() == 2,
-                "owned-Agent admission requires the exact two participant leaves"
-            );
-            let agent_endpoint = envelope.recipient.clone();
-            let agent_actor = ActorId::account(arkret::AccountId::new(
-                DidCoreId::new(agent_id)?,
-                payload.claim_receipt.destination_id.clone(),
-            ));
-            let mut bindings = Vec::new();
-            for leaf in leaves {
-                let arkret::AuthorLeafCredential::Basic { identity } = leaf.credential else {
-                    anyhow::bail!("MLS leaf is not BasicCredential");
-                };
-                let (actor_id, endpoint, device_authorize_event_id) =
-                    if identity == agent_id.as_bytes() {
-                        (agent_actor.clone(), agent_endpoint.clone(), None)
-                    } else {
-                        anyhow::ensure!(
-                            identity == requester_device_id.as_str().as_bytes(),
-                            "MLS leaf does not match the controller device"
-                        );
-                        let key: [u8; 32] = leaf
-                            .signature_key
-                            .as_slice()
-                            .try_into()
-                            .context("controller leaf key is not Ed25519")?;
-                        let signature =
-                            ed25519_dalek::Signature::from_slice(&arkret::base64url_decode(
-                                payload.claim_envelope.signature.sig.as_str().as_bytes(),
-                            )?)?;
-                        ed25519_dalek::VerifyingKey::from_bytes(&key)?.verify_strict(
-                            &payload
-                                .claim_envelope
-                                .canonical_signing_bytes(&payload.claim_receipt)?,
-                            &signature,
-                        )?;
-                        (
-                            genesis.actor_id.clone(),
-                            MlsEndpointIdentity::human_device(
-                                genesis.actor_id.signing_principal_id().clone(),
-                                requester_device_id.clone(),
-                            ),
-                            Some(requester_device_authorize_event_id.clone()),
-                        )
-                    };
-                bindings.push(arkret::mls::MlsVerifiedLeafBinding {
-                    leaf_index: leaf.leaf_index,
-                    actor_id,
-                    endpoint,
-                    credential_ref: arkret::NonEmptyString::new(String::from_utf8(identity)?)
-                        .map_err(anyhow::Error::msg)?,
-                    signature_key: arkret::Base64UrlString::new(arkret::base64url_encode(
-                        &leaf.signature_key,
-                    ))
-                    .map_err(anyhow::Error::msg)?,
-                    device_authorize_event_id,
-                });
+            match subject {
+                MlsWelcomeAdmissionSubject::OwnedAgent { agent_id, .. } => {
+                    install_owned_agent_leaf_bindings(
+                        &mut group, checkpoint, event, &payload, &envelope, genesis, agent_id,
+                    )?;
+                }
+                MlsWelcomeAdmissionSubject::AppletBot {
+                    bot_account_id,
+                    device_id,
+                    applet_id,
+                    install_authorization_ref,
+                } => {
+                    install_applet_bot_leaf_bindings(
+                        &mut group,
+                        checkpoint,
+                        event,
+                        &payload,
+                        bot_account_id,
+                        device_id,
+                        applet_id,
+                        install_authorization_ref,
+                        accepted_leaf_authority,
+                    )?;
+                }
             }
-            anyhow::ensure!(
-                bindings
-                    .iter()
-                    .filter(|binding| binding.actor_id == agent_actor)
-                    .count()
-                    == 1,
-                "owned-Agent admission requires exactly one Agent leaf"
-            );
-            group.install_verified_leaf_bindings(bindings)?;
             stage_verified_welcome(&mut state, &mut store, &payload, &event.event_id)?;
             let record = group.persist_state(&mut store)?;
             state.bootstrap.insert(
@@ -1464,6 +1461,19 @@ impl FileArkretCryptoStore {
             state.set_mls_store(&store)?;
             self.save(&mut state)?;
         }
+        // The recipient durable receipt is signed by the recipient's own MLS
+        // endpoint key. Only the Agent branch has a runtime verification method
+        // to sign one with; an Applet Bot's device verification method is not
+        // part of its runtime identity custody, so no receipt is produced and
+        // its consume binding stays pending until the Bot device signs.
+        let MlsWelcomeAdmissionSubject::OwnedAgent {
+            agent_id,
+            agent_key_authorize_event_id: authorization_ref,
+        } = subject
+        else {
+            return Ok(admitted);
+        };
+        let agent_id = agent_id.as_str();
         // Sign only after reading the joined state back across the durable barrier.
         let mut durable = self.load()?;
         let durable_store = durable.mls_store()?;
@@ -1481,7 +1491,7 @@ impl FileArkretCryptoStore {
             {
                 continue;
             }
-            self.validate_agent_mls_welcome_payload(&payload, agent_id, "", authorization_ref)?;
+            self.validate_agent_mls_welcome_payload(&payload, agent_id, authorization_ref)?;
             let Some(record) = durable_store.mls_group_state(payload.mls_group_id()) else {
                 continue;
             };
@@ -1704,11 +1714,96 @@ impl FileArkretCryptoStore {
             .is_some_and(|policy| policy.source == "account_subscribe_direct_conversation"))
     }
 
+    /// Dispatch the subject-specific half of Welcome validation: which closed
+    /// recipient endpoint is acceptable, which authorization anchors it must
+    /// cite, and which locally held KeyPackage it must consume.
+    fn validate_local_mls_welcome_payload(
+        &self,
+        payload: &MlsWelcomePayload,
+        subject: &MlsWelcomeAdmissionSubject,
+    ) -> anyhow::Result<()> {
+        match subject {
+            MlsWelcomeAdmissionSubject::OwnedAgent {
+                agent_id,
+                agent_key_authorize_event_id,
+            } => self.validate_agent_mls_welcome_payload(
+                payload,
+                agent_id.as_str(),
+                agent_key_authorize_event_id,
+            ),
+            MlsWelcomeAdmissionSubject::AppletBot {
+                bot_account_id,
+                device_id,
+                ..
+            } => self.validate_applet_bot_mls_welcome_payload(payload, bot_account_id, device_id),
+        }
+    }
+
+    /// The Applet Bot consumes the ordinary closed endpoint branch: the Welcome
+    /// names its exact `Principal` and runtime device, the accepted claim
+    /// receipt targets that exact Account and device, and the KeyPackage it
+    /// consumes is one this runtime actually holds for that endpoint.
+    fn validate_applet_bot_mls_welcome_payload(
+        &self,
+        payload: &MlsWelcomePayload,
+        bot_account_id: &AccountId,
+        device_id: &DeviceId,
+    ) -> anyhow::Result<()> {
+        let MlsWelcomeRecipient::Device {
+            recipient_device_id,
+        } = &payload.recipient
+        else {
+            anyhow::bail!("MLS Welcome does not select an Applet Bot device endpoint");
+        };
+        if payload
+            .recipient_principal_id
+            .as_ref()
+            .is_none_or(|recipient| recipient != &bot_account_id.principal_id)
+            || recipient_device_id != device_id
+        {
+            anyhow::bail!("MLS Welcome recipient does not match this Applet Bot runtime");
+        }
+        let request = &payload.claim_receipt.request;
+        if request.target_account_id.as_ref() != Some(bot_account_id)
+            || !request.target_device_ids.contains(device_id)
+        {
+            anyhow::bail!("MLS Welcome claim receipt targets another Account or device");
+        }
+        if !matches!(
+            &payload.claim_ref.trust_binding,
+            arkret::MlsClaimTrustBinding::DeviceAuthorizeEventId(_)
+        ) {
+            anyhow::bail!("MLS Welcome claim_ref is not bound to an ordinary device authorization");
+        }
+        let state = self.load()?;
+        let local_keypackage = state
+            .mls_key_packages
+            .values()
+            .find(|record| {
+                record.keypackage_ref.as_str() == payload.keypackage_ref.as_str()
+                    || record.keypackage_id == payload.keypackage_ref.as_str()
+            })
+            .context("MLS Welcome references no locally held Applet Bot KeyPackage")?;
+        match &local_keypackage.endpoint {
+            MlsEndpointIdentity::HumanDevice {
+                principal_id,
+                device_id: local_device_id,
+            } if principal_id == &bot_account_id.principal_id && local_device_id == device_id => {}
+            _ => anyhow::bail!("local KeyPackage does not belong to this Applet Bot runtime"),
+        }
+        if local_keypackage.keypackage_ref != payload.claim_envelope.keypackage_digest
+            || payload.claim_ref.keypackage_digest != payload.claim_envelope.keypackage_digest
+            || payload.claim_ref.keypackage_ref != payload.keypackage_ref
+        {
+            anyhow::bail!("MLS Welcome KeyPackage claim binding does not match local state");
+        }
+        Ok(())
+    }
+
     fn validate_agent_mls_welcome_payload(
         &self,
         payload: &MlsWelcomePayload,
         principal_id: &str,
-        _device_id: &str,
         authorized_event_ref: &str,
     ) -> anyhow::Result<()> {
         if payload
@@ -2447,6 +2542,243 @@ pub(crate) fn encrypted_payload_for_event(
 #[must_use]
 pub fn message_content_has_encrypted_carrier(content: &BTreeMap<String, Value>) -> bool {
     content.get("encrypted_content").is_some()
+}
+
+/// The accepted `ak.mls.genesis` that created the Welcome's group. Shared by
+/// every subject: a Welcome into a group with no accepted Genesis in the
+/// verified closure is never admissible.
+fn accepted_mls_genesis<'a>(
+    checkpoint: &'a arkret::MlsGovernanceVerificationCheckpoint,
+    payload: &MlsWelcomePayload,
+) -> anyhow::Result<&'a arkret::Event> {
+    checkpoint
+        .accepted_events
+        .iter()
+        .find(|accepted| {
+            accepted.kind == arkret::EventKind::MlsGenesis
+                && serde_json::to_value(&accepted.payload)
+                    .ok()
+                    .and_then(|value| {
+                        serde_json::from_value::<arkret::MlsGenesisPayload>(value).ok()
+                    })
+                    .is_some_and(|genesis| genesis.mls_group_id() == payload.mls_group_id())
+        })
+        .context("Welcome group has no accepted Genesis")
+}
+
+/// Bind the exact two participant leaves of an accepted controller/owned-Agent
+/// founding unit. The controller leaf is only accepted after its own claim
+/// envelope signature verifies under the actual RFC 9420 leaf key.
+fn install_owned_agent_leaf_bindings(
+    group: &mut ArkretMlsGroup,
+    checkpoint: &arkret::MlsGovernanceVerificationCheckpoint,
+    welcome_event: &arkret::Event,
+    payload: &MlsWelcomePayload,
+    envelope: &MlsWelcomeEnvelope,
+    genesis: &arkret::Event,
+    agent_id: &DidCoreId,
+) -> anyhow::Result<()> {
+    let agent_id = agent_id.as_str();
+    let mut founding = checkpoint
+        .accepted_events
+        .iter()
+        .filter(|accepted| {
+            accepted.realm_id == checkpoint.realm_id
+                && accepted.actor_id == payload.claim_envelope.requester_actor_id
+                && accepted.actor_seq < 4
+        })
+        .collect::<Vec<_>>();
+    founding.sort_by_key(|accepted| accepted.actor_seq);
+    let unit: [&arkret::Event; 4] = founding
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Welcome lacks the complete accepted founding unit"))?;
+    let plan = arkret::DirectConversationFoundingPlan::from_events(unit)?;
+    let peer: arkret::MembershipPayload =
+        serde_json::from_value(serde_json::to_value(&unit[2].payload)?)?;
+    let controller_binding = peer
+        .agent_controller_binding
+        .as_ref()
+        .context("Agent founding membership lacks its explicit controller binding")?;
+    anyhow::ensure!(
+        plan.realm_id == checkpoint.realm_id
+            && peer.member_id.signing_principal_id().as_str() == agent_id
+            && peer.member_id.route_service_id() == &payload.claim_receipt.destination_id
+            && unit[0].actor_id == payload.claim_envelope.requester_actor_id
+            && unit[0].actor_id.as_account_id() == Some(&controller_binding.controller_account_id),
+        "Welcome does not bind the accepted controller-Agent founding pair"
+    );
+    anyhow::ensure!(
+        genesis.actor_id == payload.claim_envelope.requester_actor_id
+            && welcome_event.actor_id == genesis.actor_id,
+        "owned-Agent Welcome must be authored by the original controller"
+    );
+    let arkret::MlsRequesterTrustBinding::RequesterDevice {
+        requester_device_id,
+        requester_device_authorize_event_id,
+    } = &payload.claim_envelope.trust_binding
+    else {
+        anyhow::bail!("owned-Agent Welcome requires its controller device authority");
+    };
+    let leaves = group.active_author_leaves();
+    anyhow::ensure!(
+        leaves.len() == 2,
+        "owned-Agent admission requires the exact two participant leaves"
+    );
+    let agent_endpoint = envelope.recipient.clone();
+    let agent_actor = ActorId::account(AccountId::new(
+        DidCoreId::new(agent_id)?,
+        payload.claim_receipt.destination_id.clone(),
+    ));
+    let mut bindings = Vec::new();
+    for leaf in leaves {
+        let arkret::AuthorLeafCredential::Basic { identity } = leaf.credential else {
+            anyhow::bail!("MLS leaf is not BasicCredential");
+        };
+        let (actor_id, endpoint, device_authorize_event_id) = if identity == agent_id.as_bytes() {
+            (agent_actor.clone(), agent_endpoint.clone(), None)
+        } else {
+            anyhow::ensure!(
+                identity == requester_device_id.as_str().as_bytes(),
+                "MLS leaf does not match the controller device"
+            );
+            let key: [u8; 32] = leaf
+                .signature_key
+                .as_slice()
+                .try_into()
+                .context("controller leaf key is not Ed25519")?;
+            let signature = ed25519_dalek::Signature::from_slice(&arkret::base64url_decode(
+                payload.claim_envelope.signature.sig.as_str().as_bytes(),
+            )?)?;
+            ed25519_dalek::VerifyingKey::from_bytes(&key)?.verify_strict(
+                &payload
+                    .claim_envelope
+                    .canonical_signing_bytes(&payload.claim_receipt)?,
+                &signature,
+            )?;
+            (
+                genesis.actor_id.clone(),
+                MlsEndpointIdentity::human_device(
+                    genesis.actor_id.signing_principal_id().clone(),
+                    requester_device_id.clone(),
+                ),
+                Some(requester_device_authorize_event_id.clone()),
+            )
+        };
+        bindings.push(arkret::mls::MlsVerifiedLeafBinding {
+            leaf_index: leaf.leaf_index,
+            actor_id,
+            endpoint,
+            credential_ref: arkret::NonEmptyString::new(String::from_utf8(identity)?)
+                .map_err(anyhow::Error::msg)?,
+            signature_key: arkret::Base64UrlString::new(arkret::base64url_encode(
+                &leaf.signature_key,
+            ))
+            .map_err(anyhow::Error::msg)?,
+            device_authorize_event_id,
+        });
+    }
+    anyhow::ensure!(
+        bindings
+            .iter()
+            .filter(|binding| binding.actor_id == agent_actor)
+            .count()
+            == 1,
+        "owned-Agent admission requires exactly one Agent leaf"
+    );
+    group.install_verified_leaf_bindings(bindings)?;
+    Ok(())
+}
+
+/// Bind every occupied leaf of the ordinary Realm group an Applet Bot has just
+/// joined. `applet-integration.md` §12 forbids joining an E2EE group on the
+/// strength of the Welcome alone, so the separate accepted E2EE join
+/// authorization is required first, and the Bot's own leaf must be the exact
+/// endpoint this runtime holds.
+#[allow(clippy::too_many_arguments)]
+fn install_applet_bot_leaf_bindings(
+    group: &mut ArkretMlsGroup,
+    checkpoint: &arkret::MlsGovernanceVerificationCheckpoint,
+    welcome_event: &arkret::Event,
+    payload: &MlsWelcomePayload,
+    bot_account_id: &AccountId,
+    device_id: &DeviceId,
+    applet_id: &str,
+    install_authorization_ref: &str,
+    accepted_leaf_authority: &BTreeMap<EventId, arkret::MlsAcceptedArtifactOutcome>,
+) -> anyhow::Result<()> {
+    let bot_actor = ActorId::account(bot_account_id.clone());
+    anyhow::ensure!(
+        welcome_event.actor_id == payload.claim_envelope.requester_actor_id,
+        "Applet Bot Welcome is not authored by the accepted KeyPackage claim requester"
+    );
+    require_applet_e2ee_join_authorization(
+        checkpoint,
+        &bot_actor,
+        applet_id,
+        install_authorization_ref,
+    )?;
+    let accepted = accepted_leaf_authority
+        .get(&welcome_event.event_id)
+        .context("Applet Bot Welcome has no accepted MLS leaf authority")?;
+    anyhow::ensure!(
+        accepted.transition_head.transition_ref == payload.commit_ref
+            && accepted.governance_binding == payload.governance_binding,
+        "accepted MLS leaf authority names another transition"
+    );
+    group.install_accepted_leaf_bindings(accepted)?;
+    let bot_endpoint =
+        MlsEndpointIdentity::human_device(bot_account_id.principal_id.clone(), device_id.clone());
+    anyhow::ensure!(
+        group
+            .verified_leaf_bindings()?
+            .iter()
+            .filter(|binding| binding.actor_id == bot_actor && binding.endpoint == bot_endpoint)
+            .count()
+            == 1,
+        "Applet Bot admission requires exactly one accepted Bot leaf"
+    );
+    Ok(())
+}
+
+/// `applet-integration.md` §12: an Applet-managed member joins an E2EE group
+/// only through a separate, auditable join authorization carrying Applet
+/// provenance. The verified closure must therefore contain an accepted
+/// `ak.member.state` join for the exact Bot Actor that cites this
+/// installation's `applet_id` and grant, and the Bot must not have issued it.
+fn require_applet_e2ee_join_authorization(
+    checkpoint: &arkret::MlsGovernanceVerificationCheckpoint,
+    bot_actor: &ActorId,
+    applet_id: &str,
+    install_authorization_ref: &str,
+) -> anyhow::Result<()> {
+    let authorized = checkpoint.accepted_events.iter().any(|accepted| {
+        if accepted.kind != arkret::EventKind::MemberState
+            || accepted.realm_id != checkpoint.realm_id
+            || &accepted.actor_id == bot_actor
+            || accepted
+                .applet_id
+                .as_ref()
+                .is_none_or(|id| id.as_str() != applet_id)
+            || accepted
+                .authorization_ref
+                .as_ref()
+                .is_none_or(|grant| grant.as_str() != install_authorization_ref)
+        {
+            return false;
+        }
+        serde_json::to_value(&accepted.payload)
+            .ok()
+            .and_then(|value| serde_json::from_value::<arkret::MembershipPayload>(value).ok())
+            .is_some_and(|membership| {
+                membership.membership == arkret::MembershipPayloadState::Join
+                    && &membership.member_id == bot_actor
+            })
+    });
+    anyhow::ensure!(
+        authorized,
+        "Applet Bot MLS admission requires its separate accepted E2EE join authorization"
+    );
+    Ok(())
 }
 
 fn mls_welcome_envelope(payload: &MlsWelcomePayload) -> anyhow::Result<MlsWelcomeEnvelope> {
@@ -4386,6 +4718,372 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    const APPLET_REALM_ID: &str = "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
+    const APPLET_BOT_PRINCIPAL: &str = "ak:did_core:web:bridge.example:bot";
+    const APPLET_BOT_DEVICE: &str = "ak:device:01904100-0000-7000-8000-0000000000a1";
+    const APPLET_BOT_STATION: &str = "ak:did_core:web:service.example";
+    const APPLET_INVITER_PRINCIPAL: &str = "ak:did_core:web:owner.example";
+    const APPLET_INVITER_STATION: &str = "ak:did_core:web:principal-server.example";
+    const APPLET_INVITER_DEVICE: &str = "ak:device:01904100-0000-7000-8000-000000000006";
+    const APPLET_ADMIN_PRINCIPAL: &str = "ak:did_core:web:admin.example";
+    const APPLET_ID: &str = "ak:applet:21532600-0000-7000-8000-000000000000";
+    const APPLET_GRANT_ID: &str = "ak:grant:AdIAmf-J5rIPxEomGXwJblJdhNg-TllVN8uRTI85EUIM";
+
+    struct AppletWelcomeFixture {
+        home: PathBuf,
+        store: FileArkretCryptoStore,
+        subject: MlsWelcomeAdmissionSubject,
+        checkpoint: arkret::MlsGovernanceVerificationCheckpoint,
+        leaf_authority: BTreeMap<EventId, arkret::MlsAcceptedArtifactOutcome>,
+        inviter_group: ArkretMlsGroup,
+        commit_event_id: EventId,
+        mls_group_id: String,
+    }
+
+    fn applet_bot_account_id() -> AccountId {
+        AccountId::new(
+            DidCoreId::new(APPLET_BOT_PRINCIPAL).unwrap(),
+            DidCoreId::new(APPLET_BOT_STATION).unwrap(),
+        )
+    }
+
+    fn applet_checkpoint_event(
+        kind: &str,
+        actor: &ActorId,
+        actor_seq: u64,
+        payload: Value,
+    ) -> arkret::Event {
+        arkret_wire::test_support::raw_event_for_actor_at(
+            kind,
+            ScopeRef::Realm {
+                realm_id: RealmId::new(APPLET_REALM_ID).unwrap(),
+            },
+            actor.clone(),
+            actor_seq,
+            arkret::Hlc::new("000000000000-0000-00000000").unwrap(),
+            payload,
+            Utc::now(),
+        )
+        .expect("checkpoint fixture Event")
+    }
+
+    /// One inviter device plus the Applet Bot, joined through an accepted
+    /// Commit/Welcome pair and authorized by a separate `ak.member.state` join
+    /// carrying Applet provenance.
+    fn applet_welcome_fixture(label: &str) -> AppletWelcomeFixture {
+        let home = temp_home(label);
+        let store = FileArkretCryptoStore::for_applet(&home, "applet-1");
+        let bot_key_package = store
+            .ensure_mls_key_package(APPLET_BOT_PRINCIPAL, APPLET_BOT_DEVICE, false)
+            .expect("Applet Bot KeyPackage");
+        let realm_id = RealmId::new(APPLET_REALM_ID).unwrap();
+        let hash =
+            |marker: char| Hash::new(format!("sha256:{}", marker.to_string().repeat(64))).unwrap();
+        let genesis_binding = arkret::MlsGovernanceBindingPayload::realm(
+            realm_id.clone(),
+            0,
+            0,
+            hash('a'),
+            arkret::ContentScheme::MlsRfc9420,
+            None,
+            arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
+            "arkret.reducer.v1",
+        )
+        .expect("genesis binding");
+        let join_binding = arkret::MlsGovernanceBindingPayload::realm(
+            realm_id.clone(),
+            0,
+            1,
+            hash('b'),
+            arkret::ContentScheme::MlsRfc9420,
+            None,
+            arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
+            "arkret.reducer.v1",
+        )
+        .expect("join binding");
+        let inviter = new_human_mls_identity(
+            DidCoreId::new(APPLET_INVITER_PRINCIPAL).unwrap(),
+            DeviceId::new(APPLET_INVITER_DEVICE).unwrap(),
+        )
+        .expect("inviter identity");
+        let mut inviter_group = inviter
+            .create_group_with_governance_binding(APPLET_REALM_ID.as_bytes(), &genesis_binding)
+            .expect("inviter group");
+        let add = inviter_group
+            .add_member_with_governance_binding(&bot_key_package, &join_binding)
+            .expect("add Applet Bot");
+        let mls_group_id = add.welcome.group_id.clone();
+
+        let inviter_actor = ActorId::account(AccountId::new(
+            DidCoreId::new(APPLET_INVITER_PRINCIPAL).unwrap(),
+            DidCoreId::new(APPLET_INVITER_STATION).unwrap(),
+        ));
+        let commit_payload = MlsCommitPayload::new(
+            "ak:event:AbnHJt4q4qY18zqvLiy3Emmqy7weTAuApx42RmRgPr2h",
+            Vec::new(),
+            &add.commit,
+            join_binding.clone(),
+        )
+        .expect("Commit payload");
+        let commit_event = applet_checkpoint_event(
+            "ak.mls.commit",
+            &inviter_actor,
+            2,
+            serde_json::to_value(&commit_payload).unwrap(),
+        );
+        let welcome_payload = test_welcome_payload(
+            &bot_key_package,
+            &add.welcome,
+            APPLET_REALM_ID,
+            commit_event.event_id.as_str(),
+            Some(join_binding.clone()),
+        );
+        let welcome_event = applet_checkpoint_event(
+            "ak.mls.welcome",
+            &inviter_actor,
+            3,
+            serde_json::to_value(&welcome_payload).unwrap(),
+        );
+        let genesis_event = applet_checkpoint_event(
+            "ak.mls.genesis",
+            &inviter_actor,
+            1,
+            json!({
+                "cipher_suite": "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519",
+                "group_info_ref": format!("ak:blob:sha256:{}", "1".repeat(64)),
+                "ratchet_tree_ref": format!("ak:blob:sha256:{}", "2".repeat(64)),
+                "governance_binding": serde_json::to_value(&genesis_binding).unwrap(),
+                "created_at": "2098-12-31T23:59:30.000Z"
+            }),
+        );
+
+        let bot_account_id = applet_bot_account_id();
+        let bot_actor = ActorId::account(bot_account_id.clone());
+        let admin_actor = ActorId::account(AccountId::new(
+            DidCoreId::new(APPLET_ADMIN_PRINCIPAL).unwrap(),
+            DidCoreId::new(APPLET_INVITER_STATION).unwrap(),
+        ));
+        let membership = arkret::MembershipPayload::join(
+            realm_id.clone(),
+            bot_actor.clone(),
+            "applet e2ee join",
+        );
+        let mut join_event = applet_checkpoint_event(
+            "ak.member.state",
+            &admin_actor,
+            1,
+            serde_json::to_value(&membership).unwrap(),
+        );
+        join_event.applet_id = Some(arkret::AppletId::new(APPLET_ID).unwrap());
+        join_event.authorization_ref =
+            Some(arkret::AuthorizationRef::new(APPLET_GRANT_ID).unwrap());
+
+        let outcome = arkret::MlsAcceptedArtifactOutcome {
+            query_digest: hash('e'),
+            transition_head: arkret::MlsAcceptedTransition {
+                transition_ref: commit_event.event_id.clone(),
+                transition_event_digest: commit_event.event_id.event_digest(),
+                mls_transition_digest: hash('f'),
+            },
+            governance_binding: join_binding,
+            mls_frontier_leaves: vec![
+                arkret_wire::mls_transition::MlsSecurityFrontierLeaf {
+                    leaf_index: 0,
+                    actor_id: inviter_actor,
+                    credential_ref: arkret::NonEmptyString::new(APPLET_INVITER_DEVICE).unwrap(),
+                },
+                arkret_wire::mls_transition::MlsSecurityFrontierLeaf {
+                    leaf_index: 1,
+                    actor_id: bot_actor,
+                    credential_ref: arkret::NonEmptyString::new(APPLET_BOT_DEVICE).unwrap(),
+                },
+            ],
+            mls_leaf_authorizations: vec![
+                arkret::MlsAcceptedLeafAuthorization {
+                    leaf_index: 0,
+                    device_authorize_event_id: Some(
+                        EventId::new("ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6")
+                            .unwrap(),
+                    ),
+                    agent_verification_method: None,
+                    agent_key_authorize_event_id: None,
+                },
+                arkret::MlsAcceptedLeafAuthorization {
+                    leaf_index: 1,
+                    device_authorize_event_id: Some(
+                        EventId::new("ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM")
+                            .unwrap(),
+                    ),
+                    agent_verification_method: None,
+                    agent_key_authorize_event_id: None,
+                },
+            ],
+        };
+        let mut leaf_authority = BTreeMap::new();
+        leaf_authority.insert(welcome_event.event_id.clone(), outcome);
+
+        let commit_event_id = commit_event.event_id.clone();
+        let checkpoint = arkret::MlsGovernanceVerificationCheckpoint {
+            realm_id,
+            basis: arkret::SealBasis { leaves: Vec::new() },
+            live_digest_suite: arkret::canonical::DigestSuite::Sha256,
+            accepted_seals: Vec::new(),
+            accepted_events: vec![genesis_event, commit_event, welcome_event, join_event],
+            governance_dependencies: Vec::new(),
+        };
+        AppletWelcomeFixture {
+            home,
+            store,
+            subject: MlsWelcomeAdmissionSubject::AppletBot {
+                bot_account_id,
+                device_id: DeviceId::new(APPLET_BOT_DEVICE).unwrap(),
+                applet_id: APPLET_ID.to_owned(),
+                install_authorization_ref: APPLET_GRANT_ID.to_owned(),
+            },
+            checkpoint,
+            leaf_authority,
+            inviter_group,
+            commit_event_id,
+            mls_group_id,
+        }
+    }
+
+    fn applet_group_state_present(store: &FileArkretCryptoStore, group_id: &str) -> bool {
+        store
+            .load()
+            .expect("state should load")
+            .mls_store()
+            .expect("MLS store should load")
+            .mls_group_state(group_id)
+            .is_some()
+    }
+
+    #[test]
+    fn unverified_applet_bot_welcome_is_not_admitted() {
+        let fixture = applet_welcome_fixture("applet-welcome-unverified");
+        // Strip the separate Applet E2EE join authorization
+        // (`applet-integration.md` §12): the Welcome alone must not admit.
+        let mut checkpoint = fixture.checkpoint.clone();
+        checkpoint
+            .accepted_events
+            .retain(|event| event.kind != arkret::EventKind::MemberState);
+        let error = fixture
+            .store
+            .admit_verified_welcomes(&checkpoint, &fixture.subject, &fixture.leaf_authority)
+            .expect_err("Welcome without its E2EE join authorization must fail closed");
+        assert!(
+            error.to_string().contains("E2EE join authorization"),
+            "unexpected failure: {error:#}"
+        );
+        assert!(!applet_group_state_present(
+            &fixture.store,
+            &fixture.mls_group_id
+        ));
+
+        // Same Welcome, but the join authorization cites another installation.
+        let mut checkpoint = fixture.checkpoint.clone();
+        for event in &mut checkpoint.accepted_events {
+            if event.kind == arkret::EventKind::MemberState {
+                event.applet_id = Some(
+                    arkret::AppletId::new("ak:applet:21532600-0000-7000-8000-0000000000ff")
+                        .unwrap(),
+                );
+            }
+        }
+        assert!(
+            fixture
+                .store
+                .admit_verified_welcomes(&checkpoint, &fixture.subject, &fixture.leaf_authority)
+                .is_err()
+        );
+        assert!(!applet_group_state_present(
+            &fixture.store,
+            &fixture.mls_group_id
+        ));
+
+        // A verified Welcome addressed to another device is not this runtime's
+        // Welcome: nothing is admitted and nothing is installed.
+        let other_device = MlsWelcomeAdmissionSubject::AppletBot {
+            bot_account_id: applet_bot_account_id(),
+            device_id: DeviceId::new("ak:device:01904100-0000-7000-8000-0000000000ff").unwrap(),
+            applet_id: APPLET_ID.to_owned(),
+            install_authorization_ref: APPLET_GRANT_ID.to_owned(),
+        };
+        assert_eq!(
+            fixture
+                .store
+                .admit_verified_welcomes(
+                    &fixture.checkpoint,
+                    &other_device,
+                    &fixture.leaf_authority
+                )
+                .expect("a Welcome for another recipient is simply not ours"),
+            0
+        );
+        assert!(!applet_group_state_present(
+            &fixture.store,
+            &fixture.mls_group_id
+        ));
+        let _ = std::fs::remove_dir_all(&fixture.home);
+    }
+
+    #[test]
+    fn verified_applet_bot_welcome_is_admitted_and_survives_restart() {
+        let mut fixture = applet_welcome_fixture("applet-welcome-admit");
+        assert_eq!(
+            fixture
+                .store
+                .admit_verified_welcomes(
+                    &fixture.checkpoint,
+                    &fixture.subject,
+                    &fixture.leaf_authority
+                )
+                .expect("verified Applet Bot Welcome should be admitted"),
+            1
+        );
+        assert!(applet_group_state_present(
+            &fixture.store,
+            &fixture.mls_group_id
+        ));
+
+        // Repeat admission of the same accepted checkpoint is a no-op.
+        assert_eq!(
+            fixture
+                .store
+                .admit_verified_welcomes(
+                    &fixture.checkpoint,
+                    &fixture.subject,
+                    &fixture.leaf_authority
+                )
+                .expect("repeat admission should be idempotent"),
+            0
+        );
+
+        let content = json!({"kind":"ak.content.text","body":"applet secret"});
+        let payload = fixture
+            .inviter_group
+            .encrypt_payload(
+                content_header(
+                    &fixture.inviter_group,
+                    APPLET_REALM_ID,
+                    fixture.commit_event_id.as_str(),
+                    CONTENT_BLOCK_JSON,
+                ),
+                &serde_json::to_vec(&content).unwrap(),
+            )
+            .expect("inviter should encrypt an ordinary message");
+
+        // Reopen the persisted file exactly as a restarted process would.
+        let restarted = FileArkretCryptoStore::for_applet(&fixture.home, "applet-1");
+        assert_eq!(
+            restarted
+                .try_decrypt_content_block(&payload)
+                .expect("admitted group state should decrypt after restart"),
+            ArkretDecryptOutcome::Decrypted(content)
+        );
+        let _ = std::fs::remove_dir_all(&fixture.home);
+    }
+
     fn test_welcome_payload(
         key_package: &MlsKeyPackageRecord,
         welcome: &MlsWelcomeEnvelope,
@@ -4465,8 +5163,8 @@ mod tests {
             "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
             "request_digest": format!("sha256:{}", "e".repeat(64)),
             "claims_digest": format!("sha256:{}", "f".repeat(64)),
-            "source_service_id": "ak:did_core:web:service.example",
-            "destination_service_id": "ak:did_core:web:service.example",
+            "source_id": "ak:did_core:web:service.example",
+            "destination_id": "ak:did_core:web:service.example",
             "request": {
                 "claim_request_id": "Y2xhaW0tcmVxdWVzdC0wMDE",
                 "target_account_id": {

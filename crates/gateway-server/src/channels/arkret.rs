@@ -53,7 +53,7 @@ use super::{ChannelRegistry, runtime};
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
-mod governance;
+pub(crate) mod governance;
 
 /// Per-(channel, account) runtime handles. Indexed by `{channel_id}::{account_id}`.
 #[derive(Default)]

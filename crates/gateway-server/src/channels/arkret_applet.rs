@@ -50,12 +50,14 @@ use savfox_channels::arkret::applet::{
 };
 use savfox_channels::arkret::{
     AppletNamespacesExt, ArkretDecryptOutcome, ArkretEncryptOutcome, FileArkretCryptoStore,
-    UnableToDecryptReason, extract_encrypted_payload_from_message_content,
+    MlsWelcomeAdmissionSubject, UnableToDecryptReason,
+    extract_encrypted_payload_from_message_content,
 };
 use serde_json::{Map, Value, json};
 use subtle::ConstantTimeEq;
 use tracing::{debug, info, warn};
 
+use super::arkret::governance;
 use super::{render_error, runtime};
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
@@ -703,7 +705,22 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 "arkret applet: failed to retain verified Realm authority: {error:#}"
             );
         }
-        if skip_applet_mls_welcome_event(state.as_ref(), event) {
+        if event.kind == arkret::EventKind::MlsWelcome {
+            match admit_applet_mls_welcome_event(state.as_ref(), event).await {
+                Ok(admitted) => info!(
+                    config_id = %state.config.id,
+                    event_id = event.event_id.as_str(),
+                    realm_id = event.realm_id.as_str(),
+                    admitted,
+                    "arkret applet: MLS Welcome admission completed from verified governance"
+                ),
+                Err(error) => warn!(
+                    config_id = %state.config.id,
+                    event_id = event.event_id.as_str(),
+                    realm_id = event.realm_id.as_str(),
+                    "arkret applet: MLS Welcome not admitted: {error:#}"
+                ),
+            }
             continue;
         }
         match classify_inbound_event(&state.config, event) {
@@ -1054,26 +1071,57 @@ fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error 
     }
 }
 
+/// The Applet Bot `Principal` this runtime admits Welcomes for.
+///
+/// Fail closed on an installation that cannot name its own anchors: without a
+/// runtime device there is no closed recipient endpoint to match, and without
+/// the install grant there is nothing for the separate Applet E2EE join
+/// authorization (`applet-integration.md` §12) to be checked against.
+fn applet_welcome_admission_subject(
+    config: &ArkretAppletConfig,
+) -> anyhow::Result<MlsWelcomeAdmissionSubject> {
+    let device_id = arkret::DeviceId::new(
+        config
+            .device_id
+            .clone()
+            .context("Applet Bot MLS admission requires the runtime device id")?,
+    )?;
+    let install_authorization_ref = arkret::GrantId::new(
+        config
+            .authorization_grant_id
+            .clone()
+            .context("Applet Bot MLS admission requires the accepted install grant")?,
+    )?;
+    Ok(MlsWelcomeAdmissionSubject::AppletBot {
+        bot_account_id: config.bot_account_id.clone(),
+        device_id,
+        applet_id: config.applet_id.clone(),
+        install_authorization_ref: install_authorization_ref.as_str().to_owned(),
+    })
+}
+
 /// Inbound `ak.mls.welcome` delivered over the Applet edge.
 ///
-/// Group state is admitted only from a fully verified governance closure (see
-/// `channels::arkret::governance::admit_owned_agent_welcomes`). That admission
-/// path binds an owned-Agent recipient and an Agent key authorization, neither
-/// of which an Applet Bot `Principal` runtime holds, so this edge has no
-/// verified Welcome admission today. The Welcome is therefore never installed
-/// from the transaction body; it is only consumed here so the Event is not
-/// classified as a chat command.
-fn skip_applet_mls_welcome_event(state: &AppletChannelState, event: &arkret::Event) -> bool {
-    if event.kind != arkret::EventKind::MlsWelcome {
-        return false;
-    }
-    warn!(
-        config_id = %state.config.id,
-        event_id = event.event_id.as_str(),
-        realm_id = event.realm_id.as_str(),
-        "arkret applet: MLS Welcome not admitted — the Applet edge has no verified governance admission path"
-    );
-    true
+/// The delivered Event is only a hint that this Realm has governance worth
+/// fetching. Group state is installed exclusively by
+/// `channels::arkret::governance::admit_verified_welcomes`, which re-reads the
+/// Realm's `seals_frontier`, resolves the complete Seal/Event/dependency closure
+/// and verifies it before the crypto store sees a checkpoint. Nothing from the
+/// transaction body is trusted, and an incomplete closure leaves zero local
+/// state behind.
+async fn admit_applet_mls_welcome_event(
+    state: &AppletChannelState,
+    event: &arkret::Event,
+) -> anyhow::Result<usize> {
+    let subject = applet_welcome_admission_subject(&state.config)?;
+    let edge = applet_edge(state).await?;
+    governance::admit_verified_welcomes(
+        edge.client(),
+        &state.crypto_store,
+        &event.realm_id,
+        &subject,
+    )
+    .await
 }
 
 fn try_decrypt_applet_event(
@@ -2081,7 +2129,7 @@ mod tests {
             group_id: group_id.to_owned(),
             epoch: 7,
             recipient: arkret::MlsEndpointIdentity::human_device(
-                DidCoreId::new("did:webvh:z6mkfixture:bob.example".to_owned()).unwrap(),
+                DidCoreId::new("ak:did_core:web:bridge.example:bot".to_owned()).unwrap(),
                 arkret::DeviceId::new("ak:device:01904100-0000-7000-8000-00000000000e".to_owned())
                     .unwrap(),
             ),
@@ -2118,8 +2166,8 @@ mod tests {
         assert_eq!(resolved.config.applet_id, applet.applet_id);
     }
 
-    #[test]
-    fn applet_transaction_event_does_not_admit_unverified_mls_welcome() {
+    #[tokio::test]
+    async fn applet_transaction_event_does_not_admit_unverified_mls_welcome() {
         let cfg = valid_channel_config();
         let applet = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         applet.validate().expect("validate");
@@ -2136,11 +2184,13 @@ mod tests {
         let event = arkret_wire::test_support::raw_event(
             "ak.mls.welcome",
             arkret::ScopeRef::Realm {
-                realm_id: arkret::RealmId::new("ak:realm:01904100-0000-8000-8000-000000000123")
-                    .unwrap(),
+                realm_id: arkret::RealmId::new(
+                    "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI",
+                )
+                .unwrap(),
             },
-            DidCoreId::new("did:webvh:acme:alice".to_owned()).unwrap(),
-            DidCoreId::new("did:webvh:z6mkfixture:principal-server.example".to_owned()).unwrap(),
+            DidCoreId::new("ak:did_core:web:owner.example".to_owned()).unwrap(),
+            DidCoreId::new("ak:did_core:web:principal-server.example".to_owned()).unwrap(),
             1,
             arkret::Hlc::new("000000000000-0000-00000000").unwrap(),
             json!({
@@ -2150,9 +2200,42 @@ mod tests {
         )
         .unwrap();
 
-        assert!(skip_applet_mls_welcome_event(&state, &event));
+        // The delivered Event is never admission evidence: this installation
+        // declares neither a runtime device nor an install grant, so admission
+        // fails closed before any network read and leaves no local state.
+        let error = admit_applet_mls_welcome_event(&state, &event)
+            .await
+            .expect_err("unanchored applet must not admit a Welcome");
+        assert!(
+            error.to_string().contains("runtime device id"),
+            "unexpected failure: {error:#}"
+        );
         let saved = state.crypto_store.load().expect("crypto state should load");
         assert!(!saved.bootstrap.contains_key(group_id));
+    }
+
+    #[test]
+    fn applet_welcome_subject_requires_device_and_install_grant() {
+        let mut cfg = valid_channel_config();
+        let applet = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
+        assert!(applet_welcome_admission_subject(&applet).is_err());
+
+        cfg.config["deviceId"] = json!("ak:device:01904100-0000-7000-8000-0000000000a1");
+        let applet = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
+        assert!(
+            applet_welcome_admission_subject(&applet).is_err(),
+            "the install grant anchor is still missing"
+        );
+
+        cfg.config["authorizationGrantId"] =
+            json!("ak:grant:AdIAmf-J5rIPxEomGXwJblJdhNg-TllVN8uRTI85EUIM");
+        let applet = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let subject = applet_welcome_admission_subject(&applet).expect("anchored subject");
+        assert!(subject.needs_accepted_leaf_authority());
+        assert_eq!(
+            subject.recipient_principal_id(),
+            &applet.bot_account_id.principal_id
+        );
     }
 
     #[test]

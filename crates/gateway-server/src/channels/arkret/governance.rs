@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use anyhow::Context;
 use arkret::http_client;
+use savfox_channels::arkret::MlsWelcomeAdmissionSubject;
 const MAX_EVENT_BATCH: usize = 128;
 const MAX_DEPENDENCY_BATCH: usize = 8;
 type DependencySortKey = (String, Vec<u8>);
@@ -26,6 +27,31 @@ pub(super) async fn admit_owned_agent_welcomes(
     {
         return Ok(());
     }
+    let subject = MlsWelcomeAdmissionSubject::OwnedAgent {
+        agent_id: arkret::DidCoreId::new(account.principal_id.clone())?,
+        agent_key_authorize_event_id: account
+            .authorized_event_ref
+            .clone()
+            .context("Agent runtime authorization is unavailable")?,
+    };
+    admit_verified_welcomes(http, store, realm, &subject).await?;
+    Ok(())
+}
+
+/// The single verified-governance Welcome admission path. Every edge reaches
+/// group state through this function, so the governance closure verification
+/// that decides what "verified" means has exactly one implementation and the
+/// Agent and Applet Bot edges cannot drift apart.
+///
+/// Zero side effects unless the closure is complete: the Seal/Event/dependency
+/// closure must resolve in full, `verify_mls_governance_closure` must accept it,
+/// and only then is the checkpoint handed to the crypto store.
+pub(crate) async fn admit_verified_welcomes(
+    http: &arkret::http_client::Client,
+    store: &savfox_channels::arkret::FileArkretCryptoStore,
+    realm: &arkret::RealmId,
+    subject: &MlsWelcomeAdmissionSubject,
+) -> anyhow::Result<usize> {
     let basis = http
         .seals_frontier(realm.clone())
         .await?
@@ -39,7 +65,7 @@ pub(super) async fn admit_owned_agent_welcomes(
         .iter()
         .any(|event| event.kind == arkret::EventKind::MlsWelcome)
     {
-        return Ok(());
+        return Ok(0);
     }
     let checkpoint = arkret::verify_mls_governance_closure(
         realm,
@@ -58,15 +84,48 @@ pub(super) async fn admit_owned_agent_welcomes(
     )
     .await?
     .checkpoint;
-    let authorization = account
-        .authorized_event_ref
-        .as_deref()
-        .context("Agent runtime authorization is unavailable")?;
-    store.admit_verified_owned_agent_welcomes(&checkpoint, &account.principal_id, authorization)?;
+    let accepted_leaf_authority = if subject.needs_accepted_leaf_authority() {
+        fetch_accepted_leaf_authority(http, &checkpoint, subject).await?
+    } else {
+        BTreeMap::new()
+    };
+    let admitted = store.admit_verified_welcomes(&checkpoint, subject, &accepted_leaf_authority)?;
     store.repair_pending_direct_conversation_bindings_from_accepted_events(
         &checkpoint.accepted_events,
     )?;
-    Ok(())
+    Ok(admitted)
+}
+
+/// Read the Station's accepted historical leaf authority for each Welcome this
+/// subject may consume. An ordinary multi-member group cannot be persisted
+/// without complete member attribution, and the SDK re-checks every returned
+/// authorization against the joined group's own governance binding and RFC 9420
+/// leaves, so this never widens what the verified closure already decided.
+async fn fetch_accepted_leaf_authority(
+    http: &arkret::http_client::Client,
+    checkpoint: &arkret::MlsGovernanceVerificationCheckpoint,
+    subject: &MlsWelcomeAdmissionSubject,
+) -> anyhow::Result<BTreeMap<arkret::EventId, arkret::MlsAcceptedArtifactOutcome>> {
+    let mut authority = BTreeMap::new();
+    for event in &checkpoint.accepted_events {
+        if event.kind != arkret::EventKind::MlsWelcome {
+            continue;
+        }
+        let payload: arkret::MlsWelcomePayload =
+            serde_json::from_value(serde_json::to_value(&event.payload)?)?;
+        if !subject.matches_welcome_recipient(&payload) {
+            continue;
+        }
+        let request = arkret::MlsAcceptedArtifactRequestBody {
+            effective_scope: payload.governance_binding.effective_scope().clone(),
+            mls_group_id: arkret::Base64UrlString::new(payload.mls_group_id())
+                .map_err(anyhow::Error::msg)?,
+            artifact_ref: event.event_id.clone(),
+        };
+        let outcome = http.mls_accepted_artifact(&request).await?;
+        authority.insert(event.event_id.clone(), outcome);
+    }
+    Ok(authority)
 }
 pub(super) struct ResolvedMlsGovernanceCut {
     pub target_basis: arkret::SealBasis,
