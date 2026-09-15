@@ -998,13 +998,12 @@ pub fn build_arkret_runtime_key_request_json(
 /// local key: a mismatch means the pairing was completed by another runtime
 /// and MUST NOT be treated as this runtime's approval.
 ///
-/// The returned digest is the **authorization domain** digest — the hash of
-/// the raw 32-byte Ed25519 key that the controller-signed
-/// `ak.agent.key.authorize` payload binds, which is what the server echoes as
-/// `authorized_public_key_digest`. It is deliberately not the private
-/// pairing-request JWK digest returned by
-/// [`agent_runtime_public_key_digest`](arkret_signatures::agent::agent_runtime_public_key_digest);
-/// comparing across the two domains never matches.
+/// `identity/key-management.md` fixes a single v1 digest domain for this key:
+/// SHA-256 over the decoded 32-byte Ed25519 bytes, never over the `PublicKey`
+/// DTO / JWK / multibase / hex text, and no second DTO digest is retained. The
+/// returned digest is therefore the one the pairing request, the
+/// controller-signed `ak.agent.key.authorize` payload and the server's
+/// `authorized_public_key_digest` all name.
 pub fn build_arkret_runtime_key_status_request_json(
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<(Value, String)> {
@@ -1054,7 +1053,7 @@ pub fn build_arkret_runtime_key_status_request_json(
         &verification_method_url,
     )
     .map_err(|err| anyhow::anyhow!("agent runtime public key digest: {err}"))?
-    .authorization_digest;
+    .public_key_digest;
     Ok((
         serde_json::json!({
             "pairing_request_id": bootstrap.pairing_request_id,
@@ -1511,11 +1510,10 @@ mod strict_tests {
     /// and explicitly "no second DTO digest is retained" — so the local digest
     /// must be that one and nothing else.
     ///
-    /// `ValidatedAgentRuntimePublicKey` still exposes `runtime_request_digest`
-    /// beside `authorization_digest`; both are now the same value, and this
-    /// test pins that so the duplicate cannot quietly grow a second preimage
-    /// again. It is a tripwire, not an endorsement: the two fields are one
-    /// domain and the SDK duplicate is waiting to be removed.
+    /// `ValidatedAgentRuntimePublicKey` now carries that one domain as
+    /// `public_key_digest`. This test locks the positive identity end to end:
+    /// the digest the status poll compares is SHA-256 over the raw key of the
+    /// very key the submit path sends, so a legitimate approval compares equal.
     #[test]
     fn runtime_key_status_digest_uses_the_single_raw_key_domain() {
         let mut config = canonical_config(default_scope());
@@ -1543,7 +1541,7 @@ mod strict_tests {
         )
         .expect("submitted public key is canonical");
 
-        assert_eq!(local_digest, validated.authorization_digest.as_str());
+        assert_eq!(local_digest, validated.public_key_digest.as_str());
         assert_eq!(
             local_digest,
             arkret::canonical::digest(
@@ -1553,8 +1551,11 @@ mod strict_tests {
             "the local digest must be SHA-256 over the decoded 32-byte Ed25519 key"
         );
         assert_eq!(
-            validated.runtime_request_digest, validated.authorization_digest,
-            "v1 keeps one raw-key digest domain; a second preimage must not reappear"
+            local_digest,
+            arkret_signatures::agent::agent_runtime_public_key_digest(&submit["public_key"])
+                .expect("submitted public key digests")
+                .as_str(),
+            "the pairing request and the status poll name one digest, not two"
         );
     }
 
@@ -2336,11 +2337,10 @@ mod tests {
         assert!(request.get("proof_of_possession").is_none());
         assert!(local_digest.starts_with("sha256:"));
 
-        // The local digest must be the authorization-domain digest of the same
-        // key the submit path sends: that is the domain the server echoes as
+        // The local digest must be the raw-key digest of the same key the
+        // submit path sends: that is the single v1 domain the server echoes as
         // `authorized_public_key_digest`, so an approval for this key compares
-        // equal. The private pairing-request JWK digest is a distinct domain
-        // and would never match a legitimate approval.
+        // equal.
         let submit = build_arkret_runtime_key_request_json(
             &parsed.accounts[0],
             DateTime::parse_from_rfc3339("2026-07-06T11:50:00Z")
@@ -2353,11 +2353,6 @@ mod tests {
             &DidUrl::new("did:webvh:example.org:agents:support#runtime-1").unwrap(),
         )
         .expect("validated public key");
-        assert_eq!(local_digest, validated.authorization_digest.as_str());
-        assert_ne!(
-            local_digest,
-            validated.runtime_request_digest.as_str(),
-            "the status poll must not compare the private request-domain digest"
-        );
+        assert_eq!(local_digest, validated.public_key_digest.as_str());
     }
 }
