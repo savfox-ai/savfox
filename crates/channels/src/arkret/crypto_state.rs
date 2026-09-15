@@ -276,6 +276,18 @@ pub struct ArkretMlsWelcomeConsumeBinding {
     pub group_state_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recipient_durable_receipt: Option<arkret::RecipientMlsDurableReceipt>,
+    /// Complete member attribution for the epoch this Welcome joins, as
+    /// derived once by the single verified admission path.
+    ///
+    /// The SDK refuses to export a group state record until every occupied
+    /// leaf is bound ("MLS member attribution is unavailable until accepted
+    /// transition bindings are installed"), and a staged Welcome replayed
+    /// later - by the Commit recovery path or by the first inbound ciphertext
+    /// - has no other way to recover that authority. Re-installing these
+    /// re-validates each entry against the actual RFC 9420 leaf, so the
+    /// record is a cache of an authority decision, never a substitute for one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified_leaf_bindings: Vec<arkret::mls::MlsVerifiedLeafBinding>,
 }
 
 impl PartialEq for ArkretMlsWelcomeConsumeBinding {
@@ -1438,7 +1450,13 @@ impl FileArkretCryptoStore {
                     )?;
                 }
             }
-            stage_verified_welcome(&mut state, &mut store, &payload, &event.event_id)?;
+            stage_verified_welcome(
+                &mut state,
+                &mut store,
+                &payload,
+                &event.event_id,
+                group.verified_leaf_bindings()?,
+            )?;
             let record = group.persist_state(&mut store)?;
             state.bootstrap.insert(
                 record.group_id.clone(),
@@ -1558,14 +1576,40 @@ impl FileArkretCryptoStore {
         Ok(admitted)
     }
 
+    /// Whether this accepted Commit still has local work to do, and therefore
+    /// whether the caller has to read the Station's accepted leaf authority for
+    /// it. `apply_commit` drops the whole binding map — a transition may add,
+    /// remove or replace any leaf — so a Commit that advances local state
+    /// cannot be persisted without the post-transition attribution, while a
+    /// replay of an already-applied Commit needs nothing.
+    pub fn mls_commit_needs_accepted_leaf_authority(
+        &self,
+        payload: &MlsCommitPayload,
+    ) -> anyhow::Result<bool> {
+        let state = self.load()?;
+        let store = state.mls_store()?;
+        Ok(store
+            .mls_group_state(payload.mls_group_id())
+            .is_none_or(|record| record.epoch < payload.next_epoch()))
+    }
+
     /// Apply one accepted durable `ak.mls.commit` to the local MLS group and
     /// persist the post-Commit snapshot before any later encrypted ordinary Event is
     /// handled. Replaying the same accepted Commit is idempotent; an epoch gap
     /// fails closed instead of fabricating ratchet state.
+    ///
+    /// `accepted_leaf_authority` is the Station's accepted historical authority
+    /// for exactly this transition. It is required whenever the Commit advances
+    /// local state — see
+    /// [`Self::mls_commit_needs_accepted_leaf_authority`] — and the SDK
+    /// re-checks it against the post-Commit governance binding and the real RFC
+    /// 9420 leaves. Reaching the install point without it is a hard error: an
+    /// unattributed roster must never be persisted.
     pub fn apply_mls_commit(
         &self,
         payload: &MlsCommitPayload,
         accepted_event_ref: &EventId,
+        accepted_leaf_authority: Option<&arkret::MlsAcceptedArtifactOutcome>,
     ) -> anyhow::Result<bool> {
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
@@ -1628,6 +1672,20 @@ impl FileArkretCryptoStore {
                 payload.next_epoch()
             );
         }
+        let accepted = accepted_leaf_authority.with_context(|| {
+            format!(
+                "Arkret MLS Commit for group '{}' has no accepted leaf authority for epoch {applied_epoch}",
+                payload.mls_group_id()
+            )
+        })?;
+        anyhow::ensure!(
+            accepted.transition_head.transition_ref == *accepted_event_ref
+                && &accepted.governance_binding == payload.governance_binding(),
+            "accepted MLS leaf authority names another transition"
+        );
+        group
+            .install_accepted_leaf_bindings(accepted)
+            .map_err(|err| anyhow::anyhow!("install accepted MLS leaf authority: {err}"))?;
         let updated = group
             .persist_state(&mut store)
             .map_err(|err| anyhow::anyhow!("persist post-Commit Arkret MLS group: {err}"))?;
@@ -2819,11 +2877,15 @@ fn mls_welcome_envelope(payload: &MlsWelcomePayload) -> anyhow::Result<MlsWelcom
 
 /// Stage only after the caller has verified the exact accepted Event and MLS leaves.
 /// The caller commits this cache together with the verified group snapshot.
+/// Persist a verified Welcome together with the member attribution that was
+/// derived for it, so a later replay of the staged Welcome can restore the
+/// same authority instead of persisting an unattributed group.
 fn stage_verified_welcome(
     state: &mut ArkretCryptoStateFile,
     store: &mut MemoryCryptoStore,
     payload: &MlsWelcomePayload,
     welcome_ref: &EventId,
+    verified_leaf_bindings: Vec<arkret::mls::MlsVerifiedLeafBinding>,
 ) -> anyhow::Result<MlsWelcomeEnvelope> {
     let welcome = mls_welcome_envelope(payload)?;
     let mut binding = ArkretMlsWelcomeConsumeBinding {
@@ -2836,6 +2898,7 @@ fn stage_verified_welcome(
         epoch: payload.epoch(),
         group_state_ref: Some(payload.commit_ref.to_string()),
         recipient_durable_receipt: None,
+        verified_leaf_bindings,
     };
     enrich_mls_welcome_consume_binding(&mut binding, &state.direct_conversation_welcome_bindings);
     store
@@ -2926,6 +2989,33 @@ fn enrich_mls_welcome_consume_binding(
     binding.strand_id = Some(direct.strand_id.clone());
 }
 
+/// Restore the member attribution recorded when this Welcome was staged.
+///
+/// A staged Welcome without it cannot be replayed: the SDK fails closed on
+/// `export_state_record`, and inventing bindings here would put an
+/// unauthorized roster behind every later decrypt and Commit.
+fn staged_welcome_leaf_bindings(
+    state: &ArkretCryptoStateFile,
+    welcome: &MlsWelcomeEnvelope,
+) -> anyhow::Result<Vec<arkret::mls::MlsVerifiedLeafBinding>> {
+    let bindings = state
+        .mls_welcome_consume_bindings
+        .values()
+        .find(|binding| {
+            binding.mls_group_id == welcome.group_id
+                && binding.epoch == welcome.epoch
+                && !binding.verified_leaf_bindings.is_empty()
+        })
+        .map(|binding| binding.verified_leaf_bindings.clone())
+        .with_context(|| {
+            format!(
+                "staged Arkret MLS Welcome for group '{}' at epoch {} carries no verified leaf authority",
+                welcome.group_id, welcome.epoch
+            )
+        })?;
+    Ok(bindings)
+}
+
 fn try_consume_stored_welcome_for_payload(
     state: &ArkretCryptoStateFile,
     store: &mut MemoryCryptoStore,
@@ -2957,7 +3047,19 @@ fn try_consume_stored_welcome_for_payload(
             }
         };
         match ArkretMlsGroup::join_from_welcome(identity, &welcome) {
-            Ok(group) => {
+            Ok(mut group) => {
+                let installed =
+                    staged_welcome_leaf_bindings(state, &welcome).and_then(|bindings| {
+                        group
+                            .install_verified_leaf_bindings(bindings)
+                            .map_err(|err| {
+                                anyhow::anyhow!("install staged MLS leaf authority: {err}")
+                            })
+                    });
+                if let Err(err) = installed {
+                    last_error = Some(err);
+                    continue;
+                }
                 let record = group
                     .persist_state(store)
                     .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
@@ -3017,7 +3119,19 @@ fn consume_stored_welcome_for_commit(
             }
         };
         match ArkretMlsGroup::join_from_welcome(identity, &welcome) {
-            Ok(group) if group.epoch() == base_epoch || group.epoch() == next_epoch => {
+            Ok(mut group) if group.epoch() == base_epoch || group.epoch() == next_epoch => {
+                let installed =
+                    staged_welcome_leaf_bindings(state, &welcome).and_then(|bindings| {
+                        group
+                            .install_verified_leaf_bindings(bindings)
+                            .map_err(|err| {
+                                anyhow::anyhow!("install staged MLS leaf authority: {err}")
+                            })
+                    });
+                if let Err(err) = installed {
+                    last_error = Some(err);
+                    continue;
+                }
                 group
                     .persist_state(store)
                     .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
@@ -3250,7 +3364,6 @@ mod tests {
     static FIXTURE_EVENT_13: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x5d));
     static FIXTURE_EVENT_14: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x5e));
     static FIXTURE_EVENT_31: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x71));
-    static FIXTURE_EVENT_AA: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x7a));
 
     fn content_header(
         group: &ArkretMlsGroup,
@@ -3354,6 +3467,7 @@ mod tests {
             epoch: 1,
             group_state_ref: None,
             recipient_durable_receipt: None,
+            verified_leaf_bindings: Vec::new(),
         };
         let mut state = store.load().expect("state should load");
         state
@@ -3400,6 +3514,7 @@ mod tests {
             epoch: 1,
             group_state_ref: None,
             recipient_durable_receipt: None,
+            verified_leaf_bindings: Vec::new(),
         };
         enrich_mls_welcome_consume_binding(&mut later, &state.direct_conversation_welcome_bindings);
         assert_eq!(later.realm_id.as_deref(), Some(realm_id));
@@ -3419,6 +3534,7 @@ mod tests {
             epoch: 1,
             group_state_ref: None,
             recipient_durable_receipt: None,
+            verified_leaf_bindings: Vec::new(),
         };
         enrich_mls_welcome_consume_binding(
             &mut orphan,
@@ -3831,7 +3947,6 @@ mod tests {
             transition.as_str(),
             Some(binding(0, 1)),
         );
-        persist_test_accepted_welcome(&bob_store, &payload, genesis);
         let endpoints = vec![
             MlsEndpointIdentity::human_device(
                 DidCoreId::new("ak:did_core:web:alice.example").unwrap(),
@@ -3839,21 +3954,8 @@ mod tests {
             ),
             bob_package.endpoint.clone(),
         ];
-        let bindings = group.active_author_leaves().into_iter().map(|leaf| {
-            let arkret::AuthorLeafCredential::Basic { identity } = leaf.credential else { panic!("Basic leaf required"); };
-            let endpoint = endpoints.iter().find(|endpoint| matches!(endpoint,
-                MlsEndpointIdentity::HumanDevice { device_id, .. } if device_id.as_str().as_bytes() == identity
-            )).unwrap().clone();
-            let MlsEndpointIdentity::HumanDevice { principal_id, .. } = &endpoint else { unreachable!(); };
-            arkret::mls::MlsVerifiedLeafBinding {
-                leaf_index: leaf.leaf_index,
-                actor_id: ActorId::account(AccountId::new(principal_id.clone(), principal_id.clone())),
-                endpoint,
-                credential_ref: arkret::NonEmptyString::new(String::from_utf8(identity).unwrap()).unwrap(),
-                signature_key: arkret::Base64UrlString::new(URL_SAFE_NO_PAD.encode(&leaf.signature_key)).unwrap(),
-                device_authorize_event_id: Some(EventId::new(genesis).unwrap()),
-            }
-        }).collect();
+        let bindings = fixture_leaf_bindings(&group, &endpoints, genesis);
+        persist_test_accepted_welcome(&bob_store, &payload, genesis, bindings.clone());
         group.install_verified_leaf_bindings(bindings).unwrap();
         let mut state = bob_store.load().unwrap();
         let identity = restore_mls_identity(state.mls_identities.values().next().unwrap()).unwrap();
@@ -4009,6 +4111,17 @@ mod tests {
             &bob_store,
             &payload,
             "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM",
+            fixture_leaf_bindings(
+                &alice_group,
+                &[
+                    MlsEndpointIdentity::human_device(
+                        DidCoreId::new("ak:did_core:webvh:z6mkfixturealice").unwrap(),
+                        DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
+                    ),
+                    bob_key_package.endpoint.clone(),
+                ],
+                "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6",
+            ),
         );
 
         // Bob joins by decrypting one inbound payload, which also seeds the
@@ -4032,10 +4145,10 @@ mod tests {
                 &inbound,
             )
             .expect("planning with local state should preserve the verified commit ref");
-        assert_eq!(
-            bootstrap.group_state_ref.as_deref(),
-            Some(FIXTURE_EVENT_AA.as_str())
-        );
+        // The verified commit ref is the one the ciphertext header names, not a
+        // separate fixture constant: comparing against `group_state_ref` keeps
+        // the assertion from drifting away from the payload it is about.
+        assert_eq!(bootstrap.group_state_ref.as_deref(), Some(group_state_ref));
         bob_store
             .upsert_realm_policy(ArkretRealmCryptoPolicy {
                 realm_id: realm_id.to_owned(),
@@ -4517,13 +4630,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
-    /// Known red: `consume_stored_welcome_for_commit` joins from a staged
-    /// Welcome and calls `persist_state` without first installing the accepted
-    /// transition leaf bindings, so the SDK refuses to export the state record
-    /// ("MLS member attribution is unavailable until accepted transition
-    /// bindings are installed"). Only `admit_verified_welcomes` installs them.
-    /// Do not weaken this assertion; the recovery path needs the accepted leaf
-    /// authority plumbed through `apply_mls_commit`.
+    /// A staged Welcome plus the durable Commit that follows it must be enough
+    /// to advance a receiver that has seen no application data yet, and the
+    /// post-Commit snapshot must stay fully attributed: `apply_commit` drops
+    /// every leaf binding, so the Station's accepted leaf authority for the
+    /// entered epoch is what makes the group persistable again.
     #[test]
     fn stored_welcome_admits_group_and_decrypts_content_block() {
         let home = temp_home("welcome-admit");
@@ -4543,8 +4654,30 @@ mod tests {
         )
         .unwrap();
         let realm_id = "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
-        let mut alice_group = alice.create_group(realm_id.as_bytes()).unwrap();
-        let add = alice_group.add_member(&bob_key_package).unwrap();
+        let binding_for = |previous: u64, next: u64| {
+            arkret::MlsGovernanceBindingPayload::realm(
+                RealmId::new(realm_id.to_owned()).unwrap(),
+                previous,
+                next,
+                Hash::new(format!("sha256:{}", "c".repeat(64))).unwrap(),
+                arkret::ContentScheme::MlsRfc9420,
+                None,
+                arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
+                "arkret.reducer.v1",
+            )
+            .unwrap()
+        };
+        let mut alice_group = alice
+            .create_group_with_governance_binding(realm_id.as_bytes(), &binding_for(0, 0))
+            .unwrap();
+        let add = alice_group
+            .add_member_with_governance_binding(&bob_key_package, &binding_for(0, 1))
+            .unwrap();
+        let alice_endpoint = MlsEndpointIdentity::human_device(
+            DidCoreId::new("ak:did_core:webvh:z6mkfixturealice").unwrap(),
+            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
+        );
+        let welcome_endpoints = [alice_endpoint.clone(), bob_key_package.endpoint.clone()];
         let expected_binding = ArkretMlsWelcomeConsumeBinding {
             keypackage_ref: bob_key_package.keypackage_ref.as_str().to_owned(),
             claim_id: "claim-agent-welcome-001".to_owned(),
@@ -4557,18 +4690,24 @@ mod tests {
                 "ak:event:AbnHJt4q4qY18zqvLiy3Emmqy7weTAuApx42RmRgPr2h".to_owned(),
             ),
             recipient_durable_receipt: None,
+            verified_leaf_bindings: Vec::new(),
         };
         let payload = test_welcome_payload(
             &bob_key_package,
             &add.welcome,
             realm_id,
             expected_binding.group_state_ref.as_deref().unwrap(),
-            None,
+            Some(binding_for(0, 1)),
         );
         let recorded = persist_test_accepted_welcome(
             &bob_store,
             &payload,
             expected_binding.welcome_ref.as_deref().unwrap(),
+            fixture_leaf_bindings(
+                &alice_group,
+                &welcome_endpoints,
+                "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6",
+            ),
         );
         assert_eq!(recorded.group_id, add.welcome.group_id);
         let state = bob_store.load().expect("state should load");
@@ -4591,38 +4730,48 @@ mod tests {
 
         // The durable Commit must be sufficient to advance a receiver that
         // has recorded its Welcome but has not yet seen any application data.
+        let commit_binding = binding_for(expected_binding.epoch, expected_binding.epoch + 1);
         let commit = alice_group
-            .self_update_commit()
-            .expect("Alice self-update Commit should build");
+            .update_governance_binding(&commit_binding)
+            .expect("Alice governance-bound Commit should build");
         let commit_event =
             EventId::new("ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6".to_owned())
                 .unwrap();
-        let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
-            RealmId::new(realm_id.to_owned()).unwrap(),
-            expected_binding.epoch,
-            commit.epoch,
-            Hash::new(format!("sha256:{}", "c".repeat(64))).unwrap(),
-            arkret::ContentScheme::MlsRfc9420,
-            None,
-            arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
-            "arkret.reducer.v1",
-        )
-        .unwrap();
         let commit_payload = MlsCommitPayload::new(
             expected_binding.group_state_ref.as_deref().unwrap(),
             Vec::new(),
             &commit,
-            governance_binding,
+            commit_binding.clone(),
         )
         .unwrap();
+        let commit_authority = fixture_accepted_artifact(
+            &commit_event,
+            commit_binding,
+            &fixture_leaf_bindings(
+                &alice_group,
+                &welcome_endpoints,
+                "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6",
+            ),
+        );
         assert!(
             bob_store
-                .apply_mls_commit(&commit_payload, &commit_event)
+                .mls_commit_needs_accepted_leaf_authority(&commit_payload)
+                .expect("local MLS state should be readable")
+        );
+        assert!(
+            bob_store
+                .apply_mls_commit(&commit_payload, &commit_event, Some(&commit_authority))
                 .expect("Bob should consume Welcome and apply Commit")
+        );
+        // An already-applied Commit needs no authority and writes no new state.
+        assert!(
+            !bob_store
+                .mls_commit_needs_accepted_leaf_authority(&commit_payload)
+                .expect("local MLS state should be readable")
         );
         assert!(
             !bob_store
-                .apply_mls_commit(&commit_payload, &commit_event)
+                .apply_mls_commit(&commit_payload, &commit_event, None)
                 .expect("accepted Commit replay should be idempotent")
         );
 
@@ -5174,10 +5323,111 @@ mod tests {
         }
     }
 
+    /// Member attribution for the transition a fixture Welcome joins, taken
+    /// from the inviter's real RFC 9420 leaves.
+    ///
+    /// In production this comes from the Station's accepted leaf authority; the
+    /// only thing the fixture supplies is the actor-to-leaf attribution the
+    /// Station would assert. Every credential and signature key is the actual
+    /// one, and `install_verified_leaf_bindings` re-checks both against the
+    /// occupied leaf.
+    fn fixture_leaf_bindings(
+        group: &ArkretMlsGroup,
+        endpoints: &[MlsEndpointIdentity],
+        device_authorize_event_id: &str,
+    ) -> Vec<arkret::mls::MlsVerifiedLeafBinding> {
+        group
+            .active_author_leaves()
+            .into_iter()
+            .map(|leaf| {
+                let arkret::AuthorLeafCredential::Basic { identity } = leaf.credential else {
+                    panic!("fixture MLS leaf must be a BasicCredential");
+                };
+                let endpoint = endpoints
+                    .iter()
+                    .find(|endpoint| match endpoint {
+                        MlsEndpointIdentity::HumanDevice { device_id, .. } => {
+                            device_id.as_str().as_bytes() == identity
+                        }
+                        MlsEndpointIdentity::AgentRuntime { agent_id, .. } => {
+                            agent_id.as_str().as_bytes() == identity
+                        }
+                        MlsEndpointIdentity::MinimalMetadataPairwise {
+                            pairwise_actor_id, ..
+                        } => pairwise_actor_id.as_str().as_bytes() == identity,
+                    })
+                    .expect("fixture endpoint set must cover every occupied leaf")
+                    .clone();
+                let MlsEndpointIdentity::HumanDevice { principal_id, .. } = &endpoint else {
+                    panic!("fixture leaf endpoint must be a human device");
+                };
+                arkret::mls::MlsVerifiedLeafBinding {
+                    leaf_index: leaf.leaf_index,
+                    actor_id: ActorId::account(AccountId::new(
+                        principal_id.clone(),
+                        principal_id.clone(),
+                    )),
+                    endpoint,
+                    credential_ref: arkret::NonEmptyString::new(
+                        String::from_utf8(identity).unwrap(),
+                    )
+                    .unwrap(),
+                    signature_key: arkret::Base64UrlString::new(
+                        URL_SAFE_NO_PAD.encode(&leaf.signature_key),
+                    )
+                    .unwrap(),
+                    device_authorize_event_id: Some(
+                        EventId::new(device_authorize_event_id).unwrap(),
+                    ),
+                }
+            })
+            .collect()
+    }
+
+    /// Wrap fixture leaf bindings as the Station's accepted artifact for one
+    /// transition. The frontier leaves and leaf authorizations restate exactly
+    /// what the bindings already carry, and the SDK re-validates both against
+    /// the entered epoch's governance binding and its real leaves.
+    fn fixture_accepted_artifact(
+        transition_ref: &EventId,
+        governance_binding: arkret::MlsGovernanceBindingPayload,
+        bindings: &[arkret::mls::MlsVerifiedLeafBinding],
+    ) -> arkret::MlsAcceptedArtifactOutcome {
+        arkret::MlsAcceptedArtifactOutcome {
+            query_digest: Hash::new(format!("sha256:{}", "e".repeat(64))).unwrap(),
+            transition_head: arkret::MlsAcceptedTransition {
+                transition_ref: transition_ref.clone(),
+                transition_event_digest: transition_ref.event_digest(),
+                mls_transition_digest: Hash::new(format!("sha256:{}", "f".repeat(64))).unwrap(),
+            },
+            governance_binding,
+            mls_frontier_leaves: bindings
+                .iter()
+                .map(
+                    |binding| arkret_wire::mls_transition::MlsSecurityFrontierLeaf {
+                        leaf_index: binding.leaf_index,
+                        actor_id: binding.actor_id.clone(),
+                        credential_ref: binding.credential_ref.clone(),
+                    },
+                )
+                .collect(),
+            mls_leaf_authorizations: bindings
+                .iter()
+                .map(|binding| arkret::MlsAcceptedLeafAuthorization {
+                    leaf_index: binding.leaf_index,
+                    device_authorize_event_id: binding.device_authorize_event_id.clone(),
+                    agent_verification_method: None,
+                    agent_key_authorize_event_id: None,
+                })
+                .collect(),
+        }
+    }
+
     fn persist_test_accepted_welcome(
         store: &FileArkretCryptoStore,
         payload: &MlsWelcomePayload,
         welcome_ref: &str,
+        verified_leaf_bindings: Vec<arkret::mls::MlsVerifiedLeafBinding>,
     ) -> MlsWelcomeEnvelope {
         // Exercise the post-verification staging boundary without inventing wire proofs.
         let mut state = store.load().unwrap();
@@ -5187,6 +5437,7 @@ mod tests {
             &mut crypto,
             payload,
             &EventId::new(welcome_ref).unwrap(),
+            verified_leaf_bindings,
         )
         .unwrap();
         state.set_mls_store(&crypto).unwrap();
@@ -5258,6 +5509,18 @@ mod tests {
             &store,
             &decoded,
             "ak:event:AfOnmtYgQpP17IGXP_64dE-weM-8C_AfXXXfYpJ3ubJG",
+            fixture_leaf_bindings(
+                &group,
+                &[
+                    MlsEndpointIdentity::human_device(
+                        DidCoreId::new("ak:did_core:web:owner.example".to_owned()).unwrap(),
+                        DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned())
+                            .unwrap(),
+                    ),
+                    key_package.endpoint.clone(),
+                ],
+                "ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6",
+            ),
         );
         let mut expected = add.welcome;
         expected.ratchet_tree = None;

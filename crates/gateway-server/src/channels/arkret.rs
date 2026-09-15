@@ -1279,7 +1279,14 @@ async fn handle_account_client_event(
                     .flat_map(|timeline| timeline.events.iter()),
                 crypto_store,
             );
-            apply_account_mls_commits_from_realm_update(&update, crypto_store, channel, account);
+            apply_account_mls_commits_from_realm_update(
+                client,
+                &update,
+                crypto_store,
+                channel,
+                account,
+            )
+            .await;
             if let Err(error) = governance::admit_owned_agent_welcomes(
                 client.inner(),
                 crypto_store,
@@ -1503,12 +1510,14 @@ async fn repair_and_consume_pending_mls_welcomes(
                             )
                             .await;
                             apply_account_mls_commits_from_value_tree(
+                                client,
                                 crypto_store,
                                 &value,
                                 channel,
                                 account,
                                 "startup_pending_welcome_repair",
-                            );
+                            )
+                            .await;
                         }
                     }
                     debug!(
@@ -2737,12 +2746,14 @@ async fn scan_limited_realm_timeline_for_account(
             )
             .await;
             apply_account_mls_commits_from_value_tree(
+                client,
                 crypto_store,
                 &value,
                 channel,
                 account,
                 "realm_scan_catchup",
-            );
+            )
+            .await;
         }
     }
     let parsed = parse_backfill_events_for_account(&realm_id, outcome.events, account);
@@ -2939,7 +2950,8 @@ fn parse_backfill_events_for_account(
     parse_realm_update_for_account(update, account)
 }
 
-fn apply_account_mls_commits_from_realm_update(
+async fn apply_account_mls_commits_from_realm_update(
+    client: &ArkretHttpClient,
     update: &arkret::RealmUpdate,
     crypto_store: &FileArkretCryptoStore,
     channel: &ArkretChannelConfig,
@@ -2950,12 +2962,14 @@ fn apply_account_mls_commits_from_realm_update(
         for event in &timeline.events {
             if let Ok(event) = serde_json::to_value(event) {
                 recorded += apply_account_mls_commits_from_value_tree(
+                    client,
                     crypto_store,
                     &event,
                     channel,
                     account,
                     "realm_timeline",
-                );
+                )
+                .await;
             }
         }
     }
@@ -3003,7 +3017,27 @@ async fn refresh_account_mls_from_welcome_hint(
     }
 }
 
-fn apply_account_mls_commits_from_value_tree(
+/// Read the Station's accepted historical leaf authority for one accepted
+/// Commit. `ArkretMlsGroup::apply_commit` drops every leaf binding because a
+/// transition may add, remove or replace any leaf, so the post-Commit snapshot
+/// can only be persisted once this authority is installed. The SDK re-checks it
+/// against the entered epoch's own governance binding and RFC 9420 leaves.
+async fn fetch_accepted_commit_leaf_authority(
+    client: &ArkretHttpClient,
+    event_ref: &arkret::EventId,
+    payload: &arkret::MlsCommitPayload,
+) -> anyhow::Result<arkret::MlsAcceptedArtifactOutcome> {
+    let request = arkret::MlsAcceptedArtifactRequestBody {
+        effective_scope: payload.governance_binding().effective_scope().clone(),
+        mls_group_id: arkret::Base64UrlString::new(payload.mls_group_id())
+            .map_err(anyhow::Error::msg)?,
+        artifact_ref: event_ref.clone(),
+    };
+    Ok(client.inner().mls_accepted_artifact(&request).await?)
+}
+
+async fn apply_account_mls_commits_from_value_tree(
+    client: &ArkretHttpClient,
     crypto_store: &FileArkretCryptoStore,
     value: &Value,
     channel: &ArkretChannelConfig,
@@ -3014,7 +3048,36 @@ fn apply_account_mls_commits_from_value_tree(
     collect_typed_mls_commit_events(value, 8, &mut commits);
     let mut applied = 0;
     for (event_ref, payload) in commits {
-        match crypto_store.apply_mls_commit(&payload, &event_ref) {
+        let authority = match crypto_store.mls_commit_needs_accepted_leaf_authority(&payload) {
+            Ok(true) => {
+                match fetch_accepted_commit_leaf_authority(client, &event_ref, &payload).await {
+                    Ok(outcome) => Some(outcome),
+                    Err(err) => {
+                        warn!(
+                            channel_id = %channel.id,
+                            account_id = %account.id,
+                            source,
+                            event_id = %event_ref,
+                            group_id = %payload.mls_group_id(),
+                            "arkret: accepted MLS leaf authority unavailable, Commit not applied: {err:#}"
+                        );
+                        continue;
+                    }
+                }
+            }
+            Ok(false) => None,
+            Err(err) => {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    source,
+                    event_id = %event_ref,
+                    "arkret: local MLS state unreadable, Commit not applied: {err:#}"
+                );
+                continue;
+            }
+        };
+        match crypto_store.apply_mls_commit(&payload, &event_ref, authority.as_ref()) {
             Ok(true) => {
                 applied += 1;
                 debug!(

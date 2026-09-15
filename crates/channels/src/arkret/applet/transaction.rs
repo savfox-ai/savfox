@@ -35,14 +35,6 @@ pub struct AppletInboundCommand {
 /// Reason a given event was filtered out of the dispatch path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppletDispatchSkip {
-    /// `actor_id` did not match the configured `namespaces.actors`.
-    ///
-    /// **Important**: for an applet, the inbound events generally originate
-    /// from native users *sending into a portal Realm*, NOT from the
-    /// applet's own ghost actors. We therefore filter primarily on
-    /// `realm_id` namespace; the actor filter only kicks in when configured
-    /// strictly.
-    ActorNotInNamespace,
     /// `realm_id` did not match the configured `namespaces.realms`.
     RealmNotInNamespace,
     /// The event's `kind` is not `ak.message.create` (we only dispatch text
@@ -59,6 +51,16 @@ pub enum AppletDispatchSkip {
     /// Event came from the applet's own bot or one of its ghost actors —
     /// don't loop back into the agent pipeline.
     LoopbackFromApplet,
+    /// The Event's authoring actor could not be resolved to a DID, so its
+    /// position relative to `namespaces.actors` cannot be decided.
+    ///
+    /// `applet-integration.md` §3.4 forbids matching a DID namespace pattern
+    /// against a `did_core_id`, and §7 makes the receiver of
+    /// `ak.edge.applet.command.transaction.v1` verify the verification-method
+    /// projection before it verifies the namespace. With no verified DID the
+    /// only sound answer is to refuse dispatch: guessing would reopen exactly
+    /// the loopback the actor namespace exists to close.
+    ActorDidUnresolved,
 }
 
 impl AppletDispatchSkip {
@@ -68,9 +70,12 @@ impl AppletDispatchSkip {
     #[must_use]
     pub const fn reason_code(&self) -> arkret::ReasonCode {
         match self {
-            Self::ActorNotInNamespace | Self::RealmNotInNamespace | Self::LoopbackFromApplet => {
-                arkret::ReasonCode::AppletNamespaceMismatch
-            }
+            Self::RealmNotInNamespace
+            | Self::LoopbackFromApplet
+            // `applet-integration.md` §7.3 tells a receiver that cannot line an
+            // Event's actor up with the registration to fail closed and pick
+            // the code of the failing layer; the layer here is the namespace.
+            | Self::ActorDidUnresolved => arkret::ReasonCode::AppletNamespaceMismatch,
             Self::KindNotMessageCreate => arkret::ReasonCode::UnsupportedEventKind,
             Self::EncryptedContent => arkret::ReasonCode::DecryptionFailed,
             // The registry dropped the generic `cardinality_violation` reason,
@@ -89,15 +94,44 @@ pub enum AppletEventOutcome {
     Skip(AppletDispatchSkip),
 }
 
+/// Resolve the Event's authoring signer back to its canonical resolvable DID.
+///
+/// A registration declares `namespaces.actors` as DID patterns, and
+/// `applet-integration.md` §3.4 is explicit that a namespace matches the
+/// method-evidence-verified `initial_resolution.did` and **must not** match a
+/// DID pattern against the `did_core_id` adapter projection. That projection is
+/// lossy — `did:webvh:<scid>:<host>:<path>` collapses to
+/// `ak:did_core:webvh:<scid>` — so it cannot be inverted either.
+///
+/// The one DID-form identifier an inbound Event carries is its producer proof
+/// verification method, and §7's `ak.edge.applet.command.transaction.v1` row
+/// makes the receiver verify that "VM projection" before it verifies the
+/// namespace. So the signer DID is the proof's verification-method controller,
+/// accepted only when [`arkret::project_did_to_core_id`] maps it back to the
+/// Event's own signing principal. `executed_by` is the signer whenever it is
+/// present, matching the SDK's own producer derivation.
+fn producer_signer_did(event: &Event) -> Option<arkret::Did> {
+    let [producer_proof] = event.proofs.as_slice() else {
+        return None;
+    };
+    let (controller, _fragment) = producer_proof
+        .verification_method
+        .as_str()
+        .split_once('#')?;
+    let controller = arkret::Did::new(controller.to_owned()).ok()?;
+    let signer = event.executed_by.as_ref().unwrap_or(&event.actor_id);
+    (&arkret::project_did_to_core_id(&controller).ok()? == signer.signing_principal_id())
+        .then_some(controller)
+}
+
 /// Decide what to do with one Event from an inbound applet transaction.
 #[must_use]
 pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> AppletEventOutcome {
-    // Loopback: an event signed by our own bot or one of our ghost actors
-    // should not be dispatched back to the agent pipeline.
+    // Loopback, exact arm: the Bot is a single long-lived principal, so its
+    // complete account compares byte-for-byte and needs no DID resolution.
     let actor = event.actor_id.signing_principal_id().as_str();
-    if event.actor_id.as_account_id() == Some(&cfg.bot_account_id)
-        || cfg.namespaces.actor_matches(actor)
-    {
+    let signer = event.executed_by.as_ref().unwrap_or(&event.actor_id);
+    if signer.as_account_id() == Some(&cfg.bot_account_id) {
         return AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet);
     }
 
@@ -127,6 +161,18 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
     let body = content.body.trim().to_owned();
     if body.is_empty() {
         return AppletEventOutcome::Skip(AppletDispatchSkip::EmptyBody);
+    }
+
+    // Loopback, namespace arm. This is the last gate before dispatch so the
+    // only Event that ever reaches the agent pipeline is one whose author was
+    // positively attributed to a DID outside this registration's own actor
+    // namespace. An unresolvable signer fails closed here rather than being
+    // treated as foreign.
+    let Some(signer_did) = producer_signer_did(event) else {
+        return AppletEventOutcome::Skip(AppletDispatchSkip::ActorDidUnresolved);
+    };
+    if cfg.namespaces.actor_matches(signer_did.as_str()) {
+        return AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet);
     }
 
     AppletEventOutcome::Dispatch(AppletInboundCommand {
@@ -254,6 +300,45 @@ mod tests {
         DidCoreId::new(s.to_owned()).expect("did")
     }
 
+    /// Attach the single producer proof an inbound Event carries.
+    ///
+    /// `classify_inbound_event` consumes only the verification method: it
+    /// resolves the signer DID and checks the adapter projection. Verifying the
+    /// detached JWS is a separate receiver duty, so the fixture keeps the
+    /// signature opaque rather than pretending to carry a real one.
+    fn attach_producer_proof(event: &mut Event, verification_method: &str) {
+        let digest = arkret::Hash::new(
+            event
+                .event_digest_with_digest_suite(arkret::canonical::DigestSuite::Sha256)
+                .expect("fixture Event digests"),
+        )
+        .expect("digest is a valid hash");
+        event.proofs = vec![arkret::ProducerEventProof {
+            kind: arkret::proof_kind::DETACHED_JWS.to_owned(),
+            verification_method: arkret::DidUrl::new(verification_method.to_owned())
+                .expect("fixture verification method"),
+            event_digest: digest,
+            signer_resolution_evidence_ref: None,
+            created_at: event.created_at,
+            domain: None,
+            audience: None,
+            proof_purpose: None,
+            jws: "eyJhbGciOiJFZERTQSJ9..AA".to_owned(),
+        }];
+    }
+
+    fn signed_event(
+        actor: &str,
+        verification_method: &str,
+        realm_id: &str,
+        kind: &str,
+        content: serde_json::Value,
+    ) -> Event {
+        let mut event = make_event(actor, realm_id, kind, content);
+        attach_producer_proof(&mut event, verification_method);
+        event
+    }
+
     fn make_event(actor: &str, realm_id: &str, kind: &str, content: serde_json::Value) -> Event {
         // `Event::new` derives `event_id` from the Event's own content; an id
         // can no longer be minted for it.
@@ -281,8 +366,9 @@ mod tests {
 
     #[test]
     fn dispatches_text_message_in_realm_namespace() {
-        let ev = make_event(
+        let ev = signed_event(
             "ak:did_core:webvh:z6mkfixturealice",
+            "did:webvh:z6mkfixturealice:alice.example#key-1",
             REALM_IN_A.as_str(),
             "ak.message.create",
             text_content("hello"),
@@ -315,16 +401,15 @@ mod tests {
         );
     }
 
-    /// Known red: `classify_inbound_event` matches `namespaces.actors` against
-    /// the Event's `ak:did_core:*` actor, but a registration declares those
-    /// namespaces as DID patterns and `applet-integration.md` §3.4 requires the
-    /// match to run against the method-evidence-verified `did`, never against
-    /// the `did_core_id`. Ghost loopback suppression is therefore unreachable
-    /// with a spec-legal Event. Do not weaken this assertion; fix the matcher.
+    /// `applet-integration.md` §3.4: the actor namespace matches the resolvable
+    /// DID, never the `did_core_id` adapter projection. The ghost's DID reaches
+    /// the classifier through its producer proof verification method, whose
+    /// controller must project back onto the Event's own signing principal.
     #[test]
     fn skips_loopback_from_ghost_actor() {
-        let ev = make_event(
+        let ev = signed_event(
             "ak:did_core:web:bridge.example:ghost:u1",
+            "did:web:bridge.example:ghost:u1#key-1",
             REALM_IN_B.as_str(),
             "ak.message.create",
             text_content("loopback"),
@@ -332,6 +417,58 @@ mod tests {
         let outcome = classify_inbound_event(&cfg(), &ev);
         assert_eq!(
             outcome,
+            AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet)
+        );
+    }
+
+    /// A ghost DID is not recoverable from the `did_core_id` the Event carries
+    /// (`did:webvh:<scid>:<host>:<path>` projects down to the SCID alone), so an
+    /// Event whose signer cannot be resolved must fail closed instead of being
+    /// treated as a foreign actor and dispatched.
+    #[test]
+    fn refuses_dispatch_when_the_signer_did_is_unresolvable() {
+        let unsigned = make_event(
+            "ak:did_core:webvh:z6mkfixturealice",
+            REALM_IN_A.as_str(),
+            "ak.message.create",
+            text_content("hello"),
+        );
+        assert_eq!(
+            classify_inbound_event(&cfg(), &unsigned),
+            AppletEventOutcome::Skip(AppletDispatchSkip::ActorDidUnresolved)
+        );
+
+        // A proof whose controller projects onto some *other* principal does
+        // not attribute this Event either.
+        let mismatched = signed_event(
+            "ak:did_core:webvh:z6mkfixturealice",
+            "did:webvh:z6mkfixturemallory:mallory.example#key-1",
+            REALM_IN_A.as_str(),
+            "ak.message.create",
+            text_content("hello"),
+        );
+        assert_eq!(
+            classify_inbound_event(&cfg(), &mismatched),
+            AppletEventOutcome::Skip(AppletDispatchSkip::ActorDidUnresolved)
+        );
+    }
+
+    /// The Bot arm is exact and covers delegated authoring: when the Applet's
+    /// own Bot is the `executed_by` signer the Event is ours, whoever the
+    /// `actor_id` names.
+    #[test]
+    fn skips_loopback_when_the_bot_is_the_delegated_signer() {
+        let config = cfg();
+        let mut ev = signed_event(
+            "ak:did_core:webvh:z6mkfixturealice",
+            "did:webvh:z6mkfixturealice:alice.example#key-1",
+            REALM_IN_A.as_str(),
+            "ak.message.create",
+            text_content("delegated"),
+        );
+        ev.executed_by = Some(arkret::ActorId::account(config.bot_account_id.clone()));
+        assert_eq!(
+            classify_inbound_event(&config, &ev),
             AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet)
         );
     }

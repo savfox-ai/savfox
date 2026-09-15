@@ -1505,17 +1505,19 @@ mod strict_tests {
     }
 
     /// The status poll compares its local digest against the server's
-    /// `authorized_public_key_digest`, which lives in the public authorization
-    /// domain (hash of the raw Ed25519 key). Emitting the private
-    /// pairing-request JWK digest instead makes every legitimate approval look
-    /// like "paired by a different runtime key".
-    /// Known red: `arkret_signatures::agent::validate_agent_runtime_public_key`
-    /// now derives `runtime_request_digest` and `authorization_digest` from the
-    /// same `sha256(raw_public_key)` preimage, collapsing the two domains the
-    /// SDK's own `RuntimeKeyRequest` doc comment still separates. Do not weaken
-    /// this assertion; the request domain has to go back to the canonical JWK.
+    /// `authorized_public_key_digest`. `identity/key-management.md` fixes a
+    /// single raw-key digest domain for v1 — SHA-256 over the decoded 32-byte
+    /// Ed25519 key, never over the PublicKey DTO / JWK / multibase / hex text,
+    /// and explicitly "no second DTO digest is retained" — so the local digest
+    /// must be that one and nothing else.
+    ///
+    /// `ValidatedAgentRuntimePublicKey` still exposes `runtime_request_digest`
+    /// beside `authorization_digest`; both are now the same value, and this
+    /// test pins that so the duplicate cannot quietly grow a second preimage
+    /// again. It is a tripwire, not an endorsement: the two fields are one
+    /// domain and the SDK duplicate is waiting to be removed.
     #[test]
-    fn runtime_key_status_digest_uses_the_authorization_domain() {
+    fn runtime_key_status_digest_uses_the_single_raw_key_domain() {
         let mut config = canonical_config(default_scope());
         config.config["keyRef"] = json!({
             "kind": "inline_seed_base64",
@@ -1542,10 +1544,17 @@ mod strict_tests {
         .expect("submitted public key is canonical");
 
         assert_eq!(local_digest, validated.authorization_digest.as_str());
-        assert_ne!(
+        assert_eq!(
             local_digest,
-            validated.runtime_request_digest.as_str(),
-            "the two digest domains must not be conflated"
+            arkret::canonical::digest(
+                arkret::canonical::DigestSuite::Sha256,
+                &validated.raw_public_key
+            ),
+            "the local digest must be SHA-256 over the decoded 32-byte Ed25519 key"
+        );
+        assert_eq!(
+            validated.runtime_request_digest, validated.authorization_digest,
+            "v1 keeps one raw-key digest domain; a second preimage must not reappear"
         );
     }
 
