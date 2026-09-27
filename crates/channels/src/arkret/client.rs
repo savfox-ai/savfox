@@ -13,15 +13,15 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
+use arkret::sync::{AccountSubscribeFrame, SyncRequestBody};
 use arkret::{
-    AccountSubscribeFrame, AgentSessionGrantRefreshRequest, AgentSessionRefreshProof,
-    AgentSessionRefreshProofContext, Base64UrlString, DeviceId, DidCoreId, DidUrl,
-    EventsSubmitOutcome, EventsSubscribeFrame, KeyOperationSignature, KeyPackagesClaimOutcome,
-    KeyPackagesClaimRequestBody, KeyPackagesClaimServiceBinding, MlsWelcomeClaimEnvelope,
-    NonEmptyString, PeerKeyPackageClaimPurpose, PeerKeyPackageClaimReceipt,
-    PeerKeyPackageRequesterAuthorization, PreparedStandardEvent, RealmId, ServiceDescribe,
-    SessionGrantDpopBindingProof, SessionGrantRefreshRequestBody, StrandId, SyncRequestBody,
-    UnsignedAgentSessionGrantRequest, UnsignedAgentSessionRefreshProof,
+    AgentSessionGrantRefreshRequest, AgentSessionRefreshProof, AgentSessionRefreshProofContext,
+    Base64UrlString, DeviceId, DidCoreId, DidUrl, EventsSubmitOutcome, KeyOperationSignature,
+    KeyPackagesClaimOutcome, KeyPackagesClaimRequestBody, KeyPackagesClaimServiceBinding,
+    MlsWelcomeClaimEnvelope, NonEmptyString, PeerKeyPackageClaimPurpose,
+    PeerKeyPackageClaimReceipt, PeerKeyPackageRequesterAuthorization, PreparedStandardEvent,
+    RealmId, ServiceDescribe, SessionGrantDpopBindingProof, SessionGrantRefreshRequestBody,
+    StrandId, UnsignedAgentSessionGrantRequest, UnsignedAgentSessionRefreshProof,
 };
 use arkret_wire::EventInitialSubmission;
 use chrono::{DateTime, Utc};
@@ -45,15 +45,6 @@ const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 pub struct ArkretHttpClient {
     inner: Client,
 }
-
-/// Stream of [`EventsSubscribeFrame`] yielded by
-/// [`ArkretHttpClient::events_subscribe_stream`].
-///
-/// Each item is a fully-parsed frame (transient line decode errors come
-/// through as `Err` but the stream continues). Use
-/// [`futures_util::StreamExt::next`] to pull frames.
-pub type ArkretFrameStream =
-    Pin<Box<dyn Stream<Item = Result<EventsSubscribeFrame, anyhow::Error>> + Send>>;
 
 /// Stream of account-level subscribe frames yielded by
 /// [`ArkretHttpClient::account_subscribe_stream`].
@@ -616,40 +607,6 @@ impl ArkretHttpClient {
             .describe()
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))
-    }
-
-    /// `GET /_arkret/self/events/subscribe` — returns a
-    /// [`ArkretFrameStream`] that yields fully-parsed `EventsSubscribeFrame`
-    /// items.
-    pub async fn events_subscribe_stream(
-        &self,
-        realm_id: &str,
-        after: Option<&str>,
-    ) -> anyhow::Result<ArkretFrameStream> {
-        let realm = RealmId::new(realm_id.to_owned())
-            .with_context(|| format!("invalid Arkret events subscribe Realm id '{realm_id}'"))?;
-        let mut options = arkret::http_client::EventsSubscribeOptions::new().realm(realm);
-        if let Some(after) = after {
-            options = options.after(after);
-        }
-        let stream = self
-            .inner
-            .events_subscribe_frames(&options)
-            .await
-            .map_err(|err| anyhow::anyhow!("arkret events_subscribe_stream: {err}"))?;
-        Ok(Box::pin(futures_util::stream::unfold(
-            stream,
-            |mut stream| async move {
-                match stream.next_frame().await {
-                    Ok(Some(frame)) => Some((Ok(frame), stream)),
-                    Ok(None) => None,
-                    Err(err) => Some((
-                        Err(anyhow::anyhow!("arkret events_subscribe_stream: {err}")),
-                        stream,
-                    )),
-                }
-            },
-        )))
     }
 
     /// `GET /_arkret/self/account/subscribe` — returns a user-scoped account

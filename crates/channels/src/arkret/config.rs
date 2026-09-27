@@ -9,10 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::signer::{
-    ArkretKeyRef, ed25519_runtime_public_key, ed25519_runtime_public_key_digest,
-    load_ed25519_signing_key,
-};
+use super::signer::{ArkretKeyRef, ed25519_runtime_public_key, load_ed25519_signing_key};
 
 const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
@@ -85,8 +82,7 @@ pub struct ArkretAccountConfig {
     /// received when this runtime key became active.
     pub signer_resolution_evidence_ref: Option<arkret::SignerEvidenceRef>,
     /// Complete activation-time Agent evidence retained for offline authoring.
-    pub current_signer_evidence:
-        Option<arkret_models_collaboration::current_signer_evidence::CurrentSignerEvidence>,
+    pub current_signer_evidence: Option<arkret::KeyStateCurrentSignerEvidence>,
     /// Exact controller account that owns this Agent principal.
     ///
     /// An Agent has exactly one controller and that ownership
@@ -182,12 +178,10 @@ impl ArkretChannelConfig {
             )?;
         }
         if let Some(value) = raw.get("currentSignerEvidence") {
-            serde_json::from_value::<
-                arkret_models_collaboration::current_signer_evidence::CurrentSignerEvidence,
-            >(value.clone())
-            .map_err(|error| {
-                anyhow::anyhow!("Arkret agent currentSignerEvidence is invalid: {error}")
-            })?;
+            serde_json::from_value::<arkret::KeyStateCurrentSignerEvidence>(value.clone())
+                .map_err(|error| {
+                    anyhow::anyhow!("Arkret agent currentSignerEvidence is invalid: {error}")
+                })?;
         }
         let mut enabled = config.clone();
         enabled.enabled = true;
@@ -508,65 +502,38 @@ impl ArkretAccountConfig {
             &self.signer_resolution_evidence_ref,
             &self.current_signer_evidence,
         ) {
-            let arkret_models_collaboration::current_signer_evidence::CurrentSignerEvidence::Agent {
-                actor,
-                verification_method: evidence_method,
-                ..
-            } = evidence
-            else {
+            evidence
+                .validate_against(expected_ref)
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            let root = &evidence.authenticated_signer_evidence;
+            root.validate()
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            if root.signer_kind != arkret::AuthenticatedSignerKind::Agent {
                 anyhow::bail!(
                     "Arkret agent '{}' retained non-Agent signer evidence",
                     self.id
                 );
-            };
-            if actor.signing_principal_id() != principal_id
-                || evidence_method.as_str() != verification_method
+            }
+            if root.subject_id.as_str() != principal_id
+                || root.verification_method.as_str() != verification_method
             {
                 anyhow::bail!(
                     "Arkret agent '{}' retained signer evidence for another runtime identity",
                     self.id
                 );
             }
-            let (root, _) = evidence
-                .hydrate_complete_agent()
-                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-            let actual_ref = arkret::signer_evidence_ref(&root)
-                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-            if &actual_ref != expected_ref {
-                anyhow::bail!(
-                    "Arkret agent '{}' retained signer evidence content address does not match its closure",
-                    self.id
-                );
-            }
-            let arkret::AuthenticatedSignerResolutionEvidence::Agent {
-                agent_signer_evidence,
-                ..
-            } = root
-            else {
-                unreachable!("complete Agent evidence hydrates an Agent root");
-            };
-            let authorized_key = agent_signer_evidence
-                .admission_evidence()
-                .agent_authority_state_evidence
-                .state
-                .authorized_key()
-                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-            if authorization_ref.is_none_or(|event_ref| {
-                event_ref != authorized_key.agent_key_authorize_event_id.as_str()
-            }) || authorized_key.verification_method.as_str() != verification_method
-            {
-                anyhow::bail!(
-                    "Arkret agent '{}' retained signer evidence does not match its active authorization",
-                    self.id
-                );
-            }
-            let local_digest = ed25519_runtime_public_key_digest(
-                self.key_ref
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("Arkret agent '{}' missing keyRef", self.id))?,
-                verification_method,
-            )?;
-            if authorized_key.public_key_digest.as_str() != local_digest {
+            let public_key: arkret::signatures::jwk::JsonWebKey =
+                serde_json::from_value(serde_json::to_value(&root.public_key_jwk)?)
+                    .context("Arkret Agent signer evidence must carry a public JWK")?;
+            let evidence_key = public_key.ed25519_x_for_verification().ok_or_else(|| {
+                anyhow::anyhow!("Arkret Agent signer evidence must authorize Ed25519 verification")
+            })?;
+            let key_ref = self
+                .key_ref
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Arkret agent '{}' missing keyRef", self.id))?;
+            let local_key = ed25519_runtime_public_key(key_ref, verification_method)?;
+            if evidence_key.as_str() != local_key.key.as_str() {
                 anyhow::bail!(
                     "Arkret agent '{}' retained signer evidence authorizes another runtime key",
                     self.id
@@ -1120,6 +1087,71 @@ mod strict_tests {
 
     fn default_scope() -> Value {
         json!(default_agent_runtime_scope().expect("SDK scope candidate"))
+    }
+
+    fn account_with_retained_signer_evidence() -> ArkretAccountConfig {
+        let mut channel =
+            ArkretChannelConfig::from_channel_config(&canonical_config(default_scope()))
+                .expect("unit account config");
+        let mut account = channel.accounts.remove(0);
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[37; 32]);
+        account.key_ref = Some(ArkretKeyRef::InlineSeedBase64 {
+            value: STANDARD_NO_PAD.encode(signing_key.to_bytes()),
+        });
+        let jwk = arkret::signatures::JsonWebKey::from_ed25519_verifying_key(
+            &signing_key.verifying_key(),
+        );
+        // A deterministic authority revision is sufficient for this local
+        // identity-binding test; no live Station authorization is asserted.
+        let evidence = arkret::build_agent_signer_evidence(
+            DidCoreId::new(account.principal_id.clone()).unwrap(),
+            DidUrl::new(account.verification_method.clone().unwrap()).unwrap(),
+            serde_json::from_value(serde_json::to_value(jwk).unwrap()).unwrap(),
+            arkret::RealmCommitId::from_digest([55; 32]),
+            "2026-09-16T00:00:00.000Z".parse().unwrap(),
+        )
+        .unwrap();
+        let reference = evidence.signer_evidence_ref().unwrap();
+        account.signer_resolution_evidence_ref = Some(reference.clone());
+        account.current_signer_evidence = Some(arkret::KeyStateCurrentSignerEvidence {
+            signer_resolution_evidence_ref: reference,
+            authenticated_signer_evidence: evidence,
+        });
+        account
+    }
+
+    #[test]
+    fn retained_current_signer_evidence_binds_exact_agent_runtime_key() {
+        account_with_retained_signer_evidence()
+            .validate()
+            .expect("matching evidence");
+    }
+
+    #[test]
+    fn retained_current_signer_evidence_rejects_another_local_key() {
+        let mut account = account_with_retained_signer_evidence();
+        account.key_ref = Some(ArkretKeyRef::InlineSeedBase64 {
+            value: STANDARD_NO_PAD.encode([38; 32]),
+        });
+        let error = account
+            .validate()
+            .expect_err("another key must be rejected");
+        assert!(error.to_string().contains("another runtime key"));
+    }
+
+    #[test]
+    fn retained_current_signer_evidence_recomputes_content_address() {
+        let mut account = account_with_retained_signer_evidence();
+        account
+            .current_signer_evidence
+            .as_mut()
+            .unwrap()
+            .authenticated_signer_evidence
+            .subject_id = DidCoreId::new("ak:did_core:web:another-agent.example").unwrap();
+        let error = account
+            .validate()
+            .expect_err("tampered evidence must be rejected");
+        assert!(error.to_string().contains("does not address"));
     }
 
     #[test]

@@ -52,7 +52,19 @@ pub fn sidecar_binding_from_metadata_plaintext(
     let binding: AgentSidecarEventExchangeBinding =
         serde_json::from_value(metadata.extra.get("sidecar_exchange_binding")?.clone()).ok()?;
     binding.validate_shape().ok()?;
+    if !valid_exchange_identity(&binding.exchange_id) {
+        return None;
+    }
     Some(binding)
+}
+
+// The SDK binding uses a String for this private opaque identifier. Enforce
+// the registered schema constraint at the consumer boundary as well.
+fn valid_exchange_identity(value: &str) -> bool {
+    (22..=128).contains(&value.len())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'~' | b'=' | b'-')
+        })
 }
 
 /// Outcome of the runtime-side consumption gate for one decrypted binding
@@ -100,7 +112,7 @@ pub fn gate_inbound_request_binding(
     }
     // `MessageMetadata::sidecar_exchange_binding` already validated, but the
     // gate re-validates so it stays fail-closed for any caller.
-    if binding.validate_shape().is_err() {
+    if binding.validate_shape().is_err() || !valid_exchange_identity(&binding.exchange_id) {
         return SidecarRequestGate::NotARequest;
     }
     let Some(request_context) = binding.request_context.as_ref() else {
@@ -191,6 +203,9 @@ pub fn gate_inbound_exchange_control(
     }
     let control: AgentSidecarExchangeControl = serde_json::from_value(plaintext.clone()).ok()?;
     control.validate_shape().ok()?;
+    if !valid_exchange_identity(&control.exchange_id) {
+        return None;
+    }
     Some(control)
 }
 
@@ -351,7 +366,10 @@ impl SidecarExchangeStore {
         controller_account_id.validate()?;
         let controller_account_key = controller_account_id.canonical_key()?;
         let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
-        let exchange_id = AgentSidecarExchangeId::new(exchange_id.to_owned())?;
+        anyhow::ensure!(
+            valid_exchange_identity(exchange_id),
+            "invalid Sidecar exchange identity"
+        );
         let request_event_id = EventId::new(request_event_id.to_owned())?;
         anyhow::ensure!(
             !ordering.event_digest.trim().is_empty(),
@@ -369,7 +387,7 @@ impl SidecarExchangeStore {
             .or_default()
             .entry(private_strand_id.to_string())
             .or_default();
-        if let Some(existing) = exchanges.get_mut(exchange_id.as_str()) {
+        if let Some(existing) = exchanges.get_mut(exchange_id) {
             // A closed exchange rejects every new request, including an exact
             // replay of the request that opened it: a cached context must not
             // reopen terminal state (§7.2.3).
@@ -614,6 +632,10 @@ pub fn split_sidecar_reply_target(value: &str) -> (String, Option<SidecarExchang
 pub fn build_user_facing_response_metadata(
     context: &SidecarExchangeContext,
 ) -> anyhow::Result<MessageMetadata> {
+    anyhow::ensure!(
+        valid_exchange_identity(&context.exchange_id),
+        "invalid Sidecar exchange identity"
+    );
     let request_event_id = EventId::new(context.request_event_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid Sidecar request Event id: {err}"))?;
     let assignment = context
@@ -644,8 +666,8 @@ mod tests {
     use std::sync::LazyLock;
 
     use arkret::{
-        AgentSidecarExchangeCompletionPolicy, AgentSidecarExchangeRequestContext,
-        AgentSidecarSourceTrackRef, DidCoreId, Hlc, NonEmptyString, RealmId, StrandId,
+        AgentSidecarExchangeRequestContext, DidCoreId, Hlc, RealmId, SidecarSourceTrackRef,
+        StrandId,
     };
     use serde_json::json;
 
@@ -699,38 +721,41 @@ mod tests {
 
     fn request_context(addressed: &[&str]) -> AgentSidecarExchangeRequestContext {
         AgentSidecarExchangeRequestContext {
-            source_track_ref: AgentSidecarSourceTrackRef {
+            source_track_ref: SidecarSourceTrackRef {
                 realm_id: RealmId::new(REALM_ID.as_str()).unwrap(),
                 strand_id: StrandId::new(STRAND_ID.as_str()).unwrap(),
                 track_name: "discussion".to_owned(),
             },
             source_hlc: Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
-            client_order_key: NonEmptyString::new("device-1-1").unwrap(),
+            client_order_key: "device-1-1".to_owned(),
             addressed_agent_ids: addressed
                 .iter()
                 .map(|did| DidCoreId::new((*did).to_owned()).unwrap())
                 .collect(),
-            completion_policy: AgentSidecarExchangeCompletionPolicy::Coordinator,
             coordinator_agent_id: (addressed.len() > 1)
                 .then(|| DidCoreId::new(addressed[0].to_owned()).unwrap()),
-            source_event_id: None,
+            source_checkpoint_anchor_id: None,
         }
     }
 
     fn request_binding(addressed: &[&str]) -> AgentSidecarEventExchangeBinding {
-        AgentSidecarEventExchangeBinding::request(
-            AgentSidecarExchangeId::new(EXCHANGE_ID).unwrap(),
-            request_context(addressed),
-        )
-        .unwrap()
+        AgentSidecarEventExchangeBinding {
+            schema: arkret::SchemaId::AGENT_SIDECAR_EVENT_EXCHANGE_BINDING_V1.to_owned(),
+            exchange_id: EXCHANGE_ID.to_owned(),
+            role: AgentSidecarExchangeRole::Request,
+            request_event_id: None,
+            completes_exchange: None,
+            coordinator_assignment_event_id: None,
+            request_context: Some(request_context(addressed)),
+        }
     }
 
     /// A closed `action=close` control with no delivered response, which
     /// §7.2.3 folds to `failed/controller_closed_empty`.
     fn terminal_control(request_event_id: &str) -> AgentSidecarExchangeControl {
         AgentSidecarExchangeControl {
-            schema: arkret::AgentSidecarExchangeControlSchema::V1,
-            exchange_id: AgentSidecarExchangeId::new(EXCHANGE_ID).unwrap(),
+            schema: arkret::SchemaId::AGENT_SIDECAR_EXCHANGE_CONTROL_V1.to_owned(),
+            exchange_id: EXCHANGE_ID.to_owned(),
             request_event_id: EventId::new(request_event_id.to_owned()).unwrap(),
             basis_event_ids: vec![EventId::new(request_event_id.to_owned()).unwrap()],
             action: AgentSidecarExchangeAction::Close,
@@ -743,7 +768,10 @@ mod tests {
 
     fn metadata_plaintext_with_binding(binding: &AgentSidecarEventExchangeBinding) -> Value {
         let mut metadata = MessageMetadata::default();
-        metadata.set_sidecar_exchange_binding(binding).unwrap();
+        metadata.extra.insert(
+            "sidecar_exchange_binding".to_owned(),
+            serde_json::to_value(binding).unwrap(),
+        );
         serde_json::to_value(&metadata).unwrap()
     }
 
@@ -901,11 +929,15 @@ mod tests {
 
     #[test]
     fn gate_treats_response_bindings_as_non_requests() {
-        let binding = AgentSidecarEventExchangeBinding::user_facing_response(
-            AgentSidecarExchangeId::new(EXCHANGE_ID).unwrap(),
-            EventId::new(REQUEST_EVENT_ID.as_str().to_owned()).unwrap(),
-        )
-        .unwrap();
+        let binding = AgentSidecarEventExchangeBinding {
+            schema: arkret::SchemaId::AGENT_SIDECAR_EVENT_EXCHANGE_BINDING_V1.to_owned(),
+            exchange_id: EXCHANGE_ID.to_owned(),
+            role: AgentSidecarExchangeRole::UserFacingResponse,
+            request_event_id: Some(REQUEST_EVENT_ID.clone()),
+            completes_exchange: None,
+            coordinator_assignment_event_id: None,
+            request_context: None,
+        };
         assert_eq!(
             gate_inbound_request_binding(
                 &binding,
@@ -1336,5 +1368,37 @@ mod tests {
             coordinator_assignment_event_id: None,
         };
         assert!(build_user_facing_response_metadata(&bad).is_err());
+    }
+
+    #[test]
+    fn exchange_binding_accepts_opaque_identity_without_uuid_shape() {
+        let mut binding = request_binding(&[AGENT_DID]);
+        binding.exchange_id = "controller.private_exchange~001==".to_owned();
+        assert_eq!(
+            sidecar_binding_from_metadata_plaintext(&metadata_plaintext_with_binding(&binding)),
+            Some(binding)
+        );
+    }
+
+    #[test]
+    fn exchange_binding_rejects_invalid_opaque_identity_at_consumer_boundary() {
+        for identity in ["short".to_owned(), "x".repeat(129), "x".repeat(22) + ":"] {
+            let mut binding = request_binding(&[AGENT_DID]);
+            binding.exchange_id = identity;
+            assert!(
+                sidecar_binding_from_metadata_plaintext(&metadata_plaintext_with_binding(&binding))
+                    .is_none()
+            );
+            assert_eq!(
+                gate_inbound_request_binding(
+                    &binding,
+                    REQUEST_EVENT_ID.as_str(),
+                    &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                    &controller_account(),
+                    AGENT_DID,
+                ),
+                SidecarRequestGate::NotARequest
+            );
+        }
     }
 }

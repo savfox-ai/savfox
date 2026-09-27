@@ -295,8 +295,10 @@ mod tests {
                 constraints,
                 issuer_authority_refs: vec![arkret::IssuerAuthorityRef::RealmRoot {
                     realm_id: realm_id.clone(),
-                    cell_ref: "ak:cell:ak.component.realm.authority_root.v1:null".to_owned(),
-                    controller_epoch_at_issuance: 1,
+                    authority_event_ref: arkret::EventId::from_digest(
+                        crate::arkret::DIGEST_SUITE,
+                        [0x51; 32],
+                    ),
                     authority_generation: 1,
                 }],
                 issued_at: DateTime::from_timestamp_millis(0).expect("epoch timestamp"),
@@ -447,7 +449,7 @@ mod tests {
         .expect("write");
         let err = load_and_verify_grant(&path, "ak:did_core:webvh:z6mksupportfixture", None)
             .await
-            .expect_err("missing proofs should fail");
+            .expect_err("missing producer proof should fail");
         assert!(err.to_string().contains("missing producer_proof"));
         let _ = tokio::fs::remove_file(&path).await;
     }

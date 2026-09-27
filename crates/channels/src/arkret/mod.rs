@@ -48,8 +48,8 @@ pub(crate) const DIGEST_SUITE: arkret::canonical::DigestSuite =
     arkret::canonical::DigestSuite::Sha256;
 pub use arkret_wire::EventInitialSubmission;
 pub use client::{
-    ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretFrameStream, ArkretHttpClient,
-    SavfoxArkretClientCore, SavfoxDurableArkretClientCore, agent_session_exchange_reason,
+    ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretHttpClient, SavfoxArkretClientCore,
+    SavfoxDurableArkretClientCore, agent_session_exchange_reason,
     agent_session_reason_is_irreversibly_terminal, build_mls_key_packages_claim_request,
     sign_mls_welcome_claim_envelope,
 };
