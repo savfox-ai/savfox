@@ -4207,7 +4207,6 @@ async fn construct_account_provider(
         authorization_ref,
         account.requested_scope.clone(),
         &audience,
-        device_id.clone(),
         None,
     )
     .await?;
