@@ -30,7 +30,6 @@ use garth::session::BoxSessionFuture;
 use garth::{
     AuthenticatedTransportFactory, NoopSessionGrantStore, SessionEngine, SessionGrantState,
     SessionGrantStore, SessionGrantTransport, SessionRefreshOptions, SessionTransportProvider,
-    TransportProvider,
 };
 use url::Url;
 

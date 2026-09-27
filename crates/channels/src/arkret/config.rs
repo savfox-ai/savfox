@@ -514,7 +514,7 @@ impl ArkretAccountConfig {
                     self.id
                 );
             }
-            if root.subject_id.as_str() != principal_id
+            if root.subject_id.as_str() != principal_id.as_str()
                 || root.verification_method.as_str() != verification_method
             {
                 anyhow::bail!(

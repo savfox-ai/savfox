@@ -6,9 +6,8 @@
 use anyhow::Context;
 use arkret::signatures::{EventSigner, SignEventOptions, sign_event};
 use arkret::{
-    AccountId, ActorId, AuthoredEvent, ContentBlock, Did, DidCoreId, Event, EventId,
-    MessageCreatePayload, MessageId, ScopeRef, StrandId, TypedEventDraft, event_spec,
-    project_did_to_core_id,
+    AccountId, ActorId, AuthoredEvent, ContentBlock, Did, Event, MessageCreatePayload, MessageId,
+    ScopeRef, StrandId, TypedEventDraft, event_spec, project_did_to_core_id,
 };
 
 use super::sidecar::{SidecarExchangeContext, build_user_facing_response_metadata};
@@ -114,7 +113,7 @@ pub fn sign_outbound_event_with_key(
 #[cfg(test)]
 mod tests {
     use arkret::signatures::Ed25519DetachedJwsSigner;
-    use arkret::{RealmId, SidecarId};
+    use arkret::{DidCoreId, EventId, RealmId, SidecarId};
     use ed25519_dalek::SigningKey;
 
     use super::*;
