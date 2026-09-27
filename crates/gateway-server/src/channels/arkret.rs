@@ -868,24 +868,14 @@ async fn refresh_account_presence(
                 continue;
             }
         };
-        let frontier = match client.inner().seals_frontier(realm_id.clone()).await {
-            Ok(frontier) => frontier,
+        let authority_head = match verified_presence_authority_head(client.inner(), &realm_id).await
+        {
+            Ok(head) => head,
             Err(error) => {
                 record_presence_failure(
                     channel,
                     account,
-                    format!("fetch current Seal for presence Realm '{realm}': {error}"),
-                );
-                continue;
-            }
-        };
-        let seal_ref = match frontier.frontier.sole_leaf() {
-            Ok(seal_id) => seal_id.clone(),
-            Err(error) => {
-                record_presence_failure(
-                    channel,
-                    account,
-                    format!("Realm Seal frontier for '{realm}' has no sole leaf: {error}"),
+                    format!("verify current Commit head for presence Realm '{realm}': {error}"),
                 );
                 continue;
             }
@@ -895,7 +885,7 @@ async fn refresh_account_presence(
             &account.actor_account_id,
             verification_method,
             key_ref,
-            seal_ref.as_str(),
+            &authority_head,
             Utc::now(),
         ) {
             Ok(envelope) => envelope,
@@ -938,6 +928,32 @@ async fn refresh_account_presence(
             ),
         }
     }
+}
+
+async fn verified_presence_authority_head(
+    http: &arkret::http_client::Client,
+    realm_id: &RealmId,
+) -> anyhow::Result<arkret::CommitStreamHead> {
+    let request = arkret::AuthorityBundleRequest {
+        realm_id: realm_id.clone(),
+        nonce: arkret::Base64UrlString::new(arkret::base64url_encode(rand::random::<[u8; 32]>()))
+            .map_err(anyhow::Error::msg)?,
+    };
+    let authority = garth::AuthorityClient::new(http.clone());
+    let bundle = authority.resolve_authority(&request).await?;
+    let keys = garth::fetch_historical_station_key_directory(http, &bundle, None, None).await?;
+    let freshness =
+        arkret::identity::RealmAuthorityFreshness::new(Utc::now(), request.nonce.clone());
+    let mut replica = garth::RealmReplica::new(realm_id.clone());
+    replica.install_verified_authority(&request, bundle.clone(), &freshness, &keys)?;
+    anyhow::ensure!(
+        bundle.realm_stream_head.stream_ref
+            == arkret::CommitStreamRef::Realm {
+                realm_id: realm_id.clone()
+            },
+        "presence authority bundle does not name the Realm stream"
+    );
+    Ok(bundle.realm_stream_head)
 }
 
 fn record_presence_failure(

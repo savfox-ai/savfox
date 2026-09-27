@@ -699,7 +699,7 @@ impl FileArkretCryptoStore {
         Ok(realms)
     }
 
-    /// Seal and sign one Realm-scoped `ak.presence` Signal.
+    /// Encrypt and sign one Realm-scoped `ak.presence` Signal.
     ///
     /// The post-seal MLS state and strictly increasing payload sequence are
     /// persisted before the caller performs HTTP submit. This intentionally
@@ -712,14 +712,25 @@ impl FileArkretCryptoStore {
         actor_account_id: &arkret::AccountId,
         verification_method: &str,
         key_ref: &ArkretKeyRef,
-        seal_ref: &str,
+        authority_head: &arkret::CommitStreamHead,
         sent_at: DateTime<Utc>,
     ) -> anyhow::Result<arkret_wire::SignalEnvelope> {
+        let realm_id = RealmId::new(realm_id.to_owned())?;
+        let scope_ref = ScopeRef::Realm {
+            realm_id: realm_id.clone(),
+        };
+        anyhow::ensure!(
+            authority_head.stream_ref
+                == arkret::CommitStreamRef::Realm {
+                    realm_id: realm_id.clone()
+                },
+            "presence authority head belongs to another independent stream"
+        );
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         let policy = state
             .realm_policies
-            .get(realm_id)
+            .get(realm_id.as_str())
             .filter(|policy| policy.requires_e2ee())
             .cloned()
             .with_context(|| format!("Realm '{realm_id}' has no E2EE Signal policy"))?;
@@ -740,13 +751,8 @@ impl FileArkretCryptoStore {
         // the SDK. Use that negotiated wire id directly; a global registry
         // scan would become wrong as soon as a second suite is activated.
         let aead_profile = arkret::mls::ARKRET_MLS_CIPHERSUITE_CANONICAL_ID;
-        let realm_id = RealmId::new(realm_id.to_owned())?;
         actor_account_id.validate()?;
         let actor_id = ActorId::account(actor_account_id.clone());
-        let seal_ref = SealId::new(seal_ref.to_owned())?;
-        let scope_ref = ScopeRef::Realm {
-            realm_id: realm_id.clone(),
-        };
         let expires_at = sent_at + chrono::Duration::seconds(30);
         let signing_key = load_ed25519_signing_key(key_ref)?;
         let public_key_digest = arkret_signatures::PublicKeyMaterial::Ed25519Raw {
@@ -772,7 +778,6 @@ impl FileArkretCryptoStore {
         )?;
         let plaintext = seal_signal_plaintext(&plaintext)?;
         let signal_key_ref = arkret_wire::SignalKeyRef {
-            algorithm: "MLS-EXPORTER-AEAD".to_owned(),
             group_state_ref: group_state_ref.clone(),
         };
         let mut group = ArkretMlsGroup::restore_from_state_record(&record)
@@ -782,7 +787,7 @@ impl FileArkretCryptoStore {
             scope_ref: &scope_ref,
             sender_actor_id: &actor_id,
             sender_device_id: None,
-            seal_ref: &seal_ref,
+            authority_commit_id: &authority_head.commit_id,
             signal_class: arkret_wire::SignalClass::Session,
             sent_at,
             expires_at,
@@ -793,7 +798,7 @@ impl FileArkretCryptoStore {
             epoch: record.epoch,
         };
         let sealed = group
-            .seal_signal_payload(&binding, EncryptedPayloadScheme::MlsRfc9420, &plaintext)
+            .encrypt_signal_payload(&binding, &plaintext)
             .map_err(|error| anyhow::anyhow!("seal Arkret presence Signal: {error}"))?;
 
         let updated = group
@@ -805,9 +810,9 @@ impl FileArkretCryptoStore {
             .context("Arkret presence payload sequence exhausted")?;
         state.signal_sequences.insert(sequence_key, next_sequence);
         state.bootstrap.insert(
-            updated.group_id.clone(),
+            updated.group_id.to_string(),
             ArkretBootstrapRecord {
-                group_id: updated.group_id,
+                group_id: updated.group_id.to_string(),
                 required_epoch: updated.epoch,
                 local_epoch: Some(updated.epoch),
                 group_state_ref: Some(group_state_ref),
@@ -824,7 +829,7 @@ impl FileArkretCryptoStore {
             scope_ref,
             sender_actor_id: actor_id,
             sender_device_id: None,
-            seal_ref,
+            authority_commit_id: authority_head.commit_id.clone(),
             signal_class: arkret_wire::SignalClass::Session,
             sent_at,
             expires_at,
@@ -838,10 +843,6 @@ impl FileArkretCryptoStore {
                 jws: String::new(),
             },
         };
-        let expected_aad = envelope.expected_aad_digest()?;
-        if envelope.encrypted_payload.aad_digest != expected_aad {
-            anyhow::bail!("Arkret presence ciphertext was sealed against a different header");
-        }
         envelope.proof.envelope_digest = envelope.envelope_digest()?;
         let proof_bytes = envelope.proof_binding_bytes()?;
         envelope.proof.jws =
@@ -4336,14 +4337,20 @@ mod tests {
         );
 
         let sent_at = Utc::now();
-        let seal_ref = format!("ak:seal:sha256:{}", "d".repeat(64));
+        let authority_head = arkret::CommitStreamHead {
+            stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: RealmId::new(realm_id).unwrap(),
+            },
+            stream_position: 3,
+            commit_id: arkret::RealmCommitId::from_digest([45; 32]),
+        };
         let first = agent_store
             .seal_online_presence_signal(
                 realm_id,
                 agent_actor.as_account_id().expect("Agent account actor"),
                 verification_method,
                 &key_ref,
-                &seal_ref,
+                &authority_head,
                 sent_at,
             )
             .expect("first presence heartbeat should seal");
@@ -4353,7 +4360,7 @@ mod tests {
                 agent_actor.as_account_id().expect("Agent account actor"),
                 verification_method,
                 &key_ref,
-                &seal_ref,
+                &authority_head,
                 sent_at + chrono::Duration::seconds(20),
             )
             .expect("second presence heartbeat should seal");
@@ -4368,6 +4375,15 @@ mod tests {
             .expect("second Signal proof should verify");
         assert!(first.sender_device_id.is_none());
         assert!(second.sender_device_id.is_none());
+        assert_eq!(first.authority_commit_id, authority_head.commit_id);
+        let wire = serde_json::to_value(&first).unwrap();
+        assert!(wire.get("seal_ref").is_none());
+        assert!(wire["encrypted_payload"].get("aad_digest").is_none());
+        assert!(
+            wire["encrypted_payload"]["key_ref"]
+                .get("algorithm")
+                .is_none()
+        );
         assert_ne!(
             first.encrypted_payload.nonce, second.encrypted_payload.nonce,
             "each refresh must spend a distinct MLS Signal nonce"
@@ -4383,9 +4399,9 @@ mod tests {
             let plaintext = alice_group
                 .open_signal_envelope(
                     envelope,
-                    EncryptedPayloadScheme::MlsRfc9420,
                     authority,
                     group_state_ref,
+                    &authority_head.commit_id,
                     &mut replay,
                 )
                 .expect("peer should decrypt encrypted presence");
@@ -4415,6 +4431,55 @@ mod tests {
             Some(&2)
         );
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn presence_rejects_another_stream_before_mutating_crypto_state() {
+        let home = temp_home("presence-wrong-stream");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        let event = EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [61; 32]);
+        let realm_id = RealmId::from_event_id(&event);
+        let other_realm = RealmId::from_event_id(&EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [62; 32],
+        ));
+        let account = AccountId::new(
+            DidCoreId::new("ak:did_core:web:agent.example").unwrap(),
+            DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+        );
+        let key_ref = ArkretKeyRef::InlineSeedBase64 {
+            value: base64::engine::general_purpose::STANDARD_NO_PAD.encode([42; 32]),
+        };
+        for stream_ref in [
+            arkret::CommitStreamRef::Realm {
+                realm_id: other_realm,
+            },
+            arkret::CommitStreamRef::Sidecar {
+                realm_id: realm_id.clone(),
+                sidecar_id: arkret::SidecarId::from_event_id(&event),
+            },
+        ] {
+            let head = arkret::CommitStreamHead {
+                stream_ref,
+                stream_position: 3,
+                commit_id: arkret::RealmCommitId::from_digest([45; 32]),
+            };
+            let error = store
+                .seal_online_presence_signal(
+                    realm_id.as_str(),
+                    &account,
+                    "did:web:agent.example#runtime-1",
+                    &key_ref,
+                    &head,
+                    Utc::now(),
+                )
+                .unwrap_err();
+            assert!(error.to_string().contains("another independent stream"));
+            assert!(
+                !store.path().exists(),
+                "invalid head must not create or mutate persisted state"
+            );
+        }
     }
 
     #[test]
