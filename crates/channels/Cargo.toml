@@ -26,6 +26,7 @@ arkret = [
     "dep:arkret-schema",
     "dep:arkret-crypto",
     "dep:arkret-models-collaboration",
+    "dep:arkret-models-crypto",
     "dep:arkret-signatures",
     "dep:arkret-wire",
     "dep:garth",
@@ -74,6 +75,7 @@ arkret = { workspace = true, optional = true }
 arkret-schema = { workspace = true, optional = true }
 arkret-crypto = { workspace = true, optional = true }
 arkret-models-collaboration = { workspace = true, optional = true }
+arkret-models-crypto = { workspace = true, optional = true }
 arkret-signatures = { workspace = true, optional = true }
 arkret-wire = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }

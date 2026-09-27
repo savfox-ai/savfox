@@ -21,6 +21,7 @@ use arkret::{
     PresenceState, RealmId, ScopeRef, SealId, SignalSequenceDomain, SignalSequenceEndpoint,
     StrandCreatePayload, StrandId, seal_signal_plaintext,
 };
+use arkret_models_crypto::MlsGroupStateRecord as CurrentMlsGroupStateRecord;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -313,6 +314,10 @@ pub struct ArkretCryptoStateFile {
     pub generation: u64,
     pub unable_to_decrypt: BTreeMap<EventId, UnableToDecryptRecord>,
     pub mls_store_json: String,
+    /// Provider-opaque group snapshots installed from accepted Commit or
+    /// recipient Welcome delivery. Keys are canonical MLS group ids.
+    #[serde(default)]
+    pub mls_group_states: BTreeMap<String, CurrentMlsGroupStateRecord>,
     #[serde(default)]
     pub mls_identities: BTreeMap<String, ArkretMlsIdentityStateRecord>,
     #[serde(default)]
@@ -349,6 +354,7 @@ impl ArkretCryptoStateFile {
             unable_to_decrypt: BTreeMap::new(),
             mls_store_json: serde_json::to_string(&store)
                 .map_err(|err| anyhow::anyhow!("arkret crypto store export: {err}"))?,
+            mls_group_states: BTreeMap::new(),
             mls_identities: BTreeMap::new(),
             mls_key_packages: BTreeMap::new(),
             mls_welcome_consume_bindings: BTreeMap::new(),
@@ -369,6 +375,26 @@ impl ArkretCryptoStateFile {
     fn set_mls_store(&mut self, store: &MemoryCryptoStore) -> anyhow::Result<()> {
         self.mls_store_json = serde_json::to_string(store)
             .map_err(|err| anyhow::anyhow!("arkret crypto store export: {err}"))?;
+        Ok(())
+    }
+}
+
+impl arkret::MlsGroupStateSink for ArkretCryptoStateFile {
+    fn put_mls_group_state(
+        &mut self,
+        record: CurrentMlsGroupStateRecord,
+    ) -> Result<(), arkret::WireError> {
+        let key = record.group_id.as_str().to_owned();
+        if let Some(previous) = self.mls_group_states.get(&key)
+            && (record.epoch < previous.epoch
+                || record.actor_id != previous.actor_id
+                || record.endpoint != previous.endpoint)
+        {
+            return Err(arkret::WireError::Protocol(
+                "MLS group snapshot rolls back or changes its local endpoint".to_owned(),
+            ));
+        }
+        self.mls_group_states.insert(key, record);
         Ok(())
     }
 }
