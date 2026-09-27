@@ -47,13 +47,11 @@ pub fn agent_scope_recovery(reason: &str) -> Option<&'static str> {
     Some(arkret_schema::agent_runtime_scope_layer_descriptor(layer).recovery)
 }
 
-/// Build the interactive Agent candidate with encrypted presence and without
-/// delayed-publication leases.
+/// Build the interactive Agent candidate with encrypted presence.
 pub fn default_agent_runtime_scope() -> Result<Vec<String>, String> {
     arkret_schema::agent_runtime_scope::complete_agent_runtime_scope([
-        ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1,
-        ServiceOperationId::SELF_EVENTS_READ_SCAN_V1,
-        ServiceOperationId::SELF_EVENTS_READ_FRONTIER_V1,
+        ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
+        ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
         ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1,
         ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1,
         ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1,
@@ -117,14 +115,14 @@ mod tests {
         assert!(
             actions
                 .iter()
-                .any(|action| action == ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1)
+                .any(|action| { action == ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1 })
         );
         assert!(
             actions
                 .iter()
                 .any(|action| action == ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1)
         );
-        for excluded in [ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1] {
+        for excluded in [ServiceOperationId::SELF_REALM_READ_EXPORT_V1] {
             assert!(!actions.iter().any(|action| action == excluded));
         }
     }
@@ -151,6 +149,9 @@ mod tests {
             "ak.self.events.read.scan",
             "ak.self.events.query.scan",
             "ak.self.events.query.scan.v1",
+            "ak.self.events.stream.subscribe.v1",
+            "ak.self.events.read.frontier.v1",
+            "ak.self.seals.read.frontier.v1",
             "ak.self.not_registered.v1",
         ] {
             let actions = vec![invalid.to_owned()];
@@ -158,10 +159,10 @@ mod tests {
             assert_eq!(actions, [invalid]);
         }
         let mut incomplete = default_agent_runtime_scope().unwrap();
-        incomplete.retain(|action| action != ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1);
+        incomplete.retain(|action| action != ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1);
         let original = incomplete.clone();
         let error = validate_agent_runtime_scope(&incomplete).unwrap_err();
-        assert!(error.contains(ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1));
+        assert!(error.contains(ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1));
         assert_eq!(incomplete, original);
     }
 
@@ -188,10 +189,10 @@ mod tests {
         let requested = default_agent_runtime_scope().unwrap();
         assert!(session_scope_matches_request(&requested, &requested));
         let mut extra = requested.clone();
-        extra.push(ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1.to_owned());
+        extra.push(ServiceOperationId::SELF_REALM_READ_EXPORT_V1.to_owned());
         assert!(!session_scope_matches_request(&requested, &extra));
         let mut reduced = requested.clone();
-        reduced.retain(|action| action != ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1);
+        reduced.retain(|action| action != ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1);
         assert!(!session_scope_matches_request(&requested, &reduced));
         let mut content_narrowed = requested.clone();
         content_narrowed.retain(|action| action != "ak.message.create");
