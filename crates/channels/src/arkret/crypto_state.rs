@@ -1967,33 +1967,9 @@ impl FileArkretCryptoStore {
     ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
-        let mut store = state.mls_store()?;
-        if store.mls_group_state(&payload.group_id).is_none() {
-            let Some((updated, _welcome)) =
-                try_consume_stored_welcome_for_payload(&state, &mut store, payload)?
-            else {
-                return Ok(ArkretDecryptDetailedOutcome::MissingGroupState);
-            };
-            let group_state_ref =
-                group_state_ref_for_epoch(&state, &payload.group_id, updated.epoch);
-            state.bootstrap.insert(
-                updated.group_id.clone(),
-                ArkretBootstrapRecord {
-                    group_id: updated.group_id,
-                    required_epoch: updated.epoch,
-                    local_epoch: Some(updated.epoch),
-                    group_state_ref,
-                    action: MlsRecoveryAction::ConsumeWelcome,
-                    updated_at: Utc::now(),
-                },
-            );
-            state.set_mls_store(&store)?;
-            self.save(&mut state)?;
-        }
-        let record = store
-            .mls_group_state(&payload.group_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Arkret MLS admission did not produce group state"))?;
+        let Some(record) = state.mls_group_states.get(&payload.group_id).cloned() else {
+            return Ok(ArkretDecryptDetailedOutcome::MissingGroupState);
+        };
         let mut group = ArkretMlsGroup::restore_from_state_record(&record)
             .map_err(|err| anyhow::anyhow!("restore Arkret MLS group: {err}"))?;
         let plaintext = group
@@ -2002,9 +1978,8 @@ impl FileArkretCryptoStore {
         let content = serde_json::from_slice(&plaintext)
             .with_context(|| "decrypted Arkret content block is not JSON")?;
         let updated = group
-            .persist_state(&mut store)
+            .persist_state(&mut state)
             .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
-        state.set_mls_store(&store)?;
         let group_state_ref = group_state_ref_for_epoch(&state, &payload.group_id, updated.epoch);
         state.bootstrap.insert(
             updated.group_id.clone(),
@@ -2066,9 +2041,8 @@ impl FileArkretCryptoStore {
         if !policy.requires_e2ee() {
             return Ok(ArkretEncryptOutcome::PlaintextAllowed);
         }
-        let mut store = state.mls_store()?;
         let group_id = policy.group_id_for_realm()?;
-        let Some(record) = store.mls_group_state(&group_id).cloned() else {
+        let Some(record) = state.mls_group_states.get(&group_id).cloned() else {
             return Ok(ArkretEncryptOutcome::MissingRequiredGroupState {
                 group_id,
                 realm_id: realm_id.to_owned(),
@@ -2114,9 +2088,8 @@ impl FileArkretCryptoStore {
         let envelope = MlsEncryptedPayload::<T>::new(envelope)
             .map_err(|err| anyhow::anyhow!("type Arkret MLS payload: {err}"))?;
         let updated = group
-            .persist_state(&mut store)
+            .persist_state(&mut state)
             .map_err(|err| anyhow::anyhow!("persist Arkret MLS group: {err}"))?;
-        state.set_mls_store(&store)?;
         state.bootstrap.insert(
             updated.group_id.clone(),
             ArkretBootstrapRecord {
