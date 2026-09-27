@@ -77,12 +77,12 @@ impl AppletDispatchSkip {
             // the code of the failing layer; the layer here is the namespace.
             | Self::ActorDidUnresolved => arkret::ReasonCode::AppletNamespaceMismatch,
             Self::KindNotMessageCreate => arkret::ReasonCode::UnsupportedEventKind,
-            Self::EncryptedContent => arkret::ReasonCode::DecryptionFailed,
-            // The registry dropped the generic `cardinality_violation` reason,
-            // and it carries no successor for "a known payload field violates
-            // its constraint". An empty body and an unsupported content kind
-            // therefore collapse onto the same closed content-shape reason.
-            Self::ContentKindUnsupported | Self::EmptyBody => arkret::ReasonCode::UnknownKind,
+            Self::EncryptedContent => arkret::ReasonCode::DecryptionPending,
+            // Valid content that this dispatcher cannot execute is a local
+            // feature refusal, not an unknown protocol Event kind.
+            Self::ContentKindUnsupported | Self::EmptyBody => {
+                arkret::ReasonCode::UnsupportedFeature
+            }
         }
     }
 }
@@ -111,9 +111,10 @@ pub enum AppletEventOutcome {
 /// Event's own signing principal. `executed_by` is the signer whenever it is
 /// present, matching the SDK's own producer derivation.
 fn producer_signer_did(event: &Event) -> Option<arkret::Did> {
-    let [producer_proof] = event.proofs.as_slice() else {
-        return None;
-    };
+    let producer_proof = event.producer_proof.as_ref()?;
+    event
+        .verify_producer_proof_self_consistency(event.realm_id.digest_suite_code().digest_suite())
+        .ok()?;
     let (controller, _fragment) = producer_proof
         .verification_method
         .as_str()
@@ -189,7 +190,7 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
 mod tests {
     use std::sync::LazyLock;
 
-    use arkret::{DidCoreId, Hlc, RealmId, ScopeRef};
+    use arkret::{DidCoreId, RealmId, ScopeRef};
     use serde_json::json;
 
     use super::*;
@@ -257,8 +258,6 @@ mod tests {
             },
             config.bot_account_id.principal_id.clone(),
             config.bot_account_id.station_id.clone(),
-            1,
-            hlc(),
             serde_json::json!({"body":"hello"}),
         )
         .unwrap();
@@ -293,38 +292,28 @@ mod tests {
     fn realm(id: &str) -> RealmId {
         RealmId::new(id.to_owned()).expect("realm id")
     }
-    fn hlc() -> Hlc {
-        Hlc::new("000000000000-0000-00000000").expect("test HLC should parse")
-    }
     fn did(s: &str) -> DidCoreId {
         DidCoreId::new(s.to_owned()).expect("did")
     }
 
-    /// Attach the single producer proof an inbound Event carries.
-    ///
-    /// `classify_inbound_event` consumes only the verification method: it
-    /// resolves the signer DID and checks the adapter projection. Verifying the
-    /// detached JWS is a separate receiver duty, so the fixture keeps the
-    /// signature opaque rather than pretending to carry a real one.
+    /// Sign the fixture through the same one-shot SDK proof seam as production.
     fn attach_producer_proof(event: &mut Event, verification_method: &str) {
-        let digest = arkret::Hash::new(
-            event
-                .event_digest_with_digest_suite(arkret::canonical::DigestSuite::Sha256)
-                .expect("fixture Event digests"),
+        let mut authored = arkret::AuthoredEvent::finalize_with_digest_suite(
+            event.clone(),
+            event.realm_id.digest_suite_code().digest_suite(),
         )
-        .expect("digest is a valid hash");
-        event.proofs = vec![arkret::ProducerEventProof {
-            kind: arkret::proof_kind::DETACHED_JWS.to_owned(),
-            verification_method: arkret::DidUrl::new(verification_method.to_owned())
-                .expect("fixture verification method"),
-            event_digest: digest,
-            signer_resolution_evidence_ref: None,
-            created_at: event.created_at,
-            domain: None,
-            audience: None,
-            proof_purpose: None,
-            jws: "eyJhbGciOiJFZERTQSJ9..AA".to_owned(),
-        }];
+        .expect("finalized fixture");
+        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(
+            ed25519_dalek::SigningKey::from_bytes(&[71; 32]),
+            verification_method,
+        );
+        arkret::signatures::sign_event(
+            &mut authored,
+            &signer,
+            arkret::signatures::SignEventOptions::new(),
+        )
+        .expect("signed fixture");
+        *event = authored.into_event();
     }
 
     fn signed_event(
@@ -349,8 +338,6 @@ mod tests {
             },
             did(actor),
             did("ak:did_core:webvh:z6mkfixtureserver"),
-            1,
-            hlc(),
             content,
         )
         .expect("event new")
@@ -483,8 +470,6 @@ mod tests {
             },
             config.bot_account_id.principal_id.clone(),
             config.bot_account_id.station_id.clone(),
-            1,
-            hlc(),
             text_content("loopback"),
         )
         .expect("event new");

@@ -15,10 +15,8 @@ use super::signer::{
 };
 
 const REQUIRED_LISTEN_SCOPE: &[&str] = &[
-    ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1,
-    ServiceOperationId::SELF_EVENTS_READ_SCAN_V1,
-    ServiceOperationId::SELF_EVENTS_READ_FRONTIER_V1,
-    ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1,
+    ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
+    ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
     ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1,
     ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1,
     ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_REVOKE_V1,
@@ -1291,13 +1289,13 @@ mod strict_tests {
     #[test]
     fn exact_repeated_tokens_are_duplicate_scopes() {
         let actions = vec![
-            ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.to_owned(),
-            ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.to_owned(),
+            ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1.to_owned(),
+            ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1.to_owned(),
         ];
 
         assert_eq!(
             duplicate_requested_scope_actions(&actions),
-            vec![ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.to_owned()]
+            vec![ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1.to_owned()]
         );
     }
 
@@ -1318,10 +1316,10 @@ mod strict_tests {
     }
 
     #[test]
-    fn agent_signal_scope_still_requires_frontier_and_reply_submission() {
+    fn agent_signal_scope_requires_committed_event_reads_and_reply_submission() {
         for required_action in [
-            ServiceOperationId::SELF_EVENTS_READ_FRONTIER_V1,
-            ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1,
+            ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+            ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
             ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1,
         ] {
             let scope = default_agent_runtime_scope()

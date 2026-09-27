@@ -2085,7 +2085,7 @@ async fn drain_account_device_messages_from_cursor(
     } else {
         let scope = device_messages_scope(
             service_id.as_deref(),
-            &account.principal_id,
+            &account.actor_account_id,
             &account.device_id,
         );
         match scope {
@@ -2153,7 +2153,7 @@ async fn drain_account_device_messages_from_cursor(
             );
             let clear = device_messages_scope(
                 service_id.as_deref(),
-                &account.principal_id,
+                &account.actor_account_id,
                 &account.device_id,
             );
             if let Err(err) = match clear {
@@ -2188,7 +2188,7 @@ async fn drain_account_device_messages_from_cursor(
         if let Some(next_cursor) = outcome.next_cursor {
             let save = device_messages_scope(
                 service_id.as_deref(),
-                &account.principal_id,
+                &account.actor_account_id,
                 &account.device_id,
             );
             if let Err(err) = match save {

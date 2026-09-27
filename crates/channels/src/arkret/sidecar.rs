@@ -14,9 +14,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::Context;
 use arkret::{
-    AccountId, ActorId, AgentSidecarEventExchangeBinding, AgentSidecarExchangeBindingRole,
-    AgentSidecarExchangeControl, AgentSidecarExchangeControlAction, AgentSidecarExchangeId,
-    EventId, MessageMetadata,
+    AccountId, ActorId, AgentSidecarEventExchangeBinding, AgentSidecarExchangeAction,
+    AgentSidecarExchangeControl, AgentSidecarExchangeRole, EventId, MessageMetadata,
 };
 use serde_json::Value;
 
@@ -50,7 +49,10 @@ pub fn sidecar_binding_from_metadata_plaintext(
     plaintext: &Value,
 ) -> Option<AgentSidecarEventExchangeBinding> {
     let metadata: MessageMetadata = serde_json::from_value(plaintext.clone()).ok()?;
-    metadata.sidecar_exchange_binding()
+    let binding: AgentSidecarEventExchangeBinding =
+        serde_json::from_value(metadata.extra.get("sidecar_exchange_binding")?.clone()).ok()?;
+    binding.validate_shape().ok()?;
+    Some(binding)
 }
 
 /// Outcome of the runtime-side consumption gate for one decrypted binding
@@ -90,7 +92,7 @@ pub fn gate_inbound_request_binding(
     controller_account_id: &AccountId,
     principal_id: &str,
 ) -> SidecarRequestGate {
-    if binding.role != AgentSidecarExchangeBindingRole::Request {
+    if binding.role != AgentSidecarExchangeRole::Request {
         return SidecarRequestGate::NotARequest;
     }
     if request_event_actor_id.as_account_id() != Some(controller_account_id) {
@@ -98,7 +100,7 @@ pub fn gate_inbound_request_binding(
     }
     // `MessageMetadata::sidecar_exchange_binding` already validated, but the
     // gate re-validates so it stays fail-closed for any caller.
-    if binding.validate().is_err() {
+    if binding.validate_shape().is_err() {
         return SidecarRequestGate::NotARequest;
     }
     let Some(request_context) = binding.request_context.as_ref() else {
@@ -112,11 +114,17 @@ pub fn gate_inbound_request_binding(
     if !addressed {
         return SidecarRequestGate::NotAddressed;
     }
-    let coordinator_assignment_event_id = request_context
-        .effective_coordinator()
-        .ok()
-        .filter(|coordinator| coordinator.as_str() == principal)
-        .map(|_| request_event_id.to_owned());
+    let coordinator = request_context.coordinator_agent_id.as_ref().or_else(|| {
+        (request_context.addressed_agent_ids.len() == 1)
+            .then(|| &request_context.addressed_agent_ids[0])
+    });
+    let Some(coordinator) =
+        coordinator.filter(|coordinator| request_context.addressed_agent_ids.contains(coordinator))
+    else {
+        return SidecarRequestGate::NotARequest;
+    };
+    let coordinator_assignment_event_id =
+        (coordinator.as_str() == principal).then(|| request_event_id.to_owned());
     SidecarRequestGate::Addressed(SidecarExchangeContext {
         exchange_id: binding.exchange_id.as_str().to_owned(),
         request_event_id: request_event_id.to_owned(),
@@ -182,7 +190,7 @@ pub fn gate_inbound_exchange_control(
         return None;
     }
     let control: AgentSidecarExchangeControl = serde_json::from_value(plaintext.clone()).ok()?;
-    control.validate().ok()?;
+    control.validate_shape().ok()?;
     Some(control)
 }
 
@@ -293,7 +301,7 @@ struct SidecarExchangeTerminalRecord {
     control_event_id: String,
     /// The SDK enum is persisted directly so the terminal action vocabulary
     /// stays owned by `arkret-rust-sdk` instead of being restated here.
-    action: AgentSidecarExchangeControlAction,
+    action: AgentSidecarExchangeAction,
 }
 
 fn sidecar_exchange_lock(path: &Path) -> Arc<Mutex<()>> {
@@ -431,7 +439,13 @@ impl SidecarExchangeStore {
         let controller_account_key = controller_account_id.canonical_key()?;
         let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
         let control_event_id = EventId::new(control_event_id.to_owned())?;
-        let Some(action) = control.action.is_terminal().then_some(control.action) else {
+        let Some(action) = matches!(
+            control.action,
+            AgentSidecarExchangeAction::Close
+                | AgentSidecarExchangeAction::Cancel
+                | AgentSidecarExchangeAction::Fail
+        )
+        .then_some(control.action) else {
             return Ok(SidecarTerminalAdmission::NotTerminal);
         };
 
@@ -600,24 +614,28 @@ pub fn split_sidecar_reply_target(value: &str) -> (String, Option<SidecarExchang
 pub fn build_user_facing_response_metadata(
     context: &SidecarExchangeContext,
 ) -> anyhow::Result<MessageMetadata> {
-    let exchange_id = AgentSidecarExchangeId::new(context.exchange_id.clone())
-        .map_err(|err| anyhow::anyhow!("invalid Sidecar exchange id: {err}"))?;
     let request_event_id = EventId::new(context.request_event_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid Sidecar request Event id: {err}"))?;
-    let mut binding =
-        AgentSidecarEventExchangeBinding::user_facing_response(exchange_id, request_event_id)
-            .map_err(|err| anyhow::anyhow!("build user_facing_response binding: {err}"))?;
-    if let Some(assignment_event_id) = context.coordinator_assignment_event_id.as_deref() {
-        binding = binding
-            .with_completion(EventId::new(assignment_event_id.to_owned()).map_err(|err| {
-                anyhow::anyhow!("invalid Sidecar coordinator assignment Event id: {err}")
-            })?)
-            .map_err(|err| anyhow::anyhow!("attach Sidecar completion request: {err}"))?;
-    }
+    let assignment = context
+        .coordinator_assignment_event_id
+        .as_deref()
+        .map(|value| EventId::new(value.to_owned()))
+        .transpose()?;
+    let binding = AgentSidecarEventExchangeBinding {
+        schema: arkret::SchemaId::AGENT_SIDECAR_EVENT_EXCHANGE_BINDING_V1.to_owned(),
+        exchange_id: context.exchange_id.clone(),
+        role: AgentSidecarExchangeRole::UserFacingResponse,
+        request_event_id: Some(request_event_id),
+        completes_exchange: assignment.as_ref().map(|_| true),
+        coordinator_assignment_event_id: assignment,
+        request_context: None,
+    };
+    binding.validate_shape()?;
     let mut metadata = MessageMetadata::default();
-    metadata
-        .set_sidecar_exchange_binding(&binding)
-        .map_err(|err| anyhow::anyhow!("mount Sidecar exchange binding: {err}"))?;
+    metadata.extra.insert(
+        "sidecar_exchange_binding".to_owned(),
+        serde_json::to_value(binding)?,
+    );
     Ok(metadata)
 }
 
@@ -715,7 +733,7 @@ mod tests {
             exchange_id: AgentSidecarExchangeId::new(EXCHANGE_ID).unwrap(),
             request_event_id: EventId::new(request_event_id.to_owned()).unwrap(),
             basis_event_ids: vec![EventId::new(request_event_id.to_owned()).unwrap()],
-            action: AgentSidecarExchangeControlAction::Close,
+            action: AgentSidecarExchangeAction::Close,
             response_event_ids: Some(Vec::new()),
             failure_reason_code: None,
             expected_coordinator_agent_id: None,
@@ -781,7 +799,7 @@ mod tests {
     fn binding_parse_accepts_valid_request_binding() {
         let plaintext = metadata_plaintext_with_binding(&request_binding(&[AGENT_DID]));
         let binding = sidecar_binding_from_metadata_plaintext(&plaintext).expect("binding");
-        assert_eq!(binding.role, AgentSidecarExchangeBindingRole::Request);
+        assert_eq!(binding.role, AgentSidecarExchangeRole::Request);
         assert_eq!(binding.exchange_id.as_str(), EXCHANGE_ID);
     }
 
@@ -1294,10 +1312,7 @@ mod tests {
         let plaintext = build_user_facing_response_metadata(&context).expect("metadata");
         let plaintext = serde_json::to_value(plaintext).expect("serialize metadata");
         let binding = sidecar_binding_from_metadata_plaintext(&plaintext).expect("binding");
-        assert_eq!(
-            binding.role,
-            AgentSidecarExchangeBindingRole::UserFacingResponse
-        );
+        assert_eq!(binding.role, AgentSidecarExchangeRole::UserFacingResponse);
         assert_eq!(binding.exchange_id.as_str(), EXCHANGE_ID);
         assert_eq!(
             binding.request_event_id.as_ref().map(|id| id.as_str()),

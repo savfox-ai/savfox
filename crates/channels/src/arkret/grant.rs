@@ -12,7 +12,8 @@
 //!
 //! 1. Deserialize the JSON into a [`arkret::Event`].
 //! 2. Deserialize `event.payload` into a [`arkret::CapabilityGrant`].
-//! 3. Require production-shaped proofs and validate proof bindings (digest matches content).
+//! 3. Require a production-shaped producer proof and validate proof bindings (digest matches
+//!    content).
 //! 4. Sanity-check subject / realm / effective validity window against expected values.
 //! 5. Return [`ArkretGrant`] holding the event_id + the grant fields.
 
@@ -71,7 +72,7 @@ impl ArkretGrant {
 /// * Event JSON is parseable.
 /// * `event.kind == "ak.capability.grant"`.
 /// * Event payload deserializes into [`CapabilityGrant`].
-/// * Event has at least one production-shaped proof.
+/// * Event has a production-shaped producer proof.
 /// * `event.validate_proof_bindings()` passes (proof digest matches body).
 /// * `grant.subject == expected_subject` (caller's DID).
 /// * If `expected_realm` is provided, the grant's `realm_id` matches.
@@ -98,14 +99,15 @@ pub async fn load_and_verify_grant(
     // Proof binding (digest-content tie). Real cryptographic signature
     // verification (issuer DID document lookup) is still out of scope here,
     // but unsigned or dev-proof grants must not be accepted.
-    if event.proofs.is_empty() {
-        anyhow::bail!("capability grant {}: missing proofs", path.display());
-    }
-    for producer in &event.proofs {
-        producer
-            .validate_production()
-            .map_err(|err| anyhow::anyhow!("grant proof is not production-grade: {err}"))?;
-    }
+    let producer = event.producer_proof.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "capability grant {}: missing producer_proof",
+            path.display()
+        )
+    })?;
+    producer
+        .validate_production()
+        .map_err(|err| anyhow::anyhow!("grant proof is not production-grade: {err}"))?;
     event
         .validate_proof_bindings_with_digest_suite(super::DIGEST_SUITE)
         .map_err(|err| anyhow::anyhow!("grant proof binding invalid: {err}"))?;
@@ -125,15 +127,13 @@ pub async fn load_and_verify_grant(
             grant.issuer_id
         );
     }
-    if !event.proofs.iter().any(|proof| {
-        let Some((controller, _)) = proof.verification_method.as_str().split_once('#') else {
-            return false;
-        };
-        Did::new(controller)
-            .ok()
-            .and_then(|did| project_did_to_core_id(&did).ok())
-            .is_some_and(|core_id| core_id == *grant.issuer_id.signing_principal_id())
-    }) {
+    let producer_controller = producer
+        .verification_method
+        .as_str()
+        .split_once('#')
+        .and_then(|(controller, _)| Did::new(controller).ok())
+        .and_then(|did| project_did_to_core_id(&did).ok());
+    if producer_controller.as_ref() != Some(grant.issuer_id.signing_principal_id()) {
         anyhow::bail!(
             "capability grant {}: no proof verification_method belongs to issuer '{}'",
             path.display(),
@@ -238,7 +238,6 @@ fn capability_subject_did(subject: &CapabilitySubject) -> Option<&str> {
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use arkret::Hash;
     use serde_json::json;
 
     use super::*;
@@ -303,32 +302,28 @@ mod tests {
                 issued_at: DateTime::from_timestamp_millis(0).expect("epoch timestamp"),
             },
         };
-        // Author the envelope through the SDK so `event_id`, `actor_id` and the
-        // canonical digest are derived, never hand-written.
-        let parsed = arkret_wire::test_support::raw_event(
-            "ak.capability.grant",
-            arkret::ScopeRef::Realm { realm_id },
-            issuer_account.principal_id.clone(),
-            issuer_account.station_id.clone(),
-            1,
-            arkret::Hlc::new("000000000000-0000-00000000").expect("hlc"),
-            serde_json::to_value(&payload).expect("grant payload value"),
-        )
-        .expect("grant event");
-        let digest = Hash::new(
-            parsed
-                .event_digest_with_digest_suite(crate::arkret::DIGEST_SUITE)
-                .expect("digest"),
-        )
-        .expect("hash");
-        let mut event = serde_json::to_value(&parsed).expect("grant event value");
-        event["proofs"] = json!([{
-            "kind": "detached_jws",
-            "verification_method": "did:webvh:z6mkadminfixture:admin.example#key-1",
-            "event_digest": digest.as_str(),
+        let intent: arkret::EventIntent = serde_json::from_value(json!({
+            "kind": "ak.capability.grant",
+            "scope_ref": arkret::ScopeRef::Realm { realm_id },
+            "actor_id": arkret::ActorId::account(issuer_account),
             "created_at": "2026-05-27T00:00:00.000Z",
-            "jws": "test.detached.signature"
-        }]);
+            "payload": payload,
+        }))
+        .expect("grant intent");
+        let mut authored = intent
+            .author_with_digest_suite(crate::arkret::DIGEST_SUITE)
+            .expect("grant Event");
+        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(
+            ed25519_dalek::SigningKey::from_bytes(&[67; 32]),
+            "did:webvh:z6mkadminfixture:admin.example#key-1",
+        );
+        arkret::signatures::sign_event(
+            &mut authored,
+            &signer,
+            arkret::signatures::SignEventOptions::new(),
+        )
+        .expect("signed grant");
+        let event = serde_json::to_value(authored.event()).expect("grant Event value");
         event
     }
 
@@ -435,7 +430,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_missing_proofs() {
+    async fn rejects_missing_producer_proof() {
         let path = unique_path("proof");
         let mut ev = make_grant_event(
             "ak:did_core:webvh:z6mksupportfixture",
@@ -443,7 +438,7 @@ mod tests {
             "ak.message.create",
             None,
         );
-        ev["proofs"] = json!([]);
+        ev["producer_proof"] = serde_json::Value::Null;
         tokio::fs::write(
             &path,
             serde_json::to_vec(&ev).expect("grant event should serialize"),
@@ -453,7 +448,7 @@ mod tests {
         let err = load_and_verify_grant(&path, "ak:did_core:webvh:z6mksupportfixture", None)
             .await
             .expect_err("missing proofs should fail");
-        assert!(err.to_string().contains("missing proofs"));
+        assert!(err.to_string().contains("missing producer_proof"));
         let _ = tokio::fs::remove_file(&path).await;
     }
 
@@ -466,7 +461,7 @@ mod tests {
             "ak.message.create",
             None,
         );
-        ev["proofs"][0]["verification_method"] =
+        ev["producer_proof"]["verification_method"] =
             json!("did:webvh:z6mkotheradminfixture:admin.example#key-1");
         tokio::fs::write(
             &path,
