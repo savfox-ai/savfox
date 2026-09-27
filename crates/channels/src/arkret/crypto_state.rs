@@ -1,7 +1,7 @@
 //! Local Arkret crypto state for Savfox channel adapters.
 //!
-//! The SDK owns the protocol objects (`CryptoStoreBinding`, `MemoryCryptoStore`
-//! and `ArkretMlsGroup`). This module gives Savfox a small file-backed wrapper
+//! The SDK owns protocol records and `ArkretMlsGroup`. This module gives
+//! Savfox a file-backed wrapper
 //! so account-mode and applet-mode can persist decryption failures, MLS group
 //! snapshots, recovery plans and realm encryption policy under `SAVFOX_HOME`.
 
@@ -138,31 +138,6 @@ impl MlsWelcomeAdmissionSubject {
     #[must_use]
     pub const fn needs_accepted_leaf_authority(&self) -> bool {
         matches!(self, Self::AppletBot { .. })
-    }
-}
-
-/// Savfox-owned subset of the removed generic Arkret crypto-store binding.
-/// The opaque legacy fields keep existing state files round-trippable.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct CryptoStoreBinding {
-    #[serde(default)]
-    pub device_keys: BTreeMap<String, Value>,
-    #[serde(default)]
-    pub device_trust: BTreeMap<String, Value>,
-    #[serde(default)]
-    pub sessions: BTreeMap<String, Value>,
-    #[serde(default)]
-    pub backup: Option<Value>,
-    #[serde(default)]
-    pub unable_to_decrypt: BTreeMap<EventId, UnableToDecryptRecord>,
-    #[serde(default)]
-    pub lifecycle: Vec<Value>,
-}
-
-impl CryptoStoreBinding {
-    fn record_unable_to_decrypt(&mut self, record: UnableToDecryptRecord) {
-        self.unable_to_decrypt
-            .insert(record.event_id.clone(), record);
     }
 }
 
@@ -333,12 +308,13 @@ pub struct ArkretDirectConversationWelcomeBinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ArkretCryptoStateFile {
     pub version: String,
     pub scope_id: String,
     #[serde(default)]
     pub generation: u64,
-    pub binding: CryptoStoreBinding,
+    pub unable_to_decrypt: BTreeMap<EventId, UnableToDecryptRecord>,
     pub mls_store_json: String,
     #[serde(default)]
     pub mls_identities: BTreeMap<String, ArkretMlsIdentityStateRecord>,
@@ -373,7 +349,7 @@ impl ArkretCryptoStateFile {
             version: STATE_VERSION.to_owned(),
             scope_id,
             generation: 0,
-            binding: CryptoStoreBinding::default(),
+            unable_to_decrypt: BTreeMap::new(),
             mls_store_json: serde_json::to_string(&store)
                 .map_err(|err| anyhow::anyhow!("arkret crypto store export: {err}"))?,
             mls_identities: BTreeMap::new(),
@@ -1182,133 +1158,6 @@ impl FileArkretCryptoStore {
         ))
     }
 
-    /// Read only the retirement inventory from a previous pairing's file.
-    /// Obsolete message and MLS state must never be imported or parsed here.
-    pub fn legacy_revocable_keypackage_refs_for_agent(
-        &self,
-        principal_id: &str,
-    ) -> anyhow::Result<Vec<String>> {
-        let _guard = self.mutation_lock.lock();
-        let Some(document) = self.legacy_retirement_document()? else {
-            return Ok(Vec::new());
-        };
-        let principal = DidCoreId::new(principal_id.to_owned())?;
-        let records = document
-            .get("mls_key_packages")
-            .and_then(Value::as_object)
-            .context("legacy KeyPackage inventory is not an object")?;
-        let mut refs = Vec::new();
-        for record in records.values() {
-            let owner = if let Some(endpoint) = record.get("endpoint") {
-                serde_json::from_value::<MlsEndpointIdentity>(endpoint.clone())?
-                    .actor_id()
-                    .clone()
-            } else {
-                let value = record
-                    .get("principal_id")
-                    .and_then(Value::as_str)
-                    .context("legacy KeyPackage has no owner")?;
-                DidCoreId::new(value.to_owned()).or_else(|_| {
-                    arkret::project_did_to_core_id(&arkret::Did::new(value.to_owned())?)
-                })?
-            };
-            if owner != principal {
-                continue;
-            }
-            let state: MlsKeyPackageState = serde_json::from_value(
-                record
-                    .get("state")
-                    .cloned()
-                    .context("legacy KeyPackage has no state")?,
-            )?;
-            if matches!(
-                state,
-                MlsKeyPackageState::Consumed | MlsKeyPackageState::Revoked
-            ) {
-                continue;
-            }
-            let reference = arkret::Hash::new(
-                record
-                    .get("keypackage_ref")
-                    .and_then(Value::as_str)
-                    .context("legacy KeyPackage has no canonical ref")?
-                    .to_owned(),
-            )?
-            .to_string();
-            if !refs.contains(&reference) {
-                refs.push(reference);
-            }
-        }
-        Ok(refs)
-    }
-
-    fn legacy_retirement_document(&self) -> anyhow::Result<Option<Value>> {
-        let bytes = match std::fs::read(&self.path) {
-            Ok(bytes) if bytes.is_empty() => return Ok(None),
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        let mut document: Value = serde_json::from_slice(&bytes)?;
-        if document.get("version").and_then(Value::as_str) == Some(WRAPPED_STATE_VERSION) {
-            let wrapped = serde_json::from_value(document)?;
-            let mut plaintext = self.decrypt_wrapped_state(&wrapped)?;
-            let decoded = serde_json::from_slice(&plaintext);
-            use zeroize::Zeroize as _;
-            plaintext.zeroize();
-            document = decoded?;
-        }
-        anyhow::ensure!(
-            document.get("version").and_then(Value::as_str) == Some(STATE_VERSION),
-            "unsupported legacy crypto state version"
-        );
-        anyhow::ensure!(
-            document.get("scope_id").and_then(Value::as_str) == Some(self.scope_id.as_str()),
-            "legacy crypto state scope mismatch"
-        );
-        Ok(Some(document))
-    }
-
-    /// Record remote retirement without decoding or discarding unrelated old state.
-    pub fn mark_legacy_keypackage_revoked(&self, keypackage_ref: &str) -> anyhow::Result<()> {
-        let _guard = self.mutation_lock.lock();
-        let Some(mut document) = self.legacy_retirement_document()? else {
-            return Ok(());
-        };
-        let records = document
-            .get_mut("mls_key_packages")
-            .and_then(Value::as_object_mut)
-            .context("legacy KeyPackage inventory is not an object")?;
-        let mut changed = false;
-        for record in records.values_mut() {
-            if record.get("keypackage_ref").and_then(Value::as_str) == Some(keypackage_ref) {
-                record["state"] = serde_json::to_value(MlsKeyPackageState::Revoked)?;
-                changed = true;
-            }
-        }
-        if !changed {
-            return Ok(());
-        }
-        document["generation"] = Value::from(
-            document
-                .get("generation")
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-                .checked_add(1)
-                .context("legacy crypto generation overflow")?,
-        );
-        let mut plaintext = serde_json::to_vec(&document)?;
-        let wrapped = self.encrypt_wrapped_state(&plaintext);
-        use zeroize::Zeroize as _;
-        plaintext.zeroize();
-        savfox_utils::fs::write_atomically(
-            &self.path,
-            &serde_json::to_vec_pretty(&wrapped?)?,
-            Some(0o600),
-        )?;
-        Ok(())
-    }
-
     fn revocable_keypackage_refs_matching(
         state: &ArkretCryptoStateFile,
         principal_id: Option<&DidCoreId>,
@@ -1322,7 +1171,8 @@ impl FileArkretCryptoStore {
             ) {
                 continue;
             }
-            if principal_id.is_some_and(|principal| record.endpoint.actor_id() != principal)
+            if principal_id
+                .is_some_and(|principal| record.actor_id.signing_principal_id() != principal)
                 || device_id.is_some_and(|device| {
                     endpoint_human_device_id(&record.endpoint) != Some(device)
                 })
@@ -2060,7 +1910,9 @@ impl FileArkretCryptoStore {
             encrypted_content,
             first_seen_at: Utc::now(),
         };
-        state.binding.record_unable_to_decrypt(record);
+        state
+            .unable_to_decrypt
+            .insert(record.event_id.clone(), record);
         self.save(&mut state)
     }
 
@@ -2489,6 +2341,11 @@ fn new_human_mls_identity(
 pub fn mls_key_package_record_from_claim(
     claim: &arkret::KeyPackageClaimRecord,
 ) -> anyhow::Result<MlsKeyPackageRecord> {
+    claim.actor_id.validate()?;
+    anyhow::ensure!(
+        claim.actor_id.signing_principal_id() == &claim.principal_id,
+        "KeyPackage claim ActorId does not bind its principal"
+    );
     let endpoint = match (
         &claim.device_id,
         &claim.agent_id,
@@ -2521,6 +2378,7 @@ pub fn mls_key_package_record_from_claim(
     let keypackage_ref = arkret::Hash::new(arkret::canonical::sha256_digest(&keypackage))?;
     Ok(MlsKeyPackageRecord {
         keypackage_id: claim.keypackage_ref.clone(),
+        actor_id: claim.actor_id.clone(),
         endpoint,
         keypackage: claim.keypackage.clone(),
         keypackage_ref,
@@ -3796,7 +3654,15 @@ mod tests {
             )
             .expect("record");
         let state = store.load().expect("load");
-        assert_eq!(state.binding.unable_to_decrypt.len(), 1);
+        assert_eq!(state.unable_to_decrypt.len(), 1);
+        let wire = serde_json::to_value(&state).unwrap();
+        assert!(wire.get("binding").is_none());
+        let reopened = FileArkretCryptoStore::for_account(&home, "c1", "a1");
+        let retained = reopened.load().unwrap();
+        assert_eq!(retained.unable_to_decrypt, state.unable_to_decrypt);
+        let mut obsolete = wire;
+        obsolete["binding"] = serde_json::json!({"device_keys": {}});
+        assert!(serde_json::from_value::<ArkretCryptoStateFile>(obsolete).is_err());
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -4561,7 +4427,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_pool_cleanup_is_limited_to_the_current_agent_binding() {
+    fn pool_cleanup_is_limited_to_the_current_agent_binding() {
         let home = temp_home("kp-revoke-agent-scope");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "legacy");
         let current_principal = "ak:did_core:web:current-agent.example";
@@ -4585,64 +4451,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_retirement_ignores_obsolete_messages_and_preserves_foreign_keys() {
-        let home = temp_home("legacy-retirement-obsolete-events");
-        let store = FileArkretCryptoStore::for_account(&home, "c1", "legacy");
-        let current_ref = format!("sha256:{}", "1".repeat(64));
-        let other_ref = format!("sha256:{}", "2".repeat(64));
-        let document = serde_json::json!({
-            "version": STATE_VERSION,
-            "scope_id": store.scope_id,
-            "binding": {"unable_to_decrypt": {"ak:event:019fa28f-de87-7af2-b744-c2113b294e45": {"obsolete": true}}},
-            "mls_key_packages": {
-                "old-current": {"principal_id": "ak:did_core:web:current-agent.example", "device_id": "obsolete", "keypackage_ref": current_ref, "state": "published", "private_marker": "preserve"},
-                "old-other": {"principal_id": "ak:did_core:web:other-agent.example", "keypackage_ref": other_ref, "state": "published"}
-            }
-        });
-        std::fs::create_dir_all(store.path().parent().unwrap()).unwrap();
-        std::fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
-        assert!(store.load().is_err());
-        assert_eq!(
-            store
-                .legacy_revocable_keypackage_refs_for_agent("ak:did_core:web:current-agent.example")
-                .unwrap(),
-            vec![current_ref.clone()]
-        );
-        store.mark_legacy_keypackage_revoked(&current_ref).unwrap();
-        assert!(
-            store
-                .legacy_revocable_keypackage_refs_for_agent("ak:did_core:web:current-agent.example")
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(
-            store
-                .legacy_revocable_keypackage_refs_for_agent("ak:did_core:web:other-agent.example")
-                .unwrap(),
-            vec![other_ref]
-        );
-        let preserved = store.legacy_retirement_document().unwrap().unwrap();
-        assert_eq!(preserved["binding"], document["binding"]);
-        assert_eq!(
-            preserved["mls_key_packages"]["old-current"]["private_marker"],
-            "preserve"
-        );
-        assert_eq!(
-            preserved["mls_key_packages"]["old-other"],
-            document["mls_key_packages"]["old-other"]
-        );
-        let mut wrong_scope = preserved;
-        wrong_scope["scope_id"] = Value::from("another-account");
-        std::fs::write(store.path(), serde_json::to_vec(&wrong_scope).unwrap()).unwrap();
-        assert!(
-            store
-                .legacy_revocable_keypackage_refs_for_agent("ak:did_core:web:current-agent.example")
-                .is_err()
-        );
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
     fn claimed_key_package_record_can_feed_group_add_member() {
         let home = temp_home("kp-claim-record");
         let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
@@ -4654,6 +4462,7 @@ mod tests {
         let claim = KeyPackageClaimRecord {
             claim_id: "ak:claim:test-claim-record".to_owned(),
             keypackage_ref: "ak:mls:keypackage:test-claim-record".to_owned(),
+            actor_id: bob_key_package.actor_id.clone(),
             principal_id: DidCoreId::new(bob_principal.to_owned()).unwrap(),
             device_id: Some(DeviceId::new(bob_device.to_owned()).unwrap()),
             agent_id: None,
@@ -4675,6 +4484,10 @@ mod tests {
         assert_eq!(claimed.state, MlsKeyPackageState::Claimed);
         assert_eq!(claimed.claim_id.as_deref(), Some(claim.claim_id.as_str()));
         assert_eq!(claimed.keypackage_ref, bob_key_package.keypackage_ref);
+        assert_eq!(claimed.actor_id, claim.actor_id);
+        let mut wrong_principal = claim.clone();
+        wrong_principal.principal_id = DidCoreId::new("ak:did_core:web:other.example").unwrap();
+        assert!(mls_key_package_record_from_claim(&wrong_principal).is_err());
 
         let alice = new_human_mls_identity(
             DidCoreId::new("ak:did_core:webvh:z6mkfixturealice".to_owned()).unwrap(),

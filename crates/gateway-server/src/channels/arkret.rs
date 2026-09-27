@@ -605,7 +605,6 @@ async fn run_account_listener(
     runtime::record_channel_probe("arkret", "ok").await;
     if let Err(err) = run_account_key_lifecycle_maintenance(
         &client,
-        &savfox_home,
         &channel,
         &account,
         &account_store,
@@ -617,7 +616,7 @@ async fn run_account_listener(
         record_listener_failure(
             &channel,
             &account,
-            "key_lifecycle_migration_error",
+            "key_lifecycle_error",
             format!("{err:#}"),
         );
         warn!(
@@ -1417,16 +1416,12 @@ fn account_subscription_service_id(
 
 async fn run_account_key_lifecycle_maintenance(
     client: &ArkretHttpClient,
-    savfox_home: &Path,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     reason: &'static str,
 ) -> anyhow::Result<()> {
-    retire_legacy_account_keypackages(client, savfox_home, channel, account)
-        .await
-        .context("retire the legacy KeyPackage pool")?;
     publish_account_mls_key_packages(client, channel, account, crypto_store).await;
     drain_account_device_messages(
         client,
@@ -1806,40 +1801,6 @@ pub(crate) async fn revoke_account_mls_key_packages(
     .await
 }
 
-/// Retire claimable KeyPackages left in the pre-pairing-scoped crypto file.
-///
-/// The account id for a flat Agent binding used to equal the channel id.  The
-/// pairing-scoped id deliberately changes when that binding is replaced so
-/// cursors, Realm policies and MLS group state cannot leak into the new Agent.
-/// KeyPackages published before that migration are still claimable remotely,
-/// though, and their private init keys remain only in the legacy file.  Revoke
-/// just the exact current principal/device rows before publishing the new pool;
-/// never import the legacy Realm or cursor state.
-async fn retire_legacy_account_keypackages(
-    client: &ArkretHttpClient,
-    savfox_home: &Path,
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-) -> anyhow::Result<Option<usize>> {
-    if account.id == channel.id {
-        return Ok(None);
-    }
-    let legacy_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &channel.id);
-    let refs = legacy_store
-        .legacy_revocable_keypackage_refs_for_agent(&account.principal_id)
-        .context("enumerate current Agent KeyPackages in legacy crypto scope")?;
-    revoke_account_mls_key_package_refs(
-        client,
-        channel,
-        account,
-        &legacy_store,
-        refs,
-        "pairing-scoped storage migration",
-        true,
-    )
-    .await
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn revoke_account_mls_key_package_refs(
     client: &ArkretHttpClient,
@@ -1909,13 +1870,9 @@ async fn revoke_account_mls_key_package_refs(
         );
     }
     for keypackage_ref in &key_package_refs {
-        let marked = if accept_terminally_unclaimable {
-            crypto_store.mark_legacy_keypackage_revoked(keypackage_ref)
-        } else {
-            crypto_store
-                .mark_mls_key_package_revoked(keypackage_ref)
-                .map(|_| ())
-        };
+        let marked = crypto_store
+            .mark_mls_key_package_revoked(keypackage_ref)
+            .map(|_| ());
         if let Err(err) = marked {
             warn!(
                 channel_id = %channel.id,
