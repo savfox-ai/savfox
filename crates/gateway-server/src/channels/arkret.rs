@@ -2129,19 +2129,42 @@ async fn drain_account_device_messages_from_cursor(
             }
         };
 
-        for message in &outcome.messages {
-            let content = serde_json::to_value(&message.content).unwrap_or(Value::Null);
-            refresh_account_mls_from_welcome_hint(
-                client,
-                crypto_store,
-                &content,
-                channel,
-                account,
-                "device_messages",
-            )
-            .await;
+        for delivery in &outcome.deliveries {
+            match delivery {
+                arkret::RecipientDelivery::DeviceMessage { device_message } => {
+                    let content =
+                        serde_json::to_value(&device_message.content).unwrap_or(Value::Null);
+                    refresh_account_mls_from_welcome_hint(
+                        client,
+                        crypto_store,
+                        &content,
+                        channel,
+                        account,
+                        "device_messages",
+                    )
+                    .await;
+                }
+                arkret::RecipientDelivery::MlsWelcome { mls_welcome } => {
+                    if let Err(error) = mls_welcome.validate_shape() {
+                        warn!(
+                            channel_id = %channel.id,
+                            account_id = %account.id,
+                            reason,
+                            "arkret: invalid MLS Welcome delivery; preserving the queue: {error}"
+                        );
+                    } else {
+                        warn!(
+                            channel_id = %channel.id,
+                            account_id = %account.id,
+                            reason,
+                            "arkret: MLS Welcome delivery requires accepted-Commit admission; preserving the queue"
+                        );
+                    }
+                    return;
+                }
+            }
         }
-        if outcome.lost {
+        if outcome.lost == Some(true) {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
@@ -2169,7 +2192,7 @@ async fn drain_account_device_messages_from_cursor(
             }
             return;
         }
-        if !outcome.messages.is_empty() && outcome.ack_token.is_none() {
+        if !outcome.deliveries.is_empty() && outcome.ack_token.is_none() {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
@@ -2206,7 +2229,7 @@ async fn drain_account_device_messages_from_cursor(
             }
             cursor = Some(next_cursor);
         }
-        if outcome.limited {
+        if outcome.limited == Some(true) {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
