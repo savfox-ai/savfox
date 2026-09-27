@@ -71,11 +71,9 @@ pub struct ArkretInboundSkippedEvent {
     /// `encrypted_content`); its plaintext may hold the Sidecar exchange
     /// binding (`message_metadata.sidecar_exchange_binding`).
     pub encrypted_metadata_payload: Option<arkret::EncryptedPayload>,
-    /// Canonical-request ordering keys read from the Event envelope
-    /// (`zh/models/sidecar.md` §7.2.1: smallest `actor_seq`, then
-    /// bytewise-maximum `event_digest`). Present whenever the envelope parsed;
-    /// absent for malformed events and Notification projections, which can
-    /// therefore never admit a Sidecar request.
+    /// Sidecar request ordering is unavailable until the request is tied to a
+    /// verified accepted Sidecar commit cut. A raw Event cannot supply it.
+    /// Such requests stay unadmitted instead of inheriting a fabricated order.
     pub request_ordering: Option<SidecarRequestOrdering>,
     pub reason: ArkretInboundSkipReason,
 }
@@ -560,20 +558,6 @@ fn skip_event(
     }))
 }
 
-/// Read the §7.2.1 canonical-request ordering keys off an Event envelope.
-///
-/// The digest is recomputed from the envelope rather than read from any
-/// payload field, so a producer cannot bias the sibling tie-break. A digest
-/// that cannot be computed yields `None`, which makes the request unadmittable.
-fn request_ordering_from_event(event: &arkret::Event) -> Option<SidecarRequestOrdering> {
-    Some(SidecarRequestOrdering {
-        actor_seq: event.actor_seq,
-        event_digest: event
-            .event_digest_with_digest_suite(super::DIGEST_SUITE)
-            .ok()?,
-    })
-}
-
 /// `ak.agent.sidecar.exchange.control` carries only private-Strand routing and
 /// ciphertext on the wire (§7.2.3). Surface both so the gateway can decrypt and
 /// fold it; the plaintext never reaches the agent pipeline.
@@ -611,7 +595,7 @@ fn classify_sidecar_exchange_control(
         reply_to: None,
         encrypted_payload,
         encrypted_metadata_payload: None,
-        request_ordering: request_ordering_from_event(event),
+        request_ordering: None,
         reason: ArkretInboundSkipReason::SidecarExchangeControl,
     }))
 }
@@ -633,7 +617,7 @@ fn skip_sdk_event(
         reply_to: None,
         encrypted_payload: None,
         encrypted_metadata_payload: None,
-        request_ordering: request_ordering_from_event(event),
+        request_ordering: None,
         reason,
     }))
 }
@@ -679,7 +663,7 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
         reply_to: message.and_then(|payload| payload.reply_to_id),
         encrypted_payload: extract_encrypted_payload_from_message_content(event),
         encrypted_metadata_payload: extract_encrypted_metadata_payload_from_message_content(event),
-        request_ordering: request_ordering_from_event(event),
+        request_ordering: None,
         reason: ArkretInboundSkipReason::EncryptedContent,
     }))
 }
