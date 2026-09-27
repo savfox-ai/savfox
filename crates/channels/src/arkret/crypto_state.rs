@@ -1964,43 +1964,9 @@ impl FileArkretCryptoStore {
             .ok_or_else(|| anyhow::anyhow!("Arkret MLS admission did not produce group state"))?;
         let mut group = ArkretMlsGroup::restore_from_state_record(&record)
             .map_err(|err| anyhow::anyhow!("restore Arkret MLS group: {err}"))?;
-        let plaintext = match payload.scheme {
-            EncryptedPayloadScheme::MlsRfc9420 => group
-                .decrypt_payload(payload)
-                .map_err(|err| anyhow::anyhow!("decrypt Arkret MLS payload: {err}"))?,
-            EncryptedPayloadScheme::MlsExporterAeadV1 => {
-                payload.verify_payload_digest()?;
-                anyhow::ensure!(
-                    payload.epoch == group.epoch(),
-                    "exporter epoch is not available locally"
-                );
-                let header = &payload.pre_encryption_header;
-                let realm_id = header
-                    .effective_scope
-                    .realm_id_opt()
-                    .context("exporter payload has no Realm scope")?;
-                anyhow::ensure!(
-                    group_state_ref_for_epoch(&state, &payload.group_id, payload.epoch).as_deref()
-                        == Some(header.group_state_ref.as_str()),
-                    "exporter payload does not name the admitted group transition"
-                );
-                let binding = group
-                    .current_governance_binding()?
-                    .context("exporter group has no governance binding")?;
-                anyhow::ensure!(
-                    binding.content_scheme() == arkret::ContentScheme::MlsExporterAeadV1,
-                    "exporter payload differs from the group's content scheme"
-                );
-                let secret = group.derive_and_retain_history_secret(realm_id.as_str())?;
-                let ciphertext = arkret::base64url_decode(payload.ciphertext.as_bytes())?;
-                group.decrypt_content_exporter_aead(
-                    &secret,
-                    header.sender_domain.as_bytes(),
-                    header,
-                    &ciphertext,
-                )?
-            }
-        };
+        let plaintext = group
+            .decrypt_payload(payload)
+            .map_err(|err| anyhow::anyhow!("decrypt Arkret MLS payload: {err}"))?;
         let content = serde_json::from_slice(&plaintext)
             .with_context(|| "decrypted Arkret content block is not JSON")?;
         let updated = group
@@ -2095,37 +2061,22 @@ impl FileArkretCryptoStore {
         let sender_domain = group
             .local_content_sender_domain()
             .map_err(|err| anyhow::anyhow!("resolve Arkret MLS sender domain: {err}"))?;
-        let scheme = match group
-            .current_governance_binding()?
-            .map(|binding| binding.content_scheme())
-        {
-            Some(arkret::ContentScheme::MlsExporterAeadV1) => {
-                EncryptedPayloadScheme::MlsExporterAeadV1
-            }
-            _ => EncryptedPayloadScheme::MlsRfc9420,
-        };
         let header = EventContentPreEncryptionHeader::reconstruct(
             "1.0",
             T::MLS_CONTENT_TYPE,
-            scheme.clone(),
+            EncryptedPayloadScheme::MlsRfc9420,
             effective_scope,
             "ak.message.create",
             record.epoch,
             group_state_ref.clone(),
             sender_domain,
-            (scheme == EncryptedPayloadScheme::MlsExporterAeadV1)
-                .then(|| group.next_content_counter()),
             EventContentRoutingContext::None,
         )
         .map_err(|err| anyhow::anyhow!("build Arkret pre-encryption header: {err}"))?;
         let plaintext = serde_json::to_vec(plaintext_value)?;
-        let payload = match scheme {
-            EncryptedPayloadScheme::MlsRfc9420 => group.encrypt_payload(header, &plaintext),
-            EncryptedPayloadScheme::MlsExporterAeadV1 => {
-                group.encrypt_payload_exporter_aead(realm_id, header, &plaintext)
-            }
-        }
-        .map_err(|err| anyhow::anyhow!("encrypt Arkret MLS payload: {err}"))?;
+        let payload = group
+            .encrypt_payload(header, &plaintext)
+            .map_err(|err| anyhow::anyhow!("encrypt Arkret MLS payload: {err}"))?;
         let envelope = arkret::mls::encrypted_envelope_from_payload(&payload)
             .map_err(|err| anyhow::anyhow!("build Arkret encrypted envelope: {err}"))?;
         let envelope = MlsEncryptedPayload::<T>::new(envelope)
@@ -2435,21 +2386,16 @@ pub(crate) fn encrypted_payload_for_event(
     event: &arkret::Event,
     envelope: &arkret::EncryptedEnvelope,
 ) -> Option<EncryptedPayload> {
-    let scheme = if envelope.encryption_context.counter().is_some() {
-        EncryptedPayloadScheme::MlsExporterAeadV1
-    } else {
-        EncryptedPayloadScheme::MlsRfc9420
-    };
-    let sender_domain = event.proofs.iter().find_map(|producer| {
-        producer
-            .verification_method
-            .as_str()
-            .rsplit_once('#')
-            .map(|(_, fragment)| fragment.to_owned())
-    })?;
+    let sender_domain = event
+        .producer_proof
+        .as_ref()?
+        .verification_method
+        .as_str()
+        .rsplit_once('#')?
+        .1;
     let header = envelope
         .reconstruct_pre_encryption_header(
-            scheme,
+            EncryptedPayloadScheme::MlsRfc9420,
             event.scope_ref.clone(),
             event.kind.as_str(),
             sender_domain,
@@ -3828,137 +3774,6 @@ mod tests {
             policy.group_id_for_realm(),
             URL_SAFE_NO_PAD.encode(realm_id.as_bytes())
         );
-    }
-
-    #[test]
-    fn exporter_reply_preserves_counter_after_restart() {
-        let home = temp_home("exporter-welcome");
-        let realm = "ak:realm:AXGA0fM2a_L3afx2ffIvrX5YVKbExabYEkxTUwvKu9HR";
-        let transition =
-            EventId::new("ak:event:AZL87nwhLc8pnnvIhrfEQSfNkZvdPzaV3rFGVoJCQWW6").unwrap();
-        let genesis = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
-        let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
-        let bob_package = bob_store
-            .ensure_mls_key_package(
-                &test_account("ak:did_core:web:bob.example"),
-                "ak:device:01904100-0000-7000-8000-00000000000e",
-            )
-            .unwrap();
-        let binding = |previous, next| {
-            arkret::MlsGovernanceBindingPayload::realm(
-                RealmId::new(realm).unwrap(),
-                previous,
-                next,
-                Hash::new(format!("sha256:{}", "c".repeat(64))).unwrap(),
-                arkret::ContentScheme::MlsExporterAeadV1,
-                Some(arkret::DurabilityPolicy::None),
-                arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
-                "arkret.reducer.v1",
-            )
-            .unwrap()
-        };
-        let alice = new_human_mls_identity(
-            DidCoreId::new("ak:did_core:web:alice.example").unwrap(),
-            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
-        )
-        .unwrap();
-        let mut group = alice
-            .create_group_with_governance_binding(realm.as_bytes(), &binding(0, 0))
-            .unwrap();
-        let add = group
-            .add_member_with_governance_binding(&bob_package, &binding(0, 1))
-            .unwrap();
-        let payload = test_welcome_payload(
-            &bob_package,
-            &add.welcome,
-            realm,
-            transition.as_str(),
-            Some(binding(0, 1)),
-        );
-        let endpoints = vec![
-            MlsEndpointIdentity::human_device(
-                DidCoreId::new("ak:did_core:web:alice.example").unwrap(),
-                DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap(),
-            ),
-            bob_package.endpoint.clone(),
-        ];
-        let bindings = fixture_leaf_bindings(&group, &endpoints, genesis);
-        persist_test_accepted_welcome(&bob_store, &payload, genesis, bindings.clone());
-        group.install_verified_leaf_bindings(bindings).unwrap();
-        let mut state = bob_store.load().unwrap();
-        let identity = restore_mls_identity(state.mls_identities.values().next().unwrap()).unwrap();
-        let mut joined = ArkretMlsGroup::join_from_welcome(identity, &add.welcome).unwrap();
-        joined
-            .install_verified_leaf_bindings(group.verified_leaf_bindings().unwrap())
-            .unwrap();
-        let mut memory = state.mls_store().unwrap();
-        joined.persist_state(&mut memory).unwrap();
-        state.set_mls_store(&memory).unwrap();
-        let bootstrap = state.bootstrap.get_mut(&group.group_id()).unwrap();
-        bootstrap.local_epoch = Some(1);
-        bootstrap.group_state_ref = Some(transition.to_string());
-        bob_store.save(&mut state).unwrap();
-        let header = EventContentPreEncryptionHeader::reconstruct(
-            "1.0",
-            CONTENT_BLOCK_JSON,
-            EncryptedPayloadScheme::MlsExporterAeadV1,
-            ScopeRef::Realm {
-                realm_id: RealmId::new(realm).unwrap(),
-            },
-            "ak.message.create",
-            1,
-            transition.clone(),
-            group.local_content_sender_domain().unwrap(),
-            Some(group.next_content_counter()),
-            EventContentRoutingContext::None,
-        )
-        .unwrap();
-        let content = json!({"kind":"ak.content.text","body":"hello"});
-        let payload = group
-            .encrypt_payload_exporter_aead(realm, header, &serde_json::to_vec(&content).unwrap())
-            .unwrap();
-        assert!(
-            matches!(bob_store.try_decrypt_content_block_detailed(&payload).unwrap(), ArkretDecryptDetailedOutcome::Decrypted{content:actual,..} if actual == content)
-        );
-        let mut tampered = payload.clone();
-        tampered.pre_encryption_header.group_state_ref = EventId::new(genesis).unwrap();
-        assert!(
-            bob_store
-                .try_decrypt_content_block_detailed(&tampered)
-                .is_err()
-        );
-        bob_store
-            .upsert_realm_policy(ArkretRealmCryptoPolicy {
-                realm_id: realm.to_owned(),
-                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
-                encryption_profile: Some("mls_rfc9420".to_owned()),
-                mls_group_id: Some(group.group_id()),
-                source: "test".to_owned(),
-                updated_at: Utc::now(),
-            })
-            .unwrap();
-        let ArkretEncryptOutcome::Encrypted(first) = bob_store
-            .encrypt_content_block_for_realm(realm, &content)
-            .unwrap()
-        else {
-            panic!("encrypted reply required")
-        };
-        let first = first.into_envelope();
-        let restarted = FileArkretCryptoStore::for_account(&home, "c1", "bob");
-        let ArkretEncryptOutcome::Encrypted(second) = restarted
-            .encrypt_content_block_for_realm(realm, &content)
-            .unwrap()
-        else {
-            panic!("encrypted reply required")
-        };
-        assert_eq!(
-            second.into_envelope().encryption_context.counter(),
-            first
-                .encryption_context
-                .counter()
-                .map(|counter| counter + 1)
-        );
-        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
