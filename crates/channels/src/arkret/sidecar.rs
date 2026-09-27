@@ -22,10 +22,6 @@ use serde_json::Value;
 use super::account_store::safe_file_stem;
 use super::crypto_state::account_scope_id;
 
-/// Event `refs[].role` used to causally order exchange Events after the
-/// request Event (`zh/models/sidecar.md` §7.2.1 items 2–3).
-pub const EVENT_REF_ROLE_AFTER: &str = "after";
-
 /// Verified exchange identity carried from the inbound request Event to the
 /// reply pipeline. Exchange/request identity originates from the accepted
 /// request Event; the optional assignment id is present only when the same

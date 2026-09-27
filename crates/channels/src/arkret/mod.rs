@@ -46,7 +46,6 @@ pub use crypto_state::UnableToDecryptReason;
 
 pub(crate) const DIGEST_SUITE: arkret::canonical::DigestSuite =
     arkret::canonical::DigestSuite::Sha256;
-pub use arkret_wire::EventInitialSubmission;
 pub use client::{
     ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretHttpClient, SavfoxArkretClientCore,
     SavfoxDurableArkretClientCore, agent_session_exchange_reason,
@@ -79,15 +78,14 @@ pub use inbound_adapter::{
     parse_notification_delta_for_account, should_dispatch_event,
 };
 pub use outbound::{
-    MessageCreateRequest, apply_ordinary_event_authority, build_message_create_event,
-    finalize_outbound_event, sign_outbound_event,
+    MessageCreateRequest, build_message_create_event, finalize_outbound_event, sign_outbound_event,
+    sign_outbound_event_with_key,
 };
 pub use session::ArkretSession;
 pub use sidecar::{
-    EVENT_REF_ROLE_AFTER, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
-    SidecarRequestGate, SidecarRequestOrdering, SidecarTerminalAdmission,
-    build_user_facing_response_metadata, encode_sidecar_reply_target,
-    gate_inbound_exchange_control, gate_inbound_request_binding,
+    SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore, SidecarRequestGate,
+    SidecarRequestOrdering, SidecarTerminalAdmission, build_user_facing_response_metadata,
+    encode_sidecar_reply_target, gate_inbound_exchange_control, gate_inbound_request_binding,
     sidecar_binding_from_metadata_plaintext, split_sidecar_reply_target,
 };
 pub use signer::{

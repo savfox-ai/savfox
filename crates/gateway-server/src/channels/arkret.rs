@@ -38,10 +38,9 @@ use savfox_channels::arkret::{
     ArkretMlsWelcomeConsumeBinding, EventInitialSubmission, FileArkretCryptoStore,
     MessageCreateRequest, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
     SidecarRequestGate, SidecarTerminalAdmission, UnableToDecryptReason, account_allows_event_read,
-    apply_ordinary_event_authority, build_message_create_event,
-    build_user_facing_response_metadata, device_messages_scope, encode_sidecar_reply_target,
-    gate_inbound_exchange_control, gate_inbound_request_binding, open_account_store,
-    parse_delta_frame_for_account, resolve_arkret_outbound_account_for_binding,
+    build_message_create_event, build_user_facing_response_metadata, device_messages_scope,
+    encode_sidecar_reply_target, gate_inbound_exchange_control, gate_inbound_request_binding,
+    open_account_store, parse_delta_frame_for_account, resolve_arkret_outbound_account_for_binding,
     sidecar_binding_from_metadata_plaintext, sign_keypackages_consume_request,
     sign_keypackages_revoke_request, sign_keypackages_upload_request,
 };
@@ -4524,7 +4523,8 @@ pub(crate) async fn send_to_arkret_account(
         account.authorized_event_ref.is_some(),
         "Arkret runtime has no locally verified active key authorization"
     );
-    let client = ArkretHttpClient::publication(&channel.base_url)?;
+    let provider = construct_account_provider(savfox_home, &channel, &account).await?;
+    let client = ArkretHttpClient::from_inner(provider.provide().await?);
     let outbound_store = open_account_store(
         savfox_home,
         &channel.id,
@@ -4550,27 +4550,14 @@ pub(crate) async fn send_to_arkret_account(
         })?;
     let actor_seq = actor_chain_head.next_seq;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
-    let direct_conversation_binding = if crypto_store.realm_is_direct_conversation(realm_id)? {
-        Some(
-            crypto_store
-                .direct_conversation_binding_event_ref(realm_id)?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "direct_conversation_binding_unavailable: no verified participant binding for Realm {realm_id}"
-                    )
-                })?,
-        )
-    } else {
-        None
-    };
     let request = MessageCreateRequest {
-        realm_id: realm_id.to_owned(),
+        scope_ref: arkret::ScopeRef::Realm {
+            realm_id: realm_id_typed.clone(),
+        },
         strand_id,
         body: body.to_owned(),
         actor_account_id: account.actor_account_id.clone(),
-        actor_seq,
         thread_root_id: None,
-        direct_conversation_binding,
         sidecar_exchange: sidecar_exchange.cloned(),
     };
     let mut event = build_message_create_event(&request)?;
@@ -4599,22 +4586,10 @@ pub(crate) async fn send_to_arkret_account(
                 .context("persisted Arkret actor chain contains an invalid Event id")?,
         );
     }
-    let authority_refs = crypto_store
-        .realm_authority_refs(realm_id)?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "frontier_unavailable: no locally verified Realm authority decision is cached"
-            )
-        })?;
     let signing_verification_method = account
         .verification_method
         .clone()
         .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
-    apply_ordinary_event_authority(
-        &mut event,
-        authority_refs.clone(),
-        DidCoreId::new(account.principal_id.clone())?,
-    )?;
     apply_account_outbound_encryption(
         &crypto_store,
         realm_id,
@@ -4627,16 +4602,10 @@ pub(crate) async fn send_to_arkret_account(
 
     // Phase 8 (T8.C): sign with the account's ed25519 key when key_ref is set.
     if let Some(key_ref) = &account.key_ref {
-        let signer = savfox_channels::arkret::load_ed25519_signer(
-            key_ref,
-            &account.principal_id,
-            &signing_verification_method,
-        )?;
-        savfox_channels::arkret::sign_outbound_event(
+        savfox_channels::arkret::sign_outbound_event_with_key(
             &mut event,
-            &signer,
+            key_ref,
             &signing_verification_method,
-            signer_evidence_ref.clone(),
         )?;
     }
     let prepared_event = PreparedStandardEvent::from(
@@ -5586,7 +5555,10 @@ mod tests {
     }
 
     fn realm_id() -> arkret::RealmId {
-        arkret::RealmId::new("ak:realm:01904100-0000-8000-8000-000000000001").unwrap()
+        arkret::RealmId::from_event_id(&arkret::EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [1; 32],
+        ))
     }
 
     /// A Sidecar exchange reply must never mount the binding outside
@@ -5603,23 +5575,32 @@ mod tests {
         let crypto_store = FileArkretCryptoStore::for_account(&home, "c1", "support");
         let context = SidecarExchangeContext {
             exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
-            request_event_id: "ak:event:01904100-0000-8000-8000-000000000031".to_owned(),
+            request_event_id: arkret::EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [0x31; 32],
+            )
+            .to_string(),
             coordinator_assignment_event_id: None,
         };
         let request = MessageCreateRequest {
-            realm_id: realm_id().to_string(),
-            strand_id: "ak:strand:01904100-0000-8000-8000-000000000011".to_owned(),
+            scope_ref: arkret::ScopeRef::Sidecar {
+                realm_id: realm_id(),
+                sidecar_id: arkret::SidecarId::from_event_id(&arkret::EventId::from_digest(
+                    arkret::canonical::DigestSuite::Sha256,
+                    [0x51; 32],
+                )),
+            },
+            strand_id: arkret::StrandId::from_event_id(&arkret::EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [0x11; 32],
+            ))
+            .to_string(),
             body: "final user-visible reply".to_owned(),
             actor_account_id: arkret::AccountId::new(
                 arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:agent.example").unwrap(),
                 arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:station.example").unwrap(),
             ),
-            actor_seq: 1,
             thread_root_id: None,
-            direct_conversation_binding: Some(arkret::EventId::from_digest(
-                arkret::canonical::DigestSuite::Sha256,
-                [0x44; 32],
-            )),
             sidecar_exchange: Some(context.clone()),
         };
         let mut event = build_message_create_event(&request).expect("build");

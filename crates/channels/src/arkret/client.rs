@@ -16,14 +16,14 @@ use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use arkret::sync::{AccountSubscribeFrame, SyncRequestBody};
 use arkret::{
     AgentSessionGrantRefreshRequest, AgentSessionRefreshProof, AgentSessionRefreshProofContext,
-    Base64UrlString, DeviceId, DidCoreId, DidUrl, EventsSubmitOutcome, KeyOperationSignature,
-    KeyPackagesClaimOutcome, KeyPackagesClaimRequestBody, KeyPackagesClaimServiceBinding,
-    MlsWelcomeClaimEnvelope, NonEmptyString, PeerKeyPackageClaimPurpose,
-    PeerKeyPackageClaimReceipt, PeerKeyPackageRequesterAuthorization, PreparedStandardEvent,
-    RealmId, ServiceDescribe, SessionGrantDpopBindingProof, SessionGrantRefreshRequestBody,
-    StrandId, UnsignedAgentSessionGrantRequest, UnsignedAgentSessionRefreshProof,
+    AuthoredEvent, AuthoritySubmitOutcome, AuthoritySubmitRequest, Base64UrlString, DeviceId,
+    DidCoreId, DidUrl, EventAdmissionSubmission, KeyOperationSignature, KeyPackagesClaimOutcome,
+    KeyPackagesClaimRequestBody, KeyPackagesClaimServiceBinding, MlsWelcomeClaimEnvelope,
+    NonEmptyString, PeerKeyPackageClaimPurpose, PeerKeyPackageClaimReceipt,
+    PeerKeyPackageRequesterAuthorization, RealmId, ServiceDescribe, SessionGrantDpopBindingProof,
+    SessionGrantRefreshRequestBody, StrandId, UnsignedAgentSessionGrantRequest,
+    UnsignedAgentSessionRefreshProof,
 };
-use arkret_wire::EventInitialSubmission;
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::Stream;
@@ -348,18 +348,6 @@ impl ArkretHttpClient {
         Self { inner }
     }
 
-    /// Build a client for proof-authenticated Event publication. The Event's
-    /// producer proof carries admission evidence, so this transport does not
-    /// require a session grant.
-    pub fn publication(base_url: &str) -> anyhow::Result<Self> {
-        let url =
-            Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
-        let inner = ClientBuilder::new(url)
-            .build()
-            .map_err(|err| anyhow::anyhow!("failed to build Arkret publication client: {err}"))?;
-        Ok(Self::from_inner(inner))
-    }
-
     #[must_use]
     pub fn client_core(&self) -> SavfoxArkretClientCore {
         ArkretClient::new(NativeExecutor, MemoryStore::new(), MemoryStore::new())
@@ -644,50 +632,40 @@ impl ArkretHttpClient {
         )))
     }
 
-    /// Build the initial-publication wrapper for an exact signed Event.
-    pub fn prepare_initial_submission(
+    /// Freeze an exact signed producer Event for current authority admission.
+    pub fn prepare_submission(
         &self,
-        event: &PreparedStandardEvent,
-    ) -> anyhow::Result<EventInitialSubmission> {
-        let submission = EventInitialSubmission::online(event.event().clone());
-        submission
-            .validate_structural(super::DIGEST_SUITE)
-            .map_err(|error| anyhow::anyhow!("invalid Arkret initial submission: {error}"))?;
+        event: &AuthoredEvent,
+    ) -> anyhow::Result<EventAdmissionSubmission> {
+        event.verify_identity()?;
+        event.verify_producer_proof_self_consistency(event.digest_suite())?;
+        let submission = EventAdmissionSubmission::new(event.event().clone());
+        submission.validate()?;
         Ok(submission)
     }
 
-    /// Build the session-free wrapper for one ordinary producer-authenticated Event.
-    pub fn prepare_proof_authenticated_publication(
+    /// Submit over the authenticated self surface and require exact Commit
+    /// coverage of this Event and its security-scope stream.
+    pub async fn submit_submission(
         &self,
-        event: &PreparedStandardEvent,
-    ) -> anyhow::Result<arkret_wire::ProofAuthenticatedPublication> {
-        let submission = self.prepare_initial_submission(event)?;
-        arkret_wire::ProofAuthenticatedPublication::new(submission, super::DIGEST_SUITE)
-            .map_err(anyhow::Error::from)
-    }
-
-    /// Submit one validated initial-publication wrapper.
-    pub async fn submit_initial(
-        &self,
-        submission: &EventInitialSubmission,
-    ) -> anyhow::Result<EventsSubmitOutcome> {
-        submission
-            .validate_structural(super::DIGEST_SUITE)
-            .map_err(|error| anyhow::anyhow!("invalid Arkret initial submission: {error}"))?;
-        self.inner
-            .events_submit(submission)
+        submission: &EventAdmissionSubmission,
+    ) -> anyhow::Result<AuthoritySubmitOutcome> {
+        submission.validate()?;
+        let outcome = self
+            .inner
+            .submit_event(submission)
             .await
-            .map_err(|err| anyhow::anyhow!(err.to_string()))
+            .map_err(anyhow::Error::from)?;
+        outcome.validate_for_request(&AuthoritySubmitRequest::Event(submission.clone()))?;
+        Ok(outcome)
     }
 
-    /// Prepare and submit one signed Event through the installed publication
-    /// evidence provider.
     pub async fn submit_event(
         &self,
-        event: &PreparedStandardEvent,
-    ) -> anyhow::Result<EventsSubmitOutcome> {
-        let submission = self.prepare_initial_submission(event)?;
-        self.submit_initial(&submission).await
+        event: &AuthoredEvent,
+    ) -> anyhow::Result<AuthoritySubmitOutcome> {
+        let submission = self.prepare_submission(event)?;
+        self.submit_submission(&submission).await
     }
 
     pub async fn keypackages_claim(
