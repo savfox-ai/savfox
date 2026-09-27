@@ -685,7 +685,6 @@ impl FileArkretCryptoStore {
     /// safely advertise encrypted v1 presence.
     pub fn presence_ready_realm_ids(&self) -> anyhow::Result<Vec<String>> {
         let state = self.load()?;
-        let store = state.mls_store()?;
         let mut realms = Vec::new();
         for policy in state
             .realm_policies
@@ -693,7 +692,7 @@ impl FileArkretCryptoStore {
             .filter(|policy| policy.requires_e2ee())
         {
             let group_id = policy.group_id_for_realm()?;
-            let Some(record) = store.mls_group_state(&group_id) else {
+            let Some(record) = state.mls_group_states.get(&group_id) else {
                 continue;
             };
             if group_state_ref_for_epoch(&state, &group_id, record.epoch).is_some() {
@@ -740,10 +739,10 @@ impl FileArkretCryptoStore {
             .filter(|policy| policy.requires_e2ee())
             .cloned()
             .with_context(|| format!("Realm '{realm_id}' has no E2EE Signal policy"))?;
-        let mut store = state.mls_store()?;
         let group_id = policy.group_id_for_realm()?;
-        let record = store
-            .mls_group_state(&group_id)
+        let record = state
+            .mls_group_states
+            .get(&group_id)
             .cloned()
             .with_context(|| format!("Realm '{realm_id}' has no accepted MLS group state"))?;
         let group_state_ref = group_state_ref_for_epoch(&state, &group_id, record.epoch)
@@ -808,9 +807,8 @@ impl FileArkretCryptoStore {
             .map_err(|error| anyhow::anyhow!("seal Arkret presence Signal: {error}"))?;
 
         let updated = group
-            .persist_state(&mut store)
+            .persist_state(&mut state)
             .map_err(|error| anyhow::anyhow!("persist post-Signal MLS group: {error}"))?;
-        state.set_mls_store(&store)?;
         let next_sequence = payload_sequence
             .checked_add(1)
             .context("Arkret presence payload sequence exhausted")?;
