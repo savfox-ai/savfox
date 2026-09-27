@@ -5,7 +5,6 @@
 //! so account-mode and applet-mode can persist decryption failures, MLS group
 //! snapshots, recovery plans and realm encryption policy under `SAVFOX_HOME`.
 
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -175,14 +174,18 @@ impl ArkretRealmCryptoPolicy {
     }
 
     #[must_use]
-    pub fn group_id_for_realm(&self) -> Cow<'_, str> {
-        if let Some(group_id) = self.mls_group_id.as_deref() {
-            return Cow::Borrowed(group_id);
-        }
-        if self.source == "account_subscribe_direct_conversation" {
-            return Cow::Owned(URL_SAFE_NO_PAD.encode(self.realm_id.trim().as_bytes()));
-        }
-        Cow::Borrowed(self.realm_id.as_str())
+    pub fn group_id_for_realm(&self) -> anyhow::Result<String> {
+        let scope = ScopeRef::Realm {
+            realm_id: RealmId::new(self.realm_id.clone())?,
+        };
+        let canonical = scope.canonical_mls_group_id()?.to_string();
+        anyhow::ensure!(
+            self.mls_group_id
+                .as_deref()
+                .is_none_or(|declared| declared == canonical.as_str()),
+            "Realm policy MLS group id differs from its canonical security scope"
+        );
+        Ok(canonical)
     }
 }
 
@@ -639,6 +642,7 @@ impl FileArkretCryptoStore {
     }
 
     pub fn upsert_realm_policy(&self, policy: ArkretRealmCryptoPolicy) -> anyhow::Result<()> {
+        policy.group_id_for_realm()?;
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
         state.realm_policies.insert(policy.realm_id.clone(), policy);
@@ -682,17 +686,20 @@ impl FileArkretCryptoStore {
     pub fn presence_ready_realm_ids(&self) -> anyhow::Result<Vec<String>> {
         let state = self.load()?;
         let store = state.mls_store()?;
-        let mut realms = state
+        let mut realms = Vec::new();
+        for policy in state
             .realm_policies
             .values()
             .filter(|policy| policy.requires_e2ee())
-            .filter_map(|policy| {
-                let group_id = policy.group_id_for_realm();
-                let record = store.mls_group_state(group_id.as_ref())?;
-                group_state_ref_for_epoch(&state, group_id.as_ref(), record.epoch)?;
-                Some(policy.realm_id.clone())
-            })
-            .collect::<Vec<_>>();
+        {
+            let group_id = policy.group_id_for_realm()?;
+            let Some(record) = store.mls_group_state(&group_id) else {
+                continue;
+            };
+            if group_state_ref_for_epoch(&state, &group_id, record.epoch).is_some() {
+                realms.push(policy.realm_id.clone());
+            }
+        }
         realms.sort();
         realms.dedup();
         Ok(realms)
@@ -734,7 +741,7 @@ impl FileArkretCryptoStore {
             .cloned()
             .with_context(|| format!("Realm '{realm_id}' has no E2EE Signal policy"))?;
         let mut store = state.mls_store()?;
-        let group_id = policy.group_id_for_realm().into_owned();
+        let group_id = policy.group_id_for_realm()?;
         let record = store
             .mls_group_state(&group_id)
             .cloned()
@@ -859,6 +866,7 @@ impl FileArkretCryptoStore {
         let mut updated = 0usize;
         for (realm_id, realm_value) in realms {
             if let Some(policy) = extract_realm_crypto_policy(realm_id, realm_value) {
+                policy.group_id_for_realm()?;
                 state.realm_policies.insert(policy.realm_id.clone(), policy);
                 updated += 1;
             }
@@ -2061,7 +2069,7 @@ impl FileArkretCryptoStore {
             return Ok(ArkretEncryptOutcome::PlaintextAllowed);
         }
         let mut store = state.mls_store()?;
-        let group_id = policy.group_id_for_realm().into_owned();
+        let group_id = policy.group_id_for_realm()?;
         let Some(record) = store.mls_group_state(&group_id).cloned() else {
             return Ok(ArkretEncryptOutcome::MissingRequiredGroupState {
                 group_id,
@@ -3066,9 +3074,9 @@ fn extract_realm_crypto_policy(
             realm_id: realm_id.to_owned(),
             content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
             encryption_profile: Some("mls_rfc9420".to_owned()),
-            // Inkson derives the realm-scoped MLS group identifier from the
-            // base64url-no-pad encoding of the canonical realm identifier.
-            mls_group_id: Some(URL_SAFE_NO_PAD.encode(realm_id.trim().as_bytes())),
+            // The only valid group id is the SDK derivation of this Realm
+            // scope; the projection does not need to restate it.
+            mls_group_id: None,
             source: "account_subscribe_direct_conversation".to_owned(),
             updated_at: Utc::now(),
         });
@@ -3720,13 +3728,19 @@ mod tests {
     fn sync_realm_policy_is_persisted() {
         let home = temp_home("policy");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
+        let canonical_group_id = ScopeRef::Realm {
+            realm_id: FIXTURE_REALM.clone(),
+        }
+        .canonical_mls_group_id()
+        .unwrap()
+        .to_string();
         let realms = json!({
             FIXTURE_REALM.as_str(): {
                 "state": {
                     "realm": {
                         "content_encryption_floor": "e2ee_required",
                         "encryption_profile": "mls",
-                        "mls_group_id": "group1"
+                        "mls_group_id": canonical_group_id.clone()
                     }
                 }
             }
@@ -3743,7 +3757,7 @@ mod tests {
             .get(FIXTURE_REALM.as_str())
             .expect("policy should be present");
         assert!(policy.requires_e2ee());
-        assert_eq!(policy.group_id_for_realm(), "group1");
+        assert_eq!(policy.group_id_for_realm().unwrap(), canonical_group_id);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -3778,15 +3792,20 @@ mod tests {
             .expect("direct-conversation policy should be present");
         assert!(policy.requires_e2ee());
         assert_eq!(
-            policy.group_id_for_realm(),
-            URL_SAFE_NO_PAD.encode(realm_id.as_bytes())
+            policy.group_id_for_realm().unwrap(),
+            ScopeRef::Realm {
+                realm_id: FIXTURE_REALM.clone()
+            }
+            .canonical_mls_group_id()
+            .unwrap()
+            .to_string()
         );
         assert_eq!(policy.encryption_profile.as_deref(), Some("mls_rfc9420"));
         let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
-    fn legacy_direct_conversation_policy_derives_canonical_group_id() {
+    fn direct_conversation_policy_derives_canonical_group_id() {
         let realm_id = FIXTURE_REALM.as_str();
         let policy = ArkretRealmCryptoPolicy {
             realm_id: realm_id.to_owned(),
@@ -3797,9 +3816,38 @@ mod tests {
             updated_at: Utc::now(),
         };
         assert_eq!(
-            policy.group_id_for_realm(),
-            URL_SAFE_NO_PAD.encode(realm_id.as_bytes())
+            policy.group_id_for_realm().unwrap(),
+            ScopeRef::Realm {
+                realm_id: FIXTURE_REALM.clone()
+            }
+            .canonical_mls_group_id()
+            .unwrap()
+            .to_string()
         );
+    }
+
+    #[test]
+    fn realm_policy_rejects_noncanonical_group_id() {
+        let home = temp_home("noncanonical-group-id");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
+        let policy = ArkretRealmCryptoPolicy {
+            realm_id: FIXTURE_REALM.as_str().to_owned(),
+            content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+            encryption_profile: Some("mls_rfc9420".to_owned()),
+            mls_group_id: Some("group1".to_owned()),
+            source: "test".to_owned(),
+            updated_at: Utc::now(),
+        };
+        assert!(policy.group_id_for_realm().is_err());
+        assert!(store.upsert_realm_policy(policy).is_err());
+        assert!(
+            !store
+                .load()
+                .unwrap()
+                .realm_policies
+                .contains_key(FIXTURE_REALM.as_str())
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -3811,7 +3859,7 @@ mod tests {
                 realm_id: FIXTURE_REALM.as_str().to_owned(),
                 content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
                 encryption_profile: Some("mls".to_owned()),
-                mls_group_id: Some("group1".to_owned()),
+                mls_group_id: None,
                 source: "test".to_owned(),
                 updated_at: Utc::now(),
             })
@@ -3826,7 +3874,12 @@ mod tests {
             outcome,
             ArkretEncryptOutcome::MissingRequiredGroupState {
                 realm_id: FIXTURE_REALM.as_str().to_owned(),
-                group_id: "group1".to_owned()
+                group_id: ScopeRef::Realm {
+                    realm_id: FIXTURE_REALM.clone()
+                }
+                .canonical_mls_group_id()
+                .unwrap()
+                .to_string()
             }
         );
         let _ = std::fs::remove_dir_all(&home);

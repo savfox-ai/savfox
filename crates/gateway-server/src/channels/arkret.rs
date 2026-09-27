@@ -5549,8 +5549,13 @@ mod tests {
             .expect("direct-conversation E2EE policy should persist");
         assert!(policy.requires_e2ee());
         assert_eq!(
-            policy.group_id_for_realm(),
-            URL_SAFE_NO_PAD.encode(realm_id().as_str())
+            policy.group_id_for_realm().unwrap(),
+            arkret::ScopeRef::Realm {
+                realm_id: realm_id(),
+            }
+            .canonical_mls_group_id()
+            .unwrap()
+            .to_string()
         );
     }
 
