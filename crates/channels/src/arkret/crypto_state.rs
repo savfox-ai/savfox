@@ -26,7 +26,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use chrono::{DateTime, Utc};
-use garth::{CryptoStore, MemoryCryptoStore, MlsGroupStateRecord, MlsWelcomeState};
+use garth::{CryptoStore, MemoryCryptoStore, MlsGroupStateRecord};
 use parking_lot::ReentrantMutex;
 use savfox_keyring_store::KeyringStore as _;
 use serde::{Deserialize, Serialize};
@@ -144,7 +144,6 @@ impl MlsWelcomeAdmissionSubject {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MlsRecoveryAction {
     UseLocalState,
-    ApplyCommits { from_epoch: u64, to_epoch: u64 },
     ConsumeWelcome,
     RequestEpochRecovery { missing_from_epoch: u64 },
 }
@@ -1875,22 +1874,23 @@ impl FileArkretCryptoStore {
     ) -> anyhow::Result<ArkretBootstrapRecord> {
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
-        let store = state.mls_store()?;
-        let principal = DidCoreId::new(principal_id.to_owned())
+        let _principal = DidCoreId::new(principal_id.to_owned())
             .with_context(|| format!("invalid Arkret principal DID '{principal_id}'"))?;
-        let device = DeviceId::new(device_id.to_owned())
+        let _device = DeviceId::new(device_id.to_owned())
             .with_context(|| format!("invalid Arkret device id '{device_id}'"))?;
-        let local_epoch = store
-            .mls_group_state(&payload.group_id)
+        let local_epoch = state
+            .mls_group_states
+            .get(&payload.group_id)
             .map(|record| record.epoch);
-        let action = plan_mls_recovery(
-            &store,
-            &payload.group_id,
-            local_epoch,
-            payload.epoch,
-            &principal,
-            &device,
-        );
+        let action = match local_epoch {
+            Some(epoch) if epoch >= payload.epoch => MlsRecoveryAction::UseLocalState,
+            Some(epoch) => MlsRecoveryAction::RequestEpochRecovery {
+                missing_from_epoch: epoch.saturating_add(1),
+            },
+            None => MlsRecoveryAction::RequestEpochRecovery {
+                missing_from_epoch: payload.epoch,
+            },
+        };
         let group_state_ref = group_state_ref_for_epoch(&state, &payload.group_id, payload.epoch);
         let record = ArkretBootstrapRecord {
             group_id: payload.group_id.clone(),
@@ -2149,49 +2149,6 @@ fn group_state_ref_for_epoch(
                 })
                 .and_then(|binding| binding.group_state_ref.clone())
         })
-}
-
-fn plan_mls_recovery(
-    store: &MemoryCryptoStore,
-    group_id: &str,
-    local_epoch: Option<u64>,
-    required_epoch: u64,
-    principal_id: &DidCoreId,
-    device_id: &DeviceId,
-) -> MlsRecoveryAction {
-    match local_epoch {
-        Some(epoch) if epoch >= required_epoch => MlsRecoveryAction::UseLocalState,
-        Some(epoch)
-            if (epoch.saturating_add(1)..=required_epoch).all(|next_epoch| {
-                store
-                    .commits_for_group(group_id)
-                    .iter()
-                    .any(|commit| commit.epoch == next_epoch)
-            }) =>
-        {
-            MlsRecoveryAction::ApplyCommits {
-                from_epoch: epoch.saturating_add(1),
-                to_epoch: required_epoch,
-            }
-        }
-        _ if store
-            .welcomes_for_device(principal_id, device_id)
-            .into_iter()
-            .any(|welcome| {
-                welcome.group_id == group_id
-                    && welcome.epoch == required_epoch
-                    && store.welcome_state(&welcome.welcome_hash) == Some(MlsWelcomeState::Accepted)
-            }) =>
-        {
-            MlsRecoveryAction::ConsumeWelcome
-        }
-        Some(epoch) => MlsRecoveryAction::RequestEpochRecovery {
-            missing_from_epoch: epoch.saturating_add(1),
-        },
-        None => MlsRecoveryAction::RequestEpochRecovery {
-            missing_from_epoch: required_epoch,
-        },
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
