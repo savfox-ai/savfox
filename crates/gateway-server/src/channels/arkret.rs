@@ -19,25 +19,23 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arkret::{
-    DeviceId, DeviceMessagesAckRequestBody, DidCoreId, EventId, EventRef,
-    KeyPackagesConsumeOutcome, KeyPackagesConsumeUnsignedRequest, KeyPackagesRevokeUnsignedRequest,
-    KeyPackagesUploadRequestBody, KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord,
-    PreparedOrdinaryEvent, PreparedStandardEvent, RealmId, ServiceOperationId,
+    DeviceId, DeviceMessagesAckRequestBody, DidCoreId, EventId, KeyPackagesConsumeOutcome,
+    KeyPackagesConsumeUnsignedRequest, KeyPackagesRevokeUnsignedRequest,
+    KeyPackagesUploadRequestBody, KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord, RealmId,
+    ServiceOperationId,
 };
 use chrono::Utc;
 use garth::{
     ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, OutboundEngine,
-    OutboundEngineOutcome, OutboundGenerationFence, OutboundGenerationFenceDecision,
-    OutboundQueueStore, OutboundSubmitOutcome, OutboundSubmitter, RunOptions, RunStopReason,
-    SyncLoopControl, TransportProvider,
+    OutboundEngineOutcome, RunOptions, RunStopReason, SyncLoopControl, TransportProvider,
 };
 use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
     ArkretDecryptDetailedOutcome, ArkretEncryptOutcome, ArkretHttpClient, ArkretInboundEvent,
     ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent, ArkretKeyRef,
-    ArkretMlsWelcomeConsumeBinding, EventInitialSubmission, FileArkretCryptoStore,
-    MessageCreateRequest, SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore,
-    SidecarRequestGate, SidecarTerminalAdmission, UnableToDecryptReason, account_allows_event_read,
+    ArkretMlsWelcomeConsumeBinding, FileArkretCryptoStore, MessageCreateRequest,
+    SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore, SidecarRequestGate,
+    SidecarTerminalAdmission, UnableToDecryptReason, account_allows_event_read,
     build_message_create_event, build_user_facing_response_metadata, device_messages_scope,
     encode_sidecar_reply_target, gate_inbound_exchange_control, gate_inbound_request_binding,
     open_account_store, parse_delta_frame_for_account, resolve_arkret_outbound_account_for_binding,
@@ -1036,14 +1034,82 @@ async fn process_durable_account_work(
     drain_pending_account_outbound(&client, account_store, channel, account, crypto_store).await;
 }
 
-fn account_authoring_generation(
+/// Revalidate locally queued producer bytes against the configured runtime
+/// key and current encryption policy. Acceptance remains the Station's decision.
+fn queued_message_matches_runtime(
+    event: &arkret::Event,
     account: &ArkretAccountConfig,
-) -> Option<garth::AuthoringGeneration> {
-    Some(garth::AuthoringGeneration {
-        authority_model: garth::AuthoringAuthorityModel::Agent,
-        authority_principal_id: account.controller_account_id.principal_id.clone(),
-        generation_ref: account.authorized_event_ref.clone()?,
-    })
+    crypto_store: &FileArkretCryptoStore,
+) -> anyhow::Result<bool> {
+    if event.actor_id != arkret::ActorId::account(account.actor_account_id.clone()) {
+        return Ok(false);
+    }
+    let Some(proof) = event.producer_proof.as_ref() else {
+        return Ok(false);
+    };
+    if account.verification_method.as_deref() != Some(proof.verification_method.as_str()) {
+        return Ok(false);
+    }
+    let evidence = account
+        .current_signer_evidence
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("runtime signer evidence is unavailable"))?;
+    let reference = account
+        .signer_resolution_evidence_ref
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("runtime signer evidence reference is unavailable"))?;
+    evidence.validate_against(reference)?;
+    let root = &evidence.authenticated_signer_evidence;
+    root.validate()?;
+    if root.signer_kind != arkret::AuthenticatedSignerKind::Agent
+        || root.subject_id.as_str() != account.principal_id
+        || root.verification_method != proof.verification_method
+    {
+        return Ok(false);
+    }
+    let public_key = arkret::signatures::PublicKeyMaterial::Jwk {
+        value: serde_json::to_value(&evidence.authenticated_signer_evidence.public_key_jwk)?,
+    };
+    let bytes = arkret::canonical::canonical_json_bytes(&event.digest_payload()?)?;
+    if arkret::signatures::verify_ed25519_detached_jws_proof_with_digest_suite(
+        proof,
+        &bytes,
+        event.actual_signer(),
+        &public_key,
+        event.realm_id.digest_suite_code().digest_suite(),
+    )
+    .is_err()
+    {
+        return Ok(false);
+    }
+    if event.kind == "ak.message.create"
+        && crypto_store.realm_requires_e2ee(event.realm_id.as_str())?
+        && event.payload.get("encrypted_content").is_none()
+    {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+async fn cancel_unusable_account_submissions(
+    outbound: &OutboundEngine<garth::FileStore, garth::SystemClock>,
+    account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
+) -> anyhow::Result<()> {
+    for item in outbound.snapshot().await?.items {
+        if item.status == garth::SendQueueStatus::Queued
+            && !queued_message_matches_runtime(
+                item.submission.primary_event(),
+                account,
+                crypto_store,
+            )?
+        {
+            // Cancellation cannot rewrite a producer Event or an in-flight
+            // Station outcome. The queue serializes this state transition.
+            outbound.cancel(item.event_id().clone()).await?;
+        }
+    }
+    Ok(())
 }
 
 async fn drain_pending_account_outbound(
@@ -1053,67 +1119,29 @@ async fn drain_pending_account_outbound(
     account: &ArkretAccountConfig,
     crypto_store: &FileArkretCryptoStore,
 ) {
-    let savfox_home = match savfox_utils::home_dir::find_savfox_home() {
-        Ok(path) => path,
-        Err(error) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                "arkret: cannot inspect the outbound actor chain without SAVFOX_HOME: {error}"
-            );
-            return;
-        }
-    };
-    let outbound = OutboundEngine::new(account_store.clone());
-    let submitter = AccountOutboundSubmitter {
-        client: client.clone(),
-    };
-    let Some(authoring_generation) = account_authoring_generation(account) else {
-        warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            "arkret: cannot drain durable outbound work without locally retained Agent authorization"
-        );
+    let outbound = OutboundEngine::new(account_store.clone(), garth::SystemClock);
+    if let Err(error) = cancel_unusable_account_submissions(&outbound, account, crypto_store).await
+    {
+        warn!(channel_id = %channel.id, account_id = %account.id,
+            "arkret: durable outbound validation failed: {error}");
         return;
-    };
-    let fence = AccountOutboundEncryptionFence {
-        crypto_store: crypto_store.clone(),
-        actor_chain_path: account_actor_chain_path(&savfox_home, &account.id),
-        authoring_generation,
-    };
+    }
+    let authority = garth::AuthorityClient::new(client.inner().clone());
+    let options = arkret::http_client::ClientRequestOptions::default();
     loop {
-        match outbound
-            .submit_next_with_fence(&submitter, &fence, Utc::now())
-            .await
-        {
-            Ok(OutboundEngineOutcome::Accepted(item) | OutboundEngineOutcome::Duplicate(item)) => {
-                debug!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    transaction_id = %item.transaction_id,
-                    "arkret: durable outbound worker completed queued event"
-                );
+        match outbound.submit_next(&authority, &options).await {
+            Ok(OutboundEngineOutcome::Committed { .. }) => {
+                debug!(channel_id = %channel.id, account_id = %account.id,
+                    "arkret: durable producer submission committed");
             }
-            Ok(
-                OutboundEngineOutcome::Rejected { item, .. }
-                | OutboundEngineOutcome::Terminal { item, .. }
-                | OutboundEngineOutcome::Quarantined { item, .. },
-            ) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    transaction_id = %item.transaction_id,
-                    "arkret: durable outbound worker reached terminal event state"
-                );
+            Ok(OutboundEngineOutcome::Rejected { .. } | OutboundEngineOutcome::Failed { .. }) => {
+                warn!(channel_id = %channel.id, account_id = %account.id,
+                    "arkret: durable producer submission reached a refusal");
             }
-            Ok(OutboundEngineOutcome::Prepared(_) | OutboundEngineOutcome::Superseded { .. }) => {}
-            Ok(OutboundEngineOutcome::Idle | OutboundEngineOutcome::RetryAt { .. }) => return,
+            Ok(OutboundEngineOutcome::Idle | OutboundEngineOutcome::Retry { .. }) => return,
             Err(error) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    "arkret: durable outbound worker deferred after error: {error}"
-                );
+                warn!(channel_id = %channel.id, account_id = %account.id,
+                    "arkret: durable outbound worker deferred: {error}");
                 return;
             }
         }
@@ -4209,251 +4237,6 @@ async fn construct_account_provider(
     Ok(provider)
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct AccountActorChains {
-    #[serde(default)]
-    realms: HashMap<String, AccountActorChainHead>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct AccountActorChainHead {
-    next_seq: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_event_id: Option<String>,
-}
-
-fn account_actor_chain_lock() -> &'static tokio::sync::Mutex<()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-}
-
-/// Arkret actor chains are Realm-scoped and contiguous: the first Event uses
-/// sequence 0, and each later Event names the preceding Event in `prev_refs`.
-/// Persist both pieces together so a restart cannot turn a valid sequence into
-/// an unreferenced high-water mark.
-fn account_actor_chain_path(savfox_home: &std::path::Path, account_id: &str) -> PathBuf {
-    let dir = savfox_home
-        .join(savfox_utils::home_dir::GATEWAY_SUBDIR)
-        .join("arkret-account-chain");
-    let safe_id: String = account_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    dir.join(format!("{safe_id}.json"))
-}
-
-async fn load_account_actor_chains(path: &std::path::Path) -> anyhow::Result<AccountActorChains> {
-    match tokio::fs::read(path).await {
-        Ok(bytes) if bytes.is_empty() => Ok(AccountActorChains::default()),
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .with_context(|| format!("parse Arkret actor chain state {}", path.display())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Ok(AccountActorChains::default())
-        }
-        Err(error) => {
-            Err(error).with_context(|| format!("read Arkret actor chain state {}", path.display()))
-        }
-    }
-}
-
-async fn save_account_actor_chains(
-    path: &std::path::Path,
-    chains: &AccountActorChains,
-) -> anyhow::Result<()> {
-    let bytes = serde_json::to_vec_pretty(chains).context("serialize Arkret actor chain state")?;
-    savfox_utils::fs::write_atomically_async(path, bytes, Some(0o600))
-        .await
-        .with_context(|| format!("persist Arkret actor chain state {}", path.display()))
-}
-
-fn load_account_actor_chain_head(
-    path: &std::path::Path,
-    realm_id: &str,
-) -> anyhow::Result<Option<AccountActorChainHead>> {
-    match std::fs::read(path) {
-        Ok(bytes) if bytes.is_empty() => Ok(None),
-        Ok(bytes) => {
-            let state: AccountActorChains = serde_json::from_slice(&bytes)
-                .with_context(|| format!("parse Arkret actor chain state {}", path.display()))?;
-            Ok(state.realms.get(realm_id).cloned())
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => {
-            Err(error).with_context(|| format!("read Arkret actor chain state {}", path.display()))
-        }
-    }
-}
-
-/// Maps one durable Garth queue item onto the Arkret submit endpoint.
-struct AccountOutboundEncryptionFence {
-    crypto_store: FileArkretCryptoStore,
-    actor_chain_path: PathBuf,
-    authoring_generation: garth::AuthoringGeneration,
-}
-
-impl OutboundGenerationFence for AccountOutboundEncryptionFence {
-    fn evaluate(
-        &self,
-        item: &garth::sync_client::SendQueueItem,
-    ) -> garth::Result<OutboundGenerationFenceDecision> {
-        let requires_e2ee = self
-            .crypto_store
-            .realm_requires_e2ee(item.realm_id.as_str())
-            .map_err(|error| {
-                garth::Error::Protocol(format!(
-                    "load Arkret realm encryption policy before submit: {error:#}"
-                ))
-            })?;
-        let garth::QueuedRecord::SdkEvent(queued) = &item.record else {
-            return Ok(OutboundGenerationFenceDecision::Quarantine {
-                reason: format!(
-                    "queued Arkret item for {} is not an SDK Event record",
-                    item.realm_id.as_str()
-                ),
-            });
-        };
-        if queued.authoring_generation != self.authoring_generation {
-            return Ok(OutboundGenerationFenceDecision::Quarantine {
-                reason: "queued Event was signed under a superseded Agent authorization".to_owned(),
-            });
-        }
-        let Some(attempt) = queued.authored_attempt.as_ref() else {
-            return Ok(OutboundGenerationFenceDecision::Quarantine {
-                reason: format!(
-                    "queued Arkret Event for {} lacks its authored envelope",
-                    item.realm_id.as_str()
-                ),
-            });
-        };
-        let event = &attempt.envelope;
-        let is_message = event.kind == "ak.message.create";
-        let is_encrypted = event.payload.get("encrypted_content").is_some();
-        let has_agent_context = event.payload.get("agent_context").is_some();
-
-        if is_message && !has_agent_context {
-            return Ok(OutboundGenerationFenceDecision::Quarantine {
-                reason: format!(
-                    "queued Agent message lacks the required auditable agent_context for {}",
-                    item.realm_id.as_str()
-                ),
-            });
-        }
-
-        let chain_head = load_account_actor_chain_head(
-            &self.actor_chain_path,
-            item.realm_id.as_str(),
-        )
-        .map_err(|error| {
-            garth::Error::Protocol(format!("load Arkret actor chain before submit: {error:#}"))
-        })?;
-        let belongs_to_current_actor_chain = match chain_head {
-            None => event.actor_seq == 0,
-            Some(head) => event.actor_seq < head.next_seq,
-        };
-        if !belongs_to_current_actor_chain {
-            return Ok(OutboundGenerationFenceDecision::Quarantine {
-                reason: format!(
-                    "queued Event does not belong to the current contiguous actor chain for {}",
-                    item.realm_id.as_str()
-                ),
-            });
-        }
-
-        if requires_e2ee && is_message && !is_encrypted {
-            return Ok(OutboundGenerationFenceDecision::Quarantine {
-                reason: format!(
-                    "queued plaintext message violates the current E2EE-required policy for {}",
-                    item.realm_id.as_str()
-                ),
-            });
-        }
-        Ok(OutboundGenerationFenceDecision::Current)
-    }
-}
-
-struct AccountOutboundSubmitter {
-    client: ArkretHttpClient,
-}
-
-impl OutboundSubmitter for AccountOutboundSubmitter {
-    fn submit<'a>(
-        &'a self,
-        item: garth::sync_client::SendQueueItem,
-    ) -> garth::outbound::BoxOutboundFuture<'a, OutboundSubmitOutcome> {
-        Box::pin(async move {
-            let garth::QueuedRecord::SdkEvent(queued) = item.record.clone() else {
-                return Err(garth::Error::Protocol(
-                    "queued Arkret item is not an SDK Event record".to_owned(),
-                ));
-            };
-            let Some(attempt) = queued.authored_attempt else {
-                return Err(garth::Error::Protocol(
-                    "queued Arkret Event lacks its authored envelope".to_owned(),
-                ));
-            };
-            // The typed queue record persists the signed envelope; the
-            // submission wrapper is rebuilt around it with the lease bound on
-            // the queue item, so wrapper and lease cannot diverge.
-            let publication_event = attempt.envelope.publication_event().cloned();
-            let mls_frontier_leaves = attempt.envelope.mls_frontier_leaves().map(<[_]>::to_vec);
-            let submission = EventInitialSubmission {
-                event: attempt.envelope.into_event(),
-                publication_event,
-                mls_frontier_leaves,
-                authorization_lease: item.authorization_lease.clone(),
-                cbs_proof_bundles: Vec::new(),
-                control_proposal_ack: None,
-                membership_compensation_evidence: None,
-            };
-            let response = match self.client.submit_initial(&submission).await {
-                Ok(response) => response,
-                Err(error) => {
-                    warn!(
-                        transaction_id = %item.transaction_id,
-                        error = %error,
-                        "arkret: outbound event submission failed; scheduling retry"
-                    );
-                    return Ok(OutboundSubmitOutcome::RetryAfter {
-                        delay: Duration::from_secs(1),
-                        reason: error.to_string(),
-                    });
-                }
-            };
-            if let Some(event_id) = response.accepted.into_iter().next() {
-                return Ok(OutboundSubmitOutcome::Accepted {
-                    event_id,
-                    ingress_receipts: response.ingress_receipts,
-                });
-            }
-            if let Some(event_id) = response.duplicate.into_iter().next() {
-                return Ok(OutboundSubmitOutcome::Duplicate {
-                    event_id,
-                    ingress_receipts: response.ingress_receipts,
-                });
-            }
-            if !response.rejections.is_empty() {
-                warn!(
-                    transaction_id = %item.transaction_id,
-                    rejected = ?response.rejections,
-                    "arkret: outbound event submission was rejected"
-                );
-                return Ok(OutboundSubmitOutcome::Rejected {
-                    reason: format!("{:?}", response.rejections),
-                });
-            }
-            Ok(OutboundSubmitOutcome::Terminal {
-                reason: format!("server accepted no events (status={:?})", response.status),
-            })
-        })
-    }
-}
-
 /// Send a `ak.message.create` event as one of the channel's configured
 /// outbound accounts.
 ///
@@ -4531,250 +4314,141 @@ pub(crate) async fn send_to_arkret_account(
         &account.id,
         ACCOUNT_EVENT_DEDUPE_MAX,
     )?;
-    let actor_chain_path = account_actor_chain_path(savfox_home, &account.id);
-    let actor_chain_guard = account_actor_chain_lock().lock().await;
-    let mut actor_chains = load_account_actor_chains(&actor_chain_path).await?;
-    let previous_actor_chains = actor_chains.clone();
-    let actor_chain_head = actor_chains
-        .realms
-        .get(realm_id)
-        .cloned()
-        .unwrap_or_default();
-    let signer_evidence_ref = account
-        .signer_resolution_evidence_ref
-        .clone()
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "signer_evidence_unavailable: no locally verified Agent signer evidence"
-            )
-        })?;
-    let actor_seq = actor_chain_head.next_seq;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
-    let request = MessageCreateRequest {
-        scope_ref: arkret::ScopeRef::Realm {
-            realm_id: realm_id_typed.clone(),
-        },
-        strand_id,
-        body: body.to_owned(),
-        actor_account_id: account.actor_account_id.clone(),
-        thread_root_id: None,
-        sidecar_exchange: sidecar_exchange.cloned(),
+    let conversation = crate::arkret_delivery::RemoteConversationKey {
+        channel_config_id: channel.id.clone(),
+        account_id: account.id.clone(),
+        realm_id: realm_id.to_owned(),
+        strand_id: strand_id.clone(),
     };
-    let mut event = build_message_create_event(&request)?;
-    if let Some(delivery) = delivery {
-        // The checkpoint id is also the stable event id. Rebuilding a queued
-        // checkpoint after a crash therefore reaches Arkret as a duplicate,
-        // not as a second public delivery.
-        event.event_id = EventId::new(format!("ak:event:{}", delivery.checkpoint_id))?;
-        event.refs.push(EventRef::new(
-            EventId::new(delivery.source_event_id.clone())?.to_string(),
-            "after",
-        ));
-    }
-    event.payload.insert(
-        "agent_context".to_owned(),
-        json!({
-            "agent_id": account.principal_id,
-            "operator_or_controller": "derived_from_direct_conversation_binding",
-            "execution_purpose": if delivery.is_some() { "task_delivery_checkpoint" } else { "direct_conversation_reply" },
-            "authorization_ref": realm_id,
-        }),
-    );
-    if let Some(previous_event_id) = actor_chain_head.last_event_id.as_ref() {
-        event.prev_refs.push(
-            EventId::new(previous_event_id.clone())
-                .context("persisted Arkret actor chain contains an invalid Event id")?,
-        );
-    }
-    let signing_verification_method = account
-        .verification_method
-        .clone()
-        .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
-    apply_account_outbound_encryption(
-        &crypto_store,
-        realm_id,
-        &mut event,
-        sidecar_exchange,
-        delivery,
-    )?;
-
-    let mut event = savfox_channels::arkret::finalize_outbound_event(event)?;
-
-    // Phase 8 (T8.C): sign with the account's ed25519 key when key_ref is set.
-    if let Some(key_ref) = &account.key_ref {
-        savfox_channels::arkret::sign_outbound_event_with_key(
+    let delivery_store = crate::arkret_delivery::ArkretExecutionBindingStore::new(savfox_home);
+    let retained = match delivery {
+        Some(delivery) => {
+            delivery_store
+                .checkpoint_submission(delivery.checkpoint_id, &conversation, body)
+                .await?
+        }
+        None => None,
+    };
+    let frozen = if let Some(retained) = retained {
+        retained
+    } else {
+        let request = MessageCreateRequest {
+            scope_ref: arkret::ScopeRef::Realm {
+                realm_id: realm_id_typed.clone(),
+            },
+            strand_id,
+            body: body.to_owned(),
+            actor_account_id: account.actor_account_id.clone(),
+            thread_root_id: None,
+            sidecar_exchange: sidecar_exchange.cloned(),
+        };
+        let mut event = build_message_create_event(&request)?;
+        // This is the currently registered message payload carrier, not an
+        // authority checkpoint or a substitute for the producer signature.
+        let context = arkret::MessageAgentContext {
+            agent_id: DidCoreId::new(account.principal_id.clone())?,
+            operator_or_controller: account.controller_account_id.canonical_key()?,
+            execution_purpose: if delivery.is_some() {
+                "task_delivery_checkpoint"
+            } else {
+                "direct_conversation_reply"
+            }
+            .to_owned(),
+            authorization_ref: realm_id.to_owned(),
+        };
+        event
+            .payload
+            .insert("agent_context".to_owned(), serde_json::to_value(context)?);
+        apply_account_outbound_encryption(
+            &crypto_store,
+            realm_id,
             &mut event,
-            key_ref,
-            &signing_verification_method,
+            sidecar_exchange,
+            delivery,
         )?;
-    }
-    let prepared_event = PreparedStandardEvent::from(
-        PreparedOrdinaryEvent::try_from(event.event().clone())
-            .map_err(|error| anyhow::anyhow!("prepare outbound Arkret ordinary Event: {error}"))?,
-    );
-
-    // Ordinary publication is wrapped and validated locally. The signed
-    // authority context is sufficient; no origin callback or lease is needed.
-    let submission = client
-        .prepare_proof_authenticated_publication(&prepared_event)?
-        .into_submission();
-    // The typed durable queue persists only the signed envelope plus the bound
-    // AuthorizationLease; refuse wrappers carrying side material it would
-    // silently drop on replay.
-    if !submission.cbs_proof_bundles.is_empty()
-        || submission.control_proposal_ack.is_some()
-        || submission.membership_compensation_evidence.is_some()
-    {
-        anyhow::bail!(
-            "Arkret initial submission carries side material the durable outbound queue cannot \
-             persist (CBS proof bundles / control-proposal ack / membership compensation evidence)"
-        );
-    }
-    let authorization_lease = submission.authorization_lease.clone();
-    let mut transaction_id = prepared_event.event().event_id.to_string();
-    let next_actor_seq = actor_seq
-        .checked_add(1)
-        .context("Arkret actor sequence exhausted")?;
-    actor_chains.realms.insert(
-        realm_id.to_owned(),
-        AccountActorChainHead {
-            next_seq: next_actor_seq,
-            last_event_id: Some(transaction_id.clone()),
-        },
-    );
-    save_account_actor_chains(&actor_chain_path, &actor_chains).await?;
-    // Authoring generation: this runtime key authors under its controller's
-    // `ak.agent.key.authorize` approval; re-authorizing the key changes the
-    // generation and lets the fence retire stale queued attempts.
-    let authoring_generation = account_authoring_generation(&account)
-        .ok_or_else(|| anyhow::anyhow!("Arkret runtime has no active key authorization"))?;
-    let outbound = OutboundEngine::new(outbound_store.clone());
-    let fence = AccountOutboundEncryptionFence {
-        crypto_store: crypto_store.clone(),
-        actor_chain_path: actor_chain_path.clone(),
-        authoring_generation: authoring_generation.clone(),
-    };
-    let queued_transaction_id = transaction_id.clone();
-    let canonical_envelope_bytes = arkret::canonical::canonical_json_bytes(&submission.event)
-        .map_err(|error| anyhow::anyhow!("canonicalize queued Arkret Event envelope: {error}"))?;
-    let queued_intent = garth::QueuedEventIntent::new(
-        arkret::EventIntent::from_authored(event.event()),
-        arkret::canonical::DigestSuite::Sha256,
-    );
-    let queued_record = garth::QueuedRecord::SdkEvent(Box::new(
-        garth::QueuedSdkEvent::authored(
-            queued_intent,
-            event,
-            transaction_id.clone(),
-            transaction_id.clone(),
-            canonical_envelope_bytes,
-            None,
-            authoring_generation,
-            None,
-        )
-        .map_err(|error| anyhow::anyhow!("build durable Arkret queue record: {error}"))?,
-    ));
-    // The enqueue and its AuthorizationLease binding are one logical write, so
-    // they share a single timestamp rather than each reading the clock.
-    let queued_at = Utc::now();
-    if let Err(error) = outbound_store
-        .mutate_outbound(move |queue| {
-            let item = queue.enqueue(
-                Some(queued_transaction_id),
-                realm_id_typed,
-                queued_record,
-                Vec::new(),
-                queued_at,
-            )?;
-            if let Some(authorization_lease) = authorization_lease {
-                queue.bind_authorization_lease(
-                    &item.transaction_id,
-                    authorization_lease,
-                    queued_at,
-                )?;
-            }
-            queue.get(&item.transaction_id).cloned().ok_or_else(|| {
-                garth::Error::Protocol(
-                    "Arkret outbound queue lost the item while binding its AuthorizationLease"
-                        .to_owned(),
+        let authored = savfox_channels::arkret::finalize_outbound_event(event)?;
+        let key_ref = account
+            .key_ref
+            .as_ref()
+            .context("runtime key is unavailable")?;
+        let verification_method = account
+            .verification_method
+            .as_deref()
+            .context("runtime verification method is unavailable")?;
+        let frozen =
+            garth::MessageAuthoringSession::from_authored_event(authored)?.sign_with(|event| {
+                savfox_channels::arkret::sign_outbound_event_with_key(
+                    event,
+                    key_ref,
+                    verification_method,
                 )
-            })
-        })
-        .await
-    {
-        save_account_actor_chains(&actor_chain_path, &previous_actor_chains).await?;
-        return Err(error.into());
-    }
-    drop(actor_chain_guard);
-    let submitter = AccountOutboundSubmitter { client };
+                .map_err(|error| garth::Error::Protocol(error.to_string()))
+            })?;
+        match delivery {
+            Some(delivery) => {
+                delivery_store
+                    .retain_checkpoint_submission(
+                        delivery.checkpoint_id,
+                        &conversation,
+                        body,
+                        frozen,
+                    )
+                    .await?
+            }
+            None => frozen,
+        }
+    };
+    anyhow::ensure!(
+        queued_message_matches_runtime(
+            &frozen.request().submission.event,
+            &account,
+            &crypto_store,
+        )?,
+        "frozen producer submission no longer matches the configured runtime or encryption policy"
+    );
+    let queued = frozen.into_queued_submission();
+    let event_id = queued.event_id.clone();
+    let outbound = OutboundEngine::new(outbound_store, garth::SystemClock);
+    outbound.enqueue(queued).await?;
+    cancel_unusable_account_submissions(&outbound, &account, &crypto_store).await?;
+    let authority = garth::AuthorityClient::new(client.inner().clone());
+    let options = arkret::http_client::ClientRequestOptions::default();
     loop {
-        match outbound
-            .submit_next_with_fence(&submitter, &fence, Utc::now())
-            .await?
-        {
-            OutboundEngineOutcome::Accepted(item) | OutboundEngineOutcome::Duplicate(item)
-                if item.transaction_id == transaction_id =>
-            {
-                let remote_event_id = item
-                    .remote_event_id
-                    .map(|event_id| event_id.to_string())
-                    .unwrap_or_else(|| transaction_id.clone());
-                debug!(
-                    realm_id,
-                    transaction_id, "arkret: durable outbound event accepted"
-                );
-                return Ok(remote_event_id);
+        match outbound.submit_next(&authority, &options).await? {
+            OutboundEngineOutcome::Committed { item, .. } if item.event_id() == &event_id => {
+                return Ok(event_id.to_string());
             }
-            OutboundEngineOutcome::Accepted(_) | OutboundEngineOutcome::Duplicate(_) => {}
-            OutboundEngineOutcome::Prepared(_) => {}
-            OutboundEngineOutcome::Superseded {
-                previous,
-                replacement,
-            } if previous.transaction_id == transaction_id => {
-                debug!(
-                    previous_transaction_id = %previous.transaction_id,
-                    replacement_transaction_id = %replacement.transaction_id,
-                    "arkret: durable outbound event superseded before acceptance"
-                );
-                transaction_id = replacement.transaction_id;
-            }
-            OutboundEngineOutcome::Superseded { .. } => {}
-            OutboundEngineOutcome::RetryAt { item, at }
-                if item.transaction_id == transaction_id =>
+            OutboundEngineOutcome::Rejected { item, reason_code }
+                if item.event_id() == &event_id =>
             {
+                anyhow::bail!("producer submission rejected: {reason_code}");
+            }
+            OutboundEngineOutcome::Failed { item, error, .. } if item.event_id() == &event_id => {
+                anyhow::bail!("producer submission failed: {error}");
+            }
+            OutboundEngineOutcome::Retry { item, delay } if item.event_id() == &event_id => {
                 anyhow::bail!(
-                    "arkret: outbound event queued for retry at {at} (transaction={transaction_id})"
+                    "producer submission remains durably queued for retry in {} ms",
+                    delay.as_millis()
                 );
             }
-            OutboundEngineOutcome::RetryAt { .. } => {}
-            OutboundEngineOutcome::Rejected { item, .. }
-            | OutboundEngineOutcome::Terminal { item, .. }
-            | OutboundEngineOutcome::Quarantined { item, .. }
-                if item.transaction_id == transaction_id =>
-            {
-                anyhow::bail!("arkret: outbound event rejected (transaction={transaction_id})");
-            }
-            OutboundEngineOutcome::Rejected { .. }
-            | OutboundEngineOutcome::Terminal { .. }
-            | OutboundEngineOutcome::Quarantined { .. } => {}
             OutboundEngineOutcome::Idle => {
                 let snapshot = outbound.snapshot().await?;
-                if snapshot.items.iter().any(|item| {
-                    item.transaction_id == transaction_id && item.remote_event_id.is_some()
-                }) {
-                    let remote_event_id = snapshot
-                        .items
-                        .iter()
-                        .find(|item| item.transaction_id == transaction_id)
-                        .and_then(|item| item.remote_event_id.clone())
-                        .map(|event_id| event_id.to_string())
-                        .unwrap_or_else(|| transaction_id.clone());
-                    return Ok(remote_event_id);
+                let item = snapshot
+                    .items
+                    .iter()
+                    .find(|item| item.event_id() == &event_id)
+                    .context("durable queue lost the producer submission")?;
+                if item.status == garth::SendQueueStatus::Committed && item.commit().is_some() {
+                    return Ok(event_id.to_string());
                 }
                 anyhow::bail!(
-                    "arkret: outbound queue became idle before transaction {transaction_id} completed"
+                    "producer submission is not committed; durable state is {:?}",
+                    item.status
                 );
             }
+            _ => {}
         }
     }
 }
@@ -4889,13 +4563,95 @@ mod tests {
                     .unwrap(),
             ),
             requested_scope: vec![
-                ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into(),
-                ServiceOperationId::SELF_EVENTS_READ_SCAN_V1.into(),
+                ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1.into(),
+                ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1.into(),
                 "ak.event.read".into(),
             ],
             listen: true,
             send: true,
         }
+    }
+
+    fn queued_message_fixture() -> (ArkretAccountConfig, arkret::Event) {
+        let mut account = make_account();
+        account.principal_id = "ak:did_core:web:agent.example".to_owned();
+        account.actor_account_id = arkret::AccountId::new(
+            DidCoreId::new(account.principal_id.clone()).unwrap(),
+            DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+        );
+        let method = "did:web:agent.example#runtime-1";
+        account.verification_method = Some(method.to_owned());
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[73; 32]);
+        let jwk = arkret::signatures::JsonWebKey::from_ed25519_verifying_key(
+            &signing_key.verifying_key(),
+        );
+        let root = arkret::build_agent_signer_evidence(
+            DidCoreId::new(account.principal_id.clone()).unwrap(),
+            arkret::DidUrl::new(method).unwrap(),
+            serde_json::from_value(serde_json::to_value(jwk).unwrap()).unwrap(),
+            arkret::RealmCommitId::from_digest([74; 32]),
+            "2026-09-16T00:00:00.000Z".parse().unwrap(),
+        )
+        .unwrap();
+        let reference = root.signer_evidence_ref().unwrap();
+        account.signer_resolution_evidence_ref = Some(reference.clone());
+        account.current_signer_evidence = Some(arkret::KeyStateCurrentSignerEvidence {
+            signer_resolution_evidence_ref: reference,
+            authenticated_signer_evidence: root,
+        });
+        let request = MessageCreateRequest {
+            scope_ref: arkret::ScopeRef::Realm {
+                realm_id: realm_id(),
+            },
+            strand_id: arkret::StrandId::from_event_id(&EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [75; 32],
+            ))
+            .to_string(),
+            body: "frozen producer bytes".to_owned(),
+            actor_account_id: account.actor_account_id.clone(),
+            thread_root_id: None,
+            sidecar_exchange: None,
+        };
+        let event = build_message_create_event(&request).unwrap();
+        let mut authored = savfox_channels::arkret::finalize_outbound_event(event).unwrap();
+        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(signing_key, method);
+        savfox_channels::arkret::sign_outbound_event(&mut authored, &signer).unwrap();
+        (account, authored.into_event())
+    }
+
+    #[test]
+    fn queued_submission_verifies_current_key_even_when_method_is_unchanged() {
+        let home = tempfile::tempdir().unwrap();
+        let crypto = FileArkretCryptoStore::for_account(home.path(), "support", "agent-account");
+        let (mut account, event) = queued_message_fixture();
+        assert!(queued_message_matches_runtime(&event, &account, &crypto).unwrap());
+        let other_key = ed25519_dalek::SigningKey::from_bytes(&[76; 32]);
+        let jwk =
+            arkret::signatures::JsonWebKey::from_ed25519_verifying_key(&other_key.verifying_key());
+        let evidence = account.current_signer_evidence.as_mut().unwrap();
+        evidence.authenticated_signer_evidence.public_key_jwk =
+            serde_json::from_value(serde_json::to_value(jwk).unwrap()).unwrap();
+        evidence.signer_resolution_evidence_ref = evidence
+            .authenticated_signer_evidence
+            .signer_evidence_ref()
+            .unwrap();
+        account.signer_resolution_evidence_ref =
+            Some(evidence.signer_resolution_evidence_ref.clone());
+        assert!(!queued_message_matches_runtime(&event, &account, &crypto).unwrap());
+    }
+
+    #[test]
+    fn queued_submission_rejects_another_station_and_an_unsigned_event() {
+        let home = tempfile::tempdir().unwrap();
+        let crypto = FileArkretCryptoStore::for_account(home.path(), "support", "agent-account");
+        let (account, mut event) = queued_message_fixture();
+        let mut other_account = account.clone();
+        other_account.actor_account_id.station_id =
+            DidCoreId::new("ak:did_core:web:other-station.example").unwrap();
+        assert!(!queued_message_matches_runtime(&event, &other_account, &crypto).unwrap());
+        event.producer_proof = None;
+        assert!(!queued_message_matches_runtime(&event, &account, &crypto).unwrap());
     }
 
     #[test]
@@ -5226,88 +4982,6 @@ mod tests {
         assert_eq!(initial_mode, AccountInboundMode::Baseline);
         assert!(initial_mode.suppresses_agent_dispatch());
         assert_eq!(account_inbound_mode(&[live]), AccountInboundMode::Trigger);
-    }
-
-    #[test]
-    fn outbound_fence_accepts_online_submission_without_authorization_lease() {
-        let home = std::env::temp_dir().join(format!(
-            "savfox-arkret-online-submit-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        let crypto_store = FileArkretCryptoStore::for_account(&home, "c1", "support");
-        let mut queue = garth::sync_client::SendQueue::new();
-        let realm_id = realm_id();
-        let envelope = arkret_wire::test_support::raw_event(
-            "ak.message.create",
-            arkret::ScopeRef::Realm {
-                realm_id: realm_id.clone(),
-            },
-            actor_id(),
-            principal_server_id(),
-            0,
-            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
-            json!({
-                "strand_id": "ak:strand:01904100-0000-8000-8000-000000000002",
-                "track_name": "discussion",
-                "content": { "kind": "ak.content.text", "body": "online submission body" },
-                "agent_context": { "mode": "task_delivery" }
-            }),
-        )
-        .expect("online submission envelope");
-        let envelope = arkret::AuthoredEvent::finalize_with_digest_suite(
-            envelope,
-            arkret::canonical::DigestSuite::Sha256,
-        )
-        .expect("author online submission envelope");
-        let canonical_envelope_bytes =
-            arkret::canonical::canonical_json_bytes(envelope.event()).expect("canonical envelope");
-        let queued_intent = garth::QueuedEventIntent::new(
-            arkret::EventIntent::from_authored(envelope.event()),
-            arkret::canonical::DigestSuite::Sha256,
-        );
-        let record = garth::QueuedRecord::SdkEvent(Box::new(
-            garth::QueuedSdkEvent::authored(
-                queued_intent,
-                envelope,
-                "online-without-lease".to_owned(),
-                "online-without-lease".to_owned(),
-                canonical_envelope_bytes,
-                None,
-                garth::AuthoringGeneration {
-                    authority_model: garth::AuthoringAuthorityModel::Agent,
-                    authority_principal_id: actor_id(),
-                    generation_ref: "ak:event:01904100-0000-8000-8000-0000000000aa".to_owned(),
-                },
-                None,
-            )
-            .expect("authored queue record"),
-        ));
-        let item = queue
-            .enqueue(
-                Some("online-without-lease".to_owned()),
-                realm_id.clone(),
-                record,
-                Vec::new(),
-                Utc::now(),
-            )
-            .expect("queue online submission");
-        assert!(item.authorization_lease.is_none());
-
-        let fence = AccountOutboundEncryptionFence {
-            crypto_store,
-            actor_chain_path: home.join("actor-chains.json"),
-            authoring_generation: garth::AuthoringGeneration {
-                authority_model: garth::AuthoringAuthorityModel::Agent,
-                authority_principal_id: actor_id(),
-                generation_ref: "ak:event:01904100-0000-8000-8000-0000000000aa".to_owned(),
-            },
-        };
-        assert_eq!(
-            fence.evaluate(&item).expect("evaluate online submission"),
-            OutboundGenerationFenceDecision::Current
-        );
-        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]

@@ -240,6 +240,10 @@ struct DeliveryOutboxItem {
     rendered_body: String,
     state: DeliveryOutboxState,
     attempts: u32,
+    /// Exact SDK producer submission retained before the account queue or
+    /// network sees it. A checkpoint UUID never substitutes for an Event id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    frozen_submission: Option<garth::FrozenMessageSubmission>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     remote_event_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -302,6 +306,30 @@ impl ArkretExecutionBindingStore {
         }
     }
 
+    /// Lock a separate inode so atomic replacement of bindings.json cannot
+    /// let another gateway process choose a different first submission.
+    async fn lock(&self) -> anyhow::Result<(tokio::sync::MutexGuard<'static, ()>, std::fs::File)> {
+        let process_guard = store_lock().lock().await;
+        let path = self.path.with_extension("lock");
+        let file = tokio::task::spawn_blocking(move || -> anyhow::Result<std::fs::File> {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut options = std::fs::OpenOptions::new();
+            options.create(true).read(true).write(true).truncate(false);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.mode(0o600);
+            }
+            let file = options.open(&path)?;
+            file.lock()?;
+            Ok(file)
+        })
+        .await??;
+        Ok((process_guard, file))
+    }
+
     async fn load_unlocked(&self) -> anyhow::Result<DeliveryStoreFile> {
         match tokio::fs::read(&self.path).await {
             Ok(bytes) if bytes.is_empty() => Ok(DeliveryStoreFile::default()),
@@ -339,7 +367,7 @@ impl ArkretExecutionBindingStore {
         mode: ArkretDeliveryMode,
     ) -> anyhow::Result<(ArkretExecutionBinding, bool)> {
         conversation.validate()?;
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         let mut state = self.load_unlocked().await?;
         if let Some(binding) = state
             .bindings
@@ -393,7 +421,7 @@ impl ArkretExecutionBindingStore {
         &self,
         session_id: &str,
     ) -> anyhow::Result<Option<ArkretExecutionBinding>> {
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         Ok(self
             .load_unlocked()
             .await?
@@ -406,7 +434,7 @@ impl ArkretExecutionBindingStore {
         &self,
         conversation: &RemoteConversationKey,
     ) -> anyhow::Result<Option<ArkretExecutionBinding>> {
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         Ok(self
             .load_unlocked()
             .await?
@@ -419,7 +447,7 @@ impl ArkretExecutionBindingStore {
         &self,
         binding_id: Uuid,
     ) -> anyhow::Result<Option<String>> {
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         Ok(self
             .load_unlocked()
             .await?
@@ -439,7 +467,7 @@ impl ArkretExecutionBindingStore {
         event: RemoteContextEvent,
     ) -> anyhow::Result<()> {
         conversation.validate()?;
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         let mut state = self.load_unlocked().await?;
         let snapshot = state.remote_context.entry(conversation).or_default();
         if snapshot
@@ -463,7 +491,7 @@ impl ArkretExecutionBindingStore {
         &self,
         conversation: &RemoteConversationKey,
     ) -> anyhow::Result<RemoteContextSnapshot> {
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         Ok(self
             .load_unlocked()
             .await?
@@ -478,7 +506,7 @@ impl ArkretExecutionBindingStore {
         reason: &str,
     ) -> anyhow::Result<()> {
         conversation.validate()?;
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         let mut state = self.load_unlocked().await?;
         let snapshot = state.remote_context.entry(conversation).or_default();
         snapshot.history_unavailable = Some(reason.chars().take(256).collect());
@@ -505,7 +533,7 @@ impl ArkretExecutionBindingStore {
         }
         let blockers = sanitize_public_list(blockers)?;
         let next_actions = sanitize_public_list(next_actions)?;
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         let mut state = self.load_unlocked().await?;
         let binding = state
             .bindings
@@ -561,6 +589,7 @@ impl ArkretExecutionBindingStore {
                 rendered_body: rendered.clone(),
                 state: DeliveryOutboxState::Pending,
                 attempts: 0,
+                frozen_submission: None,
                 remote_event_id: None,
                 last_error: None,
                 initiated_by: initiated_by.to_owned(),
@@ -572,12 +601,95 @@ impl ArkretExecutionBindingStore {
         Ok((checkpoint, rendered))
     }
 
+    pub(crate) async fn checkpoint_submission(
+        &self,
+        checkpoint_id: Uuid,
+        conversation: &RemoteConversationKey,
+        rendered_body: &str,
+    ) -> anyhow::Result<Option<garth::FrozenMessageSubmission>> {
+        let (_guard, _file_lock) = self.lock().await?;
+        let state = self.load_unlocked().await?;
+        let item = Self::bound_checkpoint(&state, checkpoint_id, conversation, rendered_body)?;
+        if let Some(submission) = &item.frozen_submission {
+            Self::validate_submission_target(submission, conversation)?;
+        }
+        Ok(item.frozen_submission.clone())
+    }
+
+    /// The first signed submission wins durably, including concurrent calls.
+    /// Later attempts replay those exact bytes instead of re-encrypting or
+    /// assigning a fresh created_at and content-derived Event identity.
+    pub(crate) async fn retain_checkpoint_submission(
+        &self,
+        checkpoint_id: Uuid,
+        conversation: &RemoteConversationKey,
+        rendered_body: &str,
+        submission: garth::FrozenMessageSubmission,
+    ) -> anyhow::Result<garth::FrozenMessageSubmission> {
+        Self::validate_submission_target(&submission, conversation)?;
+        let (_guard, _file_lock) = self.lock().await?;
+        let mut state = self.load_unlocked().await?;
+        let item = Self::bound_checkpoint(&state, checkpoint_id, conversation, rendered_body)?;
+        if let Some(retained) = &item.frozen_submission {
+            Self::validate_submission_target(retained, conversation)?;
+            return Ok(retained.clone());
+        }
+        state
+            .outbox
+            .get_mut(&checkpoint_id)
+            .expect("bound checkpoint checked")
+            .frozen_submission = Some(submission.clone());
+        self.save_unlocked(&state).await?;
+        Ok(submission)
+    }
+
+    fn validate_submission_target(
+        submission: &garth::FrozenMessageSubmission,
+        conversation: &RemoteConversationKey,
+    ) -> anyhow::Result<()> {
+        let event = &submission.request().submission.event;
+        anyhow::ensure!(
+            event.scope_ref
+                == arkret::ScopeRef::Realm {
+                    realm_id: arkret::RealmId::new(conversation.realm_id.clone())?,
+                }
+                && event
+                    .payload
+                    .get("strand_id")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(conversation.strand_id.as_str()),
+            "frozen checkpoint submission does not match its delivery target"
+        );
+        Ok(())
+    }
+
+    fn bound_checkpoint<'a>(
+        state: &'a DeliveryStoreFile,
+        checkpoint_id: Uuid,
+        conversation: &RemoteConversationKey,
+        rendered_body: &str,
+    ) -> anyhow::Result<&'a DeliveryOutboxItem> {
+        let item = state
+            .outbox
+            .get(&checkpoint_id)
+            .ok_or_else(|| anyhow::anyhow!("checkpoint is not in the durable delivery outbox"))?;
+        let binding = state
+            .bindings
+            .get(&item.checkpoint.binding_id)
+            .ok_or_else(|| anyhow::anyhow!("checkpoint has no durable execution binding"))?;
+        anyhow::ensure!(
+            &binding.conversation == conversation && item.rendered_body == rendered_body,
+            "checkpoint replay differs from its bound account, conversation, or public body"
+        );
+        Ok(item)
+    }
+
     pub(crate) async fn mark_published(
         &self,
         checkpoint_id: Uuid,
         remote_event_id: &str,
     ) -> anyhow::Result<()> {
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         let mut state = self.load_unlocked().await?;
         let binding_id = {
             let item = state
@@ -604,7 +716,7 @@ impl ArkretExecutionBindingStore {
         checkpoint_id: Uuid,
         error: &str,
     ) -> anyhow::Result<()> {
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         let mut state = self.load_unlocked().await?;
         let item = state
             .outbox
@@ -624,7 +736,7 @@ impl ArkretExecutionBindingStore {
         channel_config_id: &str,
         account_id: &str,
     ) -> anyhow::Result<Vec<PendingDelivery>> {
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         let state = self.load_unlocked().await?;
         let now = Utc::now();
         let mut pending = state
@@ -653,7 +765,7 @@ impl ArkretExecutionBindingStore {
     }
 
     pub(crate) async fn acknowledge_echo(&self, remote_event_id: &str) -> anyhow::Result<bool> {
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         let mut state = self.load_unlocked().await?;
         let Some(checkpoint_id) = state.outbox.iter().find_map(|(id, item)| {
             (item.remote_event_id.as_deref() == Some(remote_event_id)).then_some(*id)
@@ -672,7 +784,7 @@ impl ArkretExecutionBindingStore {
         &self,
         session_id: &str,
     ) -> anyhow::Result<Option<serde_json::Value>> {
-        let _guard = store_lock().lock().await;
+        let (_guard, _file_lock) = self.lock().await?;
         let state = self.load_unlocked().await?;
         let Some(binding) = state
             .bindings
@@ -811,9 +923,9 @@ pub(crate) async fn publish_checkpoint(
 }
 
 /// Replay due checkpoint deliveries after the bound Arkret account has
-/// recovered its session and MLS state. Stable checkpoint-derived Event IDs
-/// make a crash after remote acceptance safe: the replay is a duplicate, not
-/// a second public message.
+/// recovered its session and MLS state. The retained frozen SDK submission
+/// makes a crash after remote acceptance safe: the replay has the same Event
+/// identity and bytes, independent of the retry time or MLS sender generation.
 pub(crate) async fn resume_pending_checkpoints(
     savfox_home: &Path,
     channel_config_id: &str,
@@ -965,6 +1077,216 @@ mod tests {
             realm_id: "ak:realm:one".to_owned(),
             strand_id: strand.to_owned(),
         }
+    }
+
+    fn canonical_conversation() -> RemoteConversationKey {
+        let event = arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [17; 32]);
+        RemoteConversationKey {
+            channel_config_id: "support".to_owned(),
+            account_id: "agent-account".to_owned(),
+            realm_id: arkret::RealmId::from_event_id(&event).to_string(),
+            strand_id: arkret::StrandId::from_event_id(&event).to_string(),
+        }
+    }
+
+    fn frozen_submission(
+        target: &RemoteConversationKey,
+        body: &str,
+        seconds: i64,
+    ) -> garth::FrozenMessageSubmission {
+        let payload = arkret::MessageCreatePayload::with_content(
+            arkret::StrandId::new(target.strand_id.clone()).unwrap(),
+            "discussion",
+            arkret::ContentBlock::text(body),
+        );
+        let actor = arkret::ActorId::account(arkret::AccountId::new(
+            arkret::DidCoreId::new("ak:did_core:web:agent.example").unwrap(),
+            arkret::DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+        ));
+        let event = arkret::TypedEventDraft::<arkret::event_spec::MessageCreate>::new(
+            arkret::ScopeRef::Realm {
+                realm_id: arkret::RealmId::new(target.realm_id.clone()).unwrap(),
+            },
+            actor,
+            payload,
+        )
+        .unwrap()
+        .author_with_digest_suite(
+            DateTime::from_timestamp(seconds, 0).unwrap(),
+            arkret::canonical::DigestSuite::Sha256,
+        )
+        .unwrap();
+        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(
+            ed25519_dalek::SigningKey::from_bytes(&[71; 32]),
+            "did:web:agent.example#runtime-1",
+        );
+        garth::MessageAuthoringSession::from_authored_event(event)
+            .unwrap()
+            .sign(&signer, arkret::signatures::SignEventOptions::new())
+            .unwrap()
+    }
+
+    async fn canonical_checkpoint(
+        store: &ArkretExecutionBindingStore,
+        target: &RemoteConversationKey,
+    ) -> (DeliveryCheckpoint, String) {
+        let (binding, _) = store
+            .ensure_binding(
+                "session-one",
+                target.clone(),
+                &arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [34; 32])
+                    .to_string(),
+                "ak:did_core:web:controller.example",
+                "ak:did_core:web:agent.example",
+                ArkretDeliveryMode::TaskDelivery,
+            )
+            .await
+            .unwrap();
+        store
+            .enqueue_checkpoint(
+                binding.binding_id,
+                DeliveryCheckpointKind::Milestone,
+                "Ready".to_owned(),
+                "A deterministic public result.".to_owned(),
+                vec!["local storage regression".to_owned()],
+                Vec::new(),
+                Vec::new(),
+                "operator_via_agent",
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn retained_submission_replays_after_restart_before_account_enqueue() {
+        let home = tempfile::tempdir().unwrap();
+        let target = canonical_conversation();
+        let store = ArkretExecutionBindingStore::new(home.path());
+        let (checkpoint, body) = canonical_checkpoint(&store, &target).await;
+        let first = frozen_submission(&target, &body, 1_790_000_000);
+        let expected_bytes = first.canonical_submission_bytes().to_vec();
+        let expected_id = first.request().submission.event.event_id.clone();
+        store
+            .retain_checkpoint_submission(checkpoint.checkpoint_id, &target, &body, first)
+            .await
+            .unwrap();
+        drop(store);
+        // Simulate the crash between retaining the producer bytes and enqueue.
+        let reopened = ArkretExecutionBindingStore::new(home.path());
+        let replay = reopened
+            .checkpoint_submission(checkpoint.checkpoint_id, &target, &body)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(replay.canonical_submission_bytes(), expected_bytes);
+        assert_eq!(replay.request().submission.event.event_id, expected_id);
+        let account_path = home.path().join("account.json");
+        let outbound = garth::OutboundEngine::new(
+            garth::FileStore::open(&account_path).unwrap(),
+            garth::SystemClock,
+        );
+        outbound
+            .enqueue(replay.into_queued_submission())
+            .await
+            .unwrap();
+        drop(outbound);
+        let queue = garth::OutboundEngine::new(
+            garth::FileStore::open(account_path).unwrap(),
+            garth::SystemClock,
+        );
+        let snapshot = queue.snapshot().await.unwrap();
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.items[0].event_id(), &expected_id);
+        assert_eq!(
+            arkret::canonical::canonical_json_bytes(&snapshot.items[0].submission.request).unwrap(),
+            expected_bytes
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_checkpoint_authors_reuse_one_durable_submission() {
+        let home = tempfile::tempdir().unwrap();
+        let target = canonical_conversation();
+        let first_store = ArkretExecutionBindingStore::new(home.path());
+        let other_store = ArkretExecutionBindingStore::new(home.path());
+        let (checkpoint, body) = canonical_checkpoint(&first_store, &target).await;
+        let first = frozen_submission(&target, &body, 1_790_000_000);
+        let other = frozen_submission(&target, &body, 1_790_000_001);
+        assert_ne!(
+            first.request().submission.event.event_id,
+            other.request().submission.event.event_id
+        );
+        let (left, right) = tokio::join!(
+            first_store.retain_checkpoint_submission(
+                checkpoint.checkpoint_id,
+                &target,
+                &body,
+                first
+            ),
+            other_store.retain_checkpoint_submission(
+                checkpoint.checkpoint_id,
+                &target,
+                &body,
+                other
+            ),
+        );
+        assert_eq!(
+            left.unwrap().canonical_submission_bytes(),
+            right.unwrap().canonical_submission_bytes()
+        );
+    }
+
+    #[tokio::test]
+    async fn checkpoint_retention_rejects_wrong_target_or_changed_public_body() {
+        let home = tempfile::tempdir().unwrap();
+        let target = canonical_conversation();
+        let store = ArkretExecutionBindingStore::new(home.path());
+        let (checkpoint, body) = canonical_checkpoint(&store, &target).await;
+        let signed = frozen_submission(&target, &body, 1_790_000_000);
+        let mut other_account = target.clone();
+        other_account.account_id = "other-account".to_owned();
+        assert!(
+            store
+                .retain_checkpoint_submission(
+                    checkpoint.checkpoint_id,
+                    &other_account,
+                    &body,
+                    signed.clone()
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            store
+                .retain_checkpoint_submission(
+                    checkpoint.checkpoint_id,
+                    &target,
+                    "changed",
+                    signed.clone()
+                )
+                .await
+                .is_err()
+        );
+        let mut other_strand = target.clone();
+        other_strand.strand_id = arkret::StrandId::from_event_id(&arkret::EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [51; 32],
+        ))
+        .to_string();
+        let wrong_scope = frozen_submission(&other_strand, &body, 1_790_000_000);
+        assert!(
+            store
+                .retain_checkpoint_submission(checkpoint.checkpoint_id, &target, &body, wrong_scope)
+                .await
+                .is_err()
+        );
+        assert!(
+            store
+                .checkpoint_submission(checkpoint.checkpoint_id, &target, &body)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
