@@ -10575,6 +10575,7 @@ dependencies = [
  "arkret",
  "arkret-crypto",
  "arkret-models-collaboration",
+ "arkret-models-crypto",
  "arkret-schema",
  "arkret-signatures",
  "arkret-wire",

@@ -291,53 +291,68 @@ fn dispatch_skip_reason(
     None
 }
 
-/// Walk a `Delta` frame body's `realms` object and extract every dispatchable
-/// `ak.message.create` event for the given account.
-///
-/// The shape expected is the v1 account subscribe `delta` shape:
-/// `realms.<realm_id>.timeline.events[] : Event`. Tolerates missing nested
-/// fields by returning an empty list rather than failing.
+/// Read only full, shape-valid accepted Events from a v1 account delta.
 #[must_use]
 pub fn parse_delta_frame_for_account(
     realms_value: &Value,
     account: &ArkretAccountConfig,
 ) -> ArkretInboundParseResult {
+    let mut accepted_events = Vec::new();
+    if let Some(realms) = realms_value.as_object() {
+        for realm_body in realms.values() {
+            let Some(committed) = realm_body.get("committed_events").and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for raw in committed {
+                let Ok(arkret::CommittedEventView::Full(full)) =
+                    serde_json::from_value::<arkret::CommittedEventView>(raw.clone())
+                else {
+                    continue;
+                };
+                if full.validate_shape().is_ok()
+                    && let Ok(value) = serde_json::to_value(&full.event)
+                {
+                    accepted_events.push(value);
+                }
+            }
+        }
+    }
+    parse_event_values_for_account(&accepted_events, account)
+}
+
+/// Classify Events returned by the authenticated account history read.
+#[must_use]
+pub fn parse_event_values_for_account(
+    raw_events: &[Value],
+    account: &ArkretAccountConfig,
+) -> ArkretInboundParseResult {
     let mut events = Vec::new();
     let mut skipped = Vec::new();
-    let Some(realms) = realms_value.as_object() else {
-        return ArkretInboundParseResult { events, skipped };
-    };
-    for (_realm_id, realm_body) in realms {
-        let timeline = realm_body
-            .get("timeline")
-            .and_then(|t| t.get("events"))
-            .and_then(Value::as_array);
-        let Some(timeline) = timeline else { continue };
-        for raw_event in timeline {
-            match classify_message_event(raw_event, &account.id) {
-                ArkretInboundEventOutcome::Dispatchable(parsed) => {
-                    if let Some(reason) = dispatch_skip_reason(&parsed, account) {
-                        skipped.push(ArkretInboundSkippedEvent {
-                            account_id: parsed.account_id.clone(),
-                            event_id: Some(parsed.event_id.clone()),
-                            realm_id: Some(parsed.realm_id.clone()),
-                            chat_type: parsed.chat_type.clone(),
-                            participant_count: parsed.participant_count,
-                            sender_did: Some(parsed.sender_did.clone()),
-                            sender_actor_id: None,
-                            strand_id: parsed.strand_id.clone(),
-                            reply_to: parsed.thread_root_id.clone(),
-                            encrypted_payload: None,
-                            encrypted_metadata_payload: None,
-                            request_ordering: None,
-                            reason,
-                        });
-                    } else {
-                        events.push(*parsed);
-                    }
+    for raw_event in raw_events {
+        match classify_message_event(raw_event, &account.id) {
+            ArkretInboundEventOutcome::Dispatchable(parsed) => {
+                if let Some(reason) = dispatch_skip_reason(&parsed, account) {
+                    skipped.push(ArkretInboundSkippedEvent {
+                        account_id: parsed.account_id.clone(),
+                        event_id: Some(parsed.event_id.clone()),
+                        realm_id: Some(parsed.realm_id.clone()),
+                        chat_type: parsed.chat_type.clone(),
+                        participant_count: parsed.participant_count,
+                        sender_did: Some(parsed.sender_did.clone()),
+                        sender_actor_id: None,
+                        strand_id: parsed.strand_id.clone(),
+                        reply_to: parsed.thread_root_id.clone(),
+                        encrypted_payload: None,
+                        encrypted_metadata_payload: None,
+                        request_ordering: None,
+                        reason,
+                    });
+                } else {
+                    events.push(*parsed);
                 }
-                ArkretInboundEventOutcome::Skip(event) => skipped.push(*event),
             }
+            ArkretInboundEventOutcome::Skip(event) => skipped.push(*event),
         }
     }
     ArkretInboundParseResult { events, skipped }
@@ -350,7 +365,7 @@ pub fn parse_delta_frame_for_account(
 /// top level as either `{ "events": [...] }`, `{ "items": [...] }`, or a raw
 /// array. Savfox only dispatches `assignment` and `schedule` notifications here:
 /// message/mention notifications are already represented by visible
-/// `ak.message.create` timeline events, and dispatching both would double-wake
+/// accepted `ak.message.create` events, and dispatching both would double-wake
 /// the agent.
 #[must_use]
 pub fn parse_notification_delta_for_account(
@@ -719,6 +734,32 @@ mod tests {
         message_event_in_realm(REALM_1.as_str(), actor, STRAND_1.as_str(), body)
     }
 
+    fn committed_event_value(raw_event: Value) -> Value {
+        let event: arkret::Event = serde_json::from_value(raw_event).unwrap();
+        let commit = arkret::RealmCommit {
+            commit_id: arkret::RealmCommitId::from_digest([0x41; 32]),
+            realm_id: event.realm_id.clone(),
+            stream_ref: arkret::CommitStreamRef::from_scope(&event.scope_ref, None).unwrap(),
+            stream_position: 0,
+            previous_commit_ref: None,
+            event_ref: event.event_id.clone(),
+            governance_generation: 0,
+            authority_ref: arkret::RealmCommitAuthorityRef::GenesisOrChangeEvent(fixture_event_id(
+                0x42,
+            )),
+            committed_at: chrono::Utc::now(),
+            signature: arkret::DetachedObjectSignature {
+                context: arkret::DetachedSignatureContext::RealmCommit,
+                signature_algorithm: arkret::DetachedSignatureAlgorithm::Ed25519,
+                verification_method: arkret::DidUrl::new("did:web:station.example#key-1").unwrap(),
+                signed_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
+                created_at: chrono::Utc::now(),
+                sig: arkret::Base64UrlString::new("AQ").unwrap(),
+            },
+        };
+        serde_json::to_value(arkret::CommittedEventFullView { commit, event }).unwrap()
+    }
+
     fn message_event_in_realm(realm: &str, actor: &str, strand: &str, body: &str) -> Value {
         event_value(
             "ak.message.create",
@@ -898,30 +939,20 @@ mod tests {
     }
 
     #[test]
-    fn parse_delta_frame_walks_realms() {
+    fn account_event_values_classify_multiple_realms() {
         let account = make_account(Some(REALM_1.as_str()));
-        let realms = json!({
-            REALM_1.as_str(): {
-                "timeline": {
-                    "events": [
-                        message_event("ak:did_core:webvh:z6mkfixturebob", "hello bob"),
-                        message_event(&account.principal_id, "self echo"),
-                        message_event("ak:did_core:webvh:z6mkfixturecarol", "")
-                    ]
-                }
-            },
-            REALM_2.as_str(): {
-                "timeline": {
-                    "events": [message_event_in_realm(
-                        REALM_2.as_str(),
-                        "ak:did_core:webvh:z6mkfixturedan",
-                        STRAND_2.as_str(),
-                        "from other realm"
-                    )]
-                }
-            }
-        });
-        let result = parse_delta_frame_for_account(&realms, &account);
+        let values = vec![
+            message_event("ak:did_core:webvh:z6mkfixturebob", "hello bob"),
+            message_event(&account.principal_id, "self echo"),
+            message_event("ak:did_core:webvh:z6mkfixturecarol", ""),
+            message_event_in_realm(
+                REALM_2.as_str(),
+                "ak:did_core:webvh:z6mkfixturedan",
+                STRAND_2.as_str(),
+                "from other realm",
+            ),
+        ];
+        let result = parse_event_values_for_account(&values, &account);
         assert_eq!(result.events.len(), 2);
         assert!(result.events.iter().any(|event| {
             event.sender_did == "ak:did_core:webvh:z6mkfixturebob" && event.body == "hello bob"
@@ -946,19 +977,37 @@ mod tests {
     }
 
     #[test]
-    fn parse_delta_without_event_read_does_not_dispatch_plaintext() {
+    fn account_delta_dispatches_only_shape_valid_full_committed_events() {
+        let account = make_account(Some(REALM_1.as_str()));
+        let accepted = committed_event_value(message_event(
+            "ak:did_core:webvh:z6mkfixturebob",
+            "accepted",
+        ));
+        let mut misbound = accepted.clone();
+        misbound["commit"]["event_ref"] = serde_json::to_value(fixture_event_id(0x43)).unwrap();
+        let realms = json!({
+            REALM_1.as_str(): {
+                "committed_events": [accepted, misbound],
+                "timeline": {"events": [message_event(
+                    "ak:did_core:webvh:z6mkfixturecarol", "uncommitted"
+                )]}
+            }
+        });
+        let parsed = parse_delta_frame_for_account(&realms, &account);
+        assert_eq!(parsed.events.len(), 1);
+        assert_eq!(parsed.events[0].body, "accepted");
+    }
+
+    #[test]
+    fn account_event_values_without_event_read_do_not_dispatch_plaintext() {
         let mut account = make_account(Some(REALM_1.as_str()));
         account.requested_scope =
             vec![arkret::ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into()];
-        let realms = json!({
-            REALM_1.as_str(): {
-                "timeline": {
-                    "events": [message_event("ak:did_core:webvh:z6mkfixturebob", "plain text")]
-                }
-            }
-        });
-
-        let result = parse_delta_frame_for_account(&realms, &account);
+        let values = vec![message_event(
+            "ak:did_core:webvh:z6mkfixturebob",
+            "plain text",
+        )];
+        let result = parse_event_values_for_account(&values, &account);
 
         assert!(result.events.is_empty());
         assert_eq!(result.skipped.len(), 1);
@@ -969,7 +1018,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_delta_records_encrypted_skips() {
+    fn account_event_values_record_encrypted_skips() {
         let account = make_account(None);
         let encrypted_event = event_value(
             "ak.message.create",
@@ -981,14 +1030,7 @@ mod tests {
                 "encrypted_content":{"scheme":"mls_rfc9420","ciphertext":"..."}
             }),
         );
-        let realms = json!({
-            REALM_1.as_str(): {
-                "timeline": {
-                    "events": [encrypted_event]
-                }
-            }
-        });
-        let result = parse_delta_frame_for_account(&realms, &account);
+        let result = parse_event_values_for_account(&[encrypted_event], &account);
         assert!(result.events.is_empty());
         assert_eq!(result.skipped.len(), 1);
         assert_eq!(

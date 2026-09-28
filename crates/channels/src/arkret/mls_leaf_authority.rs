@@ -24,7 +24,7 @@ pub struct VerifiedMlsLeafAuthority {
 impl VerifiedMlsLeafAuthority {
     /// Call only after the claim outcome and its Station receipt are verified.
     pub fn from_verified_claim(claim: &KeyPackageClaimRecord) -> anyhow::Result<Self> {
-        claim.validate_shape()?;
+        claim.validate_shape().map_err(anyhow::Error::msg)?;
         let record = mls_key_package_record_from_claim(claim)?;
         Ok(Self {
             actor_id: claim.actor_id.clone(),
