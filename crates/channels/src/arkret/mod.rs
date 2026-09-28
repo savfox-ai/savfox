@@ -77,7 +77,9 @@ pub use inbound_adapter::{
     classify_message_event, extract_message_event, parse_delta_frame_for_account,
     parse_notification_delta_for_account, should_dispatch_event,
 };
-pub use mls_leaf_authority::{VerifiedMlsLeafAuthority, install_verified_leaf_authority};
+pub use mls_leaf_authority::{
+    VerifiedMlsLeafAuthority, install_verified_leaf_authority, verified_welcome_leaf_authority,
+};
 pub use outbound::{
     MessageCreateRequest, build_message_create_event, finalize_outbound_event, sign_outbound_event,
     sign_outbound_event_with_key,
