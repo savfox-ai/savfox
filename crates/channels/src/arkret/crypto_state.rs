@@ -16,9 +16,9 @@ use arkret::{
     EncryptedPayload, EncryptedPayloadScheme, EventContentPreEncryptionHeader,
     EventContentRoutingContext, EventId, MessageMetadata, MlsCommitPayload, MlsCommitSource,
     MlsEncryptedPayload, MlsEndpointIdentity, MlsKeyPackageRecord, MlsKeyPackageState,
-    MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient, PresencePlaintext,
-    PresenceState, RealmId, ScopeRef, SignalSequenceDomain, SignalSequenceEndpoint,
-    StrandCreatePayload, StrandId, seal_signal_plaintext,
+    MlsPayloadType, MlsWelcomeDelivery, MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient,
+    PresencePlaintext, PresenceState, RealmId, ScopeRef, SignalSequenceDomain,
+    SignalSequenceEndpoint, StrandCreatePayload, StrandId, seal_signal_plaintext,
 };
 use arkret_models_crypto::MlsGroupStateRecord as CurrentMlsGroupStateRecord;
 use base64::Engine as _;
@@ -1528,6 +1528,245 @@ impl FileArkretCryptoStore {
         );
         self.save(&mut state)?;
         Ok(true)
+    }
+
+    /// Join from a producer-signed recipient delivery after the host has
+    /// verified its producer proof and the own-Station claim receipt. This
+    /// method checks the claim against the exact accepted Commit before it
+    /// decrypts the Welcome, persists the joined group and complete roster,
+    /// then signs the recipient receipt only across that durable barrier.
+    #[allow(clippy::too_many_arguments)]
+    pub fn install_accepted_mls_welcome(
+        &self,
+        delivery: &MlsWelcomeDelivery,
+        accepted_commit: &arkret::CommittedEventFullView,
+        claim_outcome: &arkret::KeyPackagesClaimOutcome,
+        local_station: &DidCoreId,
+        endpoint_authorization: &EventId,
+        recipient: arkret::RecipientMlsDurableSigner,
+        other_new_authority: &[super::mls_leaf_authority::VerifiedMlsLeafAuthority],
+    ) -> anyhow::Result<bool> {
+        let claim = claim_outcome
+            .claims
+            .iter()
+            .find(|claim| claim.claim_id == delivery.keypackage_claim_ref.as_str())
+            .context("MLS Welcome has no own-Station KeyPackage claim")?;
+        let claimed_record = mls_key_package_record_from_claim(claim)?;
+        let recipient_matches = match (&claimed_record.endpoint, &recipient) {
+            (
+                MlsEndpointIdentity::HumanDevice {
+                    principal_id,
+                    device_id,
+                },
+                arkret::RecipientMlsDurableSigner::Device {
+                    recipient_account_id,
+                    recipient_device_id,
+                    ..
+                },
+            ) => {
+                &recipient_account_id.principal_id == principal_id
+                    && &recipient_account_id.station_id == local_station
+                    && recipient_device_id == device_id
+            }
+            (
+                MlsEndpointIdentity::AgentRuntime {
+                    agent_id,
+                    verification_method,
+                    agent_key_authorize_event_id,
+                },
+                arkret::RecipientMlsDurableSigner::Agent {
+                    recipient_agent_id,
+                    recipient_agent_verification_method,
+                    agent_key_authorize_event_id: receipt_authorization,
+                },
+            ) => {
+                recipient_agent_id == agent_id
+                    && recipient_agent_verification_method == verification_method
+                    && receipt_authorization == agent_key_authorize_event_id
+            }
+            _ => false,
+        };
+        anyhow::ensure!(
+            recipient_matches,
+            "MLS Welcome durable signer differs from the claimed local endpoint"
+        );
+        let recipient_authority = super::mls_leaf_authority::verified_welcome_leaf_authority(
+            delivery,
+            accepted_commit,
+            &claimed_record.endpoint,
+            claim_outcome,
+            local_station,
+            endpoint_authorization,
+        )?;
+        let payload: MlsCommitPayload = serde_json::from_value(serde_json::Value::Object(
+            accepted_commit.event.payload.clone().into_iter().collect(),
+        ))?;
+        payload.validate()?;
+        let group_id = payload.mls_group_id()?;
+        let identity_key = mls_identity_key(&claimed_record.actor_id, &claimed_record.endpoint)?;
+        let binding_key = format!(
+            "{}#{}#{}#{}",
+            group_id,
+            payload.next_epoch(),
+            claim.keypackage_ref,
+            delivery.keypackage_claim_ref
+        );
+
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load()?;
+        let local_package_key =
+            find_mls_key_package_cache_key(&state.mls_key_packages, &claim.keypackage_ref)
+                .context("MLS Welcome claimed KeyPackage is not held locally")?;
+        let local_package = &state.mls_key_packages[&local_package_key];
+        anyhow::ensure!(
+            local_package.keypackage == claimed_record.keypackage
+                && local_package.actor_id == claimed_record.actor_id
+                && local_package.endpoint == claimed_record.endpoint,
+            "MLS Welcome claim differs from the locally held KeyPackage"
+        );
+        if let Some(record) = state.mls_group_states.get(group_id.as_str()) {
+            anyhow::ensure!(
+                record.epoch >= payload.next_epoch(),
+                "MLS Welcome cannot replace an installed earlier epoch; apply accepted Commits"
+            );
+        }
+        let identity_record = state
+            .mls_identities
+            .get(&identity_key)
+            .context("MLS Welcome recipient private identity is unavailable")?;
+        let identity = restore_mls_identity(identity_record)?;
+        let already_joined = state
+            .mls_group_states
+            .get(group_id.as_str())
+            .is_some_and(|record| record.epoch >= payload.next_epoch());
+        if !already_joined {
+            let mut group = ArkretMlsGroup::join_from_verified_welcome_delivery(
+                identity,
+                delivery,
+                accepted_commit,
+            )?;
+            let mut authority = other_new_authority.to_vec();
+            authority.push(recipient_authority);
+            super::mls_leaf_authority::install_verified_leaf_authority(
+                &mut group,
+                &[],
+                &authority,
+            )?;
+            let updated = group.persist_state(&mut state)?;
+            let mut binding = ArkretMlsWelcomeConsumeBinding {
+                keypackage_ref: claim.keypackage_ref.clone(),
+                claim_id: delivery.keypackage_claim_ref.to_string(),
+                welcome_ref: Some(delivery.welcome_id.to_string()),
+                realm_id: Some(delivery.realm_id.to_string()),
+                strand_id: None,
+                mls_group_id: updated.group_id.as_str().to_owned(),
+                epoch: updated.epoch,
+                group_state_ref: Some(accepted_commit.event.event_id.to_string()),
+                recipient_durable_receipt: None,
+                verified_leaf_bindings: group.verified_leaf_bindings()?,
+            };
+            enrich_mls_welcome_consume_binding(
+                &mut binding,
+                &state.direct_conversation_welcome_bindings,
+            );
+            state
+                .mls_welcome_consume_bindings
+                .insert(binding_key.clone(), binding);
+            let local_package = state
+                .mls_key_packages
+                .get_mut(&local_package_key)
+                .expect("local MLS KeyPackage checked above");
+            if !matches!(
+                local_package.state,
+                MlsKeyPackageState::Consumed | MlsKeyPackageState::Revoked
+            ) {
+                local_package.state = MlsKeyPackageState::Claimed;
+                local_package.claim_id = Some(delivery.keypackage_claim_ref.to_string());
+            }
+            state.bootstrap.insert(
+                updated.group_id.as_str().to_owned(),
+                ArkretBootstrapRecord {
+                    group_id: updated.group_id.as_str().to_owned(),
+                    required_epoch: updated.epoch,
+                    local_epoch: Some(updated.epoch),
+                    group_state_ref: Some(accepted_commit.event.event_id.to_string()),
+                    action: MlsRecoveryAction::ConsumeWelcome,
+                    updated_at: Utc::now(),
+                },
+            );
+            self.save(&mut state)?;
+        }
+
+        // A previous attempt may have crossed the group-state barrier and
+        // failed while saving its receipt. Replaying the same delivery repairs
+        // that pending receipt without joining the group a second time.
+        let mut durable = self.load()?;
+        let binding = durable
+            .mls_welcome_consume_bindings
+            .get(&binding_key)
+            .context("MLS Welcome has no durable consume binding")?;
+        anyhow::ensure!(
+            binding.welcome_ref.as_deref() == Some(delivery.welcome_id.as_str())
+                && binding.group_state_ref.as_deref()
+                    == Some(accepted_commit.event.event_id.as_str()),
+            "MLS Welcome durable binding names another delivery or Commit"
+        );
+        if binding.recipient_durable_receipt.is_some() {
+            return Ok(!already_joined);
+        }
+        anyhow::ensure!(
+            durable
+                .mls_group_states
+                .get(group_id.as_str())
+                .is_some_and(|record| record.epoch >= payload.next_epoch()),
+            "MLS Welcome group state is not durable"
+        );
+        let identity = restore_mls_identity(
+            durable
+                .mls_identities
+                .get(&identity_key)
+                .context("durable MLS Welcome recipient identity is unavailable")?,
+        )?;
+        let verification_method = match &recipient {
+            arkret::RecipientMlsDurableSigner::Agent {
+                recipient_agent_verification_method,
+                ..
+            } => recipient_agent_verification_method,
+            arkret::RecipientMlsDurableSigner::Device {
+                device_verification_method,
+                ..
+            } => device_verification_method,
+            arkret::RecipientMlsDurableSigner::MinimalMetadataPairwise { .. } => {
+                anyhow::bail!("pairwise endpoint cannot consume an ordinary MLS Welcome")
+            }
+        }
+        .clone();
+        let receipt = arkret::RecipientMlsDurableReceipt {
+            domain: arkret::NonEmptyString::new("ak.mls.recipient_durable_receipt.v1")?,
+            claim_request_id: claim_outcome.claim_request_id.clone(),
+            key_package_ref: arkret::NonEmptyString::new(&claim.keypackage_ref)?,
+            recipient,
+            recipient_id: local_station.clone(),
+            realm_id: delivery.realm_id.clone(),
+            mls_group_id: group_id,
+            mls_epoch: payload.next_epoch(),
+            welcome_ref: delivery.welcome_id.clone(),
+            welcome_digest: delivery.durable_receipt_digest()?,
+            durable_at: Utc::now(),
+            signature: arkret::KeyOperationSignature {
+                kid: arkret::NonEmptyString::new(verification_method.as_str())?,
+                signature_algorithm: None,
+                sig: arkret::Base64UrlString::new("AA")?,
+            },
+        };
+        let receipt = identity.sign_recipient_mls_durable_receipt(receipt)?;
+        durable
+            .mls_welcome_consume_bindings
+            .get_mut(&binding_key)
+            .expect("durable MLS Welcome binding checked above")
+            .recipient_durable_receipt = Some(receipt);
+        self.save(&mut durable)?;
+        Ok(!already_joined)
     }
 
     /// Apply one accepted durable `ak.mls.commit` to the local MLS group and
