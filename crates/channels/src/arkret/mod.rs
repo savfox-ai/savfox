@@ -65,7 +65,7 @@ pub use crypto_state::{
     ArkretBootstrapRecord, ArkretContentEncryptionFloor, ArkretCryptoStateFile,
     ArkretDecryptDetailedOutcome, ArkretDecryptOutcome, ArkretEncryptOutcome, ArkretKeyBackupState,
     ArkretMlsIdentityStateRecord, ArkretMlsWelcomeConsumeBinding, ArkretRealmCryptoPolicy,
-    FileArkretCryptoStore, MlsWelcomeAdmissionSubject, account_scope_id, applet_scope_id,
+    FileArkretCryptoStore, account_scope_id, applet_scope_id,
     extract_encrypted_metadata_payload_from_message_content,
     extract_encrypted_payload_from_message_content, message_content_has_encrypted_carrier,
     mls_key_package_record_from_claim,
@@ -75,7 +75,7 @@ pub use inbound_adapter::{
     ArkretInboundEvent, ArkretInboundEventOutcome, ArkretInboundParseResult,
     ArkretInboundSkipReason, ArkretInboundSkippedEvent, account_allows_event_read,
     classify_message_event, extract_message_event, parse_delta_frame_for_account,
-    parse_notification_delta_for_account, should_dispatch_event,
+    parse_event_values_for_account, parse_notification_delta_for_account, should_dispatch_event,
 };
 pub use mls_leaf_authority::{
     VerifiedMlsLeafAuthority, install_verified_leaf_authority, verified_welcome_leaf_authority,
