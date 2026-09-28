@@ -3149,7 +3149,10 @@ async fn fetch_arkret_pairing_bootstrap(
         .body(body)
         .send()
         .await
-        .map_err(|err| format!("resolve Arkret pairing link failed: {err}"))?;
+        .map_err(|err| {
+            tracing::warn!(url = %resolve_url, error = ?err, "Arkret pairing resolver request failed");
+            format!("resolve Arkret pairing link failed: {err}")
+        })?;
     let status = response.status();
     let bytes = response
         .bytes()
