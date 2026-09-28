@@ -17,7 +17,7 @@ use arkret::{
     EventContentRoutingContext, EventId, MessageMetadata, MlsCommitPayload, MlsCommitSource,
     MlsEncryptedPayload, MlsEndpointIdentity, MlsKeyPackageRecord, MlsKeyPackageState,
     MlsPayloadType, MlsWelcomeEnvelope, MlsWelcomePayload, MlsWelcomeRecipient, PresencePlaintext,
-    PresenceState, RealmId, ScopeRef, SealId, SignalSequenceDomain, SignalSequenceEndpoint,
+    PresenceState, RealmId, ScopeRef, SignalSequenceDomain, SignalSequenceEndpoint,
     StrandCreatePayload, StrandId, seal_signal_plaintext,
 };
 use arkret_models_crypto::MlsGroupStateRecord as CurrentMlsGroupStateRecord;
@@ -334,7 +334,7 @@ pub struct ArkretCryptoStateFile {
     /// Last authority decision set observed on an accepted Event for each
     /// Realm. This lets ordinary authoring proceed from verified local state.
     #[serde(default)]
-    pub realm_authority_refs: BTreeMap<String, Vec<SealId>>,
+    pub realm_authority_refs: BTreeMap<String, Vec<EventId>>,
     #[serde(default)]
     pub bootstrap: BTreeMap<String, ArkretBootstrapRecord>,
     /// Next verified sender-endpoint sequence per Signal scope. The value is
@@ -659,7 +659,7 @@ impl FileArkretCryptoStore {
     pub fn record_realm_authority_refs(
         &self,
         realm_id: &str,
-        authority_refs: &[SealId],
+        authority_refs: &[EventId],
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
             !authority_refs.is_empty()
@@ -675,7 +675,7 @@ impl FileArkretCryptoStore {
         self.save(&mut state)
     }
 
-    pub fn realm_authority_refs(&self, realm_id: &str) -> anyhow::Result<Option<Vec<SealId>>> {
+    pub fn realm_authority_refs(&self, realm_id: &str) -> anyhow::Result<Option<Vec<EventId>>> {
         Ok(self.load()?.realm_authority_refs.get(realm_id).cloned())
     }
 
