@@ -618,9 +618,9 @@ async fn prepare_git_workspace(
     request: TerminalWorkspaceRequest,
     mode: String,
 ) -> anyhow::Result<TerminalWorkspaceState> {
-    let git_root = git_toplevel(&request.base_cwd).await?;
-    let requested_relative = request
-        .requested_cwd
+    let git_root = tokio::fs::canonicalize(git_toplevel(&request.base_cwd).await?).await?;
+    let requested_cwd = tokio::fs::canonicalize(&request.requested_cwd).await?;
+    let requested_relative = requested_cwd
         .strip_prefix(&git_root)
         .map(Path::to_path_buf)
         .map_err(|_| {

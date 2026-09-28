@@ -2126,7 +2126,7 @@ mod tests {
             ),
             (
                 DESTINATION_SERVICE_ID_HEADER.to_owned(),
-                "did:webvh:bridge.example".to_owned(),
+                "ak:did_core:webvh:z6mkbridge".to_owned(),
             ),
             (
                 "content-digest".to_owned(),
@@ -2207,7 +2207,10 @@ mod tests {
         .expect("signature should verify")
         .expect("signature should be required");
         assert_eq!(verified.source_service_id, "did:webvh:arkret.example.org");
-        assert_eq!(verified.destination_service_id, "did:webvh:bridge.example");
+        assert_eq!(
+            verified.destination_service_id,
+            "ak:did_core:webvh:z6mkbridge"
+        );
         assert_eq!(verified.signature_label, "sig1");
         assert_eq!(verified.key_id, "did:webvh:arkret.example.org#key-1");
         assert_eq!(verified.signature_algorithm, "ed25519");

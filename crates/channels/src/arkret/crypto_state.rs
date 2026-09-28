@@ -26,6 +26,7 @@ use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use chrono::{DateTime, Utc};
 use parking_lot::ReentrantMutex;
+#[cfg(not(test))]
 use savfox_keyring_store::KeyringStore as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,6 +35,7 @@ use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
 const STATE_VERSION: &str = "savfox.arkret.crypto_state.v1";
 const WRAPPED_STATE_VERSION: &str = "savfox.arkret.crypto_state.wrapped.v1";
+#[cfg(not(test))]
 const WRAPPING_KEY_SERVICE: &str = "savfox-arkret-crypto-state";
 
 /// Classification retained by Savfox for encrypted Events that cannot yet be
@@ -452,6 +454,7 @@ impl FileArkretCryptoStore {
         Ok(())
     }
 
+    #[cfg(not(test))]
     fn wrapping_key_account(&self) -> String {
         use sha2::Digest as _;
         format!(

@@ -4343,6 +4343,52 @@ mod tests {
     }
 
     #[cfg(feature = "arkret")]
+    fn approved_agent_channel_config() -> savfox_core::config::channel_store::ChannelConfig {
+        use base64::Engine as _;
+
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[37; 32]);
+        let mut config = channel_config(
+            "arkret",
+            json!({
+                "mode": "agent",
+                "inksonBootstrap": sdk_inkson_bootstrap(),
+                "keyRef": {
+                    "kind": "inline_seed_base64",
+                    "value": base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.to_bytes())
+                },
+                "verificationMethod": sdk_agent_verification_method(),
+                "authorizedEventRef": arkret::EventId::from_digest(
+                    arkret::canonical::DigestSuite::Sha256,
+                    [0x63; 32]
+                ),
+                "controllerAccountId": {
+                    "principal_id": "ak:did_core:web:controller.example",
+                    "station_id": "ak:did_core:web:station.example"
+                },
+                "requestedScope": savfox_channels::arkret::default_agent_runtime_scope().unwrap()
+            }),
+        );
+        let jwk = arkret::signatures::JsonWebKey::from_ed25519_verifying_key(
+            &signing_key.verifying_key(),
+        );
+        let evidence = arkret::build_agent_signer_evidence(
+            arkret::DidCoreId::new("ak:did_core:web:agent.example").unwrap(),
+            arkret::DidUrl::new(sdk_agent_verification_method()).unwrap(),
+            serde_json::from_value(serde_json::to_value(jwk).unwrap()).unwrap(),
+            arkret::RealmCommitId::from_digest([55; 32]),
+            "2026-09-16T00:00:00.000Z".parse().unwrap(),
+        )
+        .unwrap();
+        let reference = evidence.signer_evidence_ref().unwrap();
+        config.config["signerResolutionEvidenceRef"] = json!(reference.clone());
+        config.config["currentSignerEvidence"] = json!(arkret::KeyStateCurrentSignerEvidence {
+            signer_resolution_evidence_ref: reference,
+            authenticated_signer_evidence: evidence,
+        });
+        config
+    }
+
+    #[cfg(feature = "arkret")]
     #[tokio::test]
     async fn arkret_pairing_resolver_sends_operation_selector() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -4470,7 +4516,7 @@ mod tests {
         assert!(
             validate_arkret_pairing_bootstrap_value(value.clone())
                 .unwrap_err()
-                .contains("Upgrade")
+                .contains("resolve a new pairing link")
         );
         value["runtime_identity"] = json!({
             "controller_account_id": {
@@ -4552,20 +4598,7 @@ mod tests {
     #[cfg(feature = "arkret")]
     #[test]
     fn arkret_agent_ready_requires_completed_runtime_pairing() {
-        let ready = channel_config(
-            "arkret",
-            json!({
-                "mode": "agent",
-                "baseUrl": "https://arkret.example.org",
-                "serviceId": "ak:did_core:web:arkret.example.org",
-                "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "ak:did_core:web:agent.example",
-                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": sdk_agent_verification_method(),
-                "authorizedEventRef": "ak:event:AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
-                "requestedScope": savfox_channels::arkret::default_agent_runtime_scope().unwrap()
-            }),
-        );
+        let ready = approved_agent_channel_config();
         let missing_authorization = channel_config(
             "arkret",
             json!({
@@ -4614,20 +4647,8 @@ mod tests {
     #[cfg(feature = "arkret")]
     #[test]
     fn arkret_metadata_separates_pairing_from_runtime_readiness() {
-        let config = channel_config(
-            "arkret",
-            json!({
-                "mode": "agent",
-                "baseUrl": "https://arkret.example.org",
-                "serviceId": "ak:did_core:web:arkret.example.org",
-                "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "ak:did_core:web:agent.example",
-                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": sdk_agent_verification_method(),
-                "authorizedEventRef": "ak:event:AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
-                "requestedScope": savfox_channels::arkret::default_agent_runtime_scope().unwrap()
-            }),
-        );
+        let config = approved_agent_channel_config();
+        let authorized_event_ref = config.config["authorizedEventRef"].clone();
         let state = SavedChannelState {
             exists: true,
             enabled: true,
@@ -4643,10 +4664,7 @@ mod tests {
         assert_eq!(info["runtime_pairing_state"], "paired");
         assert_eq!(info["runtime_phase"], "stopped");
         assert_eq!(info["runtime_ready"], false);
-        assert_eq!(
-            info["authorized_event_ref"],
-            "ak:event:AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
-        );
+        assert_eq!(info["authorized_event_ref"], authorized_event_ref);
         assert_eq!(info["verification_method"], sdk_agent_verification_method());
         assert_eq!(
             info["runtime_scope_count"],

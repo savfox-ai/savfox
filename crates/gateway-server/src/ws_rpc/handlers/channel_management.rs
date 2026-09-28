@@ -936,9 +936,7 @@ mod credential_redaction_tests {
         candidate["requestedScope"]
             .as_array_mut()
             .unwrap()
-            .push(json!(
-                arkret::ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1
-            ));
+            .push(json!(arkret::ServiceOperationId::SELF_REALM_READ_EXPORT_V1));
         assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_err());
         candidate["authorizedEventRef"] = json!("replacement-authorization");
         assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_err());
