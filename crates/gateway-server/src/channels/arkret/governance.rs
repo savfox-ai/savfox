@@ -72,6 +72,59 @@ pub(crate) async fn verified_own_welcome_claim(
     Ok(outcome)
 }
 
+/// Consume one Station-queued Agent Welcome. The governance Station verified
+/// the delivery's producer proof when it atomically accepted the Commit and
+/// enqueued the delivery; the recipient independently verifies the historical
+/// own-Station claim before opening its local KeyPackage private state.
+pub(crate) async fn admit_owned_agent_welcome_delivery(
+    http: &arkret::http_client::Client,
+    store: &savfox_channels::arkret::FileArkretCryptoStore,
+    delivery: &arkret::MlsWelcomeDelivery,
+    account: &savfox_channels::arkret::ArkretAccountConfig,
+) -> anyhow::Result<bool> {
+    anyhow::ensure!(
+        delivery.recipient_actor_id == arkret::ActorId::account(account.actor_account_id.clone()),
+        "MLS Welcome is addressed to another Agent account"
+    );
+    let verification_method = arkret::DidUrl::new(
+        account
+            .verification_method
+            .as_ref()
+            .context("Agent MLS verification method is unavailable")?
+            .clone(),
+    )?;
+    anyhow::ensure!(
+        delivery.recipient_endpoint
+            == arkret::MlsWelcomeRecipientEndpoint::AgentRuntime {
+                verification_method: verification_method.clone(),
+            },
+        "MLS Welcome is addressed to another Agent runtime key"
+    );
+    let authorization_ref = arkret::EventId::new(
+        account
+            .authorized_event_ref
+            .as_ref()
+            .context("Agent MLS key authorization is unavailable")?
+            .clone(),
+    )?;
+    let accepted = accepted_commit_for_welcome(http, delivery).await?;
+    let claim =
+        verified_own_welcome_claim(http, delivery, &account.actor_account_id.station_id).await?;
+    store.install_accepted_mls_welcome(
+        delivery,
+        &accepted,
+        &claim,
+        &account.actor_account_id.station_id,
+        &authorization_ref,
+        arkret::RecipientMlsDurableSigner::Agent {
+            recipient_agent_id: account.actor_account_id.principal_id.clone(),
+            recipient_agent_verification_method: verification_method,
+            agent_key_authorize_event_id: authorization_ref,
+        },
+        &[],
+    )
+}
+
 pub(super) async fn admit_owned_agent_welcomes(
     http: &arkret::http_client::Client,
     store: &savfox_channels::arkret::FileArkretCryptoStore,

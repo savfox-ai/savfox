@@ -2145,22 +2145,32 @@ async fn drain_account_device_messages_from_cursor(
                     .await;
                 }
                 arkret::RecipientDelivery::MlsWelcome { mls_welcome } => {
-                    if let Err(error) = mls_welcome.validate_shape() {
-                        warn!(
+                    match governance::admit_owned_agent_welcome_delivery(
+                        client.inner(),
+                        crypto_store,
+                        mls_welcome,
+                        account,
+                    )
+                    .await
+                    {
+                        Ok(admitted) => debug!(
                             channel_id = %channel.id,
                             account_id = %account.id,
-                            reason,
-                            "arkret: invalid MLS Welcome delivery; preserving the queue: {error}"
-                        );
-                    } else {
-                        warn!(
-                            channel_id = %channel.id,
-                            account_id = %account.id,
-                            reason,
-                            "arkret: MLS Welcome delivery requires accepted-Commit admission; preserving the queue"
-                        );
+                            welcome_id = %mls_welcome.welcome_id,
+                            admitted,
+                            "arkret: accepted MLS Welcome delivery is durable"
+                        ),
+                        Err(error) => {
+                            warn!(
+                                channel_id = %channel.id,
+                                account_id = %account.id,
+                                reason,
+                                welcome_id = %mls_welcome.welcome_id,
+                                "arkret: MLS Welcome admission pending; preserving the queue: {error:#}"
+                            );
+                            return;
+                        }
                     }
-                    return;
                 }
             }
         }

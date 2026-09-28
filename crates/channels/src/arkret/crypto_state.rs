@@ -1530,10 +1530,11 @@ impl FileArkretCryptoStore {
         Ok(true)
     }
 
-    /// Join from a producer-signed recipient delivery after the host has
-    /// verified its producer proof and the own-Station claim receipt. This
-    /// method checks the claim against the exact accepted Commit before it
-    /// decrypts the Welcome, persists the joined group and complete roster,
+    /// Join from a recipient delivery whose producer proof was verified by
+    /// the governance Station at enqueue, after the host independently
+    /// verified the own-Station claim receipt. It checks the claim against the
+    /// exact accepted Commit before decrypting the Welcome, then persists the
+    /// joined group and complete roster,
     /// then signs the recipient receipt only across that durable barrier.
     #[allow(clippy::too_many_arguments)]
     pub fn install_accepted_mls_welcome(
