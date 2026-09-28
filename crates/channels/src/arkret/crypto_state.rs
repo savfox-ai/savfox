@@ -1469,13 +1469,13 @@ impl FileArkretCryptoStore {
 
     /// Install a Commit only from its full accepted view on the scope's own
     /// stream. `station_base` is the pinned current result for the installed
-    /// base epoch; `verified_leaf_bindings` must come from checked claim
-    /// authority for new leaves plus bindings retained from that base.
+    /// base epoch; `new_authority` comes from checked claims for newly occupied
+    /// leaves, while unchanged leaves retain their prior verified bindings.
     pub fn install_accepted_mls_commit(
         &self,
         accepted: &arkret::CommittedEventFullView,
         station_base: &arkret::MlsGroupCurrent,
-        verified_leaf_bindings: Vec<arkret::mls::MlsVerifiedLeafBinding>,
+        new_authority: &[super::mls_leaf_authority::VerifiedMlsLeafAuthority],
     ) -> anyhow::Result<bool> {
         accepted.validate_shape()?;
         anyhow::ensure!(
@@ -1504,16 +1504,16 @@ impl FileArkretCryptoStore {
         );
         let mut group = ArkretMlsGroup::restore_from_state_record(record)?;
         let previous = group.verified_leaf_bindings()?;
-        anyhow::ensure!(
-            !previous.is_empty() && !verified_leaf_bindings.is_empty(),
-            "accepted MLS Commit has no verified leaf authority"
-        );
         let applied_epoch = group.install_accepted_commit(accepted, station_base)?;
         anyhow::ensure!(
             applied_epoch == payload.next_epoch(),
             "accepted MLS Commit produced an unexpected epoch"
         );
-        group.install_verified_leaf_bindings(verified_leaf_bindings)?;
+        super::mls_leaf_authority::install_verified_leaf_authority(
+            &mut group,
+            &previous,
+            new_authority,
+        )?;
         let updated = group.persist_state(&mut state)?;
         state.bootstrap.insert(
             updated.group_id.as_str().to_owned(),
