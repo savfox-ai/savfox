@@ -287,6 +287,23 @@ pub(super) fn load_seed_array(key_ref: &ArkretKeyRef) -> anyhow::Result<[u8; 32]
     Ok(seed_arr)
 }
 
+#[cfg(test)]
+fn test_keyring_seeds()
+-> &'static std::sync::Mutex<std::collections::HashMap<(String, String), Vec<u8>>> {
+    static SEEDS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<(String, String), Vec<u8>>>,
+    > = std::sync::OnceLock::new();
+    SEEDS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(test)]
+pub(super) fn install_test_keyring_seed(service: &str, account: &str, seed: &[u8; 32]) {
+    test_keyring_seeds()
+        .lock()
+        .unwrap()
+        .insert((service.to_owned(), account.to_owned()), seed.to_vec());
+}
+
 fn load_seed_bytes(key_ref: &ArkretKeyRef) -> anyhow::Result<Vec<u8>> {
     match key_ref {
         ArkretKeyRef::Env { var } => {
@@ -296,6 +313,14 @@ fn load_seed_bytes(key_ref: &ArkretKeyRef) -> anyhow::Result<Vec<u8>> {
         }
         ArkretKeyRef::File { path } => load_file_seed(path),
         ArkretKeyRef::Keyring { service, account } => {
+            #[cfg(test)]
+            if let Some(seed) = test_keyring_seeds()
+                .lock()
+                .unwrap()
+                .get(&(service.clone(), account.clone()))
+            {
+                return Ok(seed.clone());
+            }
             use savfox_keyring_store::KeyringStore as _;
 
             let value = savfox_keyring_store::DefaultKeyringStore
@@ -394,12 +419,19 @@ mod tests {
             recipient_id: arkret::DidCoreId::new("ak:did_core:web:service.example").unwrap(),
             realm_id: arkret::RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI")
                 .unwrap(),
-            mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
+            mls_group_id: arkret::ScopeRef::Realm {
+                realm_id: arkret::RealmId::new(
+                    "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI",
+                )
+                .unwrap(),
+            }
+            .canonical_mls_group_id()
+            .unwrap(),
             mls_epoch: 3,
-            welcome_ref: arkret::EventId::from_digest(
-                arkret::canonical::DigestSuite::Sha256,
-                [0x02; 32],
-            ),
+            welcome_ref: arkret::identifiers::MlsWelcomeDeliveryId::new(
+                "ak:mls_welcome_delivery:01904100-0000-7000-8000-000000000001",
+            )
+            .unwrap(),
             welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
             durable_at: chrono::Utc::now(),
             signature: arkret::KeyOperationSignature {
@@ -519,7 +551,10 @@ mod tests {
     fn keypackage_consume_signer_uses_sdk_canonical_input() {
         let key_ref = ArkretKeyRef::InlineSeedBase64 { value: seed_b64() };
         let unsigned = arkret::KeyPackagesConsumeUnsignedRequest {
-            claim_id: arkret::NonEmptyString::new("ak:claim:fixture").unwrap(),
+            claim_id: arkret::identifiers::KeypackageClaimId::new(
+                "ak:keypackage_claim:01904100-0000-7000-8000-000000000001",
+            )
+            .unwrap(),
             recipient_durable_receipt: test_recipient_durable_receipt(),
         };
 
