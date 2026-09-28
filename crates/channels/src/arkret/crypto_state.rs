@@ -1467,6 +1467,69 @@ impl FileArkretCryptoStore {
             .is_none_or(|record| record.epoch < payload.next_epoch()))
     }
 
+    /// Install a Commit only from its full accepted view on the scope's own
+    /// stream. `station_base` is the pinned current result for the installed
+    /// base epoch; `verified_leaf_bindings` must come from checked claim
+    /// authority for new leaves plus bindings retained from that base.
+    pub fn install_accepted_mls_commit(
+        &self,
+        accepted: &arkret::CommittedEventFullView,
+        station_base: &arkret::MlsGroupCurrent,
+        verified_leaf_bindings: Vec<arkret::mls::MlsVerifiedLeafBinding>,
+    ) -> anyhow::Result<bool> {
+        accepted.validate_shape()?;
+        anyhow::ensure!(
+            accepted.event.kind == arkret::EventKind::MlsCommit,
+            "accepted MLS transition is not a Commit"
+        );
+        let payload: MlsCommitPayload = serde_json::from_value(serde_json::Value::Object(
+            accepted.event.payload.clone().into_iter().collect(),
+        ))?;
+        payload.validate()?;
+        let group_id = payload.mls_group_id()?;
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load()?;
+        let record = state
+            .mls_group_states
+            .get(group_id.as_str())
+            .with_context(|| {
+                format!("accepted MLS Commit for group '{group_id}' has no local base state")
+            })?;
+        if record.epoch >= payload.next_epoch() {
+            return Ok(false);
+        }
+        anyhow::ensure!(
+            record.epoch == payload.base_epoch() && record.epoch == station_base.epoch,
+            "accepted MLS Commit base epoch differs from local and Station state"
+        );
+        let mut group = ArkretMlsGroup::restore_from_state_record(record)?;
+        let previous = group.verified_leaf_bindings()?;
+        anyhow::ensure!(
+            !previous.is_empty() && !verified_leaf_bindings.is_empty(),
+            "accepted MLS Commit has no verified leaf authority"
+        );
+        let applied_epoch = group.install_accepted_commit(accepted, station_base)?;
+        anyhow::ensure!(
+            applied_epoch == payload.next_epoch(),
+            "accepted MLS Commit produced an unexpected epoch"
+        );
+        group.install_verified_leaf_bindings(verified_leaf_bindings)?;
+        let updated = group.persist_state(&mut state)?;
+        state.bootstrap.insert(
+            updated.group_id.as_str().to_owned(),
+            ArkretBootstrapRecord {
+                group_id: updated.group_id.as_str().to_owned(),
+                required_epoch: updated.epoch,
+                local_epoch: Some(updated.epoch),
+                group_state_ref: Some(accepted.event.event_id.to_string()),
+                action: MlsRecoveryAction::UseLocalState,
+                updated_at: Utc::now(),
+            },
+        );
+        self.save(&mut state)?;
+        Ok(true)
+    }
+
     /// Apply one accepted durable `ak.mls.commit` to the local MLS group and
     /// persist the post-Commit snapshot before any later encrypted ordinary Event is
     /// handled. Replaying the same accepted Commit is idempotent; an epoch gap
