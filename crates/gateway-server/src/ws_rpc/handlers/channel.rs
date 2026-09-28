@@ -2859,7 +2859,10 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
     // readiness (pending_runtime_key/ready/replacing/pairing_expired).
     let status = outcome.lifecycle;
     let runtime_state = outcome.runtime_state;
-    let authorized_public_key_digest = outcome.authorized_public_key_digest.as_deref();
+    let authorized_public_key_digest = outcome
+        .authorized_public_key_digest
+        .as_ref()
+        .map(arkret::Hash::as_str);
     let key_digest_matches =
         authorized_public_key_digest.map(|digest| digest == local_public_key_digest);
     let (approved, ready, paired_by_other_runtime) =
@@ -2880,19 +2883,15 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
                 "active Agent omitted its signer evidence".to_owned(),
             )
         })?;
-        let arkret_models_collaboration::current_signer_evidence::CurrentSignerEvidence::Agent {
-            actor,
-            verification_method,
-            ..
-        } = evidence
-        else {
+        let signer = &evidence.authenticated_signer_evidence;
+        if signer.signer_kind != arkret::AuthenticatedSignerKind::Agent {
             return Err((
                 INVALID_REQUEST,
                 "active Agent returned non-Agent signer evidence".to_owned(),
             ));
-        };
-        if actor.signing_principal_id().as_str() != account.principal_id
-            || verification_method != method
+        }
+        if signer.subject_id.as_str() != account.principal_id
+            || &signer.verification_method != method
             || account.verification_method.as_deref() != Some(method.as_str())
         {
             return Err((
@@ -2996,7 +2995,7 @@ async fn poll_arkret_runtime_key_status(
             format!("Arkret runtime key status endpoint returned invalid outcome: {err}")
         })?;
     outcome
-        .validate()
+        .validate_signer_evidence_delivery()
         .map_err(|err| format!("Arkret runtime key status outcome failed validation: {err}"))?;
     Ok(outcome)
 }

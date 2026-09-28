@@ -1,5 +1,4 @@
 use anyhow::Context;
-use arkret::http_client;
 const MLS_WELCOME_COMMIT_SCAN_PAGE: u16 = 200;
 
 /// Resolve the exact accepted Commit a recipient delivery names on its own
@@ -105,7 +104,8 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
             .as_ref()
             .context("Agent MLS verification method is unavailable")?
             .clone(),
-    )?;
+    )
+    .map_err(anyhow::Error::msg)?;
     anyhow::ensure!(
         delivery.recipient_endpoint
             == arkret::MlsWelcomeRecipientEndpoint::AgentRuntime {
@@ -132,7 +132,7 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
         arkret::RecipientMlsDurableSigner::Agent {
             recipient_agent_id: account.actor_account_id.principal_id.clone(),
             recipient_agent_verification_method: verification_method,
-            agent_key_authorize_event_id: authorization_ref,
+            agent_key_authorize_event_id: authorization_ref.clone(),
         },
         &[],
     )

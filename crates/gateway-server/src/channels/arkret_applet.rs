@@ -37,10 +37,10 @@ use arkret::http_signature::{
 use arkret::{
     AppletActorView, AppletEventRejection, AppletId, AppletPingOutcome, AppletProtocolMetadata,
     AppletRealmView, AppletTransactionOutcome, AppletTransactionRequestBody,
-    AppletTransactionStatus, AuthContext, ContentBlock, DidCoreId, EventPayloadExt as _, Hash,
-    IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow,
-    MessageCreatePayload, RealmId, ServiceDescribe, ServiceKind, ServiceOperationId, StrandId,
-    TransportBinding, TrustDomainId, canonical,
+    AppletTransactionStatus, ContentBlock, DidCoreId, EventPayloadExt as _, Hash, IdempotencyClaim,
+    IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow, MessageCreatePayload, RealmId,
+    ServiceDescribe, ServiceKind, ServiceOperationId, StrandId, TransportBinding, TrustDomainId,
+    canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -56,7 +56,6 @@ use serde_json::{Map, Value, json};
 use subtle::ConstantTimeEq;
 use tracing::{debug, info, warn};
 
-use super::arkret::governance;
 use super::{render_error, runtime};
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
@@ -636,6 +635,33 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         );
         return;
     };
+    if let Err(error) = body.validate() {
+        render_error(
+            res,
+            StatusCode::BAD_REQUEST,
+            "invalid_transaction",
+            error.to_string(),
+        );
+        return;
+    }
+    if !body.events.is_empty() {
+        render_error(
+            res,
+            StatusCode::BAD_REQUEST,
+            "uncommitted_event",
+            "Station-to-Applet transaction requires committed Event and Commit pairs",
+        );
+        return;
+    }
+    if !body.signals.is_empty() {
+        render_error(
+            res,
+            StatusCode::NOT_IMPLEMENTED,
+            "unsupported_transaction_branch",
+            "Applet Signal transaction handling is unavailable",
+        );
+        return;
+    }
 
     // Idempotency check (SDK S-5 IdempotencyWindow). The claim is persisted
     // before any gateway dispatch side effect runs.
@@ -693,14 +719,26 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     // Classify events.
     let mut rejected: Vec<AppletEventRejection> = Vec::new();
     let mut dispatched_commands = Vec::new();
-    for event in body.events.iter() {
+    let mut committed_event_refs = Vec::new();
+    for pair in &body.committed_events {
+        let event = &pair.event;
+        let accepted_ref = arkret::CommittedEventRef {
+            event_id: pair.commit.event_ref.clone(),
+            commit_id: pair.commit.commit_id.clone(),
+            stream_ref: pair.commit.stream_ref.clone(),
+            stream_position: pair.commit.stream_position,
+        };
         match classify_inbound_event(&state.config, event) {
-            AppletEventOutcome::Dispatch(cmd) => dispatched_commands.push(cmd),
+            AppletEventOutcome::Dispatch(cmd) => {
+                dispatched_commands.push(cmd);
+                committed_event_refs.push(accepted_ref);
+            }
             AppletEventOutcome::Skip(reason) => {
                 if matches!(reason, AppletDispatchSkip::EncryptedContent)
                     && let Some(cmd) = try_decrypt_applet_event(&state, event)
                 {
                     dispatched_commands.push(cmd);
+                    committed_event_refs.push(accepted_ref);
                     continue;
                 }
                 if matches!(reason, AppletDispatchSkip::EncryptedContent) {
@@ -813,13 +851,14 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
 
     let status = if rejected.is_empty() {
         AppletTransactionStatus::Accepted
-    } else if rejected.len() == body.events.len() {
+    } else if rejected.len() == body.committed_events.len() {
         AppletTransactionStatus::Rejected
     } else {
         AppletTransactionStatus::Partial
     };
     let outcome = AppletTransactionOutcome {
         status,
+        committed_event_refs,
         rejections: rejected,
         retry_after_ms: None,
     };
@@ -1027,6 +1066,9 @@ fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error 
         HttpMessageVerificationError::Policy(SignaturePolicyError::InvalidValidityWindow) => {
             anyhow::anyhow!("HTTP signature validity window is invalid")
         }
+        HttpMessageVerificationError::Policy(
+            SignaturePolicyError::UnregisteredConditionalComponent(component),
+        ) => anyhow::anyhow!("HTTP signature uses unregistered conditional component: {component}"),
         HttpMessageVerificationError::Policy(
             SignaturePolicyError::CreatedInFuture
             | SignaturePolicyError::CreatedTooOld
@@ -1520,8 +1562,7 @@ pub(crate) async fn send_via_applet(
             authorization_ref.as_str(),
         )
         .map_err(|err| anyhow::anyhow!("arkret edge intent: {err}"))?
-        .with_external_ref(external_ref_object.into_iter().collect())
-        .with_auth_context(applet_authoring_context(&state, realm_id)?);
+        .with_external_ref(external_ref_object.into_iter().collect());
     let event = edge
         .author_and_sign(&realm, &operation_id, intent)
         .await
@@ -1642,31 +1683,10 @@ async fn emit_bridge_error(
         builder = builder.with_external_ref(ext);
     }
     let edge = applet_edge(state).await?;
-    edge.submit_bridge_error_with_auth_context(
-        &realm,
-        builder,
-        applet_authoring_context(state, realm_id)?,
-    )
-    .await
-    .map_err(|err| anyhow::anyhow!("arkret bridge_error submit: {err}"))?;
+    edge.submit_bridge_error(&realm, builder)
+        .await
+        .map_err(|err| anyhow::anyhow!("arkret bridge_error submit: {err}"))?;
     Ok(())
-}
-
-fn applet_authoring_context(
-    state: &AppletChannelState,
-    realm_id: &str,
-) -> anyhow::Result<AuthContext> {
-    let authority_refs = state
-        .crypto_store
-        .realm_authority_refs(realm_id)?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "frontier_unavailable: no locally verified Realm authority decision is cached"
-            )
-        })?;
-    let context = AuthContext { authority_refs };
-    context.validate()?;
-    Ok(context)
 }
 
 /// Build the outbound HTTP client for an applet config using its registered
