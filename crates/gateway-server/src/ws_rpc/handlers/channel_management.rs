@@ -615,10 +615,9 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     // Fail-closed rebind guard: a single Arkret runtime channel binds exactly
     // one Agent. Refuse to persist a pairing for a *different* Agent while the
     // channel is still bound — silently overwriting the binding orphaned the
-    // previous Agent's KeyPackage pool (empty pool → `direct_conversation_
-    // unavailable`). The operator must explicitly unbind first
-    // (`channels.arkret.unbind`), which revokes the old pool and purges local
-    // state. Progression saves for the *same* Agent, and saves that clear the
+    // previous Agent's local MLS state. The operator must explicitly unbind
+    // first (`channels.arkret.unbind`) to purge that local state. Progression
+    // saves for the *same* Agent, and saves that clear the
     // binding (unbind), carry no differing agent id and pass through.
     #[cfg(feature = "arkret")]
     if channel_kind.eq_ignore_ascii_case("arkret")
@@ -658,7 +657,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
                             "Arkret channel '{}' is already bound to Agent {bound_agent}. \
                              Unbind the current Agent (channels.arkret.unbind) before pairing \
                              {incoming_agent}; rebinding without unbinding would orphan the \
-                             current Agent's KeyPackage pool.",
+                             current Agent's local MLS state.",
                             cfg.id
                         ),
                     ));
@@ -805,10 +804,10 @@ fn arkret_save_targets_config(
 /// Explicitly unbind the Agent runtime currently bound to the Arkret channel.
 ///
 /// Single-Agent-per-runtime is intentional; switching Agents is an explicit
-/// operation, not a silent overwrite. This revokes the bound Agent's published
-/// KeyPackage pool (with its still-current runtime key), stops the listener,
-/// purges local Agent MLS identity / durable state, and clears the persisted
-/// binding so a new Agent can be paired.
+/// operation, not a silent overwrite. This stops the listener, purges local
+/// Agent MLS identity / durable state, and clears the persisted binding so a
+/// new Agent can be paired. Controller key replacement fences the old remote
+/// KeyPackage pool; the revoke endpoint only admits real devices.
 pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
     params: &Value,
     channel: &Arc<GatewayChannel>,
@@ -901,11 +900,7 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             ));
         }
 
-        let message = if report.revoke_attempted {
-            "Unbound Agent runtime: revoked the KeyPackage pool, purged local state, and cleared the binding"
-        } else {
-            "Unbound Agent runtime: remote authorization was already terminal, so its KeyPackage pool was unclaimable; purged local state and cleared the binding"
-        };
+        let message = "Unbound Agent runtime: purged local state and cleared the binding; replace or deactivate its controller authorization to fence the old KeyPackage pool";
         Ok(json!({
             "platform": "arkret",
             "ok": true,
@@ -914,7 +909,6 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             "principal_id": report.principal_id,
             "device_id": report.device_id,
             "listeners_stopped": report.listeners_stopped,
-            "pool_revoke_attempted": report.revoke_attempted,
             "message": message,
         }))
     }
