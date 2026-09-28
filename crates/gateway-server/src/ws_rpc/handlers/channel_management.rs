@@ -174,7 +174,7 @@ async fn validate_arkret_config_before_save(
     }
 
     let parsed = savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(config)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("{error:#}"))?;
     let account = &parsed.accounts[0];
     if let Some(previous) = savfox_core::config::channel_store::get_channel_config(
         &savfox_home.to_path_buf(),
