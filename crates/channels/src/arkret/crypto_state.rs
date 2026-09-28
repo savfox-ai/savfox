@@ -1452,20 +1452,18 @@ impl FileArkretCryptoStore {
         Ok(admitted)
     }
 
-    /// Whether this accepted Commit still has local work to do, and therefore
-    /// whether the caller has to read the Station's accepted leaf authority for
-    /// it. `apply_commit` drops the whole binding map — a transition may add,
-    /// remove or replace any leaf — so a Commit that advances local state
-    /// cannot be persisted without the post-transition attribution, while a
-    /// replay of an already-applied Commit needs nothing.
+    /// Whether this accepted Commit advances the durable local group and needs
+    /// the Station's accepted post-transition leaf authority. An already
+    /// installed epoch needs no new attribution.
     pub fn mls_commit_needs_accepted_leaf_authority(
         &self,
         payload: &MlsCommitPayload,
     ) -> anyhow::Result<bool> {
         let state = self.load()?;
-        let store = state.mls_store()?;
-        Ok(store
-            .mls_group_state(payload.mls_group_id())
+        let group_id = payload.mls_group_id()?;
+        Ok(state
+            .mls_group_states
+            .get(group_id.as_str())
             .is_none_or(|record| record.epoch < payload.next_epoch()))
     }
 
