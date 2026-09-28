@@ -748,12 +748,20 @@ fn quick_read_skill_name(path: &Path) -> Option<String> {
 }
 
 pub(crate) async fn set_env(savfox_home: &Path, key: &str, value: &str) -> Result<Value, String> {
+    set_env_with_store(savfox_home, key, value, &DefaultKeyringStore).await
+}
+
+async fn set_env_with_store(
+    savfox_home: &Path,
+    key: &str,
+    value: &str,
+    keyring: &dyn KeyringStore,
+) -> Result<Value, String> {
     let key = key.trim();
     if key.is_empty() {
         return Err("missing env key".to_owned());
     }
     let pool = cached_db::get_pool(savfox_home).await?;
-    let keyring = DefaultKeyringStore;
     let storage = if keyring.save(SKILL_ENV_KEYRING_SERVICE, key, value).is_ok() {
         // Remove from DB if saved to keyring.
         let _ = sqlx::query("DELETE FROM skill_env WHERE key = ?1")
@@ -781,15 +789,22 @@ pub(crate) async fn set_env(savfox_home: &Path, key: &str, value: &str) -> Resul
 }
 
 pub(crate) async fn get_env_status(savfox_home: &Path, key: &str) -> Result<Value, String> {
+    get_env_status_with_store(savfox_home, key, &DefaultKeyringStore).await
+}
+
+async fn get_env_status_with_store(
+    savfox_home: &Path,
+    key: &str,
+    keyring: &dyn KeyringStore,
+) -> Result<Value, String> {
     let key = key.trim();
     if key.is_empty() {
         return Err("missing env key".to_owned());
     }
     let pool = cached_db::get_pool(savfox_home).await?;
-    let keyring = DefaultKeyringStore;
     Ok(json!({
         "key": key,
-        "set": env_value_present(key, &pool, &keyring).await,
+        "set": env_value_present(key, &pool, keyring).await,
     }))
 }
 
@@ -821,13 +836,14 @@ mod tests {
     async fn env_roundtrip() {
         let tmp = tempdir().expect("tmpdir");
         let home = tmp.path().to_path_buf();
+        let keyring = savfox_keyring_store::tests::MockKeyringStore::default();
 
-        let set_env_ret = set_env(&home, "DEMO_API_KEY", "secret")
+        let set_env_ret = set_env_with_store(&home, "DEMO_API_KEY", "secret", &keyring)
             .await
             .expect("set env");
         assert_eq!(set_env_ret.get("set").and_then(|v| v.as_bool()), Some(true));
 
-        let env_status = get_env_status(&home, "DEMO_API_KEY")
+        let env_status = get_env_status_with_store(&home, "DEMO_API_KEY", &keyring)
             .await
             .expect("get env");
         assert_eq!(env_status.get("set").and_then(|v| v.as_bool()), Some(true));

@@ -4246,7 +4246,7 @@ mod tests {
         arkret::KeyPackageConsumeReceipt {
             domain: arkret::NonEmptyString::new("ak.keypackage-consume-receipt.v1").unwrap(),
             request_digest: arkret::Hash::new(format!("sha256:{}", "22".repeat(32))).unwrap(),
-            claim_id: arkret::NonEmptyString::new(claim_id).unwrap(),
+            claim_id: arkret::identifiers::KeypackageClaimId::new(claim_id.to_owned()).unwrap(),
             recipient_durable_receipt: arkret::RecipientMlsDurableReceipt {
                 domain: arkret::NonEmptyString::new("ak.recipient-mls-durable-receipt.v1").unwrap(),
                 claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
@@ -4271,10 +4271,16 @@ mod tests {
                 )
                 .unwrap(),
                 realm_id: realm_id(),
-                mls_group_id: arkret::NonEmptyString::new("mls-group-fixture").unwrap(),
+                mls_group_id: arkret::ScopeRef::Realm {
+                    realm_id: realm_id(),
+                }
+                .canonical_mls_group_id()
+                .unwrap(),
                 mls_epoch: 1,
-                welcome_ref: arkret::EventId::new("ak:event:01904100-0000-8000-8000-000000000007")
-                    .unwrap(),
+                welcome_ref: arkret::identifiers::MlsWelcomeDeliveryId::new(
+                    "ak:mls_welcome_delivery:01904100-0000-7000-8000-000000000007",
+                )
+                .unwrap(),
                 welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
                 durable_at: chrono::Utc::now(),
                 signature: arkret::KeyOperationSignature {
@@ -4294,7 +4300,7 @@ mod tests {
 
     #[test]
     fn pending_welcome_consume_accepts_only_its_own_receipt_binding() {
-        let claim_id = "ak:claim:direct-welcome";
+        let claim_id = "ak:keypackage_claim:01904100-0000-7000-8000-000000000008";
         let keypackage_ref = "sha256:direct-welcome-keypackage";
         let outcome = KeyPackagesConsumeOutcome {
             consume_receipt: consume_receipt_fixture(claim_id, keypackage_ref),
@@ -4311,7 +4317,7 @@ mod tests {
         ));
         assert!(!consume_outcome_acknowledges_binding(
             &outcome,
-            "ak:claim:another-claim",
+            "ak:keypackage_claim:01904100-0000-7000-8000-000000000009",
             keypackage_ref
         ));
     }
@@ -4320,7 +4326,7 @@ mod tests {
     fn account_sync_extracts_strongly_typed_mls_commit_event() {
         let realm_id = realm_id();
         let identity = arkret::mls::ArkretMlsIdentity::new_human_device(
-            actor_id(),
+            arkret::ActorId::account(arkret::AccountId::new(actor_id(), principal_server_id())),
             arkret::DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned())
                 .unwrap(),
             arkret::mls::ArkretMlsSigner::from_ed25519_signing_key(
@@ -4328,32 +4334,26 @@ mod tests {
             ),
         )
         .unwrap();
-        let mut group = identity.create_group(realm_id.as_str().as_bytes()).unwrap();
+        let mut group = identity
+            .create_group(&arkret::ScopeRef::Realm {
+                realm_id: realm_id.clone(),
+            })
+            .unwrap();
         let commit = group.self_update_commit().unwrap();
-        let hash = |marker: char| {
-            arkret::Hash::new(format!("sha256:{}", marker.to_string().repeat(64))).unwrap()
-        };
+        let base_ref =
+            arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x01; 32]);
         let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
             realm_id,
+            Some(base_ref.clone()),
             0,
             commit.epoch,
-            hash('c'),
-            arkret::ContentScheme::MlsRfc9420,
-            None,
-            arkret::ProfileId::MLS_GOVERNANCE_BINDING_FULL_V1,
-            "arkret.reducer.v1",
+            0,
         )
         .unwrap();
-        let payload = arkret::MlsCommitPayload::new(
-            "ak:event:01904100-0000-8000-8000-000000000001",
-            Vec::new(),
-            &commit,
-            governance_binding,
-        )
-        .unwrap();
+        let payload =
+            arkret::MlsCommitPayload::new(base_ref, 0, &commit, governance_binding).unwrap();
         let event_ref =
-            arkret::EventId::new("ak:event:01904100-0000-8000-8000-000000000011".to_owned())
-                .unwrap();
+            arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x11; 32]);
         let value = json!({
             "kind": "ak.mls.commit",
             "event_id": event_ref.to_string(),
@@ -4525,18 +4525,7 @@ mod tests {
     fn initial_account_catchup_selects_history_baseline_mode() {
         let initial = ClientEvent::AccountUpdates(garth::AccountUpdateContext {
             initial_catchup: true,
-            malformed_realms: Vec::new(),
-            to_device_ack_token: None,
-            to_device_limited: false,
-            to_device_next_cursor: None,
-            to_device_lost: false,
-            device_lists: arkret::AccountSubscribeDeviceListChanges {
-                changed_ids: Vec::new(),
-                left_ids: Vec::new(),
-            },
-            account_data: Vec::new(),
-            station_cas_account_data: Vec::new(),
-            partial: false,
+            ..Default::default()
         });
         let ClientEvent::AccountUpdates(mut live_context) = initial.clone() else {
             unreachable!();
@@ -4633,9 +4622,7 @@ mod tests {
             );
             let AccountEngineOutcome::Unauthorized {
                 reason: wire_reason,
-            } = account_engine_outcome_from_result(Ok(RunStopReason::Unauthorized {
-                reason: Some(reason.to_owned()),
-            }))
+            } = account_engine_outcome_from_result(Ok(RunStopReason::Unauthorized))
             else {
                 panic!("wire unauthorized outcome")
             };
@@ -4650,7 +4637,7 @@ mod tests {
                 runtime_state().lock().unwrap().diagnostics[&key]
                     .last_reason_code
                     .as_deref(),
-                Some(reason)
+                None
             );
         }
         let details_win = garth::Error::Api {
@@ -4706,12 +4693,12 @@ mod tests {
         assert!(!refreshed_grant_matches_account(
             &state,
             &account,
-            ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1
+            ServiceOperationId::SELF_REALM_READ_EXPORT_V1
         ));
 
         state
             .granted_scope
-            .push(ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1.to_owned());
+            .push(ServiceOperationId::SELF_REALM_READ_EXPORT_V1.to_owned());
         assert!(!refreshed_grant_matches_account(
             &state,
             &account,
@@ -4720,7 +4707,7 @@ mod tests {
         state.granted_scope = account.requested_scope.clone();
         state
             .granted_scope
-            .retain(|action| action != ServiceOperationId::SELF_SEALS_READ_FRONTIER_V1);
+            .retain(|action| action != ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1);
         assert!(!refreshed_grant_matches_account(
             &state,
             &account,
@@ -4886,6 +4873,10 @@ mod tests {
         let key_package_bytes = vec![marker; 16];
         MlsKeyPackageRecord {
             keypackage_id: format!("ak:mls:kp:01904100-0000-7000-8000-0000000000{marker:02x}"),
+            actor_id: arkret::ActorId::account(arkret::AccountId::new(
+                principal_id.clone(),
+                principal_server_id(),
+            )),
             endpoint: arkret::MlsEndpointIdentity::human_device(
                 principal_id.clone(),
                 device_id.clone(),
