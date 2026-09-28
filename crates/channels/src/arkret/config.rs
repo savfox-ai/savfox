@@ -1038,14 +1038,7 @@ mod strict_tests {
 
     use super::*;
 
-    /// Known red for every caller that runs the full runtime validation: an
-    /// approved runtime config must retain `signerResolutionEvidenceRef` plus
-    /// the complete `currentSignerEvidence` closure, and only a Station can
-    /// author that closure (pairing status delivers it). Savfox has no way to
-    /// build one without forging the whole Agent authority chain, so this
-    /// fixture stays authorization-shaped but evidence-less until the SDK ships
-    /// a canonical Agent signer-evidence test fixture. Do not paper over it by
-    /// dropping the evidence requirement from `validate_for_stage`.
+    /// Pairing candidates have no retained signer evidence until approval.
     fn canonical_config(scope: Value) -> ChannelConfig {
         let principal_id = "ak:did_core:web:agent.example";
         ChannelConfig {
@@ -1089,10 +1082,9 @@ mod strict_tests {
         json!(default_agent_runtime_scope().expect("SDK scope candidate"))
     }
 
-    fn account_with_retained_signer_evidence() -> ArkretAccountConfig {
+    fn account_with_retained_signer_evidence_for(config: &ChannelConfig) -> ArkretAccountConfig {
         let mut channel =
-            ArkretChannelConfig::from_channel_config(&canonical_config(default_scope()))
-                .expect("unit account config");
+            ArkretChannelConfig::from_channel_config(config).expect("unit account config");
         let mut account = channel.accounts.remove(0);
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&[37; 32]);
         account.key_ref = Some(ArkretKeyRef::InlineSeedBase64 {
@@ -1118,6 +1110,25 @@ mod strict_tests {
             authenticated_signer_evidence: evidence,
         });
         account
+    }
+
+    fn account_with_retained_signer_evidence() -> ArkretAccountConfig {
+        account_with_retained_signer_evidence_for(&canonical_config(default_scope()))
+    }
+
+    fn install_approved_evidence(config: &mut ChannelConfig) {
+        let account = account_with_retained_signer_evidence_for(config);
+        super::super::signer::install_test_keyring_seed("savfox-arkret", "runtime-bb", &[37; 32]);
+        config.config["signerResolutionEvidenceRef"] =
+            serde_json::to_value(account.signer_resolution_evidence_ref.unwrap()).unwrap();
+        config.config["currentSignerEvidence"] =
+            serde_json::to_value(account.current_signer_evidence.unwrap()).unwrap();
+    }
+
+    fn approved_config(scope: Value) -> ChannelConfig {
+        let mut config = canonical_config(scope);
+        install_approved_evidence(&mut config);
+        config
     }
 
     #[test]
@@ -1164,17 +1175,18 @@ mod strict_tests {
 
     #[test]
     fn replacement_pairing_gets_fresh_durable_account_scope() {
-        let first_config = canonical_config(default_scope());
+        let first_config = approved_config(default_scope());
         let first = ArkretChannelConfig::from_strict_agent_config(&first_config)
             .expect("first pairing parses");
         let first_again = ArkretChannelConfig::from_strict_agent_config(&first_config)
             .expect("same pairing parses deterministically");
 
-        let mut replacement_config = canonical_config(default_scope());
+        let mut replacement_config = approved_config(default_scope());
         replacement_config.config["inksonBootstrap"]["pairing_request_id"] =
             json!("pair-replacement");
         replacement_config.config["verificationMethod"] =
             json!("did:web:agent.example#replacement-runtime");
+        install_approved_evidence(&mut replacement_config);
         let replacement = ArkretChannelConfig::from_strict_agent_config(&replacement_config)
             .expect("replacement pairing parses");
 
@@ -1189,7 +1201,7 @@ mod strict_tests {
     #[test]
     fn canonical_agent_config_is_accepted() {
         let parsed =
-            ArkretChannelConfig::from_strict_agent_config(&canonical_config(default_scope()))
+            ArkretChannelConfig::from_strict_agent_config(&approved_config(default_scope()))
                 .expect("canonical config");
         assert_eq!(parsed.accounts.len(), 1);
         assert_eq!(
@@ -1238,6 +1250,7 @@ mod strict_tests {
 
             config.config["authorizedEventRef"] =
                 canonical_config(default_scope()).config["authorizedEventRef"].clone();
+            install_approved_evidence(&mut config);
             ArkretChannelConfig::from_strict_agent_config(&config)
                 .expect("approved candidate can run");
         }
@@ -1380,7 +1393,7 @@ mod strict_tests {
         );
         assert!(REQUIRED_LISTEN_SCOPE.contains(&signal));
         assert!(!REQUIRED_SEND_SCOPE.contains(&signal));
-        ArkretChannelConfig::from_strict_agent_config(&canonical_config(default_scope()))
+        ArkretChannelConfig::from_strict_agent_config(&approved_config(default_scope()))
             .expect("Agent runtime must admit encrypted Signal presence");
     }
 
@@ -1388,7 +1401,7 @@ mod strict_tests {
     async fn agent_scope_cache_records_actual_grant_and_rejects_different_scopes() {
         let home = tempfile::tempdir().unwrap();
         let parsed =
-            ArkretChannelConfig::from_strict_agent_config(&canonical_config(default_scope()))
+            ArkretChannelConfig::from_strict_agent_config(&approved_config(default_scope()))
                 .unwrap();
         let account = &parsed.accounts[0];
         let mut actual = account.requested_scope.clone();
@@ -1403,12 +1416,24 @@ mod strict_tests {
         .await
         .unwrap();
         assert_eq!(saved.actions, actual);
-        for granted in [vec!["ak.event.read".to_owned()], {
-            let mut excessive = actual.clone();
-            excessive
-                .push(ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1.to_owned());
-            excessive
-        }] {
+        for granted in [
+            {
+                let mut incomplete = actual.clone();
+                incomplete.retain(|action| {
+                    action != ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1
+                });
+                incomplete
+            },
+            {
+                let mut excessive = actual.clone();
+                excessive.push(ServiceOperationId::SELF_REALM_READ_EXPORT_V1.to_owned());
+                excessive
+            },
+        ] {
+            assert_ne!(
+                granted, actual,
+                "negative grant fixture must differ from request"
+            );
             assert!(
                 save_verified_runtime_scope(
                     home.path(),
@@ -1418,7 +1443,8 @@ mod strict_tests {
                     &granted
                 )
                 .await
-                .is_err()
+                .is_err(),
+                "unexpected accepted grant: {granted:?}; request: {actual:?}"
             );
         }
         let retained = load_verified_runtime_scope(home.path(), &parsed.id, account, "key-digest")
@@ -1445,17 +1471,16 @@ mod strict_tests {
     }
 
     #[test]
-    fn default_online_agent_scope_does_not_request_delayed_publication_leases() {
+    fn default_online_agent_scope_does_not_request_invite_locator_issuance() {
         assert!(
             !default_agent_runtime_scope()
                 .unwrap()
                 .iter()
-                .any(|action| action
-                    == ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1)
+                .any(|action| action == ServiceOperationId::SELF_INVITE_LOCATOR_COMMAND_ISSUE_V1)
         );
         assert!(
             !REQUIRED_SEND_SCOPE
-                .contains(&ServiceOperationId::SELF_AUTHORIZATION_LEASES_COMMAND_ISSUE_V1)
+                .contains(&ServiceOperationId::SELF_INVITE_LOCATOR_COMMAND_ISSUE_V1)
         );
     }
 
@@ -1634,7 +1659,7 @@ mod strict_tests {
             "savfox-arkret-account-route-{}",
             uuid::Uuid::now_v7()
         ));
-        let config = canonical_config(default_scope());
+        let config = approved_config(default_scope());
         let expected = ArkretChannelConfig::from_strict_agent_config(&config)
             .expect("parse canonical config")
             .accounts
@@ -1698,7 +1723,7 @@ mod strict_tests {
             uuid::Uuid::now_v7()
         ));
         let parsed =
-            ArkretChannelConfig::from_strict_agent_config(&canonical_config(default_scope()))
+            ArkretChannelConfig::from_strict_agent_config(&approved_config(default_scope()))
                 .expect("canonical config");
         let account = &parsed.accounts[0];
         save_verified_runtime_scope(

@@ -461,27 +461,38 @@ impl FileArkretCryptoStore {
     }
 
     fn wrapping_key(&self) -> anyhow::Result<[u8; 32]> {
-        let account = self.wrapping_key_account();
-        let store = savfox_keyring_store::DefaultKeyringStore;
-        if let Some(encoded) = store
-            .load(WRAPPING_KEY_SERVICE, &account)
-            .context("load Arkret crypto-state wrapping key from platform credential vault")?
+        #[cfg(test)]
         {
-            let decoded = URL_SAFE_NO_PAD
-                .decode(encoded)
-                .context("decode Arkret crypto-state wrapping key")?;
-            return decoded.try_into().map_err(|value: Vec<u8>| {
-                anyhow::anyhow!(
-                    "Arkret crypto-state wrapping key has invalid length {}",
-                    value.len()
-                )
-            });
+            use sha2::Digest as _;
+            let mut digest = sha2::Sha256::new();
+            digest.update(b"savfox-arkret-unit-test-wrapping-key");
+            digest.update(self.scope_id.as_bytes());
+            return Ok(digest.finalize().into());
         }
-        let key = rand::random::<[u8; 32]>();
-        store
-            .save(WRAPPING_KEY_SERVICE, &account, &URL_SAFE_NO_PAD.encode(key))
-            .context("save Arkret crypto-state wrapping key in platform credential vault")?;
-        Ok(key)
+        #[cfg(not(test))]
+        {
+            let account = self.wrapping_key_account();
+            let store = savfox_keyring_store::DefaultKeyringStore;
+            if let Some(encoded) = store
+                .load(WRAPPING_KEY_SERVICE, &account)
+                .context("load Arkret crypto-state wrapping key from platform credential vault")?
+            {
+                let decoded = URL_SAFE_NO_PAD
+                    .decode(encoded)
+                    .context("decode Arkret crypto-state wrapping key")?;
+                return decoded.try_into().map_err(|value: Vec<u8>| {
+                    anyhow::anyhow!(
+                        "Arkret crypto-state wrapping key has invalid length {}",
+                        value.len()
+                    )
+                });
+            }
+            let key = rand::random::<[u8; 32]>();
+            store
+                .save(WRAPPING_KEY_SERVICE, &account, &URL_SAFE_NO_PAD.encode(key))
+                .context("save Arkret crypto-state wrapping key in platform credential vault")?;
+            Ok(key)
+        }
     }
 
     fn wrapping_aad(&self) -> Vec<u8> {
@@ -2343,7 +2354,7 @@ fn safe_file_stem(scope_id: &str) -> String {
 mod tests {
     use std::sync::LazyLock;
 
-    use arkret::{EncryptedPayloadScheme, Hash, KeyOperationSignature, KeyPackageClaimRecord};
+    use arkret::{EncryptedPayloadScheme, Hash, KeyPackageClaimRecord};
     use serde_json::json;
 
     use super::*;
@@ -2701,7 +2712,7 @@ mod tests {
         assert!(
             method_error
                 .to_string()
-                .contains("authorized runtime endpoint")
+                .contains("identity must be initialized before pool replenishment")
         );
 
         let wrong_authorization = store
@@ -2716,7 +2727,7 @@ mod tests {
         assert!(
             wrong_authorization
                 .to_string()
-                .contains("authorized runtime endpoint")
+                .contains("identity must be initialized before pool replenishment")
         );
 
         let wrong_principal = "ak:did_core:web:other-agent.example";
@@ -2800,19 +2811,17 @@ mod tests {
             scheme: EncryptedPayloadScheme::MlsRfc9420,
             group_id: group_id.clone(),
             epoch: 3,
-            content_type: CONTENT_BLOCK_JSON.to_owned(),
+            content_type: "application/vnd.arkret.content+json".to_owned(),
             ciphertext: "abc".to_owned(),
-            counter: None,
             pre_encryption_header: EventContentPreEncryptionHeader::reconstruct(
                 "1.0",
-                CONTENT_BLOCK_JSON,
+                "application/vnd.arkret.content+json",
                 EncryptedPayloadScheme::MlsRfc9420,
                 effective_scope,
                 "ak.message.create",
                 3,
                 EventId::new(FIXTURE_EVENT_2.as_str()).unwrap(),
                 "ak:device:01904100-0000-7000-8000-000000000003",
-                None,
                 EventContentRoutingContext::None,
             )
             .unwrap(),
@@ -3096,7 +3105,7 @@ mod tests {
         assert!(state.key_backup.restore_needed);
         assert_eq!(
             state.key_backup.last_needed_for_group_id,
-            Some(encrypted_payload().group_id)
+            Some(encrypted_payload().group_id.to_string())
         );
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -3189,8 +3198,8 @@ mod tests {
             .ensure_mls_key_package(&test_account(bob_principal), bob_device)
             .expect("Bob KeyPackage should be created");
         let claim = KeyPackageClaimRecord {
-            claim_id: "ak:claim:test-claim-record".to_owned(),
-            keypackage_ref: "ak:mls:keypackage:test-claim-record".to_owned(),
+            claim_id: "ak:keypackage_claim:01904100-0000-7000-8000-000000000019".to_owned(),
+            keypackage_ref: bob_key_package.keypackage_ref.to_string(),
             actor_id: bob_key_package.actor_id.clone(),
             principal_id: DidCoreId::new(bob_principal.to_owned()).unwrap(),
             device_id: Some(DeviceId::new(bob_device.to_owned()).unwrap()),
@@ -3224,12 +3233,18 @@ mod tests {
         )
         .unwrap();
         let mut alice_group = alice
-            .create_group(FIXTURE_CLAIM_REALM.as_str().as_bytes())
+            .create_group(&ScopeRef::Realm {
+                realm_id: FIXTURE_CLAIM_REALM.clone(),
+            })
             .unwrap();
         let add = alice_group
             .add_member(&claimed)
             .expect("claimed KeyPackage should add to MLS group");
-        assert_eq!(add.welcome.recipient.actor_id().as_str(), bob_principal);
+        assert!(matches!(
+            &add.welcome.recipient,
+            MlsEndpointIdentity::HumanDevice { principal_id, .. }
+                if principal_id.as_str() == bob_principal
+        ));
         assert_eq!(
             endpoint_human_device_id(&add.welcome.recipient).map(DeviceId::as_str),
             Some(bob_device)

@@ -788,8 +788,6 @@ mod tests {
             },
             arkret::DidCoreId::new(actor.to_owned()).unwrap(),
             arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixtureserver".to_owned()).unwrap(),
-            1,
-            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
             payload,
         )
         .unwrap();
@@ -930,7 +928,7 @@ mod tests {
     fn should_dispatch_filters_missing_event_read_scope() {
         let mut account = make_account(Some(REALM_1.as_str()));
         account.requested_scope =
-            vec![arkret::ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into()];
+            vec![arkret::ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1.into()];
         let event = message_event("ak:did_core:webvh:z6mkfixturebob", "secret");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
@@ -1002,7 +1000,7 @@ mod tests {
     fn account_event_values_without_event_read_do_not_dispatch_plaintext() {
         let mut account = make_account(Some(REALM_1.as_str()));
         account.requested_scope =
-            vec![arkret::ServiceOperationId::SELF_EVENTS_STREAM_SUBSCRIBE_V1.into()];
+            vec![arkret::ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1.into()];
         let values = vec![message_event(
             "ak:did_core:webvh:z6mkfixturebob",
             "plain text",
