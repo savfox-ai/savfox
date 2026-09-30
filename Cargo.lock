@@ -545,6 +545,7 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-time",
 ]
 
 [[package]]
@@ -10575,6 +10576,7 @@ dependencies = [
  "arkret",
  "arkret-crypto",
  "arkret-models-collaboration",
+ "arkret-models-crypto",
  "arkret-schema",
  "arkret-signatures",
  "arkret-wire",

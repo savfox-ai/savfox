@@ -119,7 +119,7 @@ fn applet_registry() -> &'static Mutex<AppletRegistry> {
 }
 
 const TXN_DEDUPE_WINDOW: Duration = Duration::from_secs(300);
-const MAX_APPLET_TRANSACTION_BODY_BYTES: usize = 65_536;
+const MAX_APPLET_TRANSACTION_BODY_BYTES: usize = 16 * 1024 * 1024;
 const SOURCE_SERVICE_ID_HEADER: &str = "source-service-id";
 const DESTINATION_SERVICE_ID_HEADER: &str = "destination-service-id";
 const APPLET_TRANSACTION_SIGNATURE_MAX_LIFETIME_SECS: i64 = 300;
@@ -623,21 +623,6 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             }
         };
 
-    // `ak.edge.applet.command.transaction.v1` carries two mutually exclusive
-    // closed branches (applet-integration.md §7.3.2). This runtime only installs
-    // the Event/Signal branch; a Station-to-Applet managed Actor authoring
-    // result is refused before the idempotency window is claimed, so no claim is
-    // left holding an outcome this runtime cannot durably produce.
-    let AppletTransactionRequestBody::Events(body) = &body else {
-        render_error(
-            res,
-            StatusCode::NOT_IMPLEMENTED,
-            "unsupported_transaction_branch",
-            "managed Actor authoring completion installation is not available",
-        );
-        return;
-    };
-
     // Idempotency check (SDK S-5 IdempotencyWindow). The claim is persisted
     // before any gateway dispatch side effect runs.
     {
@@ -691,10 +676,124 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         }
     }
 
+    let body = match &body {
+        AppletTransactionRequestBody::Authoring(completion) => {
+            let attester = &completion
+                .authoring_context
+                .managed_actor_signer_evidence
+                .attester_signer_evidence;
+            let result = async {
+                let method = state
+                    .config
+                    .trusted_verification_methods
+                    .iter()
+                    .find(|method| {
+                        method.verification_method == attester.verification_method.as_str()
+                    })
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("completion attester is not a configured own-Station key")
+                    })?;
+                let edge = applet_edge(&state).await?;
+                edge.install_managed_authoring_completion(
+                    completion,
+                    &arkret::DidUrl::new(method.verification_method.clone())?,
+                    &method.public_key,
+                )
+                .map_err(|error| anyhow::anyhow!(error.to_string()))
+            }
+            .await;
+            if let Err(error) = result {
+                release_transaction_claim(&state, &identity);
+                render_error(
+                    res,
+                    StatusCode::BAD_REQUEST,
+                    "invalid_authoring_context",
+                    &error.to_string(),
+                );
+                return;
+            }
+            let outcome = AppletTransactionOutcome {
+                status: AppletTransactionStatus::Accepted,
+                committed_event_refs: Vec::new(),
+                rejections: Vec::new(),
+                retry_after_ms: None,
+            };
+            complete_transaction_claim(&state, &identity, outcome.clone());
+            res.status_code(StatusCode::OK);
+            res.render(Json(outcome));
+            return;
+        }
+        AppletTransactionRequestBody::Events(events) => events,
+    };
+
+    let verified_delivery = async {
+        if !body.events.is_empty() {
+            anyhow::bail!("Station-to-Applet delivery requires full committed Event pairs");
+        }
+        let edge = applet_edge(&state).await?;
+        let local_method = edge.service_verification_method()?;
+        let local_key = arkret::signatures::PublicKeyMaterial::Ed25519Raw {
+            bytes: edge.signer().verifying_key().to_bytes().to_vec(),
+        };
+        let configured_key =
+            |method: &arkret::DidUrl| -> anyhow::Result<arkret::signatures::PublicKeyMaterial> {
+                state
+                    .config
+                    .trusted_verification_methods
+                    .iter()
+                    .find(|key| key.verification_method == method.as_str())
+                    .map(|key| key.public_key.clone())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("committed delivery key is not installed: {method}")
+                    })
+            };
+        let mut events = Vec::with_capacity(body.committed_events.len());
+        let mut refs = Vec::with_capacity(body.committed_events.len());
+        for pair in &body.committed_events {
+            let proof = pair.event.producer_proof.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("committed delivery lacks original producer proof")
+            })?;
+            let producer_key = if let Some(key) =
+                arkret_bridge_runtime::authority::committed_delivery_device_key(
+                    &proof.verification_method,
+                )? {
+                key
+            } else if proof.verification_method == local_method {
+                local_key.clone()
+            } else {
+                configured_key(&proof.verification_method)?
+            };
+            let governance_key = configured_key(&pair.commit.signature.verification_method)?;
+            refs.push(
+                arkret_bridge_runtime::authority::validate_applet_committed_delivery(
+                    pair,
+                    arkret_bridge_runtime::PRODUCER_DIGEST_SUITE,
+                    &producer_key,
+                    &governance_key,
+                )?,
+            );
+            events.push(pair.event.clone());
+        }
+        Ok::<_, anyhow::Error>((events, refs))
+    }
+    .await;
+    let (events, mut committed_event_refs) = match verified_delivery {
+        Ok(delivery) => delivery,
+        Err(error) => {
+            release_transaction_claim(&state, &identity);
+            render_error(
+                res,
+                StatusCode::BAD_REQUEST,
+                "invalid_committed_delivery",
+                error.to_string(),
+            );
+            return;
+        }
+    };
     // Classify events.
     let mut rejected: Vec<AppletEventRejection> = Vec::new();
     let mut dispatched_commands = Vec::new();
-    for event in body.events.iter() {
+    for event in &events {
         if let Some(context) = event.auth_context.as_ref()
             && let Err(error) = state
                 .crypto_store
@@ -842,13 +941,19 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
 
     let status = if rejected.is_empty() {
         AppletTransactionStatus::Accepted
-    } else if rejected.len() == body.events.len() {
+    } else if rejected.len() == events.len() {
         AppletTransactionStatus::Rejected
     } else {
         AppletTransactionStatus::Partial
     };
+    committed_event_refs.retain(|reference| {
+        !rejected
+            .iter()
+            .any(|rejection| rejection.event_id.as_ref() == Some(&reference.event_id))
+    });
     let outcome = AppletTransactionOutcome {
         status,
+        committed_event_refs,
         rejections: rejected,
         retry_after_ms: None,
     };
