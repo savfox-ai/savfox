@@ -448,7 +448,6 @@ impl ArkretHttpClient {
             agent_scope_request,
             None,
             dpop_binding_proof,
-            None,
             arkret::UnsignedAgentSessionGrantProof {
                 challenge,
                 audience_id: audience.clone(),
@@ -952,7 +951,6 @@ mod tests {
             SessionGrantDpopBindingProof {
                 proof_jwt: "unit-only-dpop-binding".to_owned(),
             },
-            None,
             arkret::UnsignedAgentSessionGrantProof {
                 challenge: arkret::base64url_encode([37; 32]),
                 audience_id: state.audience_id.clone(),
