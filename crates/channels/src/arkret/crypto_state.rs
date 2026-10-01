@@ -2049,13 +2049,14 @@ pub fn mls_key_package_record_from_claim(
     };
     let keypackage = arkret::base64url_decode(claim.keypackage.as_bytes())?;
     let keypackage_ref = arkret::Hash::new(arkret::canonical::sha256_digest(&keypackage))?;
+    let cipher_suite = arkret::mls::keypackage_ciphersuite_canonical_id(&keypackage)?;
     Ok(MlsKeyPackageRecord {
         keypackage_id: claim.keypackage_ref.clone(),
         actor_id: claim.actor_id.clone(),
         endpoint,
         keypackage: claim.keypackage.clone(),
         keypackage_ref,
-        cipher_suites: Vec::new(),
+        cipher_suites: vec![cipher_suite.to_owned()],
         capabilities: claim.capabilities.clone(),
         state: MlsKeyPackageState::Claimed,
         claim_id: Some(claim.claim_id.clone()),
@@ -2380,7 +2381,6 @@ mod tests {
     static FIXTURE_EVENT_9: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x59));
     static FIXTURE_EVENT_13: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x5d));
     static FIXTURE_EVENT_14: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x5e));
-    static FIXTURE_EVENT_31: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x71));
 
     #[test]
     fn crypto_state_is_wrapped_at_rest_and_rejects_stale_generation() {
@@ -2620,7 +2620,6 @@ mod tests {
             value: base64::engine::general_purpose::STANDARD_NO_PAD.encode(seed),
         };
         let principal = "ak:did_core:web:agent.example";
-        let device = "ak:device:01904100-0000-7000-8000-00000000000f";
         let verification_method = "did:web:agent.example#runtime-1";
         let authorized_event_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
         let first = store
@@ -2690,7 +2689,6 @@ mod tests {
             value: base64::engine::general_purpose::STANDARD_NO_PAD.encode(seed),
         };
         let principal = "ak:did_core:web:agent.example";
-        let device = "ak:device:01904100-0000-7000-8000-000000000012";
         let verification_method = "did:web:agent.example#runtime-1";
         let authorized_event_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
         store
@@ -2761,7 +2759,6 @@ mod tests {
             value: base64::engine::general_purpose::STANDARD_NO_PAD.encode(seed),
         };
         let principal = "ak:did_core:web:agent.example";
-        let device = "ak:device:01904100-0000-7000-8000-000000000010";
         let verification_method = "did:web:agent.example#runtime-1";
         let authorized_event_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
         let initial = store
@@ -3225,10 +3222,14 @@ mod tests {
         assert_eq!(claimed.state, MlsKeyPackageState::Claimed);
         assert_eq!(claimed.claim_id.as_deref(), Some(claim.claim_id.as_str()));
         assert_eq!(claimed.keypackage_ref, bob_key_package.keypackage_ref);
+        assert_eq!(claimed.cipher_suites, bob_key_package.cipher_suites);
         assert_eq!(claimed.actor_id, claim.actor_id);
         let mut wrong_principal = claim.clone();
         wrong_principal.principal_id = DidCoreId::new("ak:did_core:web:other.example").unwrap();
         assert!(mls_key_package_record_from_claim(&wrong_principal).is_err());
+        let mut invalid_keypackage = claim.clone();
+        invalid_keypackage.keypackage = "AQ".to_owned();
+        assert!(mls_key_package_record_from_claim(&invalid_keypackage).is_err());
 
         let alice = new_human_mls_identity(
             DidCoreId::new("ak:did_core:webvh:z6mkfixturealice".to_owned()).unwrap(),
