@@ -724,7 +724,8 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 let edge = applet_edge(&state).await?;
                 edge.install_managed_authoring_completion(
                     completion,
-                    &arkret::DidUrl::new(method.verification_method.clone())?,
+                    &arkret::DidUrl::new(method.verification_method.clone())
+                        .map_err(anyhow::Error::msg)?,
                     &method.public_key,
                 )
                 .map_err(|error| anyhow::anyhow!(error.to_string()))
@@ -740,8 +741,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 );
                 return;
             }
-            let outcome = AppletTransactionOutcome {
-                status: AppletTransactionStatus::Accepted,
+            let outcome = AppletTransactionOutcome::Accepted {
                 committed_event_refs: Vec::new(),
                 rejections: Vec::new(),
                 retry_after_ms: None,
@@ -953,11 +953,21 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             .iter()
             .any(|rejection| rejection.event_id.as_ref() == Some(&reference.event_id))
     });
-    let outcome = AppletTransactionOutcome {
-        status,
-        committed_event_refs,
-        rejections: rejected,
-        retry_after_ms: None,
+    let outcome = match status {
+        AppletTransactionStatus::Accepted => AppletTransactionOutcome::Accepted {
+            committed_event_refs,
+            rejections: rejected,
+            retry_after_ms: None,
+        },
+        AppletTransactionStatus::Partial => AppletTransactionOutcome::Partial {
+            committed_event_refs,
+            rejections: rejected,
+            retry_after_ms: None,
+        },
+        AppletTransactionStatus::Rejected => AppletTransactionOutcome::Rejected {
+            rejections: rejected,
+            retry_after_ms: None,
+        },
     };
     complete_transaction_claim(&state, &identity, outcome.clone());
     res.status_code(StatusCode::OK);

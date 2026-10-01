@@ -4516,6 +4516,7 @@ dependencies = [
  "arkret-wire",
  "chrono",
  "ed25519-dalek 3.0.0",
+ "getrandom 0.4.3",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
