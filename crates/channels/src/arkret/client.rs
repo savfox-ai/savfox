@@ -678,6 +678,9 @@ fn agent_session_exchange_error(error: garth::Error) -> anyhow::Error {
         "superseded_by_repairing" => {
             "this runtime key was replaced; import the new pairing bootstrap"
         }
+        "capability_denied" => {
+            "the requested runtime permissions are not approved; review the Agent permissions in Inkson before pairing again"
+        }
         _ => "verify the pairing, authorization reference, scope, and service audience",
     };
     AgentSessionExchangeError {

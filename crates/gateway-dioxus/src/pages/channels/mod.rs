@@ -3033,6 +3033,7 @@ pub fn ChannelsHealth(channel_id: String) -> Element {
 
 fn channels_inner(deep_link: ChannelDeepLink) -> Element {
     inject_channels_styles_once();
+    let (locale, _) = crate::i18n::use_i18n();
     let is_routed = !matches!(deep_link, ChannelDeepLink::None);
     let nav = use_navigator();
 
@@ -3335,6 +3336,7 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
                 div { class: "channels-grid",
                     for (ch_type, config_entry) in configured_channel_cards.into_iter() {
                         { render_channel_card(
+                            locale(),
                             ch_type,
                             config_entry,
                             channels_status,
@@ -3518,7 +3520,16 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
     }
 }
 
+fn arkret_runtime_error_key(reason: Option<&str>) -> &'static str {
+    match reason {
+        Some("capability_denied") => "arkret_runtime.permissions_denied",
+        Some("proof_invalid") => "arkret_runtime.authentication_failed",
+        _ => "arkret_runtime.failed",
+    }
+}
+
 fn render_channel_card(
+    locale: crate::i18n::Locale,
     ch_type: &ChannelTypeInfo,
     config_entry: Option<&SavedChannelSummary>,
     channels_status: Option<&serde_json::Value>,
@@ -4077,7 +4088,19 @@ fn render_channel_card(
             // ---- Error banner ----
             if let Some(ref err) = last_error {
                 div { class: "channels-card__error",
-                    "Error: {err}"
+                    if ch_type.id == "arkret" {
+                        p {
+                            {crate::i18n::t(locale, arkret_runtime_error_key(
+                                channel_data.and_then(|data| data.get("last_reason_code")).and_then(Value::as_str)
+                            ))}
+                        }
+                        details {
+                            summary { {crate::i18n::t(locale, "arkret_runtime.diagnostics")} }
+                            "{err}"
+                        }
+                    } else {
+                        "Error: {err}"
+                    }
                 }
             }
 
@@ -6673,6 +6696,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn arkret_runtime_error_summary_uses_structured_reason() {
+        assert_eq!(
+            arkret_runtime_error_key(Some("capability_denied")),
+            "arkret_runtime.permissions_denied"
+        );
+        assert_eq!(
+            arkret_runtime_error_key(Some("proof_invalid")),
+            "arkret_runtime.authentication_failed"
+        );
+        assert_eq!(arkret_runtime_error_key(None), "arkret_runtime.failed");
+    }
 
     #[test]
     fn arkret_agent_pairing_requests_authenticated_signal_presence() {

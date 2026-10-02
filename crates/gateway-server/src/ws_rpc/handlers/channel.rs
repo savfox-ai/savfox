@@ -255,6 +255,12 @@ fn insert_arkret_listener_summary(
 
     info.insert("runtime_ready".to_owned(), json!(ready));
     info.insert("runtime_phase".to_owned(), json!(phase));
+    if let Some(reason) = diagnostics
+        .iter()
+        .find_map(|diagnostic| diagnostic.get("last_reason_code").and_then(Value::as_str))
+    {
+        info.insert("last_reason_code".to_owned(), json!(reason));
+    }
     if let Some(error) = last_error {
         info.insert("lastError".to_owned(), json!(error));
         info.insert("last_error".to_owned(), json!(error));
