@@ -2296,7 +2296,7 @@ pub(crate) fn encrypted_payload_for_event(
     // Accepted Event identity must match the sender's canonical MLS credential.
     // The producer verification method selects its key, not its AAD identity.
     event.producer_proof.as_ref()?;
-    let sender_identity = arkret::mls_basic_credential_identity(&event.actor_id).ok()?;
+    let sender_identity = arkret::mls_basic_credential_identity(event.actual_signer()).ok()?;
     let sender_domain = std::str::from_utf8(&sender_identity).ok()?;
     let header = envelope
         .reconstruct_pre_encryption_header(
@@ -3166,6 +3166,17 @@ mod tests {
             assert_eq!(
                 rebuilt.pre_encryption_header.canonical_bytes().unwrap(),
                 header.canonical_bytes().unwrap()
+            );
+            let mut delegated = authored.event().clone();
+            delegated.executed_by = Some(delegated.actor_id.clone());
+            delegated.actor_id =
+                ActorId::account(test_account("ak:did_core:web:controller.example"));
+            assert_eq!(
+                extract_encrypted_payload_from_message_content(&delegated)
+                    .unwrap()
+                    .pre_encryption_header,
+                header,
+                "AAD follows the actual MLS sender even when the record actor differs"
             );
             assert_ne!(rebuilt.pre_encryption_header.sender_domain, device.as_str());
             assert!(
