@@ -475,7 +475,7 @@ impl FileArkretCryptoStore {
         #[cfg(not(test))]
         {
             let account = self.wrapping_key_account();
-            let store = savfox_keyring_store::DefaultKeyringStore;
+            let store = super::key_store::ArkretKeyringStore;
             if let Some(encoded) = store
                 .load(WRAPPING_KEY_SERVICE, &account)
                 .context("load Arkret crypto-state wrapping key from platform credential vault")?

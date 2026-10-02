@@ -1,5 +1,12 @@
 # Arkret Agent channel
 
+On Windows, Arkret runtime seeds and crypto-state wrapping keys use the shared
+SDK's CurrentUser DPAPI-protected encrypted vault. They do not consume Windows
+Credential Manager entries. The `keyring` key reference remains an opaque
+platform-protected location; the key never enters channel JSON. Earlier Windows
+Credential Manager entries are not imported: pair again to authorize a fresh
+runtime key. macOS and Linux continue to use their native keyrings.
+
 If an approval status check fails or a pairing RPC times out, Savfox stops waiting
 and enables **Pair again**. While waiting for Inkson, **Pair again** also stops the
 local wait so you can replace the pairing link. It does not revoke a request in

@@ -35,6 +35,7 @@ arkret = [
     "dep:savfox-http-client",
     "dep:rand",
     "dep:chacha20poly1305",
+    "dep:keyring",
 ]
 
 [dependencies]
@@ -79,6 +80,10 @@ arkret-models-crypto = { workspace = true, optional = true }
 arkret-signatures = { workspace = true, optional = true }
 arkret-wire = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+arkret = { workspace = true, optional = true, features = ["keystore-windows"] }
+keyring = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

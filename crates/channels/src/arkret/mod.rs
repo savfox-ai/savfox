@@ -31,6 +31,7 @@ mod config;
 mod crypto_state;
 mod grant;
 mod inbound_adapter;
+mod key_store;
 mod mls_leaf_authority;
 mod outbound;
 mod session;

@@ -24,6 +24,8 @@ use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
+use super::key_store::ArkretKeyringStore;
+
 /// How to find the ed25519 seed for an Arkret runtime or applet bot.
 ///
 /// Tagged on `kind` so the JSON config form is:
@@ -105,7 +107,7 @@ pub fn generate_ed25519_key_ref_in_keyring(
     let account = account.into();
     let mut seed: [u8; 32] = rand::random();
     let mut encoded = STANDARD_NO_PAD.encode(seed);
-    let save_result = savfox_keyring_store::DefaultKeyringStore
+    let save_result = ArkretKeyringStore
         .save(&service, &account, &encoded)
         .with_context(|| format!("arkret signer: save platform keyring entry {service}/{account}"));
     seed.zeroize();
@@ -129,11 +131,7 @@ pub fn get_or_generate_ed25519_key_ref_in_keyring(
     let _guard = KEYRING_GENERATION_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    get_or_generate_ed25519_key_ref_in_store(
-        &savfox_keyring_store::DefaultKeyringStore,
-        service.into(),
-        account.into(),
-    )
+    get_or_generate_ed25519_key_ref_in_store(&ArkretKeyringStore, service.into(), account.into())
 }
 
 /// Delete an Arkret runtime key from the platform credential vault after its
@@ -144,7 +142,7 @@ pub fn delete_ed25519_key_ref_from_keyring(key_ref: &ArkretKeyRef) -> anyhow::Re
     let ArkretKeyRef::Keyring { service, account } = key_ref else {
         anyhow::bail!("arkret signer: only keyring runtime keys can be deleted automatically");
     };
-    savfox_keyring_store::DefaultKeyringStore
+    ArkretKeyringStore
         .delete(service, account)
         .with_context(|| {
             format!("arkret signer: delete platform keyring entry {service}/{account}")
@@ -323,7 +321,7 @@ fn load_seed_bytes(key_ref: &ArkretKeyRef) -> anyhow::Result<Vec<u8>> {
             }
             use savfox_keyring_store::KeyringStore as _;
 
-            let value = savfox_keyring_store::DefaultKeyringStore
+            let value = ArkretKeyringStore
                 .load(service, account)
                 .with_context(|| {
                     format!("arkret signer: load platform keyring entry {service}/{account}")
