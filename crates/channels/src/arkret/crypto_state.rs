@@ -5,7 +5,7 @@
 //! so account-mode and applet-mode can persist decryption failures, MLS group
 //! snapshots, recovery plans and realm encryption policy under `SAVFOX_HOME`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -185,6 +185,17 @@ pub struct ArkretMlsWelcomeConsumeBinding {
     pub verified_leaf_bindings: Vec<arkret::mls::MlsVerifiedLeafBinding>,
 }
 
+/// Historical roster material fetched at a separately verified current cut.
+#[derive(Debug)]
+pub struct ArkretMlsRosterMaterial {
+    pub request: arkret::MlsRosterAuthorityReadRequestBody,
+    pub pages: Vec<arkret::MlsRosterAuthorityReadOutcome>,
+    pub governance_station: DidCoreId,
+    pub authority_head: EventId,
+    pub governance_resolution: arkret::AuthenticatedServiceResolution,
+    pub genesis_material: arkret::MlsGroupStateMaterialOutcome,
+}
+
 impl PartialEq for ArkretMlsWelcomeConsumeBinding {
     fn eq(&self, other: &Self) -> bool {
         self.keypackage_ref == other.keypackage_ref
@@ -246,6 +257,9 @@ pub struct ArkretCryptoStateFile {
     pub mls_identities: BTreeMap<String, ArkretMlsIdentityStateRecord>,
     #[serde(default)]
     pub mls_key_packages: BTreeMap<String, MlsKeyPackageRecord>,
+    /// Generated private state whose exact public package still needs upload.
+    #[serde(default)]
+    pub pending_key_package_uploads: BTreeSet<String>,
     #[serde(default)]
     pub mls_welcome_consume_bindings: BTreeMap<String, ArkretMlsWelcomeConsumeBinding>,
     #[serde(default)]
@@ -279,6 +293,7 @@ impl ArkretCryptoStateFile {
             mls_station_currents: BTreeMap::new(),
             mls_identities: BTreeMap::new(),
             mls_key_packages: BTreeMap::new(),
+            pending_key_package_uploads: BTreeSet::new(),
             mls_welcome_consume_bindings: BTreeMap::new(),
             direct_conversation_welcome_bindings: BTreeMap::new(),
             realm_policies: BTreeMap::new(),
@@ -836,10 +851,8 @@ impl FileArkretCryptoStore {
     /// Create fresh ordinary Agent KeyPackages without replacing any
     /// previously generated private init-key material.
     ///
-    /// The Principal Server's self-visible `available_count` is authoritative
-    /// for pool replenishment. A locally `published` record may already be
-    /// `claimed` remotely when a prior response or Welcome was lost, so the
-    /// caller deliberately supplies the server-observed deficit here.
+    /// The caller supplies its client-private inventory deficit. Remote claims
+    /// that this endpoint has not observed cannot justify speculative uploads.
     pub fn create_fresh_agent_mls_key_packages(
         &self,
         account_id: &AccountId,
@@ -888,6 +901,9 @@ impl FileArkretCryptoStore {
                 .key_package_record()
                 .map_err(|err| anyhow::anyhow!("create Agent MLS KeyPackage: {err}"))?;
             let cache_key = mls_fresh_key_package_cache_key(&identity_key, &record.keypackage_id);
+            state
+                .pending_key_package_uploads
+                .insert(record.keypackage_ref.to_string());
             state.mls_key_packages.insert(cache_key, record.clone());
             records.push(record);
         }
@@ -977,6 +993,9 @@ impl FileArkretCryptoStore {
             .export_private_state()
             .map_err(|err| anyhow::anyhow!("export Arkret MLS identity state: {err}"))?;
 
+        state
+            .pending_key_package_uploads
+            .insert(record.keypackage_ref.to_string());
         state.mls_key_packages.insert(cache_key, record.clone());
         state.mls_identities.insert(
             identity_key,
@@ -1066,6 +1085,35 @@ impl FileArkretCryptoStore {
             })
             .count();
         Ok(low_water.saturating_sub(usable))
+    }
+
+    pub fn pending_key_package_uploads(
+        &self,
+        endpoint: &MlsEndpointIdentity,
+    ) -> anyhow::Result<Vec<MlsKeyPackageRecord>> {
+        let state = self.load()?;
+        Ok(state
+            .mls_key_packages
+            .values()
+            .filter(|record| {
+                &record.endpoint == endpoint
+                    && record.state == MlsKeyPackageState::Published
+                    && state
+                        .pending_key_package_uploads
+                        .contains(record.keypackage_ref.as_str())
+            })
+            .cloned()
+            .collect())
+    }
+
+    /// A lost response leaves these exact public bytes pending for retry.
+    pub fn confirm_key_package_uploads(&self, accepted_refs: &[String]) -> anyhow::Result<()> {
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load()?;
+        for reference in accepted_refs {
+            state.pending_key_package_uploads.remove(reference);
+        }
+        self.save(&mut state)
     }
 
     /// Canonical KeyPackage refs for every locally-tracked pool KeyPackage that
@@ -1168,8 +1216,17 @@ impl FileArkretCryptoStore {
         current: &arkret::AccountCurrentResult,
     ) -> anyhow::Result<usize> {
         current.validate()?;
+        self.record_verified_mls_current_entries(&current.realm_id, &current.entries)
+    }
+
+    /// Retain MLS entries only after the caller verifies their signed snapshot.
+    pub fn record_verified_mls_current_entries(
+        &self,
+        realm_id: &RealmId,
+        entries: &[TypedCurrentResult],
+    ) -> anyhow::Result<usize> {
         let mut accepted = Vec::new();
-        for entry in &current.entries {
+        for entry in entries {
             let TypedCurrentResult::Value {
                 selector: arkret::CurrentSelector::MlsGroup { scope_ref },
                 source_stream_ref,
@@ -1180,7 +1237,7 @@ impl FileArkretCryptoStore {
                 continue;
             };
             anyhow::ensure!(
-                scope_ref.realm_id_opt() == Some(&current.realm_id)
+                scope_ref.realm_id_opt() == Some(realm_id)
                     && source_stream_ref == &arkret::CommitStreamRef::from_scope(scope_ref, None)?,
                 "Station MLS current result has a mismatched Realm or stream"
             );
@@ -1300,7 +1357,7 @@ impl FileArkretCryptoStore {
         local_station: &DidCoreId,
         endpoint_authorization: &EventId,
         recipient: arkret::RecipientMlsDurableSigner,
-        other_new_authority: &[super::mls_leaf_authority::VerifiedMlsLeafAuthority],
+        roster: &ArkretMlsRosterMaterial,
     ) -> anyhow::Result<bool> {
         let claim = claim_outcome
             .claims
@@ -1346,7 +1403,7 @@ impl FileArkretCryptoStore {
             recipient_matches,
             "MLS Welcome durable signer differs from the claimed local endpoint"
         );
-        let recipient_authority = super::mls_leaf_authority::verified_welcome_leaf_authority(
+        super::mls_leaf_authority::verified_welcome_leaf_authority(
             delivery,
             accepted_commit,
             &claimed_record.endpoint,
@@ -1401,13 +1458,16 @@ impl FileArkretCryptoStore {
                 delivery,
                 accepted_commit,
             )?;
-            let mut authority = other_new_authority.to_vec();
-            authority.push(recipient_authority);
-            super::mls_leaf_authority::install_verified_leaf_authority(
+            arkret::install_verified_mls_roster_bindings(
                 &mut group,
-                &[],
-                &authority,
-            )?;
+                &roster.pages,
+                &roster.request,
+                &roster.governance_station,
+                &roster.authority_head,
+                &roster.governance_resolution,
+                &roster.genesis_material,
+            )
+            .map_err(anyhow::Error::msg)?;
             let updated = group.persist_state(&mut state)?;
             let mut binding = ArkretMlsWelcomeConsumeBinding {
                 keypackage_ref: claim.keypackage_ref.clone(),
@@ -2789,6 +2849,49 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         refs.insert(initial.keypackage_ref.as_str());
         assert_eq!(refs.len(), 9);
+
+        // Losing the upload response must retry the same bytes after restart.
+        let pending = store
+            .pending_key_package_uploads(&initial.endpoint)
+            .unwrap();
+        assert_eq!(pending.len(), 9);
+        let accepted = pending
+            .iter()
+            .map(|record| record.keypackage_ref.to_string())
+            .collect::<Vec<_>>();
+        let reopened = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        assert_eq!(
+            reopened
+                .pending_key_package_uploads(&initial.endpoint)
+                .unwrap()
+                .len(),
+            9
+        );
+        reopened
+            .confirm_key_package_uploads(&accepted[..8])
+            .unwrap();
+        assert_eq!(
+            reopened
+                .pending_key_package_uploads(&initial.endpoint)
+                .unwrap()
+                .len(),
+            1
+        );
+        reopened
+            .confirm_key_package_uploads(&accepted[8..])
+            .unwrap();
+        assert!(
+            store
+                .pending_key_package_uploads(&initial.endpoint)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            store
+                .mls_key_package_maintenance_deficit(&initial.endpoint, 8)
+                .unwrap(),
+            0
+        );
 
         let state = store.load().unwrap();
         assert_eq!(state.mls_key_packages.len(), 9);

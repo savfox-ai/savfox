@@ -123,6 +123,7 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
     let accepted = accepted_commit_for_welcome(http, delivery).await?;
     let claim =
         verified_own_welcome_claim(http, delivery, &account.actor_account_id.station_id).await?;
+    let roster = welcome_roster(http, store, delivery, &accepted, account).await?;
     store.install_accepted_mls_welcome(
         delivery,
         &accepted,
@@ -134,6 +135,122 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
             recipient_agent_verification_method: verification_method,
             agent_key_authorize_event_id: authorization_ref.clone(),
         },
-        &[],
+        &roster,
     )
+}
+
+/// Verify a signed scope snapshot before selecting the historical roster cut.
+pub(super) async fn verified_scope_snapshot(
+    http: &arkret::http_client::Client,
+    realm_id: &arkret::RealmId,
+) -> anyhow::Result<(arkret::RealmStateSnapshot, arkret::RealmAuthorityBundle)> {
+    let snapshot = http.realm_state_snapshot_head(realm_id).await?;
+    let request = arkret::AuthorityBundleRequest {
+        realm_id: realm_id.clone(),
+        nonce: arkret::Base64UrlString::new(arkret::base64url_encode(rand::random::<[u8; 32]>()))
+            .map_err(anyhow::Error::msg)?,
+    };
+    let bundle = http.realm_authority_bundle(&request).await?;
+    let keys =
+        garth::fetch_historical_station_key_directory(http, &bundle, None, Some(&snapshot)).await?;
+    let freshness =
+        arkret::identity::RealmAuthorityFreshness::new(chrono::Utc::now(), request.nonce.clone());
+    let mut replica = garth::RealmReplica::new(realm_id.clone());
+    replica.install_verified_authority(&request, bundle.clone(), &freshness, &keys)?;
+    replica.install_verified_current_snapshot_heads(&snapshot, &freshness, &keys)?;
+    Ok((snapshot, bundle))
+}
+
+async fn welcome_roster(
+    http: &arkret::http_client::Client,
+    store: &savfox_channels::arkret::FileArkretCryptoStore,
+    delivery: &arkret::MlsWelcomeDelivery,
+    accepted: &arkret::CommittedEventFullView,
+    account: &savfox_channels::arkret::ArkretAccountConfig,
+) -> anyhow::Result<savfox_channels::arkret::ArkretMlsRosterMaterial> {
+    let (snapshot, bundle) = verified_scope_snapshot(http, &delivery.realm_id).await?;
+    store
+        .record_verified_mls_current_entries(&snapshot.realm_id, &snapshot.current_state_entries)?;
+    if matches!(delivery.effective_scope, arkret::ScopeRef::Realm { .. }) {
+        store.upsert_realm_policy(savfox_channels::arkret::ArkretRealmCryptoPolicy {
+            realm_id: delivery.realm_id.to_string(),
+            content_encryption_floor:
+                savfox_channels::arkret::ArkretContentEncryptionFloor::E2eeRequired,
+            encryption_profile: Some("mls_rfc9420".to_owned()),
+            mls_group_id: Some(
+                delivery
+                    .effective_scope
+                    .canonical_mls_group_id()?
+                    .to_string(),
+            ),
+            source: "accepted_mls_welcome".to_owned(),
+            updated_at: chrono::Utc::now(),
+        })?;
+    }
+    let current = snapshot
+        .current_state_entries
+        .iter()
+        .find_map(|entry| match entry {
+            arkret::TypedCurrentResult::Value {
+                selector: arkret::CurrentSelector::MlsGroup { scope_ref },
+                value,
+                ..
+            } if scope_ref == &delivery.effective_scope => {
+                serde_json::from_value::<arkret::MlsGroupCurrent>(value.clone()).ok()
+            }
+            _ => None,
+        })
+        .context("Welcome scope has no verified MLS current")?;
+    let payload: arkret::MlsCommitPayload =
+        serde_json::from_value(serde_json::to_value(&accepted.event.payload)?)?;
+    anyhow::ensure!(
+        current.epoch >= payload.next_epoch(),
+        "Welcome is ahead of the verified MLS current"
+    );
+    let mut request = arkret::MlsRosterAuthorityReadRequestBody {
+        realm_id: delivery.realm_id.clone(),
+        effective_scope: delivery.effective_scope.clone(),
+        mls_group_id: payload.mls_group_id()?,
+        genesis_event_ref: current.genesis_event_ref,
+        target_commit_event_ref: accepted.event.event_id.clone(),
+        target_epoch: payload.next_epoch(),
+        caller_actor_id: arkret::ActorId::account(account.actor_account_id.clone()),
+        cursor: None,
+    };
+    let first_request = request.clone();
+    let mut pages = Vec::new();
+    loop {
+        anyhow::ensure!(
+            pages.len() < 64,
+            "MLS roster exceeds the bounded receive window"
+        );
+        let page = http.self_mls_roster_authority(&request).await?;
+        request.cursor = page.next_cursor.clone();
+        pages.push(page);
+        if request.cursor.is_none() {
+            break;
+        }
+    }
+    let resolution: arkret::AuthenticatedServiceResolution =
+        serde_json::from_value(bundle.current_route_record)?;
+    arkret::verify_mls_roster_authority_pages(
+        &pages,
+        &first_request,
+        &bundle.current_service_id,
+        &current.current_mls_commit_event_ref,
+        &resolution,
+    )?;
+    let material_request =
+        arkret::mls_roster_genesis_material_request(&first_request, &pages[0].manifest);
+    let material = http
+        .self_mls_group_state_material(&material_request)
+        .await?;
+    Ok(savfox_channels::arkret::ArkretMlsRosterMaterial {
+        request: first_request,
+        pages,
+        governance_station: bundle.current_service_id,
+        authority_head: current.current_mls_commit_event_ref,
+        governance_resolution: resolution,
+        genesis_material: material,
+    })
 }
