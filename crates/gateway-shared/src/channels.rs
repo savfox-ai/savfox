@@ -29,12 +29,14 @@ pub fn channel_config_key_is_sensitive(key: &str) -> bool {
         || normalized.contains("credential")
         || normalized.contains("privatekey")
         || normalized.contains("signingkey")
+        || normalized.contains("keyencryptionkey")
         || matches!(
             normalized.as_str(),
             "authorization"
                 | "accesscode"
                 | "keypair"
                 | "keyref"
+                | "managedactorauthoring"
                 | "loginchallenge"
                 | "pairingcode"
                 | "webhookurl"
@@ -341,6 +343,8 @@ mod tests {
             "webhook_url",
             "keyRef",
             "access_code",
+            "managed_actor_authoring",
+            "key_encryption_key_hex",
         ] {
             assert!(channel_config_key_is_sensitive(key), "{key}");
         }

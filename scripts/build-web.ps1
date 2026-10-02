@@ -179,6 +179,7 @@ $cacheDir = Join-Path $repoRoot "target/web-build-cache"
 $frontendStampPath = Join-Path $cacheDir "$profileName-frontend.stamp"
 $staticStampPath = Join-Path $cacheDir "$profileName-static.stamp"
 $trackedInputs = @(
+    $MyInvocation.MyCommand.Path,
     (Join-Path $webDir "src"),
     (Join-Path $webDir "assets"),
     (Join-Path $webDir "Cargo.toml"),
@@ -194,11 +195,27 @@ $needsWebBuild = $Force -or -not (Test-StampMatches -StampPath $frontendStampPat
 $buildPath = $frontendOutDir
 
 if ($needsWebBuild) {
+    # DX appends its startup footer to cached JavaScript on an incremental build.
+    # Recreate this application's generated bundle so it mounts only once.
+    $metadataJson = & cargo metadata --format-version 1 --no-deps --manifest-path (Join-Path $webDir "Cargo.toml")
+    if ($LASTEXITCODE -ne 0) { throw "Could not resolve the Cargo target directory" }
+    $targetDir = [System.IO.Path]::GetFullPath(($metadataJson | ConvertFrom-Json).target_directory)
+    $bundleDir = [System.IO.Path]::GetFullPath((Join-Path $targetDir "dx/savfox-gateway-dioxus/$profileName/web"))
+    if (-not $bundleDir.StartsWith($targetDir + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Generated bundle must remain inside the Cargo target directory"
+    }
+    if (Test-Path -LiteralPath $bundleDir) {
+        Remove-Item -LiteralPath $bundleDir -Recurse -Force
+    }
     Push-Location $webDir
 
     try {
         if (Test-Path $frontendOutDir) {
-            Remove-Item -Recurse -Force $frontendOutDir
+            $frontendResolved = [System.IO.Path]::GetFullPath($frontendOutDir)
+            if (-not $frontendResolved.StartsWith($webDir + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Frontend output must remain inside its application directory"
+            }
+            Remove-Item -LiteralPath $frontendResolved -Recurse -Force
         }
 
         $dxArgs = @("build", "--web")

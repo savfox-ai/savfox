@@ -1915,18 +1915,9 @@ async fn consume_account_mls_key_packages(
 
     let mut consumed_any = false;
     for binding in bindings {
-        if binding.welcome_ref.is_none()
-            || binding.realm_id.is_none()
-            || binding.strand_id.is_none()
-        {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                keypackage_ref = %binding.keypackage_ref,
-                "arkret: deferring MLS KeyPackage consume until exact Direct Conversation binding context is available"
-            );
-            continue;
-        }
+        // The signed receipt follows durable Welcome processing. Consuming it
+        // completes the founding phase; waiting for a binding here deadlocks
+        // because the Station requires this consumption before accepting one.
         let Some(recipient_durable_receipt) = binding.recipient_durable_receipt.clone() else {
             warn!(
                 channel_id = %channel.id,
