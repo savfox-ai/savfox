@@ -2621,7 +2621,22 @@ fn build_arkret_channel_patch(
                     );
                 }
                 let parsed = parse_json_config_field("Inkson Bootstrap JSON", value)?;
-                parse_arkret_agent_pairing_bootstrap(parsed.clone())?;
+                if values.contains_key(&saved_channel_id_key(channel_id))
+                    && arkret_agent_is_bound(channel_id, values)
+                {
+                    // Saved configurations redact the consumed pairing code.
+                    // Editing delivery settings must preserve the accepted
+                    // runtime identity without starting a new pairing flow.
+                    let bootstrap: AgentPairingBootstrap = serde_json::from_value(parsed.clone())
+                        .map_err(|error| {
+                        format!("Saved Inkson Bootstrap is invalid: {error}")
+                    })?;
+                    if bootstrap.runtime_identity.is_some() {
+                        bootstrap.validated_runtime_identity()?;
+                    }
+                } else {
+                    parse_arkret_agent_pairing_bootstrap(parsed.clone())?;
+                }
                 patch[&field.key] = parsed;
             }
             "managed_actor_authoring" => {
@@ -2687,7 +2702,11 @@ fn build_arkret_channel_patch(
             return Err("Saved Arkret pairing has no requestedScope; recover its exact scope before editing.".to_owned());
         }
         apply_arkret_bootstrap_defaults(&mut patch)?;
-        validate_arkret_agent_runtime_request_inputs(&patch)?;
+        validate_arkret_agent_runtime_request_inputs(
+            &patch,
+            values.contains_key(&saved_channel_id_key(channel_id))
+                && arkret_agent_is_bound(channel_id, values),
+        )?;
     }
 
     Ok(patch)
@@ -2776,7 +2795,10 @@ fn apply_arkret_hidden_agent_runtime_values(
     Ok(())
 }
 
-fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), String> {
+fn validate_arkret_agent_runtime_request_inputs(
+    patch: &Value,
+    preserve_saved_key: bool,
+) -> Result<(), String> {
     if patch
         .get("inksonBootstrap")
         .and_then(Value::as_object)
@@ -2809,7 +2831,10 @@ fn validate_arkret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
     if patch
         .pointer("/keyRef/kind")
         .and_then(Value::as_str)
-        .is_none_or(|kind| kind != "keyring")
+        .is_none_or(|kind| {
+            kind != "keyring"
+                && !(preserve_saved_key && kind == CHANNEL_SECRET_REDACTION_PLACEHOLDER)
+        })
     {
         return Err(
             "Arkret agent runtime keys must use the platform credential vault (kind='keyring'). Generate a new local runtime key before saving."
@@ -3033,6 +3058,7 @@ pub fn ChannelsHealth(channel_id: String) -> Element {
 
 fn channels_inner(deep_link: ChannelDeepLink) -> Element {
     inject_channels_styles_once();
+    let (locale, _) = crate::i18n::use_i18n();
     let is_routed = !matches!(deep_link, ChannelDeepLink::None);
     let nav = use_navigator();
 
@@ -3335,6 +3361,7 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
                 div { class: "channels-grid",
                     for (ch_type, config_entry) in configured_channel_cards.into_iter() {
                         { render_channel_card(
+                            locale(),
                             ch_type,
                             config_entry,
                             channels_status,
@@ -3518,7 +3545,16 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
     }
 }
 
+fn arkret_runtime_error_key(reason: Option<&str>) -> &'static str {
+    match reason {
+        Some("capability_denied") => "arkret_runtime.permissions_denied",
+        Some("proof_invalid") => "arkret_runtime.authentication_failed",
+        _ => "arkret_runtime.failed",
+    }
+}
+
 fn render_channel_card(
+    locale: crate::i18n::Locale,
     ch_type: &ChannelTypeInfo,
     config_entry: Option<&SavedChannelSummary>,
     channels_status: Option<&serde_json::Value>,
@@ -4018,18 +4054,6 @@ fn render_channel_card(
                                     span { class: "channels-card__pinfo-value", "{label}" }
                                 }
                             }
-                            if let Some(ref event_ref) = arkret_authorized_event_ref {
-                                span { class: "channels-card__pinfo-item",
-                                    span { class: "channels-card__pinfo-label", "Auth ref" }
-                                    span { class: "channels-card__pinfo-value channels-card__pinfo-value--truncate", "{event_ref}" }
-                                }
-                            }
-                            if let Some(ref verification_method) = arkret_verification_method {
-                                span { class: "channels-card__pinfo-item",
-                                    span { class: "channels-card__pinfo-label", "VM" }
-                                    span { class: "channels-card__pinfo-value channels-card__pinfo-value--truncate", "{verification_method}" }
-                                }
-                            }
                         }
                     }
                 }
@@ -4077,7 +4101,37 @@ fn render_channel_card(
             // ---- Error banner ----
             if let Some(ref err) = last_error {
                 div { class: "channels-card__error",
-                    "Error: {err}"
+                    if ch_type.id == "arkret" {
+                        p {
+                            {crate::i18n::t(locale, arkret_runtime_error_key(
+                                channel_data.and_then(|data| data.get("last_reason_code")).and_then(Value::as_str)
+                            ))}
+                        }
+                    } else {
+                        "Error: {err}"
+                    }
+                }
+            }
+
+            if ch_type.id == "arkret" && (arkret_authorized_event_ref.is_some()
+                || arkret_verification_method.is_some() || last_error.is_some()) {
+                details { class: "channels-card__platform-info",
+                    summary { {crate::i18n::t(locale, "arkret_runtime.diagnostics")} }
+                    if let Some(ref event_ref) = arkret_authorized_event_ref {
+                        div { class: "channels-card__pinfo-item",
+                            span { class: "channels-card__pinfo-label", "Authorization event" }
+                            span { class: "channels-card__pinfo-value", "{event_ref}" }
+                        }
+                    }
+                    if let Some(ref verification_method) = arkret_verification_method {
+                        div { class: "channels-card__pinfo-item",
+                            span { class: "channels-card__pinfo-label", "Runtime signing key" }
+                            span { class: "channels-card__pinfo-value", "{verification_method}" }
+                        }
+                    }
+                    if let Some(ref err) = last_error {
+                        p { "{err}" }
+                    }
                 }
             }
 
@@ -5730,7 +5784,7 @@ fn arkret_agent_is_bound(
 fn arkret_bootstrap_summary_from_text(input: &str) -> Option<(String, String)> {
     let bootstrap = serde_json::from_str::<Value>(input.trim())
         .ok()
-        .and_then(|value| parse_arkret_agent_pairing_bootstrap(value).ok())?;
+        .and_then(|value| serde_json::from_value::<AgentPairingBootstrap>(value).ok())?;
     Some((bootstrap.agent_id.to_string(), bootstrap.arkret_base_url))
 }
 
@@ -6675,6 +6729,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn arkret_runtime_error_summary_uses_structured_reason() {
+        assert_eq!(
+            arkret_runtime_error_key(Some("capability_denied")),
+            "arkret_runtime.permissions_denied"
+        );
+        assert_eq!(
+            arkret_runtime_error_key(Some("proof_invalid")),
+            "arkret_runtime.authentication_failed"
+        );
+        assert_eq!(arkret_runtime_error_key(None), "arkret_runtime.failed");
+    }
+
+    #[test]
     fn arkret_agent_pairing_requests_authenticated_signal_presence() {
         let scope = savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
         assert!(
@@ -6883,6 +6950,56 @@ mod tests {
 
     fn sdk_inkson_bootstrap_json() -> String {
         serde_json::to_string(&sdk_inkson_bootstrap_value()).expect("bootstrap JSON")
+    }
+
+    #[test]
+    fn paired_channel_delivery_edit_preserves_identity_with_redacted_pairing_code() {
+        let (fields, mut values) = agent_scope_form();
+        let mut bootstrap = sdk_inkson_bootstrap_value();
+        bootstrap["pairing_code"] = json!(CHANNEL_SECRET_REDACTION_PLACEHOLDER);
+        values.insert(
+            saved_channel_id_key("arkret"),
+            "arkret-aa-runtime".to_owned(),
+        );
+        values.insert(
+            field_value_key("arkret", "keyRef"),
+            json!({
+                "kind":CHANNEL_SECRET_REDACTION_PLACEHOLDER,
+                "service":CHANNEL_SECRET_REDACTION_PLACEHOLDER,
+                "account":CHANNEL_SECRET_REDACTION_PLACEHOLDER
+            })
+            .to_string(),
+        );
+        values.insert(
+            field_value_key("arkret", "inksonBootstrap"),
+            bootstrap.to_string(),
+        );
+        values.insert(
+            field_value_key("arkret", "authorizedEventRef"),
+            "ak:event:AWgGCEbMHnelRQfzqg1C_onV9Ej_FdpdAZyM_JoFgAd3".to_owned(),
+        );
+        let scope = savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
+        values.insert(
+            field_value_key("arkret", "requestedScope"),
+            serde_json::to_string(&scope).unwrap(),
+        );
+        values.insert(
+            field_value_key("arkret", "deliveryMode"),
+            "interactive_chat".to_owned(),
+        );
+        let patch = build_channel_patch("arkret", &fields, &values).unwrap();
+        assert_eq!(patch["deliveryMode"], "interactive_chat");
+        assert_eq!(patch["requestedScope"], json!(scope));
+        assert_eq!(
+            patch["authorizedEventRef"],
+            values[&field_value_key("arkret", "authorizedEventRef")]
+        );
+        values.remove(&field_value_key("arkret", "authorizedEventRef"));
+        assert!(
+            build_channel_patch("arkret", &fields, &values)
+                .unwrap_err()
+                .contains("eight digits")
+        );
     }
 
     #[test]

@@ -116,3 +116,9 @@ theme = "主题"
 toggle_nav_group = "切换{group}导航分组"
 session_input = "会话消息输入"
 pending_items = "{count} 项待处理"
+
+[arkret_runtime]
+permissions_denied = "运行所需权限尚未获批准。请在 Inkson 检查此 Agent 的权限后重新配对。"
+authentication_failed = "运行时未能建立可信会话。请在 Inkson 检查配对和授权状态。"
+failed = "Agent 运行时未能启动，请展开诊断查看原因。"
+diagnostics = "技术详情"

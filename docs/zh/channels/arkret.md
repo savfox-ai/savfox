@@ -5,9 +5,9 @@ DPAPI 保护加密仓库，不再占用 Windows Credential Manager 条目。`key
 继续表示平台保护的存储位置，私钥不进入 channel JSON。旧 Windows 凭据库条目不导入，
 需要重新配对以授权新的 runtime key。macOS、Linux 继续使用各自的原生 keyring。
 
-审批状态查询失败或配对 RPC 超时后，Savfox 会结束等待并启用 **Pair again**。
-等待 Inkson 时也可选择 **Pair again**，停止本地等待并更换配对链接；这不会撤销
-Inkson 中的请求。旧审批轮询的迟到响应不会覆盖新的配对操作。
+配对核对码为八位数字，显示为两组四位，保留前导零。批准前应确认 Inkson 与 Savfox 显示相同核对码。权限用途和授权期限在主视图显示，授权引用、运行密钥标识与完整错误链位于可展开的技术详情中。
+
+审批状态查询失败后，**Check approval** 恢复同一请求的查询；过期与否以 Station 的正式状态为准。手动停止等待不会撤销已批准请求或丢弃同一运行密钥，不必重发已消费的配对链接。
 
 提交审批和轮询审批状态时，校验的是尚未获批的配对配置，不要求提前提供
 `authorizedEventRef`。该引用在 Inkson 批准运行时密钥后返回；保存后的频道启动时
@@ -42,12 +42,12 @@ KeyPackage、claim、Welcome、receipt 和 consume 操作都必须保持该绑�
 唯一 controller、当前 runtime 与 session 授权，以及精确匹配的 MLS leaf；接收端仅按
 经过验证的当前原始公钥摘要接受并投影在线状态。Agent 密钥不会合成设备 ID。
 
-新配对请求的候选权限由共享 Arkret SDK 操作注册表与能力最低集合生成，包含 Event
-和 Seal 两种 frontier 操作。服务权限使用精确的带版本操作 ID，例如
-`ak.self.events.read.scan.v1`；`ak.event.read` 等内容动作保持原名。普通在线聊天默认
+新配对请求的候选权限由共享 Arkret SDK 操作注册表与能力最低集合生成，包含
+标准 committed-event stream 订阅、扫描及安全消息操作。服务权限使用精确的带版本操作 ID，例如
+`ak.self.committed_event.read.scan.v1`；`ak.event.read` 等内容动作保持原名。普通在线聊天默认
 不申请延迟发布 lease。
 
-编辑已有配对时，原权限数组保持不变；缺失、旧无版本名或 `query` 别名均明确拒绝，
+编辑已配对频道的交付模式等设置时，隐藏的旧核对码与密钥引用由服务器保留，不要求重新配对。选择 `interactive_chat` 接收聊天回复；`task_delivery` 用于任务交付。原权限数组保持不变；缺失、旧无版本名或 `query` 别名均明确拒绝，
 不会自动升级。新候选也只是申请，Station 仍须独立检查不可变 provision、当前 key
 与 session 三层上限。运行时要求实际 session grant 与申请的操作集合一致；权限缩小
 后无法运行完整监听器，超额授予也拒绝。最后成功 session 的缓存仅供诊断，不代表
@@ -66,7 +66,7 @@ KeyPackage、claim、Welcome、receipt 和 consume 操作都必须保持该绑�
 
 自有 Agent 私聊必须先完成已验证的 MLS Welcome 入群，运行时才能解密消息或发布
 加密在线状态。Savfox 验证治理闭包与 controller/Agent 成员密钥归属，将入群状态
-持久化并回读后才签署接收端持久回执。内容加密方案由 accepted 治理绑定决定；
+持久化并回读后才签署接收端持久回执，并立即提交 KeyPackage consume。Direct Conversation binding 要等该 consume 完成，运行时不能反过来等待 binding 才确认 Welcome。内容加密方案由 accepted 治理绑定决定；
 exporter AEAD 回复在提交前保留并持久化计数器，重启后也不会复用计数器。
 
 ### Applet 出站身份

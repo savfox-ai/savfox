@@ -7,10 +7,9 @@ platform-protected location; the key never enters channel JSON. Earlier Windows
 Credential Manager entries are not imported: pair again to authorize a fresh
 runtime key. macOS and Linux continue to use their native keyrings.
 
-If an approval status check fails or a pairing RPC times out, Savfox stops waiting
-and enables **Pair again**. While waiting for Inkson, **Pair again** also stops the
-local wait so you can replace the pairing link. It does not revoke a request in
-Inkson. A newer attempt ignores late responses from the previous approval poll.
+The comparison code contains eight decimal digits, displayed in two groups of four with leading zeros preserved. Compare the Inkson and Savfox codes before approval. Permission purposes and authorization duration stay visible; authorization references, runtime-key identifiers, and full error chains are under expandable technical details.
+
+After a status-query failure, **Check approval** resumes polling the same request. The Station determines expiry. Stopping the local wait does not revoke an approved request or discard its runtime key, and a consumed pairing link need not be submitted again.
 
 Approval submission and status polling validate a pending pairing candidate without
 requiring `authorizedEventRef`. That reference is returned after Inkson approves
@@ -57,12 +56,12 @@ presence only under the verified current raw-key digest. No synthetic device id
 is created for an Agent key.
 
 New pairing-request candidates use the shared Arkret SDK operation registry and
-its capability-floor completion, including both Event and Seal frontier operations.
+its capability-floor completion, including standard committed-event stream subscription, scanning, and secure messaging.
 Service scopes use exact versioned operation IDs, for example
-`ak.self.events.read.scan.v1`; content actions such as `ak.event.read` stay unchanged.
+`ak.self.committed_event.read.scan.v1`; content actions such as `ak.event.read` stay unchanged.
 Online chat does not request delayed-publication leases by default.
 
-Editing a saved pairing preserves its exact scope array. Missing, old unversioned
+Editing delivery settings preserves the saved pairing, including redacted comparison codes and runtime-key references restored by the server. Use `interactive_chat` for chat replies and `task_delivery` for task delivery. Editing a saved pairing preserves its exact scope array. Missing, old unversioned
 or `query` aliases are rejected, not upgraded. A new candidate is only a request:
 the Station must still check immutable provision, current key and session ceilings.
 The runtime requires the actual session grant to match its requested operation set;
@@ -87,7 +86,7 @@ marker is written; unrelated state and other Agents' keys are preserved.
 Owned-Agent direct conversations require a verified accepted MLS Welcome before
 the runtime can decrypt messages or publish encrypted presence. Savfox verifies
 the governance closure and the controller/Agent leaf attribution, persists and
-reads back the joined state, then signs the recipient durable receipt. The
+reads back the joined state, then signs the recipient durable receipt and submits KeyPackage consume. Direct Conversation binding depends on that consumption; confirming a durable Welcome must never wait for the binding. The
 accepted governance binding selects the content encryption scheme; exporter AEAD
 replies reserve and persist their counter before submission, including across
 runtime restarts.
