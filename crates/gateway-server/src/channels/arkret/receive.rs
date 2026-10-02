@@ -111,6 +111,8 @@ pub(super) async fn drive(
     let mut presence_tick = tokio::time::interval(ACCOUNT_PRESENCE_REFRESH);
     presence_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_auth_warning = None;
+    let mut recovery_due = tokio::time::Instant::now();
+    let mut recovery_positions = std::collections::BTreeMap::new();
     loop {
         tokio::select! {
             _ = receive_tick.tick() => {
@@ -118,6 +120,10 @@ pub(super) async fn drive(
                     let client = ArkretHttpClient::from_inner(provider.provide().await?);
                     run_account_key_lifecycle_maintenance(&client, channel, account,
                         &account_store, &crypto_store, "agent_receive").await?;
+                    if tokio::time::Instant::now() >= recovery_due {
+                        recover_pending_content(&client, channel, account, &account_store, &crypto_store, &mut recovery_positions).await?;
+                        recovery_due = tokio::time::Instant::now() + Duration::from_secs(20);
+                    }
                     scan_installed_scopes(&client, channel, account, &account_store, &crypto_store).await?;
                     process_durable_account_work(provider, channel, account, &account_store,
                         &crypto_store, &gateway_channel, &session_store, &mut last_auth_warning).await;
@@ -126,13 +132,157 @@ pub(super) async fn drive(
                 if let Err(error) = result {
                     return AccountEngineOutcome::Retry { error };
                 }
-                record_listener_phase(channel, account, "subscribing");
+                match account_store.pending(1).await {
+                    Ok(pending) if pending.first().and_then(|item| item.last_error.as_ref()).is_some() => {
+                        record_listener_failure(channel, account, "retry_wait",
+                            pending[0].last_error.as_deref().unwrap_or_default());
+                    }
+                    _ => record_listener_phase(channel, account, "subscribing"),
+                }
             }
             _ = presence_tick.tick() => {
                 refresh_account_presence(provider, channel, account, &crypto_store).await;
             }
         }
     }
+}
+
+/// Re-read pending ciphertext through the current authorized scan, preserving
+/// the existing stream head. Stored reconstructed headers are never evidence.
+async fn recover_pending_content(
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &garth::FileStore,
+    crypto_store: &FileArkretCryptoStore,
+    positions: &mut std::collections::BTreeMap<String, u64>,
+) -> anyhow::Result<()> {
+    if !account_store.pending(1).await?.is_empty() {
+        return Ok(());
+    }
+    let state = crypto_store.load()?;
+    if state.unable_to_decrypt.is_empty() {
+        return Ok(());
+    }
+    let actor = arkret::ActorId::account(account.actor_account_id.clone());
+    for (group_id, epochs) in &state.mls_station_currents {
+        if !state
+            .mls_group_states
+            .get(group_id)
+            .is_some_and(|group| group.actor_id == actor)
+        {
+            continue;
+        }
+        let Some(current) = epochs.values().last() else {
+            continue;
+        };
+        let mut targets = state
+            .unable_to_decrypt
+            .values()
+            .filter(|item| item.encrypted_content.group_id.as_str() == group_id)
+            .map(|item| item.event_id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        if targets.is_empty() {
+            continue;
+        }
+        let stream_ref = arkret::CommitStreamRef::from_scope(&current.effective_scope, None)?;
+        let scope = garth::CursorScope::CommitStream {
+            service_id: account_subscription_service_id(channel, account)?,
+            stream_ref: stream_ref.clone(),
+        };
+        let Some(bytes) = account_store.load(scope.clone()).await? else {
+            continue;
+        };
+        let checkpoint: StreamCheckpoint = serde_json::from_str(&bytes)?;
+        let mut after = Some(
+            positions
+                .get(group_id)
+                .copied()
+                .unwrap_or(checkpoint.baseline_through),
+        );
+        // Bound each maintenance pass; unresolved ciphertext remains retained.
+        for _ in 0..8 {
+            let request = arkret::StreamScanRequest {
+                realm_id: stream_ref.realm_id().clone(),
+                stream_ref: stream_ref.clone(),
+                direction: arkret::StreamScanDirection::After(after),
+                limit: 200,
+            };
+            let page = client.inner().scan_commit_stream(&request).await?;
+            let authority_request = arkret::AuthorityBundleRequest {
+                realm_id: request.realm_id.clone(),
+                nonce: arkret::Base64UrlString::new(arkret::base64url_encode(rand::random::<
+                    [u8; 32],
+                >()))
+                .map_err(anyhow::Error::msg)?,
+            };
+            let bundle = client
+                .inner()
+                .realm_authority_bundle(&authority_request)
+                .await?;
+            let keys = garth::fetch_historical_station_key_directory(
+                client.inner(),
+                &bundle,
+                Some(&page),
+                None,
+            )
+            .await?;
+            let freshness =
+                arkret::identity::RealmAuthorityFreshness::new(Utc::now(), authority_request.nonce);
+            let authority =
+                arkret::identity::verify_realm_authority_bundle(&bundle, &freshness, &keys)?;
+            for item in &page.committed_events {
+                match item {
+                    arkret::CommittedEventView::Full(full) => {
+                        authority.verify_committed_item(full, &keys)?
+                    }
+                    arkret::CommittedEventView::Withheld(withheld) => {
+                        authority.verify_commit(&withheld.commit, &keys)?
+                    }
+                }
+            }
+            let events = page
+                .committed_events
+                .iter()
+                .filter_map(|item| {
+                    let arkret::CommittedEventView::Full(full) = item else {
+                        return None;
+                    };
+                    (full.commit.stream_position <= checkpoint.head.stream_position
+                        && targets.remove(&full.event.event_id))
+                    .then_some(item)
+                })
+                .map(|item| {
+                    garth::CommittedDelta::from_committed_event_view(
+                        request.realm_id.clone(),
+                        item.clone(),
+                    )
+                    .map(ClientEvent::Committed)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if !events.is_empty() {
+                account_store
+                    .commit(scope.clone(), Some(bytes.clone()), events)
+                    .await?;
+            }
+            let last = page
+                .committed_events
+                .last()
+                .map(|item| item.commit().stream_position);
+            if targets.is_empty()
+                || !page.truncated
+                || last.is_none_or(|position| position >= checkpoint.head.stream_position)
+            {
+                positions.remove(group_id);
+                break;
+            }
+            if let Some(position) = last {
+                positions.insert(group_id.clone(), position);
+            }
+            after = last;
+        }
+    }
+    Ok(())
 }
 
 async fn scan_installed_scopes(

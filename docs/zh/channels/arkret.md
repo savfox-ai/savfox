@@ -69,6 +69,10 @@ KeyPackage、claim、Welcome、receipt 和 consume 操作都必须保持该绑�
 持久化并回读后才签署接收端持久回执，并立即提交 KeyPackage consume。Direct Conversation binding 要等该 consume 完成，运行时不能反过来等待 binding 才确认 Welcome。内容加密方案由 accepted 治理绑定决定；
 exporter AEAD 回复在提交前保留并持久化计数器，重启后也不会复用计数器。
 
+Standard MLS 消息以完整 sender ActorId（包含 Station）作为 AAD 身份，不使用 device/runtime 验签方法的选择器。signed RealmGenesis purpose 识别私聊，普通消息无需提及即可触发。解密失败或尚无 binding 的新触发保留在持久 inbox，历史恢复仍验证正式 accepted stream。回复在加密和签名前携带 exact participant binding；重新入群使用同组 fresh verified Welcome 推进 epoch，不重置群组或复活过期领取。
+
+待处理的接收项不阻断后续投递，但累计 ACK 和持久队列 cursor 不跨过首个未完成项。Welcome 分配先从本机可用库存扣除对应一次性 KeyPackage，因此过期领取也会触发补充。替换初始库存项时保留旧记录；缺失的公开记录只能根据已验证 claim 恢复，并要求本机已持有逐字匹配的私钥包。
+
 ### Applet 出站身份
 
 Applet 模式必须配置由已接受 provision 结果保留的完整 `bot_account_id`，其值为

@@ -91,6 +91,10 @@ accepted governance binding selects the content encryption scheme; exporter AEAD
 replies reserve and persist their counter before submission, including across
 runtime restarts.
 
+Standard MLS content authenticates the complete sender ActorId credential, including its Station, rather than a device/runtime verification-method selector. Signed RealmGenesis purpose identifies a Direct Conversation, so ordinary messages trigger without a mention. Decryption and unbound Direct Conversation triggers stay in the durable inbox; only a verified accepted stream read can recover previously deferred content. Replies carry the exact accepted participant binding before encryption and signing. A fresh verified Welcome advances the same group after endpoint replacement without resetting its epoch or reviving an expired claim.
+
+A pending recipient delivery does not block processing later deliveries. Cumulative ACK and the durable queue cursor remain before the first incomplete delivery. Welcome allocation removes the matching single-use KeyPackage from available private inventory before claim admission, so expired allocations still trigger replenishment. Replacing the initial pool entry preserves prior records; repairing a missing public record requires a verified claim and its exact private bundle already held locally.
+
 ### Applet outbound identity
 
 Applet mode requires `bot_account_id` as the complete Arkret `AccountId` object
