@@ -121,6 +121,15 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
             .clone(),
     )?;
     let accepted = accepted_commit_for_welcome(http, delivery).await?;
+    store.reserve_welcome_key_package(
+        delivery,
+        &accepted,
+        &arkret::MlsEndpointIdentity::AgentRuntime {
+            agent_id: account.actor_account_id.principal_id.clone(),
+            verification_method: verification_method.clone(),
+            agent_key_authorize_event_id: authorization_ref.clone(),
+        },
+    )?;
     let claim =
         verified_own_welcome_claim(http, delivery, &account.actor_account_id.station_id).await?;
     let roster = welcome_roster(http, store, delivery, &accepted, account).await?;

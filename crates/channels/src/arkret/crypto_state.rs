@@ -996,6 +996,12 @@ impl FileArkretCryptoStore {
         state
             .pending_key_package_uploads
             .insert(record.keypackage_ref.to_string());
+        if let Some(previous) = state.mls_key_packages.remove(&cache_key) {
+            state.mls_key_packages.insert(
+                mls_fresh_key_package_cache_key(&identity_key, &previous.keypackage_id),
+                previous,
+            );
+        }
         state.mls_key_packages.insert(cache_key, record.clone());
         state.mls_identities.insert(
             identity_key,
@@ -1009,6 +1015,58 @@ impl FileArkretCryptoStore {
         );
         self.save(&mut state)?;
         Ok(record)
+    }
+
+    /// Account for an allocation on the authenticated recipient queue before
+    /// claim read/admission. An expired claim must not leave its private
+    /// KeyPackage counted as available, and no receipt is inferred here.
+    pub fn reserve_welcome_key_package(
+        &self,
+        delivery: &MlsWelcomeDelivery,
+        accepted: &arkret::CommittedEventFullView,
+        endpoint: &MlsEndpointIdentity,
+    ) -> anyhow::Result<()> {
+        delivery.validate_shape()?;
+        accepted.validate_shape()?;
+        anyhow::ensure!(
+            delivery.commit_event_ref == accepted.event.event_id
+                && delivery.realm_id == accepted.event.realm_id
+                && delivery.effective_scope == accepted.event.scope_ref,
+            "Welcome allocation does not bind its accepted Commit"
+        );
+        let payload: MlsCommitPayload =
+            serde_json::from_value(serde_json::to_value(&accepted.event.payload)?)?;
+        let commit_bytes = arkret::base64url_decode(payload.commit_bytes_b64())?;
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load()?;
+        let mut changed = false;
+        for record in state.mls_key_packages.values_mut() {
+            if &record.endpoint != endpoint
+                || record.actor_id != delivery.recipient_actor_id
+                || record.state != MlsKeyPackageState::Published
+                || record.last_resort
+            {
+                continue;
+            }
+            let bytes = arkret::base64url_decode(&record.keypackage)?;
+            if !bytes.is_empty()
+                && commit_bytes
+                    .windows(bytes.len())
+                    .any(|window| window == bytes.as_slice())
+                && arkret::mls::welcome_addresses_key_package(delivery, record)?
+            {
+                record.state = MlsKeyPackageState::Claimed;
+                record.claim_id = Some(delivery.keypackage_claim_ref.to_string());
+                state
+                    .pending_key_package_uploads
+                    .remove(record.keypackage_ref.as_str());
+                changed = true;
+            }
+        }
+        if changed {
+            self.save(&mut state)?;
+        }
+        Ok(())
     }
 
     pub fn mark_mls_key_package_claimed(
@@ -1226,7 +1284,26 @@ impl FileArkretCryptoStore {
         entries: &[TypedCurrentResult],
     ) -> anyhow::Result<usize> {
         let mut accepted = Vec::new();
+        let mut direct = false;
         for entry in entries {
+            if let TypedCurrentResult::Value {
+                selector: arkret::CurrentSelector::RealmGenesis,
+                source_stream_ref,
+                value,
+                ..
+            } = entry
+            {
+                anyhow::ensure!(
+                    source_stream_ref
+                        == &arkret::CommitStreamRef::Realm {
+                            realm_id: realm_id.clone()
+                        },
+                    "Realm Genesis current result belongs to another stream"
+                );
+                let genesis: arkret::RealmGenesis = serde_json::from_value(value.clone())?;
+                genesis.validate()?;
+                direct = genesis.purpose == arkret::RealmPurpose::DirectConversation;
+            }
             let TypedCurrentResult::Value {
                 selector: arkret::CurrentSelector::MlsGroup { scope_ref },
                 source_stream_ref,
@@ -1249,11 +1326,24 @@ impl FileArkretCryptoStore {
             let group_id = scope_ref.canonical_mls_group_id()?;
             accepted.push((group_id.as_str().to_owned(), group));
         }
-        if accepted.is_empty() {
+        if accepted.is_empty() && !direct {
             return Ok(0);
         }
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
+        if direct {
+            state.realm_policies.insert(
+                realm_id.to_string(),
+                ArkretRealmCryptoPolicy {
+                    realm_id: realm_id.to_string(),
+                    content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+                    encryption_profile: Some("mls_rfc9420".to_owned()),
+                    mls_group_id: None,
+                    source: "accepted_realm_create_direct_conversation".to_owned(),
+                    updated_at: Utc::now(),
+                },
+            );
+        }
         for (group_id, group) in &accepted {
             state
                 .mls_station_currents
@@ -1427,6 +1517,22 @@ impl FileArkretCryptoStore {
 
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
+        let identity_record = state
+            .mls_identities
+            .get(&identity_key)
+            .context("MLS Welcome recipient private identity is unavailable")?;
+        let identity = restore_mls_identity(identity_record)?;
+        // Public cache loss never recreates private material. Repair only
+        // from the independently verified claim when its exact private
+        // bundle is still held by this endpoint's OpenMLS provider.
+        if find_mls_key_package_cache_key(&state.mls_key_packages, &claim.keypackage_ref).is_none()
+            && identity.holds_private_key_package(&claimed_record)?
+        {
+            state.mls_key_packages.insert(
+                mls_fresh_key_package_cache_key(&identity_key, &claimed_record.keypackage_id),
+                claimed_record.clone(),
+            );
+        }
         let local_package_key =
             find_mls_key_package_cache_key(&state.mls_key_packages, &claim.keypackage_ref)
                 .context("MLS Welcome claimed KeyPackage is not held locally")?;
@@ -1437,22 +1543,31 @@ impl FileArkretCryptoStore {
                 && local_package.endpoint == claimed_record.endpoint,
             "MLS Welcome claim differs from the locally held KeyPackage"
         );
-        if let Some(record) = state.mls_group_states.get(group_id.as_str()) {
-            anyhow::ensure!(
-                record.epoch >= payload.next_epoch(),
-                "MLS Welcome cannot replace an installed earlier epoch; apply accepted Commits"
-            );
+        if local_package.state == MlsKeyPackageState::Consumed
+            && local_package.claim_id.as_deref() == Some(delivery.keypackage_claim_ref.as_str())
+        {
+            // A stored consume ACK already completed this exact single-use
+            // claim. Never manufacture a new receipt timestamp on replay.
+            return Ok(false);
         }
-        let identity_record = state
-            .mls_identities
-            .get(&identity_key)
-            .context("MLS Welcome recipient private identity is unavailable")?;
-        let identity = restore_mls_identity(identity_record)?;
-        let already_joined = state
+        let local_epoch = state
             .mls_group_states
             .get(group_id.as_str())
-            .is_some_and(|record| record.epoch >= payload.next_epoch());
+            .map(|record| record.epoch);
+        let has_binding = state
+            .mls_welcome_consume_bindings
+            .contains_key(&binding_key);
+        anyhow::ensure!(
+            local_epoch.is_none_or(|epoch| epoch <= payload.next_epoch()) || has_binding,
+            "older MLS Welcome cannot replace a newer group without its durable receipt"
+        );
+        let already_joined =
+            local_epoch.is_some_and(|epoch| epoch >= payload.next_epoch()) && has_binding;
         if !already_joined {
+            // An independently verified fresh Welcome may re-admit this
+            // endpoint after its old leaf was replaced in the same group.
+            // Installation advances the epoch; older Welcomes only replay
+            // their existing durable receipt and cannot replace newer state.
             let mut group = ArkretMlsGroup::join_from_verified_welcome_delivery(
                 identity,
                 delivery,
@@ -1644,32 +1759,35 @@ impl FileArkretCryptoStore {
     }
 
     pub fn realm_is_direct_conversation(&self, realm_id: &str) -> anyhow::Result<bool> {
-        Ok(self
-            .load()?
-            .realm_policies
+        let state = self.load()?;
+        Ok(state
+            .direct_conversation_welcome_bindings
             .get(realm_id)
-            .is_some_and(|policy| policy.source == "account_subscribe_direct_conversation"))
-    }
-
-    pub fn mark_mls_welcome_consume_binding_acked(
-        &self,
-        binding: &ArkretMlsWelcomeConsumeBinding,
-    ) -> anyhow::Result<()> {
-        let _guard = self.mutation_lock.lock();
-        let mut state = self.load()?;
-        state
-            .mls_welcome_consume_bindings
-            .remove(&binding.cache_key());
-        self.save(&mut state)
+            .is_some_and(|binding| binding.binding_event_ref.is_some())
+            || state.realm_policies.get(realm_id).is_some_and(|policy| {
+                matches!(
+                    policy.source.as_str(),
+                    "account_subscribe_direct_conversation"
+                        | "accepted_realm_create_direct_conversation"
+                )
+            }))
     }
 
     pub fn pending_mls_welcome_consume_bindings(
         &self,
     ) -> anyhow::Result<Vec<ArkretMlsWelcomeConsumeBinding>> {
-        Ok(self
-            .load()?
+        let state = self.load()?;
+        Ok(state
             .mls_welcome_consume_bindings
-            .into_values()
+            .values()
+            .filter(|binding| {
+                !state.mls_key_packages.values().any(|record| {
+                    record.keypackage_ref.as_str() == binding.keypackage_ref
+                        && record.claim_id.as_deref() == Some(binding.claim_id.as_str())
+                        && record.state == MlsKeyPackageState::Consumed
+                })
+            })
+            .cloned()
             .collect())
     }
 
@@ -1748,6 +1866,19 @@ impl FileArkretCryptoStore {
             .unable_to_decrypt
             .insert(record.event_id.clone(), record);
         self.save(&mut state)
+    }
+
+    pub fn clear_unable_to_decrypt(&self, event_id: &str) -> anyhow::Result<()> {
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load()?;
+        if state
+            .unable_to_decrypt
+            .remove(&EventId::new(event_id.to_owned())?)
+            .is_some()
+        {
+            self.save(&mut state)?;
+        }
+        Ok(())
     }
 
     pub fn try_decrypt_content_block(
@@ -2162,13 +2293,11 @@ pub(crate) fn encrypted_payload_for_event(
     event: &arkret::Event,
     envelope: &arkret::EncryptedEnvelope,
 ) -> Option<EncryptedPayload> {
-    let sender_domain = event
-        .producer_proof
-        .as_ref()?
-        .verification_method
-        .as_str()
-        .rsplit_once('#')?
-        .1;
+    // Accepted Event identity must match the sender's canonical MLS credential.
+    // The producer verification method selects its key, not its AAD identity.
+    event.producer_proof.as_ref()?;
+    let sender_identity = arkret::mls_basic_credential_identity(&event.actor_id).ok()?;
+    let sender_domain = std::str::from_utf8(&sender_identity).ok()?;
     let header = envelope
         .reconstruct_pre_encryption_header(
             EncryptedPayloadScheme::MlsRfc9420,
@@ -2980,6 +3109,85 @@ mod tests {
     }
 
     #[test]
+    fn signed_event_reconstructs_sender_leaf_aad_instead_of_its_key_selector() {
+        let principal = DidCoreId::new("ak:did_core:web:alice.example").unwrap();
+        let device = DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap();
+        for station in [
+            "ak:did_core:web:station.example",
+            "ak:did_core:web:other.example",
+        ] {
+            let actor = ActorId::account(AccountId::new(
+                principal.clone(),
+                DidCoreId::new(station).unwrap(),
+            ));
+            let endpoint = MlsEndpointIdentity::HumanDevice {
+                principal_id: principal.clone(),
+                device_id: device.clone(),
+            };
+            let mut group = new_mls_identity(actor.clone(), endpoint, Some([13; 32]))
+                .unwrap()
+                .create_group(&ScopeRef::Realm {
+                    realm_id: FIXTURE_REALM.clone(),
+                })
+                .unwrap();
+            let header = EventContentPreEncryptionHeader::reconstruct(
+                "1.0",
+                "application/vnd.arkret.content+json",
+                EncryptedPayloadScheme::MlsRfc9420,
+                group.scope().clone(),
+                "ak.message.create",
+                group.epoch(),
+                FIXTURE_EVENT_1.clone(),
+                group.local_content_sender_domain().unwrap(),
+                EventContentRoutingContext::None,
+            )
+            .unwrap();
+            let encrypted = group
+                .encrypt_payload(
+                    header.clone(),
+                    br#"{"kind":"ak.content.text","body":"hello"}"#,
+                )
+                .unwrap();
+            let envelope = arkret::mls::encrypted_envelope_from_payload(&encrypted).unwrap();
+            let event = arkret_wire::test_support::raw_event_for_actor_at("ak.message.create", group.scope().clone(), actor,
+                json!({"strand_id": FIXTURE_STRAND.as_str(), "track_name": "discussion", "encrypted_content": envelope}), Utc::now()).unwrap();
+            let mut authored = arkret::AuthoredEvent::finalize_with_digest_suite(
+                event,
+                arkret::canonical::DigestSuite::Sha256,
+            )
+            .unwrap();
+            let signer = arkret::Ed25519PayloadSigner::from_did_key_seed(
+                [13; 32],
+                arkret::Did::new("did:web:alice.example").unwrap(),
+                arkret::DidUrl::new(format!("did:web:alice.example#{device}")).unwrap(),
+            );
+            arkret_signatures::sign_event(&mut authored, &signer, Default::default()).unwrap();
+            let rebuilt = extract_encrypted_payload_from_message_content(authored.event()).unwrap();
+            assert_eq!(
+                rebuilt.pre_encryption_header.canonical_bytes().unwrap(),
+                header.canonical_bytes().unwrap()
+            );
+            assert_ne!(rebuilt.pre_encryption_header.sender_domain, device.as_str());
+            assert!(
+                rebuilt
+                    .pre_encryption_header
+                    .sender_domain
+                    .contains(station)
+            );
+            let mut wrong_station = authored.into_event();
+            wrong_station.actor_id = ActorId::account(test_account(principal.as_str()));
+            if station != "ak:did_core:web:station.example" {
+                assert_ne!(
+                    extract_encrypted_payload_from_message_content(&wrong_station)
+                        .unwrap()
+                        .pre_encryption_header,
+                    header
+                );
+            }
+        }
+    }
+
+    #[test]
     fn sync_realm_policy_is_persisted() {
         let home = temp_home("policy");
         let store = FileArkretCryptoStore::for_account(&home, "c1", "a1");
@@ -3079,6 +3287,63 @@ mod tests {
             .unwrap()
             .to_string()
         );
+    }
+
+    #[test]
+    fn verified_direct_genesis_classifies_agent_chat_without_prejoin_history() {
+        let home = temp_home("direct-current-purpose");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        let genesis = arkret::RealmGenesis::new(
+            arkret::RealmPurpose::DirectConversation,
+            arkret::GenesisSalt::generate().unwrap(),
+            arkret::TrustDomainId::new("ak:trust_domain:station.example").unwrap(),
+            arkret::SecurityClass::Standard,
+            DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+            arkret::JoinRule::Closed,
+            arkret::HistoryAccess::SinceJoin,
+            arkret::Discoverability::InviteOnly,
+            None,
+            None,
+        )
+        .unwrap();
+        let mut entry = TypedCurrentResult::Value {
+            selector: arkret::CurrentSelector::RealmGenesis,
+            source_stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: FIXTURE_REALM_B.clone(),
+            },
+            revision: arkret::CurrentRevision {
+                commit_id: arkret::RealmCommitId::from_digest([3; 32]),
+                stream_position: 0,
+            },
+            value: serde_json::to_value(genesis).unwrap(),
+        };
+        assert!(
+            store
+                .record_verified_mls_current_entries(&FIXTURE_REALM, &[entry.clone()])
+                .is_err()
+        );
+        assert!(
+            !store
+                .realm_is_direct_conversation(FIXTURE_REALM.as_str())
+                .unwrap()
+        );
+        let TypedCurrentResult::Value {
+            source_stream_ref, ..
+        } = &mut entry;
+        *source_stream_ref = arkret::CommitStreamRef::Realm {
+            realm_id: FIXTURE_REALM.clone(),
+        };
+        store
+            .record_verified_mls_current_entries(&FIXTURE_REALM, &[entry])
+            .unwrap();
+        let reopened = FileArkretCryptoStore::for_account(&home, "c1", "agent");
+        assert!(
+            reopened
+                .realm_is_direct_conversation(FIXTURE_REALM.as_str())
+                .unwrap()
+        );
+        assert!(reopened.load().unwrap().realm_policies[FIXTURE_REALM.as_str()].requires_e2ee());
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
@@ -3355,6 +3620,66 @@ mod tests {
         assert_eq!(
             endpoint_human_device_id(&add.welcome.recipient).map(DeviceId::as_str),
             Some(bob_device)
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn completed_welcome_retains_replay_identity_and_replenishment_keeps_old_package() {
+        let home = temp_home("welcome-replay-inventory");
+        let store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
+        let account = test_account("ak:did_core:web:bob.example");
+        let device = "ak:device:01904100-0000-7000-8000-00000000000e";
+        let package = store.ensure_mls_key_package(&account, device).unwrap();
+        let claim = "ak:keypackage_claim:01904100-0000-7000-8000-000000000019";
+        store
+            .mark_mls_key_package_claimed(package.keypackage_ref.as_str(), claim)
+            .unwrap();
+        let binding = ArkretMlsWelcomeConsumeBinding {
+            keypackage_ref: package.keypackage_ref.to_string(),
+            claim_id: claim.to_owned(),
+            welcome_ref: None,
+            realm_id: None,
+            strand_id: None,
+            mls_group_id: "fixture-group".to_owned(),
+            epoch: 1,
+            group_state_ref: None,
+            recipient_durable_receipt: None,
+            verified_leaf_bindings: Vec::new(),
+        };
+        let mut state = store.load().unwrap();
+        state
+            .mls_welcome_consume_bindings
+            .insert(binding.cache_key(), binding.clone());
+        store.save(&mut state).unwrap();
+        assert_eq!(
+            store.pending_mls_welcome_consume_bindings().unwrap().len(),
+            1
+        );
+        store
+            .mark_mls_key_package_consumed(package.keypackage_ref.as_str())
+            .unwrap();
+        let next = store.ensure_mls_key_package(&account, device).unwrap();
+        assert_ne!(next.keypackage_ref, package.keypackage_ref);
+        let reopened = FileArkretCryptoStore::for_account(&home, "c1", "bob");
+        assert!(
+            reopened
+                .pending_mls_welcome_consume_bindings()
+                .unwrap()
+                .is_empty()
+        );
+        let state = reopened.load().unwrap();
+        assert!(
+            state
+                .mls_welcome_consume_bindings
+                .contains_key(&binding.cache_key())
+        );
+        assert!(
+            state
+                .mls_key_packages
+                .values()
+                .any(|record| record.keypackage_ref == package.keypackage_ref
+                    && record.state == MlsKeyPackageState::Consumed)
         );
         let _ = std::fs::remove_dir_all(&home);
     }

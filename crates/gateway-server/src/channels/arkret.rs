@@ -1683,6 +1683,9 @@ async fn drain_account_device_messages_from_cursor(
         }
     };
 
+    // The ACK is cumulative. Once a delivery is pending, later deliveries
+    // may be processed but neither their ACK nor scan cursor can cross it.
+    let mut contiguous_complete = true;
     for page in 0..DEVICE_MESSAGES_PULL_MAX_PAGES {
         let outcome = match client
             .inner()
@@ -1706,7 +1709,7 @@ async fn drain_account_device_messages_from_cursor(
                 arkret::RecipientDelivery::DeviceMessage { .. } => {
                     warn!(channel_id = %channel.id, account_id = %account.id,
                         "arkret: Agent DeviceMessage handler is unavailable; retaining the recipient queue without ACK");
-                    return;
+                    contiguous_complete = false;
                 }
                 arkret::RecipientDelivery::MlsWelcome { mls_welcome } => {
                     match governance::admit_owned_agent_welcome_delivery(
@@ -1730,7 +1733,8 @@ async fn drain_account_device_messages_from_cursor(
                             {
                                 warn!(channel_id = %channel.id, account_id = %account.id,
                                     "arkret: Welcome stream checkpoint pending; retaining queue: {error:#}");
-                                return;
+                                contiguous_complete = false;
+                                continue;
                             }
                             debug!(
                             channel_id = %channel.id,
@@ -1748,7 +1752,7 @@ async fn drain_account_device_messages_from_cursor(
                                 welcome_id = %mls_welcome.welcome_id,
                                 "arkret: MLS Welcome admission pending; preserving the queue: {error:#}"
                             );
-                            return;
+                            contiguous_complete = false;
                         }
                     }
                 }
@@ -1787,27 +1791,30 @@ async fn drain_account_device_messages_from_cursor(
             );
             return;
         }
-        if let Some(ack_token) = outcome.ack_token.as_deref()
+        if contiguous_complete
+            && let Some(ack_token) = outcome.ack_token.as_deref()
             && !ack_account_device_messages(client, channel, account, ack_token, reason).await
         {
             return;
         }
         if let Some(next_cursor) = outcome.next_cursor {
-            let save = receive::delivery_scope(channel, account);
-            if let Err(err) = match save {
-                Ok(scope) => account_store
-                    .save(scope, next_cursor.clone())
-                    .await
-                    .map_err(anyhow::Error::from),
-                Err(err) => Err(anyhow::Error::from(err)),
-            } {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    reason,
-                    "arkret: failed to persist device-message cursor: {err}"
-                );
-                return;
+            if contiguous_complete {
+                let save = receive::delivery_scope(channel, account);
+                if let Err(err) = match save {
+                    Ok(scope) => account_store
+                        .save(scope, next_cursor.clone())
+                        .await
+                        .map_err(anyhow::Error::from),
+                    Err(err) => Err(anyhow::Error::from(err)),
+                } {
+                    warn!(
+                        channel_id = %channel.id,
+                        account_id = %account.id,
+                        reason,
+                        "arkret: failed to persist device-message cursor: {err}"
+                    );
+                    return;
+                }
             }
             cursor = Some(next_cursor);
         }
@@ -1971,14 +1978,8 @@ async fn consume_account_mls_key_packages(
                         "arkret: failed to mark local MLS KeyPackage consumed after server ack: {err:#}"
                     );
                 }
-                if let Err(err) = crypto_store.mark_mls_welcome_consume_binding_acked(binding) {
-                    warn!(
-                        channel_id = %channel.id,
-                        account_id = %account.id,
-                        keypackage_ref = %binding.keypackage_ref,
-                        "arkret: failed to clear MLS Welcome consume binding after server ack: {err:#}"
-                    );
-                }
+                // Keep the exact durable receipt for replay. The confirmed
+                // single-use consumed state removes it from pending work.
                 debug!(
                     channel_id = %channel.id,
                     account_id = %account.id,
@@ -2483,6 +2484,7 @@ async fn handle_parsed_account_events(
                 if let Some(event_id) = skipped.event_id.as_deref()
                     && account_event_seen(account_store, channel, account, event_id).await?
                 {
+                    crypto_store.clear_unable_to_decrypt(event_id)?;
                     continue;
                 }
                 let decrypted = try_handle_encrypted_account_skip(
@@ -2500,6 +2502,7 @@ async fn handle_parsed_account_events(
                 if decrypted {
                     if let Some(event_id) = skipped.event_id.as_deref() {
                         remember_account_event(account_store, event_id).await?;
+                        crypto_store.clear_unable_to_decrypt(event_id)?;
                     }
                     if inbound_mode.suppresses_agent_dispatch() {
                         update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
@@ -2514,6 +2517,10 @@ async fn handle_parsed_account_events(
                     event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
                     realm_id = skipped.realm_id.as_deref().unwrap_or("<unknown>"),
                     "arkret: encrypted account message remains pending; local MLS decryption is not ready"
+                );
+                anyhow::bail!(
+                    "Arkret encrypted Event {} is waiting for verified MLS decryption",
+                    skipped.event_id.as_deref().unwrap_or("<unknown>")
                 );
             }
             reason => {
@@ -2878,6 +2885,17 @@ async fn try_handle_encrypted_account_skip(
         );
         return Ok(false);
     }
+    if inbound_mode == AccountInboundMode::Trigger
+        && let Some(realm_id) = skipped.realm_id.as_deref()
+        && crypto_store.realm_is_direct_conversation(realm_id)?
+        && crypto_store
+            .direct_conversation_binding_event_ref(realm_id)?
+            .is_none()
+    {
+        anyhow::bail!(
+            "Arkret Direct Conversation is waiting for its accepted participant binding before replying"
+        );
+    }
     match crypto_store.plan_bootstrap_for_payload(
         &account.principal_id,
         &account.device_id,
@@ -2987,6 +3005,7 @@ async fn try_handle_encrypted_account_skip(
                     chat_type: if crypto_store
                         .direct_conversation_binding_event_ref(&realm_id)?
                         .is_some()
+                        || crypto_store.realm_is_direct_conversation(&realm_id)?
                     {
                         Some("dm".to_owned())
                     } else {
@@ -3044,7 +3063,7 @@ async fn try_handle_encrypted_account_skip(
                 payload.clone(),
                 UnableToDecryptReason::BadCiphertext,
             );
-            Ok(false)
+            Err(err)
         }
     }
 }
@@ -3621,22 +3640,7 @@ pub(crate) async fn send_to_arkret_account(
             sidecar_exchange: sidecar_exchange.cloned(),
         };
         let mut event = build_message_create_event(&request)?;
-        // This is the currently registered message payload carrier, not an
-        // authority checkpoint or a substitute for the producer signature.
-        let context = arkret::MessageAgentContext {
-            agent_id: DidCoreId::new(account.principal_id.clone())?,
-            operator_or_controller: account.controller_account_id.canonical_key()?,
-            execution_purpose: if delivery.is_some() {
-                "task_delivery_checkpoint"
-            } else {
-                "direct_conversation_reply"
-            }
-            .to_owned(),
-            authorization_ref: realm_id.to_owned(),
-        };
-        event
-            .payload
-            .insert("agent_context".to_owned(), serde_json::to_value(context)?);
+        apply_direct_reply_authority(&crypto_store, realm_id, &mut event)?;
         apply_account_outbound_encryption(
             &crypto_store,
             realm_id,
@@ -3728,6 +3732,44 @@ pub(crate) async fn send_to_arkret_account(
             _ => {}
         }
     }
+}
+
+fn apply_direct_reply_authority(
+    crypto_store: &FileArkretCryptoStore,
+    realm_id: &str,
+    event: &mut arkret::Event,
+) -> anyhow::Result<()> {
+    if !crypto_store.realm_is_direct_conversation(realm_id)? {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        event.kind == arkret::EventKind::MessageCreate
+            && event.realm_id.as_str() == realm_id
+            && matches!(&event.scope_ref, arkret::ScopeRef::Realm { realm_id: scope } if scope.as_str() == realm_id),
+        "Arkret direct reply must target its exact Realm message scope"
+    );
+    let binding = crypto_store
+        .direct_conversation_binding_event_ref(realm_id)?
+        .context("Arkret Direct Conversation is waiting for its accepted participant binding")?;
+    anyhow::ensure!(
+        event.authorization_ref.is_none()
+            && !event
+                .semantic_refs
+                .iter()
+                .any(|reference| reference.role == "direct_conversation_binding"),
+        "Arkret reply already carries a participant authority"
+    );
+    event.authorization_ref = Some(
+        arkret::AuthorizationRef::new(
+            arkret_wire::AuthoritySourceId::DIRECT_CONVERSATION_PARTICIPANT_V1,
+        )
+        .map_err(anyhow::Error::msg)?,
+    );
+    event.semantic_refs.push(arkret::SemanticRef::new(
+        binding.to_string(),
+        "direct_conversation_binding",
+    ));
+    Ok(())
 }
 
 fn apply_account_outbound_encryption(
@@ -4473,6 +4515,60 @@ mod tests {
             arkret::canonical::DigestSuite::Sha256,
             [1; 32],
         ))
+    }
+
+    #[test]
+    fn direct_reply_freezes_exact_participant_binding_before_authoring() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "c1", "agent");
+        let realm = realm_id();
+        store
+            .upsert_realm_policy(ArkretRealmCryptoPolicy {
+                realm_id: realm.to_string(),
+                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+                encryption_profile: Some("mls_rfc9420".to_owned()),
+                mls_group_id: None,
+                source: "accepted_realm_create_direct_conversation".to_owned(),
+                updated_at: Utc::now(),
+            })
+            .unwrap();
+        let (_, mut event) = queued_message_fixture();
+        event.producer_proof = None;
+        let before = event.clone();
+        assert!(apply_direct_reply_authority(&store, realm.as_str(), &mut event).is_err());
+        assert_eq!(event, before);
+        let reference = EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [19; 32]);
+        let mut state = store.load().unwrap();
+        state.direct_conversation_welcome_bindings.insert(realm.to_string(), serde_json::from_value(json!({
+            "realm_id": realm, "strand_id": "unused-by-this-test", "binding_event_ref": reference,
+        })).unwrap());
+        store.save(&mut state).unwrap();
+        // Welcome admission updates the encryption policy's source, but the
+        // accepted binding still identifies this Realm as Direct Conversation.
+        store
+            .upsert_realm_policy(ArkretRealmCryptoPolicy {
+                realm_id: realm.to_string(),
+                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+                encryption_profile: Some("mls_rfc9420".to_owned()),
+                mls_group_id: None,
+                source: "accepted_mls_welcome".to_owned(),
+                updated_at: Utc::now(),
+            })
+            .unwrap();
+        apply_direct_reply_authority(&store, realm.as_str(), &mut event).unwrap();
+        assert_eq!(
+            event.authorization_ref.as_ref().unwrap().as_str(),
+            arkret_wire::AuthoritySourceId::DIRECT_CONVERSATION_PARTICIPANT_V1
+        );
+        assert_eq!(
+            event.semantic_refs,
+            vec![arkret::SemanticRef::new(
+                reference.to_string(),
+                "direct_conversation_binding"
+            )]
+        );
+        assert!(event.semantic_refs[0].critical);
+        assert!(apply_direct_reply_authority(&store, realm.as_str(), &mut event).is_err());
     }
 
     /// A Sidecar exchange reply must never mount the binding outside
