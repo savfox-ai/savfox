@@ -1,5 +1,10 @@
 # Arkret Agent 频道
 
+Windows 上的 Arkret runtime 私钥与加密状态 wrapping key 使用 SDK 已有的当前用户
+DPAPI 保护加密仓库，不再占用 Windows Credential Manager 条目。`keyring` key reference
+继续表示平台保护的存储位置，私钥不进入 channel JSON。旧 Windows 凭据库条目不导入，
+需要重新配对以授权新的 runtime key。macOS、Linux 继续使用各自的原生 keyring。
+
 审批状态查询失败或配对 RPC 超时后，Savfox 会结束等待并启用 **Pair again**。
 等待 Inkson 时也可选择 **Pair again**，停止本地等待并更换配对链接；这不会撤销
 Inkson 中的请求。旧审批轮询的迟到响应不会覆盖新的配对操作。

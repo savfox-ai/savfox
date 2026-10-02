@@ -3,7 +3,7 @@
 //! Owns one async task per (channel, account) pair. Each task:
 //!
 //! 1. Mints a short-lived `agent_key_proof` session grant bound to DPoP.
-//! 2. Opens `/_arkret/self/account/subscribe` for the owning user account.
+//! 2. Pulls its own Agent delivery queue and scans authorized Commit streams.
 //! 3. Extracts dispatchable `ak.message.create` events.
 //! 4. Dispatches each event to the agent pipeline.
 //!
@@ -25,8 +25,8 @@ use arkret::{
 };
 use chrono::Utc;
 use garth::{
-    ClientEvent, ClientProjector, CursorStore, DurableInboxStore, EventCacheStore, OutboundEngine,
-    OutboundEngineOutcome, RunOptions, RunStopReason, SyncLoopControl, TransportProvider,
+    ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, OutboundEngine,
+    OutboundEngineOutcome, TransportProvider,
 };
 use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
@@ -36,7 +36,7 @@ use savfox_channels::arkret::{
     ArkretRealmCryptoPolicy, FileArkretCryptoStore, MessageCreateRequest, SidecarExchangeAdmission,
     SidecarExchangeContext, SidecarExchangeStore, SidecarRequestGate, SidecarTerminalAdmission,
     UnableToDecryptReason, account_allows_event_read, build_message_create_event,
-    build_user_facing_response_metadata, device_messages_scope, encode_sidecar_reply_target,
+    build_user_facing_response_metadata, encode_sidecar_reply_target,
     gate_inbound_exchange_control, gate_inbound_request_binding, open_account_store,
     parse_event_values_for_account, resolve_arkret_outbound_account_for_binding,
     sidecar_binding_from_metadata_plaintext, sign_keypackages_consume_request,
@@ -50,6 +50,7 @@ use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
 pub(crate) mod governance;
+mod receive;
 
 /// Per-(channel, account) runtime handles. Indexed by `{channel_id}::{account_id}`.
 #[derive(Default)]
@@ -149,7 +150,6 @@ impl ArkretListenerDiagnostic {
 const ACCOUNT_EVENT_DEDUPE_MAX: usize = 4096;
 const ACCOUNT_SCAN_CATCHUP_LIMIT: u16 = 100;
 const ACCOUNT_SCAN_CATCHUP_MAX_PAGES: usize = 64;
-const ACCOUNT_DURABLE_WORK_POLL: Duration = Duration::from_millis(250);
 const ACCOUNT_AUTH_WARNING_INTERVAL: Duration = Duration::from_secs(30);
 /// v1 session Signals expire after 30 seconds. Twenty seconds leaves room for
 /// scheduling, network jitter and an in-band session refresh.
@@ -644,7 +644,7 @@ async fn run_account_listener(
     }
 
     runtime::record_channel_probe("arkret", "ok").await;
-    match drive_account_subscription_engine(
+    match receive::drive(
         &provider,
         &channel,
         &account,
@@ -655,27 +655,6 @@ async fn run_account_listener(
     )
     .await
     {
-        AccountEngineOutcome::Unauthorized { reason } => {
-            let detail = reason.as_deref().unwrap_or("unspecified");
-            record_listener_service_failure(
-                &channel,
-                &account,
-                "unauthorized",
-                detail,
-                reason.as_deref(),
-            );
-            warn!(
-                account_id = %account.id,
-                reason = detail,
-                "arkret: shared session provider could not recover authorization"
-            );
-        }
-        AccountEngineOutcome::Cancelled => {
-            debug!(
-                "arkret: account '{}' subscription engine stopped",
-                account.id
-            );
-        }
         AccountEngineOutcome::Retry { error } => {
             record_listener_service_failure(
                 &channel,
@@ -695,8 +674,6 @@ async fn run_account_listener(
 
 #[derive(Debug)]
 enum AccountEngineOutcome {
-    Unauthorized { reason: Option<String> },
-    Cancelled,
     Retry { error: anyhow::Error },
 }
 
@@ -719,111 +696,6 @@ fn account_inbound_mode(events: &[ClientEvent]) -> AccountInboundMode {
             AccountInboundMode::Baseline
         }
         _ => AccountInboundMode::Trigger,
-    }
-}
-
-struct AccountInboxProjector(garth::FileStore);
-
-impl ClientProjector for AccountInboxProjector {
-    async fn project(&self, _batch: Vec<ClientEvent>) -> garth::Result<()> {
-        Err(garth::Error::Protocol(
-            "account inbox projection requires an atomic cursor checkpoint".to_owned(),
-        ))
-    }
-
-    async fn project_checkpointed(
-        &self,
-        batch: Vec<ClientEvent>,
-        scope: garth::CursorScope,
-        checkpoint: garth::AccountCursorCheckpoint,
-    ) -> garth::Result<bool> {
-        self.0.commit_account_batch(scope, checkpoint, batch)?;
-        Ok(true)
-    }
-}
-
-async fn drive_account_subscription_engine(
-    provider: &ArkretAgentSessionProvider,
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-    account_store: garth::FileStore,
-    crypto_store: FileArkretCryptoStore,
-    gateway_channel: Arc<GatewayChannel>,
-    session_store: Arc<SessionStore>,
-) -> AccountEngineOutcome {
-    let device_id = match DeviceId::new(account.device_id.clone()) {
-        Ok(device_id) => device_id,
-        Err(err) => {
-            return AccountEngineOutcome::Retry {
-                error: anyhow::anyhow!("invalid Arkret account device id: {err}"),
-            };
-        }
-    };
-    let service_id = match account_subscription_service_id(channel, account) {
-        Ok(service_id) => service_id,
-        Err(error) => return AccountEngineOutcome::Retry { error },
-    };
-    let scope = garth::CursorScope::Account {
-        service_id,
-        actor_id: arkret::ActorId::account(account.actor_account_id.clone()),
-        device_id,
-    };
-    let projector = AccountInboxProjector(account_store.clone());
-    let control = SyncLoopControl::new();
-    let runner = garth::AccountRunner::new(garth::NativeExecutor, account_store.clone())
-        .with_control(control.clone());
-    let run = runner.run(
-        provider,
-        &projector,
-        scope,
-        RunOptions {
-            beat: Duration::from_millis(250),
-            min_backoff: Duration::from_secs(1),
-            max_backoff: Duration::from_secs(60),
-            jitter_ratio: 0.2,
-            jitter_seed: 0x5EED_0BAC_C0FF_1E55,
-        },
-    );
-    tokio::pin!(run);
-    let mut delivery_poll = tokio::time::interval(ACCOUNT_DURABLE_WORK_POLL);
-    delivery_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut presence_refresh = tokio::time::interval(ACCOUNT_PRESENCE_REFRESH);
-    presence_refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut last_auth_warning = None;
-
-    loop {
-        tokio::select! {
-            result = &mut run => {
-                process_durable_account_work(
-                    provider,
-                    channel,
-                    account,
-                    &account_store,
-                    &crypto_store,
-                    &gateway_channel,
-                    &session_store,
-                    &mut last_auth_warning,
-                )
-                .await;
-                return account_engine_outcome_from_result(result);
-            }
-            _ = delivery_poll.tick() => {
-                process_durable_account_work(
-                    provider,
-                    channel,
-                    account,
-                    &account_store,
-                    &crypto_store,
-                    &gateway_channel,
-                    &session_store,
-                    &mut last_auth_warning,
-                )
-                .await;
-            }
-            _ = presence_refresh.tick() => {
-                refresh_account_presence(provider, channel, account, &crypto_store).await;
-            }
-        }
     }
 }
 
@@ -1279,23 +1151,6 @@ async fn process_durable_account_inbox(
     }
 }
 
-fn account_engine_outcome_from_result(
-    result: garth::RunResult<RunStopReason>,
-) -> AccountEngineOutcome {
-    match result {
-        Ok(RunStopReason::Cancelled | RunStopReason::LifecycleEnded) => {
-            AccountEngineOutcome::Cancelled
-        }
-        Ok(RunStopReason::Unauthorized) => AccountEngineOutcome::Unauthorized { reason: None },
-        Ok(RunStopReason::Failed { class }) => AccountEngineOutcome::Retry {
-            error: anyhow::anyhow!("account subscription engine stopped: {class:?}"),
-        },
-        Err(err) => AccountEngineOutcome::Retry {
-            error: anyhow::Error::new(err).context("account subscription engine"),
-        },
-    }
-}
-
 async fn handle_account_client_event(
     provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
@@ -1343,6 +1198,7 @@ async fn handle_account_client_event(
                 })?;
             }
             if let Ok(value) = serde_json::to_value(&event) {
+                crypto_store.record_direct_conversation_binding_from_value(&value)?;
                 apply_account_mls_commits_from_value_tree(
                     client,
                     crypto_store,
@@ -1356,10 +1212,15 @@ async fn handle_account_client_event(
             let mut parsed =
                 parse_backfill_events_for_account(&delta.realm_id, vec![event], account);
             if crypto_store
-                .load()?
-                .realm_policies
-                .get(delta.realm_id.as_str())
-                .is_some_and(|policy| policy.source == "accepted_realm_create_direct_conversation")
+                .direct_conversation_binding_event_ref(delta.realm_id.as_str())?
+                .is_some()
+                || crypto_store
+                    .load()?
+                    .realm_policies
+                    .get(delta.realm_id.as_str())
+                    .is_some_and(|policy| {
+                        policy.source == "accepted_realm_create_direct_conversation"
+                    })
             {
                 for event in &mut parsed.events {
                     event.chat_type = Some("dm".to_owned());
@@ -1558,12 +1419,21 @@ async fn publish_account_mls_key_packages(
             }
         }
     }
+    let records = match crypto_store.pending_key_package_uploads(&records[0].endpoint) {
+        Ok(records) if records.is_empty() => return,
+        Ok(records) => records,
+        Err(error) => {
+            warn!(channel_id = %channel.id, account_id = %account.id, "arkret: pending KeyPackage uploads unavailable: {error:#}");
+            return;
+        }
+    };
     upload_account_mls_key_packages(
         client,
         channel,
         account,
         principal,
         &records,
+        crypto_store,
         key_ref,
         verification_method,
         authorized_event_ref,
@@ -1578,6 +1448,7 @@ async fn upload_account_mls_key_packages(
     account: &ArkretAccountConfig,
     principal: DidCoreId,
     records: &[MlsKeyPackageRecord],
+    crypto_store: &FileArkretCryptoStore,
     key_ref: &ArkretKeyRef,
     verification_method: &str,
     authorized_event_ref: &str,
@@ -1603,6 +1474,15 @@ async fn upload_account_mls_key_packages(
 
     match client.inner().keypackages_upload(&request).await {
         Ok(outcome) => {
+            let accepted_refs = outcome
+                .key_package_refs
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            if let Err(error) = crypto_store.confirm_key_package_uploads(&accepted_refs) {
+                warn!(channel_id = %channel.id, account_id = %account.id, "arkret: upload receipt persistence failed: {error:#}");
+                return;
+            }
             if !outcome.rejections.is_empty() {
                 warn!(
                     channel_id = %channel.id,
@@ -1774,15 +1654,10 @@ async fn drain_account_device_messages_from_cursor(
         );
         return;
     }
-    let service_id = account_cursor_service_id(channel, account);
     let mut cursor = if let Some(cursor) = initial_cursor {
         Some(cursor)
     } else {
-        let scope = device_messages_scope(
-            service_id.as_deref(),
-            &account.actor_account_id,
-            &account.device_id,
-        );
+        let scope = receive::delivery_scope(channel, account);
         match scope {
             Ok(scope) => match account_store.load(scope).await {
                 Ok(cursor) => cursor,
@@ -1828,7 +1703,11 @@ async fn drain_account_device_messages_from_cursor(
 
         for delivery in &outcome.deliveries {
             match delivery {
-                arkret::RecipientDelivery::DeviceMessage { .. } => {}
+                arkret::RecipientDelivery::DeviceMessage { .. } => {
+                    warn!(channel_id = %channel.id, account_id = %account.id,
+                        "arkret: Agent DeviceMessage handler is unavailable; retaining the recipient queue without ACK");
+                    return;
+                }
                 arkret::RecipientDelivery::MlsWelcome { mls_welcome } => {
                     match governance::admit_owned_agent_welcome_delivery(
                         client.inner(),
@@ -1838,13 +1717,29 @@ async fn drain_account_device_messages_from_cursor(
                     )
                     .await
                     {
-                        Ok(admitted) => debug!(
+                        Ok((admitted, accepted)) => {
+                            if let Err(error) = receive::seed_welcome_checkpoint(
+                                client.inner(),
+                                channel,
+                                account,
+                                account_store,
+                                mls_welcome,
+                                &accepted,
+                            )
+                            .await
+                            {
+                                warn!(channel_id = %channel.id, account_id = %account.id,
+                                    "arkret: Welcome stream checkpoint pending; retaining queue: {error:#}");
+                                return;
+                            }
+                            debug!(
                             channel_id = %channel.id,
                             account_id = %account.id,
                             welcome_id = %mls_welcome.welcome_id,
                             admitted,
                             "arkret: accepted MLS Welcome delivery is durable"
-                        ),
+                            );
+                        }
                         Err(error) => {
                             warn!(
                                 channel_id = %channel.id,
@@ -1867,11 +1762,7 @@ async fn drain_account_device_messages_from_cursor(
                 page,
                 "arkret: device_messages reported cursor loss; clearing local cursor without ack"
             );
-            let clear = device_messages_scope(
-                service_id.as_deref(),
-                &account.actor_account_id,
-                &account.device_id,
-            );
+            let clear = receive::delivery_scope(channel, account);
             if let Err(err) = match clear {
                 Ok(scope) => account_store
                     .clear(scope)
@@ -1902,11 +1793,7 @@ async fn drain_account_device_messages_from_cursor(
             return;
         }
         if let Some(next_cursor) = outcome.next_cursor {
-            let save = device_messages_scope(
-                service_id.as_deref(),
-                &account.actor_account_id,
-                &account.device_id,
-            );
+            let save = receive::delivery_scope(channel, account);
             if let Err(err) = match save {
                 Ok(scope) => account_store
                     .save(scope, next_cursor.clone())
@@ -2128,7 +2015,7 @@ async fn consume_account_mls_key_packages(
     if consumed_any {
         // A successful Welcome consume necessarily reduced the ordinary
         // single-use pool. Replenish during this device-maintenance cycle;
-        // the server-provided available_count remains the source of truth.
+        // the endpoint's private inventory supplies the observed deficit.
         publish_account_mls_key_packages(client, channel, account, crypto_store).await;
     }
 }
@@ -3105,8 +2992,15 @@ async fn try_handle_encrypted_account_skip(
                 ArkretInboundEvent {
                     account_id: skipped.account_id.clone(),
                     event_id,
-                    realm_id,
-                    chat_type: skipped.chat_type.clone(),
+                    realm_id: realm_id.clone(),
+                    chat_type: if crypto_store
+                        .direct_conversation_binding_event_ref(&realm_id)?
+                        .is_some()
+                    {
+                        Some("dm".to_owned())
+                    } else {
+                        skipped.chat_type.clone()
+                    },
                     participant_count: skipped.participant_count,
                     strand_id: skipped.strand_id.clone(),
                     sender_did,
@@ -3183,7 +3077,7 @@ fn refreshed_grant_matches_account(
     account: &ArkretAccountConfig,
     required_scope: &str,
 ) -> bool {
-    state.account_id.principal_id.as_str() == account.principal_id
+    state.account_id == account.actor_account_id
         && state.expires_at > Utc::now()
         && savfox_gateway_shared::arkret::session_scope_matches_request(
             &account.requested_scope,
@@ -3195,10 +3089,8 @@ fn refreshed_grant_matches_account(
             account.send,
         )
         .is_empty()
-        && state
-            .device_id
-            .as_ref()
-            .is_some_and(|device_id| device_id.as_str() == account.device_id)
+        && state.device_id.is_none()
+        && state.audience_id == account.actor_account_id.station_id
         && state
             .granted_scope
             .iter()
@@ -4410,13 +4302,7 @@ mod tests {
                     .as_deref(),
                 Some(reason)
             );
-            let outcome = account_engine_outcome_from_result(Err(garth::RunError {
-                class: garth::RunErrorClass::ProtocolViolation,
-                source: api_error,
-            }));
-            let AccountEngineOutcome::Retry { error } = outcome else {
-                panic!("typed runner error must remain retry outcome")
-            };
+            let error = anyhow::Error::new(api_error);
             assert_eq!(listener_service_reason(&error), Some(reason));
             record_listener_service_failure(
                 &channel,
@@ -4431,12 +4317,7 @@ mod tests {
                     .as_deref(),
                 Some(reason)
             );
-            let AccountEngineOutcome::Unauthorized {
-                reason: wire_reason,
-            } = account_engine_outcome_from_result(Ok(RunStopReason::Unauthorized))
-            else {
-                panic!("wire unauthorized outcome")
-            };
+            let wire_reason: Option<String> = None;
             record_listener_service_failure(
                 &channel,
                 &account,
@@ -4480,12 +4361,16 @@ mod tests {
         let mut account = make_account();
         account.principal_id = "ak:did_core:webvh:z6mkfixture:agent.example".to_owned();
         account.requested_scope = savfox_channels::arkret::default_agent_runtime_scope().unwrap();
+        account.actor_account_id = arkret::AccountId::new(
+            DidCoreId::new(account.principal_id.clone()).unwrap(),
+            DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
+        );
         let mut state = garth::SessionGrantState {
             account_id: arkret::AccountId::new(
                 DidCoreId::new(account.principal_id.clone()).unwrap(),
                 DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
             ),
-            device_id: Some(DeviceId::new(account.device_id.clone()).unwrap()),
+            device_id: None,
             grant_id: arkret::identifiers::SessionGrantId::from_issuance_digest([0x11; 32]),
             grant_jwt: "redacted-test-grant".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
@@ -4547,7 +4432,7 @@ mod tests {
             &account,
             "ak.event.read"
         ));
-        state.device_id = Some(DeviceId::new(account.device_id.clone()).unwrap());
+        state.device_id = None;
         state.account_id.principal_id =
             DidCoreId::new("ak:did_core:webvh:z6mkfixture:other.example").unwrap();
         assert!(!refreshed_grant_matches_account(

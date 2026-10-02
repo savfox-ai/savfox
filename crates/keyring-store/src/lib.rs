@@ -73,7 +73,13 @@ impl fmt::Display for CredentialStoreError {
     }
 }
 
-impl Error for CredentialStoreError {}
+impl Error for CredentialStoreError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Other(error) => Some(error),
+        }
+    }
+}
 
 /// Shared credential store abstraction for keyring-backed implementations.
 pub trait KeyringStore: Debug + Send + Sync {

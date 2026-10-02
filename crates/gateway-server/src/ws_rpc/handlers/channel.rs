@@ -3243,7 +3243,7 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
             "savfox-arkret",
             keyring_account,
         )
-        .map_err(|err| (INTERNAL_ERROR, err.to_string()))?,
+        .map_err(|err| (INTERNAL_ERROR, format!("{err:#}")))?,
     };
     let key_ref_json = serde_json::to_value(&key_ref)
         .map_err(|err| (INTERNAL_ERROR, format!("serialize Arkret keyRef: {err}")))?;
