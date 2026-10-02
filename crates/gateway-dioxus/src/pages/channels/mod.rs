@@ -1613,6 +1613,14 @@ fn parse_arkret_agent_pairing_bootstrap(value: Value) -> Result<AgentPairingBoot
             ));
         }
     }
+    if bootstrap.pairing_code.len() != 8
+        || !bootstrap
+            .pairing_code
+            .bytes()
+            .all(|byte| byte.is_ascii_digit())
+    {
+        return Err("Inkson pairing code must contain exactly eight digits.".to_owned());
+    }
     Ok(bootstrap)
 }
 
@@ -3663,17 +3671,17 @@ fn render_channel_card(
         (ChipVariant::Danger, "Stopped")
     } else if recovery_phase == Some("starting") {
         (ChipVariant::Warning, "Starting")
+    } else if health_state == Some("degraded")
+        || last_error.is_some()
+        || (ch_type.id == "arkret" && arkret_runtime_phase.as_deref() == Some("retry_wait"))
+    {
+        (ChipVariant::Danger, "Needs attention")
     } else if health_state == Some("connected") || (is_running && is_connected) {
         (ChipVariant::Success, "Connected")
     } else if health_state == Some("listening") || is_running {
         (ChipVariant::Success, "Listening")
     } else if health_state == Some("configured") {
         (ChipVariant::Info, "Configured")
-    } else if health_state == Some("degraded")
-        || last_error.is_some()
-        || (ch_type.id == "arkret" && arkret_runtime_phase.as_deref() == Some("retry_wait"))
-    {
-        (ChipVariant::Danger, "Needs attention")
     } else if ch_type.id == "arkret"
         && matches!(
             arkret_runtime_phase.as_deref(),
@@ -3691,6 +3699,7 @@ fn render_channel_card(
         "channels-card channels-card--disabled"
     } else if last_error.is_some()
         || health_state == Some("degraded")
+        || (ch_type.id == "arkret" && arkret_runtime_phase.as_deref() == Some("retry_wait"))
         || matches!(
             recovery_phase,
             Some("failed" | "retrying" | "migration_required" | "stopped" | "unsupported_runtime")
@@ -5125,6 +5134,27 @@ fn render_single_field(
                                 });
                                 return;
                             }
+                            if snapshot
+                                .get(&pairing_state_key)
+                                .is_some_and(|state| state == "poll_failed")
+                            {
+                                match build_channel_patch(&ch_id, &fields, &snapshot) {
+                                    Ok(patch) => {
+                                        let pairing_code = snapshot.get(&bootstrap_key)
+                                            .and_then(|text| arkret_pairing_code_from_bootstrap_text(text));
+                                        values.write().insert(pairing_state_key, "waiting".to_owned());
+                                        spawn(arkret_poll_runtime_key_approval(
+                                            ws, values, key, authorized_event_ref_key, patch,
+                                            pairing_code, ch_id, fields, unbind_status_key,
+                                            refresh_after_pairing,
+                                        ));
+                                    }
+                                    Err(error) => {
+                                        values.write().insert(key, error);
+                                    }
+                                }
+                                return;
+                            }
                             values
                                 .write()
                                 .insert(pairing_state_key.clone(), "starting".to_owned());
@@ -5339,6 +5369,8 @@ fn render_single_field(
                             "Waiting for Inkson…"
                         } else if pairing_state == "finalizing" {
                             "Saving connection…"
+                        } else if pairing_state == "poll_failed" {
+                            "Check approval"
                         } else if pairing_state == "error" {
                             "Pair again"
                         } else {
@@ -5356,16 +5388,16 @@ fn render_single_field(
                                     &mut current,
                                     &pairing_state_key_for_restart,
                                     &status_key_for_restart,
-                                    "Stopped waiting. Check the Inkson pairing link, then choose Pair again.",
+                                    "Stopped waiting. Choose Check approval to resume this request.",
                                 );
                             },
-                            "Pair again"
+                            "Stop waiting"
                         }
                     }
                 }
                 if !display_status.is_empty() {
                     div {
-                        class: if pairing_state == "save_failed" || pairing_state == "error" {
+                        class: if matches!(pairing_state.as_str(), "save_failed" | "error" | "poll_failed") {
                             "arkret-pairing-status arkret-pairing-status--error"
                         } else {
                             "arkret-pairing-status"
@@ -5846,13 +5878,13 @@ fn finish_arkret_pairing_wait(
     status_key: &str,
     message: &str,
 ) {
-    values.insert(state_key.to_owned(), "error".to_owned());
+    values.insert(state_key.to_owned(), "poll_failed".to_owned());
     values.insert(status_key.to_owned(), message.to_owned());
 }
 
 /// Poll the Arkret server for the Inkson controller decision after a
 /// `Request approval` submission and drive the pairing status line to a
-/// terminal state (approved / expired / paired-by-another-runtime / timeout).
+/// terminal state (approved / expired / paired-by-another-runtime).
 /// A newer `Request approval` click supersedes any older poll loop through
 /// the generation counter.
 async fn arkret_poll_runtime_key_approval(
@@ -5870,9 +5902,9 @@ async fn arkret_poll_runtime_key_approval(
     use std::sync::atomic::Ordering;
 
     let generation = ARKRET_APPROVAL_POLL_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    // Poll every 3 s for up to ~10 minutes; the pairing itself expires
-    // server-side, so a stale loop can only ever see a terminal state.
-    for _ in 0..200 {
+    // The Station owns expiry. An independent timeout must not abandon a
+    // request that Inkson can still approve or one that is already active.
+    loop {
         crate::utils::sleep_ms(3000).await;
         if ARKRET_APPROVAL_POLL_GENERATION.load(Ordering::SeqCst) != generation {
             return;
@@ -5897,7 +5929,7 @@ async fn arkret_poll_runtime_key_approval(
                     &arkret_pairing_state_key(&channel_id),
                     &status_key,
                     &format!(
-                        "Approval status check failed: {err}. Check the pairing link and choose Pair again."
+                        "Approval status check failed: {err}. Choose Check approval to retry this request."
                     ),
                 );
                 return;
@@ -6003,7 +6035,7 @@ async fn arkret_poll_runtime_key_approval(
             return;
         }
         match runtime_state.as_str() {
-            "pairing_expired" => {
+            "pairing_expired" | "ready" => {
                 let mut values = values.write();
                 values.insert(arkret_pairing_state_key(&channel_id), "error".to_owned());
                 values.insert(
@@ -6021,12 +6053,6 @@ async fn arkret_poll_runtime_key_approval(
             }
         }
     }
-    let mut values = values.write();
-    values.insert(arkret_pairing_state_key(&channel_id), "error".to_owned());
-    values.insert(
-        status_key,
-        "Timed out waiting for Inkson approval. Start pairing again to retry.".to_owned(),
-    );
 }
 
 fn arkret_runtime_key_ref_generation_params(
@@ -6669,7 +6695,7 @@ mod tests {
                 "service_id":"ak:did_core:web:arkret.example.org",
                 "agent_id":"ak:did_core:web:agent.example",
                 "pairing_request_id":"new-pairing",
-                "pairing_code":"new-pairing-code",
+                "pairing_code":"01234567",
                 "pairing_expires_at":"2026-09-02T00:00:00.000Z"
             })
             .to_string(),
@@ -6686,7 +6712,7 @@ mod tests {
     }
 
     #[test]
-    fn arkret_agent_scope_new_candidate_uses_shared_complete_floor_without_optional_leases() {
+    fn arkret_agent_scope_new_candidate_uses_registered_floor_without_retired_operations() {
         let (fields, values) = agent_scope_form();
         let patch = build_channel_patch("arkret", &fields, &values).unwrap();
         let expected = savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
@@ -6694,7 +6720,7 @@ mod tests {
         assert!(
             expected
                 .iter()
-                .any(|action| action == "ak.self.seals.read.frontier.v1")
+                .any(|action| action == "ak.self.committed_event.stream.subscribe.v1")
         );
         assert!(
             expected
@@ -6713,7 +6739,7 @@ mod tests {
         let (fields, mut values) = agent_scope_form();
         let mut scope = savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
         scope.reverse();
-        scope.push("ak.self.authorization_leases.command.issue.v1".to_owned());
+        scope.push("ak.self.committed_event.resource.get.v1".to_owned());
         values.insert(saved_channel_id_key("arkret"), "saved-agent".to_owned());
         values.insert(
             field_value_key("arkret", "requestedScope"),
@@ -6741,6 +6767,8 @@ mod tests {
         for invalid in [
             json!(["ak.self.events.read.scan"]),
             json!(["ak.self.events.query.scan"]),
+            json!(["ak.self.seals.read.frontier.v1"]),
+            json!(["ak.self.authorization_leases.command.issue.v1"]),
             json!([]),
         ] {
             values.insert(
@@ -6752,7 +6780,7 @@ mod tests {
             assert_eq!(values, original);
         }
         let mut incomplete = savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
-        incomplete.retain(|action| action != "ak.self.seals.read.frontier.v1");
+        incomplete.retain(|action| action != "ak.self.committed_event.stream.subscribe.v1");
         values.insert(
             field_value_key("arkret", "requestedScope"),
             json!(incomplete).to_string(),
@@ -6760,7 +6788,7 @@ mod tests {
         assert!(
             build_channel_patch("arkret", &fields, &values)
                 .unwrap_err()
-                .contains("ak.self.seals.read.frontier.v1")
+                .contains("ak.self.committed_event.stream.subscribe.v1")
         );
     }
 
@@ -6848,7 +6876,7 @@ mod tests {
             "service_id": "ak:did_core:web:arkret.example.org",
             "agent_id": "ak:did_core:web:agent.example",
             "pairing_request_id": "pair-123",
-            "pairing_code": "123456",
+            "pairing_code": "01234567",
             "pairing_expires_at": "2026-07-06T12:00:00.000Z"
         })
     }
@@ -6897,14 +6925,14 @@ mod tests {
     }
 
     #[test]
-    fn arkret_pairing_missing_identity_reports_service_upgrade() {
+    fn arkret_pairing_missing_identity_reports_missing_binding() {
         let mut values = std::collections::HashMap::new();
         values.insert(
             field_value_key("arkret", "inksonBootstrap"),
             sdk_inkson_bootstrap_json(),
         );
         let error = apply_arkret_pairing_identity("arkret", &mut values).unwrap_err();
-        assert!(error.contains("Upgrade the Arkret pairing service"));
+        assert!(error.contains("did not provide runtime identity"));
     }
 
     #[test]
@@ -7064,12 +7092,21 @@ mod tests {
     #[test]
     fn arkret_pairing_code_is_grouped_for_comparison() {
         assert_eq!(format_arkret_pairing_code("82294626"), "8229 4626");
-        assert_eq!(format_arkret_pairing_code("1234"), "1234");
-        assert_eq!(format_arkret_pairing_code("123456"), "1234 56");
+        assert_eq!(format_arkret_pairing_code("00112233"), "0011 2233");
         assert_eq!(
             arkret_pairing_expiry_from_bootstrap_text(&sdk_inkson_bootstrap_json()).as_deref(),
             Some("2026-07-06T12:00:00.000Z")
         );
+    }
+
+    #[test]
+    fn arkret_pairing_bootstrap_rejects_non_eight_digit_codes() {
+        for code in ["1234567", "123456789", "abcd1234", "AAAAAAAAAAAAAAAAAAAAAA"] {
+            let mut bootstrap = sdk_inkson_bootstrap_value();
+            bootstrap["pairing_code"] = json!(code);
+            assert!(parse_arkret_agent_pairing_bootstrap(bootstrap).is_err());
+        }
+        assert!(parse_arkret_agent_pairing_bootstrap(sdk_inkson_bootstrap_value()).is_ok());
     }
 
     #[test]
@@ -7308,7 +7345,10 @@ mod tests {
             (key_ref_key.clone(), "existing-runtime-key".to_owned()),
         ]);
         finish_arkret_pairing_wait(&mut values, &state_key, &status_key, "Status check failed");
-        assert_eq!(values.get(&state_key).map(String::as_str), Some("error"));
+        assert_eq!(
+            values.get(&state_key).map(String::as_str),
+            Some("poll_failed")
+        );
         assert!(arkret_runtime_key_request_can_request("arkret", &values));
         assert_eq!(
             values.get(&key_ref_key).map(String::as_str),
