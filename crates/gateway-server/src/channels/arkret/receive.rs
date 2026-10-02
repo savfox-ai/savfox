@@ -12,6 +12,67 @@ struct StreamCheckpoint {
     baseline_through: u64,
 }
 
+/// The first trigger boundary is the accepted Welcome Add, never a later
+/// snapshot head: the user's first message can already follow that Add before
+/// the runtime has finished joining. Persist before ACK and never rewind.
+pub(super) async fn seed_welcome_checkpoint(
+    http: &arkret::http_client::Client,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &garth::FileStore,
+    welcome: &arkret::MlsWelcomeDelivery,
+    accepted: &arkret::CommittedEventFullView,
+) -> anyhow::Result<()> {
+    let stream_ref = arkret::CommitStreamRef::from_scope(&welcome.effective_scope, None)?;
+    let scope = garth::CursorScope::CommitStream {
+        service_id: account_subscription_service_id(channel, account)?,
+        stream_ref: stream_ref.clone(),
+    };
+    if account_store.load(scope.clone()).await?.is_some() {
+        return Ok(());
+    }
+    let request = arkret::StreamScanRequest {
+        realm_id: welcome.realm_id.clone(),
+        stream_ref: stream_ref.clone(),
+        direction: arkret::StreamScanDirection::After(
+            accepted.commit.stream_position.checked_sub(1),
+        ),
+        limit: 1,
+    };
+    let page = http.scan_commit_stream(&request).await?;
+    let [arkret::CommittedEventView::Full(exact)] = page.committed_events.as_slice() else {
+        anyhow::bail!("Welcome checkpoint requires its exact visible accepted Commit");
+    };
+    anyhow::ensure!(
+        exact == accepted,
+        "Welcome checkpoint read changed the accepted Add"
+    );
+    let authority_request = arkret::AuthorityBundleRequest {
+        realm_id: welcome.realm_id.clone(),
+        nonce: arkret::Base64UrlString::new(arkret::base64url_encode(rand::random::<[u8; 32]>()))
+            .map_err(anyhow::Error::msg)?,
+    };
+    let bundle = http.realm_authority_bundle(&authority_request).await?;
+    let keys =
+        garth::fetch_historical_station_key_directory(http, &bundle, Some(&page), None).await?;
+    let freshness =
+        arkret::identity::RealmAuthorityFreshness::new(Utc::now(), authority_request.nonce);
+    let authority = arkret::identity::verify_realm_authority_bundle(&bundle, &freshness, &keys)?;
+    authority.verify_committed_item(exact, &keys)?;
+    let checkpoint = StreamCheckpoint {
+        head: arkret::CommitStreamHead {
+            stream_ref,
+            stream_position: exact.commit.stream_position,
+            commit_id: exact.commit.commit_id.clone(),
+        },
+        baseline_through: exact.commit.stream_position,
+    };
+    account_store
+        .save(scope, serde_json::to_string(&checkpoint)?)
+        .await?;
+    Ok(())
+}
+
 pub(super) fn delivery_scope(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
@@ -109,16 +170,10 @@ async fn scan_installed_scopes(
         let (snapshot, _) = governance::verified_scope_snapshot(client.inner(), &realm_id).await?;
         crypto_store
             .record_verified_mls_current_entries(&realm_id, &snapshot.current_state_entries)?;
-        let baseline_through = if let Some(checkpoint) = &checkpoint {
-            checkpoint.baseline_through
-        } else {
-            snapshot
-                .visible_stream_heads
-                .iter()
-                .find(|head| head.stream_ref == stream_ref)
-                .context("installed Agent scope is absent from the verified snapshot")?
-                .stream_position
-        };
+        let baseline_through = checkpoint
+            .as_ref()
+            .context("installed Agent scope has no durable accepted Welcome checkpoint")?
+            .baseline_through;
         let request = arkret::StreamScanRequest {
             realm_id: realm_id.clone(),
             stream_ref: stream_ref.clone(),

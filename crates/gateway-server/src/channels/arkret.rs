@@ -1717,13 +1717,29 @@ async fn drain_account_device_messages_from_cursor(
                     )
                     .await
                     {
-                        Ok(admitted) => debug!(
+                        Ok((admitted, accepted)) => {
+                            if let Err(error) = receive::seed_welcome_checkpoint(
+                                client.inner(),
+                                channel,
+                                account,
+                                account_store,
+                                mls_welcome,
+                                &accepted,
+                            )
+                            .await
+                            {
+                                warn!(channel_id = %channel.id, account_id = %account.id,
+                                    "arkret: Welcome stream checkpoint pending; retaining queue: {error:#}");
+                                return;
+                            }
+                            debug!(
                             channel_id = %channel.id,
                             account_id = %account.id,
                             welcome_id = %mls_welcome.welcome_id,
                             admitted,
                             "arkret: accepted MLS Welcome delivery is durable"
-                        ),
+                            );
+                        }
                         Err(error) => {
                             warn!(
                                 channel_id = %channel.id,

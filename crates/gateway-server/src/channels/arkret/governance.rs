@@ -93,7 +93,7 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
     store: &savfox_channels::arkret::FileArkretCryptoStore,
     delivery: &arkret::MlsWelcomeDelivery,
     account: &savfox_channels::arkret::ArkretAccountConfig,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<(bool, arkret::CommittedEventFullView)> {
     anyhow::ensure!(
         delivery.recipient_actor_id == arkret::ActorId::account(account.actor_account_id.clone()),
         "MLS Welcome is addressed to another Agent account"
@@ -124,7 +124,7 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
     let claim =
         verified_own_welcome_claim(http, delivery, &account.actor_account_id.station_id).await?;
     let roster = welcome_roster(http, store, delivery, &accepted, account).await?;
-    store.install_accepted_mls_welcome(
+    let admitted = store.install_accepted_mls_welcome(
         delivery,
         &accepted,
         &claim,
@@ -136,7 +136,8 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
             agent_key_authorize_event_id: authorization_ref.clone(),
         },
         &roster,
-    )
+    )?;
+    Ok((admitted, accepted))
 }
 
 /// Verify a signed scope snapshot before selecting the historical roster cut.
