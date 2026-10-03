@@ -45,6 +45,8 @@ pub(crate) struct StartThreadMeta {
     pub saved_channel_config_id: Option<String>,
     pub remote_realm_id: Option<String>,
     pub remote_strand_id: Option<String>,
+    #[cfg(feature = "arkret")]
+    pub remote_stream_ref: Option<arkret::CommitStreamRef>,
     pub remote_event_id: Option<String>,
     pub remote_agent_did: Option<String>,
     pub delivery_mode: Option<String>,

@@ -26,8 +26,6 @@ use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use chrono::{DateTime, Utc};
 use parking_lot::ReentrantMutex;
-#[cfg(not(test))]
-use savfox_keyring_store::KeyringStore as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -330,6 +328,7 @@ pub struct FileArkretCryptoStore {
     path: PathBuf,
     scope_id: String,
     mutation_lock: Arc<ReentrantMutex<()>>,
+    credential_store: Arc<dyn savfox_keyring_store::KeyringStore>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -374,7 +373,19 @@ impl FileArkretCryptoStore {
             path,
             scope_id,
             mutation_lock,
+            credential_store: Arc::new(super::key_store::ArkretKeyringStore),
         }
+    }
+
+    /// Supply an explicit protected credential backend. The default remains
+    /// the platform vault; integration fixtures can isolate their own secrets.
+    #[must_use]
+    pub fn with_keyring_store(
+        mut self,
+        store: Arc<dyn savfox_keyring_store::KeyringStore>,
+    ) -> Self {
+        self.credential_store = store;
+        self
     }
 
     #[must_use]
@@ -490,7 +501,7 @@ impl FileArkretCryptoStore {
         #[cfg(not(test))]
         {
             let account = self.wrapping_key_account();
-            let store = super::key_store::ArkretKeyringStore;
+            let store = self.credential_store.as_ref();
             if let Some(encoded) = store
                 .load(WRAPPING_KEY_SERVICE, &account)
                 .context("load Arkret crypto-state wrapping key from platform credential vault")?
@@ -2033,7 +2044,12 @@ impl FileArkretCryptoStore {
     ) -> anyhow::Result<ArkretEncryptOutcome<ContentBlock>> {
         let content: ContentBlock = serde_json::from_value(content.clone())
             .with_context(|| "Arkret message content is not a ContentBlock")?;
-        self.encrypt_typed_payload_for_realm(realm_id, &content)
+        self.encrypt_typed_payload_for_scope(
+            &ScopeRef::Realm {
+                realm_id: RealmId::new(realm_id.to_owned())?,
+            },
+            &content,
+        )
     }
 
     pub fn encrypt_message_metadata_for_realm(
@@ -2041,12 +2057,34 @@ impl FileArkretCryptoStore {
         realm_id: &str,
         metadata: &MessageMetadata,
     ) -> anyhow::Result<ArkretEncryptOutcome<MessageMetadata>> {
-        self.encrypt_typed_payload_for_realm(realm_id, metadata)
+        self.encrypt_typed_payload_for_scope(
+            &ScopeRef::Realm {
+                realm_id: RealmId::new(realm_id.to_owned())?,
+            },
+            metadata,
+        )
     }
 
-    fn encrypt_typed_payload_for_realm<T>(
+    pub fn encrypt_content_block_for_scope(
         &self,
-        realm_id: &str,
+        scope: &ScopeRef,
+        content: &Value,
+    ) -> anyhow::Result<ArkretEncryptOutcome<ContentBlock>> {
+        let content: ContentBlock = serde_json::from_value(content.clone())?;
+        self.encrypt_typed_payload_for_scope(scope, &content)
+    }
+
+    pub fn encrypt_message_metadata_for_scope(
+        &self,
+        scope: &ScopeRef,
+        metadata: &MessageMetadata,
+    ) -> anyhow::Result<ArkretEncryptOutcome<MessageMetadata>> {
+        self.encrypt_typed_payload_for_scope(scope, metadata)
+    }
+
+    fn encrypt_typed_payload_for_scope<T>(
+        &self,
+        scope: &ScopeRef,
         plaintext_value: &T,
     ) -> anyhow::Result<ArkretEncryptOutcome<T>>
     where
@@ -2054,13 +2092,26 @@ impl FileArkretCryptoStore {
     {
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
-        let Some(policy) = state.realm_policies.get(realm_id).cloned() else {
-            return Ok(ArkretEncryptOutcome::PlaintextAllowed);
-        };
-        if !policy.requires_e2ee() {
-            return Ok(ArkretEncryptOutcome::PlaintextAllowed);
+        let realm_id = scope
+            .realm_id_opt()
+            .context("Arkret encryption requires an existing scope")?
+            .as_str();
+        match scope {
+            ScopeRef::Realm { .. } => {
+                let Some(policy) = state.realm_policies.get(realm_id) else {
+                    return Ok(ArkretEncryptOutcome::PlaintextAllowed);
+                };
+                if !policy.requires_e2ee() {
+                    return Ok(ArkretEncryptOutcome::PlaintextAllowed);
+                }
+                policy.group_id_for_realm()?;
+            }
+            ScopeRef::Sidecar { .. } => {}
+            _ => {
+                anyhow::bail!("Arkret reply encryption requires its native Realm or Sidecar scope")
+            }
         }
-        let group_id = policy.group_id_for_realm()?;
+        let group_id = scope.canonical_mls_group_id()?.to_string();
         let Some(record) = state.mls_group_states.get(&group_id).cloned() else {
             return Ok(ArkretEncryptOutcome::MissingRequiredGroupState {
                 group_id,
@@ -2069,6 +2120,10 @@ impl FileArkretCryptoStore {
         };
         let mut group = ArkretMlsGroup::restore_from_state_record(&record)
             .map_err(|err| anyhow::anyhow!("restore Arkret MLS group: {err}"))?;
+        anyhow::ensure!(
+            group.scope() == scope,
+            "Arkret encryption checkpoint belongs to another scope"
+        );
         let group_state_ref = group_state_ref_for_epoch(&state, &group_id, record.epoch)
             .ok_or_else(|| {
                 anyhow::anyhow!(
@@ -2076,10 +2131,6 @@ impl FileArkretCryptoStore {
                     record.epoch
                 )
             })?;
-        let effective_scope = ScopeRef::Realm {
-            realm_id: RealmId::new(realm_id.to_owned())
-                .with_context(|| format!("invalid Arkret realm id '{realm_id}'"))?,
-        };
         let group_state_ref = EventId::new(group_state_ref).map_err(|error| {
             anyhow::anyhow!("invalid Arkret MLS group_state_ref for encryption: {error}")
         })?;
@@ -2090,7 +2141,7 @@ impl FileArkretCryptoStore {
             "1.0",
             T::MLS_CONTENT_TYPE,
             EncryptedPayloadScheme::MlsRfc9420,
-            effective_scope,
+            scope.clone(),
             "ak.message.create",
             record.epoch,
             group_state_ref.clone(),
@@ -3364,6 +3415,111 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn native_sidecar_reply_encrypts_content_and_metadata_without_realm_policy() {
+        // Real RFC sealing and checkpoint isolation; this fixture does not
+        // certify Station admission or recipient Welcome acceptance.
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "c1", "agent");
+        store.ensure_created().unwrap();
+        let account = test_account("ak:did_core:web:agent.example");
+        let endpoint = agent_mls_endpoint(
+            account.principal_id.as_str(),
+            "did:web:agent.example#runtime-1",
+            FIXTURE_EVENT_9.as_str(),
+        )
+        .unwrap();
+        let scope = ScopeRef::Sidecar {
+            realm_id: FIXTURE_REALM.clone(),
+            sidecar_id: arkret::SidecarId::from_event_id(&FIXTURE_EVENT_1),
+        };
+        let actor = ActorId::account(account);
+        let identity = new_mls_identity(actor.clone(), endpoint, Some([27; 32])).unwrap();
+        let mut group = identity.create_group(&scope).unwrap();
+        group.install_local_creator_binding(actor, None).unwrap();
+        let group_id = group.group_id().to_string();
+        let mut state = store.load().unwrap();
+        group.persist_state(&mut state).unwrap();
+        state.bootstrap.insert(
+            group_id.clone(),
+            ArkretBootstrapRecord {
+                group_id: group_id.clone(),
+                required_epoch: 0,
+                local_epoch: Some(0),
+                group_state_ref: Some(FIXTURE_EVENT_1.to_string()),
+                action: MlsRecoveryAction::UseLocalState,
+                updated_at: Utc::now(),
+            },
+        );
+        store.save(&mut state).unwrap();
+        assert!(store.load().unwrap().realm_policies.is_empty());
+        let content = serde_json::to_value(ContentBlock::text("private reply")).unwrap();
+        let ArkretEncryptOutcome::Encrypted(encrypted_content) = store
+            .encrypt_content_block_for_scope(&scope, &content)
+            .unwrap()
+        else {
+            panic!("native Sidecar content must always be encrypted");
+        };
+        let context = super::super::sidecar::SidecarExchangeContext {
+            exchange_id: "controller.private_exchange~001==".to_owned(),
+            request_event_id: FIXTURE_EVENT_2.to_string(),
+            coordinator_assignment_event_id: Some(FIXTURE_EVENT_2.to_string()),
+        };
+        let metadata =
+            super::super::sidecar::build_user_facing_response_metadata(&context).unwrap();
+        let ArkretEncryptOutcome::Encrypted(encrypted_metadata) = store
+            .encrypt_message_metadata_for_scope(&scope, &metadata)
+            .unwrap()
+        else {
+            panic!("native Sidecar metadata must always be encrypted");
+        };
+        for envelope in [
+            encrypted_content.into_envelope(),
+            encrypted_metadata.into_envelope(),
+        ] {
+            assert_eq!(
+                envelope.encryption_context.group_state_ref(),
+                &*FIXTURE_EVENT_1
+            );
+            let sender = group.local_content_sender_domain().unwrap();
+            let header = envelope
+                .reconstruct_pre_encryption_header(
+                    EncryptedPayloadScheme::MlsRfc9420,
+                    scope.clone(),
+                    "ak.message.create",
+                    sender,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(header.mls_group_id.as_str(), group_id);
+            let payload =
+                arkret::mls::encrypted_envelope_to_payload_with_verified_header(&envelope, header)
+                    .unwrap();
+            payload.verify_payload_digest().unwrap();
+            assert!(
+                !serde_json::to_string(&envelope)
+                    .unwrap()
+                    .contains(context.exchange_id.as_str())
+            );
+        }
+        let other_scope = ScopeRef::Sidecar {
+            realm_id: FIXTURE_REALM.clone(),
+            sidecar_id: arkret::SidecarId::from_event_id(&FIXTURE_EVENT_2),
+        };
+        assert!(matches!(
+            store
+                .encrypt_content_block_for_scope(&other_scope, &content)
+                .unwrap(),
+            ArkretEncryptOutcome::MissingRequiredGroupState { .. }
+        ));
+        assert!(matches!(
+            store
+                .encrypt_content_block_for_realm(FIXTURE_REALM.as_str(), &content)
+                .unwrap(),
+            ArkretEncryptOutcome::PlaintextAllowed
+        ));
     }
 
     #[test]

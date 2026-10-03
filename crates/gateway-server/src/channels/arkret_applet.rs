@@ -895,12 +895,14 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 account_id: account_id.clone(),
                 realm_id: cmd.realm_id.clone(),
                 strand_id: cmd.strand_id.clone(),
+                stream_ref: arkret::CommitStreamRef::from_scope(&cmd.scope_ref, None)
+                    .expect("committed Applet message has an existing scope"),
             };
             if let Err(error) = crate::arkret_delivery::ArkretExecutionBindingStore::new(
                 &gw.config().savfox_home,
             )
             .mark_history_unavailable(
-                conversation,
+                conversation.clone(),
                 "history_unavailable: applet transaction delivery has no timeline query capability",
             )
             .await
@@ -931,6 +933,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                     saved_channel_config_id: Some(cid),
                     remote_realm_id: Some(cmd.realm_id.clone()),
                     remote_strand_id: Some(cmd.strand_id),
+                    remote_stream_ref: Some(conversation.stream_ref),
                     remote_event_id: Some(cmd.event_id),
                     remote_agent_did: Some(agent_did),
                     delivery_mode: Some("interactive_chat".to_owned()),
@@ -1233,6 +1236,7 @@ fn try_decrypt_applet_event(
             Some(AppletInboundCommand {
                 event_id: event.event_id.as_str().to_owned(),
                 realm_id: event.realm_id.as_str().to_owned(),
+                scope_ref: event.scope_ref.clone(),
                 strand_id,
                 sender_did: event.actor_id.signing_principal_id().as_str().to_owned(),
                 body,
@@ -2109,7 +2113,10 @@ mod tests {
         AppletChannelState {
             config: applet.clone(),
             runtime: Mutex::new(AppletRuntimeState::default()),
-            crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
+            crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id)
+                .with_keyring_store(Arc::new(
+                    savfox_keyring_store::tests::MockKeyringStore::default(),
+                )),
             journal: build_applet_authoring_journal(tmp.path(), &applet.id)
                 .expect("authoring journal"),
             edge: tokio::sync::Mutex::new(None),
@@ -2183,7 +2190,10 @@ mod tests {
         let state = AppletChannelState {
             config: applet.clone(),
             runtime: Mutex::new(AppletRuntimeState::default()),
-            crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id),
+            crypto_store: FileArkretCryptoStore::for_applet(tmp.path(), &applet.id)
+                .with_keyring_store(Arc::new(
+                    savfox_keyring_store::tests::MockKeyringStore::default(),
+                )),
             journal: build_applet_authoring_journal(tmp.path(), &applet.id)
                 .expect("authoring journal"),
             edge: tokio::sync::Mutex::new(None),

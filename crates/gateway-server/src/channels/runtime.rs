@@ -407,11 +407,12 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
     #[cfg(feature = "arkret")]
     let arkret_routing_scope = if platform == "arkret" {
-        let (Some(config_id), Some(account_id), Some(realm_id), Some(strand_id)) = (
+        let (Some(config_id), Some(account_id), Some(realm_id), Some(strand_id), Some(stream_ref)) = (
             start_meta.saved_channel_config_id.as_deref(),
             start_meta.account_id.as_deref(),
             start_meta.remote_realm_id.as_deref(),
             start_meta.remote_strand_id.as_deref(),
+            start_meta.remote_stream_ref.as_ref(),
         ) else {
             warn!("Arkret inbound event is missing its trusted conversation coordinates");
             return;
@@ -421,6 +422,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             account_id: account_id.to_owned(),
             realm_id: realm_id.to_owned(),
             strand_id: strand_id.to_owned(),
+            stream_ref: stream_ref.clone(),
         };
         match crate::arkret_delivery::ArkretExecutionBindingStore::new(
             &gateway_channel.config().savfox_home,
@@ -495,6 +497,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             start_meta.remote_strand_id.as_deref(),
             start_meta.remote_event_id.as_deref(),
             start_meta.peer_id.as_deref(),
+            start_meta.remote_stream_ref.as_ref(),
         ) {
             (
                 Some(config_id),
@@ -503,6 +506,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 Some(strand_id),
                 Some(event_id),
                 Some(sender_did),
+                Some(stream_ref),
             ) => {
                 let store = crate::arkret_delivery::ArkretExecutionBindingStore::new(
                     &gateway_channel.config().savfox_home,
@@ -518,6 +522,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                             account_id: account_id.to_owned(),
                             realm_id: realm_id.to_owned(),
                             strand_id: strand_id.to_owned(),
+                            stream_ref: stream_ref.clone(),
                         },
                         event_id,
                         sender_did,

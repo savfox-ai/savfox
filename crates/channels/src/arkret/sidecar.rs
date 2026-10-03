@@ -1,13 +1,11 @@
 //! Agent Sidecar exchange typed-binding consumption & production.
 //!
-//! Normative source: `arkret-spec/spec/v1/zh/models/sidecar.md` §7.2.1–§7.2.2.
+//! Normative sources: `zh/models/sidecar.md` and `zh/sync/authority-commit-log.md`.
 //! The runtime obtains exchange identity **only** from the decrypted
 //! `role=request` Event binding; it must never be inferred from `reply_to`,
 //! message bodies or arrival order. Every parse/validation failure fails
-//! closed: the Event is handled as an ordinary private message and never as an
-//! exchange participant.
+//! closed: native private Events never dispatch without an addressed request.
 
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -15,7 +13,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::Context;
 use arkret::{
     AccountId, ActorId, AgentSidecarEventExchangeBinding, AgentSidecarExchangeAction,
-    AgentSidecarExchangeControl, AgentSidecarExchangeRole, EventId, MessageMetadata,
+    AgentSidecarExchangeControl, AgentSidecarExchangeRequestContext, AgentSidecarExchangeRole,
+    CommitStreamRef, CommittedEventRef, DidCoreId, EventId, EventPayloadExt as _, MessageMetadata,
+    ScopeRef, SidecarSourceTrackRef,
 };
 use serde_json::Value;
 
@@ -64,7 +64,7 @@ fn valid_exchange_identity(value: &str) -> bool {
 }
 
 /// Outcome of the runtime-side consumption gate for one decrypted binding
-/// (`zh/models/sidecar.md` §7.2.2). Idempotency (`exchange_id` already
+/// (`zh/models/sidecar.md` §5/§8). Idempotency (`exchange_id` already
 /// consumed / mapped to a different Event id) is checked separately via
 /// [`SidecarExchangeStore::admit`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,19 +74,19 @@ pub enum SidecarRequestGate {
     /// bindings produced by other Agents also land here.
     NotARequest,
     /// The Event carrying the request binding was not authored by this
-    /// runtime's controller. §7.2.1: "非 controller actor 携带的 request
-    /// binding 整体无效" — a sibling Agent of the same backing Circle can
+    /// runtime's controller. §8: "非 controller actor 携带的 request
+    /// binding 整体无效" — a sibling Agent of the same native Sidecar can
     /// decrypt the Event but can never drive this runtime with it.
     NotController,
     /// A valid request binding whose `addressed_agent_ids` does not contain
     /// this runtime's principal. The request must be treated as nonexistent:
-    /// no execution, no shared error (§7.2.2).
+    /// no execution, no shared error (§5/§8).
     NotAddressed,
     /// A valid request binding addressed to this runtime principal.
     Addressed(SidecarExchangeContext),
 }
 
-/// Apply the §7.2.1/§7.2.2 pre-execution checks that are decidable from the
+/// Apply the §8/§5/§8 pre-execution checks that are decidable from the
 /// binding and the Event envelope alone: `role == request` with a valid closed
 /// `request_context`, the Event actor being this runtime's controller, and
 /// this runtime's principal being a member of `addressed_agent_ids`.
@@ -140,36 +140,7 @@ pub fn gate_inbound_request_binding(
     })
 }
 
-/// Ordering keys that decide which request Event is the **canonical** request
-/// of one scoped exchange id (`zh/models/sidecar.md` §7.2.1): the surviving
-/// Event with the smallest `actor_seq` in the controller's accepted actor
-/// chain, and on a same-sequence sibling the bytewise-maximum `event_digest`.
-///
-/// `event_digest` is the SDK wire form `"<suite>:<lowercase hex>"`. Both
-/// operands of a sibling comparison come from the same Realm digest suite, so
-/// comparing the encoded strings bytewise is order-isomorphic to comparing the
-/// decoded digest bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SidecarRequestOrdering {
-    pub actor_seq: u64,
-    pub event_digest: String,
-}
-
-impl SidecarRequestOrdering {
-    /// Whether `self` wins the §7.2.1 canonical-request contest against
-    /// `other`. Equal keys never supersede: an identical ordering pair from a
-    /// different Event id is an unresolvable candidate, not a winner.
-    #[must_use]
-    fn supersedes(&self, other: &Self) -> bool {
-        match self.actor_seq.cmp(&other.actor_seq) {
-            Ordering::Less => true,
-            Ordering::Greater => false,
-            Ordering::Equal => self.event_digest.as_bytes() > other.event_digest.as_bytes(),
-        }
-    }
-}
-
-/// Fail-closed §7.2.3 consumer validation of one decrypted
+/// Fail-closed §8 consumer validation of one decrypted
 /// `ak.agent.sidecar.exchange.control` plaintext.
 ///
 /// Checks the parts that are decidable from the plaintext and the Event
@@ -210,20 +181,19 @@ pub fn gate_inbound_exchange_control(
 pub enum SidecarExchangeAdmission {
     /// First observation of this scoped exchange id; it is by definition the
     /// canonical request so far and the identity audit is now durable. This
-    /// does not by itself authorize execution — the remaining §7.2.2 gates
+    /// does not by itself authorize execution — the remaining §5/§8 gates
     /// still apply.
     Recorded,
     /// The identical mapping already exists (for example after a runtime
     /// restart). It is an exact replay and must not execute again.
     AlreadyObserved,
     /// The scoped exchange id is already mapped to a **different** request
-    /// Event id. §7.2.1: fail closed — never execute a second time for the
+    /// Event id. §8: fail closed — never execute a second time for the
     /// same exchange id, even when body or `request_context` differ. The
-    /// canonical winner is still recomputed and persisted for audit, so the
-    /// returned id may be the Event just observed.
+    /// original accepted identity stays fixed; conflicts block future replies.
     Conflict { canonical_request_event_id: String },
     /// A valid terminal control Event has already closed this exchange
-    /// (§7.2.3). No new request may execute, and the exchange is not
+    /// (§8). No new request may execute, and the exchange is not
     /// implicitly reopened.
     Terminal { control_event_id: String },
 }
@@ -232,7 +202,7 @@ pub enum SidecarExchangeAdmission {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidecarTerminalAdmission {
     /// First valid terminal control for this exchange; it absorbs the terminal
-    /// state (§7.2.3: the first valid terminal control wins).
+    /// state (§8: the first valid terminal control wins).
     Recorded,
     /// A terminal control was already folded. Later controls are ignored and
     /// MUST NOT change the projection.
@@ -241,20 +211,18 @@ pub enum SidecarTerminalAdmission {
     /// request of this scoped exchange, or the exchange was never observed.
     /// Fail closed: the control is not folded.
     NotCanonicalRequest,
-    /// `reassign_coordinator`, which never changes terminal state. Coordinator
-    /// identity reaches this runtime through the request binding it already
-    /// verified, so there is nothing durable to fold.
-    NotTerminal,
+    /// A valid causal reassignment updated the durable coordinator without
+    /// closing the exchange.
+    Reassigned,
 }
 
 /// Durable request-identity audit, one local file per account scope (sibling
 /// of the garth account store).
 ///
 /// The normative idempotency domain is
-/// `(controller_account_id, private_strand_id, exchange_id)`. Observing a request is
-/// deliberately separate from authorizing or consuming it: callers first
-/// preserve the identity here, then apply the complete runtime authorization
-/// gate. Writes are serialized per path and use the workspace atomic writer,
+/// `(controller_account_id, native_sidecar_stream, exchange_id)`. Callers verify
+/// the accepted stream, authenticated binding and current runtime authorization
+/// before recording admission. Writes are serialized per path and use the workspace atomic writer,
 /// so concurrent deliveries cannot both observe an empty exchange slot.
 #[derive(Debug, Clone)]
 pub struct SidecarExchangeStore {
@@ -286,24 +254,63 @@ impl Default for SidecarExchangeFile {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SidecarExchangeRecord {
-    /// Winner of the §7.2.1 canonical-request contest across every request
-    /// Event observed for this scoped exchange id.
-    canonical_request_event_id: String,
-    canonical_actor_seq: u64,
-    canonical_event_digest: String,
-    /// The request Event this runtime actually admitted for execution. It is
-    /// the first Event admitted and never changes, so a later-arriving
-    /// canonical request cannot cause a second execution.
-    admitted_request_event_id: String,
-    /// Request Events for the same scoped exchange id that lost the canonical
-    /// contest or arrived after admission. Retained as controller-local
-    /// equivocation diagnostics (§7.2.1).
+    /// The host verified this reference against the independent native stream.
+    request_ref: CommittedEventRef,
+    request_context: AgentSidecarExchangeRequestContext,
+    coordinator_agent_id: DidCoreId,
+    coordinator_assignment_event_id: EventId,
+    facts: BTreeMap<EventId, SidecarExchangeFact>,
+    /// Conflicting accepted reuse never selects a new winner or executes twice.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    losing_request_event_ids: BTreeSet<String>,
-    /// First valid terminal control Event (§7.2.3). Once present the exchange
+    conflicting_request_event_ids: BTreeSet<EventId>,
+    /// First valid terminal control Event (§8). Once present the exchange
     /// is closed for new execution and is never implicitly reopened.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     terminal: Option<SidecarExchangeTerminalRecord>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SidecarExchangeFact {
+    accepted_ref: CommittedEventRef,
+    parents: BTreeSet<EventId>,
+    user_facing_response: bool,
+}
+
+fn native_scope(reference: &CommittedEventRef) -> anyhow::Result<ScopeRef> {
+    EventId::new(reference.event_id.to_string())?;
+    arkret::RealmCommitId::new(reference.commit_id.to_string())?;
+    let CommitStreamRef::Sidecar {
+        realm_id,
+        sidecar_id,
+    } = &reference.stream_ref
+    else {
+        anyhow::bail!("Sidecar exchange requires an accepted native Sidecar stream");
+    };
+    arkret::RealmId::new(realm_id.to_string())?;
+    arkret::SidecarId::new(sidecar_id.to_string())?;
+    Ok(ScopeRef::Sidecar {
+        realm_id: realm_id.clone(),
+        sidecar_id: sidecar_id.clone(),
+    })
+}
+
+fn stream_key(reference: &CommittedEventRef) -> anyhow::Result<String> {
+    native_scope(reference)?;
+    arkret::canonical::canonical_json_string(&reference.stream_ref).map_err(Into::into)
+}
+
+fn closure(record: &SidecarExchangeRecord, heads: &BTreeSet<EventId>) -> BTreeSet<EventId> {
+    let mut result = BTreeSet::new();
+    let mut pending = heads.iter().cloned().collect::<Vec<_>>();
+    while let Some(id) = pending.pop() {
+        if result.insert(id.clone())
+            && let Some(fact) = record.facts.get(&id)
+        {
+            pending.extend(fact.parents.iter().cloned());
+        }
+    }
+    result
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -345,33 +352,51 @@ impl SidecarExchangeStore {
         &self.path
     }
 
-    /// Validate and record one request identity in the normative scoped
-    /// idempotency domain, applying the §7.2.1 canonical-request rule.
-    ///
-    /// This method never grants permission to execute: `Recorded` only means
-    /// the identity audit is durable and no earlier request or terminal
-    /// control blocks this one. The remaining §7.2.2 gates are the caller's.
+    /// The caller supplies a reference from its verified, continuous Commit
+    /// delivery, never from a raw Event query or an unverified receipt.
     pub fn record_request_identity(
         &self,
         controller_account_id: &AccountId,
-        private_strand_id: &str,
+        source_strand_id: &str,
         exchange_id: &str,
         request_event_id: &str,
-        ordering: &SidecarRequestOrdering,
+        accepted_ref: &CommittedEventRef,
+        request_context: &AgentSidecarExchangeRequestContext,
     ) -> anyhow::Result<SidecarExchangeAdmission> {
         controller_account_id.validate()?;
-        let controller_account_key = controller_account_id.canonical_key()?;
-        let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
+        let scope = native_scope(accepted_ref)?;
+        anyhow::ensure!(
+            accepted_ref.event_id.as_str() == request_event_id,
+            "Sidecar request does not match its accepted Event reference"
+        );
+        anyhow::ensure!(
+            request_context.source_track_ref.realm_id == *scope.realm_id_opt().unwrap()
+                && request_context.source_track_ref.strand_id.as_str() == source_strand_id,
+            "Sidecar request source differs from its accepted native scope"
+        );
+        let binding = AgentSidecarEventExchangeBinding {
+            schema: arkret::SchemaId::AGENT_SIDECAR_EVENT_EXCHANGE_BINDING_V1.to_owned(),
+            exchange_id: exchange_id.to_owned(),
+            role: AgentSidecarExchangeRole::Request,
+            request_event_id: None,
+            completes_exchange: None,
+            coordinator_assignment_event_id: None,
+            request_context: Some(request_context.clone()),
+        };
+        binding.validate_shape()?;
         anyhow::ensure!(
             valid_exchange_identity(exchange_id),
             "invalid Sidecar exchange identity"
         );
-        let request_event_id = EventId::new(request_event_id.to_owned())?;
-        anyhow::ensure!(
-            !ordering.event_digest.trim().is_empty(),
-            "Sidecar canonical request ordering requires an event digest"
-        );
-
+        let coordinator = request_context
+            .coordinator_agent_id
+            .as_ref()
+            .or_else(|| {
+                (request_context.addressed_agent_ids.len() == 1)
+                    .then(|| &request_context.addressed_agent_ids[0])
+            })
+            .context("Sidecar request has no coordinator")?
+            .clone();
         let lock = sidecar_exchange_lock(&self.path);
         let _guard = lock
             .lock()
@@ -379,58 +404,49 @@ impl SidecarExchangeStore {
         let mut state = self.load()?;
         let exchanges = state
             .controllers
-            .entry(controller_account_key)
+            .entry(controller_account_id.canonical_key()?)
             .or_default()
-            .entry(private_strand_id.to_string())
+            .entry(stream_key(accepted_ref)?)
             .or_default();
         if let Some(existing) = exchanges.get_mut(exchange_id) {
-            // A closed exchange rejects every new request, including an exact
-            // replay of the request that opened it: a cached context must not
-            // reopen terminal state (§7.2.3).
-            if let Some(terminal) = existing.terminal.as_ref() {
-                let control_event_id = terminal.control_event_id.clone();
-                return Ok(SidecarExchangeAdmission::Terminal { control_event_id });
+            if let Some(terminal) = &existing.terminal {
+                return Ok(SidecarExchangeAdmission::Terminal {
+                    control_event_id: terminal.control_event_id.clone(),
+                });
             }
-            if existing.admitted_request_event_id == request_event_id.as_str() {
+            if existing.request_ref.event_id == accepted_ref.event_id {
+                anyhow::ensure!(
+                    existing.request_ref == *accepted_ref
+                        && existing.request_context == *request_context,
+                    "Sidecar request replay changed its accepted reference or context"
+                );
                 return Ok(SidecarExchangeAdmission::AlreadyObserved);
             }
-            // Recompute the canonical winner for the audit record, then fail
-            // closed regardless: the admitted request never changes, so a
-            // later-arriving canonical request cannot execute a second time.
-            let candidate = SidecarRequestOrdering {
-                actor_seq: ordering.actor_seq,
-                event_digest: ordering.event_digest.clone(),
-            };
-            let incumbent = SidecarRequestOrdering {
-                actor_seq: existing.canonical_actor_seq,
-                event_digest: existing.canonical_event_digest.clone(),
-            };
-            if candidate.supersedes(&incumbent) {
-                existing
-                    .losing_request_event_ids
-                    .insert(existing.canonical_request_event_id.clone());
-                existing.canonical_request_event_id = request_event_id.to_string();
-                existing.canonical_actor_seq = candidate.actor_seq;
-                existing.canonical_event_digest = candidate.event_digest;
-            } else {
-                existing
-                    .losing_request_event_ids
-                    .insert(request_event_id.to_string());
-            }
-            let canonical_request_event_id = existing.canonical_request_event_id.clone();
+            existing
+                .conflicting_request_event_ids
+                .insert(accepted_ref.event_id.clone());
+            let canonical_request_event_id = existing.request_ref.event_id.to_string();
             self.save(&state)?;
             return Ok(SidecarExchangeAdmission::Conflict {
                 canonical_request_event_id,
             });
         }
         exchanges.insert(
-            exchange_id.to_string(),
+            exchange_id.to_owned(),
             SidecarExchangeRecord {
-                canonical_request_event_id: request_event_id.to_string(),
-                canonical_actor_seq: ordering.actor_seq,
-                canonical_event_digest: ordering.event_digest.clone(),
-                admitted_request_event_id: request_event_id.to_string(),
-                losing_request_event_ids: BTreeSet::new(),
+                request_ref: accepted_ref.clone(),
+                request_context: request_context.clone(),
+                coordinator_agent_id: coordinator,
+                coordinator_assignment_event_id: accepted_ref.event_id.clone(),
+                facts: BTreeMap::from([(
+                    accepted_ref.event_id.clone(),
+                    SidecarExchangeFact {
+                        accepted_ref: accepted_ref.clone(),
+                        parents: BTreeSet::new(),
+                        user_facing_response: false,
+                    },
+                )]),
+                conflicting_request_event_ids: BTreeSet::new(),
                 terminal: None,
             },
         );
@@ -438,90 +454,271 @@ impl SidecarExchangeStore {
         Ok(SidecarExchangeAdmission::Recorded)
     }
 
-    /// Fold one §7.2.3-valid terminal control Event into the durable exchange
-    /// record. The caller owes the control's own consumer validation
-    /// ([`gate_inbound_exchange_control`]); this method owns only the
-    /// "canonical request" cross-check and first-terminal-wins ordering.
-    pub fn record_terminal_control(
+    /// Recover the exact private routing from durable accepted request evidence.
+    /// The host reply target carries only the request identity, not authority.
+    pub fn response_context(
         &self,
         controller_account_id: &AccountId,
-        private_strand_id: &str,
-        control: &AgentSidecarExchangeControl,
-        control_event_id: &str,
-    ) -> anyhow::Result<SidecarTerminalAdmission> {
+        source_strand_id: &str,
+        exchange_id: &str,
+        request_event_id: &str,
+        principal_id: &str,
+    ) -> anyhow::Result<Option<(ScopeRef, SidecarSourceTrackRef, Option<String>)>> {
         controller_account_id.validate()?;
-        let controller_account_key = controller_account_id.canonical_key()?;
-        let private_strand_id = arkret::StrandId::new(private_strand_id.to_owned())?;
-        let control_event_id = EventId::new(control_event_id.to_owned())?;
-        let Some(action) = matches!(
-            control.action,
-            AgentSidecarExchangeAction::Close
-                | AgentSidecarExchangeAction::Cancel
-                | AgentSidecarExchangeAction::Fail
-        )
-        .then_some(control.action) else {
-            return Ok(SidecarTerminalAdmission::NotTerminal);
+        let state = self.load()?;
+        let Some(scopes) = state
+            .controllers
+            .get(&controller_account_id.canonical_key()?)
+        else {
+            return Ok(None);
         };
+        let mut found = None;
+        for exchanges in scopes.values() {
+            let Some(record) = exchanges.get(exchange_id) else {
+                continue;
+            };
+            if record.request_ref.event_id.as_str() != request_event_id
+                || record.request_context.source_track_ref.strand_id.as_str() != source_strand_id
+            {
+                continue;
+            }
+            if !principal_id.is_empty()
+                && !record
+                    .request_context
+                    .addressed_agent_ids
+                    .iter()
+                    .any(|agent| agent.as_str() == principal_id)
+            {
+                return Ok(None);
+            }
+            if record.terminal.is_some() || !record.conflicting_request_event_ids.is_empty() {
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                found.is_none(),
+                "Sidecar response has ambiguous accepted request evidence"
+            );
+            let assignment = (record.coordinator_agent_id.as_str() == principal_id)
+                .then(|| record.coordinator_assignment_event_id.to_string());
+            found = Some((
+                native_scope(&record.request_ref)?,
+                record.request_context.source_track_ref.clone(),
+                assignment,
+            ));
+        }
+        Ok(found)
+    }
 
+    /// Retain a response only after its verified Commit and authenticated binding.
+    /// The host already bound its encrypted metadata to this exact context.
+    pub fn record_response_commit(
+        &self,
+        controller_account_id: &AccountId,
+        context: &SidecarExchangeContext,
+        event: &arkret::Event,
+        commit: &arkret::RealmCommit,
+    ) -> anyhow::Result<()> {
+        let accepted = arkret::CommittedEventFullView {
+            event: event.clone(),
+            commit: commit.clone(),
+        };
+        accepted.validate_shape()?;
+        let reference = CommittedEventRef {
+            event_id: commit.event_ref.clone(),
+            commit_id: commit.commit_id.clone(),
+            stream_ref: commit.stream_ref.clone(),
+            stream_position: commit.stream_position,
+        };
         let lock = sidecar_exchange_lock(&self.path);
         let _guard = lock
             .lock()
             .map_err(|_| anyhow::anyhow!("Sidecar exchange audit lock poisoned"))?;
         let mut state = self.load()?;
-        let Some(existing) = state
+        let record = state
             .controllers
-            .get_mut(&controller_account_key)
-            .and_then(|strands| strands.get_mut(private_strand_id.as_str()))
-            .and_then(|exchanges| exchanges.get_mut(control.exchange_id.as_str()))
-        else {
-            return Ok(SidecarTerminalAdmission::NotCanonicalRequest);
-        };
-        if existing.canonical_request_event_id != control.request_event_id.as_str() {
-            return Ok(SidecarTerminalAdmission::NotCanonicalRequest);
+            .get_mut(&controller_account_id.canonical_key()?)
+            .and_then(|scopes| scopes.get_mut(&stream_key(&reference).ok()?))
+            .and_then(|exchanges| exchanges.get_mut(&context.exchange_id))
+            .context("Sidecar response has no accepted request")?;
+        let message = event.as_message_create()?;
+        let actor = event
+            .actor_id
+            .as_account_id()
+            .context("Sidecar response is not Account authored")?;
+        anyhow::ensure!(
+            record.request_ref.event_id.as_str() == context.request_event_id
+                && message.strand_id == record.request_context.source_track_ref.strand_id
+                && message.track_name == record.request_context.source_track_ref.track_name
+                && actor.station_id == controller_account_id.station_id
+                && record
+                    .request_context
+                    .addressed_agent_ids
+                    .contains(&actor.principal_id)
+                && reference.stream_position > record.request_ref.stream_position,
+            "Sidecar response differs from its accepted request or addressed author"
+        );
+        let parents = event
+            .semantic_refs
+            .iter()
+            .filter(|r| r.role == "after" && r.critical)
+            .filter_map(|r| EventId::new(r.id.clone()).ok())
+            .collect::<BTreeSet<_>>();
+        anyhow::ensure!(
+            parents.iter().all(|id| record.facts.contains_key(id))
+                && closure(record, &parents).contains(&record.request_ref.event_id),
+            "Sidecar response does not extend its accepted request facts"
+        );
+        if let Some(existing) = record.facts.get(&reference.event_id) {
+            anyhow::ensure!(
+                existing.accepted_ref == reference && existing.parents == parents,
+                "Sidecar response replay changed accepted provenance"
+            );
+            return Ok(());
         }
-        if let Some(terminal) = existing.terminal.as_ref() {
-            let control_event_id = terminal.control_event_id.clone();
-            return Ok(SidecarTerminalAdmission::AlreadyTerminal { control_event_id });
-        }
-        existing.terminal = Some(SidecarExchangeTerminalRecord {
-            control_event_id: control_event_id.to_string(),
-            action,
-        });
-        self.save(&state)?;
-        Ok(SidecarTerminalAdmission::Recorded)
+        record.facts.insert(
+            reference.event_id.clone(),
+            SidecarExchangeFact {
+                accepted_ref: reference,
+                parents,
+                user_facing_response: true,
+            },
+        );
+        self.save(&state)
     }
 
-    /// Whether this scoped exchange may still produce a new Event from this
-    /// runtime: it must be observed, non-terminal, and the supplied request
-    /// Event id must be both the admitted and the canonical request.
-    ///
-    /// Used by the reply path so a cached exchange context cannot author a
-    /// response after the controller closed the exchange (§7.2.2/§7.2.3).
-    pub fn exchange_accepts_new_response(
+    /// Fold only authenticated controller controls on the same accepted stream.
+    /// Basis references must cover the known request, assignment and response set.
+    pub fn record_terminal_control(
         &self,
         controller_account_id: &AccountId,
-        private_strand_id: &str,
-        exchange_id: &str,
-        request_event_id: &str,
-    ) -> anyhow::Result<bool> {
+        source_strand_id: &str,
+        control: &AgentSidecarExchangeControl,
+        accepted_ref: &CommittedEventRef,
+        causal_after_event_ids: &[EventId],
+    ) -> anyhow::Result<SidecarTerminalAdmission> {
         controller_account_id.validate()?;
-        let controller_account_key = controller_account_id.canonical_key()?;
+        control.validate_shape()?;
+        let scope_key = stream_key(accepted_ref)?;
         let lock = sidecar_exchange_lock(&self.path);
         let _guard = lock
             .lock()
             .map_err(|_| anyhow::anyhow!("Sidecar exchange audit lock poisoned"))?;
-        let state = self.load()?;
-        let Some(existing) = state
+        let mut state = self.load()?;
+        let Some(record) = state
             .controllers
-            .get(&controller_account_key)
-            .and_then(|strands| strands.get(private_strand_id))
-            .and_then(|exchanges| exchanges.get(exchange_id))
+            .get_mut(&controller_account_id.canonical_key()?)
+            .and_then(|scopes| scopes.get_mut(&scope_key))
+            .and_then(|exchanges| exchanges.get_mut(&control.exchange_id))
         else {
-            return Ok(false);
+            return Ok(SidecarTerminalAdmission::NotCanonicalRequest);
         };
-        Ok(existing.terminal.is_none()
-            && existing.admitted_request_event_id == request_event_id
-            && existing.canonical_request_event_id == request_event_id)
+        if record.request_ref.event_id != control.request_event_id
+            || record.request_context.source_track_ref.strand_id.as_str() != source_strand_id
+            || !record.conflicting_request_event_ids.is_empty()
+        {
+            return Ok(SidecarTerminalAdmission::NotCanonicalRequest);
+        }
+        if let Some(terminal) = &record.terminal {
+            return Ok(SidecarTerminalAdmission::AlreadyTerminal {
+                control_event_id: terminal.control_event_id.clone(),
+            });
+        }
+        let basis = control
+            .basis_event_ids
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        anyhow::ensure!(
+            !basis.is_empty()
+                && basis.len() == control.basis_event_ids.len()
+                && control
+                    .basis_event_ids
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1])
+                && basis.iter().all(|id| causal_after_event_ids.contains(id)
+                    && record.facts.get(id).is_some_and(
+                        |fact| fact.accepted_ref.stream_position < accepted_ref.stream_position
+                    )),
+            "Sidecar control basis is not covered by accepted causal facts"
+        );
+        let covered = closure(record, &basis);
+        anyhow::ensure!(
+            covered.contains(&record.request_ref.event_id)
+                && covered.contains(&record.coordinator_assignment_event_id)
+                && basis.iter().all(|id| !basis
+                    .iter()
+                    .filter(|other| *other != id)
+                    .any(|other| closure(record, &BTreeSet::from([other.clone()])).contains(id))),
+            "Sidecar control does not cover its request and assignment with maximal heads"
+        );
+        if control.action == AgentSidecarExchangeAction::ReassignCoordinator {
+            let coordinator = control
+                .coordinator_agent_id
+                .as_ref()
+                .context("Sidecar reassignment has no coordinator")?;
+            anyhow::ensure!(
+                control.expected_coordinator_agent_id.as_ref()
+                    == Some(&record.coordinator_agent_id)
+                    && record
+                        .request_context
+                        .addressed_agent_ids
+                        .contains(coordinator),
+                "Sidecar reassignment differs from its accepted assignment"
+            );
+            record.coordinator_agent_id = coordinator.clone();
+            record.coordinator_assignment_event_id = accepted_ref.event_id.clone();
+        } else {
+            let responses = record
+                .facts
+                .iter()
+                .filter(|(id, fact)| covered.contains(*id) && fact.user_facing_response)
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>();
+            anyhow::ensure!(
+                control.response_event_ids.as_ref() == Some(&responses)
+                    && (control.action == AgentSidecarExchangeAction::Close
+                        || responses.is_empty()),
+                "Sidecar terminal control differs from its causal response set"
+            );
+            record.terminal = Some(SidecarExchangeTerminalRecord {
+                control_event_id: accepted_ref.event_id.to_string(),
+                action: control.action,
+            });
+        }
+        record.facts.insert(
+            accepted_ref.event_id.clone(),
+            SidecarExchangeFact {
+                accepted_ref: accepted_ref.clone(),
+                parents: basis,
+                user_facing_response: false,
+            },
+        );
+        self.save(&state)?;
+        Ok(
+            if control.action == AgentSidecarExchangeAction::ReassignCoordinator {
+                SidecarTerminalAdmission::Reassigned
+            } else {
+                SidecarTerminalAdmission::Recorded
+            },
+        )
+    }
+
+    pub fn exchange_accepts_new_response(
+        &self,
+        controller_account_id: &AccountId,
+        source_strand_id: &str,
+        exchange_id: &str,
+        request_event_id: &str,
+    ) -> anyhow::Result<bool> {
+        Ok(self
+            .response_context(
+                controller_account_id,
+                source_strand_id,
+                exchange_id,
+                request_event_id,
+                "",
+            )?
+            .is_some())
     }
 
     fn load(&self) -> anyhow::Result<SidecarExchangeFile> {
@@ -614,13 +811,13 @@ pub fn split_sidecar_reply_target(value: &str) -> (String, Option<SidecarExchang
 
 /// Build the `MessageMetadata` plaintext (JSON) carrying the
 /// `role=user_facing_response` binding for the Agent's user-visible reply
-/// (`zh/models/sidecar.md` §7.2.1 item 2).
+/// (`zh/models/sidecar.md` §8 item 2).
 ///
 /// This runtime only delivers the final user-visible reply to Arkret;
 /// intermediate/tool output never reaches the Arkret channel, so
 /// `role=internal` bindings are intentionally not produced here. If such
 /// messages are ever sent to Arkret they MUST carry `role=internal` with the
-/// same `exchange_id`/`request_event_id` (§7.2.1 item 3).
+/// same `exchange_id`/`request_event_id` (§8 item 3).
 ///
 /// Callers MUST encrypt the returned value into `encrypted_metadata` with the
 /// same MLS group as `encrypted_content`; the binding must never appear in
@@ -708,13 +905,6 @@ mod tests {
         ActorId::account(account(principal_id, station_id))
     }
 
-    fn ordering(actor_seq: u64, digest_suffix: &str) -> SidecarRequestOrdering {
-        SidecarRequestOrdering {
-            actor_seq,
-            event_digest: format!("sha256:{digest_suffix}"),
-        }
-    }
-
     fn request_context(addressed: &[&str]) -> AgentSidecarExchangeRequestContext {
         AgentSidecarExchangeRequestContext {
             source_track_ref: SidecarSourceTrackRef {
@@ -747,7 +937,7 @@ mod tests {
     }
 
     /// A closed `action=close` control with no delivered response, which
-    /// §7.2.3 folds to `failed/controller_closed_empty`.
+    /// §8 folds to `failed/controller_closed_empty`.
     fn terminal_control(request_event_id: &str) -> AgentSidecarExchangeControl {
         AgentSidecarExchangeControl {
             schema: arkret::SchemaId::AGENT_SIDECAR_EXCHANGE_CONTROL_V1.to_owned(),
@@ -854,7 +1044,7 @@ mod tests {
                 AGENT_DID
             ),
             SidecarRequestGate::NotController,
-            "a sibling backing-Circle Agent can decrypt the Event but never drives this runtime"
+            "a sibling Sidecar Agent can decrypt the Event but never drives this runtime"
         );
         assert_eq!(
             gate_inbound_request_binding(
@@ -946,269 +1136,392 @@ mod tests {
         );
     }
 
-    #[test]
-    fn exchange_store_is_idempotent_and_fail_closed_across_reopen() {
-        let home = std::env::temp_dir().join(format!(
-            "savfox-sidecar-exchange-{}-{}",
-            std::process::id(),
-            line!()
-        ));
-        let _ = std::fs::remove_dir_all(&home);
-        let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
-        assert_eq!(
-            store
-                .record_request_identity(
-                    &controller_account(),
-                    STRAND_ID.as_str(),
-                    EXCHANGE_ID,
-                    REQUEST_EVENT_ID.as_str(),
-                    &ordering(7, "aa")
-                )
-                .unwrap(),
-            SidecarExchangeAdmission::Recorded
-        );
-        assert_eq!(
-            store
-                .record_request_identity(
-                    &controller_account(),
-                    STRAND_ID.as_str(),
-                    EXCHANGE_ID,
-                    REQUEST_EVENT_ID.as_str(),
-                    &ordering(7, "aa")
-                )
-                .unwrap(),
-            SidecarExchangeAdmission::AlreadyObserved
-        );
+    fn request_ref(id: &EventId, position: u64) -> CommittedEventRef {
+        CommittedEventRef {
+            event_id: id.clone(),
+            commit_id: arkret::RealmCommitId::from_digest([position as u8 + 80; 32]),
+            stream_ref: CommitStreamRef::Sidecar {
+                realm_id: RealmId::new(REALM_ID.as_str()).unwrap(),
+                sidecar_id: arkret::SidecarId::from_event_id(&fixture_event_id(33)),
+            },
+            stream_position: position,
+        }
+    }
 
-        // Restart replay: a fresh store handle over the same file must still
-        // report the exchange as observed.
-        let reopened = SidecarExchangeStore::for_account(&home, "c1", "a1");
-        assert_eq!(
-            reopened
-                .record_request_identity(
-                    &controller_account(),
-                    STRAND_ID.as_str(),
-                    EXCHANGE_ID,
-                    REQUEST_EVENT_ID.as_str(),
-                    &ordering(7, "aa")
-                )
-                .unwrap(),
-            SidecarExchangeAdmission::AlreadyObserved
-        );
-
-        // Same exchange id with a different request Event id: fail closed. The
-        // higher actor_seq loses the canonical contest, so the canonical
-        // request is unchanged.
-        assert_eq!(
-            reopened
-                .record_request_identity(
-                    &controller_account(),
-                    STRAND_ID.as_str(),
-                    EXCHANGE_ID,
-                    OTHER_EVENT_ID.as_str(),
-                    &ordering(9, "ff")
-                )
-                .unwrap(),
-            SidecarExchangeAdmission::Conflict {
-                canonical_request_event_id: REQUEST_EVENT_ID.as_str().to_owned(),
-            }
-        );
-
-        // The same exchange id in another normative scope is independent.
-        let other_strand = OTHER_STRAND_ID.as_str();
-        assert_eq!(
-            reopened
-                .record_request_identity(
-                    &controller_account(),
-                    other_strand,
-                    EXCHANGE_ID,
-                    OTHER_EVENT_ID.as_str(),
-                    &ordering(9, "ff")
-                )
-                .unwrap(),
-            SidecarExchangeAdmission::Recorded
-        );
-        assert_eq!(
-            reopened
-                .record_request_identity(
-                    &account(AGENT_DID, CONTROLLER_STATION_DID),
-                    STRAND_ID.as_str(),
-                    EXCHANGE_ID,
-                    OTHER_EVENT_ID.as_str(),
-                    &ordering(9, "ff")
-                )
-                .unwrap(),
-            SidecarExchangeAdmission::Recorded
-        );
-        let _ = std::fs::remove_dir_all(&home);
+    fn admit_request(
+        store: &SidecarExchangeStore,
+        id: &EventId,
+        position: u64,
+    ) -> anyhow::Result<SidecarExchangeAdmission> {
+        store.record_request_identity(
+            &controller_account(),
+            STRAND_ID.as_str(),
+            EXCHANGE_ID,
+            id.as_str(),
+            &request_ref(id, position),
+            &request_context(&[AGENT_DID]),
+        )
     }
 
     #[test]
-    fn canonical_request_is_lowest_actor_seq_then_bytewise_max_digest() {
-        let home = std::env::temp_dir().join(format!(
-            "savfox-sidecar-exchange-canonical-{}-{}",
-            std::process::id(),
-            line!()
-        ));
-        let _ = std::fs::remove_dir_all(&home);
-        let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
+    fn accepted_native_request_is_durable_and_conflicting_reuse_never_executes_twice() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
         assert_eq!(
-            store
-                .record_request_identity(
-                    &controller_account(),
-                    STRAND_ID.as_str(),
-                    EXCHANGE_ID,
-                    REQUEST_EVENT_ID.as_str(),
-                    &ordering(9, "bb")
-                )
-                .unwrap(),
+            admit_request(&store, &REQUEST_EVENT_ID, 7).unwrap(),
             SidecarExchangeAdmission::Recorded
         );
-
-        // A lower actor_seq wins the canonical contest even though it arrived
-        // second, but it still must not execute: the admitted request never
-        // changes (§7.2.1 "不得执行第二次").
+        let reopened = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
         assert_eq!(
-            store
-                .record_request_identity(
-                    &controller_account(),
-                    STRAND_ID.as_str(),
-                    EXCHANGE_ID,
-                    OTHER_EVENT_ID.as_str(),
-                    &ordering(4, "01")
-                )
-                .unwrap(),
+            admit_request(&reopened, &REQUEST_EVENT_ID, 7).unwrap(),
+            SidecarExchangeAdmission::AlreadyObserved
+        );
+        let bytes = std::fs::read(store.path()).unwrap();
+        assert!(admit_request(&reopened, &REQUEST_EVENT_ID, 8).is_err());
+        assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
+        let route = reopened
+            .response_context(
+                &controller_account(),
+                STRAND_ID.as_str(),
+                EXCHANGE_ID,
+                REQUEST_EVENT_ID.as_str(),
+                AGENT_DID,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            route.0,
+            native_scope(&request_ref(&REQUEST_EVENT_ID, 7)).unwrap()
+        );
+        assert_eq!(route.1, request_context(&[AGENT_DID]).source_track_ref);
+        assert_eq!(route.2.as_deref(), Some(REQUEST_EVENT_ID.as_str()));
+        assert_eq!(
+            admit_request(&reopened, &OTHER_EVENT_ID, 9).unwrap(),
             SidecarExchangeAdmission::Conflict {
-                canonical_request_event_id: OTHER_EVENT_ID.as_str().to_owned(),
+                canonical_request_event_id: REQUEST_EVENT_ID.to_string()
             }
         );
         assert!(
-            !store
+            !reopened
                 .exchange_accepts_new_response(
                     &controller_account(),
                     STRAND_ID.as_str(),
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID.as_str()
                 )
-                .unwrap(),
-            "the admitted request lost the canonical contest, so it may no longer reply"
+                .unwrap()
         );
+    }
 
-        // Same-sequence sibling: bytewise-max event digest decides.
-        let sibling = SIBLING_EVENT_ID.as_str();
+    #[test]
+    fn cached_reply_context_cannot_authorize_a_replacement_unaddressed_runtime() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "agent");
+        admit_request(&store, &REQUEST_EVENT_ID, 7).unwrap();
+        assert!(
+            store
+                .response_context(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    OTHER_DID,
+                )
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .response_context(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    AGENT_DID,
+                )
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn accepted_request_requires_exact_native_scope_source_and_full_controller_account() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        let mut reference = request_ref(&REQUEST_EVENT_ID, 7);
+        reference.stream_ref = CommitStreamRef::Realm {
+            realm_id: RealmId::new(REALM_ID.as_str()).unwrap(),
+        };
+        assert!(
+            store
+                .record_request_identity(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    &reference,
+                    &request_context(&[AGENT_DID])
+                )
+                .is_err()
+        );
+        assert!(!store.path().exists());
+        let mut context = request_context(&[AGENT_DID]);
+        context.source_track_ref.strand_id = StrandId::new(OTHER_STRAND_ID.as_str()).unwrap();
+        assert!(
+            store
+                .record_request_identity(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    &request_ref(&REQUEST_EVENT_ID, 7),
+                    &context
+                )
+                .is_err()
+        );
+        assert!(!store.path().exists());
+        assert_eq!(
+            admit_request(&store, &REQUEST_EVENT_ID, 7).unwrap(),
+            SidecarExchangeAdmission::Recorded
+        );
+        let other = account(CONTROLLER_DID, OTHER_STATION_DID);
+        assert!(
+            !store
+                .exchange_accepts_new_response(
+                    &other,
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str()
+                )
+                .unwrap()
+        );
+        let mut independent = request_ref(&OTHER_EVENT_ID, 2);
+        if let CommitStreamRef::Sidecar { sidecar_id, .. } = &mut independent.stream_ref {
+            *sidecar_id = arkret::SidecarId::from_event_id(&fixture_event_id(34));
+        }
         assert_eq!(
             store
                 .record_request_identity(
                     &controller_account(),
                     STRAND_ID.as_str(),
                     EXCHANGE_ID,
-                    sibling,
-                    &ordering(4, "ff")
+                    OTHER_EVENT_ID.as_str(),
+                    &independent,
+                    &request_context(&[AGENT_DID])
                 )
                 .unwrap(),
-            SidecarExchangeAdmission::Conflict {
-                canonical_request_event_id: sibling.to_owned(),
-            }
+            SidecarExchangeAdmission::Recorded
         );
-        let _ = std::fs::remove_dir_all(&home);
+        assert!(
+            store
+                .exchange_accepts_new_response(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str()
+                )
+                .unwrap()
+        );
     }
 
     #[test]
-    fn terminal_control_closes_the_exchange_for_new_requests_and_replies() {
-        let home = std::env::temp_dir().join(format!(
-            "savfox-sidecar-exchange-terminal-{}-{}",
-            std::process::id(),
-            line!()
-        ));
-        let _ = std::fs::remove_dir_all(&home);
-        let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
+    fn terminal_control_requires_accepted_causal_basis_and_absorbs_after_reopen() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        admit_request(&store, &REQUEST_EVENT_ID, 3).unwrap();
+        let bytes = std::fs::read(store.path()).unwrap();
+        let control = terminal_control(REQUEST_EVENT_ID.as_str());
+        let accepted = request_ref(&CONTROL_EVENT_ID, 4);
+        assert!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &control,
+                    &accepted,
+                    &[]
+                )
+                .is_err()
+        );
+        assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
+        let mut unknown = control.clone();
+        unknown.basis_event_ids = vec![OTHER_EVENT_ID.clone()];
+        assert!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &unknown,
+                    &accepted,
+                    &unknown.basis_event_ids
+                )
+                .is_err()
+        );
+        assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
+        assert_eq!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &control,
+                    &accepted,
+                    &control.basis_event_ids
+                )
+                .unwrap(),
+            SidecarTerminalAdmission::Recorded
+        );
+        let reopened = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        assert!(
+            !reopened
+                .exchange_accepts_new_response(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str()
+                )
+                .unwrap()
+        );
+        assert_eq!(
+            admit_request(&reopened, &REQUEST_EVENT_ID, 3).unwrap(),
+            SidecarExchangeAdmission::Terminal {
+                control_event_id: CONTROL_EVENT_ID.to_string()
+            }
+        );
+        assert_eq!(
+            reopened
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &control,
+                    &request_ref(&OTHER_CONTROL_EVENT_ID, 5),
+                    &control.basis_event_ids
+                )
+                .unwrap(),
+            SidecarTerminalAdmission::AlreadyTerminal {
+                control_event_id: CONTROL_EVENT_ID.to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn coordinator_reassignment_uses_accepted_basis_and_exact_previous_assignment() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
         store
             .record_request_identity(
                 &controller_account(),
                 STRAND_ID.as_str(),
                 EXCHANGE_ID,
                 REQUEST_EVENT_ID.as_str(),
-                &ordering(3, "aa"),
+                &request_ref(&REQUEST_EVENT_ID, 3),
+                &request_context(&[AGENT_DID, OTHER_DID]),
             )
             .unwrap();
+        let mut control = terminal_control(REQUEST_EVENT_ID.as_str());
+        control.action = AgentSidecarExchangeAction::ReassignCoordinator;
+        control.response_event_ids = None;
+        control.expected_coordinator_agent_id = Some(DidCoreId::new(OTHER_DID).unwrap());
+        control.coordinator_agent_id = Some(DidCoreId::new(OTHER_DID).unwrap());
+        let accepted = request_ref(&CONTROL_EVENT_ID, 4);
+        let bytes = std::fs::read(store.path()).unwrap();
         assert!(
             store
-                .exchange_accepts_new_response(
+                .record_terminal_control(
                     &controller_account(),
                     STRAND_ID.as_str(),
-                    EXCHANGE_ID,
-                    REQUEST_EVENT_ID.as_str()
+                    &control,
+                    &accepted,
+                    &control.basis_event_ids
                 )
-                .unwrap()
+                .is_err()
         );
-
-        // A control naming a different request Event is not folded.
+        assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
+        control.expected_coordinator_agent_id = Some(DidCoreId::new(AGENT_DID).unwrap());
         assert_eq!(
             store
                 .record_terminal_control(
                     &controller_account(),
                     STRAND_ID.as_str(),
-                    &terminal_control(OTHER_EVENT_ID.as_str()),
-                    CONTROL_EVENT_ID.as_str(),
+                    &control,
+                    &accepted,
+                    &control.basis_event_ids
                 )
                 .unwrap(),
-            SidecarTerminalAdmission::NotCanonicalRequest
-        );
-
-        assert_eq!(
-            store
-                .record_terminal_control(
-                    &controller_account(),
-                    STRAND_ID.as_str(),
-                    &terminal_control(REQUEST_EVENT_ID.as_str()),
-                    CONTROL_EVENT_ID.as_str(),
-                )
-                .unwrap(),
-            SidecarTerminalAdmission::Recorded
-        );
-        // First valid terminal control absorbs the terminal state; later ones
-        // are ignored and must not change it.
-        assert_eq!(
-            store
-                .record_terminal_control(
-                    &controller_account(),
-                    STRAND_ID.as_str(),
-                    &terminal_control(REQUEST_EVENT_ID.as_str()),
-                    OTHER_CONTROL_EVENT_ID.as_str(),
-                )
-                .unwrap(),
-            SidecarTerminalAdmission::AlreadyTerminal {
-                control_event_id: CONTROL_EVENT_ID.as_str().to_owned(),
-            }
-        );
-
-        // A cached context must not reply after the exchange closed, and an
-        // exact replay of the opening request must not re-execute.
-        assert!(
-            !store
-                .exchange_accepts_new_response(
-                    &controller_account(),
-                    STRAND_ID.as_str(),
-                    EXCHANGE_ID,
-                    REQUEST_EVENT_ID.as_str()
-                )
-                .unwrap()
+            SidecarTerminalAdmission::Reassigned
         );
         assert_eq!(
             store
-                .record_request_identity(
+                .response_context(
                     &controller_account(),
                     STRAND_ID.as_str(),
                     EXCHANGE_ID,
                     REQUEST_EVENT_ID.as_str(),
-                    &ordering(3, "aa")
+                    AGENT_DID
+                )
+                .unwrap()
+                .unwrap()
+                .2,
+            None
+        );
+        assert_eq!(
+            store
+                .response_context(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    OTHER_DID
+                )
+                .unwrap()
+                .unwrap()
+                .2
+                .as_deref(),
+            Some(CONTROL_EVENT_ID.as_str())
+        );
+        let mut close = terminal_control(REQUEST_EVENT_ID.as_str());
+        close.basis_event_ids = vec![CONTROL_EVENT_ID.clone()];
+        assert_eq!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &close,
+                    &request_ref(&OTHER_CONTROL_EVENT_ID, 5),
+                    &close.basis_event_ids
                 )
                 .unwrap(),
-            SidecarExchangeAdmission::Terminal {
-                control_event_id: CONTROL_EVENT_ID.as_str().to_owned(),
-            }
+            SidecarTerminalAdmission::Recorded
         );
-        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn exchange_store_serializes_concurrent_first_observation() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        let handles = (0..8)
+            .map(|_| {
+                let store = store.clone();
+                std::thread::spawn(move || admit_request(&store, &REQUEST_EVENT_ID, 3).unwrap())
+            })
+            .collect::<Vec<_>>();
+        let outcomes = handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|o| **o == SidecarExchangeAdmission::Recorded)
+                .count(),
+            1
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|o| **o == SidecarExchangeAdmission::AlreadyObserved)
+                .count(),
+            7
+        );
     }
 
     #[test]
@@ -1233,7 +1546,7 @@ mod tests {
                 &controller_account()
             )
             .is_none(),
-            "Agent-authored exchange control is always invalid (§7.2.3)"
+            "Agent-authored exchange control is always invalid (§8)"
         );
         assert!(
             gate_inbound_exchange_control(
@@ -1257,52 +1570,6 @@ mod tests {
             .is_none(),
             "non-closed control plaintext fails closed"
         );
-    }
-
-    #[test]
-    fn exchange_store_serializes_concurrent_first_observation() {
-        let home = std::env::temp_dir().join(format!(
-            "savfox-sidecar-exchange-concurrent-{}-{}",
-            std::process::id(),
-            line!()
-        ));
-        let _ = std::fs::remove_dir_all(&home);
-        let store = SidecarExchangeStore::for_account(&home, "c1", "a1");
-        let handles = (0..8)
-            .map(|_| {
-                let store = store.clone();
-                std::thread::spawn(move || {
-                    store
-                        .record_request_identity(
-                            &controller_account(),
-                            STRAND_ID.as_str(),
-                            EXCHANGE_ID,
-                            REQUEST_EVENT_ID.as_str(),
-                            &ordering(3, "aa"),
-                        )
-                        .unwrap()
-                })
-            })
-            .collect::<Vec<_>>();
-        let outcomes = handles
-            .into_iter()
-            .map(|handle| handle.join().unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            outcomes
-                .iter()
-                .filter(|outcome| **outcome == SidecarExchangeAdmission::Recorded)
-                .count(),
-            1
-        );
-        assert_eq!(
-            outcomes
-                .iter()
-                .filter(|outcome| **outcome == SidecarExchangeAdmission::AlreadyObserved)
-                .count(),
-            7
-        );
-        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

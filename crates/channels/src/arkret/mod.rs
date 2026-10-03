@@ -88,8 +88,8 @@ pub use outbound::{
 pub use session::ArkretSession;
 pub use sidecar::{
     SidecarExchangeAdmission, SidecarExchangeContext, SidecarExchangeStore, SidecarRequestGate,
-    SidecarRequestOrdering, SidecarTerminalAdmission, build_user_facing_response_metadata,
-    encode_sidecar_reply_target, gate_inbound_exchange_control, gate_inbound_request_binding,
+    SidecarTerminalAdmission, build_user_facing_response_metadata, encode_sidecar_reply_target,
+    gate_inbound_exchange_control, gate_inbound_request_binding,
     sidecar_binding_from_metadata_plaintext, split_sidecar_reply_target,
 };
 pub use signer::{

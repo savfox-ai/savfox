@@ -16,6 +16,7 @@ use super::sidecar::{SidecarExchangeContext, build_user_facing_response_metadata
 pub struct MessageCreateRequest {
     pub scope_ref: ScopeRef,
     pub strand_id: String,
+    pub track_name: String,
     pub body: String,
     pub actor_account_id: AccountId,
     pub thread_root_id: Option<MessageId>,
@@ -47,13 +48,13 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
     let strand = StrandId::new(req.strand_id.clone()).context("invalid message Strand id")?;
     let mut payload = MessageCreatePayload::with_content(
         strand,
-        "discussion",
+        req.track_name.clone(),
         ContentBlock::text(req.body.clone()),
     );
     if let Some(reply_to) = &req.thread_root_id {
         payload = payload.with_reply_to_id(reply_to.to_string());
     }
-    TypedEventDraft::<event_spec::MessageCreate>::new(
+    let mut authored = TypedEventDraft::<event_spec::MessageCreate>::new(
         req.scope_ref.clone(),
         ActorId::account(req.actor_account_id.clone()),
         payload,
@@ -65,9 +66,18 @@ pub fn build_message_create_event(req: &MessageCreateRequest) -> anyhow::Result<
             .expect("existing scope checked")
             .digest_suite_code()
             .digest_suite(),
-    )
-    .map(AuthoredEvent::into_event)
-    .map_err(anyhow::Error::from)
+    )?
+    .into_event();
+    if let Some(exchange) = &req.sidecar_exchange {
+        let mut parents = std::collections::BTreeSet::from([exchange.request_event_id.clone()]);
+        parents.extend(exchange.coordinator_assignment_event_id.iter().cloned());
+        for parent in parents {
+            authored
+                .semantic_refs
+                .push(arkret::SemanticRef::new(parent, "after"));
+        }
+    }
+    Ok(finalize_outbound_event(authored)?.into_event())
 }
 
 /// Finalize the content-bound identity after every payload mutation, including
@@ -128,6 +138,7 @@ mod tests {
                 realm_id: RealmId::from_event_id(&event_id(17)),
             },
             strand_id: StrandId::from_event_id(&event_id(34)).to_string(),
+            track_name: "discussion".to_owned(),
             body: "hello world".to_owned(),
             actor_account_id: AccountId::new(
                 DidCoreId::new("ak:did_core:web:agent.example").unwrap(),
@@ -199,7 +210,13 @@ mod tests {
         };
         let event = build_message_create_event(&request).unwrap();
         assert_eq!(event.scope_ref, request.scope_ref);
-        assert!(event.semantic_refs.is_empty());
+        assert_eq!(
+            event.semantic_refs,
+            vec![arkret::SemanticRef::new(
+                exchange().request_event_id,
+                "after"
+            )]
+        );
         let wire = serde_json::to_string(&event).unwrap();
         assert!(!wire.contains("sidecar_exchange_binding"));
         assert!(!wire.contains(&exchange().exchange_id));

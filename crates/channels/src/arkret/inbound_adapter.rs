@@ -16,13 +16,14 @@ use super::crypto_state::{
     extract_encrypted_metadata_payload_from_message_content,
     extract_encrypted_payload_from_message_content, message_content_has_encrypted_carrier,
 };
-use super::sidecar::{SidecarExchangeContext, SidecarRequestOrdering};
+use super::sidecar::SidecarExchangeContext;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArkretInboundEvent {
     pub account_id: String,
     pub event_id: String,
     pub realm_id: String,
+    pub scope_ref: arkret::ScopeRef,
     /// Host-facing conversation type derived from the containing Realm sync
     /// projection. Event envelopes do not carry the Realm role themselves.
     pub chat_type: Option<String>,
@@ -46,13 +47,13 @@ pub struct ArkretInboundEvent {
     pub sidecar_exchange: Option<SidecarExchangeContext>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ArkretInboundParseResult {
     pub events: Vec<ArkretInboundEvent>,
     pub skipped: Vec<ArkretInboundSkippedEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ArkretInboundSkippedEvent {
     pub account_id: String,
     pub event_id: Option<String>,
@@ -71,10 +72,12 @@ pub struct ArkretInboundSkippedEvent {
     /// `encrypted_content`); its plaintext may hold the Sidecar exchange
     /// binding (`message_metadata.sidecar_exchange_binding`).
     pub encrypted_metadata_payload: Option<arkret::EncryptedPayload>,
-    /// Sidecar request ordering is unavailable until the request is tied to a
-    /// verified accepted Sidecar commit cut. A raw Event cannot supply it.
-    /// Such requests stay unadmitted instead of inheriting a fabricated order.
-    pub request_ordering: Option<SidecarRequestOrdering>,
+    /// Filled only by the host's verified Commit delivery path. Raw backfill
+    /// Events cannot authorize private exchange execution or control folding.
+    pub accepted_ref: Option<arkret::CommittedEventRef>,
+    pub accepted_view: Option<arkret::CommittedEventFullView>,
+    pub source_track_name: Option<String>,
+    pub causal_after_event_ids: Vec<arkret::EventId>,
     pub reason: ArkretInboundSkipReason,
 }
 
@@ -100,7 +103,7 @@ pub enum ArkretInboundSkipReason {
     SidecarExchangeControl,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ArkretInboundEventOutcome {
     Dispatchable(Box<ArkretInboundEvent>),
     Skip(Box<ArkretInboundSkippedEvent>),
@@ -178,6 +181,13 @@ fn classify_sdk_message_create(
     {
         return skip_encrypted_sdk_event(event, account_id);
     }
+    if matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. }) {
+        return skip_sdk_event(
+            event,
+            account_id,
+            ArkretInboundSkipReason::MissingRequiredField("encrypted_content"),
+        );
+    }
     let Some(content) = payload.content.as_ref() else {
         return skip_sdk_event(
             event,
@@ -202,6 +212,7 @@ fn classify_sdk_message_create(
         account_id: account_id.to_owned(),
         event_id: event.event_id.as_str().to_owned(),
         realm_id: event.realm_id.as_str().to_owned(),
+        scope_ref: event.scope_ref.clone(),
         chat_type: None,
         participant_count: None,
         strand_id,
@@ -345,7 +356,10 @@ pub fn parse_event_values_for_account(
                         reply_to: parsed.thread_root_id.clone(),
                         encrypted_payload: None,
                         encrypted_metadata_payload: None,
-                        request_ordering: None,
+                        accepted_ref: None,
+                        accepted_view: None,
+                        source_track_name: None,
+                        causal_after_event_ids: Vec::new(),
                         reason,
                     });
                 } else {
@@ -393,7 +407,10 @@ pub fn parse_notification_delta_for_account(
                         reply_to: parsed.thread_root_id.clone(),
                         encrypted_payload: None,
                         encrypted_metadata_payload: None,
-                        request_ordering: None,
+                        accepted_ref: None,
+                        accepted_view: None,
+                        source_track_name: None,
+                        causal_after_event_ids: Vec::new(),
                         reason,
                     });
                 } else {
@@ -450,12 +467,22 @@ fn classify_notification_event(
             ArkretInboundSkipReason::MissingRequiredField("realm_id"),
         );
     };
+    let Ok(typed_realm_id) = arkret::RealmId::new(realm_id.clone()) else {
+        return skip_notification(
+            notification,
+            account_id,
+            ArkretInboundSkipReason::MissingRequiredField("valid realm_id"),
+        );
+    };
     let body = notification_body(notification_kind, notification);
     let sender_did = notification_sender(notification, principal_id);
     ArkretInboundEventOutcome::Dispatchable(Box::new(ArkretInboundEvent {
         account_id: account_id.to_owned(),
         event_id,
         realm_id,
+        scope_ref: arkret::ScopeRef::Realm {
+            realm_id: typed_realm_id,
+        },
         chat_type: None,
         participant_count: None,
         strand_id: notification_strand_id(notification),
@@ -568,7 +595,10 @@ fn skip_event(
         reply_to: None,
         encrypted_payload: None,
         encrypted_metadata_payload: None,
-        request_ordering: None,
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: None,
+        causal_after_event_ids: Vec::new(),
         reason,
     }))
 }
@@ -610,7 +640,10 @@ fn classify_sidecar_exchange_control(
         reply_to: None,
         encrypted_payload,
         encrypted_metadata_payload: None,
-        request_ordering: None,
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: None,
+        causal_after_event_ids: Vec::new(),
         reason: ArkretInboundSkipReason::SidecarExchangeControl,
     }))
 }
@@ -632,7 +665,10 @@ fn skip_sdk_event(
         reply_to: None,
         encrypted_payload: None,
         encrypted_metadata_payload: None,
-        request_ordering: None,
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: None,
+        causal_after_event_ids: Vec::new(),
         reason,
     }))
 }
@@ -657,7 +693,10 @@ fn skip_notification(
         reply_to: None,
         encrypted_payload: None,
         encrypted_metadata_payload: None,
-        request_ordering: None,
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: None,
+        causal_after_event_ids: Vec::new(),
         reason,
     }))
 }
@@ -675,10 +714,15 @@ fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretIn
         strand_id: message
             .as_ref()
             .map(|payload| payload.strand_id.as_str().to_owned()),
-        reply_to: message.and_then(|payload| payload.reply_to_id),
+        reply_to: message
+            .as_ref()
+            .and_then(|payload| payload.reply_to_id.clone()),
         encrypted_payload: extract_encrypted_payload_from_message_content(event),
         encrypted_metadata_payload: extract_encrypted_metadata_payload_from_message_content(event),
-        request_ordering: None,
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: message.as_ref().map(|payload| payload.track_name.clone()),
+        causal_after_event_ids: Vec::new(),
         reason: ArkretInboundSkipReason::EncryptedContent,
     }))
 }
@@ -1039,12 +1083,12 @@ mod tests {
 
     #[test]
     fn parse_notification_delta_dispatches_assignment() {
-        let account = make_account(Some("ak:realm:r1"));
+        let account = make_account(Some(REALM_1.as_str()));
         let notifications = json!({
             "events": [{
                 "notification_id": "ak:notification:n1",
                 "notification_kind": "assignment",
-                "realm_id": "ak:realm:r1",
+                "realm_id": REALM_1.as_str(),
                 "strand_id": "ak:strand:s1",
                 "source_event_id": "ak:event:rel1",
                 "source_actor_id": "ak:did_core:web:example.org:user-alice",
@@ -1058,7 +1102,7 @@ mod tests {
         assert_eq!(result.events.len(), 1);
         let event = &result.events[0];
         assert_eq!(event.event_id, "ak:notification:n1");
-        assert_eq!(event.realm_id, "ak:realm:r1");
+        assert_eq!(event.realm_id, REALM_1.as_str());
         assert_eq!(
             event.sender_did,
             "ak:did_core:web:example.org:user-alice".to_owned()
@@ -1075,7 +1119,7 @@ mod tests {
         let notifications = json!([{
             "id": "ak:notification:n2",
             "kind": "schedule",
-            "realm_id": "ak:realm:r1",
+            "realm_id": REALM_1.as_str(),
             "source_ref": "ak:strand:s2",
             "source_event_id": "ak:event:update1",
             "sender": "ak:did_core:web:example.org:user-bob"
@@ -1097,7 +1141,7 @@ mod tests {
             "events": [{
                 "notification_id": "ak:notification:n3",
                 "notification_kind": "mention",
-                "realm_id": "ak:realm:r1",
+                "realm_id": REALM_1.as_str(),
                 "source_event_id": "ak:event:msg1"
             }]
         });
@@ -1119,7 +1163,7 @@ mod tests {
             "events": [{
                 "notification_id": "ak:notification:n4",
                 "notification_kind": "assignment",
-                "realm_id": "ak:realm:other",
+                "realm_id": REALM_1.as_str(),
                 "strand_id": "ak:strand:s4",
                 "source_event_id": "ak:event:rel4"
             }]
@@ -1129,6 +1173,6 @@ mod tests {
 
         assert_eq!(result.events.len(), 1);
         assert!(result.skipped.is_empty());
-        assert_eq!(result.events[0].realm_id, "ak:realm:other");
+        assert_eq!(result.events[0].realm_id, REALM_1.as_str());
     }
 }

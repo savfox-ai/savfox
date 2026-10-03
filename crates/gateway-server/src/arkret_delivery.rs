@@ -23,13 +23,14 @@ fn store_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RemoteConversationKey {
     pub channel_config_id: String,
     pub account_id: String,
     pub realm_id: String,
     pub strand_id: String,
+    pub stream_ref: arkret::CommitStreamRef,
 }
 
 impl RemoteConversationKey {
@@ -42,14 +43,20 @@ impl RemoteConversationKey {
         ] {
             anyhow::ensure!(!value.trim().is_empty(), "Arkret {name} cannot be empty");
         }
+        anyhow::ensure!(
+            self.stream_ref.realm_id().as_str() == self.realm_id,
+            "Arkret conversation stream belongs to another Realm"
+        );
         Ok(())
     }
 
     #[must_use]
     pub(crate) fn routing_scope(&self) -> String {
+        let stream_digest = arkret::canonical::canonical_sha256(&self.stream_ref)
+            .expect("closed SDK CommitStreamRef serializes canonically");
         format!(
-            "{}:{}:{}",
-            self.channel_config_id, self.account_id, self.realm_id
+            "{}:{}:{}:{}",
+            self.channel_config_id, self.account_id, self.realm_id, stream_digest
         )
     }
 }
@@ -273,10 +280,39 @@ struct DeliveryStoreFile {
     version: u32,
     #[serde(default)]
     bindings: BTreeMap<Uuid, ArkretExecutionBinding>,
-    #[serde(default)]
+    #[serde(default, with = "conversation_context_entries")]
     remote_context: BTreeMap<RemoteConversationKey, RemoteContextSnapshot>,
     #[serde(default)]
     outbox: BTreeMap<Uuid, DeliveryOutboxItem>,
+}
+
+// Structured conversation keys are persisted as entries, never JSON object keys.
+mod conversation_context_entries {
+    use super::*;
+
+    pub(super) fn serialize<S: serde::Serializer>(
+        entries: &BTreeMap<RemoteConversationKey, RemoteContextSnapshot>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        entries.iter().collect::<Vec<_>>().serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<BTreeMap<RemoteConversationKey, RemoteContextSnapshot>, D::Error> {
+        let entries =
+            Vec::<(RemoteConversationKey, RemoteContextSnapshot)>::deserialize(deserializer)?;
+        let mut result = BTreeMap::new();
+        for (key, value) in entries {
+            key.validate().map_err(serde::de::Error::custom)?;
+            if result.insert(key, value).is_some() {
+                return Err(serde::de::Error::custom(
+                    "duplicate remote conversation entry",
+                ));
+            }
+        }
+        Ok(result)
+    }
 }
 
 impl Default for DeliveryStoreFile {
@@ -665,10 +701,7 @@ impl ArkretExecutionBindingStore {
     ) -> anyhow::Result<()> {
         let event = &submission.request().submission.event;
         anyhow::ensure!(
-            event.scope_ref
-                == arkret::ScopeRef::Realm {
-                    realm_id: arkret::RealmId::new(conversation.realm_id.clone())?,
-                }
+            arkret::CommitStreamRef::from_scope(&event.scope_ref, None)? == conversation.stream_ref
                 && event
                     .payload
                     .get("strand_id")
@@ -892,6 +925,13 @@ pub(crate) async fn publish_checkpoint(
         binding.mode == ArkretDeliveryMode::TaskDelivery,
         "Arkret checkpoint publishing requires task_delivery mode"
     );
+    anyhow::ensure!(
+        matches!(
+            binding.conversation.stream_ref,
+            arkret::CommitStreamRef::Realm { .. }
+        ),
+        "automatic task checkpoints require an ordinary Realm delivery target"
+    );
     let store = ArkretExecutionBindingStore::new(savfox_home);
     let (checkpoint, rendered) = store
         .enqueue_checkpoint(
@@ -953,6 +993,18 @@ pub(crate) async fn resume_pending_checkpoints(
         .await?;
     let mut published = 0;
     for item in pending {
+        if !matches!(
+            item.binding.conversation.stream_ref,
+            arkret::CommitStreamRef::Realm { .. }
+        ) {
+            store
+                .mark_retryable(
+                    item.checkpoint.checkpoint_id,
+                    "automatic task checkpoints require an ordinary Realm delivery target",
+                )
+                .await?;
+            continue;
+        }
         let correlation = DeliveryCorrelation {
             checkpoint_id: item.checkpoint.checkpoint_id,
             sequence: item.checkpoint.sequence,
@@ -1090,8 +1142,9 @@ mod tests {
         RemoteConversationKey {
             channel_config_id: "support".to_owned(),
             account_id: "agent-account".to_owned(),
-            realm_id: "ak:realm:one".to_owned(),
+            realm_id: canonical_conversation().realm_id,
             strand_id: strand.to_owned(),
+            stream_ref: canonical_conversation().stream_ref,
         }
     }
 
@@ -1102,6 +1155,9 @@ mod tests {
             account_id: "agent-account".to_owned(),
             realm_id: arkret::RealmId::from_event_id(&event).to_string(),
             strand_id: arkret::StrandId::from_event_id(&event).to_string(),
+            stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: arkret::RealmId::from_event_id(&event),
+            },
         }
     }
 
@@ -1303,6 +1359,90 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn native_sidecar_history_and_execution_stay_isolated_from_source_strand_after_reopen() {
+        let home = tempfile::tempdir().unwrap();
+        let shared = canonical_conversation();
+        let mut private = shared.clone();
+        private.stream_ref = arkret::CommitStreamRef::Sidecar {
+            realm_id: arkret::RealmId::new(private.realm_id.clone()).unwrap(),
+            sidecar_id: arkret::SidecarId::from_event_id(&arkret::EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [55; 32],
+            )),
+        };
+        assert_ne!(private.routing_scope(), shared.routing_scope());
+        let store = ArkretExecutionBindingStore::new(home.path());
+        for (key, body, session) in [
+            (shared.clone(), "shared history", "shared-session"),
+            (private.clone(), "private history", "private-session"),
+        ] {
+            store
+                .hydrate_event(
+                    key.clone(),
+                    RemoteContextEvent {
+                        event_id: body.to_owned(),
+                        sender_did: "controller".to_owned(),
+                        sender_kind: "human".to_owned(),
+                        body: body.to_owned(),
+                        received_at: Utc::now(),
+                    },
+                )
+                .await
+                .unwrap();
+            store
+                .ensure_binding(
+                    session,
+                    key,
+                    body,
+                    "controller",
+                    "agent",
+                    ArkretDeliveryMode::InteractiveChat,
+                )
+                .await
+                .unwrap();
+        }
+        let reopened = ArkretExecutionBindingStore::new(home.path());
+        assert_eq!(
+            reopened.remote_snapshot(&shared).await.unwrap().events[0].body,
+            "shared history"
+        );
+        assert_eq!(
+            reopened.remote_snapshot(&private).await.unwrap().events[0].body,
+            "private history"
+        );
+        assert_eq!(
+            reopened
+                .binding_for_conversation(&shared)
+                .await
+                .unwrap()
+                .unwrap()
+                .local_session_id,
+            "shared-session"
+        );
+        assert_eq!(
+            reopened
+                .binding_for_conversation(&private)
+                .await
+                .unwrap()
+                .unwrap()
+                .local_session_id,
+            "private-session"
+        );
+        let shared_submission = frozen_submission(&shared, "reply", 1_790_000_000);
+        assert!(
+            ArkretExecutionBindingStore::validate_submission_target(&shared_submission, &private)
+                .is_err()
+        );
+        let mut wrong_realm = private.clone();
+        wrong_realm.realm_id = arkret::RealmId::from_event_id(&arkret::EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [56; 32],
+        ))
+        .to_string();
+        assert!(wrong_realm.validate().is_err());
     }
 
     #[test]

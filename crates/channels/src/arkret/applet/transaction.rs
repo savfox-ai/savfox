@@ -19,6 +19,7 @@ pub struct AppletInboundCommand {
     pub event_id: String,
     /// Realm the event was emitted in.
     pub realm_id: String,
+    pub scope_ref: arkret::ScopeRef,
     /// Discussion strand id from the typed `ak.message.create` payload.
     pub strand_id: String,
     /// Sender DID (native human, native bot, or ghost actor — caller
@@ -179,6 +180,7 @@ pub fn classify_inbound_event(cfg: &ArkretAppletConfig, event: &Event) -> Applet
     AppletEventOutcome::Dispatch(AppletInboundCommand {
         event_id: event.event_id.as_str().to_owned(),
         realm_id: realm.to_owned(),
+        scope_ref: event.scope_ref.clone(),
         strand_id: payload.strand_id.into_string(),
         sender_did: actor.to_owned(),
         body,
