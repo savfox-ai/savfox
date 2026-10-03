@@ -86,5 +86,6 @@ arkret = { workspace = true, optional = true, features = ["keystore-windows"] }
 keyring = { workspace = true, optional = true }
 
 [dev-dependencies]
+arkret = { workspace = true, features = ["mls-test-utils"] }
 tempfile = { workspace = true }
 arkret-wire = { workspace = true, features = ["test-support"] }

@@ -12,12 +12,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::Context;
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity, ArkretMlsSigner};
 use arkret::{
-    AccountId, ActorId, ContentBlock, DeviceId, DidCoreId, DirectConversationBoundPayload,
-    EncryptedPayload, EncryptedPayloadScheme, EventContentPreEncryptionHeader,
-    EventContentRoutingContext, EventId, MessageMetadata, MlsCommitPayload, MlsEncryptedPayload,
-    MlsEndpointIdentity, MlsKeyPackageRecord, MlsKeyPackageState, MlsPayloadType,
-    MlsWelcomeDelivery, PresencePlaintext, PresenceState, RealmId, ScopeRef, SignalSequenceDomain,
-    SignalSequenceEndpoint, TypedCurrentResult, seal_signal_plaintext,
+    AccountId, ActorId, CommittedEventRef, ContentBlock, DeviceId, DidCoreId,
+    DirectConversationBoundPayload, EncryptedPayload, EncryptedPayloadScheme,
+    EventContentPreEncryptionHeader, EventContentRoutingContext, EventId, MessageMetadata,
+    MlsCommitPayload, MlsEncryptedPayload, MlsEndpointIdentity, MlsKeyPackageRecord,
+    MlsKeyPackageState, MlsPayloadType, MlsWelcomeDelivery, PresencePlaintext, PresenceState,
+    RealmId, ScopeRef, SignalSequenceDomain, SignalSequenceEndpoint, TypedCurrentResult,
+    seal_signal_plaintext,
 };
 use arkret_models_crypto::MlsGroupStateRecord as CurrentMlsGroupStateRecord;
 use base64::Engine as _;
@@ -236,6 +237,17 @@ pub struct ArkretDirectConversationWelcomeBinding {
     pub initial_exact_pair_generation_ref: Option<String>,
 }
 
+/// A verified delivery's authenticated plaintext, saved with the ratchet advance.
+/// This host-local record never replaces Commit verification or action authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArkretAcceptedDecryptionRecord {
+    pub accepted_ref: CommittedEventRef,
+    pub content: Value,
+    pub decrypted_epoch: u64,
+    pub saved_generation: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArkretCryptoStateFile {
@@ -244,6 +256,9 @@ pub struct ArkretCryptoStateFile {
     #[serde(default)]
     pub generation: u64,
     pub unable_to_decrypt: BTreeMap<EventId, UnableToDecryptRecord>,
+    /// Exact accepted Commit plus full encrypted payload keys; wrapped at rest.
+    #[serde(default)]
+    pub accepted_decryptions: BTreeMap<String, ArkretAcceptedDecryptionRecord>,
     /// Provider-opaque group snapshots installed from accepted Commit or
     /// recipient Welcome delivery. Keys are canonical MLS group ids.
     #[serde(default)]
@@ -287,6 +302,7 @@ impl ArkretCryptoStateFile {
             scope_id,
             generation: 0,
             unable_to_decrypt: BTreeMap::new(),
+            accepted_decryptions: BTreeMap::new(),
             mls_group_states: BTreeMap::new(),
             mls_station_currents: BTreeMap::new(),
             mls_identities: BTreeMap::new(),
@@ -739,6 +755,7 @@ impl FileArkretCryptoStore {
             sender_actor_id: &actor_id,
             sender_device_id: None,
             authority_commit_id: &authority_head.commit_id,
+            parent_realm_authority_commit_id: None,
             signal_class: arkret_wire::SignalClass::Session,
             sent_at,
             expires_at,
@@ -780,6 +797,7 @@ impl FileArkretCryptoStore {
             sender_actor_id: actor_id,
             sender_device_id: None,
             authority_commit_id: authority_head.commit_id.clone(),
+            parent_realm_authority_commit_id: None,
             signal_class: arkret_wire::SignalClass::Session,
             sent_at,
             expires_at,
@@ -1990,8 +2008,63 @@ impl FileArkretCryptoStore {
         &self,
         payload: &EncryptedPayload,
     ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
+        self.decrypt_content_block_detailed(payload, None)
+    }
+
+    /// Retry only the exact native Sidecar delivery already verified by Garth.
+    /// A different Event, Commit, stream, position, header or ciphertext must
+    /// pass RFC decryption again and cannot reuse a consumed sender secret.
+    pub fn try_decrypt_accepted_content_block_detailed(
+        &self,
+        accepted_ref: &CommittedEventRef,
+        payload: &EncryptedPayload,
+    ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
+        anyhow::ensure!(
+            matches!(
+                payload.pre_encryption_header.effective_scope,
+                ScopeRef::Sidecar { .. }
+            ) && accepted_ref.stream_ref
+                == arkret::CommitStreamRef::from_scope(
+                    &payload.pre_encryption_header.effective_scope,
+                    None
+                )?,
+            "accepted decryption requires the exact native Sidecar stream"
+        );
+        payload.verify_payload_digest()?;
+        self.decrypt_content_block_detailed(payload, Some(accepted_ref))
+    }
+
+    fn decrypt_content_block_detailed(
+        &self,
+        payload: &EncryptedPayload,
+        accepted_ref: Option<&CommittedEventRef>,
+    ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
+        use sha2::Digest as _;
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
+        let cache_key = accepted_ref
+            .map(|reference| {
+                serde_json::to_vec(&(reference, payload))
+                    .map(|bytes| hex::encode(sha2::Sha256::digest(bytes)))
+            })
+            .transpose()?;
+        if let Some(cached) = cache_key
+            .as_ref()
+            .and_then(|key| state.accepted_decryptions.get(key))
+        {
+            return Ok(ArkretDecryptDetailedOutcome::Decrypted {
+                content: cached.content.clone(),
+                consume_bindings: state
+                    .mls_welcome_consume_bindings
+                    .values()
+                    .filter(|binding| {
+                        binding.mls_group_id == payload.group_id.as_str()
+                            && binding.epoch <= cached.decrypted_epoch
+                    })
+                    .cloned()
+                    .collect(),
+            });
+        }
         let Some(record) = state
             .mls_group_states
             .get(payload.group_id.as_str())
@@ -2004,7 +2077,7 @@ impl FileArkretCryptoStore {
         let plaintext = group
             .decrypt_payload(payload)
             .map_err(|err| anyhow::anyhow!("decrypt Arkret MLS payload: {err}"))?;
-        let content = serde_json::from_slice(&plaintext)
+        let content: Value = serde_json::from_slice(&plaintext)
             .with_context(|| "decrypted Arkret content block is not JSON")?;
         let updated = group
             .persist_state(&mut state)
@@ -2030,6 +2103,27 @@ impl FileArkretCryptoStore {
             })
             .cloned()
             .collect::<Vec<_>>();
+        if let (Some(key), Some(reference)) = (cache_key, accepted_ref) {
+            state.accepted_decryptions.insert(
+                key,
+                ArkretAcceptedDecryptionRecord {
+                    accepted_ref: reference.clone(),
+                    content: content.clone(),
+                    decrypted_epoch: updated.epoch,
+                    saved_generation: state.generation,
+                },
+            );
+            // Eviction loses only retry convenience, never RFC replay protection.
+            while state.accepted_decryptions.len() > 512 {
+                let oldest = state
+                    .accepted_decryptions
+                    .iter()
+                    .min_by_key(|(_, record)| record.saved_generation)
+                    .map(|(key, _)| key.clone())
+                    .expect("nonempty bounded cache");
+                state.accepted_decryptions.remove(&oldest);
+            }
+        }
         self.save(&mut state)?;
         Ok(ArkretDecryptDetailedOutcome::Decrypted {
             content,
@@ -3415,6 +3509,259 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn accepted_native_decryption_retries_after_reopen_without_reusing_rfc_secrets() {
+        use arkret::{
+            Base64UrlString, CommitStreamRef, CommittedEventFullView, DetachedObjectSignature,
+            DetachedSignatureAlgorithm, DetachedSignatureContext, DidUrl, Event, EventKind, Hash,
+            MlsGovernanceBindingPayload, MlsWelcomeRecipientEndpoint, RealmCommit,
+            RealmCommitAuthorityRef, RealmCommitId,
+        };
+        use arkret_wire::{KeypackageClaimId, MlsWelcomeDeliveryId};
+        // A real two-member RFC fixture. Structural Commit signatures here are
+        // not evidence of Station admission; the host port owns that verification.
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "retry", "bob");
+        store.ensure_created().unwrap();
+        let scope = ScopeRef::Sidecar {
+            realm_id: FIXTURE_REALM.clone(),
+            sidecar_id: arkret::SidecarId::from_event_id(&FIXTURE_EVENT_1),
+        };
+        let alice_actor = ActorId::account(test_account("ak:did_core:web:alice.example"));
+        let bob_actor = ActorId::account(test_account("ak:did_core:web:bob.example"));
+        let alice_device = DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001").unwrap();
+        let bob_method = DidUrl::new("did:web:bob.example#runtime").unwrap();
+        let identity = |actor: ActorId, device: DeviceId, seed| {
+            ArkretMlsIdentity::new_human_device(
+                actor,
+                device,
+                ArkretMlsSigner::from_ed25519_signing_key(ed25519_dalek::SigningKey::from_bytes(
+                    &[seed; 32],
+                )),
+            )
+            .unwrap()
+        };
+        let alice = identity(alice_actor.clone(), alice_device, 31);
+        let bob = new_mls_identity(
+            bob_actor.clone(),
+            agent_mls_endpoint(
+                "ak:did_core:web:bob.example",
+                bob_method.as_str(),
+                FIXTURE_EVENT_9.as_str(),
+            )
+            .unwrap(),
+            Some([32; 32]),
+        )
+        .unwrap();
+        let endpoints = vec![alice.endpoint_identity(), bob.endpoint_identity()];
+        let mut alice_group = alice.create_group(&scope).unwrap();
+        let mut package = bob.key_package_record().unwrap();
+        package.state = MlsKeyPackageState::Claimed;
+        package.claim_id = Some(
+            KeypackageClaimId::new("ak:keypackage_claim:01904100-0000-7000-8000-000000000003")
+                .unwrap()
+                .to_string(),
+        );
+        let ScopeRef::Sidecar {
+            realm_id,
+            sidecar_id,
+        } = &scope
+        else {
+            unreachable!()
+        };
+        let binding = MlsGovernanceBindingPayload::sidecar(
+            realm_id.clone(),
+            sidecar_id.clone(),
+            Some(FIXTURE_EVENT_1.clone()),
+            0,
+            1,
+            0,
+            arkret::sidecar_participant_authority_digest(
+                sidecar_id,
+                realm_id,
+                &test_account("ak:did_core:web:alice.example"),
+                &[DidCoreId::new("ak:did_core:web:bob.example").unwrap()],
+            )
+            .unwrap(),
+            vec![FIXTURE_EVENT_1.clone()],
+        )
+        .unwrap();
+        let add = alice_group
+            .add_member_with_governance_binding(&package, &binding)
+            .unwrap();
+        let payload =
+            MlsCommitPayload::new(FIXTURE_EVENT_1.clone(), 0, &add.commit, binding).unwrap();
+        let Value::Object(payload) = serde_json::to_value(payload).unwrap() else {
+            unreachable!()
+        };
+        let signature = |context| DetachedObjectSignature {
+            context,
+            signature_algorithm: DetachedSignatureAlgorithm::Ed25519,
+            verification_method: DidUrl::new("did:web:station.example#authority").unwrap(),
+            signed_digest: Hash::new(format!("sha256:{}", "3".repeat(64))).unwrap(),
+            created_at: Utc::now(),
+            sig: Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+        };
+        let accepted = CommittedEventFullView {
+            event: Event {
+                event_id: FIXTURE_EVENT_2.clone(),
+                kind: EventKind::MlsCommit,
+                realm_id: realm_id.clone(),
+                scope_ref: scope.clone(),
+                actor_id: alice_actor,
+                executed_by: None,
+                authorization_ref: None,
+                applet_id: None,
+                external_ref: None,
+                created_at: Utc::now(),
+                semantic_refs: Vec::new(),
+                payload: payload.into_iter().collect(),
+                producer_proof: None,
+            },
+            commit: RealmCommit {
+                commit_id: RealmCommitId::from_digest([61; 32]),
+                realm_id: realm_id.clone(),
+                stream_ref: CommitStreamRef::from_scope(&scope, None).unwrap(),
+                stream_position: 2,
+                previous_commit_ref: Some(RealmCommitId::from_digest([60; 32])),
+                event_ref: FIXTURE_EVENT_2.clone(),
+                governance_generation: 0,
+                authority_ref: RealmCommitAuthorityRef::GenesisOrChangeEvent(
+                    FIXTURE_EVENT_1.clone(),
+                ),
+                committed_at: Utc::now(),
+                signature: signature(DetachedSignatureContext::RealmCommit),
+            },
+        };
+        let delivery = MlsWelcomeDelivery {
+            welcome_id: MlsWelcomeDeliveryId::new(
+                "ak:mls_welcome_delivery:01904100-0000-7000-8000-000000000004",
+            )
+            .unwrap(),
+            realm_id: realm_id.clone(),
+            effective_scope: scope.clone(),
+            commit_event_ref: FIXTURE_EVENT_2.clone(),
+            recipient_actor_id: bob_actor,
+            recipient_endpoint: MlsWelcomeRecipientEndpoint::AgentRuntime {
+                verification_method: bob_method,
+            },
+            keypackage_claim_ref: add.welcome.keypackage_claim_ref.clone(),
+            ciphertext_b64: add.welcome.ciphertext_b64.clone(),
+            producer_proof: signature(DetachedSignatureContext::MlsWelcomeDelivery),
+        };
+        let mut bob_group =
+            ArkretMlsGroup::join_from_verified_welcome_delivery(bob, &delivery, &accepted).unwrap();
+        alice_group
+            .install_recovered_own_commit(&accepted, &FIXTURE_EVENT_1)
+            .unwrap();
+        alice_group
+            .install_test_leaf_bindings(endpoints.clone())
+            .unwrap();
+        bob_group.install_test_leaf_bindings(endpoints).unwrap();
+        let mut state = store.load().unwrap();
+        bob_group.persist_state(&mut state).unwrap();
+        store.save(&mut state).unwrap();
+        let header = |content_type| {
+            EventContentPreEncryptionHeader::reconstruct(
+                "1.0",
+                content_type,
+                EncryptedPayloadScheme::MlsRfc9420,
+                scope.clone(),
+                "ak.message.create",
+                1,
+                FIXTURE_EVENT_2.clone(),
+                alice_group.local_content_sender_domain().unwrap(),
+                EventContentRoutingContext::None,
+            )
+            .unwrap()
+        };
+        let content_header = header(ContentBlock::MLS_CONTENT_TYPE);
+        let metadata_header = header(MessageMetadata::MLS_CONTENT_TYPE);
+        let content = serde_json::to_value(ContentBlock::text("durable private request")).unwrap();
+        let metadata = json!({"private": "distinct metadata"});
+        let ciphertext = alice_group
+            .encrypt_payload(content_header, &serde_json::to_vec(&content).unwrap())
+            .unwrap();
+        let metadata_ciphertext = alice_group
+            .encrypt_payload(metadata_header, &serde_json::to_vec(&metadata).unwrap())
+            .unwrap();
+        let reference = CommittedEventRef {
+            event_id: FIXTURE_EVENT_9.clone(),
+            commit_id: RealmCommitId::from_digest([62; 32]),
+            stream_ref: CommitStreamRef::from_scope(&scope, None).unwrap(),
+            stream_position: 3,
+        };
+        let read = |store: &FileArkretCryptoStore, payload: &EncryptedPayload| {
+            let ArkretDecryptDetailedOutcome::Decrypted { content, .. } = store
+                .try_decrypt_accepted_content_block_detailed(&reference, payload)
+                .unwrap()
+            else {
+                panic!("decrypted")
+            };
+            content
+        };
+        assert_eq!(read(&store, &ciphertext), content);
+        // Simulate failure in the next business step, then a fresh process.
+        let reopened = FileArkretCryptoStore::for_account(home.path(), "retry", "bob");
+        let generation = reopened.load().unwrap().generation;
+        assert_eq!(read(&reopened, &ciphertext), content);
+        assert_eq!(reopened.load().unwrap().generation, generation);
+        assert_eq!(read(&reopened, &metadata_ciphertext), metadata);
+        assert_eq!(read(&reopened, &ciphertext), content);
+        assert_eq!(read(&reopened, &metadata_ciphertext), metadata);
+        let stable = std::fs::read(store.path()).unwrap();
+        assert!(!String::from_utf8_lossy(&stable).contains("durable private request"));
+        assert!(
+            reopened
+                .try_decrypt_content_block_detailed(&ciphertext)
+                .is_err()
+        );
+        for other in [
+            CommittedEventRef {
+                event_id: FIXTURE_EVENT_1.clone(),
+                ..reference.clone()
+            },
+            CommittedEventRef {
+                commit_id: RealmCommitId::from_digest([63; 32]),
+                ..reference.clone()
+            },
+            CommittedEventRef {
+                stream_position: 4,
+                ..reference.clone()
+            },
+            CommittedEventRef {
+                stream_ref: CommitStreamRef::Realm {
+                    realm_id: realm_id.clone(),
+                },
+                ..reference.clone()
+            },
+        ] {
+            assert!(
+                reopened
+                    .try_decrypt_accepted_content_block_detailed(&other, &ciphertext)
+                    .is_err()
+            );
+        }
+        let mut altered = ciphertext.clone();
+        altered.pre_encryption_header.content_type = MessageMetadata::MLS_CONTENT_TYPE.to_owned();
+        altered.content_type = MessageMetadata::MLS_CONTENT_TYPE.to_owned();
+        altered.payload_digest = EncryptedPayload::payload_digest_for_header(
+            &altered.pre_encryption_header,
+            altered.ciphertext.clone(),
+        )
+        .unwrap();
+        assert!(
+            reopened
+                .try_decrypt_accepted_content_block_detailed(&reference, &altered)
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(store.path()).unwrap(),
+            stable,
+            "failed replays must not mutate durable state"
+        );
     }
 
     #[test]

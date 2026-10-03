@@ -1116,6 +1116,11 @@ async fn process_durable_account_inbox(
                 }
             }
             if let Some(error) = processing_error {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    "arkret: durable account delivery processing failed; retry scheduled: {error:#}"
+                );
                 let delay_secs = 1_u64
                     .checked_shl(delivery.attempts.min(6))
                     .unwrap_or(60)
@@ -2506,7 +2511,23 @@ async fn handle_parsed_account_events(
             diagnostic.last_realm_id = skipped.realm_id.clone();
         });
         match skipped.reason {
-            ArkretInboundSkipReason::EncryptedContent => {
+            ArkretInboundSkipReason::EncryptedContent
+            | ArkretInboundSkipReason::SidecarExchangeControl => {
+                if skipped
+                    .encrypted_payload
+                    .as_ref()
+                    .or(skipped.encrypted_metadata_payload.as_ref())
+                    .is_some_and(|payload| {
+                        matches!(
+                            payload.pre_encryption_header.effective_scope,
+                            arkret::ScopeRef::Sidecar { .. }
+                        )
+                    })
+                    && skipped.accepted_ref.is_none()
+                {
+                    // Raw backfill is neither ratchet input nor durable delivery ACK.
+                    continue;
+                }
                 if let Some(event_id) = skipped.event_id.as_deref()
                     && account_event_seen(account_store, channel, account, event_id).await?
                 {
@@ -2898,7 +2919,7 @@ async fn try_handle_encrypted_account_skip(
     if native_sidecar && skipped.accepted_ref.is_none() {
         // A shape-only query cannot execute a request or consume its MLS ratchet
         // ahead of the verified stream delivery.
-        return Ok(true);
+        return Ok(false);
     }
     if native_sidecar {
         let reference = skipped
@@ -2988,7 +3009,13 @@ async fn try_handle_encrypted_account_skip(
         ),
     }
 
-    match crypto_store.try_decrypt_content_block_detailed(payload) {
+    let decrypted = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
+        Some(reference) => {
+            crypto_store.try_decrypt_accepted_content_block_detailed(reference, payload)
+        }
+        None => crypto_store.try_decrypt_content_block_detailed(payload),
+    };
+    match decrypted {
         Ok(ArkretDecryptDetailedOutcome::Decrypted {
             content,
             consume_bindings,
@@ -3248,16 +3275,16 @@ async fn fold_sidecar_exchange_control(
     ) else {
         return Ok(());
     };
-    let Ok(ArkretDecryptDetailedOutcome::Decrypted {
+    let ArkretDecryptDetailedOutcome::Decrypted {
         content: plaintext, ..
-    }) = crypto_store.try_decrypt_content_block_detailed(payload)
+    } = crypto_store.try_decrypt_accepted_content_block_detailed(accepted_ref, payload)?
     else {
         debug!(
             account_id = %account.id,
             event_id,
             "arkret: Sidecar exchange control could not be decrypted; leaving exchange state unchanged"
         );
-        return Ok(());
+        anyhow::bail!("Sidecar exchange control is waiting for verified MLS decryption");
     };
     // The outer payload strand and the delivery strand are the same value here
     // because the delivery strand is read from that payload; passing both keeps
@@ -3373,11 +3400,25 @@ async fn consume_sidecar_exchange_binding(
     let Some(metadata_payload) = skipped.encrypted_metadata_payload.as_ref() else {
         return Ok(non_request());
     };
+    let decrypted_metadata = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
+        Some(reference) => {
+            crypto_store.try_decrypt_accepted_content_block_detailed(reference, metadata_payload)
+        }
+        None => crypto_store.try_decrypt_content_block_detailed(metadata_payload),
+    };
     let Ok(ArkretDecryptDetailedOutcome::Decrypted {
         content: metadata_plaintext,
         ..
-    }) = crypto_store.try_decrypt_content_block_detailed(metadata_payload)
+    }) = (match decrypted_metadata {
+        Err(error) if native_sidecar => {
+            return Err(error.context("decrypt verified Sidecar metadata"));
+        }
+        other => other,
+    })
     else {
+        if native_sidecar {
+            anyhow::bail!("verified Sidecar metadata is waiting for MLS decryption");
+        }
         // Fail closed to "no binding": the message is handled as an
         // ordinary private message and never as an exchange participant.
         debug!(
