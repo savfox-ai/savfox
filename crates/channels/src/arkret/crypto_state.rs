@@ -1709,12 +1709,71 @@ impl FileArkretCryptoStore {
     ) -> anyhow::Result<usize> {
         let mut payloads = Vec::new();
         collect_direct_conversation_bound_payloads(value, 8, &mut payloads);
+        self.record_direct_conversation_bindings(&payloads)
+    }
+
+    /// Restore participant authority from an independently verified Snapshot
+    /// cut. A replacement runtime starts scanning after its Welcome Add, so
+    /// the lifetime binding Event can precede its receive checkpoint.
+    pub fn record_verified_direct_conversation_current_entries(
+        &self,
+        realm_id: &RealmId,
+        actor: &ActorId,
+        entries: &[TypedCurrentResult],
+    ) -> anyhow::Result<usize> {
+        let mut payloads = Vec::new();
+        for entry in entries {
+            let TypedCurrentResult::Value {
+                selector: arkret::CurrentSelector::DirectConversationBinding { pair_key },
+                source_stream_ref,
+                value,
+                ..
+            } = entry
+            else {
+                continue;
+            };
+            anyhow::ensure!(
+                source_stream_ref
+                    == &arkret::CommitStreamRef::Realm {
+                        realm_id: realm_id.clone()
+                    },
+                "Direct binding current belongs to another stream"
+            );
+            let binding: arkret::DirectConversationBindingCurrentValue =
+                serde_json::from_value(value.clone())?;
+            binding.binding_digest()?;
+            anyhow::ensure!(
+                binding.endorsements.iter().all(|entry| {
+                    entry.value.realm_id == *realm_id
+                        && entry.value.pair_key == *pair_key
+                        && entry.value.unordered_participant_ids.contains(actor)
+                }),
+                "Direct binding current does not authorize this Realm participant"
+            );
+            let first = binding
+                .endorsements
+                .iter()
+                .min_by_key(|entry| &entry.tag_id)
+                .context("Direct binding current has no accepted endorsement")?;
+            payloads.push((
+                first.value.clone(),
+                Some(first.tag_id.event_id().to_string()),
+            ));
+        }
+        self.record_direct_conversation_bindings(&payloads)
+    }
+
+    fn record_direct_conversation_bindings(
+        &self,
+        payloads: &[(DirectConversationBoundPayload, Option<String>)],
+    ) -> anyhow::Result<usize> {
         if payloads.is_empty() {
             return Ok(0);
         }
         let _guard = self.mutation_lock.lock();
         let mut state = self.load()?;
-        for (payload, binding_event_ref) in &payloads {
+        let mut changed = false;
+        for (payload, binding_event_ref) in payloads {
             let binding = ArkretDirectConversationWelcomeBinding {
                 realm_id: payload.realm_id.to_string(),
                 strand_id: payload.main_strand_id.to_string(),
@@ -1723,6 +1782,19 @@ impl FileArkretCryptoStore {
                     payload.initial_exact_pair_group_state_ref.to_string(),
                 ),
             };
+            if state
+                .direct_conversation_welcome_bindings
+                .get(&binding.realm_id)
+                .is_some_and(|previous| {
+                    previous.binding_event_ref == binding.binding_event_ref
+                        && previous.strand_id == binding.strand_id
+                        && previous.initial_exact_pair_generation_ref
+                            == binding.initial_exact_pair_generation_ref
+                })
+            {
+                continue;
+            }
+            changed = true;
             // One binding per Realm: drop any record an older build keyed by the
             // Welcome Event so the same pair is never described twice.
             state
@@ -1731,6 +1803,9 @@ impl FileArkretCryptoStore {
             state
                 .direct_conversation_welcome_bindings
                 .insert(binding.realm_id.clone(), binding);
+        }
+        if !changed {
+            return Ok(payloads.len());
         }
         for consume_binding in state.mls_welcome_consume_bindings.values_mut() {
             enrich_mls_welcome_consume_binding(
@@ -2630,6 +2705,99 @@ mod tests {
             "initial_exact_pair_group_state_ref": FIXTURE_EVENT_6.as_str(),
             "created_at": "2026-08-01T00:00:00.000Z"
         })
+    }
+
+    #[test]
+    fn replacement_runtime_restores_old_direct_binding_from_verified_current_cut() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "current", "new-runtime");
+        let payload: DirectConversationBoundPayload = serde_json::from_value(
+            direct_conversation_bound_payload(FIXTURE_REALM_B.as_str(), FIXTURE_STRAND.as_str()),
+        )
+        .unwrap();
+        let actor = payload.unordered_participant_ids[1].clone();
+        let current = arkret::DirectConversationBindingCurrentValue {
+            endorsements: vec![arkret::DirectConversationBindingEndorsementEntry {
+                tag_id: arkret_models_collaboration::exact_current_results::CanonicalEventDot::new(
+                    FIXTURE_EVENT_14.clone(),
+                    0,
+                )
+                .unwrap(),
+                value: payload.clone(),
+            }],
+        };
+        let entry = TypedCurrentResult::Value {
+            selector: arkret::CurrentSelector::DirectConversationBinding {
+                pair_key: payload.pair_key.clone(),
+            },
+            source_stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: FIXTURE_REALM_B.clone(),
+            },
+            revision: arkret::CurrentRevision {
+                commit_id: arkret::RealmCommitId::from_digest([3; 32]),
+                stream_position: 15,
+            },
+            value: serde_json::to_value(current).unwrap(),
+        };
+        assert_eq!(
+            store
+                .record_verified_direct_conversation_current_entries(
+                    &FIXTURE_REALM_B,
+                    &actor,
+                    &[entry.clone()]
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .direct_conversation_binding_event_ref(FIXTURE_REALM_B.as_str())
+                .unwrap(),
+            Some(FIXTURE_EVENT_14.clone())
+        );
+        let generation = store.load().unwrap().generation;
+        store
+            .record_verified_direct_conversation_current_entries(
+                &FIXTURE_REALM_B,
+                &actor,
+                &[entry.clone()],
+            )
+            .unwrap();
+        assert_eq!(store.load().unwrap().generation, generation);
+        assert!(
+            store
+                .record_verified_direct_conversation_current_entries(
+                    &FIXTURE_REALM,
+                    &actor,
+                    &[entry.clone()]
+                )
+                .is_err()
+        );
+        let outsider = ActorId::account(test_account("ak:did_core:web:other.example"));
+        assert!(
+            store
+                .record_verified_direct_conversation_current_entries(
+                    &FIXTURE_REALM_B,
+                    &outsider,
+                    &[entry.clone()]
+                )
+                .is_err()
+        );
+        let mut wrong_pair = entry;
+        let TypedCurrentResult::Value { selector, .. } = &mut wrong_pair;
+        *selector = arkret::CurrentSelector::DirectConversationBinding {
+            pair_key: Hash::new(format!("sha256:{}", "cc".repeat(32))).unwrap(),
+        };
+        assert!(
+            store
+                .record_verified_direct_conversation_current_entries(
+                    &FIXTURE_REALM_B,
+                    &actor,
+                    &[wrong_pair]
+                )
+                .is_err()
+        );
+        assert_eq!(store.load().unwrap().generation, generation);
     }
 
     #[test]

@@ -69,6 +69,11 @@ a narrower grant cannot run the full configured listener and an over-grant is re
 The cached last successful session scope is diagnostic history, not current key or
 provision authority, and never authorizes adding permissions to a saved Agent.
 
+A saved delivery-mode change applies to subsequent inbound messages in existing
+conversations. Each mode uses a separate local execution session, sharing only
+verified remote conversation history. Switching to chat does not publish or resume
+the private task rollout; switching back resumes the original task session.
+
 Use the service-reported recovery: provision a new Agent for a deficient immutable
 provision scope; reauthorize the key within that ceiling for a key-scope deficiency;
 refresh the session within both ceilings for a session-scope deficiency. These scope

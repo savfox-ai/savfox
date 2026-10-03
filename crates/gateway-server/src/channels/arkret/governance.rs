@@ -181,6 +181,12 @@ async fn welcome_roster(
     let (snapshot, bundle) = verified_scope_snapshot(http, &delivery.realm_id).await?;
     store
         .record_verified_mls_current_entries(&snapshot.realm_id, &snapshot.current_state_entries)?;
+    store.record_verified_direct_conversation_current_entries(
+        &snapshot.realm_id,
+        &arkret::ActorId::account(account.actor_account_id.clone()),
+        &snapshot.current_state_entries,
+    )?;
+
     if matches!(delivery.effective_scope, arkret::ScopeRef::Realm { .. }) {
         store.upsert_realm_policy(savfox_channels::arkret::ArkretRealmCryptoPolicy {
             realm_id: delivery.realm_id.to_string(),

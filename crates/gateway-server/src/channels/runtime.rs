@@ -405,13 +405,54 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .await
     };
 
+    #[cfg(feature = "arkret")]
+    let arkret_routing_scope = if platform == "arkret" {
+        let (Some(config_id), Some(account_id), Some(realm_id), Some(strand_id)) = (
+            start_meta.saved_channel_config_id.as_deref(),
+            start_meta.account_id.as_deref(),
+            start_meta.remote_realm_id.as_deref(),
+            start_meta.remote_strand_id.as_deref(),
+        ) else {
+            warn!("Arkret inbound event is missing its trusted conversation coordinates");
+            return;
+        };
+        let conversation = crate::arkret_delivery::RemoteConversationKey {
+            channel_config_id: config_id.to_owned(),
+            account_id: account_id.to_owned(),
+            realm_id: realm_id.to_owned(),
+            strand_id: strand_id.to_owned(),
+        };
+        match crate::arkret_delivery::ArkretExecutionBindingStore::new(
+            &gateway_channel.config().savfox_home,
+        )
+        .routing_scope_for_mode(
+            &conversation,
+            crate::arkret_delivery::ArkretDeliveryMode::from_config(
+                start_meta.delivery_mode.as_deref(),
+            ),
+        )
+        .await
+        {
+            Ok(scope) => Some(scope),
+            Err(error) => {
+                warn!("failed to resolve Arkret execution route: {error:#}");
+                return;
+            }
+        }
+    } else {
+        None
+    };
+    #[cfg(not(feature = "arkret"))]
+    let arkret_routing_scope: Option<String> = None;
     let tracked = track_inbound_message(
         &session_store,
         InboundSessionMeta {
             agent_id: &routed_agent,
             platform,
             channel_id: &channel_id,
-            routing_channel_id: start_meta.routing_channel_id.as_deref(),
+            routing_channel_id: arkret_routing_scope
+                .as_deref()
+                .or(start_meta.routing_channel_id.as_deref()),
             routing_group_id: start_meta.routing_group_id.as_deref(),
             routing_thread_id: start_meta.routing_thread_id.as_deref(),
             peer_id: start_meta.peer_id.as_deref(),
@@ -515,13 +556,13 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                     }
                     Err(error) => {
                         warn!(session_id = %tracked.session_id, "failed to establish Arkret execution binding: {error:#}");
-                        None
+                        return;
                     }
                 }
             }
             _ => {
                 warn!(session_id = %tracked.session_id, "Arkret inbound event is missing its complete trusted conversation envelope");
-                None
+                return;
             }
         }
     } else {

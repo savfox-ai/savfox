@@ -238,13 +238,12 @@ pub(crate) async fn initialize_and_start_channels(
             if let Err(error) = validation {
                 warn!(
                     channel_id = %config.id,
-                    "Deleting invalid Arkret config instead of loading legacy data: {error:#}"
+                    "Skipping invalid Arkret config; saved pairing remains available for recovery: {error:#}"
                 );
-                savfox_core::config::channel_store::delete_channel_config(savfox_home, &config.id)
-                    .await
-                    .with_context(|| {
-                        format!("delete invalid Arkret channel config '{}'", config.id)
-                    })?;
+                // Runtime key custody can be temporarily unavailable even
+                // when the saved pairing is valid. Startup is not a user
+                // deletion request: retain the file and keep the listener
+                // closed until validation succeeds.
                 continue;
             }
             retained.push(config);

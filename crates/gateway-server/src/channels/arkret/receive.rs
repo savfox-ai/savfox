@@ -320,6 +320,11 @@ async fn scan_installed_scopes(
         let (snapshot, _) = governance::verified_scope_snapshot(client.inner(), &realm_id).await?;
         crypto_store
             .record_verified_mls_current_entries(&realm_id, &snapshot.current_state_entries)?;
+        crypto_store.record_verified_direct_conversation_current_entries(
+            &realm_id,
+            &actor,
+            &snapshot.current_state_entries,
+        )?;
         let baseline_through = checkpoint
             .as_ref()
             .context("installed Agent scope has no durable accepted Welcome checkpoint")?

@@ -372,7 +372,7 @@ impl ArkretExecutionBindingStore {
         if let Some(binding) = state
             .bindings
             .values_mut()
-            .find(|binding| binding.conversation == conversation)
+            .find(|binding| binding.conversation == conversation && binding.mode == mode)
         {
             anyhow::ensure!(
                 binding.local_session_id == local_session_id,
@@ -387,7 +387,7 @@ impl ArkretExecutionBindingStore {
         anyhow::ensure!(
             !state.bindings.values().any(|binding| {
                 binding.local_session_id == local_session_id
-                    && binding.conversation != conversation
+                    && (binding.conversation != conversation || binding.mode != mode)
                     && !matches!(
                         binding.state,
                         DeliveryState::Completed | DeliveryState::Failed | DeliveryState::Cancelled
@@ -440,7 +440,23 @@ impl ArkretExecutionBindingStore {
             .await?
             .bindings
             .into_values()
-            .find(|binding| &binding.conversation == conversation))
+            .filter(|binding| &binding.conversation == conversation)
+            .min_by_key(|binding| binding.created_at))
+    }
+
+    /// Preserve the original route, but isolate a newly selected delivery mode
+    /// from its private rollout. Only the verified remote snapshot is shared.
+    pub(crate) async fn routing_scope_for_mode(
+        &self,
+        conversation: &RemoteConversationKey,
+        mode: ArkretDeliveryMode,
+    ) -> anyhow::Result<String> {
+        conversation.validate()?;
+        let scope = conversation.routing_scope();
+        Ok(match self.binding_for_conversation(conversation).await? {
+            Some(binding) if binding.mode != mode => format!("{scope}:{}", mode.as_str()),
+            _ => scope,
+        })
     }
 
     pub(crate) async fn last_published_rendered(
@@ -1372,6 +1388,105 @@ mod tests {
             .await
             .expect_err("one active session cannot cross delivery targets");
         assert!(error.to_string().contains("another Arkret delivery target"));
+    }
+
+    #[tokio::test]
+    async fn delivery_mode_change_isolates_private_sessions_and_preserves_original_route() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let conversation = conversation("ak:strand:one");
+        let store = ArkretExecutionBindingStore::new(home.path());
+        let original_scope = store
+            .routing_scope_for_mode(&conversation, ArkretDeliveryMode::TaskDelivery)
+            .await
+            .unwrap();
+        let (private, _) = store
+            .ensure_binding(
+                "private-session",
+                conversation.clone(),
+                "ak:event:one",
+                "did:example:human",
+                "did:example:agent",
+                ArkretDeliveryMode::TaskDelivery,
+            )
+            .await
+            .unwrap();
+        let interactive_scope = store
+            .routing_scope_for_mode(&conversation, ArkretDeliveryMode::InteractiveChat)
+            .await
+            .unwrap();
+        assert_ne!(interactive_scope, original_scope);
+        assert!(
+            store
+                .ensure_binding(
+                    "private-session",
+                    conversation.clone(),
+                    "ak:event:two",
+                    "did:example:human",
+                    "did:example:agent",
+                    ArkretDeliveryMode::InteractiveChat,
+                )
+                .await
+                .is_err()
+        );
+        let (interactive, created) = store
+            .ensure_binding(
+                "interactive-session",
+                conversation.clone(),
+                "ak:event:two",
+                "did:example:human",
+                "did:example:agent",
+                ArkretDeliveryMode::InteractiveChat,
+            )
+            .await
+            .unwrap();
+        assert!(created);
+        assert_ne!(interactive.binding_id, private.binding_id);
+        let reopened = ArkretExecutionBindingStore::new(home.path());
+        assert_eq!(
+            reopened
+                .routing_scope_for_mode(&conversation, ArkretDeliveryMode::TaskDelivery)
+                .await
+                .unwrap(),
+            original_scope
+        );
+        assert_eq!(
+            reopened
+                .routing_scope_for_mode(&conversation, ArkretDeliveryMode::InteractiveChat)
+                .await
+                .unwrap(),
+            interactive_scope
+        );
+        assert_eq!(
+            reopened
+                .binding_for_session("private-session")
+                .await
+                .unwrap()
+                .unwrap()
+                .mode,
+            ArkretDeliveryMode::TaskDelivery
+        );
+        assert_eq!(
+            reopened
+                .binding_for_session("interactive-session")
+                .await
+                .unwrap()
+                .unwrap()
+                .mode,
+            ArkretDeliveryMode::InteractiveChat
+        );
+        let (continued, created) = reopened
+            .ensure_binding(
+                "interactive-session",
+                conversation,
+                "ak:event:three",
+                "did:example:human",
+                "did:example:agent",
+                ArkretDeliveryMode::InteractiveChat,
+            )
+            .await
+            .unwrap();
+        assert!(!created);
+        assert_eq!(continued.binding_id, interactive.binding_id);
     }
 
     #[tokio::test]
