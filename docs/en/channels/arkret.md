@@ -64,8 +64,12 @@ Online chat does not request delayed-publication leases by default.
 Editing delivery settings preserves the saved pairing, including redacted comparison codes and runtime-key references restored by the server. Use `interactive_chat` for chat replies and `task_delivery` for task delivery. Editing a saved pairing preserves its exact scope array. Missing, old unversioned
 or `query` aliases are rejected, not upgraded. A new candidate is only a request:
 the Station must still check immutable provision, current key and session ceilings.
-The runtime requires the actual session grant to match its requested operation set;
-a narrower grant cannot run the full configured listener and an over-grant is rejected.
+The actual session grant must retain every configured service operation and remain
+within the requested scope. The authority may remove content actions when no resource
+grant applies; accepted native Sidecar consumption checks the refreshed committed-event
+read operation together with the exact Agent AccountId and audience. Resource grants
+and action policy still independently authorize writes and replies. Missing service
+operations and widened grants are rejected.
 The cached last successful session scope is diagnostic history, not current key or
 provision authority, and never authorizes adding permissions to a saved Agent.
 

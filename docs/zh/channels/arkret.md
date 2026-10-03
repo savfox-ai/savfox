@@ -49,8 +49,10 @@ KeyPackage、claim、Welcome、receipt 和 consume 操作都必须保持该绑�
 
 编辑已配对频道的交付模式等设置时，隐藏的旧核对码与密钥引用由服务器保留，不要求重新配对。选择 `interactive_chat` 接收聊天回复；`task_delivery` 用于任务交付。原权限数组保持不变；缺失、旧无版本名或 `query` 别名均明确拒绝，
 不会自动升级。新候选也只是申请，Station 仍须独立检查不可变 provision、当前 key
-与 session 三层上限。运行时要求实际 session grant 与申请的操作集合一致；权限缩小
-后无法运行完整监听器，超额授予也拒绝。最后成功 session 的缓存仅供诊断，不代表
+与 session 三层上限。实际 session grant 必须保留配置所需的全部服务操作，并且不得
+超出申请范围。没有资源授权时，授权方可以移除内容动作；消费已接受的原生 Sidecar
+请求时，运行时刷新并核对 committed-event 读取操作、精确 Agent AccountId 与 audience。
+资源 grant 和 action policy 仍独立约束写入与回复。缺失服务操作或超额授予均拒绝。最后成功 session 的缓存仅供诊断，不代表
 当前 key/provision 授权，也不能用于给已有 Agent 增加权限。
 
 保存交付模式后，已有对话的后续入站消息也使用新模式。两个模式使用独立的本地执行会话，

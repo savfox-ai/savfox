@@ -58,9 +58,9 @@ pub use config::{
     build_arkret_runtime_key_request_json, build_arkret_runtime_key_status_request_json,
     default_agent_runtime_scope, delete_verified_runtime_scope, derive_arkret_device_id,
     duplicate_requested_scope_actions, load_arkret_channel_configs, load_verified_runtime_scope,
-    missing_required_scope_actions, resolve_arkret_outbound_account_for_binding,
-    resolve_arkret_outbound_account_for_config, save_verified_runtime_scope,
-    unknown_requested_scope_actions,
+    missing_required_scope_actions, missing_required_service_operations,
+    resolve_arkret_outbound_account_for_binding, resolve_arkret_outbound_account_for_config,
+    save_verified_runtime_scope, unknown_requested_scope_actions,
 };
 pub use crypto_state::{
     ArkretBootstrapRecord, ArkretContentEncryptionFloor, ArkretCryptoStateFile,

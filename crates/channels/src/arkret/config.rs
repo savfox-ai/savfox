@@ -640,6 +640,21 @@ pub fn missing_required_scope_actions(actions: &[String], listen: bool, send: bo
         .collect()
 }
 
+/// Check the configured transport operations in an authority-narrowed session.
+/// Content actions belong to resource authorization and need not appear in the
+/// session's service ceiling merely to consume an accepted native Sidecar Event.
+#[must_use]
+pub fn missing_required_service_operations(
+    actions: &[String],
+    listen: bool,
+    send: bool,
+) -> Vec<String> {
+    missing_required_scope_actions(actions, listen, send)
+        .into_iter()
+        .filter(|action| ServiceOperationId::from_wire(action).is_some())
+        .collect()
+}
+
 fn verified_scope_path(
     savfox_home: &std::path::Path,
     channel_id: &str,
@@ -1398,6 +1413,24 @@ mod strict_tests {
         assert!(!REQUIRED_SEND_SCOPE.contains(&signal));
         ArkretChannelConfig::from_strict_agent_config(&approved_config(default_scope()))
             .expect("Agent runtime must admit encrypted Signal presence");
+    }
+
+    #[test]
+    fn agent_service_ceiling_does_not_require_resource_content_actions() {
+        let mut actions = default_agent_runtime_scope().unwrap();
+        actions.retain(|action| ServiceOperationId::from_wire(action).is_some());
+        assert_eq!(
+            missing_required_scope_actions(&actions, true, true),
+            vec!["ak.event.read".to_owned(), "ak.message.create".to_owned()]
+        );
+        assert!(missing_required_service_operations(&actions, true, true).is_empty());
+        actions.retain(|action| {
+            action != ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1
+        });
+        assert_eq!(
+            missing_required_service_operations(&actions, true, true),
+            vec![ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1.to_owned()]
+        );
     }
 
     #[tokio::test]

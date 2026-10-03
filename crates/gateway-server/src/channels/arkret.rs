@@ -3190,7 +3190,7 @@ enum SidecarConsumeOutcome {
 fn refreshed_grant_matches_account(
     state: &garth::SessionGrantState,
     account: &ArkretAccountConfig,
-    required_scope: &str,
+    required_operation: &str,
 ) -> bool {
     state.account_id == account.actor_account_id
         && state.expires_at > Utc::now()
@@ -3198,7 +3198,7 @@ fn refreshed_grant_matches_account(
             &account.requested_scope,
             &state.granted_scope,
         )
-        && savfox_channels::arkret::missing_required_scope_actions(
+        && savfox_channels::arkret::missing_required_service_operations(
             &state.granted_scope,
             account.listen,
             account.send,
@@ -3206,10 +3206,11 @@ fn refreshed_grant_matches_account(
         .is_empty()
         && state.device_id.is_none()
         && state.audience_id == account.actor_account_id.station_id
+        && ServiceOperationId::from_wire(required_operation).is_some()
         && state
             .granted_scope
             .iter()
-            .any(|scope| scope == required_scope)
+            .any(|scope| scope == required_operation)
 }
 
 /// Re-prove this runtime's authorization immediately before a sensitive
@@ -3227,11 +3228,12 @@ fn refreshed_grant_matches_account(
 ///
 /// The identity/scope comparison afterwards is what makes the refreshed grant
 /// evidence about *this* runtime: a grant that came back bound to another
-/// principal, another device, or without the required scope proves nothing.
+/// principal, another device, or without the required service operation proves
+/// nothing. Resource content authorization remains separate from this ceiling.
 async fn ensure_fresh_runtime_authorization(
     provider: &ArkretAgentSessionProvider,
     account: &ArkretAccountConfig,
-    required_scope: &str,
+    required_operation: &str,
 ) -> anyhow::Result<()> {
     provider
         .refresh_for_sensitive_action()
@@ -3243,8 +3245,8 @@ async fn ensure_fresh_runtime_authorization(
         anyhow::bail!("Arkret runtime authorization refresh produced no session grant");
     };
     anyhow::ensure!(
-        refreshed_grant_matches_account(&state, account, required_scope),
-        "refreshed Arkret runtime grant lost its identity binding or {required_scope} scope"
+        refreshed_grant_matches_account(&state, account, required_operation),
+        "refreshed Arkret runtime grant lost its identity binding or {required_operation} operation"
     );
     Ok(())
 }
@@ -3542,7 +3544,12 @@ async fn consume_sidecar_exchange_binding(
                             .effective_scope,
                 "Sidecar request metadata differs from its native content or source Track"
             );
-            ensure_fresh_runtime_authorization(provider, account, "ak.event.read").await?;
+            ensure_fresh_runtime_authorization(
+                provider,
+                account,
+                ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+            )
+            .await?;
             let store = SidecarExchangeStore::for_account(
                 &gateway_channel.config().savfox_home,
                 &channel.id,
@@ -4641,15 +4648,30 @@ mod tests {
             grant_jwt: "redacted-test-grant".to_owned(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
             audience_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
-            granted_scope: account.requested_scope.clone(),
+            granted_scope: account
+                .requested_scope
+                .iter()
+                .filter(|action| ServiceOperationId::from_wire(action).is_some())
+                .cloned()
+                .collect(),
             session_public_key: None,
             dpop_jkt: Some("test-jkt".to_owned()),
         };
-        assert!(refreshed_grant_matches_account(
-            &state,
-            &account,
-            "ak.event.read"
-        ));
+        let granted_operations = state.granted_scope.clone();
+        let read = ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1;
+        assert!(
+            !state
+                .granted_scope
+                .iter()
+                .any(|action| action == "ak.event.read")
+        );
+        assert!(
+            !state
+                .granted_scope
+                .iter()
+                .any(|action| action == "ak.message.create")
+        );
+        assert!(refreshed_grant_matches_account(&state, &account, read));
         // A grant that came back without the scope the action needs proves
         // nothing about that action.
         assert!(!refreshed_grant_matches_account(
@@ -4661,51 +4683,34 @@ mod tests {
         state
             .granted_scope
             .push(ServiceOperationId::SELF_REALM_READ_EXPORT_V1.to_owned());
-        assert!(!refreshed_grant_matches_account(
-            &state,
-            &account,
-            "ak.event.read"
-        ));
-        state.granted_scope = account.requested_scope.clone();
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.granted_scope = granted_operations.clone();
         state
             .granted_scope
             .retain(|action| action != ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1);
-        assert!(!refreshed_grant_matches_account(
-            &state,
-            &account,
-            "ak.event.read"
-        ));
-        state.granted_scope = account.requested_scope.clone();
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.granted_scope = granted_operations.clone();
         state.expires_at = Utc::now() - chrono::Duration::seconds(1);
-        assert!(!refreshed_grant_matches_account(
-            &state,
-            &account,
-            "ak.event.read"
-        ));
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
         state.expires_at = Utc::now() + chrono::Duration::minutes(5);
 
         state.granted_scope.clear();
-        assert!(!refreshed_grant_matches_account(
-            &state,
-            &account,
-            "ak.event.read"
-        ));
-        state.granted_scope = account.requested_scope.clone();
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.granted_scope = granted_operations.clone();
         state.device_id =
             Some(DeviceId::new("ak:device:01904100-0000-7000-8000-000000000099").unwrap());
-        assert!(!refreshed_grant_matches_account(
-            &state,
-            &account,
-            "ak.event.read"
-        ));
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
         state.device_id = None;
+        state.audience_id = DidCoreId::new("ak:did_core:webvh:z6mkfixture:other.example").unwrap();
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.audience_id = account.actor_account_id.station_id.clone();
+        state.account_id.station_id =
+            DidCoreId::new("ak:did_core:webvh:z6mkfixture:other.example").unwrap();
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.account_id.station_id = account.actor_account_id.station_id.clone();
         state.account_id.principal_id =
             DidCoreId::new("ak:did_core:webvh:z6mkfixture:other.example").unwrap();
-        assert!(!refreshed_grant_matches_account(
-            &state,
-            &account,
-            "ak.event.read"
-        ));
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
     }
 
     #[tokio::test]
