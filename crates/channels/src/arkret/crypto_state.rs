@@ -188,10 +188,9 @@ pub struct ArkretMlsWelcomeConsumeBinding {
 #[derive(Debug)]
 pub struct ArkretMlsRosterMaterial {
     pub request: arkret::MlsRosterAuthorityReadRequestBody,
-    pub pages: Vec<arkret::MlsRosterAuthorityReadOutcome>,
+    pub pages: Vec<arkret::MlsSelfRosterAuthorityReadOutcome>,
     pub governance_station: DidCoreId,
     pub authority_head: EventId,
-    pub governance_resolution: arkret::AuthenticatedServiceResolution,
     pub genesis_material: arkret::MlsGroupStateMaterialOutcome,
 }
 
@@ -1602,13 +1601,12 @@ impl FileArkretCryptoStore {
                 delivery,
                 accepted_commit,
             )?;
-            arkret::install_verified_mls_roster_bindings(
+            arkret::install_verified_mls_self_roster_bindings(
                 &mut group,
                 &roster.pages,
                 &roster.request,
                 &roster.governance_station,
                 &roster.authority_head,
-                &roster.governance_resolution,
                 &roster.genesis_material,
             )
             .map_err(anyhow::Error::msg)?;

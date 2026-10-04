@@ -149,7 +149,8 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
     Ok((admitted, accepted))
 }
 
-/// Verify a signed scope snapshot before selecting the historical roster cut.
+/// Consume scope current from the authenticated own Account Station, retaining
+/// exact Realm, fresh nonce and generation checks without native DID replay.
 pub(super) async fn verified_scope_snapshot(
     http: &arkret::http_client::Client,
     realm_id: &arkret::RealmId,
@@ -161,13 +162,12 @@ pub(super) async fn verified_scope_snapshot(
             .map_err(anyhow::Error::msg)?,
     };
     let bundle = http.realm_authority_bundle(&request).await?;
-    let keys =
-        garth::fetch_historical_station_key_directory(http, &bundle, None, Some(&snapshot)).await?;
-    let freshness =
-        arkret::identity::RealmAuthorityFreshness::new(chrono::Utc::now(), request.nonce.clone());
-    let mut replica = garth::RealmReplica::new(realm_id.clone());
-    replica.install_verified_authority(&request, bundle.clone(), &freshness, &keys)?;
-    replica.install_verified_current_snapshot_heads(&snapshot, &freshness, &keys)?;
+    bundle.validate_for_request(&request, chrono::Utc::now())?;
+    anyhow::ensure!(
+        snapshot.realm_id == *realm_id
+            && snapshot.governance_generation == bundle.current_generation,
+        "own-Station snapshot differs from requested Realm/governance generation"
+    );
     Ok((snapshot, bundle))
 }
 
@@ -235,29 +235,34 @@ async fn welcome_roster(
     };
     let first_request = request.clone();
     let mut pages = Vec::new();
+    let mut seen_cursors = std::collections::BTreeSet::new();
     loop {
-        anyhow::ensure!(
-            pages.len() < 64,
-            "MLS roster exceeds the bounded receive window"
-        );
         let page = http.self_mls_roster_authority(&request).await?;
-        request.cursor = page.next_cursor.clone();
+        anyhow::ensure!(
+            page.roster.page_index == pages.len() as u64
+                && page.roster.page_index < page.roster.manifest.page_count,
+            "MLS roster page is reordered or exceeds its signed count"
+        );
+        request.cursor = page.roster.next_cursor.clone();
+        if let Some(cursor) = &request.cursor {
+            anyhow::ensure!(
+                seen_cursors.insert(cursor.clone()),
+                "MLS roster cursor repeats"
+            );
+        }
         pages.push(page);
         if request.cursor.is_none() {
             break;
         }
     }
-    let resolution: arkret::AuthenticatedServiceResolution =
-        serde_json::from_value(bundle.current_route_record)?;
-    arkret::verify_mls_roster_authority_pages(
+    arkret::verify_mls_self_roster_authority_pages(
         &pages,
         &first_request,
         &bundle.current_service_id,
         &current.current_mls_commit_event_ref,
-        &resolution,
     )?;
     let material_request =
-        arkret::mls_roster_genesis_material_request(&first_request, &pages[0].manifest);
+        arkret::mls_roster_genesis_material_request(&first_request, &pages[0].roster.manifest);
     let material = http
         .self_mls_group_state_material(&material_request)
         .await?;
@@ -266,7 +271,6 @@ async fn welcome_roster(
         pages,
         governance_station: bundle.current_service_id,
         authority_head: current.current_mls_commit_event_ref,
-        governance_resolution: resolution,
         genesis_material: material,
     })
 }

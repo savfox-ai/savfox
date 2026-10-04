@@ -325,4 +325,47 @@ mod tests {
 
         assert_ne!(first.session_id, second.session_id);
     }
+
+    #[tokio::test]
+    async fn arkret_actual_strand_isolates_context_and_survives_topic_changes() {
+        let home = tempdir().expect("tempdir");
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let realm = "ak:realm:ASOv-EoZPg5yuM1Pv__u1K8vD3Q9342GxwoWmkKwjqOn";
+        let chat_a = "ak:strand:ASOv-EoZPg5yuM1Pv__u1K8vD3Q9342GxwoWmkKwjqOn";
+        let chat_b = "ak:strand:AWgGCEbMHnelRQfzqg1C_onV9Ej_FdpdAZyM_JoFgAd3";
+        let meta = |chat, topic| InboundSessionMeta {
+            agent_id: "default",
+            platform: "arkret",
+            channel_id: realm,
+            routing_channel_id: Some("account:realm"),
+            routing_group_id: Some(realm),
+            routing_thread_id: Some(chat),
+            peer_id: Some("controller"),
+            identity: None,
+            group_id: None,
+            thread_id: None,
+            parent_thread_id: None,
+            reply_target: Some(chat),
+            account_id: Some("agent-account"),
+            channel_config_id: Some("arkret-config"),
+            realm_id: Some(realm),
+            strand_id: Some(chat),
+            event_id: None,
+            sender_kind: Some("human"),
+            origin: crate::session::SessionMessageOrigin::ArkretRemote,
+            visibility: crate::session::SessionMessageVisibility::RemotePublic,
+            name: Some("Controller"),
+            topic,
+            first_message: Some("isolated context"),
+            chat_type: Some("dm"),
+            dm_scope: DmScope::Main,
+        };
+        let a = track_inbound_message(&store, meta(chat_a, Some("shared topic"))).await;
+        let b = track_inbound_message(&store, meta(chat_b, Some("shared topic"))).await;
+        let moved = track_inbound_message(&store, meta(chat_a, Some("renamed topic"))).await;
+        assert_ne!(a.session_id, b.session_id);
+        assert_eq!(a.session_id, moved.session_id);
+        assert_eq!(a.reply_target.as_deref(), Some(chat_a));
+        assert_eq!(b.reply_target.as_deref(), Some(chat_b));
+    }
 }
