@@ -150,25 +150,26 @@ pub(crate) async fn admit_owned_agent_welcome_delivery(
 }
 
 /// Consume scope current from the authenticated own Account Station, retaining
-/// exact Realm, fresh nonce and generation checks without native DID replay.
+/// exact Realm and generation bindings without native DID replay or public
+/// authority discovery on a member Station.
 pub(super) async fn verified_scope_snapshot(
     http: &arkret::http_client::Client,
     realm_id: &arkret::RealmId,
-) -> anyhow::Result<(arkret::RealmStateSnapshot, arkret::RealmAuthorityBundle)> {
+) -> anyhow::Result<(arkret::RealmStateSnapshot, arkret::DidCoreId)> {
     let snapshot = http.realm_state_snapshot_head(realm_id).await?;
-    let request = arkret::AuthorityBundleRequest {
-        realm_id: realm_id.clone(),
-        nonce: arkret::Base64UrlString::new(arkret::base64url_encode(rand::random::<[u8; 32]>()))
-            .map_err(anyhow::Error::msg)?,
-    };
-    let bundle = http.realm_authority_bundle(&request).await?;
-    bundle.validate_for_request(&request, chrono::Utc::now())?;
     anyhow::ensure!(
-        snapshot.realm_id == *realm_id
-            && snapshot.governance_generation == bundle.current_generation,
-        "own-Station snapshot differs from requested Realm/governance generation"
+        snapshot.realm_id == *realm_id,
+        "own-Station snapshot differs from requested Realm"
     );
-    Ok((snapshot, bundle))
+    let (controller, _) = snapshot
+        .signature
+        .verification_method
+        .as_str()
+        .split_once('#')
+        .context("own-Station snapshot signer has no method fragment")?;
+    let did = arkret::Did::new(controller).map_err(anyhow::Error::msg)?;
+    let governance = arkret::project_did_to_core_id(&did)?;
+    Ok((snapshot, governance))
 }
 
 async fn welcome_roster(
@@ -178,15 +179,6 @@ async fn welcome_roster(
     accepted: &arkret::CommittedEventFullView,
     account: &savfox_channels::arkret::ArkretAccountConfig,
 ) -> anyhow::Result<savfox_channels::arkret::ArkretMlsRosterMaterial> {
-    let (snapshot, bundle) = verified_scope_snapshot(http, &delivery.realm_id).await?;
-    store
-        .record_verified_mls_current_entries(&snapshot.realm_id, &snapshot.current_state_entries)?;
-    store.record_verified_direct_conversation_current_entries(
-        &snapshot.realm_id,
-        &arkret::ActorId::account(account.actor_account_id.clone()),
-        &snapshot.current_state_entries,
-    )?;
-
     if matches!(delivery.effective_scope, arkret::ScopeRef::Realm { .. }) {
         store.upsert_realm_policy(savfox_channels::arkret::ArkretRealmCryptoPolicy {
             realm_id: delivery.realm_id.to_string(),
@@ -203,31 +195,17 @@ async fn welcome_roster(
             updated_at: chrono::Utc::now(),
         })?;
     }
-    let current = snapshot
-        .current_state_entries
-        .iter()
-        .find_map(|entry| match entry {
-            arkret::TypedCurrentResult::Value {
-                selector: arkret::CurrentSelector::MlsGroup { scope_ref },
-                value,
-                ..
-            } if scope_ref == &delivery.effective_scope => {
-                serde_json::from_value::<arkret::MlsGroupCurrent>(value.clone()).ok()
-            }
-            _ => None,
-        })
-        .context("Welcome scope has no verified MLS current")?;
     let payload: arkret::MlsCommitPayload =
         serde_json::from_value(serde_json::to_value(&accepted.event.payload)?)?;
     anyhow::ensure!(
-        current.epoch >= payload.next_epoch(),
-        "Welcome is ahead of the verified MLS current"
+        accepted.event.realm_id == delivery.realm_id
+            && accepted.event.scope_ref == delivery.effective_scope,
+        "Welcome differs from accepted target"
     );
-    let mut request = arkret::MlsRosterAuthorityReadRequestBody {
+    let mut request = arkret::MlsMemberRosterAuthorityReadRequestBody {
         realm_id: delivery.realm_id.clone(),
         effective_scope: delivery.effective_scope.clone(),
         mls_group_id: payload.mls_group_id()?,
-        genesis_event_ref: current.genesis_event_ref,
         target_commit_event_ref: accepted.event.event_id.clone(),
         target_epoch: payload.next_epoch(),
         caller_actor_id: arkret::ActorId::account(account.actor_account_id.clone()),
@@ -255,22 +233,15 @@ async fn welcome_roster(
             break;
         }
     }
-    arkret::verify_mls_self_roster_authority_pages(
-        &pages,
-        &first_request,
-        &bundle.current_service_id,
-        &current.current_mls_commit_event_ref,
-    )?;
+    let peer = arkret::verify_mls_member_roster_authority_pages(&pages, &first_request)?;
     let material_request =
-        arkret::mls_roster_genesis_material_request(&first_request, &pages[0].roster.manifest);
+        arkret::mls_roster_genesis_material_request(&peer, &pages[0].roster.manifest);
     let material = http
         .self_mls_group_state_material(&material_request)
         .await?;
     Ok(savfox_channels::arkret::ArkretMlsRosterMaterial {
         request: first_request,
         pages,
-        governance_station: bundle.current_service_id,
-        authority_head: current.current_mls_commit_event_ref,
         genesis_material: material,
     })
 }

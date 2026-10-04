@@ -184,13 +184,11 @@ pub struct ArkretMlsWelcomeConsumeBinding {
     pub verified_leaf_bindings: Vec<arkret::mls::MlsVerifiedLeafBinding>,
 }
 
-/// Historical roster material fetched at a separately verified current cut.
+/// Historical roster material fetched through the authenticated own Station.
 #[derive(Debug)]
 pub struct ArkretMlsRosterMaterial {
-    pub request: arkret::MlsRosterAuthorityReadRequestBody,
+    pub request: arkret::MlsMemberRosterAuthorityReadRequestBody,
     pub pages: Vec<arkret::MlsSelfRosterAuthorityReadOutcome>,
-    pub governance_station: DidCoreId,
-    pub authority_head: EventId,
     pub genesis_material: arkret::MlsGroupStateMaterialOutcome,
 }
 
@@ -1605,8 +1603,6 @@ impl FileArkretCryptoStore {
                 &mut group,
                 &roster.pages,
                 &roster.request,
-                &roster.governance_station,
-                &roster.authority_head,
                 &roster.genesis_material,
             )
             .map_err(anyhow::Error::msg)?;
