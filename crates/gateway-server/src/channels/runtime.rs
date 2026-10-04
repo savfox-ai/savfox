@@ -457,6 +457,27 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     };
     #[cfg(not(feature = "arkret"))]
     let arkret_routing_scope: Option<String> = None;
+    #[cfg(feature = "arkret")]
+    let arkret_private_source = match (
+        start_meta.saved_channel_config_id.as_deref(),
+        start_meta.account_id.as_deref(),
+        start_meta.remote_realm_id.as_deref(),
+        start_meta.remote_stream_ref.as_ref(),
+    ) {
+        (Some(config), Some(account), Some(realm), Some(stream)) => {
+            matches!(stream, arkret::CommitStreamRef::Sidecar { .. })
+                || savfox_channels::arkret::FileArkretCryptoStore::for_account(
+                    &gateway_channel.config().savfox_home,
+                    config,
+                    account,
+                )
+                .realm_is_direct_conversation(realm)
+                .unwrap_or(true)
+        }
+        _ => true,
+    };
+    #[cfg(not(feature = "arkret"))]
+    let arkret_private_source = true;
     let tracked = track_inbound_message(
         &session_store,
         InboundSessionMeta {
@@ -485,7 +506,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             } else {
                 crate::session::SessionMessageOrigin::LocalOperator
             },
-            visibility: if platform == "arkret" {
+            visibility: if platform == "arkret" && !arkret_private_source {
                 crate::session::SessionMessageVisibility::RemotePublic
             } else {
                 crate::session::SessionMessageVisibility::LocalPrivate
@@ -599,17 +620,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .remote_snapshot(&binding.conversation)
         .await
         .unwrap_or_default();
-        if matches!(
-            binding.conversation.stream_ref,
-            arkret::CommitStreamRef::Sidecar { .. }
-        ) || savfox_channels::arkret::FileArkretCryptoStore::for_account(
-            &gateway_channel.config().savfox_home,
-            &binding.conversation.channel_config_id,
-            &binding.conversation.account_id,
-        )
-        .realm_is_direct_conversation(&binding.conversation.realm_id)
-        .unwrap_or(true)
-        {
+        if arkret_private_source {
             snapshot.events.retain(|entry| {
                 Some(entry.event_id.as_str()) == start_meta.remote_event_id.as_deref()
             });
