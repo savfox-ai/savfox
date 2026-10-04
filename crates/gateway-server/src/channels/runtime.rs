@@ -78,21 +78,19 @@ use crate::session::{
 };
 
 /// A Chat's logical session follows its verified conversation and owner. Request
-/// Event IDs belong to the turn's source envelope, not the conversation route.
+/// Interactive Event IDs identify turns; task and Sidecar requests retain
+/// separate private execution bindings.
 #[cfg(feature = "arkret")]
 async fn arkret_conversation_routing_scope(
     savfox_home: &std::path::Path,
     conversation: &crate::arkret_delivery::RemoteConversationKey,
     mode: crate::arkret_delivery::ArkretDeliveryMode,
     owner_route: Option<&str>,
+    request_id: &str,
 ) -> anyhow::Result<String> {
-    let mut scope = crate::arkret_delivery::ArkretExecutionBindingStore::new(savfox_home)
-        .routing_scope_for_mode(conversation, mode)
-        .await?;
-    if let Some(owner_route) = owner_route {
-        scope.push_str(owner_route);
-    }
-    Ok(scope)
+    crate::arkret_delivery::ArkretExecutionBindingStore::new(savfox_home)
+        .routing_scope_for_request(conversation, mode, owner_route, request_id)
+        .await
 }
 
 fn command_registry() -> &'static CommandRegistry {
@@ -437,10 +435,10 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         };
         // Validate the trusted request before tracking can persist a session.
         // Its Event ID identifies the turn, never the conversation route.
-        if start_meta.remote_event_id.is_none() {
+        let Some(request_id) = start_meta.remote_event_id.as_deref() else {
             warn!("Arkret inbound event is missing its trusted request Event ID");
             return;
-        }
+        };
         let conversation = crate::arkret_delivery::RemoteConversationKey {
             channel_config_id: config_id.to_owned(),
             account_id: account_id.to_owned(),
@@ -455,6 +453,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 start_meta.delivery_mode.as_deref(),
             ),
             start_meta.routing_channel_id.as_deref(),
+            request_id,
         )
         .await
         {
@@ -1393,6 +1392,7 @@ mod tests {
                 &conversation,
                 ArkretDeliveryMode::InteractiveChat,
                 Some("verified-owner"),
+                request,
             )
             .await
             .unwrap();
@@ -1460,6 +1460,7 @@ mod tests {
             &conversation,
             ArkretDeliveryMode::InteractiveChat,
             Some("verified-owner"),
+            &requests[0],
         )
         .await
         .unwrap();
@@ -1468,6 +1469,7 @@ mod tests {
             &conversation,
             ArkretDeliveryMode::InteractiveChat,
             Some("other-owner"),
+            &requests[0],
         )
         .await
         .unwrap();
@@ -1476,6 +1478,7 @@ mod tests {
             &conversation,
             ArkretDeliveryMode::TaskDelivery,
             Some("verified-owner"),
+            &requests[0],
         )
         .await
         .unwrap();

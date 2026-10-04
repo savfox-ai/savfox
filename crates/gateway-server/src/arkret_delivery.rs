@@ -55,8 +55,8 @@ impl RemoteConversationKey {
         let stream_digest = arkret::canonical::canonical_sha256(&self.stream_ref)
             .expect("closed SDK CommitStreamRef serializes canonically");
         format!(
-            "{}:{}:{}:{}",
-            self.channel_config_id, self.account_id, self.realm_id, stream_digest
+            "{}:{}:{}:{}:{}",
+            self.channel_config_id, self.account_id, self.realm_id, self.strand_id, stream_digest
         )
     }
 }
@@ -70,6 +70,10 @@ pub(crate) enum ArkretDeliveryMode {
 }
 
 impl ArkretDeliveryMode {
+    fn request_scoped(self, stream: &arkret::CommitStreamRef) -> bool {
+        self == Self::TaskDelivery || matches!(stream, arkret::CommitStreamRef::Sidecar { .. })
+    }
+
     #[must_use]
     pub(crate) fn from_config(value: Option<&str>) -> Self {
         match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
@@ -403,13 +407,14 @@ impl ArkretExecutionBindingStore {
         mode: ArkretDeliveryMode,
     ) -> anyhow::Result<(ArkretExecutionBinding, bool)> {
         conversation.validate()?;
+        let request_scoped = mode.request_scoped(&conversation.stream_ref);
         let (_guard, _file_lock) = self.lock().await?;
         let mut state = self.load_unlocked().await?;
-        if let Some(binding) = state
-            .bindings
-            .values_mut()
-            .find(|binding| binding.conversation == conversation && binding.mode == mode)
-        {
+        if let Some(binding) = state.bindings.values_mut().find(|binding| {
+            binding.conversation == conversation
+                && binding.mode == mode
+                && (!request_scoped || binding.source_event_id == source_event_id)
+        }) {
             anyhow::ensure!(
                 binding.local_session_id == local_session_id,
                 "Arkret conversation is already bound to another local execution session"
@@ -423,11 +428,9 @@ impl ArkretExecutionBindingStore {
         anyhow::ensure!(
             !state.bindings.values().any(|binding| {
                 binding.local_session_id == local_session_id
-                    && (binding.conversation != conversation || binding.mode != mode)
-                    && !matches!(
-                        binding.state,
-                        DeliveryState::Completed | DeliveryState::Failed | DeliveryState::Cancelled
-                    )
+                    && (binding.conversation != conversation
+                        || binding.mode != mode
+                        || (request_scoped && binding.source_event_id != source_event_id))
             }),
             "local execution session is already bound to another Arkret delivery target"
         );
@@ -493,6 +496,23 @@ impl ArkretExecutionBindingStore {
             Some(binding) if binding.mode != mode => format!("{scope}:{}", mode.as_str()),
             _ => scope,
         })
+    }
+
+    pub(crate) async fn routing_scope_for_request(
+        &self,
+        conversation: &RemoteConversationKey,
+        mode: ArkretDeliveryMode,
+        owner_route: Option<&str>,
+        request_id: &str,
+    ) -> anyhow::Result<String> {
+        let mut scope = self.routing_scope_for_mode(conversation, mode).await?;
+        if let Some(owner_route) = owner_route {
+            scope.push_str(owner_route);
+        }
+        if mode.request_scoped(&conversation.stream_ref) {
+            scope.push_str(&format!(":request:{request_id}"));
+        }
+        Ok(scope)
     }
 
     pub(crate) async fn last_published_rendered(
@@ -1459,7 +1479,11 @@ mod tests {
         value.realm_id = "ak:realm:two".to_owned();
         variants.push(value);
         variants.push(conversation("ak:strand:two"));
-        assert!(variants.into_iter().all(|value| value != base));
+        assert!(
+            variants
+                .into_iter()
+                .all(|value| { value != base && value.routing_scope() != base.routing_scope() })
+        );
     }
 
     #[test]
@@ -1627,6 +1651,148 @@ mod tests {
             .unwrap();
         assert!(!created);
         assert_eq!(continued.binding_id, interactive.binding_id);
+    }
+
+    #[tokio::test]
+    async fn interactive_chat_continues_one_scope_across_requests() {
+        let home = tempfile::tempdir().unwrap();
+        let store = ArkretExecutionBindingStore::new(home.path());
+        let conversation = canonical_conversation();
+        let first = store
+            .routing_scope_for_request(
+                &conversation,
+                ArkretDeliveryMode::InteractiveChat,
+                Some("owner-route"),
+                "ak:event:first",
+            )
+            .await
+            .unwrap();
+        let continued = store
+            .routing_scope_for_request(
+                &conversation,
+                ArkretDeliveryMode::InteractiveChat,
+                Some("owner-route"),
+                "ak:event:continued",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            first, continued,
+            "the same Chat must retain its local execution session across messages"
+        );
+        let (original, created) = store
+            .ensure_binding(
+                "chat-session",
+                conversation.clone(),
+                "ak:event:first",
+                "did:example:human",
+                "did:example:agent",
+                ArkretDeliveryMode::InteractiveChat,
+            )
+            .await
+            .unwrap();
+        assert!(created);
+        let reopened = ArkretExecutionBindingStore::new(home.path());
+        let (continued, created) = reopened
+            .ensure_binding(
+                "chat-session",
+                conversation,
+                "ak:event:continued",
+                "did:example:human",
+                "did:example:agent",
+                ArkretDeliveryMode::InteractiveChat,
+            )
+            .await
+            .unwrap();
+        assert!(!created);
+        assert_eq!(continued.binding_id, original.binding_id);
+        assert_eq!(continued.source_event_id, original.source_event_id);
+        assert_eq!(
+            continued.last_ingested_event_id.as_deref(),
+            Some("ak:event:continued")
+        );
+    }
+
+    #[tokio::test]
+    async fn task_and_sidecar_requests_keep_distinct_sessions_and_exact_retry_bindings() {
+        let shared = canonical_conversation();
+        let mut sidecar = shared.clone();
+        sidecar.stream_ref = arkret::CommitStreamRef::Sidecar {
+            realm_id: arkret::RealmId::new(shared.realm_id.clone()).unwrap(),
+            sidecar_id: arkret::SidecarId::from_event_id(&arkret::EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [58; 32],
+            )),
+        };
+        for (conversation, mode) in [
+            (shared, ArkretDeliveryMode::TaskDelivery),
+            (sidecar, ArkretDeliveryMode::InteractiveChat),
+        ] {
+            let home = tempfile::tempdir().unwrap();
+            let store = ArkretExecutionBindingStore::new(home.path());
+            let mut routes = Vec::new();
+            let mut bindings = Vec::new();
+            for (session, request) in [
+                ("first-session", "ak:event:first"),
+                ("second-session", "ak:event:second"),
+            ] {
+                routes.push(
+                    store
+                        .routing_scope_for_request(
+                            &conversation,
+                            mode,
+                            Some("owner-route"),
+                            request,
+                        )
+                        .await
+                        .unwrap(),
+                );
+                let (binding, created) = store
+                    .ensure_binding(
+                        session,
+                        conversation.clone(),
+                        request,
+                        "did:example:human",
+                        "did:example:agent",
+                        mode,
+                    )
+                    .await
+                    .unwrap();
+                assert!(created);
+                bindings.push(binding);
+            }
+            assert_ne!(routes[0], routes[1]);
+            assert_ne!(bindings[0].binding_id, bindings[1].binding_id);
+            let reopened = ArkretExecutionBindingStore::new(home.path());
+            let (retried, created) = reopened
+                .ensure_binding(
+                    "first-session",
+                    conversation.clone(),
+                    "ak:event:first",
+                    "did:example:human",
+                    "did:example:agent",
+                    mode,
+                )
+                .await
+                .unwrap();
+            assert!(!created);
+            assert_eq!(retried.binding_id, bindings[0].binding_id);
+            assert_eq!(retried.source_event_id, bindings[0].source_event_id);
+            assert_eq!(retried.conversation, bindings[0].conversation);
+            assert!(
+                reopened
+                    .ensure_binding(
+                        "first-session",
+                        conversation,
+                        "ak:event:third",
+                        "did:example:human",
+                        "did:example:agent",
+                        mode,
+                    )
+                    .await
+                    .is_err()
+            );
+        }
     }
 
     #[tokio::test]
