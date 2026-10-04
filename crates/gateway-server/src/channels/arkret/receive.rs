@@ -47,18 +47,10 @@ pub(super) async fn seed_welcome_checkpoint(
         exact == accepted,
         "Welcome checkpoint read changed the accepted Add"
     );
-    let authority_request = arkret::AuthorityBundleRequest {
-        realm_id: welcome.realm_id.clone(),
-        nonce: arkret::Base64UrlString::new(arkret::base64url_encode(rand::random::<[u8; 32]>()))
-            .map_err(anyhow::Error::msg)?,
-    };
-    let bundle = http.realm_authority_bundle(&authority_request).await?;
-    let keys =
-        garth::fetch_historical_station_key_directory(http, &bundle, Some(&page), None).await?;
-    let freshness =
-        arkret::identity::RealmAuthorityFreshness::new(Utc::now(), authority_request.nonce);
-    let authority = arkret::identity::verify_realm_authority_bundle(&bundle, &freshness, &keys)?;
-    authority.verify_committed_item(exact, &keys)?;
+    exact.validate_shape()?;
+    exact.event.verify_producer_proof_self_consistency(
+        exact.event.realm_id.digest_suite_code().digest_suite(),
+    )?;
     let checkpoint = StreamCheckpoint {
         head: arkret::CommitStreamHead {
             stream_ref,
@@ -165,6 +157,13 @@ async fn recover_pending_content(
         return Ok(());
     }
     let actor = arkret::ActorId::account(account.actor_account_id.clone());
+    let installed = installed_scan_scopes(
+        &state,
+        account_store.cursor_scopes()?,
+        &actor,
+        &account_subscription_service_id(channel, account)?,
+        &account_mls_endpoint(account)?,
+    )?;
     for (group_id, epochs) in &state.mls_station_currents {
         if !state
             .mls_group_states
@@ -186,6 +185,9 @@ async fn recover_pending_content(
             continue;
         }
         let stream_ref = arkret::CommitStreamRef::from_scope(&current.effective_scope, None)?;
+        if !installed.contains(&stream_ref) {
+            continue;
+        }
         let scope = garth::CursorScope::CommitStream {
             service_id: account_subscription_service_id(channel, account)?,
             stream_ref: stream_ref.clone(),
@@ -194,6 +196,10 @@ async fn recover_pending_content(
             continue;
         };
         let checkpoint: StreamCheckpoint = serde_json::from_str(&bytes)?;
+        anyhow::ensure!(
+            checkpoint.head.stream_ref == stream_ref,
+            "recovery checkpoint belongs to another stream"
+        );
         let mut after = Some(
             positions
                 .get(group_id)
@@ -209,36 +215,20 @@ async fn recover_pending_content(
                 limit: 200,
             };
             let page = client.inner().scan_commit_stream(&request).await?;
-            let authority_request = arkret::AuthorityBundleRequest {
-                realm_id: request.realm_id.clone(),
-                nonce: arkret::Base64UrlString::new(arkret::base64url_encode(rand::random::<
-                    [u8; 32],
-                >()))
-                .map_err(anyhow::Error::msg)?,
-            };
-            let bundle = client
-                .inner()
-                .realm_authority_bundle(&authority_request)
-                .await?;
-            let keys = garth::fetch_historical_station_key_directory(
-                client.inner(),
-                &bundle,
-                Some(&page),
-                None,
-            )
-            .await?;
-            let freshness =
-                arkret::identity::RealmAuthorityFreshness::new(Utc::now(), authority_request.nonce);
-            let authority =
-                arkret::identity::verify_realm_authority_bundle(&bundle, &freshness, &keys)?;
+            page.validate_for_request(&request)?;
+            let (snapshot, _) =
+                governance::verified_scope_snapshot(client.inner(), &request.realm_id).await?;
             for item in &page.committed_events {
-                match item {
-                    arkret::CommittedEventView::Full(full) => {
-                        authority.verify_committed_item(full, &keys)?
-                    }
-                    arkret::CommittedEventView::Withheld(withheld) => {
-                        authority.verify_commit(&withheld.commit, &keys)?
-                    }
+                require_own_station_scan_cut(
+                    item,
+                    &snapshot.visible_stream_heads,
+                    snapshot.governance_generation,
+                )?;
+                if item.commit().stream_position == checkpoint.head.stream_position {
+                    anyhow::ensure!(
+                        item.commit().commit_id == checkpoint.head.commit_id,
+                        "recovery scan forks its retained Commit head"
+                    );
                 }
             }
             let events = page
@@ -285,6 +275,296 @@ async fn recover_pending_content(
     Ok(())
 }
 
+fn account_mls_endpoint(
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<arkret::MlsEndpointIdentity> {
+    Ok(arkret::MlsEndpointIdentity::AgentRuntime {
+        agent_id: account.actor_account_id.principal_id.clone(),
+        verification_method: arkret::DidUrl::new(
+            account
+                .verification_method
+                .clone()
+                .context("Agent scan runtime key is unavailable")?,
+        )
+        .map_err(anyhow::Error::msg)?,
+        agent_key_authorize_event_id: arkret::EventId::new(
+            account
+                .authorized_event_ref
+                .clone()
+                .context("Agent scan runtime authorization is unavailable")?,
+        )?,
+    })
+}
+
+/// The authenticated own Station verifies governance history. Consumers still
+/// bind each independent stream and retained producer proof to its current cut.
+fn require_own_station_scan_cut(
+    item: &arkret::CommittedEventView,
+    heads: &[arkret::CommitStreamHead],
+    generation: u64,
+) -> anyhow::Result<()> {
+    let commit = item.commit();
+    let mut matching = heads
+        .iter()
+        .filter(|head| head.stream_ref == commit.stream_ref);
+    let head = matching
+        .next()
+        .context("Agent scan scope has no authorized own-Station head")?;
+    anyhow::ensure!(
+        matching.next().is_none(),
+        "Agent scan scope has duplicate own-Station heads"
+    );
+    anyhow::ensure!(
+        commit.governance_generation <= generation
+            && commit.stream_position <= head.stream_position,
+        "Agent scan exceeds the authorized own-Station cut"
+    );
+    if commit.stream_position == head.stream_position {
+        anyhow::ensure!(
+            commit.commit_id == head.commit_id,
+            "Agent scan forks the authorized own-Station head"
+        );
+    }
+    if let arkret::CommittedEventView::Full(full) = item {
+        full.event.verify_producer_proof_self_consistency(
+            full.event.realm_id.digest_suite_code().digest_suite(),
+        )?;
+    }
+    Ok(())
+}
+
+fn installed_scan_scopes(
+    state: &savfox_channels::arkret::ArkretCryptoStateFile,
+    cursors: Vec<garth::CursorScope>,
+    actor: &arkret::ActorId,
+    service: &Option<arkret::DidCoreId>,
+    endpoint: &arkret::MlsEndpointIdentity,
+) -> anyhow::Result<std::collections::BTreeSet<arkret::CommitStreamRef>> {
+    let mut scopes = std::collections::BTreeSet::new();
+    for cursor in cursors {
+        let garth::CursorScope::CommitStream {
+            service_id,
+            stream_ref,
+        } = cursor
+        else {
+            continue;
+        };
+        if &service_id != service {
+            continue;
+        }
+        let scope = match &stream_ref {
+            arkret::CommitStreamRef::Realm { realm_id } => arkret::ScopeRef::Realm {
+                realm_id: realm_id.clone(),
+            },
+            arkret::CommitStreamRef::Circle {
+                realm_id,
+                circle_id,
+            } => arkret::ScopeRef::Circle {
+                realm_id: realm_id.clone(),
+                circle_id: circle_id.clone(),
+            },
+            arkret::CommitStreamRef::Sidecar {
+                realm_id,
+                sidecar_id,
+            } => arkret::ScopeRef::Sidecar {
+                realm_id: realm_id.clone(),
+                sidecar_id: sidecar_id.clone(),
+            },
+            _ => anyhow::bail!("unsupported installed Agent stream scope"),
+        };
+        let group_id = scope.canonical_mls_group_id()?;
+        if state
+            .mls_group_states
+            .get(group_id.as_str())
+            .is_some_and(|group| {
+                &group.actor_id == actor
+                    && &group.endpoint == endpoint
+                    && group.group_id == group_id
+            })
+        {
+            scopes.insert(stream_ref);
+        }
+    }
+    Ok(scopes)
+}
+
+#[cfg(test)]
+mod installed_scope_tests {
+    use super::*;
+
+    #[test]
+    fn recovery_and_live_scans_reject_wrong_stream_generation_and_forked_cuts() {
+        let event = arkret::EventId::from_digest(arkret::DigestSuite::Sha256, [1; 32]);
+        let realm = arkret::RealmId::from_event_id(&event);
+        let stream = arkret::CommitStreamRef::Realm {
+            realm_id: realm.clone(),
+        };
+        let commit_id = arkret::RealmCommitId::from_digest([2; 32]);
+        // This fixture tests cut binding of an already authenticated result,
+        // not governance signature verification or producer-proof validity.
+        let item = arkret::CommittedEventView::Withheld(arkret::CommittedEventWithheldView {
+            commit: arkret::RealmCommit {
+                commit_id: commit_id.clone(),
+                realm_id: realm.clone(),
+                stream_ref: stream.clone(),
+                stream_position: 2,
+                previous_commit_ref: Some(arkret::RealmCommitId::from_digest([1; 32])),
+                event_ref: event.clone(),
+                governance_generation: 1,
+                authority_ref: arkret::RealmCommitAuthorityRef::GenesisOrChangeEvent(event),
+                committed_at: Utc::now(),
+                signature: arkret::DetachedObjectSignature {
+                    context: arkret::DetachedSignatureContext::RealmCommit,
+                    signature_algorithm: arkret::DetachedSignatureAlgorithm::Ed25519,
+                    verification_method: arkret::DidUrl::new("did:web:station.example#notary")
+                        .unwrap(),
+                    signed_digest: arkret::Hash::new(format!("sha256:{}", "00".repeat(32)))
+                        .unwrap(),
+                    created_at: Utc::now(),
+                    sig: arkret::Base64UrlString::new("AA").unwrap(),
+                },
+            },
+            event_disclosure: arkret::EventDisclosure {
+                status: arkret::EventDisclosureStatus::Withheld,
+            },
+        });
+        let head = arkret::CommitStreamHead {
+            stream_ref: stream,
+            stream_position: 2,
+            commit_id,
+        };
+        assert!(require_own_station_scan_cut(&item, std::slice::from_ref(&head), 1).is_ok());
+        assert!(require_own_station_scan_cut(&item, std::slice::from_ref(&head), 0).is_err());
+        assert!(require_own_station_scan_cut(&item, &[], 1).is_err());
+        assert!(require_own_station_scan_cut(&item, &[head.clone(), head.clone()], 1).is_err());
+        let mut forked = head.clone();
+        forked.commit_id = arkret::RealmCommitId::from_digest([3; 32]);
+        assert!(require_own_station_scan_cut(&item, &[forked], 1).is_err());
+        let mut stale = head.clone();
+        stale.stream_position = 1;
+        assert!(require_own_station_scan_cut(&item, &[stale], 1).is_err());
+        let mut foreign = head;
+        foreign.stream_ref = arkret::CommitStreamRef::Sidecar {
+            realm_id: realm,
+            sidecar_id: arkret::SidecarId::from_event_id(&arkret::EventId::from_digest(
+                arkret::DigestSuite::Sha256,
+                [4; 32],
+            )),
+        };
+        assert!(require_own_station_scan_cut(&item, &[foreign], 1).is_err());
+    }
+
+    #[test]
+    fn accepted_welcome_checkpoint_discovers_scope_before_current_cache_and_fences_endpoint() {
+        let home = tempfile::tempdir().unwrap();
+        let crypto = FileArkretCryptoStore::new(home.path(), "installed-scope-discovery".into());
+        let mut state = crypto.load().unwrap();
+        let id = |byte| arkret::EventId::from_digest(arkret::DigestSuite::Sha256, [byte; 32]);
+        let service = arkret::DidCoreId::new("ak:did_core:web:scope-station.example").unwrap();
+        let principal = arkret::DidCoreId::new("ak:did_core:web:scope-agent.example").unwrap();
+        let actor =
+            arkret::ActorId::account(arkret::AccountId::new(principal.clone(), service.clone()));
+        let endpoint = arkret::MlsEndpointIdentity::AgentRuntime {
+            agent_id: principal,
+            verification_method: arkret::DidUrl::new("did:web:scope-agent.example#runtime")
+                .unwrap(),
+            agent_key_authorize_event_id: id(9),
+        };
+        let realm = arkret::RealmId::from_event_id(&id(1));
+        let scopes = [
+            arkret::ScopeRef::Realm {
+                realm_id: realm.clone(),
+            },
+            arkret::ScopeRef::Sidecar {
+                realm_id: realm,
+                sidecar_id: arkret::SidecarId::from_event_id(&id(2)),
+            },
+        ];
+        let streams = scopes
+            .iter()
+            .map(|scope| arkret::CommitStreamRef::from_scope(scope, None).unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        let cursors = streams
+            .iter()
+            .map(|stream| garth::CursorScope::CommitStream {
+                service_id: Some(service.clone()),
+                stream_ref: stream.clone(),
+            })
+            .collect::<Vec<_>>();
+        for scope in scopes {
+            let group = scope.canonical_mls_group_id().unwrap();
+            // This test covers discovery metadata only, not MLS installation.
+            state.mls_group_states.insert(
+                group.to_string(),
+                arkret::MlsGroupStateRecord {
+                    group_id: group,
+                    actor_id: actor.clone(),
+                    endpoint: endpoint.clone(),
+                    epoch: 1,
+                    serialized_state: Vec::new(),
+                    updated_at: Utc::now(),
+                },
+            );
+        }
+        assert!(state.mls_station_currents.is_empty());
+        assert_eq!(
+            installed_scan_scopes(
+                &state,
+                cursors.clone(),
+                &actor,
+                &Some(service.clone()),
+                &endpoint
+            )
+            .unwrap(),
+            streams
+        );
+        assert!(
+            installed_scan_scopes(
+                &state,
+                Vec::new(),
+                &actor,
+                &Some(service.clone()),
+                &endpoint
+            )
+            .unwrap()
+            .is_empty()
+        );
+        assert!(
+            installed_scan_scopes(&state, cursors.clone(), &actor, &None, &endpoint)
+                .unwrap()
+                .is_empty()
+        );
+        let other_actor = arkret::ActorId::account(arkret::AccountId::new(
+            arkret::DidCoreId::new("ak:did_core:web:other-agent.example").unwrap(),
+            service.clone(),
+        ));
+        assert!(
+            installed_scan_scopes(
+                &state,
+                cursors.clone(),
+                &other_actor,
+                &Some(service.clone()),
+                &endpoint
+            )
+            .unwrap()
+            .is_empty()
+        );
+        let mut replaced = endpoint.clone();
+        if let arkret::MlsEndpointIdentity::AgentRuntime {
+            agent_key_authorize_event_id,
+            ..
+        } = &mut replaced
+        {
+            *agent_key_authorize_event_id = id(10);
+        }
+        assert!(
+            installed_scan_scopes(&state, cursors, &actor, &Some(service), &replaced)
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
+
 async fn scan_installed_scopes(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
@@ -294,18 +574,18 @@ async fn scan_installed_scopes(
 ) -> anyhow::Result<()> {
     let actor = arkret::ActorId::account(account.actor_account_id.clone());
     let state = crypto_store.load()?;
-    let scopes = state
-        .mls_station_currents
-        .iter()
-        .filter(|(group_id, _)| {
-            state
-                .mls_group_states
-                .get(*group_id)
-                .is_some_and(|group| group.actor_id == actor)
-        })
-        .flat_map(|(_, epochs)| epochs.values())
-        .map(|current| arkret::CommitStreamRef::from_scope(&current.effective_scope, None))
-        .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+    // Welcome installation persists private group state and its accepted Add
+    // checkpoint before ACK. Discover those streams before fetching current;
+    // the current cache can legitimately be empty at the first receive tick.
+    let service_id = account_subscription_service_id(channel, account)?;
+    let endpoint = account_mls_endpoint(account)?;
+    let scopes = installed_scan_scopes(
+        &state,
+        account_store.cursor_scopes()?,
+        &actor,
+        &service_id,
+        &endpoint,
+    )?;
     for stream_ref in scopes {
         let realm_id = stream_ref.realm_id().clone();
         let scope = garth::CursorScope::CommitStream {
@@ -341,28 +621,8 @@ async fn scan_installed_scopes(
         if page.committed_events.is_empty() {
             continue;
         }
-        let authority_request = arkret::AuthorityBundleRequest {
-            realm_id: realm_id.clone(),
-            nonce: arkret::Base64UrlString::new(arkret::base64url_encode(
-                rand::random::<[u8; 32]>(),
-            ))
-            .map_err(anyhow::Error::msg)?,
-        };
-        let bundle = client
-            .inner()
-            .realm_authority_bundle(&authority_request)
-            .await?;
-        let keys = garth::fetch_historical_station_key_directory(
-            client.inner(),
-            &bundle,
-            Some(&page),
-            None,
-        )
-        .await?;
-        let freshness =
-            arkret::identity::RealmAuthorityFreshness::new(Utc::now(), authority_request.nonce);
-        let authority =
-            arkret::identity::verify_realm_authority_bundle(&bundle, &freshness, &keys)?;
+        page.validate_for_request(&request)?;
+        let (after, _) = governance::verified_scope_snapshot(client.inner(), &realm_id).await?;
         if let Some(previous) = &checkpoint {
             anyhow::ensure!(
                 previous.head.stream_ref == stream_ref
@@ -375,27 +635,11 @@ async fn scan_installed_scopes(
             );
         }
         for item in &page.committed_events {
-            match item {
-                arkret::CommittedEventView::Full(full) => {
-                    authority.verify_committed_item(full, &keys)?
-                }
-                arkret::CommittedEventView::Withheld(withheld) => {
-                    authority.verify_commit(&withheld.commit, &keys)?
-                }
-            }
-            let commit = item.commit();
-            if stream_ref == bundle.realm_stream_head.stream_ref {
-                anyhow::ensure!(
-                    commit.stream_position <= bundle.realm_stream_head.stream_position,
-                    "Agent scan exceeds the verified authority cut"
-                );
-                if commit.stream_position == bundle.realm_stream_head.stream_position {
-                    anyhow::ensure!(
-                        commit.commit_id == bundle.realm_stream_head.commit_id,
-                        "Agent scan forks the verified authority head"
-                    );
-                }
-            }
+            require_own_station_scan_cut(
+                item,
+                &after.visible_stream_heads,
+                after.governance_generation,
+            )?;
         }
         // Validate the whole page before its first write. Split the baseline
         // prefix from live work; each unit and exact head persist atomically.
