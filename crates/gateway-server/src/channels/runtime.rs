@@ -77,6 +77,24 @@ use crate::session::{
     remove_ambient_session, session_file_to_store_value, track_inbound_message, track_token_usage,
 };
 
+/// A Chat's logical session follows its verified conversation and owner. Request
+/// Event IDs belong to the turn's source envelope, not the conversation route.
+#[cfg(feature = "arkret")]
+async fn arkret_conversation_routing_scope(
+    savfox_home: &std::path::Path,
+    conversation: &crate::arkret_delivery::RemoteConversationKey,
+    mode: crate::arkret_delivery::ArkretDeliveryMode,
+    owner_route: Option<&str>,
+) -> anyhow::Result<String> {
+    let mut scope = crate::arkret_delivery::ArkretExecutionBindingStore::new(savfox_home)
+        .routing_scope_for_mode(conversation, mode)
+        .await?;
+    if let Some(owner_route) = owner_route {
+        scope.push_str(owner_route);
+    }
+    Ok(scope)
+}
+
 fn command_registry() -> &'static CommandRegistry {
     static REGISTRY: OnceLock<CommandRegistry> = OnceLock::new();
     REGISTRY.get_or_init(CommandRegistry::new)
@@ -417,6 +435,12 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             warn!("Arkret inbound event is missing its trusted conversation coordinates");
             return;
         };
+        // Validate the trusted request before tracking can persist a session.
+        // Its Event ID identifies the turn, never the conversation route.
+        if start_meta.remote_event_id.is_none() {
+            warn!("Arkret inbound event is missing its trusted request Event ID");
+            return;
+        }
         let conversation = crate::arkret_delivery::RemoteConversationKey {
             channel_config_id: config_id.to_owned(),
             account_id: account_id.to_owned(),
@@ -424,29 +448,17 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             strand_id: strand_id.to_owned(),
             stream_ref: stream_ref.clone(),
         };
-        match crate::arkret_delivery::ArkretExecutionBindingStore::new(
+        match arkret_conversation_routing_scope(
             &gateway_channel.config().savfox_home,
-        )
-        .routing_scope_for_mode(
             &conversation,
             crate::arkret_delivery::ArkretDeliveryMode::from_config(
                 start_meta.delivery_mode.as_deref(),
             ),
+            start_meta.routing_channel_id.as_deref(),
         )
         .await
         {
-            Ok(mut scope) => {
-                if let Some(owner_route) = start_meta.routing_channel_id.as_deref() {
-                    scope.push_str(owner_route);
-                }
-                {
-                    let Some(request_id) = start_meta.remote_event_id.as_deref() else {
-                        return;
-                    };
-                    scope.push_str(&format!(":request:{request_id}"));
-                }
-                Some(scope)
-            }
+            Ok(scope) => Some(scope),
             Err(error) => {
                 warn!("failed to resolve Arkret execution route: {error:#}");
                 return;
@@ -1342,6 +1354,156 @@ mod tests {
     use super::format_model_footer;
     use crate::channels::policy::append_channel_tone_suffix;
     use crate::config::ResponseFooterConfig;
+
+    #[cfg(feature = "arkret")]
+    #[tokio::test]
+    async fn arkret_chat_continues_same_session_with_fresh_request_metadata() {
+        use crate::arkret_delivery::{
+            ArkretDeliveryMode, ArkretExecutionBindingStore, RemoteConversationKey,
+        };
+        use crate::session::{
+            DmScope, InboundSessionMeta, SessionMessageOrigin, SessionMessageVisibility,
+            SessionStore, build_routing_id, track_inbound_message,
+        };
+
+        let home = tempfile::tempdir().unwrap();
+        let event = arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [17; 32]);
+        let realm = arkret::RealmId::from_event_id(&event);
+        let conversation = RemoteConversationKey {
+            channel_config_id: "support".to_owned(),
+            account_id: "agent-account".to_owned(),
+            realm_id: realm.to_string(),
+            strand_id: arkret::StrandId::from_event_id(&event).to_string(),
+            stream_ref: arkret::CommitStreamRef::Realm { realm_id: realm },
+        };
+        let sessions = std::sync::Arc::new(SessionStore::from_home(home.path()));
+        let bindings = ArkretExecutionBindingStore::new(home.path());
+        let mut original = None;
+        let requests = [
+            event.to_string(),
+            arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [18; 32])
+                .to_string(),
+        ];
+        for request in &requests {
+            let request = request.as_str();
+            // The production route has no presentation Topic or request Event
+            // dimension; the actual Strand still isolates sibling Chats.
+            let scope = super::arkret_conversation_routing_scope(
+                home.path(),
+                &conversation,
+                ArkretDeliveryMode::InteractiveChat,
+                Some("verified-owner"),
+            )
+            .await
+            .unwrap();
+            let session = track_inbound_message(
+                &sessions,
+                InboundSessionMeta {
+                    agent_id: "default",
+                    platform: "arkret",
+                    channel_id: &conversation.realm_id,
+                    routing_channel_id: Some(&scope),
+                    routing_group_id: Some(&conversation.realm_id),
+                    routing_thread_id: Some(&conversation.strand_id),
+                    peer_id: Some("controller"),
+                    identity: None,
+                    group_id: None,
+                    thread_id: None,
+                    parent_thread_id: None,
+                    reply_target: Some(&conversation.strand_id),
+                    account_id: Some(&conversation.account_id),
+                    channel_config_id: Some(&conversation.channel_config_id),
+                    realm_id: Some(&conversation.realm_id),
+                    strand_id: Some(&conversation.strand_id),
+                    event_id: Some(request),
+                    sender_kind: Some("human"),
+                    origin: SessionMessageOrigin::ArkretRemote,
+                    visibility: SessionMessageVisibility::LocalPrivate,
+                    name: None,
+                    topic: None,
+                    first_message: Some(request),
+                    chat_type: Some("dm"),
+                    dm_scope: DmScope::PerAccountChannelPeer,
+                },
+            )
+            .await;
+            let provenance = session.provenance.last().unwrap();
+            assert_eq!(provenance.event_id.as_deref(), Some(request));
+            assert_eq!(provenance.origin, SessionMessageOrigin::ArkretRemote);
+            assert_eq!(
+                provenance.visibility,
+                SessionMessageVisibility::LocalPrivate
+            );
+            let (binding, created) = bindings
+                .ensure_binding(
+                    &session.session_id,
+                    conversation.clone(),
+                    request,
+                    "controller",
+                    "agent",
+                    ArkretDeliveryMode::InteractiveChat,
+                )
+                .await
+                .unwrap();
+            assert_eq!(binding.last_ingested_event_id.as_deref(), Some(request));
+            if let Some((session_id, binding_id)) = original.as_ref() {
+                assert_eq!(&session.session_id, session_id);
+                assert_eq!(&binding.binding_id, binding_id);
+                assert!(!created);
+            } else {
+                assert!(created);
+                original = Some((session.session_id, binding.binding_id));
+            }
+        }
+        let base = super::arkret_conversation_routing_scope(
+            home.path(),
+            &conversation,
+            ArkretDeliveryMode::InteractiveChat,
+            Some("verified-owner"),
+        )
+        .await
+        .unwrap();
+        let other_owner = super::arkret_conversation_routing_scope(
+            home.path(),
+            &conversation,
+            ArkretDeliveryMode::InteractiveChat,
+            Some("other-owner"),
+        )
+        .await
+        .unwrap();
+        let private = super::arkret_conversation_routing_scope(
+            home.path(),
+            &conversation,
+            ArkretDeliveryMode::TaskDelivery,
+            Some("verified-owner"),
+        )
+        .await
+        .unwrap();
+        assert_ne!(base, other_owner);
+        assert_ne!(base, private);
+        let mut other_chat = conversation;
+        other_chat.strand_id = arkret::StrandId::from_event_id(&arkret::EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [19; 32],
+        ))
+        .to_string();
+        let other_route = build_routing_id(
+            "default",
+            Some(&base),
+            Some(&other_chat.realm_id),
+            Some(&other_chat.strand_id),
+            None,
+            Some(&other_chat.account_id),
+            DmScope::PerAccountChannelPeer,
+        );
+        assert_ne!(
+            sessions
+                .get_or_create_for_routing_id(&other_route)
+                .await
+                .session_id,
+            original.unwrap().0
+        );
+    }
 
     #[test]
     fn footer_respects_global_disable() {
