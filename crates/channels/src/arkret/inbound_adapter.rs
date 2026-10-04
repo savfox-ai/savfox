@@ -31,6 +31,7 @@ pub struct ArkretInboundEvent {
     pub participant_count: Option<u32>,
     pub strand_id: Option<String>,
     pub sender_did: String,
+    pub sender_actor_id: Option<arkret::ActorId>,
     pub body: String,
     pub thread_root_id: Option<String>,
     /// Actor DIDs carried by structured `content.mentions` nodes.
@@ -217,6 +218,7 @@ fn classify_sdk_message_create(
         participant_count: None,
         strand_id,
         sender_did: event.actor_id.signing_principal_id().as_str().to_owned(),
+        sender_actor_id: Some(event.actor_id.clone()),
         body: body.to_owned(),
         thread_root_id,
         mentioned_actor_ids,
@@ -487,6 +489,7 @@ fn classify_notification_event(
         participant_count: None,
         strand_id: notification_strand_id(notification),
         sender_did,
+        sender_actor_id: None,
         body,
         thread_root_id: None,
         mentioned_actor_ids: Vec::new(),

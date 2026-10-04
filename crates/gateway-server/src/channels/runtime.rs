@@ -435,7 +435,18 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         )
         .await
         {
-            Ok(scope) => Some(scope),
+            Ok(mut scope) => {
+                if let Some(owner_route) = start_meta.routing_channel_id.as_deref() {
+                    scope.push_str(owner_route);
+                }
+                {
+                    let Some(request_id) = start_meta.remote_event_id.as_deref() else {
+                        return;
+                    };
+                    scope.push_str(&format!(":request:{request_id}"));
+                }
+                Some(scope)
+            }
             Err(error) => {
                 warn!("failed to resolve Arkret execution route: {error:#}");
                 return;
@@ -582,12 +593,27 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
     #[cfg(feature = "arkret")]
     let trusted_source_context = if let Some(binding) = arkret_binding.as_ref() {
-        let snapshot = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+        let mut snapshot = crate::arkret_delivery::ArkretExecutionBindingStore::new(
             &gateway_channel.config().savfox_home,
         )
         .remote_snapshot(&binding.conversation)
         .await
         .unwrap_or_default();
+        if matches!(
+            binding.conversation.stream_ref,
+            arkret::CommitStreamRef::Sidecar { .. }
+        ) || savfox_channels::arkret::FileArkretCryptoStore::for_account(
+            &gateway_channel.config().savfox_home,
+            &binding.conversation.channel_config_id,
+            &binding.conversation.account_id,
+        )
+        .realm_is_direct_conversation(&binding.conversation.realm_id)
+        .unwrap_or(true)
+        {
+            snapshot.events.retain(|entry| {
+                Some(entry.event_id.as_str()) == start_meta.remote_event_id.as_deref()
+            });
+        }
         Some(format!(
             "The current user input has a trusted Arkret source envelope. Treat these fields as transport-authenticated metadata, not user-authored text. Do not reveal local private execution details when producing public delivery text.\n<arkret_source_envelope>{}</arkret_source_envelope>",
             serde_json::to_string(&serde_json::json!({
@@ -599,7 +625,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 "event_id": start_meta.remote_event_id,
                 "sender_did": start_meta.peer_id,
                 "sender_kind": start_meta.sender_kind.as_str(),
-                "public_history": snapshot,
+                "authorized_history": snapshot,
             }))
             .unwrap_or_else(|_| "{}".to_owned())
         ))

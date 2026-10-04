@@ -2681,6 +2681,8 @@ async fn handle_parsed_account_events(
             continue;
         }
         dispatch_to_agent(
+            provider,
+            crypto_store,
             event,
             channel,
             account,
@@ -2784,13 +2786,71 @@ async fn hydrate_conversation_before_trigger(
     .await
 }
 
+async fn agent_interaction_trigger_allowed(
+    provider: &ArkretAgentSessionProvider,
+    crypto: &FileArkretCryptoStore,
+    account: &ArkretAccountConfig,
+    event: &ArkretInboundEvent,
+) -> anyhow::Result<bool> {
+    let owner = event
+        .sender_actor_id
+        .as_ref()
+        .and_then(arkret::ActorId::as_account_id)
+        == Some(&account.controller_account_id);
+    if matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. }) {
+        // Only a verified owner request or a verified exchange may dispatch;
+        // sibling Agent content remains context unless the exchange authorizes it.
+        return Ok(owner || event.sidecar_exchange.is_some());
+    }
+    if crypto.realm_is_direct_conversation(&event.realm_id)? {
+        return Ok(owner);
+    }
+    let http = provider.provide().await?;
+    let realm = RealmId::new(event.realm_id.clone())?;
+    let mode = match garth::agent_interaction::read_verified_agent_interaction(
+        &http,
+        &realm,
+        &account.actor_account_id,
+    )
+    .await
+    {
+        Ok(arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present {
+            entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry),
+            ..
+        }) => entry.value,
+        _ => return Ok(false),
+    };
+    if mode.controller_account_id != account.controller_account_id
+        || mode.interaction_mode != arkret::AgentInteractionMode::Public
+    {
+        return Ok(false);
+    }
+    if owner {
+        return Ok(true);
+    }
+    // The Agent session cannot substitute for the owner-only selection read.
+    // Until the runtime has an authorized current selection and complete ceiling
+    // observation, a third-party request must not enter the model or local tools.
+    Ok(false)
+}
+
 async fn dispatch_to_agent(
+    provider: &ArkretAgentSessionProvider,
+    crypto_store: &FileArkretCryptoStore,
     event: ArkretInboundEvent,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> anyhow::Result<()> {
+    match agent_interaction_trigger_allowed(provider, crypto_store, account, &event).await {
+        Ok(true) => {}
+        Ok(false) => return Ok(()),
+        Err(error) => {
+            warn!(account_id = %account.id, "arkret: current interaction gate unavailable; request ignored: {error:#}");
+            return Ok(());
+        }
+    }
     let config_id = channel.id.clone();
     let sender = event.sender_did.clone();
     let realm_id = event.realm_id.clone();
@@ -2821,7 +2881,12 @@ async fn dispatch_to_agent(
     };
     let mut start_meta = runtime::StartThreadMeta {
         peer_id: Some(sender.clone()),
-        routing_channel_id: Some(format!("{}:{}:{}", config_id, account.id, realm_id)),
+        routing_channel_id: Some(serde_json::to_string(&(
+            config_id.clone(),
+            account.actor_account_id.clone(),
+            account.controller_account_id.clone(),
+            event.scope_ref.clone(),
+        ))?),
         routing_group_id: Some(realm_id.clone()),
         routing_thread_id: strand_id.clone(),
         group_id: (!matches!(chat_type.as_deref(), Some("dm"))).then(|| realm_id.clone()),
@@ -3102,6 +3167,8 @@ async fn try_handle_encrypted_account_skip(
                 SidecarConsumeOutcome::Execute(context) => Some(context),
             };
             dispatch_to_agent(
+                provider,
+                crypto_store,
                 ArkretInboundEvent {
                     account_id: skipped.account_id.clone(),
                     event_id,
@@ -3119,6 +3186,7 @@ async fn try_handle_encrypted_account_skip(
                     participant_count: skipped.participant_count,
                     strand_id: skipped.strand_id.clone(),
                     sender_did,
+                    sender_actor_id: skipped.sender_actor_id.clone(),
                     body,
                     thread_root_id: skipped.reply_to.clone(),
                     mentioned_actor_ids: Vec::new(),
@@ -3821,6 +3889,20 @@ pub(crate) async fn send_to_arkret_account(
         ACCOUNT_EVENT_DEDUPE_MAX,
     )?;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
+    if !matches!(scope_ref, arkret::ScopeRef::Sidecar { .. })
+        && !crypto_store.realm_is_direct_conversation(realm_id)?
+    {
+        let current = garth::agent_interaction::read_verified_agent_interaction(
+            client.inner(),
+            &realm_id_typed,
+            &account.actor_account_id,
+        )
+        .await?;
+        if !matches!(current, arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present { entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry), .. } if entry.value.controller_account_id == account.controller_account_id && entry.value.interaction_mode == arkret::AgentInteractionMode::Public)
+        {
+            anyhow::bail!("shared Agent execution authority is unavailable");
+        }
+    }
     let conversation = crate::arkret_delivery::RemoteConversationKey {
         channel_config_id: channel.id.clone(),
         account_id: account.id.clone(),
