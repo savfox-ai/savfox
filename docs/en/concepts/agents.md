@@ -104,7 +104,18 @@ The gateway WS-RPC exposes delegation management methods:
 | `agent.delegation.record`   | Record a new delegation               |
 | `agent.delegation.remove`   | Remove a delegation record            |
 
-## Terminal Agent Runtime
+## External Agent Runtime
+
+The settings page distinguishes **Native Agent** (Savfox's built-in engine)
+from **External Agent** (Codex or Claude). External agents retain `kind =
+"terminal"` and the `terminal` configuration branch for protocol compatibility.
+For Codex App Server, the page hides the generic I/O protocol, stdin template,
+terminal execution, approval bridge, and interactive-launch controls. Savfox
+manages the app-server command and stdio transport; extra CLI settings and
+environment variables remain available under **Advanced Codex settings**.
+Saving this mode removes stale stdin/protocol values and keeps approvals
+disabled. The page explains that authentication, model, and sandbox settings
+come from local Codex configuration, and interactive approvals are unavailable.
 
 Gateway agents can run as terminal agents through the top-level `terminal`
 branch. A terminal agent must declare `kind = "terminal"` and

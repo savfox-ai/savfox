@@ -80,7 +80,15 @@ Idle --> Thinking --> Executing --> Idle
 - 注入新输入
 - 查询状态
 
-## Terminal Agent Runtime
+## External Agent Runtime
+
+设置页区分 **Native Agent**（Savfox 内置引擎）和 **External Agent**（Codex 或 Claude）。
+为保持协议兼容，外部 Agent 仍使用 `kind = "terminal"` 和 `terminal` 配置分支。
+选择 Codex App Server 后，页面隐藏通用 I/O 协议、stdin 模板、终端执行、审批桥接
+和交互终端启动控件。Savfox 自动管理 app-server 命令和 stdio 连接；额外 CLI 参数
+及环境变量放在 **Advanced Codex settings** 折叠区中。保存此模式时会移除遗留的
+stdin/协议配置，并保持审批桥接关闭。页面说明认证、模型和沙箱沿用本机 Codex
+配置，目前不支持交互审批。
 
 Gateway agent 可以通过顶层 `terminal` 分支作为 Terminal Agent 运行。
 Terminal Agent 必须声明 `kind = "terminal"`，并且
