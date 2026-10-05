@@ -425,8 +425,12 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         &start_meta,
     )
     .await;
-    let text_target_match =
-        resolve_text_target_match(&gateway_channel.config().savfox_home, &cleaned_prompt).await;
+    let text_target_match = resolve_text_target_match(
+        &gateway_channel.config().savfox_home,
+        platform,
+        &cleaned_prompt,
+    )
+    .await;
     let routed_agent = text_target_match
         .agent_id
         .clone()

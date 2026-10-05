@@ -34,12 +34,9 @@ pub struct ArkretInboundEvent {
     pub sender_actor_id: Option<arkret::ActorId>,
     pub body: String,
     pub thread_root_id: Option<String>,
-    /// Actor DIDs carried by structured `content.mentions` nodes.
-    ///
-    /// The gateway keeps this data through the host-dispatch boundary so a
-    /// Agent runtime can explain whether the event explicitly
-    /// addressed its Arkret principal instead of routing on body text alone.
-    pub mentioned_actor_ids: Vec<String>,
+    /// Complete accounts addressed by validated SDK mention nodes. Both the
+    /// principal and Station components participate in trigger matching.
+    pub mentioned_account_ids: Vec<arkret::AccountId>,
     /// Verified Agent Sidecar exchange identity (`zh/models/sidecar.md`
     /// §7.2.1–§7.2.2), present only when this event carried a valid
     /// `role=request` binding addressed to this runtime's principal and the
@@ -125,9 +122,8 @@ pub fn extract_message_event(event: &Value, account_id: &str) -> Option<ArkretIn
 /// Classify one Arkret event for the account-mode inbound path.
 ///
 /// Encrypted payload carriers are detected explicitly and reported as
-/// [`ArkretInboundSkipReason::EncryptedContent`]. Savfox does not yet keep the
-/// Arkret MLS/session state required to decrypt these payloads, so callers must
-/// fail closed instead of treating them as generic unsupported content.
+/// [`ArkretInboundSkipReason::EncryptedContent`]. The gateway must decrypt them
+/// with its authenticated MLS state before extracting content triggers.
 #[must_use]
 pub fn classify_message_event(event: &Value, account_id: &str) -> ArkretInboundEventOutcome {
     let Ok(event_envelope) = sdk_event_from_value(event) else {
@@ -207,7 +203,7 @@ fn classify_sdk_message_create(
     let body = content.body.as_str();
     let strand_id = Some(payload.strand_id.as_str().to_owned());
     let thread_root_id = payload.reply_to_id.clone();
-    let mentioned_actor_ids = structured_mention_actor_ids(content);
+    let mentioned_account_ids = structured_mention_account_ids(content);
 
     ArkretInboundEventOutcome::Dispatchable(Box::new(ArkretInboundEvent {
         account_id: account_id.to_owned(),
@@ -221,32 +217,20 @@ fn classify_sdk_message_create(
         sender_actor_id: Some(event.actor_id.clone()),
         body: body.to_owned(),
         thread_root_id,
-        mentioned_actor_ids,
+        mentioned_account_ids,
         sidecar_exchange: None,
     }))
 }
 
-fn structured_mention_actor_ids(content: &arkret::ContentBlock) -> Vec<String> {
-    let mut actor_ids = content
-        .extra
-        .get("mentions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|mention| {
-            mention
-                .get("subject_id")
-                .or_else(|| mention.get("actor_id"))
-                .or_else(|| mention.get("did"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|actor_id| !actor_id.is_empty())
-                .map(str::to_owned)
-        })
-        .collect::<Vec<_>>();
-    actor_ids.sort_unstable();
-    actor_ids.dedup();
-    actor_ids
+#[must_use]
+pub fn structured_mention_account_ids(content: &impl serde::Serialize) -> Vec<arkret::AccountId> {
+    let Ok(value) = serde_json::to_value(content) else {
+        return Vec::new();
+    };
+    let mut accounts = arkret::collect_mention_subject_account_ids(&value).unwrap_or_default();
+    accounts.sort_unstable();
+    accounts.dedup();
+    accounts
 }
 
 fn classify_malformed_event(event: &Value, account_id: &str) -> ArkretInboundEventOutcome {
@@ -492,7 +476,7 @@ fn classify_notification_event(
         sender_actor_id: None,
         body,
         thread_root_id: None,
-        mentioned_actor_ids: Vec::new(),
+        mentioned_account_ids: Vec::new(),
         sidecar_exchange: None,
     }))
 }
@@ -862,7 +846,10 @@ mod tests {
 
     #[test]
     fn preserves_structured_agent_mention_targets_for_gateway_routing() {
-        let agent_id = "ak:did_core:web:example.org:agents:support";
+        let agent_id = arkret::AccountId::new(
+            arkret::DidCoreId::new("ak:did_core:web:example.org:agents:support").unwrap(),
+            arkret::DidCoreId::new("ak:did_core:web:station.example.org").unwrap(),
+        );
         let event = event_value(
             "ak.message.create",
             REALM_1.as_str(),
@@ -874,8 +861,8 @@ mod tests {
                     "kind": "ak.content.text",
                     "body": "hello support",
                     "mentions": [
-                        {"kind": "mention", "subject_id": agent_id},
-                        {"kind": "mention", "subject_id": agent_id}
+                        {"kind": "mention", "subject_account_id": agent_id},
+                        {"kind": "mention", "subject_account_id": agent_id}
                     ]
                 }
             }),
@@ -883,7 +870,23 @@ mod tests {
 
         let parsed = extract_message_event(&event, "support").expect("parse");
 
-        assert_eq!(parsed.mentioned_actor_ids, vec![agent_id]);
+        assert_eq!(parsed.mentioned_account_ids, vec![agent_id]);
+    }
+
+    #[test]
+    fn mention_extraction_rejects_legacy_alias_and_malformed_targets() {
+        for node in [
+            json!({"kind": "mention", "subject_id": "ak:did_core:web:agent.example"}),
+            json!({"kind": "mention", "subject_account_id": {"principal_id": "ak:did_core:web:agent.example"}}),
+        ] {
+            let content: arkret::ContentBlock = serde_json::from_value(json!({
+                "kind": "ak.content.text", "body": "@me/aa hello", "mentions": [node]
+            }))
+            .unwrap();
+            assert!(structured_mention_account_ids(&content).is_empty());
+        }
+        let content = arkret::ContentBlock::text("@me/aa hello");
+        assert!(structured_mention_account_ids(&content).is_empty());
     }
 
     #[test]

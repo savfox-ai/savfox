@@ -77,6 +77,7 @@ pub use inbound_adapter::{
     ArkretInboundSkipReason, ArkretInboundSkippedEvent, account_allows_event_read,
     classify_message_event, extract_message_event, parse_delta_frame_for_account,
     parse_event_values_for_account, parse_notification_delta_for_account, should_dispatch_event,
+    structured_mention_account_ids,
 };
 pub use mls_leaf_authority::{
     VerifiedMlsLeafAuthority, install_verified_leaf_authority, verified_welcome_leaf_authority,

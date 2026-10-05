@@ -488,7 +488,16 @@ fn split_leading_alias<'a>(text: &'a str, alias: &str) -> Option<&'a str> {
     None
 }
 
-pub(super) async fn resolve_text_target_match(savfox_home: &Path, text: &str) -> TextTargetMatch {
+pub(super) async fn resolve_text_target_match(
+    savfox_home: &Path,
+    platform: &str,
+    text: &str,
+) -> TextTargetMatch {
+    // Arkret addressing comes from authenticated complete-account mentions;
+    // local aliases and body text cannot select or wake another runtime.
+    if platform == "arkret" {
+        return TextTargetMatch::default();
+    }
     let mut best_match: Option<(usize, TextTargetMatch)> = None;
 
     for (stem, config) in load_all_agent_configs(savfox_home).await {
@@ -825,12 +834,17 @@ mod tests {
         .await
         .expect("write config");
 
-        let matched = resolve_text_target_match(home.path(), "reviewer: inspect this diff").await;
+        let matched =
+            resolve_text_target_match(home.path(), "matrix", "reviewer: inspect this diff").await;
         assert_eq!(matched.agent_id.as_deref(), Some("reviewer"));
         assert_eq!(
             matched.stripped_prompt.as_deref(),
             Some("inspect this diff")
         );
+        let literal =
+            resolve_text_target_match(home.path(), "arkret", "@reviewer inspect this diff").await;
+        assert!(literal.agent_id.is_none());
+        assert!(literal.stripped_prompt.is_none());
     }
 
     #[tokio::test]

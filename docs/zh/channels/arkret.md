@@ -124,6 +124,16 @@ worker 复用同一验证。内存 coordinator 接纳不是模型完成，也不
 | 原 runtime 私钥确实遗失 | 在 Inkson 对原 Agent 使用 Replace runtime，生成未用于该 Agent 的新 raw key，并完成 controller 批准。保持原权限上限、身份和生命周期；不要新建同名 Agent 冒充原身份。 |
 | gateway 已发回复，页面停在 Verifying sender identity | 检查接收端 exact committed Agent 签名证据解析及 MLS leaf authorization。单条回复也应主动解析并更新待验消息，不依赖后续 Account 帧或刷新；不能先展示未验证正文。 |
 
+公开群聊回复使用 SDK 校验过的提及节点，以包含 Station 的完整 `subject_account_id` 寻址。
+在 Inkson 提及列表中选中 Agent；字面 `@me/aa` 或 Savfox 本地别名不构成寻址。
+加密消息在 MLS 解密后保留这些目标，与明文消息共用提及触发判断。
+当前 public 模式与既有 participation／authority 检查仍须通过，回复保留请求原共享讨论。
+已授权 Realm snapshot 中精确存在的模式行可提供模式，不向已接受的 runtime scope
+追加另一个 exact-current service operation；必须校验 selector、完整账号、Realm stream、
+revision 与 head。snapshot 缺项不能证明 never-written 默认值。
+暂时无法读取 exact mode 时，入站消息应保持待处理，不能按主动忽略提前确认；
+之后改变模式不会重放已经确认的旧消息。
+
 等权替换沿用原 Direct 的 group 与 binding，通过标准 Remove/Add/Welcome 收敛新 runtime endpoint，
 不会替换其它 human device。它不恢复已经遗失的旧私钥或 MLS 私态，也不保证解开旧 wrapping key
 保护的数据。保留身份、聊天历史、wrapped crypto 与恢复材料，不通过清库、重置 epoch 或重新

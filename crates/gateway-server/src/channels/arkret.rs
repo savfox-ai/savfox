@@ -40,7 +40,7 @@ use savfox_channels::arkret::{
     gate_inbound_exchange_control, gate_inbound_request_binding, open_account_store,
     parse_event_values_for_account, resolve_arkret_outbound_account_for_binding,
     sidecar_binding_from_metadata_plaintext, sign_keypackages_consume_request,
-    sign_keypackages_upload_request,
+    sign_keypackages_upload_request, structured_mention_account_ids,
 };
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
@@ -2649,7 +2649,7 @@ async fn handle_parsed_account_events(
             event_id = %event.event_id,
             realm_id = %event.realm_id,
             sender_did = %event.sender_did,
-            mentioned_actor_ids = ?event.mentioned_actor_ids,
+            mentioned_account_ids = ?event.mentioned_account_ids,
             "arkret: parsed dispatchable account event"
         );
         if account_event_seen(account_store, channel, account, &event.event_id).await? {
@@ -2846,23 +2846,23 @@ async fn agent_interaction_trigger_allowed(
     provider: &ArkretAgentSessionProvider,
     crypto: &FileArkretCryptoStore,
     account: &ArkretAccountConfig,
-    event: &ArkretInboundEvent,
+    scope: &arkret::ScopeRef,
+    realm_id: &str,
+    sender_actor_id: Option<&arkret::ActorId>,
+    has_exchange: bool,
 ) -> anyhow::Result<bool> {
-    let owner = event
-        .sender_actor_id
-        .as_ref()
-        .and_then(arkret::ActorId::as_account_id)
+    let owner = sender_actor_id.and_then(arkret::ActorId::as_account_id)
         == Some(&account.controller_account_id);
-    if matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. }) {
+    if matches!(scope, arkret::ScopeRef::Sidecar { .. }) {
         // Only a verified owner request or a verified exchange may dispatch;
         // sibling Agent content remains context unless the exchange authorizes it.
-        return Ok(owner || event.sidecar_exchange.is_some());
+        return Ok(owner || has_exchange);
     }
-    if crypto.realm_is_direct_conversation(&event.realm_id)? {
+    if crypto.realm_is_direct_conversation(realm_id)? {
         return Ok(owner);
     }
     let http = provider.provide().await?;
-    let realm = RealmId::new(event.realm_id.clone())?;
+    let realm = RealmId::new(realm_id.to_owned())?;
     let mode = match garth::agent_interaction::read_verified_agent_interaction(
         &http,
         &realm,
@@ -2874,6 +2874,7 @@ async fn agent_interaction_trigger_allowed(
             entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry),
             ..
         }) => entry.value,
+        Err(error) => return Err(error.into()),
         _ => return Ok(false),
     };
     if mode.controller_account_id != account.controller_account_id
@@ -2890,6 +2891,13 @@ async fn agent_interaction_trigger_allowed(
     Ok(false)
 }
 
+fn inbound_agent_is_mentioned(event: &ArkretInboundEvent, account: &ArkretAccountConfig) -> bool {
+    event.sidecar_exchange.is_some()
+        || event
+            .mentioned_account_ids
+            .contains(&account.actor_account_id)
+}
+
 async fn dispatch_to_agent(
     provider: &ArkretAgentSessionProvider,
     crypto_store: &FileArkretCryptoStore,
@@ -2899,21 +2907,42 @@ async fn dispatch_to_agent(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    match agent_interaction_trigger_allowed(provider, crypto_store, account, &event).await {
+    match agent_interaction_trigger_allowed(
+        provider,
+        crypto_store,
+        account,
+        &event.scope_ref,
+        &event.realm_id,
+        event.sender_actor_id.as_ref(),
+        event.sidecar_exchange.is_some(),
+    )
+    .await
+    {
         Ok(true) => {}
         Ok(false) => return Ok(()),
         Err(error) => {
-            warn!(account_id = %account.id, "arkret: current interaction gate unavailable; request ignored: {error:#}");
-            return Ok(());
+            warn!(account_id = %account.id, "arkret: current interaction gate unavailable; request remains pending: {error:#}");
+            return Err(error);
         }
     }
+    dispatch_authorized_agent_event(event, channel, account, gateway_channel, session_store).await
+}
+
+async fn dispatch_authorized_agent_event(
+    event: ArkretInboundEvent,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    gateway_channel: Arc<GatewayChannel>,
+    session_store: Arc<SessionStore>,
+) -> anyhow::Result<()> {
     let config_id = channel.id.clone();
     let sender = event.sender_did.clone();
     let realm_id = event.realm_id.clone();
     let strand_id = event.strand_id.clone();
     let thread_id = event.thread_root_id.clone();
     let event_id = event.event_id.clone();
-    let mentioned_actor_ids = event.mentioned_actor_ids.clone();
+    let is_mentioned = inbound_agent_is_mentioned(&event, &account);
+    let mentioned_account_ids = event.mentioned_account_ids.clone();
     let sidecar_exchange = event.sidecar_exchange.clone();
     let chat_type = event.chat_type;
     let participant_count = event.participant_count;
@@ -2964,7 +2993,7 @@ async fn dispatch_to_agent(
             channel.delivery_mode.clone()
         }),
         sender_kind,
-        is_mentioned: sidecar_exchange.is_some(),
+        is_mentioned,
         participant_count,
         ..runtime::StartThreadMeta::default()
     };
@@ -2991,7 +3020,7 @@ async fn dispatch_to_agent(
         event_id = %event_id,
         realm_id = %realm_id,
         local_agent_id = %local_agent_id,
-        mentioned_actor_ids = ?mentioned_actor_ids,
+        mentioned_account_ids = ?mentioned_account_ids,
         "arkret: dispatching inbound event to resolved Savfox agent"
     );
 
@@ -3111,6 +3140,26 @@ async fn try_handle_encrypted_account_skip(
             "Arkret Direct Conversation is waiting for its accepted participant binding before replying"
         );
     }
+    // Ordinary MLS decrypt consumes the sender secret. Read transient current
+    // authority first so a failed mode read leaves ciphertext retryable.
+    let ordinary_interaction_allowed =
+        if inbound_mode == AccountInboundMode::Trigger && !native_sidecar {
+            let Some(realm_id) = skipped.realm_id.as_deref() else {
+                return Ok(false);
+            };
+            agent_interaction_trigger_allowed(
+                provider,
+                crypto_store,
+                account,
+                &payload.pre_encryption_header.effective_scope,
+                realm_id,
+                skipped.sender_actor_id.as_ref(),
+                false,
+            )
+            .await?
+        } else {
+            true
+        };
     match crypto_store.plan_bootstrap_for_payload(
         &account.principal_id,
         &account.device_id,
@@ -3149,7 +3198,7 @@ async fn try_handle_encrypted_account_skip(
                 &consume_bindings,
             )
             .await;
-            if inbound_mode == AccountInboundMode::Baseline {
+            if inbound_mode == AccountInboundMode::Baseline || !ordinary_interaction_allowed {
                 debug!(
                     channel_id = %channel.id,
                     account_id = %account.id,
@@ -3222,38 +3271,50 @@ async fn try_handle_encrypted_account_skip(
                 SidecarConsumeOutcome::DropSilently => return Ok(true),
                 SidecarConsumeOutcome::Execute(context) => Some(context),
             };
-            dispatch_to_agent(
-                provider,
-                crypto_store,
-                ArkretInboundEvent {
-                    account_id: skipped.account_id.clone(),
-                    event_id,
-                    realm_id: realm_id.clone(),
-                    scope_ref: payload.pre_encryption_header.effective_scope.clone(),
-                    chat_type: if crypto_store
-                        .direct_conversation_binding_event_ref(&realm_id)?
-                        .is_some()
-                        || crypto_store.realm_is_direct_conversation(&realm_id)?
-                    {
-                        Some("dm".to_owned())
-                    } else {
-                        skipped.chat_type.clone()
-                    },
-                    participant_count: skipped.participant_count,
-                    strand_id: skipped.strand_id.clone(),
-                    sender_did,
-                    sender_actor_id: skipped.sender_actor_id.clone(),
-                    body,
-                    thread_root_id: skipped.reply_to.clone(),
-                    mentioned_actor_ids: Vec::new(),
-                    sidecar_exchange,
+            let event = ArkretInboundEvent {
+                account_id: skipped.account_id.clone(),
+                event_id,
+                realm_id: realm_id.clone(),
+                scope_ref: payload.pre_encryption_header.effective_scope.clone(),
+                chat_type: if crypto_store
+                    .direct_conversation_binding_event_ref(&realm_id)?
+                    .is_some()
+                    || crypto_store.realm_is_direct_conversation(&realm_id)?
+                {
+                    Some("dm".to_owned())
+                } else {
+                    skipped.chat_type.clone()
                 },
-                channel,
-                account,
-                Arc::clone(gateway_channel),
-                Arc::clone(session_store),
-            )
-            .await?;
+                participant_count: skipped.participant_count,
+                strand_id: skipped.strand_id.clone(),
+                sender_did,
+                sender_actor_id: skipped.sender_actor_id.clone(),
+                body,
+                thread_root_id: skipped.reply_to.clone(),
+                mentioned_account_ids: structured_mention_account_ids(&content),
+                sidecar_exchange,
+            };
+            if native_sidecar {
+                dispatch_to_agent(
+                    provider,
+                    crypto_store,
+                    event,
+                    channel,
+                    account,
+                    Arc::clone(gateway_channel),
+                    Arc::clone(session_store),
+                )
+                .await?;
+            } else {
+                dispatch_authorized_agent_event(
+                    event,
+                    channel,
+                    account,
+                    Arc::clone(gateway_channel),
+                    Arc::clone(session_store),
+                )
+                .await?;
+            }
             Ok(true)
         }
         Ok(ArkretDecryptDetailedOutcome::MissingGroupState) => {
@@ -4270,6 +4331,43 @@ mod tests {
     use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 
     use super::*;
+
+    #[test]
+    fn public_group_mention_triggers_only_the_complete_agent_account() {
+        let account = make_account();
+        let (_, source) = queued_message_fixture();
+        let other_station = arkret::AccountId::new(
+            account.actor_account_id.principal_id.clone(),
+            arkret::DidCoreId::new("ak:did_core:web:other-station.example").unwrap(),
+        );
+        for (target, expected) in [
+            (Some(account.actor_account_id.clone()), true),
+            (Some(other_station), false),
+            (Some(account.controller_account_id.clone()), false),
+            (None, false),
+        ] {
+            let content = arkret::ContentBlock::text("@me/aa hello")
+                .with_mentions(target.into_iter().map(arkret::Mention::new).collect())
+                .unwrap();
+            let event = ArkretInboundEvent {
+                account_id: account.id.clone(),
+                event_id: "mention-test".into(),
+                realm_id: source.realm_id.to_string(),
+                scope_ref: source.scope_ref.clone(),
+                chat_type: Some("group".into()),
+                participant_count: Some(3),
+                strand_id: None,
+                sender_did: account.controller_account_id.principal_id.to_string(),
+                sender_actor_id: None,
+                body: content.body.clone(),
+                thread_root_id: None,
+                mentioned_account_ids: structured_mention_account_ids(&content),
+                sidecar_exchange: None,
+            };
+            let mentioned = inbound_agent_is_mentioned(&event, &account);
+            assert_eq!(mentioned, expected);
+        }
+    }
 
     fn make_account() -> ArkretAccountConfig {
         ArkretAccountConfig {

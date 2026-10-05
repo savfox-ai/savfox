@@ -165,6 +165,20 @@ and authorization checks remain in effect.
 | The original runtime private key is actually lost | Use Replace runtime for the same Agent in Inkson, generate a raw key never used for that Agent, and complete controller approval. Preserve the scope ceiling, identity, and lifecycle. A newly provisioned namesake is not the original Agent. |
 | Reply sent, but the receiver stays at Verifying sender identity | Inspect exact committed Agent signer resolution and MLS leaf authorization. One reply must initiate resolution and revalidate its pending row without a later account frame or reload. Never show unverified plaintext first. |
 
+Public group replies use validated SDK mention nodes with the complete
+`subject_account_id`, including its Station. Select the Agent in Inkson's mention
+picker; a literal `@me/aa` or local Savfox alias does not address it. Encrypted
+messages retain these targets after MLS decryption and use the same mention
+trigger as plaintext. Current public mode and existing participation/authority
+checks still apply, and replies stay in the request's shared discussion.
+An exact present mode row in the authorized Realm snapshot supplies the mode
+without adding the separate exact-current service operation to an accepted
+runtime scope. Its selector, complete account, Realm stream, revision and head
+must agree. A missing snapshot row cannot establish the never-written default.
+Temporary failures reading the exact mode leave the inbound event pending;
+they must not acknowledge it as an intentionally ignored request. A later mode
+change does not replay already acknowledged messages.
+
 An equivalent replacement retains the original Direct group and binding and uses
 ordinary Remove/Add/Welcome to converge the runtime endpoint. It does not replace
 other human devices, recover lost private keys or MLS private state, or guarantee
