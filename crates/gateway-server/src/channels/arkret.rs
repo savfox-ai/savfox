@@ -10,8 +10,10 @@
 //! Outbound sends go through [`send_to_arkret_account`].
 //! Agent presence uses the v1 Agent sender branch: no device id is emitted and
 //! the current runtime key supplies both the proof and sequence endpoint.
+//! Shared Realm presence requires an explicit current Public interaction mode;
+//! the private exception is restricted to an accepted exact controller Direct pair.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
@@ -739,6 +741,26 @@ async fn refresh_account_presence(
         }
     };
 
+    // Session observations can suppress work, but never grant scope authority.
+    // Presence has no participation behavior bit; Station admission still checks
+    // current membership, runtime lifecycle, key and Signal class authority.
+    let observation = match provider.session().current_state().and_then(|state| {
+        refreshed_grant_matches_account(
+            &state,
+            account,
+            ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1,
+        )
+        .then(|| state.agent_participation_observation(Utc::now()))
+    }) {
+        Some(Ok(observation)) if presence_observation_matches_runtime(&observation, account) => {
+            observation
+        }
+        _ => {
+            record_presence_failure(channel, account, "presence runtime session is unavailable");
+            return;
+        }
+    };
+
     for realm in ready_realms {
         let realm_id = match RealmId::new(realm.clone()) {
             Ok(realm_id) => realm_id,
@@ -751,6 +773,21 @@ async fn refresh_account_presence(
                 continue;
             }
         };
+        let eligible_head =
+            match verified_realm_presence_head(client.inner(), crypto_store, account, &realm_id)
+                .await
+            {
+                Ok(Some(head)) => head,
+                Ok(None) => continue,
+                Err(error) => {
+                    record_presence_failure(
+                        channel,
+                        account,
+                        format!("verify presence interaction scope: {error}"),
+                    );
+                    continue;
+                }
+            };
         let authority_head = match verified_presence_authority_head(client.inner(), &realm_id).await
         {
             Ok(head) => head,
@@ -763,6 +800,13 @@ async fn refresh_account_presence(
                 continue;
             }
         };
+        // A mode/pair from an earlier cut cannot authorize a newly observed head.
+        // Skip this heartbeat on a moving cut; the next scheduled refresh rereads.
+        if authority_head != eligible_head
+            || !presence_observation_matches_runtime(&observation, account)
+        {
+            continue;
+        }
         let envelope = match crypto_store.seal_online_presence_signal(
             realm_id.as_str(),
             &account.actor_account_id,
@@ -811,6 +855,132 @@ async fn refresh_account_presence(
             ),
         }
     }
+}
+
+fn presence_observation_matches_runtime(
+    observation: &arkret::AgentParticipationObservation,
+    account: &ArkretAccountConfig,
+) -> bool {
+    let now = Utc::now();
+    observation.agent_account == account.actor_account_id
+        && observation.controller_account == account.controller_account_id
+        && observation.observed_at <= now
+        && now < observation.expires_at
+        && account.verification_method.as_deref() == Some(observation.verification_method.as_str())
+        && account.authorized_event_ref.as_deref()
+            == Some(observation.agent_key_authorization_ref.as_str())
+}
+
+fn public_presence_mode_matches_account(
+    entry: &arkret::AgentInteractionExactCurrentResult,
+    account: &ArkretAccountConfig,
+) -> bool {
+    entry.selector.agent_account_id == account.actor_account_id
+        && entry.value.controller_account_id == account.controller_account_id
+        && entry.value.interaction_mode == arkret::AgentInteractionMode::Public
+}
+
+fn owner_direct_presence_binding(
+    entries: &[arkret::TypedCurrentResult],
+    realm_id: &RealmId,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<bool> {
+    let expected_stream = arkret::CommitStreamRef::Realm {
+        realm_id: realm_id.clone(),
+    };
+    let agent = arkret::ActorId::account(account.actor_account_id.clone());
+    let controller = arkret::ActorId::account(account.controller_account_id.clone());
+    let mut matched = false;
+    for entry in entries {
+        let arkret::TypedCurrentResult::Value {
+            selector: arkret::CurrentSelector::DirectConversationBinding { pair_key },
+            source_stream_ref,
+            value,
+            ..
+        } = entry
+        else {
+            continue;
+        };
+        anyhow::ensure!(
+            source_stream_ref == &expected_stream,
+            "Direct presence binding names another stream"
+        );
+        let binding: arkret::DirectConversationBindingCurrentValue =
+            serde_json::from_value(value.clone())?;
+        binding.binding_digest()?;
+        anyhow::ensure!(
+            binding.endorsements.iter().all(|endorsement| {
+                endorsement.value.realm_id == *realm_id && endorsement.value.pair_key == *pair_key
+            }),
+            "Direct presence binding differs from its selector or Realm"
+        );
+        let owner_pair = binding.endorsements.iter().all(|endorsement| {
+            endorsement.value.authorization_basis.kind
+                == arkret::DirectConversationAuthorizationKind::AgentController
+                && endorsement.value.unordered_participant_ids.contains(&agent)
+                && endorsement
+                    .value
+                    .unordered_participant_ids
+                    .contains(&controller)
+        });
+        anyhow::ensure!(
+            !matched || !owner_pair,
+            "Direct presence snapshot repeats the owner pair"
+        );
+        matched |= owner_pair;
+    }
+    Ok(matched)
+}
+
+async fn verified_realm_presence_head(
+    http: &arkret::http_client::Client,
+    crypto_store: &FileArkretCryptoStore,
+    account: &ArkretAccountConfig,
+    realm_id: &RealmId,
+) -> anyhow::Result<Option<arkret::CommitStreamHead>> {
+    if crypto_store.realm_is_direct_conversation(realm_id.as_str())? {
+        let (snapshot, _) = governance::verified_scope_snapshot(http, realm_id).await?;
+        if owner_direct_presence_binding(&snapshot.current_state_entries, realm_id, account)? {
+            let stream = arkret::CommitStreamRef::Realm {
+                realm_id: realm_id.clone(),
+            };
+            let mut heads = snapshot
+                .visible_stream_heads
+                .iter()
+                .filter(|head| head.stream_ref == stream);
+            let head = heads
+                .next()
+                .context("Direct presence snapshot omits the Realm head")?;
+            anyhow::ensure!(
+                heads.next().is_none(),
+                "Direct presence snapshot repeats the Realm head"
+            );
+            return Ok(Some(head.clone()));
+        }
+    }
+    let outcome = garth::agent_interaction::read_verified_agent_interaction(
+        http,
+        realm_id,
+        &account.actor_account_id,
+    )
+    .await;
+    public_presence_head_from_verified_read(outcome, account)
+}
+
+fn public_presence_head_from_verified_read(
+    outcome: garth::Result<arkret::exact_current_results::ExactCurrentResultsReadOutcome>,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<Option<arkret::CommitStreamHead>> {
+    Ok(match outcome? {
+        arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present {
+            effective_stream_head,
+            entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry),
+            ..
+        } if public_presence_mode_matches_account(&entry, account) => Some(effective_stream_head),
+        // Both private and authoritative never-written suppress shared presence.
+        // Unknown reads propagate their diagnostic; they never imply Public.
+        _ => None,
+    })
 }
 
 async fn verified_presence_authority_head(
@@ -867,12 +1037,8 @@ async fn process_durable_account_work(
     last_auth_warning: &mut Option<tokio::time::Instant>,
 ) {
     let now_ms = Utc::now().timestamp_millis();
-    let inbox_due = match account_store.pending(1).await {
-        Ok(deliveries) => deliveries.first().is_some_and(|delivery| {
-            delivery
-                .next_attempt_at_ms
-                .is_none_or(|next_at| next_at <= now_ms)
-        }),
+    let inbox_due = match account_store.ready_inbox_heads(now_ms, &BTreeSet::new(), 1) {
+        Ok(deliveries) => !deliveries.is_empty(),
         Err(error) => {
             warn!(
                 channel_id = %channel.id,
@@ -1117,8 +1283,13 @@ async fn process_durable_account_inbox(
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) {
+    let mut blocked_scopes = BTreeSet::new();
     loop {
-        let deliveries = match account_store.pending(32).await {
+        let deliveries = match account_store.ready_inbox_heads(
+            Utc::now().timestamp_millis(),
+            &blocked_scopes,
+            32,
+        ) {
             Ok(deliveries) => deliveries,
             Err(error) => {
                 warn!(
@@ -1133,14 +1304,6 @@ async fn process_durable_account_inbox(
             return;
         }
         for delivery in deliveries {
-            if delivery
-                .next_attempt_at_ms
-                .is_some_and(|next_at| next_at > Utc::now().timestamp_millis())
-            {
-                // Preserve delivery order; the poll timer will revisit this
-                // head item after its persisted retry deadline.
-                return;
-            }
             let inbound_mode = account_inbound_mode(&delivery.payload);
             if inbound_mode == AccountInboundMode::Baseline {
                 info!(
@@ -1197,8 +1360,12 @@ async fn process_durable_account_inbox(
                         delivery_id = delivery.id.get(),
                         "arkret: failed to persist delivery retry: {store_error}"
                     );
+                    return;
                 }
-                return;
+                // Retain the complete failed batch and its unchanged checkpoint.
+                // Only this exact independent scope waits; no successor overtakes it.
+                blocked_scopes.insert(delivery.scope.clone());
+                continue;
             }
             if let Err(error) = account_store.ack(delivery.id).await {
                 warn!(
@@ -4447,6 +4614,216 @@ mod tests {
         let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(signing_key, method);
         savfox_channels::arkret::sign_outbound_event(&mut authored, &signer).unwrap();
         (account, authored.into_event())
+    }
+
+    fn presence_head_fixture() -> arkret::CommitStreamHead {
+        arkret::CommitStreamHead {
+            stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: realm_id(),
+            },
+            commit_id: arkret::RealmCommitId::from_digest([92; 32]),
+            stream_position: 1,
+        }
+    }
+
+    #[test]
+    fn presence_shared_scope_requires_explicit_public_for_exact_accounts() {
+        use arkret::exact_current_results::{
+            ExactCurrentResultEntry, ExactCurrentResultsReadOutcome,
+            NeverWrittenExactCurrentSelector,
+        };
+        let (account, _) = queued_message_fixture();
+        let head = presence_head_fixture();
+        let selector =
+            arkret::AgentInteractionExactCurrentSelector::new(account.actor_account_id.clone());
+        let mut entry = arkret::AgentInteractionExactCurrentResult {
+            selector: selector.clone(),
+            source_stream_ref: head.stream_ref.clone(),
+            revision: arkret::CurrentRevision {
+                commit_id: head.commit_id.clone(),
+                stream_position: head.stream_position,
+            },
+            value: arkret::AgentInteractionCurrentValue {
+                controller_account_id: account.controller_account_id.clone(),
+                interaction_mode: arkret::AgentInteractionMode::Public,
+            },
+        };
+        let outcome = |entry| ExactCurrentResultsReadOutcome::Present {
+            realm_id: realm_id(),
+            governance_generation: 1,
+            effective_stream_head: head.clone(),
+            entry: ExactCurrentResultEntry::AgentInteraction(entry),
+        };
+        assert_eq!(
+            public_presence_head_from_verified_read(Ok(outcome(entry.clone())), &account).unwrap(),
+            Some(head.clone())
+        );
+        entry.value.interaction_mode = arkret::AgentInteractionMode::Private;
+        assert!(
+            public_presence_head_from_verified_read(Ok(outcome(entry.clone())), &account)
+                .unwrap()
+                .is_none()
+        );
+        entry.value.interaction_mode = arkret::AgentInteractionMode::Public;
+        entry.selector.agent_account_id.station_id =
+            DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
+        assert!(
+            public_presence_head_from_verified_read(Ok(outcome(entry.clone())), &account)
+                .unwrap()
+                .is_none()
+        );
+        entry.selector = selector.clone();
+        entry.value.controller_account_id.station_id =
+            DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
+        assert!(
+            public_presence_head_from_verified_read(Ok(outcome(entry)), &account)
+                .unwrap()
+                .is_none()
+        );
+        let absent = ExactCurrentResultsReadOutcome::NeverWritten {
+            realm_id: realm_id(),
+            governance_generation: 1,
+            effective_stream_head: head,
+            selector: NeverWrittenExactCurrentSelector::AgentInteraction(selector),
+        };
+        assert!(
+            public_presence_head_from_verified_read(Ok(absent), &account)
+                .unwrap()
+                .is_none()
+        );
+        let unknown = Err(garth::Error::Protocol(
+            "current cut is unavailable".to_owned(),
+        ));
+        assert!(public_presence_head_from_verified_read(unknown, &account).is_err());
+    }
+
+    #[test]
+    fn presence_direct_scope_requires_accepted_exact_controller_pair() {
+        let (account, _) = queued_message_fixture();
+        let head = presence_head_fixture();
+        let pair_key = arkret::Hash::new(format!("sha256:{}", "12".repeat(32))).unwrap();
+        let event = |byte| EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [byte; 32]);
+        let payload = arkret::DirectConversationBoundPayload {
+            pair_key: pair_key.clone(),
+            unordered_participant_ids: vec![
+                arkret::ActorId::account(account.actor_account_id.clone()),
+                arkret::ActorId::account(account.controller_account_id.clone()),
+            ],
+            realm_id: realm_id(),
+            main_strand_id: arkret::StrandId::from_event_id(&event(90)),
+            founding_unit_digest: pair_key.clone(),
+            authorization_basis: arkret::DirectConversationAuthorizationBasis {
+                kind: arkret::DirectConversationAuthorizationKind::AgentController,
+                event_refs: vec![event(91), event(92)],
+            },
+            initial_exact_pair_group_state_ref: event(93),
+            created_at: Utc::now(),
+        };
+        let mut value = arkret::DirectConversationBindingCurrentValue {
+            endorsements: vec![arkret::DirectConversationBindingEndorsementEntry {
+                tag_id: arkret::exact_current_results::CanonicalEventDot::new(event(94), 0)
+                    .unwrap(),
+                value: payload,
+            }],
+        };
+        let row = |value| arkret::TypedCurrentResult::Value {
+            selector: arkret::CurrentSelector::DirectConversationBinding {
+                pair_key: pair_key.clone(),
+            },
+            source_stream_ref: head.stream_ref.clone(),
+            revision: arkret::CurrentRevision {
+                commit_id: head.commit_id.clone(),
+                stream_position: head.stream_position,
+            },
+            value,
+        };
+        assert!(
+            owner_direct_presence_binding(
+                &[row(serde_json::to_value(&value).unwrap())],
+                &realm_id(),
+                &account
+            )
+            .unwrap()
+        );
+        assert!(!owner_direct_presence_binding(&[], &realm_id(), &account).unwrap());
+        let mut foreign = account.controller_account_id.clone();
+        foreign.station_id = DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
+        value.endorsements[0].value.unordered_participant_ids[1] =
+            arkret::ActorId::account(foreign);
+        assert!(
+            !owner_direct_presence_binding(
+                &[row(serde_json::to_value(&value).unwrap())],
+                &realm_id(),
+                &account
+            )
+            .unwrap()
+        );
+        value.endorsements[0].value.unordered_participant_ids[1] =
+            arkret::ActorId::account(account.controller_account_id.clone());
+        value.endorsements[0].value.authorization_basis.kind =
+            arkret::DirectConversationAuthorizationKind::AcceptedContact;
+        assert!(
+            !owner_direct_presence_binding(
+                &[row(serde_json::to_value(&value).unwrap())],
+                &realm_id(),
+                &account
+            )
+            .unwrap()
+        );
+        value.endorsements.clear();
+        assert!(
+            owner_direct_presence_binding(
+                &[row(serde_json::to_value(&value).unwrap())],
+                &realm_id(),
+                &account
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn presence_runtime_observation_rejects_expiry_other_account_and_replaced_key() {
+        let (mut account, _) = queued_message_fixture();
+        let authorization = EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [95; 32]);
+        account.authorized_event_ref = Some(authorization.to_string());
+        let mut observation = arkret::AgentParticipationObservation {
+            agent_account: account.actor_account_id.clone(),
+            controller_account: account.controller_account_id.clone(),
+            grant_id: arkret_wire::SessionGrantId::from_issuance_digest([1; 32]),
+            agent_key_authorization_ref: authorization,
+            verification_method: arkret::DidUrl::new(account.verification_method.clone().unwrap())
+                .unwrap(),
+            session_id: "presence-observation".to_owned(),
+            observed_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::minutes(5),
+            entries: vec![],
+        };
+        assert!(presence_observation_matches_runtime(&observation, &account));
+        observation.expires_at = Utc::now();
+        assert!(!presence_observation_matches_runtime(
+            &observation,
+            &account
+        ));
+        observation.expires_at = Utc::now() + chrono::Duration::minutes(5);
+        observation.observed_at = Utc::now() + chrono::Duration::minutes(1);
+        assert!(!presence_observation_matches_runtime(
+            &observation,
+            &account
+        ));
+        observation.observed_at = Utc::now();
+        observation.controller_account.station_id =
+            DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
+        assert!(!presence_observation_matches_runtime(
+            &observation,
+            &account
+        ));
+        observation.controller_account = account.controller_account_id.clone();
+        observation.agent_key_authorization_ref =
+            EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [96; 32]);
+        assert!(!presence_observation_matches_runtime(
+            &observation,
+            &account
+        ));
     }
 
     #[test]

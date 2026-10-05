@@ -149,7 +149,13 @@ async fn recover_pending_content(
     crypto_store: &FileArkretCryptoStore,
     positions: &mut std::collections::BTreeMap<String, u64>,
 ) -> anyhow::Result<()> {
-    if !account_store.pending(1).await?.is_empty() {
+    let pending_scopes = account_store.pending_cursor_scopes()?;
+    // This runtime produces per-CommitStream batches. An unsupported aggregate
+    // cannot be treated as independent private work or bypass its whole-frame ACK.
+    if pending_scopes
+        .iter()
+        .any(|scope| !matches!(scope, garth::CursorScope::CommitStream { .. }))
+    {
         return Ok(());
     }
     let state = crypto_store.load()?;
@@ -192,6 +198,9 @@ async fn recover_pending_content(
             service_id: account_subscription_service_id(channel, account)?,
             stream_ref: stream_ref.clone(),
         };
+        if !recovery_scope_available(&pending_scopes, &scope) {
+            continue;
+        }
         let Some(bytes) = account_store.load(scope.clone()).await? else {
             continue;
         };
@@ -273,6 +282,16 @@ async fn recover_pending_content(
         }
     }
     Ok(())
+}
+
+fn recovery_scope_available(
+    pending_scopes: &std::collections::BTreeSet<garth::CursorScope>,
+    scope: &garth::CursorScope,
+) -> bool {
+    // Aggregate Account delivery has no independently acknowledged stream cut.
+    pending_scopes.iter().all(|pending| {
+        matches!(pending, garth::CursorScope::CommitStream { .. }) && pending != scope
+    })
 }
 
 fn account_mls_endpoint(
@@ -391,6 +410,45 @@ fn installed_scan_scopes(
 #[cfg(test)]
 mod installed_scope_tests {
     use super::*;
+
+    #[test]
+    fn recovery_isolates_exact_stream_pending_but_preserves_account_batch_barrier() {
+        let id = |byte| arkret::EventId::from_digest(arkret::DigestSuite::Sha256, [byte; 32]);
+        let realm = arkret::RealmId::from_event_id(&id(20));
+        let shared = garth::CursorScope::CommitStream {
+            service_id: None,
+            stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: realm.clone(),
+            },
+        };
+        let private = garth::CursorScope::CommitStream {
+            service_id: None,
+            stream_ref: arkret::CommitStreamRef::Sidecar {
+                realm_id: realm,
+                sidecar_id: arkret::SidecarId::from_event_id(&id(21)),
+            },
+        };
+        let pending = std::collections::BTreeSet::from([shared.clone()]);
+        assert!(!recovery_scope_available(&pending, &shared));
+        assert!(recovery_scope_available(&pending, &private));
+        assert!(!recovery_scope_available(
+            &std::collections::BTreeSet::from([shared, private.clone()]),
+            &private
+        ));
+        let aggregate = garth::CursorScope::Account {
+            service_id: None,
+            actor_id: arkret::ActorId::account(arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:web:agent.example").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+            )),
+            device_id: arkret::DeviceId::new("ak:device:01964139-0000-7000-8000-000000000001")
+                .unwrap(),
+        };
+        assert!(!recovery_scope_available(
+            &std::collections::BTreeSet::from([aggregate]),
+            &private
+        ));
+    }
 
     #[test]
     fn recovery_and_live_scans_reject_wrong_stream_generation_and_forked_cuts() {
