@@ -96,6 +96,7 @@ garth = { workspace = true, optional = true }
 arkret-bridge-runtime = { workspace = true, optional = true }
 
 [dev-dependencies]
+keyring = { workspace = true }
 arkret-wire = { workspace = true, features = ["test-support"] }
 reqwest = { workspace = true, features = ["json"] }
 serde_json = { workspace = true }

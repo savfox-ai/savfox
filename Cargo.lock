@@ -11010,6 +11010,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "image",
+ "keyring",
  "lopdf",
  "matrix-bot-sdk",
  "mime_guess",

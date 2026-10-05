@@ -32,6 +32,19 @@ use serde_json::Value;
 
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
+/// A local encrypted-state read or write failed.
+/// The original cause is retained in the anyhow error chain.
+#[derive(Debug)]
+pub struct ArkretCryptoStorageFailure;
+
+impl std::fmt::Display for ArkretCryptoStorageFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Arkret encrypted state storage failed")
+    }
+}
+
+impl std::error::Error for ArkretCryptoStorageFailure {}
+
 const STATE_VERSION: &str = "savfox.arkret.crypto_state.v1";
 const WRAPPED_STATE_VERSION: &str = "savfox.arkret.crypto_state.wrapped.v1";
 #[cfg(not(test))]
@@ -409,6 +422,7 @@ impl FileArkretCryptoStore {
     pub fn load(&self) -> anyhow::Result<ArkretCryptoStateFile> {
         let _guard = self.mutation_lock.lock();
         self.load_unlocked()
+            .map_err(|error| error.context(ArkretCryptoStorageFailure))
     }
 
     fn load_unlocked(&self) -> anyhow::Result<ArkretCryptoStateFile> {
@@ -457,6 +471,11 @@ impl FileArkretCryptoStore {
     }
 
     pub fn save(&self, state: &mut ArkretCryptoStateFile) -> anyhow::Result<()> {
+        self.save_state(state)
+            .map_err(|error| error.context(ArkretCryptoStorageFailure))
+    }
+
+    fn save_state(&self, state: &mut ArkretCryptoStateFile) -> anyhow::Result<()> {
         let _guard = self.mutation_lock.lock();
         if state.scope_id != self.scope_id {
             anyhow::bail!(
@@ -2804,7 +2823,36 @@ mod tests {
         let error = store
             .save(&mut stale)
             .expect_err("stale generation must fail closed");
-        assert!(error.to_string().contains("generation conflict"));
+        assert!(error.is::<ArkretCryptoStorageFailure>());
+        assert!(format!("{error:#}").contains("generation conflict"));
+    }
+
+    #[test]
+    fn crypto_storage_marker_separates_corrupt_state_from_invalid_current_values() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "storage-errors", "agent");
+        store.ensure_created().unwrap();
+        std::fs::write(store.path(), b"invalid encrypted state JSON").unwrap();
+        let error = store.load().unwrap_err();
+        assert!(error.is::<ArkretCryptoStorageFailure>());
+        assert!(error.is::<serde_json::Error>());
+        std::fs::remove_file(store.path()).unwrap();
+        store.ensure_created().unwrap();
+        let entry = TypedCurrentResult::Value {
+            selector: arkret::CurrentSelector::RealmGenesis,
+            source_stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: FIXTURE_REALM_B.clone(),
+            },
+            revision: arkret::CurrentRevision {
+                commit_id: arkret::RealmCommitId::from_digest([70; 32]),
+                stream_position: 0,
+            },
+            value: serde_json::json!({}),
+        };
+        let error = store
+            .record_verified_mls_current_entries(&FIXTURE_REALM, &[entry])
+            .unwrap_err();
+        assert!(!error.is::<ArkretCryptoStorageFailure>());
     }
 
     fn temp_home(label: &str) -> PathBuf {

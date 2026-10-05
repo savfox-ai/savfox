@@ -105,25 +105,31 @@ pub(super) async fn drive(
     let mut last_auth_warning = None;
     let mut recovery_due = tokio::time::Instant::now();
     let mut recovery_positions = std::collections::BTreeMap::new();
+    let mut recovery_retries = ScopeMaintenanceRetries::default();
+    let mut scan_retries = ScopeMaintenanceRetries::default();
+    let mut read_budget = ScopeReadBudget::default();
     loop {
         tokio::select! {
             _ = receive_tick.tick() => {
-                let result = async {
+                let result = receive_after_durable(
+                    process_durable_account_work(provider, channel, account, &account_store,
+                        &crypto_store, &gateway_channel, &session_store, &mut last_auth_warning),
+                    async {
                     let client = ArkretHttpClient::from_inner(provider.provide().await?);
                     run_account_key_lifecycle_maintenance(&client, channel, account,
                         &account_store, &crypto_store, "agent_receive").await?;
                     if tokio::time::Instant::now() >= recovery_due {
-                        recover_pending_content(&client, channel, account, &account_store, &crypto_store, &mut recovery_positions).await?;
+                        recover_pending_content(&client, channel, account, &account_store, &crypto_store, &mut recovery_positions, &mut recovery_retries, &mut read_budget).await?;
                         recovery_due = tokio::time::Instant::now() + Duration::from_secs(20);
                     }
-                    scan_installed_scopes(&client, channel, account, &account_store, &crypto_store).await?;
-                    process_durable_account_work(provider, channel, account, &account_store,
-                        &crypto_store, &gateway_channel, &session_store, &mut last_auth_warning).await;
+                    scan_installed_scopes(&client, channel, account, &account_store, &crypto_store, &mut scan_retries, &mut read_budget).await?;
                     Ok::<_, anyhow::Error>(())
-                }.await;
+                }).await;
                 if let Err(error) = result {
                     return AccountEngineOutcome::Retry { error };
                 }
+                process_durable_account_work(provider, channel, account, &account_store,
+                    &crypto_store, &gateway_channel, &session_store, &mut last_auth_warning).await;
                 match account_store.pending(1).await {
                     Ok(pending) if pending.first().and_then(|item| item.last_error.as_ref()).is_some() => {
                         record_listener_failure(channel, account, "retry_wait",
@@ -139,6 +145,161 @@ pub(super) async fn drive(
     }
 }
 
+async fn receive_after_durable(
+    durable: impl std::future::Future<Output = ()>,
+    receive: impl std::future::Future<Output = anyhow::Result<()>>,
+) -> anyhow::Result<()> {
+    durable.await;
+    receive.await
+}
+
+#[derive(Debug)]
+struct ReceiveStorageFailure;
+
+impl std::fmt::Display for ReceiveStorageFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Agent receive durable storage failed")
+    }
+}
+
+impl std::error::Error for ReceiveStorageFailure {}
+
+fn receive_storage_error(error: impl Into<anyhow::Error>) -> anyhow::Error {
+    error.into().context(ReceiveStorageFailure)
+}
+
+fn receive_crypto_error(error: anyhow::Error) -> anyhow::Error {
+    // These methods also validate scope values. Only a durable storage failure is
+    // global; a malformed current entry remains isolated to its exact scope.
+    if error.is::<std::io::Error>()
+        || error.is::<savfox_keyring_store::CredentialStoreError>()
+        || error.is::<savfox_channels::arkret::ArkretCryptoStorageFailure>()
+    {
+        error.context(ReceiveStorageFailure)
+    } else {
+        error
+    }
+}
+
+#[derive(Default)]
+struct ScopeMaintenanceRetries {
+    failures: std::collections::BTreeMap<
+        garth::CursorScope,
+        (arkret::RetrySchedule, tokio::time::Instant),
+    >,
+}
+
+impl ScopeMaintenanceRetries {
+    async fn run(
+        &mut self,
+        scope: garth::CursorScope,
+        now: tokio::time::Instant,
+        work: impl std::future::Future<Output = anyhow::Result<()>>,
+    ) -> anyhow::Result<Option<anyhow::Error>> {
+        if self
+            .failures
+            .get(&scope)
+            .is_some_and(|(_, next)| now < *next)
+        {
+            return Ok(None);
+        }
+        match work.await {
+            Ok(()) => {
+                self.failures.remove(&scope);
+                Ok(None)
+            }
+            Err(error) if error.is::<ReceiveStorageFailure>() => Err(error),
+            Err(error) => {
+                let now = now.max(tokio::time::Instant::now());
+                let hint = scope_retry_hint(&error, now);
+                let state = self.failures.entry(scope).or_insert_with(|| {
+                    (
+                        arkret::RetrySchedule::arkret_default()
+                            .with_jitter(arkret::SPEC_JITTER_RATIO, rand::random()),
+                        now,
+                    )
+                });
+                state.1 = now + state.0.next_delay_with_hint(hint);
+                Ok(Some(error))
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ScopeReadDeferred(tokio::time::Instant);
+
+impl std::fmt::Display for ScopeReadDeferred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Agent endpoint retry budget is exhausted; pending scope retained")
+    }
+}
+
+impl std::error::Error for ScopeReadDeferred {}
+
+fn scope_retry_hint(error: &anyhow::Error, now: tokio::time::Instant) -> Option<Duration> {
+    if let Some(deferred) = error.downcast_ref::<ScopeReadDeferred>() {
+        return Some(deferred.0.saturating_duration_since(now));
+    }
+    let millis = match error.downcast_ref::<arkret::http_client::Error>() {
+        Some(arkret::http_client::Error::Api { error, .. }) => error.retry_after_ms(),
+        _ => match error.downcast_ref::<garth::Error>() {
+            Some(garth::Error::Api { error, .. }) => error.retry_after_ms(),
+            _ => None,
+        },
+    };
+    millis.map(Duration::from_millis)
+}
+
+fn scope_service(scope: &garth::CursorScope) -> Option<arkret::DidCoreId> {
+    match scope {
+        garth::CursorScope::CommitStream { service_id, .. } => service_id.clone(),
+        _ => None,
+    }
+}
+
+#[derive(Default)]
+struct ScopeReadBudget {
+    // One drive is bound to a single authenticated Agent Account. Both scan
+    // and recovery share these service/endpoint windows across exact scopes.
+    attempts: std::collections::BTreeMap<
+        (Option<arkret::DidCoreId>, &'static str),
+        std::collections::VecDeque<tokio::time::Instant>,
+    >,
+}
+
+impl ScopeReadBudget {
+    async fn run<T>(
+        &mut self,
+        service: &Option<arkret::DidCoreId>,
+        endpoint: &'static str,
+        retrying: bool,
+        now: tokio::time::Instant,
+        read: impl std::future::Future<Output = anyhow::Result<T>>,
+    ) -> anyhow::Result<T> {
+        if retrying {
+            let attempts = self
+                .attempts
+                .entry((service.clone(), endpoint))
+                .or_default();
+            while attempts
+                .front()
+                .is_some_and(|at| now.saturating_duration_since(*at) >= arkret::SPEC_RETRY_WINDOW)
+            {
+                attempts.pop_front();
+            }
+            if attempts.len() >= arkret::SPEC_MAX_RETRIES as usize {
+                return Err(ScopeReadDeferred(
+                    *attempts.front().expect("nonempty retry window") + arkret::SPEC_RETRY_WINDOW,
+                )
+                .into());
+            }
+            attempts.push_back(now);
+        }
+        read.await
+    }
+}
+
 /// Re-read pending ciphertext through the current authorized scan, preserving
 /// the existing stream head. Stored reconstructed headers are never evidence.
 async fn recover_pending_content(
@@ -148,6 +309,8 @@ async fn recover_pending_content(
     account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     positions: &mut std::collections::BTreeMap<String, u64>,
+    retries: &mut ScopeMaintenanceRetries,
+    read_budget: &mut ScopeReadBudget,
 ) -> anyhow::Result<()> {
     let pending_scopes = account_store.pending_cursor_scopes()?;
     // This runtime produces per-CommitStream batches. An unsupported aggregate
@@ -201,84 +364,116 @@ async fn recover_pending_content(
         if !recovery_scope_available(&pending_scopes, &scope) {
             continue;
         }
-        let Some(bytes) = account_store.load(scope.clone()).await? else {
-            continue;
-        };
-        let checkpoint: StreamCheckpoint = serde_json::from_str(&bytes)?;
-        anyhow::ensure!(
-            checkpoint.head.stream_ref == stream_ref,
-            "recovery checkpoint belongs to another stream"
-        );
-        let mut after = Some(
-            positions
-                .get(group_id)
-                .copied()
-                .unwrap_or(checkpoint.baseline_through),
-        );
-        // Bound each maintenance pass; unresolved ciphertext remains retained.
-        for _ in 0..8 {
-            let request = arkret::StreamScanRequest {
-                realm_id: stream_ref.realm_id().clone(),
-                stream_ref: stream_ref.clone(),
-                direction: arkret::StreamScanDirection::After(after),
-                limit: 200,
-            };
-            let page = client.inner().scan_commit_stream(&request).await?;
-            page.validate_for_request(&request)?;
-            let (snapshot, _) =
-                governance::verified_scope_snapshot(client.inner(), &request.realm_id).await?;
-            for item in &page.committed_events {
-                require_own_station_scan_cut(
-                    item,
-                    &snapshot.visible_stream_heads,
-                    snapshot.governance_generation,
-                )?;
-                if item.commit().stream_position == checkpoint.head.stream_position {
-                    anyhow::ensure!(
-                        item.commit().commit_id == checkpoint.head.commit_id,
-                        "recovery scan forks its retained Commit head"
-                    );
-                }
-            }
-            let events = page
-                .committed_events
-                .iter()
-                .filter_map(|item| {
-                    let arkret::CommittedEventView::Full(full) = item else {
-                        return None;
+        let retrying = retries.failures.contains_key(&scope);
+        let error = retries
+            .run(scope.clone(), tokio::time::Instant::now(), async {
+                let Some(bytes) = account_store
+                    .load(scope.clone())
+                    .await
+                    .map_err(receive_storage_error)?
+                else {
+                    return Ok(());
+                };
+                let checkpoint: StreamCheckpoint =
+                    serde_json::from_str(&bytes).map_err(receive_storage_error)?;
+                anyhow::ensure!(
+                    checkpoint.head.stream_ref == stream_ref,
+                    "recovery checkpoint belongs to another stream"
+                );
+                let mut after = Some(
+                    positions
+                        .get(group_id)
+                        .copied()
+                        .unwrap_or(checkpoint.baseline_through),
+                );
+                // Bound each maintenance pass; unresolved ciphertext remains retained.
+                for _ in 0..8 {
+                    let request = arkret::StreamScanRequest {
+                        realm_id: stream_ref.realm_id().clone(),
+                        stream_ref: stream_ref.clone(),
+                        direction: arkret::StreamScanDirection::After(after),
+                        limit: 200,
                     };
-                    (full.commit.stream_position <= checkpoint.head.stream_position
-                        && targets.remove(&full.event.event_id))
-                    .then_some(item)
-                })
-                .map(|item| {
-                    garth::CommittedDelta::from_committed_event_view(
-                        request.realm_id.clone(),
-                        item.clone(),
-                    )
-                    .map(ClientEvent::Committed)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            if !events.is_empty() {
-                account_store
-                    .commit(scope.clone(), Some(bytes.clone()), events)
-                    .await?;
-            }
-            let last = page
-                .committed_events
-                .last()
-                .map(|item| item.commit().stream_position);
-            if targets.is_empty()
-                || !page.truncated
-                || last.is_none_or(|position| position >= checkpoint.head.stream_position)
-            {
-                positions.remove(group_id);
-                break;
-            }
-            if let Some(position) = last {
-                positions.insert(group_id.clone(), position);
-            }
-            after = last;
+                    let page = read_budget
+                        .run(
+                            &scope_service(&scope),
+                            ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+                            retrying,
+                            tokio::time::Instant::now(),
+                            async { Ok(client.inner().scan_commit_stream(&request).await?) },
+                        )
+                        .await?;
+                    page.validate_for_request(&request)?;
+                    let (snapshot, _) = read_budget
+                        .run(
+                            &scope_service(&scope),
+                            ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
+                            retrying,
+                            tokio::time::Instant::now(),
+                            governance::verified_scope_snapshot(client.inner(), &request.realm_id),
+                        )
+                        .await?;
+                    for item in &page.committed_events {
+                        require_own_station_scan_cut(
+                            item,
+                            &snapshot.visible_stream_heads,
+                            snapshot.governance_generation,
+                        )?;
+                        if item.commit().stream_position == checkpoint.head.stream_position {
+                            anyhow::ensure!(
+                                item.commit().commit_id == checkpoint.head.commit_id,
+                                "recovery scan forks its retained Commit head"
+                            );
+                        }
+                    }
+                    let events = page
+                        .committed_events
+                        .iter()
+                        .filter_map(|item| {
+                            let arkret::CommittedEventView::Full(full) = item else {
+                                return None;
+                            };
+                            (full.commit.stream_position <= checkpoint.head.stream_position
+                                && targets.remove(&full.event.event_id))
+                            .then_some(item)
+                        })
+                        .map(|item| {
+                            garth::CommittedDelta::from_committed_event_view(
+                                request.realm_id.clone(),
+                                item.clone(),
+                            )
+                            .map(ClientEvent::Committed)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if !events.is_empty() {
+                        account_store
+                            .commit(scope.clone(), Some(bytes.clone()), events)
+                            .await
+                            .map_err(receive_storage_error)?;
+                    }
+                    let last = page
+                        .committed_events
+                        .last()
+                        .map(|item| item.commit().stream_position);
+                    if targets.is_empty()
+                        || !page.truncated
+                        || last.is_none_or(|position| position >= checkpoint.head.stream_position)
+                    {
+                        positions.remove(group_id);
+                        break;
+                    }
+                    if let Some(position) = last {
+                        positions.insert(group_id.clone(), position);
+                    }
+                    after = last;
+                }
+                Ok(())
+            })
+            .await?;
+        if let Some(error) = error {
+            warn!(
+                "arkret: independent stream recovery failed; exact scope retained for retry: {error:#}"
+            );
         }
     }
     Ok(())
@@ -410,6 +605,288 @@ fn installed_scan_scopes(
 #[cfg(test)]
 mod installed_scope_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn endpoint_retry_budget_is_shared_by_scopes_and_preserves_fresh_private_reads() {
+        let mut budget = ScopeReadBudget::default();
+        let now = tokio::time::Instant::now();
+        let service = Some(arkret::DidCoreId::new("ak:did_core:web:station.example").unwrap());
+        let endpoint = ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1;
+        let calls = std::cell::Cell::new(0);
+        for _ in 0..arkret::SPEC_MAX_RETRIES {
+            budget
+                .run(&service, endpoint, true, now, async {
+                    calls.set(calls.get() + 1);
+                    Ok(())
+                })
+                .await
+                .unwrap();
+        }
+        let error = budget
+            .run::<()>(&service, endpoint, true, now, async {
+                panic!("another failed scope bypassed the endpoint retry window")
+            })
+            .await
+            .unwrap_err();
+        assert!(error.is::<ScopeReadDeferred>());
+        budget
+            .run(&service, endpoint, false, now, async {
+                calls.set(calls.get() + 1);
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert_eq!(calls.get(), arkret::SPEC_MAX_RETRIES + 1);
+        budget
+            .run(
+                &service,
+                endpoint,
+                true,
+                now + arkret::SPEC_RETRY_WINDOW,
+                async {
+                    calls.set(calls.get() + 1);
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(calls.get(), arkret::SPEC_MAX_RETRIES + 2);
+    }
+
+    #[tokio::test]
+    async fn scope_retry_preserves_long_http_hint_and_local_jitter_ladder() {
+        let (scope, _) = maintenance_test_scopes();
+        let now = tokio::time::Instant::now() + Duration::from_secs(1);
+        let mut retries = ScopeMaintenanceRetries::default();
+        let error = arkret::http_client::Error::Api {
+            status: 503,
+            error: Box::new(
+                arkret::Problem::new("temporarily_unavailable", 503, "scope is unavailable")
+                    .with_retry_after_ms(Some(600_000)),
+            ),
+        };
+        assert!(
+            retries
+                .run(scope.clone(), now, async { Err(error.into()) })
+                .await
+                .unwrap()
+                .is_some()
+        );
+        let next = retries.failures[&scope].1;
+        assert_eq!(next.duration_since(now), Duration::from_secs(600));
+        assert!(
+            retries
+                .run(scope.clone(), next, async {
+                    Err(arkret::http_client::Error::Api {
+                        status: 503,
+                        error: Box::new(
+                            arkret::Problem::new(
+                                "temporarily_unavailable",
+                                503,
+                                "scope is unavailable",
+                            )
+                            .with_retry_after_ms(Some(0)),
+                        ),
+                    }
+                    .into())
+                })
+                .await
+                .unwrap()
+                .is_some()
+        );
+        let delay = retries.failures[&scope].1.duration_since(next);
+        assert!(delay >= Duration::from_secs(2));
+        assert!(delay <= Duration::from_millis(2400));
+    }
+
+    #[tokio::test]
+    async fn scope_retry_delay_starts_after_failed_work_instead_of_old_request_start() {
+        let (scope, _) = maintenance_test_scopes();
+        let mut retries = ScopeMaintenanceRetries::default();
+        let start = tokio::time::Instant::now() - Duration::from_secs(5);
+        let completed = std::cell::Cell::new(tokio::time::Instant::now());
+        assert!(
+            retries
+                .run(scope.clone(), start, async {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    completed.set(tokio::time::Instant::now());
+                    anyhow::bail!("scope transport timed out");
+                })
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(retries.failures[&scope].1 >= completed.get() + arkret::SPEC_INITIAL_DELAY);
+    }
+
+    #[tokio::test]
+    async fn non_io_credential_backend_failure_is_global_but_current_validation_is_local() {
+        let (scope, _) = maintenance_test_scopes();
+        let mut retries = ScopeMaintenanceRetries::default();
+        let failure = savfox_keyring_store::CredentialStoreError::new(keyring::Error::NoEntry);
+        let error = retries
+            .run(scope.clone(), tokio::time::Instant::now(), async {
+                Err(receive_crypto_error(failure.into()))
+            })
+            .await
+            .unwrap_err();
+        assert!(error.is::<ReceiveStorageFailure>());
+        assert!(error.is::<savfox_keyring_store::CredentialStoreError>());
+        assert!(retries.failures.is_empty());
+        assert!(
+            retries
+                .run(scope, tokio::time::Instant::now(), async {
+                    Err(receive_crypto_error(anyhow::anyhow!(
+                        "current value differs from scope selector"
+                    )))
+                })
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    fn maintenance_test_scopes() -> (garth::CursorScope, garth::CursorScope) {
+        let id = |byte| arkret::EventId::from_digest(arkret::DigestSuite::Sha256, [byte; 32]);
+        let realm = arkret::RealmId::from_event_id(&id(30));
+        (
+            garth::CursorScope::CommitStream {
+                service_id: None,
+                stream_ref: arkret::CommitStreamRef::Realm {
+                    realm_id: realm.clone(),
+                },
+            },
+            garth::CursorScope::CommitStream {
+                service_id: None,
+                stream_ref: arkret::CommitStreamRef::Sidecar {
+                    realm_id: realm,
+                    sidecar_id: arkret::SidecarId::from_event_id(&id(31)),
+                },
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn durable_private_work_precedes_failing_network_maintenance() {
+        let home = tempfile::tempdir().unwrap();
+        let store = garth::FileStore::open(home.path().join("receive-order.json")).unwrap();
+        let (_, private) = maintenance_test_scopes();
+        store
+            .commit(
+                private.clone(),
+                Some("verified-private-cut".into()),
+                vec![ClientEvent::AccountUpdates(Default::default())],
+            )
+            .await
+            .unwrap();
+        let order = std::cell::RefCell::new(Vec::new());
+        let result = receive_after_durable(
+            async {
+                order.borrow_mut().push("durable");
+                let heads = store.ready_inbox_heads(0, &BTreeSet::new(), 1).unwrap();
+                assert_eq!(heads[0].scope, private);
+                store.ack(heads[0].id).await.unwrap();
+            },
+            async {
+                order.borrow_mut().push("maintenance");
+                anyhow::bail!("source watch transport unavailable");
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(*order.borrow(), vec!["durable", "maintenance"]);
+        assert!(store.pending(1).await.unwrap().is_empty());
+        assert_eq!(
+            store.load(private).await.unwrap().as_deref(),
+            Some("verified-private-cut")
+        );
+    }
+
+    #[tokio::test]
+    async fn independent_scope_maintenance_retains_bad_shared_and_persists_private() {
+        let home = tempfile::tempdir().unwrap();
+        let store = garth::FileStore::open(home.path().join("scope-maintenance.json")).unwrap();
+        let (shared, private) = maintenance_test_scopes();
+        store
+            .save(shared.clone(), "verified-shared-cut".into())
+            .await
+            .unwrap();
+        let mut retries = ScopeMaintenanceRetries::default();
+        let now = tokio::time::Instant::now();
+        let mut calls = Vec::new();
+        for scope in [shared.clone(), private.clone()] {
+            let error = retries
+                .run(scope.clone(), now, async {
+                    calls.push(scope.clone());
+                    if scope == shared {
+                        anyhow::bail!("shared page has no verified current cut");
+                    }
+                    store
+                        .commit(
+                            scope.clone(),
+                            Some("verified-private-cut".into()),
+                            vec![ClientEvent::AccountUpdates(Default::default())],
+                        )
+                        .await
+                        .map_err(receive_storage_error)?;
+                    Ok(())
+                })
+                .await
+                .unwrap();
+            assert_eq!(error.is_some(), scope == shared);
+        }
+        assert_eq!(calls, vec![shared.clone(), private.clone()]);
+        assert_eq!(
+            store.load(shared.clone()).await.unwrap().as_deref(),
+            Some("verified-shared-cut")
+        );
+        let heads = store.ready_inbox_heads(0, &BTreeSet::new(), 32).unwrap();
+        assert_eq!(heads.len(), 1);
+        assert_eq!(heads[0].scope, private);
+        let mut other_service = shared.clone();
+        if let garth::CursorScope::CommitStream { service_id, .. } = &mut other_service {
+            *service_id =
+                Some(arkret::DidCoreId::new("ak:did_core:web:other-station.example").unwrap());
+        }
+        let mut other_service_ran = false;
+        assert!(
+            retries
+                .run(other_service, now, async {
+                    other_service_ran = true;
+                    Ok(())
+                })
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(other_service_ran);
+        let blocked = retries
+            .run(shared.clone(), now, async {
+                panic!("failed shared scope retried before its deadline")
+            })
+            .await
+            .unwrap();
+        assert!(blocked.is_none());
+        assert!(
+            retries
+                .run(shared.clone(), now + Duration::from_secs(2), async {
+                    Ok(())
+                })
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(retries.failures.is_empty());
+        let storage = retries
+            .run(shared, now, async {
+                Err(receive_storage_error(anyhow::anyhow!(
+                    "durable write failed"
+                )))
+            })
+            .await;
+        assert!(storage.unwrap_err().is::<ReceiveStorageFailure>());
+        assert!(retries.failures.is_empty());
+    }
 
     #[test]
     fn recovery_isolates_exact_stream_pending_but_preserves_account_batch_barrier() {
@@ -629,6 +1106,8 @@ async fn scan_installed_scopes(
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
+    retries: &mut ScopeMaintenanceRetries,
+    read_budget: &mut ScopeReadBudget,
 ) -> anyhow::Result<()> {
     let actor = arkret::ActorId::account(account.actor_account_id.clone());
     let state = crypto_store.load()?;
@@ -645,105 +1124,149 @@ async fn scan_installed_scopes(
         &endpoint,
     )?;
     for stream_ref in scopes {
-        let realm_id = stream_ref.realm_id().clone();
         let scope = garth::CursorScope::CommitStream {
-            service_id: account_subscription_service_id(channel, account)?,
+            service_id: service_id.clone(),
             stream_ref: stream_ref.clone(),
         };
-        let checkpoint: Option<StreamCheckpoint> = account_store
-            .load(scope.clone())
-            .await?
-            .map(|bytes| serde_json::from_str(&bytes))
-            .transpose()?;
-        let (snapshot, _) = governance::verified_scope_snapshot(client.inner(), &realm_id).await?;
-        crypto_store
-            .record_verified_mls_current_entries(&realm_id, &snapshot.current_state_entries)?;
-        crypto_store.record_verified_direct_conversation_current_entries(
-            &realm_id,
-            &actor,
-            &snapshot.current_state_entries,
-        )?;
-        let baseline_through = checkpoint
-            .as_ref()
-            .context("installed Agent scope has no durable accepted Welcome checkpoint")?
-            .baseline_through;
-        let request = arkret::StreamScanRequest {
-            realm_id: realm_id.clone(),
-            stream_ref: stream_ref.clone(),
-            direction: arkret::StreamScanDirection::After(
-                checkpoint.as_ref().map(|c| c.head.stream_position),
-            ),
-            limit: 200,
-        };
-        let page = client.inner().scan_commit_stream(&request).await?;
-        if page.committed_events.is_empty() {
-            continue;
-        }
-        page.validate_for_request(&request)?;
-        let (after, _) = governance::verified_scope_snapshot(client.inner(), &realm_id).await?;
-        if let Some(previous) = &checkpoint {
-            anyhow::ensure!(
-                previous.head.stream_ref == stream_ref
-                    && page.committed_events[0]
-                        .commit()
-                        .previous_commit_ref
-                        .as_ref()
-                        == Some(&previous.head.commit_id),
-                "Agent scan does not extend the durable verified Commit head"
-            );
-        }
-        for item in &page.committed_events {
-            require_own_station_scan_cut(
-                item,
-                &after.visible_stream_heads,
-                after.governance_generation,
-            )?;
-        }
-        // Validate the whole page before its first write. Split the baseline
-        // prefix from live work; each unit and exact head persist atomically.
-        let split = page
-            .committed_events
-            .partition_point(|item| item.commit().stream_position <= baseline_through);
-        for (rows, baseline) in [
-            (&page.committed_events[..split], true),
-            (&page.committed_events[split..], false),
-        ] {
-            let Some(last) = rows.last().map(|item| item.commit()) else {
-                continue;
-            };
-            let mut events = rows
-                .iter()
-                .map(|item| {
-                    garth::CommittedDelta::from_committed_event_view(realm_id.clone(), item.clone())
-                        .map(ClientEvent::Committed)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            if baseline {
-                // Local delivery metadata only; no account aggregate or human
-                // DeviceId is read or manufactured on the Agent transport.
-                events.insert(
-                    0,
-                    ClientEvent::AccountUpdates(garth::AccountUpdateContext {
-                        initial_catchup: true,
-                        ..Default::default()
-                    }),
-                );
-            }
-            let new_checkpoint = StreamCheckpoint {
-                head: arkret::CommitStreamHead {
+        let retrying = retries.failures.contains_key(&scope);
+        let error = retries
+            .run(scope.clone(), tokio::time::Instant::now(), async {
+                let realm_id = stream_ref.realm_id().clone();
+                let checkpoint: Option<StreamCheckpoint> = account_store
+                    .load(scope.clone())
+                    .await
+                    .map_err(receive_storage_error)?
+                    .map(|bytes| serde_json::from_str(&bytes))
+                    .transpose()
+                    .map_err(receive_storage_error)?;
+                let (snapshot, _) = read_budget
+                    .run(
+                        &scope_service(&scope),
+                        ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
+                        retrying,
+                        tokio::time::Instant::now(),
+                        governance::verified_scope_snapshot(client.inner(), &realm_id),
+                    )
+                    .await?;
+                crypto_store
+                    .record_verified_mls_current_entries(&realm_id, &snapshot.current_state_entries)
+                    .map_err(receive_crypto_error)?;
+                crypto_store
+                    .record_verified_direct_conversation_current_entries(
+                        &realm_id,
+                        &actor,
+                        &snapshot.current_state_entries,
+                    )
+                    .map_err(receive_crypto_error)?;
+                let baseline_through = checkpoint
+                    .as_ref()
+                    .context("installed Agent scope has no durable accepted Welcome checkpoint")?
+                    .baseline_through;
+                let request = arkret::StreamScanRequest {
+                    realm_id: realm_id.clone(),
                     stream_ref: stream_ref.clone(),
-                    stream_position: last.stream_position,
-                    commit_id: last.commit_id.clone(),
-                },
-                baseline_through,
-            };
-            account_store
-                .commit(
-                    scope.clone(),
-                    Some(serde_json::to_string(&new_checkpoint)?),
-                    events,
-                )
-                .await?;
+                    direction: arkret::StreamScanDirection::After(
+                        checkpoint.as_ref().map(|c| c.head.stream_position),
+                    ),
+                    limit: 200,
+                };
+                let page = read_budget
+                    .run(
+                        &scope_service(&scope),
+                        ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+                        retrying,
+                        tokio::time::Instant::now(),
+                        async { Ok(client.inner().scan_commit_stream(&request).await?) },
+                    )
+                    .await?;
+                if page.committed_events.is_empty() {
+                    return Ok(());
+                }
+                page.validate_for_request(&request)?;
+                let (after, _) = read_budget
+                    .run(
+                        &scope_service(&scope),
+                        ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
+                        retrying,
+                        tokio::time::Instant::now(),
+                        governance::verified_scope_snapshot(client.inner(), &realm_id),
+                    )
+                    .await?;
+                if let Some(previous) = &checkpoint {
+                    anyhow::ensure!(
+                        previous.head.stream_ref == stream_ref
+                            && page.committed_events[0]
+                                .commit()
+                                .previous_commit_ref
+                                .as_ref()
+                                == Some(&previous.head.commit_id),
+                        "Agent scan does not extend the durable verified Commit head"
+                    );
+                }
+                for item in &page.committed_events {
+                    require_own_station_scan_cut(
+                        item,
+                        &after.visible_stream_heads,
+                        after.governance_generation,
+                    )?;
+                }
+                // Validate the whole page before its first write. Split the baseline
+                // prefix from live work; each unit and exact head persist atomically.
+                let split = page
+                    .committed_events
+                    .partition_point(|item| item.commit().stream_position <= baseline_through);
+                for (rows, baseline) in [
+                    (&page.committed_events[..split], true),
+                    (&page.committed_events[split..], false),
+                ] {
+                    let Some(last) = rows.last().map(|item| item.commit()) else {
+                        continue;
+                    };
+                    let mut events = rows
+                        .iter()
+                        .map(|item| {
+                            garth::CommittedDelta::from_committed_event_view(
+                                realm_id.clone(),
+                                item.clone(),
+                            )
+                            .map(ClientEvent::Committed)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if baseline {
+                        // Local delivery metadata only; no account aggregate or human
+                        // DeviceId is read or manufactured on the Agent transport.
+                        events.insert(
+                            0,
+                            ClientEvent::AccountUpdates(garth::AccountUpdateContext {
+                                initial_catchup: true,
+                                ..Default::default()
+                            }),
+                        );
+                    }
+                    let new_checkpoint = StreamCheckpoint {
+                        head: arkret::CommitStreamHead {
+                            stream_ref: stream_ref.clone(),
+                            stream_position: last.stream_position,
+                            commit_id: last.commit_id.clone(),
+                        },
+                        baseline_through,
+                    };
+                    account_store
+                        .commit(
+                            scope.clone(),
+                            Some(serde_json::to_string(&new_checkpoint)?),
+                            events,
+                        )
+                        .await
+                        .map_err(receive_storage_error)?;
+                }
+                Ok(())
+            })
+            .await?;
+        if let Some(error) = error {
+            warn!(
+                "arkret: independent stream scan failed; exact scope retained for retry: {error:#}"
+            );
         }
     }
     Ok(())

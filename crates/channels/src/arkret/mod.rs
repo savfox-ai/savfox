@@ -64,9 +64,10 @@ pub use config::{
 };
 pub use crypto_state::{
     ArkretBootstrapRecord, ArkretContentEncryptionFloor, ArkretCryptoStateFile,
-    ArkretDecryptDetailedOutcome, ArkretDecryptOutcome, ArkretEncryptOutcome, ArkretKeyBackupState,
-    ArkretMlsIdentityStateRecord, ArkretMlsRosterMaterial, ArkretMlsWelcomeConsumeBinding,
-    ArkretRealmCryptoPolicy, FileArkretCryptoStore, account_scope_id, applet_scope_id,
+    ArkretCryptoStorageFailure, ArkretDecryptDetailedOutcome, ArkretDecryptOutcome,
+    ArkretEncryptOutcome, ArkretKeyBackupState, ArkretMlsIdentityStateRecord,
+    ArkretMlsRosterMaterial, ArkretMlsWelcomeConsumeBinding, ArkretRealmCryptoPolicy,
+    FileArkretCryptoStore, account_scope_id, applet_scope_id,
     extract_encrypted_metadata_payload_from_message_content,
     extract_encrypted_payload_from_message_content, message_content_has_encrypted_carrier,
     mls_key_package_record_from_claim,
