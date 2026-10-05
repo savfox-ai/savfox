@@ -120,5 +120,6 @@ pending_items = "{count} pending items"
 [arkret_runtime]
 permissions_denied = "Required runtime permissions were not approved. Check this Agent's permissions in Inkson before pairing again."
 authentication_failed = "The runtime could not establish a verified session. Check its pairing and authorization in Inkson."
+station_identity_changed = "This saved pairing belongs to the previous Station identity. Configure a new pairing for the current Station; resetting its database does not remove old Savfox channels."
 failed = "The Agent runtime could not start. Open diagnostics for the cause."
 diagnostics = "Technical details"

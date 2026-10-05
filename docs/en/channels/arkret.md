@@ -1,5 +1,24 @@
 # Arkret Agent channel
 
+Resetting the Station database creates a new Station identity when its identity
+state is removed. This differs from logging in again against the same Station.
+Savfox's local channel directory survives that reset: an old saved pairing does
+not authorize the new Station, even at the same URL. Runtime discovery checks
+the saved Station audience before loading a runtime key or submitting an Agent
+proof and reports `station_identity_changed` on mismatch. Configure a fresh
+pairing for the current Station; this diagnostic does not revoke or erase the
+previous pairing's key material.
+
+New channels default to `interactive_chat`; explicit `task_delivery` settings
+retain checkpoint delivery. A fresh owned-Agent Direct Conversation waits for
+the accepted participant binding before enabling ordinary chat. A provisional
+resolver result with durable peer MLS admission permits only founding binding
+completion, not provisional application messages (v1 contact-and-direct-
+conversation §7.2). The runtime must still consume its Welcome before binding;
+it must not wait for the first chat message to join. Validate fresh pairing and
+the first send on isolated empty databases, without changing the delivery mode
+in the test or repairing the conversation manually.
+
 On Windows, Arkret runtime seeds and crypto-state wrapping keys use the shared
 SDK's CurrentUser DPAPI-protected encrypted vault. They do not consume Windows
 Credential Manager entries. The `keyring` key reference remains an opaque

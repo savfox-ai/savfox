@@ -120,5 +120,6 @@ pending_items = "{count} 项待处理"
 [arkret_runtime]
 permissions_denied = "运行所需权限尚未获批准。请在 Inkson 检查此 Agent 的权限后重新配对。"
 authentication_failed = "运行时未能建立可信会话。请在 Inkson 检查配对和授权状态。"
+station_identity_changed = "这条配对属于原来的 Station 身份。请为当前 Station 配置新配对；重置服务数据库不会移除 Savfox 的旧频道。"
 failed = "Agent 运行时未能启动，请展开诊断查看原因。"
 diagnostics = "技术详情"

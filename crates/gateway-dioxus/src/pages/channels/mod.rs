@@ -712,13 +712,13 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     key: "deliveryMode".into(),
                     label: "Delivery mode".into(),
                     field_type: FieldType::Select(vec![
-                        "task_delivery".into(),
                         "interactive_chat".into(),
+                        "task_delivery".into(),
                     ]),
-                    placeholder: "task_delivery".into(),
+                    placeholder: "interactive_chat".into(),
                     secret: false,
                     required: false,
-                    help: "Task delivery publishes only explicit checkpoints. Interactive chat sends every assistant reply. Existing configs without this field keep interactive behavior.",
+                    help: "Interactive chat sends every assistant reply and is the default. Select task delivery to publish only explicit checkpoints.",
                 },
                 ConfigField {
                     key: "appletId".into(),
@@ -3007,7 +3007,7 @@ fn default_channel_values(
         values.insert(field_value_key(channel_id, "send"), "true".to_string());
         values.insert(
             field_value_key(channel_id, "deliveryMode"),
-            "task_delivery".to_string(),
+            "interactive_chat".to_string(),
         );
         values.insert(
             field_value_key(channel_id, "receiveEvents"),
@@ -3549,6 +3549,7 @@ fn arkret_runtime_error_key(reason: Option<&str>) -> &'static str {
     match reason {
         Some("capability_denied") => "arkret_runtime.permissions_denied",
         Some("proof_invalid") => "arkret_runtime.authentication_failed",
+        Some("station_identity_changed") => "arkret_runtime.station_identity_changed",
         _ => "arkret_runtime.failed",
     }
 }
@@ -4289,7 +4290,7 @@ fn ChannelConfigModal(
     mut config_modal_channel: Signal<Option<String>>,
 ) -> Element {
     let mut inline_values: Signal<std::collections::HashMap<String, String>> =
-        use_signal(|| std::collections::HashMap::new());
+        use_signal(|| default_channel_values(&channel_id, &fields));
     let mut inline_saving = use_signal(|| false);
     let mut deleting = use_signal(|| false);
     let mut confirm_delete = use_signal(|| false);
@@ -6739,6 +6740,10 @@ mod tests {
             "arkret_runtime.authentication_failed"
         );
         assert_eq!(arkret_runtime_error_key(None), "arkret_runtime.failed");
+        assert_eq!(
+            arkret_runtime_error_key(Some("station_identity_changed")),
+            "arkret_runtime.station_identity_changed"
+        );
     }
 
     #[test]
@@ -7353,6 +7358,26 @@ mod tests {
         );
 
         assert!(!field_is_visible("arkret", field, &values));
+    }
+
+    #[test]
+    fn arkret_new_channel_replies_by_default_and_preserves_explicit_task_delivery() {
+        let fields = arkret_fields();
+        let fresh = default_channel_values("arkret", &fields);
+        assert_eq!(
+            fresh
+                .get(&field_value_key("arkret", "deliveryMode"))
+                .map(String::as_str),
+            Some("interactive_chat")
+        );
+        let saved = json!({"config": {"deliveryMode": "task_delivery"}});
+        let restored = restore_channel_values("arkret", &fields, &saved);
+        assert_eq!(
+            restored
+                .get(&field_value_key("arkret", "deliveryMode"))
+                .map(String::as_str),
+            Some("task_delivery")
+        );
     }
 
     #[test]

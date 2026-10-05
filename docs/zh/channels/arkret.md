@@ -1,5 +1,18 @@
 # Arkret Agent 频道
 
+清空 Station 身份数据会生成新的 Station 身份，与同一 Station 上重新登录不同。
+Savfox 本地频道目录不会随服务端清库而删除：即使 URL 相同，旧配对也不能授权新的
+Station。运行时 discovery 在读取私钥或提交 Agent proof 前检查保存的 Station audience，
+不匹配时报告 `station_identity_changed`。为当前 Station 配置新配对；该诊断不会撤销
+或删除原配对的密钥材料。
+
+新频道默认 `interactive_chat`；明确选择的 `task_delivery` 仍保留检查点交付。首次创建
+自有 Agent 私聊时，普通聊天等待已接受的 participant binding 后才启用发送。
+resolver 的 provisional 结果在 peer MLS admission 已 durable 时，只允许完成 founding
+binding，不能继续发送 provisional 应用消息（v1 contact-and-direct-conversation §7.2）。
+运行时仍须在 binding 前消费 Welcome，不能反过来等待首条聊天才入群。回归验收应使用
+隔离的空数据库验证新配对及首次发送，测试不能手动更改默认回复模式或修补会话状态。
+
 Windows 上的 Arkret runtime 私钥与加密状态 wrapping key 使用 SDK 已有的当前用户
 DPAPI 保护加密仓库，不再占用 Windows Credential Manager 条目。`keyring` key reference
 继续表示平台保护的存储位置，私钥不进入 channel JSON。旧 Windows 凭据库条目不导入，

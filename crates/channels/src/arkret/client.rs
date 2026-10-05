@@ -394,7 +394,7 @@ impl ArkretHttpClient {
         let grant_store = NoopSessionGrantStore;
         let resource_url =
             Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
-        let grant_base_url = discover_account_authority_base_url(&resource_url).await?;
+        let grant_base_url = discover_account_authority_base_url(&resource_url, &audience).await?;
         let runtime_signing_key = Arc::new(load_ed25519_signing_key(key_ref)?);
         // The grant-binding key is an ephemeral session credential.  It MUST
         // not reuse the long-lived Agent runtime key that signs Agent proofs,
@@ -511,7 +511,7 @@ impl ArkretHttpClient {
 
         let session_engine = SessionEngine::new(session_transport);
         session_engine
-            .login_request(login_request, Utc::now())
+            .login_request(login_request, garth::SystemClock)
             .await
             .map_err(agent_session_exchange_error)?;
         let state = session_engine
@@ -778,7 +778,23 @@ fn joined_htu(base_url: &Url, path: &str) -> anyhow::Result<String> {
     Ok(url.to_string())
 }
 
-async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Result<Url> {
+fn verify_agent_service_audience(expected: &DidCoreId, observed: &DidCoreId) -> anyhow::Result<()> {
+    if expected != observed {
+        return Err(AgentSessionExchangeError {
+            reason: "station_identity_changed".to_owned(),
+            action: "this saved pairing belongs to another Station identity; configure a new pairing for the current Station",
+            source: garth::Error::Protocol(format!(
+                "configured Station {expected}, discovered Station {observed}"
+            )),
+        }.into());
+    }
+    Ok(())
+}
+
+async fn discover_account_authority_base_url(
+    resource_url: &Url,
+    audience: &DidCoreId,
+) -> anyhow::Result<Url> {
     let discovery = agent_client_builder(resource_url.clone())?
         .build()
         .map_err(|error| anyhow::anyhow!("Arkret service discovery client: {error}"))?;
@@ -786,6 +802,9 @@ async fn discover_account_authority_base_url(resource_url: &Url) -> anyhow::Resu
         .describe()
         .await
         .map_err(|error| anyhow::anyhow!("Arkret service discovery: {error}"))?;
+    // A database reset can reincarnate the same URL as a different Station.
+    // Never send the old Agent's proof to that Station's Account Authority.
+    verify_agent_service_audience(audience, &description.service_id)?;
     let authority = description
         .auth_metadata
         .account_authority
@@ -834,6 +853,21 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
+
+    #[test]
+    fn reset_station_cannot_reuse_a_saved_agent_pairing_or_be_reported_as_bad_signature() {
+        let prior = DidCoreId::new("ak:did_core:web:prior.example").unwrap();
+        let current = DidCoreId::new("ak:did_core:web:current.example").unwrap();
+        let error = verify_agent_service_audience(&prior, &current).unwrap_err();
+        assert_eq!(
+            agent_session_exchange_reason(&error),
+            Some("station_identity_changed")
+        );
+        assert!(!agent_session_reason_is_irreversibly_terminal(
+            "station_identity_changed"
+        ));
+        assert!(verify_agent_service_audience(&current, &current).is_ok());
+    }
 
     fn signing_key() -> SigningKey {
         SigningKey::from_bytes(&[7_u8; 32])
