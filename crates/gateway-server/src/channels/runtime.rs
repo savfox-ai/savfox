@@ -93,6 +93,44 @@ async fn arkret_conversation_routing_scope(
         .await
 }
 
+#[cfg(feature = "arkret")]
+async fn arkret_inbound_routing_scope(
+    savfox_home: &std::path::Path,
+    meta: &StartThreadMeta,
+) -> anyhow::Result<String> {
+    let (Some(config_id), Some(account_id), Some(realm_id), Some(strand_id), Some(stream_ref)) = (
+        meta.saved_channel_config_id.as_deref(),
+        meta.account_id.as_deref(),
+        meta.remote_realm_id.as_deref(),
+        meta.remote_strand_id.as_deref(),
+        meta.remote_stream_ref.as_ref(),
+    ) else {
+        anyhow::bail!("Arkret inbound event is missing its trusted conversation coordinates");
+    };
+    let Some(request_id) = meta.remote_event_id.as_deref().filter(|id| !id.is_empty()) else {
+        anyhow::bail!("Arkret inbound event is missing its trusted request Event ID");
+    };
+    anyhow::ensure!(
+        meta.peer_id.as_deref().is_some_and(|id| !id.is_empty()),
+        "Arkret inbound event is missing its trusted sender"
+    );
+    let conversation = crate::arkret_delivery::RemoteConversationKey {
+        channel_config_id: config_id.to_owned(),
+        account_id: account_id.to_owned(),
+        realm_id: realm_id.to_owned(),
+        strand_id: strand_id.to_owned(),
+        stream_ref: stream_ref.clone(),
+    };
+    arkret_conversation_routing_scope(
+        savfox_home,
+        &conversation,
+        crate::arkret_delivery::ArkretDeliveryMode::from_config(meta.delivery_mode.as_deref()),
+        meta.routing_channel_id.as_deref(),
+        request_id,
+    )
+    .await
+}
+
 fn command_registry() -> &'static CommandRegistry {
     static REGISTRY: OnceLock<CommandRegistry> = OnceLock::new();
     REGISTRY.get_or_init(CommandRegistry::new)
@@ -271,6 +309,23 @@ async fn dispatch_to_coordinator(
     name: Option<String>,
     meta: Option<StartThreadMeta>,
 ) -> bool {
+    // Arkret acknowledges its durable inbox after coordinator admission. Reject
+    // an unusable execution route here, while the source event can still retry.
+    #[cfg(feature = "arkret")]
+    if platform == "arkret" {
+        let route = match meta.as_ref() {
+            Some(meta) => {
+                arkret_inbound_routing_scope(&gateway_channel.config().savfox_home, meta).await
+            }
+            None => Err(anyhow::anyhow!(
+                "Arkret inbound event is missing trusted metadata"
+            )),
+        };
+        if let Err(error) = route {
+            warn!("rejecting Arkret coordinator admission: {error:#}");
+            return false;
+        }
+    }
     let session_key = if let Some(meta) = meta.as_ref() {
         format!(
             "{}:{}:{}:{}:{}:{}",
@@ -423,39 +478,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
     #[cfg(feature = "arkret")]
     let arkret_routing_scope = if platform == "arkret" {
-        let (Some(config_id), Some(account_id), Some(realm_id), Some(strand_id), Some(stream_ref)) = (
-            start_meta.saved_channel_config_id.as_deref(),
-            start_meta.account_id.as_deref(),
-            start_meta.remote_realm_id.as_deref(),
-            start_meta.remote_strand_id.as_deref(),
-            start_meta.remote_stream_ref.as_ref(),
-        ) else {
-            warn!("Arkret inbound event is missing its trusted conversation coordinates");
-            return;
-        };
-        // Validate the trusted request before tracking can persist a session.
-        // Its Event ID identifies the turn, never the conversation route.
-        let Some(request_id) = start_meta.remote_event_id.as_deref() else {
-            warn!("Arkret inbound event is missing its trusted request Event ID");
-            return;
-        };
-        let conversation = crate::arkret_delivery::RemoteConversationKey {
-            channel_config_id: config_id.to_owned(),
-            account_id: account_id.to_owned(),
-            realm_id: realm_id.to_owned(),
-            strand_id: strand_id.to_owned(),
-            stream_ref: stream_ref.clone(),
-        };
-        match arkret_conversation_routing_scope(
-            &gateway_channel.config().savfox_home,
-            &conversation,
-            crate::arkret_delivery::ArkretDeliveryMode::from_config(
-                start_meta.delivery_mode.as_deref(),
-            ),
-            start_meta.routing_channel_id.as_deref(),
-            request_id,
-        )
-        .await
+        match arkret_inbound_routing_scope(&gateway_channel.config().savfox_home, &start_meta).await
         {
             Ok(scope) => Some(scope),
             Err(error) => {
@@ -1353,6 +1376,109 @@ mod tests {
     use super::format_model_footer;
     use crate::channels::policy::append_channel_tone_suffix;
     use crate::config::ResponseFooterConfig;
+
+    #[cfg(feature = "arkret")]
+    #[tokio::test]
+    async fn arkret_coordinator_rejects_unreadable_bindings_before_admission() {
+        use std::sync::Arc;
+
+        use savfox_core::config::ConfigBuilder;
+
+        use crate::channel::{GatewayBridgeArgs, GatewayChannel};
+        use crate::session::{GatewaySessionManager, SessionStore};
+
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("gateway/arkret-delivery/bindings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // A retired binding has no trusted stream coordinate. It must remain
+        // opaque evidence, never be accepted and guessed into the new route.
+        let binding_id = uuid::Uuid::new_v4();
+        let retired = serde_json::json!({
+            "version": 1,
+            "bindings": {
+                binding_id.to_string(): {
+                    "bindingId": binding_id,
+                    "localSessionId": "retired-session",
+                    "channelConfigId": "support",
+                    "accountId": "agent-account",
+                    "realmId": "retired-realm",
+                    "strandId": "retired-strand",
+                    "sourceEventId": "retired-event",
+                    "sourceSenderDid": "controller",
+                    "agentSenderDid": "agent",
+                    "mode": "interactive_chat",
+                    "state": "accepted",
+                    "publicSummaryRevision": 0,
+                    "createdAt": "2026-10-02T00:00:00Z",
+                    "updatedAt": "2026-10-02T00:00:00Z"
+                }
+            }
+        });
+        let bytes = serde_json::to_vec(&retired).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        let config = Arc::new(
+            ConfigBuilder::default()
+                .savfox_home(home.path().to_path_buf())
+                .build()
+                .await
+                .unwrap(),
+        );
+        let sessions = Arc::new(SessionStore::from_home(home.path()));
+        let (outgoing_tx, _outgoing_rx) = tokio::sync::mpsc::channel(8);
+        let gateway = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config,
+            session_store: Arc::clone(&sessions),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            feedback: savfox_feedback::SavfoxFeedback::new(),
+            savfox_linux_sandbox_exe: None,
+            websocket_manager: GatewaySessionManager::new(),
+            outgoing_tx,
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let event = arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [17; 32]);
+        let realm = arkret::RealmId::from_event_id(&event);
+        let meta = super::StartThreadMeta {
+            peer_id: Some("controller".to_owned()),
+            saved_channel_config_id: Some("support".to_owned()),
+            account_id: Some("agent-account".to_owned()),
+            remote_realm_id: Some(realm.to_string()),
+            remote_strand_id: Some(arkret::StrandId::from_event_id(&event).to_string()),
+            remote_stream_ref: Some(arkret::CommitStreamRef::Realm {
+                realm_id: realm.clone(),
+            }),
+            remote_event_id: Some(event.to_string()),
+            ..Default::default()
+        };
+        let error = super::arkret_inbound_routing_scope(home.path(), &meta)
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("missing field `streamRef`"));
+        assert!(
+            !super::spawn_start_thread_pipeline_with_meta_coordinated(
+                gateway,
+                Arc::clone(&sessions),
+                "arkret",
+                realm.to_string(),
+                "hello".to_owned(),
+                None,
+                Some(meta.clone()),
+            )
+            .await
+        );
+        assert!(sessions.list().await.is_empty());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::rename(&path, path.with_extension("retired.json")).unwrap();
+        assert!(
+            super::arkret_inbound_routing_scope(home.path(), &meta)
+                .await
+                .is_ok()
+        );
+    }
 
     #[cfg(feature = "arkret")]
     #[tokio::test]
