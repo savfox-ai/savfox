@@ -212,10 +212,37 @@ fn arkret_namespace_count(map: &serde_json::Map<String, Value>) -> Option<u32> {
 }
 
 #[cfg(feature = "arkret")]
+fn arkret_diagnostics_for_account(account_id: Option<&str>, diagnostics: Vec<Value>) -> Vec<Value> {
+    diagnostics
+        .into_iter()
+        .filter(|diagnostic| {
+            account_id.is_some()
+                && diagnostic.get("account_id").and_then(Value::as_str) == account_id
+        })
+        .collect()
+}
+
+#[cfg(feature = "arkret")]
+fn saved_arkret_agent_diagnostics(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> Vec<Value> {
+    let account_id = savfox_channels::arkret::ArkretChannelConfig::from_channel_config(config)
+        .and_then(|parsed| parsed.accounts.first().map(|account| account.id.clone()));
+    arkret_diagnostics_for_account(
+        account_id.as_deref(),
+        crate::channels::arkret::arkret_account_runtime_diagnostics(&config.id),
+    )
+}
+
+#[cfg(feature = "arkret")]
 fn insert_arkret_listener_summary(
     info: &mut serde_json::Map<String, Value>,
     diagnostics: Vec<Value>,
 ) {
+    // A re-paired channel retains audit diagnostics for its retired account.
+    // Only the account selected by the saved config can describe this runtime.
+    let diagnostics =
+        arkret_diagnostics_for_account(info.get("account_id").and_then(Value::as_str), diagnostics);
     let ready = diagnostics.iter().any(|diagnostic| {
         diagnostic
             .get("running")
@@ -255,16 +282,12 @@ fn insert_arkret_listener_summary(
 
     info.insert("runtime_ready".to_owned(), json!(ready));
     info.insert("runtime_phase".to_owned(), json!(phase));
-    if let Some(reason) = diagnostics
+    let reason = diagnostics
         .iter()
-        .find_map(|diagnostic| diagnostic.get("last_reason_code").and_then(Value::as_str))
-    {
-        info.insert("last_reason_code".to_owned(), json!(reason));
-    }
-    if let Some(error) = last_error {
-        info.insert("lastError".to_owned(), json!(error));
-        info.insert("last_error".to_owned(), json!(error));
-    }
+        .find_map(|diagnostic| diagnostic.get("last_reason_code").and_then(Value::as_str));
+    info.insert("last_reason_code".to_owned(), json!(reason));
+    info.insert("lastError".to_owned(), json!(last_error));
+    info.insert("last_error".to_owned(), json!(last_error));
     info.insert("listener_diagnostics".to_owned(), json!(diagnostics));
 }
 
@@ -282,7 +305,9 @@ fn arkret_saved_config_running(config: &savfox_core::config::channel_store::Chan
         if arkret_mode_from_config_obj(raw) == "applet" {
             crate::channels::arkret_applet::is_arkret_applet_registered(&config.id)
         } else {
-            crate::channels::arkret::arkret_account_listener_count(&config.id) > 0
+            saved_arkret_agent_diagnostics(config)
+                .iter()
+                .any(|diagnostic| diagnostic.get("running").and_then(Value::as_bool) == Some(true))
         }
     }
 }
@@ -303,7 +328,7 @@ fn arkret_saved_config_connected(
         if arkret_mode_from_config_obj(raw) == "applet" {
             crate::channels::arkret_applet::is_arkret_applet_registered(&config.id)
         } else {
-            crate::channels::arkret::arkret_account_runtime_diagnostics(&config.id)
+            saved_arkret_agent_diagnostics(config)
                 .iter()
                 .any(|diagnostic| {
                     diagnostic
@@ -4687,9 +4712,11 @@ mod tests {
     #[test]
     fn arkret_listener_summary_surfaces_retry_failure() {
         let mut info = serde_json::Map::new();
+        info.insert("account_id".to_owned(), json!("current"));
         insert_arkret_listener_summary(
             &mut info,
             vec![json!({
+                "account_id": "current",
                 "running": true,
                 "phase": "retry_wait",
                 "last_error": "session authentication failed"
@@ -4699,6 +4726,64 @@ mod tests {
         assert_eq!(info["runtime_ready"], false);
         assert_eq!(info["runtime_phase"], "retry_wait");
         assert_eq!(info["lastError"], "session authentication failed");
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_listener_summary_ignores_retired_pairing_failure() {
+        let mut info = serde_json::Map::new();
+        info.insert("account_id".to_owned(), json!("new-account"));
+        info.insert("last_error".to_owned(), json!("stale aggregate error"));
+        info.insert("lastError".to_owned(), json!("stale aggregate error"));
+        info.insert("last_reason_code".to_owned(), json!("proof_invalid"));
+        insert_arkret_listener_summary(
+            &mut info,
+            vec![
+                json!({"account_id":"old-account", "running":false, "phase":"stopped",
+                "last_error":"old session refused", "last_reason_code":"proof_invalid"}),
+                json!({"account_id":"new-account", "running":true, "phase":"subscribing",
+                "last_error":null, "last_reason_code":null}),
+            ],
+        );
+        assert_eq!(info["runtime_ready"], true);
+        assert_eq!(info["runtime_phase"], "subscribing");
+        assert!(info["last_error"].is_null());
+        assert!(info["lastError"].is_null());
+        assert!(info["last_reason_code"].is_null());
+        assert_eq!(info["listener_diagnostics"].as_array().unwrap().len(), 1);
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_listener_summary_cannot_inherit_retired_connection() {
+        let mut info = serde_json::Map::new();
+        info.insert("account_id".to_owned(), json!("new-account"));
+        insert_arkret_listener_summary(
+            &mut info,
+            vec![json!({"account_id":"old-account", "running":true, "phase":"subscribing"})],
+        );
+        assert_eq!(info["runtime_ready"], false);
+        assert_eq!(info["runtime_phase"], "stopped");
+        assert!(info["listener_diagnostics"].as_array().unwrap().is_empty());
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_listener_summary_keeps_current_failure_with_retired_connection() {
+        let mut info = serde_json::Map::new();
+        info.insert("account_id".to_owned(), json!("new-account"));
+        insert_arkret_listener_summary(
+            &mut info,
+            vec![
+                json!({"account_id":"old-account", "running":true, "phase":"subscribing"}),
+                json!({"account_id":"new-account", "running":true, "phase":"retry_wait",
+                "last_error":"current session refused", "last_reason_code":"proof_invalid"}),
+            ],
+        );
+        assert_eq!(info["runtime_ready"], false);
+        assert_eq!(info["runtime_phase"], "retry_wait");
+        assert_eq!(info["lastError"], "current session refused");
+        assert_eq!(info["last_reason_code"], "proof_invalid");
     }
 
     #[cfg(feature = "arkret")]

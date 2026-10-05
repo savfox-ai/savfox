@@ -139,6 +139,8 @@ and authorization checks remain in effect.
 
 | Symptom | Diagnosis and recovery |
 | --- | --- |
+| Re-paired channel shows an old session failure or an old connection | Runtime health belongs to the exact account in the saved pairing. Retired accounts cannot make the current channel healthy or unhealthy. A successful connection test only checks reachability; verify the current listener and accepted reply separately. |
+| Inkson says Encryption state moved while sending | A concurrent MLS transition can refuse the old encryption context. Once verified current state is ready, send the restored plaintext draft as a freshly authored message; do not replay its refused ciphertext or reset the group. An unknown submission outcome instead remains pending for exact-byte recovery. |
 | Route error `missing field streamRef`, before model execution | Preserve the unreadable file and diagnostics. Do not invent missing coordinates. An operator may archive explicitly retired development data and let new authenticated inbound events establish routes. Do not clear dedupe to replay old instructions. |
 | Missing keyring entry at startup; the channel is not listening | Check the process's Windows user, protected-store namespace, and exact `keyRef`. An approval record does not contain the private key; restarting or resaving config cannot regenerate it. |
 | The original runtime private key is actually lost | Use Replace runtime for the same Agent in Inkson, generate a raw key never used for that Agent, and complete controller approval. Preserve the scope ceiling, identity, and lifecycle. A newly provisioned namesake is not the original Agent. |

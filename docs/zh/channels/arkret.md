@@ -104,6 +104,8 @@ worker 复用同一验证。内存 coordinator 接纳不是模型完成，也不
 
 | 现象 | 检查与恢复 |
 | --- | --- |
+| 重新配对后仍显示旧 session 错误或旧连接 | 运行状态只属于保存配对中的精确 account，退休账号不能让当前频道变成正常或异常。连接测试成功仅证明网络可达；仍须分别检查当前 listener 和实际已接受的回复。 |
+| Inkson 提示 Encryption state moved while sending | 并发 MLS 迁移可能拒绝旧加密上下文。已验证当前状态就绪后，将恢复的明文草稿重新创作为新消息；不重投已拒绝的旧密文，也不重置群组。提交结果未知时则继续 pending，由原字节恢复路径确认。 |
 | 路由报 `missing field streamRef`，尚未进入模型 | 保留不可读文件及诊断。不可凭空迁移其缺失坐标；由操作者归档明确废弃的旧开发数据后，按新入站原件建立路由。不要清 dedupe 来重放旧指令。 |
 | 启动提示 keyring entry not found，channel 未监听 | 核对启动时的 Windows 用户、受保护存储命名空间和实际 `keyRef`。批准记录不包含私钥，重启或重新保存配置不会补出它。 |
 | 原 runtime 私钥确实遗失 | 在 Inkson 对原 Agent 使用 Replace runtime，生成未用于该 Agent 的新 raw key，并完成 controller 批准。保持原权限上限、身份和生命周期；不要新建同名 Agent 冒充原身份。 |
