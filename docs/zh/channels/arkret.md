@@ -79,6 +79,41 @@ Standard MLS 消息以完整 sender ActorId（包含 Station）作为 AAD 身份
 
 待处理的接收项不阻断后续投递，但累计 ACK 和持久队列 cursor 不跨过首个未完成项。Welcome 分配先从本机可用库存扣除对应一次性 KeyPackage，因此过期领取也会触发补充。替换初始库存项时保留旧记录；缺失的公开记录只能根据已验证 claim 恢复，并要求本机已持有逐字匹配的私钥包。
 
+## 回复模式、确认与故障恢复
+
+`interactive_chat` 将模型回复正文发回原远端对话；`task_delivery` 将完整模型执行输出保留在
+本地私有会话，只通过任务交付路径发布公开检查点。看不到普通模型正文不表示任务模式没有执行。
+交付模式是 Savfox 的产品设置，不是 Arkret 权限、MLS 状态或新的协议 profile；切换模式不扩权，
+也不会重投已经确认的历史消息。
+
+普通消息经过“已认证独立 stream → 耐久 inbox → 可信路由预检 → coordinator 接纳 →
+模型执行 → 回复提交”处理。路由预检必须包含 saved config、account、Realm、Strand、SDK
+`stream_ref`、原请求 Event ID 和 sender；不能从展示标题或父 Realm 猜 private stream。
+缺字段或 binding store 不可读时，必须在 coordinator 接纳前返回失败，保留 inbox 重试机会。
+worker 复用同一验证。内存 coordinator 接纳不是模型完成，也不是另一份耐久执行队列；当前
+路径不能据此承诺进程崩溃后的模型执行或回复“恰好一次”。检查模型会话与实际 accepted 回复，
+不能只以 inbound/dispatched 计数判断完整链路成功。
+
+本地 inbox 完成位点与 Arkret to-device 累计 ACK 是不同边界；后者遵循 v1 `client-sync` §10.1，
+不能越过未耐久处理的 Welcome/DeviceMessage。不要把二者混成一个 receipt 或游标。
+
+网关 WebSocket 先完成 typed `connectChallenge`/`connect` 认证，之后可直接发送顶层带 `jsonrpc`
+的 JSON-RPC 请求，不需要 `type` 包装。JSON 字段顺序不影响分类；即使 `params` 很大或含非 ASCII
+文本、`jsonrpc` 在最后也必须正常处理。嵌套对象或字符串里的同名内容不能选择 RPC 路由；1 MiB
+帧上限、正式参数验证和权限检查仍保留。
+
+| 现象 | 检查与恢复 |
+| --- | --- |
+| 路由报 `missing field streamRef`，尚未进入模型 | 保留不可读文件及诊断。不可凭空迁移其缺失坐标；由操作者归档明确废弃的旧开发数据后，按新入站原件建立路由。不要清 dedupe 来重放旧指令。 |
+| 启动提示 keyring entry not found，channel 未监听 | 核对启动时的 Windows 用户、受保护存储命名空间和实际 `keyRef`。批准记录不包含私钥，重启或重新保存配置不会补出它。 |
+| 原 runtime 私钥确实遗失 | 在 Inkson 对原 Agent 使用 Replace runtime，生成未用于该 Agent 的新 raw key，并完成 controller 批准。保持原权限上限、身份和生命周期；不要新建同名 Agent 冒充原身份。 |
+| gateway 已发回复，页面停在 Verifying sender identity | 检查接收端 exact committed Agent 签名证据解析及 MLS leaf authorization。单条回复也应主动解析并更新待验消息，不依赖后续 Account 帧或刷新；不能先展示未验证正文。 |
+
+等权替换沿用原 Direct 的 group 与 binding，通过标准 Remove/Add/Welcome 收敛新 runtime endpoint，
+不会替换其它 human device。它不恢复已经遗失的旧私钥或 MLS 私态，也不保证解开旧 wrapping key
+保护的数据。保留身份、聊天历史、wrapped crypto 与恢复材料，不通过清库、重置 epoch 或重新
+Genesis 消除 pending。仅在 controller 明确授权解绑且远端确认后执行原解绑清理。
+
 ### Applet 出站身份
 
 Applet 模式必须配置由已接受 provision 结果保留的完整 `bot_account_id`，其值为

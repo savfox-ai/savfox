@@ -1,10 +1,17 @@
 # WebSocket Protocol
 
-The gateway WebSocket protocol wraps JSON-RPC 2.0 messages in a typed envelope for authentication, event streaming, and subscription management. Connect to `ws://localhost:18881/ws` (or `wss://` with TLS).
+The gateway WebSocket protocol uses typed control envelopes for authentication and
+event streaming, and also accepts JSON-RPC 2.0 requests after authentication.
+Connect to `ws://localhost:18881/ws` (or `wss://` with TLS).
 
 ## Message Types
 
-All messages are JSON objects with a `type` field that determines the envelope format.
+Typed control messages are JSON objects with a `type` field. Authenticated bare
+JSON-RPC requests instead carry a root `jsonrpc` field and need no `type` wrapper.
+Root-object field order is insignificant: `jsonrpc` may follow a large or non-ASCII
+`params` value. Nested keys or quoted text named `jsonrpc` do not select this route.
+The inbound frame limit remains 1 MiB; normal RPC parsing, authorization, and
+method validation still apply after classification.
 
 ### ConnectChallenge (Server to Client)
 
@@ -74,6 +81,15 @@ Sent after successful authentication.
 ### Request (Client to Server)
 
 A JSON-RPC request wrapped in the gateway envelope.
+
+The authenticated connection also accepts the equivalent bare JSON-RPC form:
+
+```json
+{"params":{"message":"Hello, agent"},"method":"chat.send","id":"req-1","jsonrpc":"2.0"}
+```
+
+Bare requests receive JSON-RPC responses with `jsonrpc`, `id`, and `result` or
+`error`. Typed requests below retain their typed response envelope.
 
 ```json
 {

@@ -146,21 +146,24 @@ const MAX_WS_MESSAGE_SIZE: usize = 1 << 20;
 /// Maximum size of a single inbound WebSocket frame (1 MiB).
 const MAX_WS_FRAME_SIZE: usize = 1 << 20;
 
-/// Quick string-prefix sniff to decide whether `text` is a JSON-RPC 2.0
+/// Inspect the root object to decide whether `text` is a JSON-RPC 2.0
 /// frame (carries a top-level `"jsonrpc"`) or a `GatewayMessage` (top-level
 /// `"type"`). Returning true does **not** guarantee the message is well-
 /// formed; `dispatch_rpc` runs the actual typed parse and surfaces parse
 /// errors as JSON-RPC error responses.
 ///
-/// Looks at only the first ~64 bytes after the opening `{`. That window
-/// always contains the discriminator field name in our wire format and
-/// avoids a second full parse of the body just to peek at the field name
-/// (M18 in the security/quality review).
+/// JSON object order is insignificant. A discriminator can follow a large or
+/// non-ASCII params value; nested keys and quoted text cannot select the route.
+/// Inbound size remains bounded by MAX_WS_FRAME_SIZE before this inspection.
 fn looks_like_jsonrpc(text: &str) -> bool {
-    let head = text.trim_start();
-    let head = head.strip_prefix('{').unwrap_or(head);
-    let probe_len = head.len().min(64);
-    head[..probe_len].contains("\"jsonrpc\"")
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|value| {
+            value
+                .as_object()
+                .map(|object| object.contains_key("jsonrpc"))
+        })
+        .unwrap_or(false)
 }
 
 /// RAII guard that releases the per-IP connection slot reserved by
@@ -529,12 +532,35 @@ mod discriminator_tests {
 
     #[test]
     fn rejects_message_with_jsonrpc_only_in_payload() {
-        // The discriminator `"jsonrpc"` appearing far inside the body
-        // (e.g. inside a quoted user message) must not be treated as a
-        // JSON-RPC frame.
-        let payload = format!(r#"{{"type":"chat","text":"{}"}}"#, "x".repeat(200));
-        // The first 64 bytes do not contain "jsonrpc".
-        assert!(!looks_like_jsonrpc(&payload));
+        assert!(!looks_like_jsonrpc(
+            r#"{"params":{"jsonrpc":"2.0"},"type":"chat"}"#
+        ));
+        assert!(!looks_like_jsonrpc(
+            r#"{"type":"chat","text":"\"jsonrpc\":\"2.0\""}"#
+        ));
+    }
+
+    #[test]
+    fn detects_jsonrpc_after_large_non_ascii_params() {
+        let frame = serde_json::json!({
+            "params": {"name": "é".repeat(300)},
+            "method": "channels.config.save",
+            "id": 1,
+            "jsonrpc": "2.0"
+        });
+        // Force the discriminator to be last regardless of serde's map order.
+        let text = format!(
+            r#"{{"params":{},"method":"channels.config.save","id":1,"jsonrpc":"2.0"}}"#,
+            frame["params"]
+        );
+        assert!(looks_like_jsonrpc(&text));
+    }
+
+    #[test]
+    fn rejects_non_object_and_malformed_roots() {
+        for text in [r#"[{"jsonrpc":"2.0"}]"#, "null", r#"{"params": "#] {
+            assert!(!looks_like_jsonrpc(text));
+        }
     }
 }
 

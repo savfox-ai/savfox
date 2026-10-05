@@ -104,6 +104,54 @@ Standard MLS content authenticates the complete sender ActorId credential, inclu
 
 A pending recipient delivery does not block processing later deliveries. Cumulative ACK and the durable queue cursor remain before the first incomplete delivery. Welcome allocation removes the matching single-use KeyPackage from available private inventory before claim admission, so expired allocations still trigger replenishment. Replacing the initial pool entry preserves prior records; repairing a missing public record requires a verified claim and its exact private bundle already held locally.
 
+## Reply modes, acknowledgment, and recovery
+
+`interactive_chat` sends the model's reply body to the original remote conversation.
+`task_delivery` retains complete execution output in a private local session and
+publishes public checkpoints through the task-delivery path. Missing ordinary reply
+text does not establish that task execution failed. This is a Savfox product setting,
+not an Arkret permission, MLS state, or additional protocol profile. Switching modes
+does not widen authority or replay already acknowledged historical messages.
+
+An ordinary message crosses authenticated independent-stream delivery, the durable
+inbox, trusted route preflight, coordinator admission, model execution, and reply
+submission. Preflight requires the saved config, account, Realm, Strand, SDK
+`stream_ref`, original request Event ID, and sender. Display names or the parent
+Realm cannot supply private-stream coordinates. Missing metadata or an unreadable
+binding store must reject coordinator admission while the inbox can still retry;
+the worker uses the same validation. In-memory coordinator admission is neither
+model completion nor a second durable execution queue. This path does not promise
+exactly-once model execution or replies after a process crash. Inspect the model
+session and accepted outbound reply instead of treating inbound/dispatched counts
+as proof that the complete chain succeeded.
+
+The local inbox completion checkpoint and Arkret's cumulative to-device ACK are
+separate boundaries. The latter follows v1 `client-sync` section 10.1 and must not
+advance beyond an incompletely persisted Welcome/DeviceMessage. Do not combine
+them into one receipt or cursor.
+
+The gateway WebSocket first completes typed `connectChallenge`/`connect`
+authentication, then accepts bare requests with a root `jsonrpc` discriminator.
+No `type` wrapper is needed. Field order cannot change routing even when `params`
+is large or contains non-ASCII text and `jsonrpc` is last. A nested key or quoted
+text cannot select the RPC route. The 1 MiB frame limit, typed parameter validation,
+and authorization checks remain in effect.
+
+| Symptom | Diagnosis and recovery |
+| --- | --- |
+| Route error `missing field streamRef`, before model execution | Preserve the unreadable file and diagnostics. Do not invent missing coordinates. An operator may archive explicitly retired development data and let new authenticated inbound events establish routes. Do not clear dedupe to replay old instructions. |
+| Missing keyring entry at startup; the channel is not listening | Check the process's Windows user, protected-store namespace, and exact `keyRef`. An approval record does not contain the private key; restarting or resaving config cannot regenerate it. |
+| The original runtime private key is actually lost | Use Replace runtime for the same Agent in Inkson, generate a raw key never used for that Agent, and complete controller approval. Preserve the scope ceiling, identity, and lifecycle. A newly provisioned namesake is not the original Agent. |
+| Reply sent, but the receiver stays at Verifying sender identity | Inspect exact committed Agent signer resolution and MLS leaf authorization. One reply must initiate resolution and revalidate its pending row without a later account frame or reload. Never show unverified plaintext first. |
+
+An equivalent replacement retains the original Direct group and binding and uses
+ordinary Remove/Add/Welcome to converge the runtime endpoint. It does not replace
+other human devices, recover lost private keys or MLS private state, or guarantee
+recovery of data protected by a lost wrapping key. Preserve identity, history,
+wrapped crypto, and recovery material. Clearing storage, resetting epochs, or
+repeating Genesis cannot repair pending state. Use unbind cleanup only after the
+controller explicitly authorizes unbinding and the remote operation is confirmed.
+
 ### Applet outbound identity
 
 Applet mode requires `bot_account_id` as the complete Arkret `AccountId` object
