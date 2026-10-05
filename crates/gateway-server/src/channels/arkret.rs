@@ -1436,7 +1436,7 @@ async fn handle_account_client_event(
                     account,
                     "committed_stream",
                 )
-                .await;
+                .await?;
             }
             let accepted_ref = delta.committed_ref();
             let accepted_view = arkret::CommittedEventFullView {
@@ -2571,91 +2571,38 @@ async fn apply_account_mls_commits_from_value_tree(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     source: &'static str,
-) -> usize {
+) -> anyhow::Result<usize> {
     let mut commits = Vec::new();
     collect_typed_mls_commit_events(value, 8, &mut commits);
     let mut applied = 0;
     for (event_ref, payload) in commits {
-        let needs_install = match crypto_store.mls_commit_needs_accepted_leaf_authority(&payload) {
-            Ok(needs_install) => needs_install,
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    source,
-                    event_id = %event_ref,
-                    "arkret: local MLS state unreadable, Commit not applied: {err:#}"
-                );
-                continue;
-            }
-        };
-        if !needs_install {
+        if !crypto_store.mls_commit_needs_accepted_leaf_authority(&payload)? {
             continue;
         }
         let scope = payload.governance_binding().effective_scope();
-        let Some(realm_id) = scope.realm_id_opt() else {
-            warn!(event_id = %event_ref, "arkret: MLS Commit has no Realm scope");
-            continue;
-        };
-        let base = match crypto_store
-            .station_mls_current_for_scope_epoch(scope, payload.base_epoch())
-        {
-            Ok(Some(base)) => base,
-            Ok(None) => {
-                warn!(event_id = %event_ref, base_epoch = payload.base_epoch(),
-                    "arkret: exact Station MLS base current is unavailable; Commit remains pending");
-                continue;
-            }
-            Err(err) => {
-                warn!(event_id = %event_ref,
-                    "arkret: Station MLS base current cannot be loaded: {err:#}");
-                continue;
-            }
-        };
-        let accepted = match governance::accepted_commit_for_event(
-            client.inner(),
-            realm_id,
-            scope,
-            &event_ref,
-        )
-        .await
-        {
-            Ok(accepted) => accepted,
-            Err(err) => {
-                warn!(event_id = %event_ref,
-                    "arkret: full accepted MLS Commit is unavailable: {err:#}");
-                continue;
-            }
-        };
-        match crypto_store.install_accepted_mls_commit(&accepted, &base, &[]) {
-            Ok(true) => {
-                applied += 1;
-                debug!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    source,
-                    event_id = %event_ref,
-                    group_id = ?payload.mls_group_id(),
-                    epoch = payload.next_epoch(),
-                    "arkret: applied accepted MLS Commit from account inbound event"
-                );
-            }
-            Ok(false) => {}
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    source,
-                    event_id = %event_ref,
-                    group_id = ?payload.mls_group_id(),
-                    base_epoch = payload.base_epoch(),
-                    next_epoch = payload.next_epoch(),
-                    "arkret: failed to apply accepted MLS Commit: {err:#}"
-                );
-            }
+        let realm_id = scope
+            .realm_id_opt()
+            .context("MLS Commit has no Realm scope")?;
+        let base = crypto_store
+            .station_mls_current_for_scope_epoch(scope, payload.base_epoch())?
+            .context("exact Station MLS base current is unavailable; Commit remains pending")?;
+        let accepted =
+            governance::accepted_commit_for_event(client.inner(), realm_id, scope, &event_ref)
+                .await?;
+        let roster = governance::accepted_commit_roster(client.inner(), &accepted, account).await?;
+        if crypto_store.install_accepted_mls_commit(&accepted, &base, &roster)? {
+            applied += 1;
+            debug!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                source,
+                event_id = %event_ref,
+                epoch = payload.next_epoch(),
+                "arkret: applied accepted MLS Commit and verified roster from account inbound event"
+            );
         }
     }
-    applied
+    Ok(applied)
 }
 
 fn collect_typed_mls_commit_events(

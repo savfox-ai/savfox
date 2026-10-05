@@ -195,16 +195,36 @@ async fn welcome_roster(
             updated_at: chrono::Utc::now(),
         })?;
     }
-    let payload: arkret::MlsCommitPayload =
-        serde_json::from_value(serde_json::to_value(&accepted.event.payload)?)?;
     anyhow::ensure!(
         accepted.event.realm_id == delivery.realm_id
             && accepted.event.scope_ref == delivery.effective_scope,
         "Welcome differs from accepted target"
     );
+    accepted_commit_roster(http, accepted, account).await
+}
+
+/// Obtain the exact accepted transition's complete Add provenance through the
+/// authenticated own-Station reader, including the original recipient signatures.
+pub(crate) async fn accepted_commit_roster(
+    http: &arkret::http_client::Client,
+    accepted: &arkret::CommittedEventFullView,
+    account: &savfox_channels::arkret::ArkretAccountConfig,
+) -> anyhow::Result<savfox_channels::arkret::ArkretMlsRosterMaterial> {
+    accepted.validate_shape()?;
+    anyhow::ensure!(
+        accepted.event.kind == arkret::EventKind::MlsCommit,
+        "MLS roster target is not an accepted Commit"
+    );
+    let payload: arkret::MlsCommitPayload =
+        serde_json::from_value(serde_json::to_value(&accepted.event.payload)?)?;
+    payload.validate()?;
+    anyhow::ensure!(
+        payload.governance_binding().effective_scope() == &accepted.event.scope_ref,
+        "MLS roster target payload differs from its accepted scope"
+    );
     let mut request = arkret::MlsMemberRosterAuthorityReadRequestBody {
-        realm_id: delivery.realm_id.clone(),
-        effective_scope: delivery.effective_scope.clone(),
+        realm_id: accepted.event.realm_id.clone(),
+        effective_scope: accepted.event.scope_ref.clone(),
         mls_group_id: payload.mls_group_id()?,
         target_commit_event_ref: accepted.event.event_id.clone(),
         target_epoch: payload.next_epoch(),
