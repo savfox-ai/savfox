@@ -123,6 +123,7 @@ worker 复用同一验证。内存 coordinator 接纳不是模型完成，也不
 | 启动提示 keyring entry not found，channel 未监听 | 核对启动时的 Windows 用户、受保护存储命名空间和实际 `keyRef`。批准记录不包含私钥，重启或重新保存配置不会补出它。 |
 | 原 runtime 私钥确实遗失 | 在 Inkson 对原 Agent 使用 Replace runtime，生成未用于该 Agent 的新 raw key，并完成 controller 批准。保持原权限上限、身份和生命周期；不要新建同名 Agent 冒充原身份。 |
 | gateway 已发回复，页面停在 Verifying sender identity | 检查接收端 exact committed Agent 签名证据解析及 MLS leaf authorization。单条回复也应主动解析并更新待验消息，不依赖后续 Account 帧或刷新；不能先展示未验证正文。 |
+| 公开 Agent 已执行模型，但回复提交因 `ak.message.create` 返回 `capability_denied` | Public 模式、全局 Reply as agent 与 participation 是独立门，都不会创建 Realm Capability Grant。获授权签发者需在该 Realm 的 Inkson Settings → Security & MLS → Manage permissions 中，向精确 Agent 账号显式授予 `ak.message.create`，保留其它权限上限。明确拒绝后以新请求验证回复，不重投被拒绝的旧密文。 |
 
 公开群聊回复使用 SDK 校验过的提及节点，以包含 Station 的完整 `subject_account_id` 寻址。
 在 Inkson 提及列表中选中 Agent；字面 `@me/aa` 或 Savfox 本地别名不构成寻址。

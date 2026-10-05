@@ -164,6 +164,7 @@ and authorization checks remain in effect.
 | Missing keyring entry at startup; the channel is not listening | Check the process's Windows user, protected-store namespace, and exact `keyRef`. An approval record does not contain the private key; restarting or resaving config cannot regenerate it. |
 | The original runtime private key is actually lost | Use Replace runtime for the same Agent in Inkson, generate a raw key never used for that Agent, and complete controller approval. Preserve the scope ceiling, identity, and lifecycle. A newly provisioned namesake is not the original Agent. |
 | Reply sent, but the receiver stays at Verifying sender identity | Inspect exact committed Agent signer resolution and MLS leaf authorization. One reply must initiate resolution and revalidate its pending row without a later account frame or reload. Never show unverified plaintext first. |
+| Public Agent runs the model, but reply submission returns `capability_denied` for `ak.message.create` | Public mode, global Reply as agent, and participation are separate gates; none creates a Realm Capability Grant. In that Realm's Inkson Settings → Security & MLS → Manage permissions, an authorized issuer must explicitly grant `ak.message.create` to the exact Agent account. Preserve other permission ceilings. After a definitive refusal, use a new request to verify the reply; do not replay the refused ciphertext. |
 
 Public group replies use validated SDK mention nodes with the complete
 `subject_account_id`, including its Station. Select the Agent in Inkson's mention
