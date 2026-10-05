@@ -171,6 +171,15 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
     type Transport = Client;
 
     fn build(&self, state: &SessionGrantState) -> garth::Result<Self::Transport> {
+        let observation = state.agent_participation_observation(Utc::now())?;
+        if observation.agent_key_authorization_ref != self.agent_key_authorization_ref
+            || observation.verification_method != self.verification_method
+            || state.dpop_jkt.as_deref() != Some(self.dpop_jkt.as_str())
+        {
+            return Err(garth::Error::Protocol(
+                "Agent observation has another runtime authorization or DPoP key".into(),
+            ));
+        }
         if state.account_id.principal_id != self.principal_id
             || state.expires_at <= Utc::now()
             || !savfox_gateway_shared::arkret::session_scope_matches_request(
@@ -492,7 +501,7 @@ impl ArkretHttpClient {
                 factory
                     .build(&state)
                     .map_err(|error| anyhow::anyhow!("restored Agent grant scope: {error}"))?;
-                let session = arkret_session_from_state(&state);
+                let session = arkret_session_from_state(&state)?;
                 return Ok((restored, session));
             }
             grant_store
@@ -520,7 +529,7 @@ impl ArkretHttpClient {
         )
         .await
         .map_err(|error| anyhow::anyhow!("persist agent session grant: {error}"))?;
-        Ok((provider, arkret_session_from_state(&state)))
+        Ok((provider, arkret_session_from_state(&state)?))
     }
 
     /// `GET /_arkret/describe` — used at startup to verify the target
@@ -717,13 +726,14 @@ fn validate_agent_key_ref(key_ref: &ArkretKeyRef) -> anyhow::Result<()> {
     }
 }
 
-fn arkret_session_from_state(state: &SessionGrantState) -> ArkretSession {
-    ArkretSession {
+fn arkret_session_from_state(state: &SessionGrantState) -> anyhow::Result<ArkretSession> {
+    Ok(ArkretSession {
         session_grant: state.grant_jwt.clone(),
         expires_at: state.expires_at,
         principal_did: state.account_id.principal_id.clone(),
         device_id: state.device_id.clone(),
-    }
+        participation_observation: Some(state.agent_participation_observation(Utc::now())?),
+    })
 }
 
 fn build_dpop_client(
@@ -840,34 +850,63 @@ mod tests {
     }
 
     fn agent_session_state() -> SessionGrantState {
-        SessionGrantState {
+        let public =
+            arkret::base64url_encode(SigningKey::from_bytes(&[44; 32]).verifying_key().to_bytes());
+        let jwk = arkret_models_identity_fixture_jwk(public);
+        let at = arkret::canonical::normalize_timestamp_canonical(Utc::now());
+        let mut state = SessionGrantState {
             account_id: arkret::AccountId::new(
-                DidCoreId::new("ak:did_core:webvh:z6mkfixture").unwrap(),
-                DidCoreId::new("ak:did_core:webvh:z6mkservice").unwrap(),
+                DidCoreId::new("ak:did_core:web:agent.example").unwrap(),
+                DidCoreId::new("ak:did_core:web:station.example").unwrap(),
             ),
             device_id: None,
             grant_id: arkret_wire::SessionGrantId::from_issuance_digest([0x11; 32]),
-            grant_jwt: "agent.grant.jwt".to_owned(),
-            expires_at: Utc::now() + chrono::Duration::minutes(5),
-            audience_id: DidCoreId::new("ak:did_core:webvh:z6mkservice").unwrap(),
-            granted_scope: vec![
-                arkret::ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1.to_owned(),
-            ],
-            session_public_key: Some("session-public-key".to_owned()),
-            dpop_jkt: Some("agent-dpop-jkt".to_owned()),
-        }
+            grant_jwt: String::new(),
+            expires_at: at + chrono::Duration::minutes(5),
+            audience_id: DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+            granted_scope: savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap(),
+            session_public_key: Some(jwk.clone().into_string()),
+            dpop_jkt: Some(jwk.thumbprint_sha256().unwrap()),
+        };
+        state.granted_scope.sort();
+        let claims = serde_json::json!({"kind":"ak.session.grant","jti":state.grant_id,"issuer_id":state.audience_id,
+            "issuance_nonce":"CwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws","account_id":state.account_id,
+            "session_public_key":jwk,"audience_id":state.audience_id,"scopes":state.granted_scope,
+            "not_before":arkret::canonical::format_timestamp_canonical(at),"expires_at":arkret::canonical::format_timestamp_canonical(state.expires_at),
+            "session_id":"runtime-session","credential_class":"standard","holder_binding":{"kind":"agent_runtime","agent_id":state.account_id.principal_id,
+             "agent_key_authorization_ref":authorization_event(),"verification_method":"did:web:agent.example#runtime-1"},
+            "proof_kind":"agent_key_proof","scope_details":{"controller_principal_id":"ak:did_core:web:controller.example","participation":[]}});
+        let input = format!(
+            "{}.{}",
+            arkret::base64url_encode(br#"{"alg":"EdDSA"}"#),
+            arkret::base64url_encode(serde_json::to_vec(&claims).unwrap())
+        );
+        state.grant_jwt = format!(
+            "{input}.{}",
+            arkret::base64url_encode(signing_key().sign(input.as_bytes()).to_bytes())
+        );
+        state
+    }
+
+    fn arkret_models_identity_fixture_jwk(public: String) -> arkret::CanonicalSessionPublicJwk {
+        arkret::CanonicalSessionPublicJwk::new(
+            serde_json::json!({"kty":"OKP","crv":"Ed25519","x":public}).to_string(),
+        )
+        .unwrap()
     }
 
     #[test]
     fn agent_scope_transport_factory_checks_every_initial_or_refreshed_grant() {
-        let requested_scope = savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
+        let mut requested_scope =
+            savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
+        requested_scope.sort();
         let factory = AgentAuthenticatedTransportFactory {
             base_url: Url::parse("https://arkret.example.org").unwrap(),
             principal_id: agent_session_state().account_id.principal_id.clone(),
             agent_key_authorization_ref: authorization_event(),
             runtime_signing_key: Arc::new(signing_key()),
-            dpop_signing_key: Arc::new(generate_session_dpop_signing_key()),
-            dpop_jkt: "test-jkt".to_owned(),
+            dpop_signing_key: Arc::new(SigningKey::from_bytes(&[44; 32])),
+            dpop_jkt: agent_session_state().dpop_jkt.clone().unwrap(),
             verification_method: DidUrl::new("did:web:agent.example#runtime-1").unwrap(),
             requested_scope: requested_scope.clone(),
         };
@@ -1000,8 +1039,8 @@ mod tests {
             principal_id: state.account_id.principal_id.clone(),
             agent_key_authorization_ref: authorization_event(),
             runtime_signing_key: Arc::new(signing_key()),
-            dpop_signing_key: Arc::new(generate_session_dpop_signing_key()),
-            dpop_jkt: "test-jkt".to_owned(),
+            dpop_signing_key: Arc::new(SigningKey::from_bytes(&[44; 32])),
+            dpop_jkt: agent_session_state().dpop_jkt.clone().unwrap(),
             verification_method: DidUrl::new("did:webvh:z6mkfixture#runtime-key-1").unwrap(),
             requested_scope: savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap(),
         };

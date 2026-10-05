@@ -10,6 +10,9 @@ pub struct ArkretSession {
     pub expires_at: DateTime<Utc>,
     pub principal_did: DidCoreId,
     pub device_id: Option<DeviceId>,
+    pub participation_observation: Option<
+        arkret_models_collaboration::governance::agent_participation::AgentParticipationObservation,
+    >,
 }
 
 impl ArkretSession {
@@ -38,6 +41,7 @@ mod tests {
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
                     .expect("test device id should parse"),
             ),
+            participation_observation: None,
         };
         // 10s until expiry; with 60s skew, "near expiry" is true.
         assert!(s.is_near_expiry(60));
@@ -56,6 +60,7 @@ mod tests {
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
                     .expect("test device id should parse"),
             ),
+            participation_observation: None,
         };
         assert!(s.is_near_expiry(0));
         assert!(s.is_near_expiry(60));
