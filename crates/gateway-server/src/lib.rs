@@ -62,6 +62,7 @@ pub mod channel;
 pub mod channels;
 pub(crate) mod chat_sanitize;
 pub(crate) mod chat_session;
+mod codex_app_server;
 pub mod compaction;
 pub mod config;
 pub mod cron_service;

@@ -92,6 +92,7 @@ impl TerminalAgentRuntime {
 }
 
 string_enum!(TerminalMode {
+    AppServer => "app_server",
     OneShot => "one_shot",
     ManagedPty => "managed_pty",
     InteractiveLaunch => "interactive_launch",
@@ -189,8 +190,10 @@ pub struct TerminalAgentConfig {
 /// (e.g. `codex`, `claude`, a custom script) instead of the in-process
 /// model client.
 ///
-/// Two execution modes are supported:
+/// Execution modes include:
 ///
+/// * **Codex app-server** — the gateway drives `codex app-server` over stdio
+///   JSON-RPC and resumes a durable Codex thread for subsequent turns.
 /// * **One-shot delegate** — the gateway spawns `command` with `args`, pipes the prompt to stdin,
 ///   captures stdout/stderr, and returns the captured output as the agent's reply. Use `enabled =
 ///   true` plus the `command` / `args` / `stdin` / `cwd` / `env` / `timeout_secs` fields.
@@ -203,7 +206,7 @@ pub struct AgentTerminalDelegateConfig {
     pub enabled: Option<bool>,
     /// Terminal agent profile. Expected values are `codex` and `claude`.
     pub profile: Option<TerminalProfile>,
-    /// Runtime mode. Expected values include `one_shot`, `managed_pty`,
+    /// Runtime mode. Expected values include `app_server`, `one_shot`, `managed_pty`,
     /// `interactive_launch`, and `jsonl_adapter`.
     pub mode: Option<TerminalMode>,
     /// Session scoping strategy. Expected values include `per_turn`,

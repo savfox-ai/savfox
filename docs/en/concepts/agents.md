@@ -189,7 +189,7 @@ The `terminal` branch contains the runtime discriminator plus execution fields:
 |--------------------------|----------------------------------------------|
 | `runtime`                | Terminal runtime. Current values: `codex` or `claude` |
 | `enabled`                | Must be `true` for terminal agents |
-| `mode`                   | Runtime mode, such as `one_shot`, `managed_pty`, or `interactive_launch` |
+| `mode`                   | Runtime mode: `app_server` (Codex), `one_shot`, `managed_pty`, or `interactive_launch` |
 | `session_scope`          | Whether terminal state is scoped per turn, per session, per agent, or manually |
 | `io_protocol`            | How output is interpreted: plain text, JSONL, profile parser, or sentinel |
 | `health_check_command` / `health_check_args` | Optional command/args used only by `agent.terminal.health` |
@@ -299,7 +299,24 @@ completion messages; read can return the transcript since a sequence number or
 wait for text with a timeout. Mutating PTY methods require Admin scope, while
 `read` and `list` require Read scope.
 
-Example Codex one-shot terminal agent:
+The Codex preset uses `app_server` mode and runs `codex app-server --listen
+stdio://`. Install Codex and authenticate it before using this runtime. The
+gateway performs the initialization handshake, starts a thread, streams agent
+messages, and checks the final turn status. It saves the Codex thread ID in the
+terminal session directory and resumes it on subsequent messages. `per_turn`
+starts a fresh thread each time. The child process is stopped after each turn
+or timeout; Codex retains the conversation history. Resumed turns send only the
+new prompt and attachment manifest, rather than replaying Savfox history.
+
+Codex uses its own authentication, model, sandbox, and approval configuration.
+Use app-server CLI configuration arguments to override these settings. Approval
+requests are declined because this adapter does not yet bridge interactive
+approvals; unsupported server requests produce an explicit error. `stdin` must
+be unset and `io_protocol` is ignored in this mode. To migrate an existing
+Codex agent, change both `mode` and `args` as shown below. Existing `one_shot`
+agents with `exec` arguments continue using the legacy path.
+
+Example Codex app-server terminal agent:
 
 ```json
 {
@@ -307,7 +324,7 @@ Example Codex one-shot terminal agent:
   "terminal": {
     "runtime": "codex",
     "enabled": true,
-    "mode": "one_shot",
+    "mode": "app_server",
     "session_scope": "per_session",
     "io_protocol": "plain_text",
     "terminal_execution": "native_terminal",
@@ -317,7 +334,7 @@ Example Codex one-shot terminal agent:
       "cleanup_policy": "per_session"
     },
     "command": "codex",
-    "args": ["exec", "{{prompt}}"],
+    "args": ["app-server", "--listen", "stdio://"],
     "interactive_command": "codex"
   }
 }

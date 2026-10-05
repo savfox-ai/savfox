@@ -1053,6 +1053,27 @@ async fn run_command(
     attachments: &[ChatAttachment],
     stream_sink: Option<TerminalEventSink>,
 ) -> anyhow::Result<TerminalRunResult> {
+    let app_server = configured_mode(delegate) == "app_server";
+    if app_server && configured_profile(delegate) != "codex" {
+        anyhow::bail!("app_server mode requires the codex runtime");
+    }
+    if app_server {
+        if !delegate.config.args.is_empty()
+            && !delegate.config.args.iter().any(|arg| arg == "app-server")
+        {
+            anyhow::bail!(
+                "app_server mode requires app-server arguments; replace legacy exec arguments"
+            );
+        }
+        if delegate.config.stdin.is_some() {
+            anyhow::bail!("app_server mode owns stdin; remove the stdin template");
+        }
+    }
+    let _app_server_guard = if app_server {
+        Some(crate::codex_app_server::session_lock(&terminal_context.metadata_path).await)
+    } else {
+        None
+    };
     let managed = configured_mode(delegate) == "managed_pty";
     if managed
         && (configured_session_scope(delegate) == "per_turn"
@@ -1125,7 +1146,7 @@ async fn run_command(
             cwd: delegate.config.cwd.clone(),
             env: delegate.config.env.clone(),
             timeout_secs: delegate.config.timeout_secs,
-            default_args_to_prompt: true,
+            default_args_to_prompt: !app_server,
             default_timeout_secs: DEFAULT_TIMEOUT_SECS,
             min_timeout_secs: MIN_TIMEOUT_SECS,
             max_output_bytes: MAX_OUTPUT_BYTES,
@@ -1133,6 +1154,13 @@ async fn run_command(
         &values,
     )?;
     resolved_command.spec.cwd = workspace_state.command_cwd.clone();
+    if app_server && resolved_command.spec.args.is_empty() {
+        resolved_command.spec.args = vec![
+            "app-server".to_owned(),
+            "--listen".to_owned(),
+            "stdio://".to_owned(),
+        ];
+    }
     let mut metadata_state = TerminalSessionMetadataState::new("starting");
     metadata_state.command = Some(resolved_command.command_display.clone());
     metadata_state.started_at = Some(rollout_timestamp());
@@ -1156,7 +1184,16 @@ async fn run_command(
             });
         }) as TerminalOutputCallback
     });
-    let supervised = if managed {
+    let supervised = if app_server {
+        crate::codex_app_server::run(
+            resolved_command.spec,
+            &terminal_context.root_dir.join("codex-thread-id"),
+            &values,
+            configured_session_scope(delegate) != "per_turn",
+            stream_sink,
+        )
+        .await
+    } else if managed {
         run_managed_command(
             delegate,
             terminal_context,
@@ -1216,7 +1253,11 @@ async fn run_command(
     }
 
     let parsed_output = parse_terminal_output(
-        configured_io_protocol(delegate),
+        if app_server {
+            "plain_text"
+        } else {
+            configured_io_protocol(delegate)
+        },
         &supervised.stdout,
         &supervised.stderr,
         supervised.exit_code,

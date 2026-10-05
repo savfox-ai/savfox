@@ -215,7 +215,7 @@ pub(crate) struct TerminalRuntimeMetrics {
     pub(crate) exit_reasons: BTreeMap<String, u64>,
 }
 
-const CODEX_ARGS: &[&str] = &["exec", "{{prompt}}"];
+const CODEX_ARGS: &[&str] = &["app-server", "--listen", "stdio://"];
 const CLAUDE_ARGS: &[&str] = &["-p", "{{prompt}}"];
 const EMPTY_ARGS: &[&str] = &[];
 const VERSION_ARGS: &[&str] = &["--version"];
@@ -229,7 +229,7 @@ pub(crate) const TERMINAL_PROFILE_PRESETS: &[TerminalProfilePreset] = &[
         stdin: None,
         interactive_command: "codex",
         interactive_args: EMPTY_ARGS,
-        mode: "one_shot",
+        mode: "app_server",
         session_scope: "per_session",
         io_protocol: "plain_text",
         version_args: VERSION_ARGS,

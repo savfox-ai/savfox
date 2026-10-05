@@ -1720,7 +1720,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                 new_terminal_timeout.set("300".to_string());
                                 new_terminal_include_system_prompt.set(true);
                                 new_terminal_profile.set("codex".to_string());
-                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_mode.set("app_server".to_string());
                                 new_terminal_session_scope.set("per_session".to_string());
                                 new_terminal_io_protocol.set("plain_text".to_string());
                                 new_terminal_execution.set("native_terminal".to_string());
@@ -1975,7 +1975,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                     new_terminal_timeout.set("300".to_string());
                                     new_terminal_include_system_prompt.set(true);
                                     new_terminal_profile.set("codex".to_string());
-                                    new_terminal_mode.set("one_shot".to_string());
+                                    new_terminal_mode.set("app_server".to_string());
                                     new_terminal_session_scope.set("per_session".to_string());
                                     new_terminal_io_protocol.set("plain_text".to_string());
                                     new_terminal_execution.set("native_terminal".to_string());
@@ -2209,10 +2209,12 @@ fn AgentCreateForm(
                                 if new_terminal_profile() == "claude" {
                                     new_terminal_command.set("claude".to_string());
                                     new_terminal_args.set("-p\n{{prompt}}".to_string());
+                                    new_terminal_mode.set("one_shot".to_string());
                                 } else {
                                     new_terminal_profile.set("codex".to_string());
                                     new_terminal_command.set("codex".to_string());
-                                    new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                    new_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                    new_terminal_mode.set("app_server".to_string());
                                 }
                             },
                             "Terminal Agent"
@@ -2295,10 +2297,10 @@ fn AgentCreateForm(
                             onclick: move |_| {
                                 new_terminal_enabled.set(true);
                                 new_terminal_command.set("codex".to_string());
-                                new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                new_terminal_args.set("app-server\n--listen\nstdio://".to_string());
                                 new_terminal_stdin.set(String::new());
                                 new_terminal_profile.set("codex".to_string());
-                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_mode.set("app_server".to_string());
                                 new_terminal_session_scope.set("per_session".to_string());
                                 new_terminal_io_protocol.set("plain_text".to_string());
                                 new_terminal_execution.set("native_terminal".to_string());
@@ -2317,9 +2319,11 @@ fn AgentCreateForm(
                                     if value == "claude" {
                                         new_terminal_command.set("claude".to_string());
                                         new_terminal_args.set("-p\n{{prompt}}".to_string());
+                                        new_terminal_mode.set("one_shot".to_string());
                                     } else {
                                         new_terminal_command.set("codex".to_string());
-                                        new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                        new_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                        new_terminal_mode.set("app_server".to_string());
                                     }
                                     new_terminal_profile.set(value);
                                 },
@@ -2332,8 +2336,20 @@ fn AgentCreateForm(
                             label { class: "{LABEL}", "Mode" }
                             select {
                                 value: "{new_terminal_mode}",
-                                onchange: move |e| new_terminal_mode.set(e.value()),
+                                onchange: move |e| {
+                                    let mode = e.value();
+                                    if new_terminal_profile() == "codex" {
+                                        if mode == "app_server" {
+                                            new_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                            new_terminal_stdin.set(String::new());
+                                        } else if mode == "one_shot" {
+                                            new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                        }
+                                    }
+                                    new_terminal_mode.set(mode);
+                                },
                                 class: "{INPUT}",
+                                option { value: "app_server", "Codex App Server" }
                                 option { value: "one_shot", "One-shot" }
                                 option { value: "interactive_launch", "Interactive Launch" }
                                 option { value: "managed_pty", "Managed PTY" }
@@ -2788,7 +2804,7 @@ fn AgentCreateForm(
                                         new_terminal_timeout.set("300".to_string());
                                         new_terminal_include_system_prompt.set(true);
                                         new_terminal_profile.set("codex".to_string());
-                                        new_terminal_mode.set("one_shot".to_string());
+                                        new_terminal_mode.set("app_server".to_string());
                                         new_terminal_session_scope.set("per_session".to_string());
                                         new_terminal_io_protocol.set("plain_text".to_string());
                                         new_terminal_execution.set("native_terminal".to_string());
@@ -2828,7 +2844,7 @@ fn AgentCreateForm(
                             new_terminal_timeout.set("300".to_string());
                             new_terminal_include_system_prompt.set(true);
                             new_terminal_profile.set("codex".to_string());
-                            new_terminal_mode.set("one_shot".to_string());
+                            new_terminal_mode.set("app_server".to_string());
                             new_terminal_session_scope.set("per_session".to_string());
                             new_terminal_io_protocol.set("plain_text".to_string());
                             new_terminal_execution.set("native_terminal".to_string());
@@ -3856,11 +3872,13 @@ fn AgentOverviewTab(
                             if form_terminal_profile() == "claude" {
                                 form_terminal_command.set("claude".to_string());
                                 form_terminal_args.set("-p\n{{prompt}}".to_string());
+                                form_terminal_mode.set("one_shot".to_string());
                                 form_terminal_interactive_command.set("claude".to_string());
                             } else {
                                 form_terminal_profile.set("codex".to_string());
                                 form_terminal_command.set("codex".to_string());
-                                form_terminal_args.set("exec\n{{prompt}}".to_string());
+                                form_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                form_terminal_mode.set("app_server".to_string());
                                 form_terminal_interactive_command.set("codex".to_string());
                             }
                         },
@@ -3940,12 +3958,12 @@ fn AgentOverviewTab(
                         onclick: move |_| {
                             form_terminal_enabled.set(true);
                             form_terminal_command.set("codex".to_string());
-                            form_terminal_args.set("exec\n{{prompt}}".to_string());
+                            form_terminal_args.set("app-server\n--listen\nstdio://".to_string());
                             form_terminal_stdin.set(String::new());
                             form_terminal_interactive_command.set("codex".to_string());
                             form_terminal_interactive_args.set(String::new());
                             form_terminal_profile.set("codex".to_string());
-                            form_terminal_mode.set("one_shot".to_string());
+                            form_terminal_mode.set("app_server".to_string());
                             form_terminal_session_scope.set("per_session".to_string());
                             form_terminal_io_protocol.set("plain_text".to_string());
                             form_terminal_execution.set("native_terminal".to_string());
@@ -3964,10 +3982,12 @@ fn AgentOverviewTab(
                                 if value == "claude" {
                                     form_terminal_command.set("claude".to_string());
                                     form_terminal_args.set("-p\n{{prompt}}".to_string());
+                                    form_terminal_mode.set("one_shot".to_string());
                                     form_terminal_interactive_command.set("claude".to_string());
                                 } else {
                                     form_terminal_command.set("codex".to_string());
-                                    form_terminal_args.set("exec\n{{prompt}}".to_string());
+                                    form_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                    form_terminal_mode.set("app_server".to_string());
                                     form_terminal_interactive_command.set("codex".to_string());
                                 }
                                 form_terminal_profile.set(value);
@@ -3981,8 +4001,20 @@ fn AgentOverviewTab(
                         label { class: "{LABEL}", "Mode" }
                         select {
                             value: "{form_terminal_mode}",
-                            onchange: move |e| form_terminal_mode.set(e.value()),
+                            onchange: move |e| {
+                                let mode = e.value();
+                                if form_terminal_profile() == "codex" {
+                                    if mode == "app_server" {
+                                        form_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                        form_terminal_stdin.set(String::new());
+                                    } else if mode == "one_shot" {
+                                        form_terminal_args.set("exec\n{{prompt}}".to_string());
+                                    }
+                                }
+                                form_terminal_mode.set(mode);
+                            },
                             class: "{INPUT}",
+                            option { value: "app_server", "Codex App Server" }
                             option { value: "one_shot", "One-shot" }
                             option { value: "interactive_launch", "Interactive Launch" }
                             option { value: "managed_pty", "Managed PTY" }

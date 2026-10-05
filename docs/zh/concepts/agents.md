@@ -150,7 +150,7 @@ terminal 的权限边界。
 |------|------|
 | `runtime` | Terminal runtime，当前支持 `codex` 或 `claude` |
 | `enabled` | Terminal Agent 必须为 `true` |
-| `mode` | 运行模式，例如 `one_shot`、`managed_pty`、`interactive_launch` |
+| `mode` | 运行模式：`app_server`（Codex）、`one_shot`、`managed_pty`、`interactive_launch` |
 | `session_scope` | 终端状态按 turn、session、agent 或 manual 作用域隔离 |
 | `io_protocol` | 输出解释方式，例如 plain text、JSONL、profile parser、sentinel |
 | `terminal_execution` | 命令权限边界声明，例如 `native_terminal`、`managed_workspace`、`disabled` |
@@ -246,7 +246,19 @@ manual complete；read 可以按 sequence 增量读取 transcript，也可以带
 指定文本。会启动/写入/关闭本地进程的 PTY 方法需要 Admin scope，`read` 和 `list`
 只需要 Read scope。
 
-Codex one-shot terminal agent 示例：
+Codex 预设使用 `app_server` 模式，启动 `codex app-server --listen stdio://`。
+使用前请安装 Codex 并完成登录。Gateway 执行初始化握手、创建 thread、转发回复流，
+并检查最终 turn 状态。Codex thread ID 保存在 terminal session 目录中，后续消息
+通过 `thread/resume` 继续会话；`per_turn` 则每次创建新 thread。每轮结束或超时后
+停止子进程，历史由 Codex 持久化。恢复会话时只发送新提示和附件清单，不重复回放
+Savfox 的历史消息。
+
+认证、模型、沙箱和审批策略使用 Codex 自身配置，可通过 app-server 的 CLI 配置参数
+覆盖。当前适配器尚未桥接交互审批，因此会拒绝审批请求；不支持的服务端请求会明确
+报错。此模式不能设置 `stdin`，且忽略 `io_protocol`。迁移已有 Codex agent 时，
+请按下例同时修改 `mode` 和 `args`；保留 `one_shot` 和 `exec` 参数的旧配置仍走原路径。
+
+Codex app-server terminal agent 示例：
 
 ```json
 {
@@ -254,7 +266,7 @@ Codex one-shot terminal agent 示例：
   "terminal": {
     "runtime": "codex",
     "enabled": true,
-    "mode": "one_shot",
+    "mode": "app_server",
     "session_scope": "per_session",
     "io_protocol": "plain_text",
     "terminal_execution": "native_terminal",
@@ -264,7 +276,7 @@ Codex one-shot terminal agent 示例：
       "cleanup_policy": "per_session"
     },
     "command": "codex",
-    "args": ["exec", "{{prompt}}"],
+    "args": ["app-server", "--listen", "stdio://"],
     "interactive_command": "codex"
   }
 }
