@@ -14,6 +14,7 @@ use super::signer::{ArkretKeyRef, ed25519_runtime_public_key, load_ed25519_signi
 const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
     ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+    ServiceOperationId::SELF_SIGNER_KEYS_READ_RESOLVE_V1,
     ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1,
     ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1,
     ServiceOperationId::SELF_KEYS_KEYPACKAGES_READ_CLAIM_V1,

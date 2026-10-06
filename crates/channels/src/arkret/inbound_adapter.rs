@@ -779,6 +779,7 @@ mod tests {
                 0x42,
             )),
             committed_at: chrono::Utc::now(),
+            producer_signer_fact_digest: None,
             signature: arkret::DetachedObjectSignature {
                 context: arkret::DetachedSignatureContext::RealmCommit,
                 signature_algorithm: arkret::DetachedSignatureAlgorithm::Ed25519,

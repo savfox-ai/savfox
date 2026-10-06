@@ -52,6 +52,7 @@ pub fn default_agent_runtime_scope() -> Result<Vec<String>, String> {
     arkret_schema::agent_runtime_scope::complete_agent_runtime_scope([
         ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
         ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+        ServiceOperationId::SELF_SIGNER_KEYS_READ_RESOLVE_V1,
         ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1,
         ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1,
         ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1,

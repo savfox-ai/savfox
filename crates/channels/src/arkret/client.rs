@@ -42,6 +42,7 @@ const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 #[allow(missing_debug_implementations)]
 pub struct ArkretHttpClient {
     inner: Client,
+    own_station: Option<arkret::http_client::own_station_results::OwnStationResultClient>,
 }
 
 /// Stream of account-level subscribe frames yielded by
@@ -96,7 +97,8 @@ impl SessionGrantTransport for AgentSessionGrantTransport {
 #[allow(missing_debug_implementations)]
 pub struct AgentAuthenticatedTransportFactory {
     base_url: Url,
-    principal_id: DidCoreId,
+    account_id: arkret::AccountId,
+    runtime_fence: Arc<dyn Fn() -> bool + Send + Sync>,
     agent_key_authorization_ref: EventId,
     runtime_signing_key: Arc<SigningKey>,
     dpop_signing_key: Arc<SigningKey>,
@@ -180,7 +182,9 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
                 "Agent observation has another runtime authorization or DPoP key".into(),
             ));
         }
-        if state.account_id.principal_id != self.principal_id
+        if !(self.runtime_fence)()
+            || state.account_id != self.account_id
+            || state.audience_id != self.account_id.station_id
             || state.expires_at <= Utc::now()
             || !savfox_gateway_shared::arkret::session_scope_matches_request(
                 &self.requested_scope,
@@ -204,7 +208,10 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
         state: &SessionGrantState,
         _fallback: &SessionRefreshOptions,
     ) -> garth::Result<SessionRefreshOptions> {
-        if state.account_id.principal_id != self.principal_id {
+        if !(self.runtime_fence)()
+            || state.account_id != self.account_id
+            || state.audience_id != self.account_id.station_id
+        {
             return Err(garth::Error::Protocol(
                 "Agent refresh principal differs from its runtime".to_owned(),
             ));
@@ -220,7 +227,7 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
                 AgentSessionGrantRefreshRequest {
                     grant_jwt: state.grant_jwt.clone(),
                     audience_id: Some(state.audience_id.clone()),
-                    principal_id: self.principal_id.clone(),
+                    principal_id: self.account_id.principal_id.clone(),
                     agent_key_authorization_ref: self.agent_key_authorization_ref.clone(),
                     agent_session_refresh_proof: proof,
                 },
@@ -343,7 +350,33 @@ impl ArkretHttpClient {
 
     #[must_use]
     pub fn from_inner(inner: Client) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            own_station: None,
+        }
+    }
+
+    pub fn own_station(
+        &self,
+    ) -> anyhow::Result<&arkret::http_client::own_station_results::OwnStationResultClient> {
+        self.own_station
+            .as_ref()
+            .context("Agent client has no accepted own-Station session")
+    }
+
+    pub async fn from_provider(
+        provider: &ArkretAgentSessionProvider,
+        store: &super::crypto_state::FileArkretCryptoStore,
+    ) -> garth::Result<Self> {
+        let binding = store
+            .accepted_station_binding()
+            .map_err(|error| garth::Error::Protocol(error.to_string()))?;
+        let inner = garth::TransportProvider::provide(provider).await?;
+        let own_station = provider.own_station_result_client(inner.clone(), binding)?;
+        Ok(Self {
+            inner,
+            own_station: Some(own_station),
+        })
     }
 
     /// Build an applet HTTP client bound to `base_url`, authenticated via the
@@ -365,7 +398,9 @@ impl ArkretHttpClient {
     pub async fn login_agent_provider(
         base_url: &str,
         key_ref: &ArkretKeyRef,
-        principal_did: DidCoreId,
+        account_id: arkret::AccountId,
+        accepted_binding: &arkret::StationConnectionBinding,
+        runtime_fence: Arc<dyn Fn() -> bool + Send + Sync>,
         verification_method: &str,
         agent_key_authorization_ref: &str,
         requested_scope: Vec<String>,
@@ -374,6 +409,7 @@ impl ArkretHttpClient {
     ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
         savfox_gateway_shared::arkret::validate_agent_runtime_scope(&requested_scope)
             .map_err(anyhow::Error::msg)?;
+        let principal_did = account_id.principal_id.clone();
         let expected_scope = requested_scope.clone();
         let agent_key_authorization_ref = EventId::new(agent_key_authorization_ref.to_owned())
             .context("invalid accepted Agent key authorization Event id")?;
@@ -394,7 +430,24 @@ impl ArkretHttpClient {
         let grant_store = NoopSessionGrantStore;
         let resource_url =
             Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
-        let grant_base_url = discover_account_authority_base_url(&resource_url, &audience).await?;
+        anyhow::ensure!(
+            resource_url.as_str() == accepted_binding.base_url
+                && account_id.station_id == accepted_binding.service_id
+                && audience == accepted_binding.service_id,
+            "Agent configured Account, audience and accepted Station differ"
+        );
+        let authority = accepted_binding
+            .auth_metadata
+            .account_authority
+            .as_ref()
+            .context("accepted Station omitted Account Authority")?;
+        let grant_base_url = Url::parse(authority.origin.as_str())?;
+        let discovered_grant_base_url =
+            discover_account_authority_base_url(&resource_url, &audience).await?;
+        anyhow::ensure!(
+            discovered_grant_base_url == grant_base_url,
+            "current Account Authority differs from accepted Station binding"
+        );
         let runtime_signing_key = Arc::new(load_ed25519_signing_key(key_ref)?);
         // The grant-binding key is an ephemeral session credential.  It MUST
         // not reuse the long-lived Agent runtime key that signs Agent proofs,
@@ -474,7 +527,8 @@ impl ArkretHttpClient {
         };
         let factory = AgentAuthenticatedTransportFactory {
             base_url: resource_url,
-            principal_id: principal_did.clone(),
+            account_id: account_id.clone(),
+            runtime_fence,
             agent_key_authorization_ref,
             runtime_signing_key,
             dpop_signing_key,
@@ -494,7 +548,7 @@ impl ArkretHttpClient {
         )
         .map_err(|error| anyhow::anyhow!("restore agent session grant: {error}"))?;
         if let Some(state) = restored.session().current_state() {
-            if state.account_id.principal_id == principal_did
+            if state.account_id == account_id
                 && state.audience_id == audience
                 && state.expires_at > Utc::now()
             {
@@ -936,7 +990,8 @@ mod tests {
         requested_scope.sort();
         let factory = AgentAuthenticatedTransportFactory {
             base_url: Url::parse("https://arkret.example.org").unwrap(),
-            principal_id: agent_session_state().account_id.principal_id.clone(),
+            account_id: agent_session_state().account_id.clone(),
+            runtime_fence: Arc::new(|| true),
             agent_key_authorization_ref: authorization_event(),
             runtime_signing_key: Arc::new(signing_key()),
             dpop_signing_key: Arc::new(SigningKey::from_bytes(&[44; 32])),
@@ -949,6 +1004,39 @@ mod tests {
         factory
             .build(&state)
             .expect("exact current grant builds a transport");
+        let mut other_station = state.clone();
+        other_station.account_id.station_id =
+            DidCoreId::new("ak:did_core:webvh:z6mkotherstation").unwrap();
+        assert!(factory.build(&other_station).is_err());
+        assert!(
+            factory
+                .refresh_options(&other_station, &SessionRefreshOptions::default())
+                .is_err()
+        );
+        let mut other_audience = state.clone();
+        other_audience.audience_id = DidCoreId::new("ak:did_core:webvh:z6mkotherstation").unwrap();
+        assert!(factory.build(&other_audience).is_err());
+        assert!(
+            factory
+                .refresh_options(&other_audience, &SessionRefreshOptions::default())
+                .is_err()
+        );
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let guarded = AgentAuthenticatedTransportFactory {
+            runtime_fence: {
+                let active = Arc::clone(&active);
+                Arc::new(move || active.load(std::sync::atomic::Ordering::SeqCst))
+            },
+            ..factory.clone()
+        };
+        assert!(guarded.build(&state).is_ok());
+        active.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(guarded.build(&state).is_err());
+        assert!(
+            guarded
+                .refresh_options(&state, &SessionRefreshOptions::default())
+                .is_err()
+        );
         for invalid in [
             {
                 let mut scope = requested_scope.clone();
@@ -1070,7 +1158,8 @@ mod tests {
         let state = agent_session_state();
         let factory = AgentAuthenticatedTransportFactory {
             base_url: Url::parse("https://arkret.example.org").unwrap(),
-            principal_id: state.account_id.principal_id.clone(),
+            account_id: state.account_id.clone(),
+            runtime_fence: Arc::new(|| true),
             agent_key_authorization_ref: authorization_event(),
             runtime_signing_key: Arc::new(signing_key()),
             dpop_signing_key: Arc::new(SigningKey::from_bytes(&[44; 32])),

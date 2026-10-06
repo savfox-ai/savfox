@@ -197,8 +197,21 @@ pub struct ArkretMlsWelcomeConsumeBinding {
     pub verified_leaf_bindings: Vec<arkret::mls::MlsVerifiedLeafBinding>,
 }
 
+/// Protected continuation of a previously verified continuous prefix. It is
+/// pinned to the actual installed base and one unacknowledged target delivery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArkretMlsReplayContinuation {
+    pub installed_base_ref: EventId,
+    pub installed_epoch: u64,
+    pub target_ref: EventId,
+    pub target_digest: arkret::Hash,
+    pub target_commit_ref: arkret::RealmCommitId,
+    pub target_position: u64,
+    pub head: arkret::RealmCommit,
+}
+
 /// Historical roster material fetched through the authenticated own Station.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArkretMlsRosterMaterial {
     pub request: arkret::MlsMemberRosterAuthorityReadRequestBody,
     pub pages: Vec<arkret::MlsSelfRosterAuthorityReadOutcome>,
@@ -265,6 +278,8 @@ pub struct ArkretCryptoStateFile {
     pub scope_id: String,
     #[serde(default)]
     pub generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_station: Option<arkret::StationConnectionBinding>,
     pub unable_to_decrypt: BTreeMap<EventId, UnableToDecryptRecord>,
     /// Exact accepted Commit plus full encrypted payload keys; wrapped at rest.
     #[serde(default)]
@@ -276,6 +291,12 @@ pub struct ArkretCryptoStateFile {
     /// Account Station current results retained at their exact MLS epochs.
     #[serde(default)]
     pub mls_station_currents: BTreeMap<String, BTreeMap<u64, arkret::MlsGroupCurrent>>,
+    /// Candidate accepted base bytes, atomically saved with the actual MLS
+    /// checkpoint. Re-admitted through the current bound own-Station session before replay.
+    #[serde(default)]
+    pub mls_accepted_bases: BTreeMap<String, arkret::CommittedEventFullView>,
+    #[serde(default)]
+    pub mls_replay_continuations: BTreeMap<String, ArkretMlsReplayContinuation>,
     #[serde(default)]
     pub mls_identities: BTreeMap<String, ArkretMlsIdentityStateRecord>,
     #[serde(default)]
@@ -311,10 +332,13 @@ impl ArkretCryptoStateFile {
             version: STATE_VERSION.to_owned(),
             scope_id,
             generation: 0,
+            accepted_station: None,
             unable_to_decrypt: BTreeMap::new(),
             accepted_decryptions: BTreeMap::new(),
             mls_group_states: BTreeMap::new(),
             mls_station_currents: BTreeMap::new(),
+            mls_accepted_bases: BTreeMap::new(),
+            mls_replay_continuations: BTreeMap::new(),
             mls_identities: BTreeMap::new(),
             mls_key_packages: BTreeMap::new(),
             pending_key_package_uploads: BTreeSet::new(),
@@ -417,6 +441,28 @@ impl FileArkretCryptoStore {
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Persist the explicitly configured Station before any credential reuse.
+    pub fn accept_station_binding(
+        &self,
+        candidate: &arkret::StationConnectionBinding,
+    ) -> anyhow::Result<arkret::StationConnectionBinding> {
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load_unlocked()?;
+        if let Some(accepted) = state.accepted_station {
+            accepted.require_same(candidate)?;
+            return Ok(accepted);
+        }
+        state.accepted_station = Some(candidate.clone());
+        self.save(&mut state)?;
+        Ok(candidate.clone())
+    }
+
+    pub fn accepted_station_binding(&self) -> anyhow::Result<arkret::StationConnectionBinding> {
+        self.load()?
+            .accepted_station
+            .context("Agent Station connection has not been accepted")
     }
 
     pub fn load(&self) -> anyhow::Result<ArkretCryptoStateFile> {
@@ -1424,6 +1470,242 @@ impl FileArkretCryptoStore {
         station_base: &arkret::MlsGroupCurrent,
         roster: &ArkretMlsRosterMaterial,
     ) -> anyhow::Result<bool> {
+        self.install_accepted_mls_commit_authorized(accepted, station_base, roster)
+    }
+
+    /// Install an existing member's accepted transition with the authenticated
+    /// own-Station roster, including checked authority for every added leaf.
+    pub fn install_accepted_mls_commit_with_roster(
+        &self,
+        accepted: &arkret::CommittedEventFullView,
+        station_base: &arkret::MlsGroupCurrent,
+        roster: &ArkretMlsRosterMaterial,
+    ) -> anyhow::Result<bool> {
+        anyhow::ensure!(
+            roster.request.realm_id == accepted.event.realm_id
+                && roster.request.effective_scope == accepted.event.scope_ref
+                && roster.request.target_commit_event_ref == accepted.event.event_id,
+            "MLS roster differs from the accepted transition"
+        );
+        self.install_accepted_mls_commit(accepted, station_base, roster)
+    }
+
+    /// Return the actual durable group's accepted base, independently of the
+    /// latest Station projection (which may already be several epochs ahead).
+    pub fn installed_mls_base(&self, scope: &arkret::ScopeRef) -> anyhow::Result<(u64, EventId)> {
+        let group_id = scope.canonical_mls_group_id()?;
+        let state = self.load()?;
+        let record = state
+            .mls_group_states
+            .get(group_id.as_str())
+            .context("MLS accepted transition has no local checkpoint")?;
+        let group = ArkretMlsGroup::restore_from_state_record(record)?;
+        anyhow::ensure!(
+            group.scope() == scope && group.epoch() == record.epoch,
+            "MLS checkpoint scope/epoch mismatch"
+        );
+        let base = group_state_ref_for_epoch(&state, group_id.as_str(), record.epoch)
+            .context("MLS checkpoint has no persisted accepted base reference")?;
+        Ok((record.epoch, EventId::new(base)?))
+    }
+
+    pub fn installed_mls_base_candidate(
+        &self,
+        scope: &ScopeRef,
+    ) -> anyhow::Result<Option<arkret::CommittedEventFullView>> {
+        let (_, reference) = self.installed_mls_base(scope)?;
+        let state = self.load()?;
+        let group_id = scope.canonical_mls_group_id()?;
+        let Some(base) = state.mls_accepted_bases.get(group_id.as_str()) else {
+            return Ok(None);
+        };
+        anyhow::ensure!(
+            base.event.event_id == reference && &base.event.scope_ref == scope,
+            "durable MLS accepted base cache differs from checkpoint"
+        );
+        Ok(Some(base.clone()))
+    }
+
+    pub fn mls_replay_continuation(
+        &self,
+        scope: &ScopeRef,
+        target: &arkret::CommittedEventFullView,
+    ) -> anyhow::Result<Option<arkret::RealmCommit>> {
+        let (epoch, base) = self.installed_mls_base(scope)?;
+        let digest = arkret::Hash::new(arkret::canonical::canonical_sha256(target)?)?;
+        let group_id = scope.canonical_mls_group_id()?;
+        let state = self.load()?;
+        Ok(state
+            .mls_replay_continuations
+            .get(group_id.as_str())
+            .filter(|entry| {
+                entry.installed_base_ref == base
+                    && entry.installed_epoch == epoch
+                    && entry.target_digest == digest
+                    && entry.target_ref == target.event.event_id
+                    && entry.target_commit_ref == target.commit.commit_id
+                    && entry.target_position == target.commit.stream_position
+            })
+            .map(|entry| entry.head.clone()))
+    }
+
+    pub fn verify_installed_mls_base(
+        &self,
+        accepted: &arkret::CommittedEventFullView,
+    ) -> anyhow::Result<()> {
+        let group_id = accepted.event.scope_ref.canonical_mls_group_id()?;
+        let state = self.load()?;
+        let record = state
+            .mls_group_states
+            .get(group_id.as_str())
+            .context("installed MLS base missing")?;
+        let reference = group_state_ref_for_epoch(&state, group_id.as_str(), record.epoch)
+            .context("installed MLS accepted reference missing")?;
+        let group = ArkretMlsGroup::restore_from_state_record(record)?;
+        group.verify_installed_historical_base(accepted, &EventId::new(reference)?)?;
+        Ok(())
+    }
+
+    /// Persist only a caller-verified prefix head, after all its MLS transitions
+    /// crossed their own checkpoint barriers. It is never current authority.
+    pub fn save_mls_replay_continuation(
+        &self,
+        scope: &ScopeRef,
+        target: &arkret::CommittedEventFullView,
+        installed_base: &EventId,
+        head: Option<arkret::RealmCommit>,
+    ) -> anyhow::Result<()> {
+        let group_id = scope.canonical_mls_group_id()?;
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load()?;
+        let record = state
+            .mls_group_states
+            .get(group_id.as_str())
+            .context("replay checkpoint missing")?;
+        anyhow::ensure!(
+            group_state_ref_for_epoch(&state, group_id.as_str(), record.epoch).as_deref()
+                == Some(installed_base.as_str()),
+            "MLS replay continuation base changed"
+        );
+        if let Some(head) = head {
+            anyhow::ensure!(
+                head.stream_ref == arkret::CommitStreamRef::from_scope(scope, None)?
+                    && target.event.scope_ref == *scope
+                    && head.stream_position < target.commit.stream_position,
+                "MLS replay continuation scope/target mismatch"
+            );
+            state.mls_replay_continuations.insert(
+                group_id.as_str().to_owned(),
+                ArkretMlsReplayContinuation {
+                    installed_base_ref: installed_base.clone(),
+                    installed_epoch: record.epoch,
+                    target_ref: target.event.event_id.clone(),
+                    target_digest: arkret::Hash::new(arkret::canonical::canonical_sha256(target)?)?,
+                    target_commit_ref: target.commit.commit_id.clone(),
+                    target_position: target.commit.stream_position,
+                    head,
+                },
+            );
+        } else {
+            state.mls_replay_continuations.remove(group_id.as_str());
+        }
+        self.save(&mut state)
+    }
+
+    /// Install a transition from an independently verified continuous accepted
+    /// prefix, pinning its full predecessor to the actual local GroupContext.
+    /// Roster verification and persistence share the same atomic barrier.
+    pub fn install_historical_mls_commit_with_roster(
+        &self,
+        accepted: &arkret::CommittedEventFullView,
+        predecessor: &arkret::CommittedEventFullView,
+        roster: &ArkretMlsRosterMaterial,
+    ) -> anyhow::Result<bool> {
+        accepted.validate_shape()?;
+        anyhow::ensure!(
+            accepted.event.kind == arkret::EventKind::MlsCommit,
+            "historical MLS transition is not a Commit"
+        );
+        anyhow::ensure!(
+            roster.request.realm_id == accepted.event.realm_id
+                && roster.request.effective_scope == accepted.event.scope_ref
+                && roster.request.target_commit_event_ref == accepted.event.event_id,
+            "historical MLS roster target mismatch"
+        );
+        let payload: MlsCommitPayload = serde_json::from_value(serde_json::Value::Object(
+            accepted.event.payload.clone().into_iter().collect(),
+        ))?;
+        payload.validate()?;
+        let group_id = payload.mls_group_id()?;
+        let _guard = self.mutation_lock.lock();
+        let mut state = self.load()?;
+        let record = state
+            .mls_group_states
+            .get(group_id.as_str())
+            .context("historical MLS transition has no local checkpoint")?;
+        let base = group_state_ref_for_epoch(&state, group_id.as_str(), record.epoch)
+            .context("historical MLS checkpoint has no accepted base")?;
+        let base = EventId::new(base)?;
+        let mut group = ArkretMlsGroup::restore_from_state_record(record)?;
+        anyhow::ensure!(
+            group.scope() == &accepted.event.scope_ref && group.epoch() == record.epoch,
+            "historical MLS checkpoint scope/epoch mismatch"
+        );
+        if record.epoch == payload.next_epoch() {
+            anyhow::ensure!(
+                base == accepted.event.event_id,
+                "same-epoch MLS transition is not the installed accepted Event"
+            );
+            group.verify_installed_historical_base(accepted, &base)?;
+            return Ok(false);
+        }
+        anyhow::ensure!(
+            record.epoch == payload.base_epoch(),
+            "historical MLS transition is not next to the installed epoch"
+        );
+        group.verify_installed_historical_base(predecessor, &base)?;
+        let epoch = if group.has_pending_commit() {
+            group.install_recovered_own_commit(accepted, &base)?
+        } else {
+            group.install_recovered_remote_commit(accepted, &base)?
+        };
+        anyhow::ensure!(
+            epoch == payload.next_epoch(),
+            "historical MLS transition epoch mismatch"
+        );
+        arkret::install_verified_mls_self_roster_bindings(
+            &mut group,
+            &roster.pages,
+            &roster.request,
+            &roster.genesis_material,
+        )
+        .map_err(anyhow::Error::msg)?;
+        let updated = group.persist_state(&mut state)?;
+        state.bootstrap.insert(
+            group_id.as_str().to_owned(),
+            ArkretBootstrapRecord {
+                group_id: group_id.as_str().to_owned(),
+                required_epoch: updated.epoch,
+                local_epoch: Some(updated.epoch),
+                group_state_ref: Some(accepted.event.event_id.to_string()),
+                action: MlsRecoveryAction::UseLocalState,
+                updated_at: Utc::now(),
+            },
+        );
+        state.mls_replay_continuations.remove(group_id.as_str());
+        state
+            .mls_accepted_bases
+            .insert(group_id.as_str().to_owned(), accepted.clone());
+        self.save(&mut state)?;
+        Ok(true)
+    }
+
+    fn install_accepted_mls_commit_authorized(
+        &self,
+        accepted: &arkret::CommittedEventFullView,
+        station_base: &arkret::MlsGroupCurrent,
+        roster: &ArkretMlsRosterMaterial,
+    ) -> anyhow::Result<bool> {
         accepted.validate_shape()?;
         anyhow::ensure!(
             accepted.event.kind == arkret::EventKind::MlsCommit,
@@ -1470,6 +1752,7 @@ impl FileArkretCryptoStore {
             &roster.genesis_material,
         )
         .map_err(anyhow::Error::msg)?;
+
         let updated = group.persist_state(&mut state)?;
         state.bootstrap.insert(
             updated.group_id.as_str().to_owned(),
@@ -1482,6 +1765,10 @@ impl FileArkretCryptoStore {
                 updated_at: Utc::now(),
             },
         );
+        state.mls_replay_continuations.remove(group_id.as_str());
+        state
+            .mls_accepted_bases
+            .insert(group_id.as_str().to_owned(), accepted.clone());
         self.save(&mut state)?;
         Ok(true)
     }
@@ -1675,6 +1962,10 @@ impl FileArkretCryptoStore {
                     action: MlsRecoveryAction::ConsumeWelcome,
                     updated_at: Utc::now(),
                 },
+            );
+            state.mls_accepted_bases.insert(
+                updated.group_id.as_str().to_owned(),
+                accepted_commit.clone(),
             );
             self.save(&mut state)?;
         }
@@ -2864,6 +3155,76 @@ mod tests {
         assert!(!error.is::<ArkretCryptoStorageFailure>());
     }
 
+    #[test]
+    fn accepted_station_pin_reopens_and_rejects_changed_identity_or_auth_without_overwrite() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "station-pin", "agent");
+        let mut description = arkret::ServiceDescribe::development(
+            arkret::Did::new("did:webvh:z6mkfixture:station.example").unwrap(),
+            arkret::TrustDomainId::new("ak:trust_domain:station.example").unwrap(),
+            arkret::ServiceKind::Station,
+            vec!["ak.operation_bundle.station.describe.v1".into()],
+            vec![arkret::TransportBinding::HttpJson {
+                base_url: "https://station.example/".into(),
+                extension_profile_required: (),
+            }],
+        );
+        description.auth_metadata.account_authority = Some(arkret::AccountAuthority {
+            origin: arkret::WebOrigin::new("https://auth.example").unwrap(),
+            gate_account_base_url: "https://auth.example/_arkret/gate/account".into(),
+            extra: Default::default(),
+        });
+        let pin = arkret::StationConnectionBinding::from_description(
+            &url::Url::parse("https://station.example/").unwrap(),
+            &description,
+            false,
+        )
+        .unwrap();
+        assert!(store.accepted_station_binding().is_err());
+        store.accept_station_binding(&pin).unwrap();
+        let reopen = FileArkretCryptoStore::for_account(home.path(), "station-pin", "agent");
+        assert_eq!(reopen.accepted_station_binding().unwrap(), pin);
+        let before = std::fs::read(reopen.path()).unwrap();
+        for changed in [
+            {
+                let mut changed = pin.clone();
+                changed.service_id = DidCoreId::new("ak:did_core:webvh:z6mkother").unwrap();
+                changed
+            },
+            {
+                let mut changed = pin.clone();
+                changed.base_url = "https://other.example/".into();
+                changed
+            },
+            {
+                let mut changed = pin.clone();
+                changed.trust_domain =
+                    arkret::TrustDomainId::new("ak:trust_domain:other.example").unwrap();
+                changed
+            },
+            {
+                let mut changed = pin.clone();
+                changed
+                    .auth_metadata
+                    .account_authority
+                    .as_mut()
+                    .unwrap()
+                    .origin = arkret::WebOrigin::new("https://other-auth.example").unwrap();
+                changed
+            },
+        ] {
+            assert!(reopen.accept_station_binding(&changed).is_err());
+            assert_eq!(std::fs::read(reopen.path()).unwrap(), before);
+            assert_eq!(reopen.accepted_station_binding().unwrap(), pin);
+        }
+        assert!(
+            !String::from_utf8(before)
+                .unwrap()
+                .contains("station.example")
+        );
+        reopen.accept_station_binding(&pin).unwrap();
+    }
+
     fn temp_home(label: &str) -> PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
@@ -3563,6 +3924,1017 @@ mod tests {
     }
 
     #[test]
+    fn accepted_add_roster_installs_new_leaf_and_failed_proofs_preserve_checkpoint() {
+        accepted_add_roster_fixture(false);
+    }
+
+    #[test]
+    fn historical_self_updates_three_then_add_four_without_station_base_cache_reopen_and_decrypt() {
+        accepted_add_roster_fixture(true);
+    }
+
+    fn accepted_add_roster_fixture(historical: bool) {
+        use arkret::{
+            Base64UrlString, CommitStreamRef, CommittedEventFullView, DetachedObjectSignature,
+            DetachedSignatureAlgorithm, DetachedSignatureContext, DidUrl, Event, EventKind, Hash,
+            MlsGovernanceBindingPayload, MlsWelcomeRecipientEndpoint, RealmCommit,
+            RealmCommitAuthorityRef, RealmCommitId,
+        };
+        use arkret_wire::{KeypackageClaimId, MlsWelcomeDeliveryId};
+        // A real two-member RFC fixture. Structural Commit signatures here are
+        // not evidence of Station admission; the host port owns that verification.
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "accepted-roster", "alice");
+        store.ensure_created().unwrap();
+        let scope = ScopeRef::Sidecar {
+            realm_id: FIXTURE_REALM.clone(),
+            sidecar_id: arkret::SidecarId::from_event_id(&FIXTURE_EVENT_1),
+        };
+        let seed = [41u8; 32];
+        let signer = ed25519_dalek::SigningKey::from_bytes(&seed);
+        let multibase = arkret::canonical::ed25519_pubkey_to_did_key_multibase(
+            signer.verifying_key().as_bytes(),
+        );
+        let did = arkret::Did::new(format!("did:key:{multibase}")).unwrap();
+        let station = arkret::project_did_to_core_id(&did).unwrap();
+        let method = format!("{}#{multibase}", did.as_str());
+        let alice_actor = ActorId::account(test_account("ak:did_core:web:alice.example"));
+        let mut bob_account = test_account("ak:did_core:web:bob.example");
+        bob_account.station_id = station.clone();
+        let bob_actor = ActorId::account(bob_account);
+        let alice_device = DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001").unwrap();
+        let bob_method = DidUrl::new("did:web:bob.example#runtime").unwrap();
+        let identity = |actor: ActorId, device: DeviceId, seed| {
+            ArkretMlsIdentity::new_human_device(
+                actor,
+                device,
+                ArkretMlsSigner::from_ed25519_signing_key(ed25519_dalek::SigningKey::from_bytes(
+                    &[seed; 32],
+                )),
+            )
+            .unwrap()
+        };
+        let alice = identity(alice_actor.clone(), alice_device.clone(), 31);
+        let bob = new_mls_identity(
+            bob_actor.clone(),
+            agent_mls_endpoint(
+                "ak:did_core:web:bob.example",
+                bob_method.as_str(),
+                FIXTURE_EVENT_9.as_str(),
+            )
+            .unwrap(),
+            Some([32; 32]),
+        )
+        .unwrap();
+        let mut alice_group = alice.create_group(&scope).unwrap();
+        alice_group
+            .install_local_creator_binding(alice_actor.clone(), Some(FIXTURE_EVENT_9.clone()))
+            .unwrap();
+        let (group_info, tree) = alice_group.public_group_state_bytes().unwrap();
+        let tree_ref = arkret::BlobRef::new(format!(
+            "ak:blob:{}",
+            arkret::canonical::sha256_digest(&tree)
+        ))
+        .unwrap();
+        let info_ref = arkret::BlobRef::new(format!(
+            "ak:blob:{}",
+            arkret::canonical::sha256_digest(&group_info)
+        ))
+        .unwrap();
+        let base = arkret::MlsGroupCurrent {
+            effective_scope: scope.clone(),
+            genesis_event_ref: FIXTURE_EVENT_1.clone(),
+            cipher_suite: arkret::NonEmptyString::new(
+                alice_group.group_ciphersuite_canonical_id().unwrap(),
+            )
+            .unwrap(),
+            current_mls_commit_event_ref: FIXTURE_EVENT_1.clone(),
+            epoch: 0,
+            current_key_access_revision: 0,
+            covered_key_access_revision: 0,
+            public_tree_ref: tree_ref.clone(),
+        };
+        let creator_leaf = arkret::mls::validate_public_group_state(
+            &group_info,
+            &tree,
+            alice_group.group_id().as_str(),
+            0,
+        )
+        .unwrap()
+        .remove(0);
+
+        let mut package = bob.key_package_record().unwrap();
+        package.state = MlsKeyPackageState::Claimed;
+        package.claim_id = Some(
+            KeypackageClaimId::new("ak:keypackage_claim:01904100-0000-7000-8000-000000000003")
+                .unwrap()
+                .to_string(),
+        );
+        let ScopeRef::Sidecar {
+            realm_id,
+            sidecar_id,
+        } = &scope
+        else {
+            unreachable!()
+        };
+        let binding = MlsGovernanceBindingPayload::sidecar(
+            realm_id.clone(),
+            sidecar_id.clone(),
+            Some(FIXTURE_EVENT_1.clone()),
+            0,
+            1,
+            0,
+            arkret::sidecar_participant_authority_digest(
+                sidecar_id,
+                realm_id,
+                &test_account("ak:did_core:web:alice.example"),
+                &[DidCoreId::new("ak:did_core:web:bob.example").unwrap()],
+            )
+            .unwrap(),
+            vec![FIXTURE_EVENT_1.clone()],
+        )
+        .unwrap();
+        let add = alice_group
+            .add_member_with_governance_binding(&package, &binding)
+            .unwrap();
+        // The author must durably stage its exact pending Commit before
+        // processing the accepted own acknowledgement after reopening.
+        let mut state = store.load().unwrap();
+        alice_group.persist_state(&mut state).unwrap();
+        store.save(&mut state).unwrap();
+        let checkpoint =
+            store.load().unwrap().mls_group_states[alice_group.group_id().as_str()].clone();
+        let payload =
+            MlsCommitPayload::new(FIXTURE_EVENT_1.clone(), 0, &add.commit, binding).unwrap();
+        let Value::Object(payload) = serde_json::to_value(payload).unwrap() else {
+            unreachable!()
+        };
+        let signature = |context| DetachedObjectSignature {
+            context,
+            signature_algorithm: DetachedSignatureAlgorithm::Ed25519,
+            verification_method: DidUrl::new("did:web:station.example#authority").unwrap(),
+            signed_digest: Hash::new(format!("sha256:{}", "3".repeat(64))).unwrap(),
+            created_at: Utc::now(),
+            sig: Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+        };
+        let accepted = CommittedEventFullView {
+            event: Event {
+                event_id: FIXTURE_EVENT_2.clone(),
+                kind: EventKind::MlsCommit,
+                realm_id: realm_id.clone(),
+                scope_ref: scope.clone(),
+                actor_id: alice_actor.clone(),
+                executed_by: None,
+                authorization_ref: None,
+                applet_id: None,
+                external_ref: None,
+                created_at: Utc::now(),
+                semantic_refs: Vec::new(),
+                payload: payload.into_iter().collect(),
+                producer_proof: None,
+            },
+            commit: RealmCommit {
+                commit_id: RealmCommitId::from_digest([61; 32]),
+                realm_id: realm_id.clone(),
+                stream_ref: CommitStreamRef::from_scope(&scope, None).unwrap(),
+                stream_position: 2,
+                previous_commit_ref: Some(RealmCommitId::from_digest([60; 32])),
+                event_ref: FIXTURE_EVENT_2.clone(),
+                governance_generation: 0,
+                authority_ref: RealmCommitAuthorityRef::GenesisOrChangeEvent(
+                    FIXTURE_EVENT_1.clone(),
+                ),
+                committed_at: Utc::now(),
+                producer_signer_fact_digest: None,
+                signature: signature(DetachedSignatureContext::RealmCommit),
+            },
+        };
+
+        // Production accepted items arrive through the canonical wire decoder.
+        // Normalize this locally constructed fixture once before any clones:
+        // RealmCommit/signature timestamps serialize at millisecond precision.
+        let accepted: CommittedEventFullView =
+            serde_json::from_value(serde_json::to_value(&accepted).unwrap()).unwrap();
+
+        use arkret::DidResolver as _;
+        use arkret_models_collaboration::mls_roster_authority::{
+            MlsAddAuthorityAttestation, MlsRosterAuthorityManifest, MlsRosterRecord,
+        };
+        let mut tracker = arkret::mls::MlsPublicGroupTracker::from_external(
+            &group_info,
+            &tree,
+            alice_group.group_id().as_str(),
+            0,
+        )
+        .unwrap();
+        let arkret::mls::MlsPublicHandshakeTransition::Commit {
+            consumed_proposals, ..
+        } = tracker
+            .process_public_handshake(
+                &arkret::base64url_decode(add.commit.commit.as_str()).unwrap(),
+            )
+            .unwrap()
+        else {
+            panic!("real Add Commit");
+        };
+        let proposal = consumed_proposals
+            .iter()
+            .find(|p| p.proposal_type == 1)
+            .unwrap();
+        let leaf = proposal.target_after.as_ref().unwrap();
+        let document = arkret::DidKeyResolver::new()
+            .resolve_did(&did)
+            .unwrap()
+            .document;
+        let digest = arkret::canonical::sha256_digest(did.as_str().as_bytes());
+        let version = format!(
+            "synthetic-did-sha256:{}",
+            digest.trim_start_matches("sha256:")
+        );
+        let mut resolution = arkret::AuthenticatedServiceResolution {
+            service_id: station.clone(),
+            service_kind: "station".to_owned(),
+            normalized_did_document: document,
+            method_history_evidence: arkret::ResolutionMethodHistoryEvidence::DidKeyExpansion {
+                boundary: arkret::ResolutionMethodEvidenceBoundary {
+                    from_method_history_head: digest.clone(),
+                    to_method_history_head: digest,
+                    from_version_id: version.clone(),
+                    to_version_id: version,
+                },
+                evidence: arkret::ResolutionDidBindingEvidenceReceipt {
+                    kind: arkret::ResolutionDidBindingEvidenceKind::AkDidBindingEvidenceV1,
+                    method: "key".to_owned(),
+                    document_digest: Hash::new(format!("sha256:{}", "0".repeat(64))).unwrap(),
+                    method_proofs: Vec::new(),
+                },
+            },
+        };
+        // AuthenticatedServiceResolution owns the canonical normalized DID
+        // projection serializer; raw DidDocument serialization is a different
+        // carrier and must not be parsed as that projection.
+        let projection = serde_json::to_value(&resolution).unwrap();
+        let document_digest = Hash::new(
+            arkret::canonical::canonical_sha256(&projection["normalized_did_document"]).unwrap(),
+        )
+        .unwrap();
+        let arkret::ResolutionMethodHistoryEvidence::DidKeyExpansion { evidence, .. } =
+            &mut resolution.method_history_evidence
+        else {
+            unreachable!()
+        };
+        evidence.document_digest = document_digest;
+        let round_trip: arkret::AuthenticatedServiceResolution =
+            serde_json::from_value(serde_json::to_value(&resolution).unwrap()).unwrap();
+        assert_eq!(round_trip.service_id, station);
+        let placeholder = json!({"kid":method,"signature_algorithm":"Ed25519","sig":"AQ"});
+        let at = Utc::now();
+        let mut receipt: arkret::PeerKeyPackageClaimReceipt = serde_json::from_value(json!({
+            "claim_request_id":"AQ","request_digest":format!("sha256:{}","1".repeat(64)),"claims_digest":format!("sha256:{}","2".repeat(64)),
+            "source_id":station,"destination_id":station,
+            "request":{"claim_request_id":"AQ","intended_realm_id":realm_id,"mls_group_id":alice_group.group_id(),"claim_purpose":"realm_membership","required_capabilities":["mls"],"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1))},
+            "claimed_at":arkret::canonical::format_timestamp_canonical(at),"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1)),"signature":placeholder
+        })).unwrap();
+        receipt.signature = arkret_signatures::keypackages::sign_keypackage_signing_input(
+            &seed,
+            &method,
+            &arkret_models_crypto::peer_keypackage_claim_receipt_signing_bytes(&receipt).unwrap(),
+        )
+        .unwrap();
+        let mut attestation: MlsAddAuthorityAttestation = serde_json::from_value(json!({
+            "attestor_station_id":station,"realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"genesis_event_ref":*FIXTURE_EVENT_1,"commit_event_ref":accepted.event.event_id,"commit_stream_position":2,"epoch":1,
+            "welcome_id":"ak:mls_welcome_delivery:01904100-0000-7000-8000-000000000004","claim_id":"ak:keypackage_claim:01904100-0000-7000-8000-000000000003",
+            "actor_id":bob_actor,"endpoint":{"kind":"agent_runtime","verification_method":bob_method},"authorization_event_ref":*FIXTURE_EVENT_9,"leaf_signature_key_b64u":leaf.signature_key,"claim_record_digest":format!("sha256:{}","3".repeat(64)),"claim_receipt":receipt,"attested_at":arkret::canonical::format_timestamp_canonical(at),"signature":placeholder
+        })).unwrap();
+        attestation.signature = arkret_signatures::keypackages::sign_keypackage_signing_input(
+            &seed,
+            &method,
+            &attestation.signing_bytes().unwrap(),
+        )
+        .unwrap();
+        let records = vec![
+            MlsRosterRecord::Genesis {
+                genesis_event_ref: FIXTURE_EVENT_1.clone(),
+                actor_id: alice_actor.clone(),
+                leaf_signature_key_b64u: creator_leaf.signature_key,
+                endpoint: MlsWelcomeRecipientEndpoint::Device {
+                    device_id: alice_device.clone(),
+                },
+                authorization_event_ref: FIXTURE_EVENT_9.clone(),
+            },
+            MlsRosterRecord::Add {
+                commit_event_ref: accepted.event.event_id.clone(),
+                consumed_proposal_ordinal: proposal.ordinal,
+                sender_actor_id: alice_actor.clone(),
+                proposal_wire_b64u: Base64UrlString::new(arkret::base64url_encode(
+                    &proposal.proposal_wire,
+                ))
+                .unwrap(),
+                attestation,
+                attestor_resolution: resolution,
+            },
+        ];
+        let request = arkret::MlsMemberRosterAuthorityReadRequestBody {
+            realm_id: realm_id.clone(),
+            effective_scope: scope.clone(),
+            mls_group_id: alice_group.group_id(),
+            target_commit_event_ref: accepted.event.event_id.clone(),
+            target_epoch: 1,
+            caller_actor_id: alice_actor.clone(),
+            cursor: None,
+        };
+        let mut manifest: MlsRosterAuthorityManifest = serde_json::from_value(json!({
+            "governance_station_id":station,"realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"genesis_event_ref":*FIXTURE_EVENT_1,"group_info_ref":info_ref,"ratchet_tree_ref":tree_ref,"target_commit_event_ref":accepted.event.event_id,"target_epoch":1,"authority_head_commit_event_ref":accepted.event.event_id,"caller_actor_id":alice_actor,"total_records":2,"page_count":1,"records_digest":arkret::canonical::canonical_sha256(&records).unwrap(),"issued_at":arkret::canonical::format_timestamp_canonical(at),"signature":placeholder
+        })).unwrap();
+        manifest.signature = arkret_signatures::keypackages::sign_keypackage_signing_input(
+            &seed,
+            &method,
+            &manifest.signing_bytes().unwrap(),
+        )
+        .unwrap();
+        let add_digest =
+            arkret::Hash::new(arkret::canonical::canonical_sha256(&records[1]).unwrap()).unwrap();
+        let key = json!({"verification_method":method,"public_key_b64u":arkret::base64url_encode(signer.verifying_key().as_bytes())});
+        let page:arkret::MlsSelfRosterAuthorityReadOutcome=serde_json::from_value(json!({"roster":{"manifest":manifest,"page_index":0,"records":records,"next_cursor":null},"manifest_signing_key":key,"add_signing_keys":[{"record_digest":add_digest,"claim_receipt_signing_key":key,"attestation_signing_key":key}]})).unwrap();
+        let material:arkret::MlsGroupStateMaterialOutcome=serde_json::from_value(json!({"realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"epoch":0,"group_state_event_id":*FIXTURE_EVENT_1,"group_info_ref":info_ref,"group_info_bytes_b64":arkret::base64url_encode(group_info),"ratchet_tree_ref":tree_ref,"ratchet_tree_bytes_b64":arkret::base64url_encode(tree)})).unwrap();
+        let roster = ArkretMlsRosterMaterial {
+            request: request.clone(),
+            pages: vec![page.clone()],
+            genesis_material: material.clone(),
+        };
+        assert!(
+            store
+                .install_accepted_mls_commit(
+                    &accepted,
+                    &base,
+                    &ArkretMlsRosterMaterial {
+                        request: roster.request.clone(),
+                        pages: Vec::new(),
+                        genesis_material: roster.genesis_material.clone(),
+                    }
+                )
+                .is_err()
+        );
+        for change in 0..4 {
+            let mut invalid = ArkretMlsRosterMaterial {
+                request: request.clone(),
+                pages: vec![page.clone()],
+                genesis_material: material.clone(),
+            };
+            match change {
+                0 => {
+                    invalid.request.effective_scope = ScopeRef::Realm {
+                        realm_id: realm_id.clone(),
+                    }
+                }
+                1 => invalid.request.target_epoch = 2,
+                2 => invalid.pages.clear(),
+                _ => {
+                    invalid.pages[0].manifest_signing_key.public_key_b64u =
+                        Base64UrlString::new(arkret::base64url_encode([9; 32])).unwrap()
+                }
+            }
+            assert!(
+                store
+                    .install_accepted_mls_commit_with_roster(&accepted, &base, &invalid)
+                    .is_err()
+            );
+            assert_eq!(
+                store.load().unwrap().mls_group_states[alice_group.group_id().as_str()],
+                checkpoint
+            );
+        }
+        assert!(
+            store
+                .install_accepted_mls_commit_with_roster(&accepted, &base, &roster)
+                .unwrap()
+        );
+        let record =
+            store.load().unwrap().mls_group_states[alice_group.group_id().as_str()].clone();
+        assert_eq!(record.epoch, 1);
+        let restored = ArkretMlsGroup::restore_from_state_record(&record).unwrap();
+        assert_eq!(restored.verified_leaf_bindings().unwrap().len(), 2);
+        assert!(
+            !store
+                .install_accepted_mls_commit_with_roster(&accepted, &base, &roster)
+                .unwrap()
+        );
+        let delivery = MlsWelcomeDelivery {
+            welcome_id: MlsWelcomeDeliveryId::new(
+                "ak:mls_welcome_delivery:01904100-0000-7000-8000-000000000004",
+            )
+            .unwrap(),
+            realm_id: realm_id.clone(),
+            effective_scope: scope.clone(),
+            commit_event_ref: FIXTURE_EVENT_2.clone(),
+            recipient_actor_id: bob_actor,
+            recipient_endpoint: MlsWelcomeRecipientEndpoint::AgentRuntime {
+                verification_method: bob_method,
+            },
+            keypackage_claim_ref: add.welcome.keypackage_claim_ref.clone(),
+            ciphertext_b64: add.welcome.ciphertext_b64.clone(),
+            producer_proof: signature(DetachedSignatureContext::MlsWelcomeDelivery),
+        };
+        let mut bob_group =
+            ArkretMlsGroup::join_from_verified_welcome_delivery(bob, &delivery, &accepted).unwrap();
+        arkret::install_verified_mls_self_roster_bindings(
+            &mut bob_group,
+            &roster.pages,
+            &roster.request,
+            &roster.genesis_material,
+        )
+        .unwrap();
+        let header = EventContentPreEncryptionHeader::reconstruct(
+            "1.0",
+            ContentBlock::MLS_CONTENT_TYPE,
+            EncryptedPayloadScheme::MlsRfc9420,
+            scope.clone(),
+            "ak.message.create",
+            1,
+            accepted.event.event_id.clone(),
+            bob_group.local_content_sender_domain().unwrap(),
+            EventContentRoutingContext::None,
+        )
+        .unwrap();
+        let content = serde_json::to_value(ContentBlock::text("fixture private request")).unwrap();
+        let encrypted = bob_group
+            .encrypt_payload(header, &serde_json::to_vec(&content).unwrap())
+            .unwrap();
+        let reference = CommittedEventRef {
+            event_id: FIXTURE_EVENT_9.clone(),
+            commit_id: RealmCommitId::from_digest([62; 32]),
+            stream_ref: CommitStreamRef::from_scope(&scope, None).unwrap(),
+            stream_position: 3,
+        };
+        let reopened = FileArkretCryptoStore::for_account(home.path(), "accepted-roster", "alice");
+        let ArkretDecryptDetailedOutcome::Decrypted {
+            content: decrypted, ..
+        } = reopened
+            .try_decrypt_accepted_content_block_detailed(&reference, &encrypted)
+            .unwrap()
+        else {
+            panic!("Add recipient decrypt");
+        };
+        assert_eq!(decrypted, content);
+        // Alice is now an existing observer. Bob authors another real Add;
+        // Alice has no own pending Commit for it and must obtain the new
+        // Charlie authority from the signed roster rather than local claims.
+        let mut historical_predecessor = accepted.clone();
+        if historical {
+            // Real RFC SelfUpdates advance 1 -> 2 -> 3 with the same roster.
+            // Each predecessor is pinned to the installed actual GroupContext.
+            for (epoch, event_number) in [(2u64, 10u64), (3, 11)] {
+                let event_id = fixture_event_id(event_number as u8 + 80);
+                let self_binding = MlsGovernanceBindingPayload::sidecar(
+                    realm_id.clone(),
+                    sidecar_id.clone(),
+                    Some(historical_predecessor.event.event_id.clone()),
+                    epoch - 1,
+                    epoch,
+                    0,
+                    arkret::sidecar_participant_authority_digest(
+                        sidecar_id,
+                        realm_id,
+                        &test_account("ak:did_core:web:alice.example"),
+                        &[DidCoreId::new("ak:did_core:web:bob.example").unwrap()],
+                    )
+                    .unwrap(),
+                    vec![FIXTURE_EVENT_1.clone()],
+                )
+                .unwrap();
+                let commit = bob_group
+                    .self_update_commit_with_governance_binding(&self_binding)
+                    .unwrap();
+                let mut transition = historical_predecessor.clone();
+                transition.event.event_id = event_id;
+                transition.event.actor_id = bob_group.local_actor_id().clone();
+                transition.event.payload = serde_json::from_value(
+                    serde_json::to_value(
+                        MlsCommitPayload::new(
+                            historical_predecessor.event.event_id.clone(),
+                            epoch - 1,
+                            &commit,
+                            self_binding,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+                transition.commit.event_ref = transition.event.event_id.clone();
+                transition.commit.previous_commit_ref =
+                    Some(historical_predecessor.commit.commit_id.clone());
+                transition.commit.commit_id = RealmCommitId::from_digest([epoch as u8 + 70; 32]);
+                transition.commit.stream_position =
+                    historical_predecessor.commit.stream_position + 1;
+                let mut self_roster = roster.clone();
+                self_roster.request.target_epoch = epoch;
+                self_roster.request.target_commit_event_ref = transition.event.event_id.clone();
+                let manifest = &mut self_roster.pages[0].roster.manifest;
+                manifest.target_epoch = epoch;
+                manifest.target_commit_event_ref = transition.event.event_id.clone();
+                manifest.authority_head_commit_event_ref = transition.event.event_id.clone();
+                manifest.signature = arkret_signatures::keypackages::sign_keypackage_signing_input(
+                    &seed,
+                    &method,
+                    &manifest.signing_bytes().unwrap(),
+                )
+                .unwrap();
+                reopened
+                    .install_historical_mls_commit_with_roster(
+                        &transition,
+                        &historical_predecessor,
+                        &self_roster,
+                    )
+                    .unwrap();
+                bob_group
+                    .install_recovered_own_commit(
+                        &transition,
+                        &historical_predecessor.event.event_id,
+                    )
+                    .unwrap();
+                arkret::install_verified_mls_self_roster_bindings(
+                    &mut bob_group,
+                    &self_roster.pages,
+                    &self_roster.request,
+                    &self_roster.genesis_material,
+                )
+                .unwrap();
+                historical_predecessor = transition;
+            }
+            assert_eq!(
+                reopened.installed_mls_base(&scope).unwrap(),
+                (3, historical_predecessor.event.event_id.clone())
+            );
+            assert!(
+                reopened
+                    .station_mls_current_for_scope_epoch(&scope, 3)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let base_epoch = if historical { 3 } else { 1 };
+        let next_epoch = base_epoch + 1;
+        let mut charlie_account = test_account("ak:did_core:web:charlie.example");
+        charlie_account.station_id = station.clone();
+        let charlie_actor = ActorId::account(charlie_account);
+        let charlie_method = DidUrl::new("did:web:charlie.example#runtime").unwrap();
+        let charlie = new_mls_identity(
+            charlie_actor.clone(),
+            agent_mls_endpoint(
+                "ak:did_core:web:charlie.example",
+                charlie_method.as_str(),
+                FIXTURE_EVENT_13.as_str(),
+            )
+            .unwrap(),
+            Some([33; 32]),
+        )
+        .unwrap();
+        let mut charlie_package = charlie.key_package_record().unwrap();
+        charlie_package.state = MlsKeyPackageState::Claimed;
+        charlie_package.claim_id =
+            Some("ak:keypackage_claim:01904100-0000-7000-8000-000000000013".to_owned());
+        let observer = ArkretMlsGroup::restore_from_state_record(
+            &reopened.load().unwrap().mls_group_states[alice_group.group_id().as_str()],
+        )
+        .unwrap();
+        let (next_info, next_tree) = bob_group.public_group_state_bytes().unwrap();
+        let next_base = arkret::MlsGroupCurrent {
+            effective_scope: scope.clone(),
+            genesis_event_ref: FIXTURE_EVENT_1.clone(),
+            cipher_suite: base.cipher_suite.clone(),
+            current_mls_commit_event_ref: historical_predecessor.event.event_id.clone(),
+            epoch: base_epoch,
+            current_key_access_revision: 0,
+            covered_key_access_revision: 0,
+            public_tree_ref: arkret::BlobRef::new(format!(
+                "ak:blob:{}",
+                arkret::canonical::sha256_digest(&next_tree)
+            ))
+            .unwrap(),
+        };
+        let next_binding = MlsGovernanceBindingPayload::sidecar(
+            realm_id.clone(),
+            sidecar_id.clone(),
+            Some(historical_predecessor.event.event_id.clone()),
+            base_epoch,
+            next_epoch,
+            0,
+            arkret::sidecar_participant_authority_digest(
+                sidecar_id,
+                realm_id,
+                &test_account("ak:did_core:web:alice.example"),
+                &[
+                    DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
+                    DidCoreId::new("ak:did_core:web:charlie.example").unwrap(),
+                ],
+            )
+            .unwrap(),
+            vec![FIXTURE_EVENT_1.clone()],
+        )
+        .unwrap();
+        let next_add = bob_group
+            .add_member_with_governance_binding(&charlie_package, &next_binding)
+            .unwrap();
+        let mut next_accepted = accepted.clone();
+        next_accepted.event.event_id = FIXTURE_EVENT_14.clone();
+        next_accepted.event.actor_id = ActorId::account(arkret::AccountId::new(
+            DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
+            station.clone(),
+        ));
+        next_accepted.event.payload = serde_json::from_value(
+            serde_json::to_value(
+                MlsCommitPayload::new(
+                    historical_predecessor.event.event_id.clone(),
+                    base_epoch,
+                    &next_add.commit,
+                    next_binding,
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        next_accepted.commit.event_ref = next_accepted.event.event_id.clone();
+        next_accepted.commit.commit_id = RealmCommitId::from_digest([63; 32]);
+        next_accepted.commit.previous_commit_ref =
+            Some(historical_predecessor.commit.commit_id.clone());
+        next_accepted.commit.stream_position = historical_predecessor.commit.stream_position + 1;
+        let mut next_tracker = arkret::mls::MlsPublicGroupTracker::from_external(
+            &next_info,
+            &next_tree,
+            observer.group_id().as_str(),
+            base_epoch,
+        )
+        .unwrap();
+        let arkret::mls::MlsPublicHandshakeTransition::Commit {
+            consumed_proposals: next_proposals,
+            ..
+        } = next_tracker
+            .process_public_handshake(&arkret::base64url_decode(&next_add.commit.commit).unwrap())
+            .unwrap()
+        else {
+            panic!("second Add");
+        };
+        let next_proposal = next_proposals
+            .iter()
+            .find(|p| p.proposal_type == 1)
+            .unwrap();
+        let mut next_records = roster.pages[0].roster.records.clone();
+        let MlsRosterRecord::Add {
+            attestation: previous_attestation,
+            attestor_resolution,
+            ..
+        } = &next_records[1]
+        else {
+            unreachable!()
+        };
+        let mut next_attestation = previous_attestation.clone();
+        let next_resolution = attestor_resolution.clone();
+        next_attestation.commit_event_ref = next_accepted.event.event_id.clone();
+        next_attestation.commit_stream_position = next_accepted.commit.stream_position;
+        next_attestation.epoch = next_epoch;
+        next_attestation.welcome_id = MlsWelcomeDeliveryId::new(
+            "ak:mls_welcome_delivery:01904100-0000-7000-8000-000000000014",
+        )
+        .unwrap();
+        next_attestation.claim_id =
+            KeypackageClaimId::new("ak:keypackage_claim:01904100-0000-7000-8000-000000000013")
+                .unwrap();
+        next_attestation.actor_id = charlie_actor;
+        next_attestation.endpoint = MlsWelcomeRecipientEndpoint::AgentRuntime {
+            verification_method: charlie_method,
+        };
+        next_attestation.authorization_event_ref = FIXTURE_EVENT_13.clone();
+        next_attestation.leaf_signature_key_b64u = next_proposal
+            .target_after
+            .as_ref()
+            .unwrap()
+            .signature_key
+            .clone();
+        next_attestation.signature = arkret_signatures::keypackages::sign_keypackage_signing_input(
+            &seed,
+            &method,
+            &next_attestation.signing_bytes().unwrap(),
+        )
+        .unwrap();
+        next_records.push(MlsRosterRecord::Add {
+            commit_event_ref: next_accepted.event.event_id.clone(),
+            consumed_proposal_ordinal: next_proposal.ordinal,
+            sender_actor_id: next_accepted.event.actor_id.clone(),
+            proposal_wire_b64u: Base64UrlString::new(arkret::base64url_encode(
+                &next_proposal.proposal_wire,
+            ))
+            .unwrap(),
+            attestation: next_attestation,
+            attestor_resolution: next_resolution,
+        });
+        let mut next_page = roster.pages[0].clone();
+        next_page.roster.records = next_records;
+        next_page.roster.manifest.target_epoch = next_epoch;
+        next_page.roster.manifest.target_commit_event_ref = next_accepted.event.event_id.clone();
+        next_page.roster.manifest.authority_head_commit_event_ref =
+            next_accepted.event.event_id.clone();
+        next_page.roster.manifest.total_records = 3;
+        next_page.roster.manifest.records_digest =
+            Hash::new(arkret::canonical::canonical_sha256(&next_page.roster.records).unwrap())
+                .unwrap();
+        next_page.roster.manifest.signature =
+            arkret_signatures::keypackages::sign_keypackage_signing_input(
+                &seed,
+                &method,
+                &next_page.roster.manifest.signing_bytes().unwrap(),
+            )
+            .unwrap();
+        let mut next_keys = next_page.add_signing_keys[0].clone();
+        next_keys.record_digest =
+            Hash::new(arkret::canonical::canonical_sha256(&next_page.roster.records[2]).unwrap())
+                .unwrap();
+        next_page.add_signing_keys.push(next_keys);
+        let mut next_request = roster.request.clone();
+        next_request.target_epoch = next_epoch;
+        next_request.target_commit_event_ref = next_accepted.event.event_id.clone();
+        let next_roster = ArkretMlsRosterMaterial {
+            request: next_request,
+            pages: vec![next_page],
+            genesis_material: roster.genesis_material.clone(),
+        };
+        let observer_checkpoint =
+            reopened.load().unwrap().mls_group_states[observer.group_id().as_str()].clone();
+        assert!(
+            reopened
+                .install_accepted_mls_commit(
+                    &next_accepted,
+                    &next_base,
+                    &ArkretMlsRosterMaterial {
+                        request: next_roster.request.clone(),
+                        pages: Vec::new(),
+                        genesis_material: next_roster.genesis_material.clone(),
+                    }
+                )
+                .is_err()
+        );
+        assert_eq!(
+            reopened.load().unwrap().mls_group_states[observer.group_id().as_str()],
+            observer_checkpoint
+        );
+        if historical {
+            let mut latest = next_base.clone();
+            latest.epoch = next_epoch;
+            latest.current_mls_commit_event_ref = next_accepted.event.event_id.clone();
+            let mut state = reopened.load().unwrap();
+            state
+                .mls_station_currents
+                .entry(observer.group_id().as_str().to_owned())
+                .or_default()
+                .insert(next_epoch, latest);
+            reopened.save(&mut state).unwrap();
+            assert!(
+                reopened
+                    .station_mls_current_for_scope_epoch(&scope, base_epoch)
+                    .unwrap()
+                    .is_none()
+            );
+            for bad in 0..4 {
+                let mut predecessor = historical_predecessor.clone();
+                match bad {
+                    0 => predecessor.event.event_id = FIXTURE_EVENT_13.clone(),
+                    1 => {
+                        predecessor.event.scope_ref = ScopeRef::Realm {
+                            realm_id: realm_id.clone(),
+                        }
+                    }
+                    2 => predecessor.event.payload.clear(),
+                    _ => {
+                        let payload: MlsCommitPayload = serde_json::from_value(
+                            serde_json::to_value(&predecessor.event.payload).unwrap(),
+                        )
+                        .unwrap();
+                        let mut value = serde_json::to_value(&payload).unwrap();
+                        value["governance_binding"]["key_access_revision"] = serde_json::json!(1);
+                        value["covers_key_access_revision"] = serde_json::json!(1);
+                        let payload: MlsCommitPayload = serde_json::from_value(value).unwrap();
+                        payload.validate().unwrap();
+                        predecessor.event.payload =
+                            serde_json::from_value(serde_json::to_value(payload).unwrap()).unwrap();
+                    }
+                }
+                assert!(
+                    reopened
+                        .install_historical_mls_commit_with_roster(
+                            &next_accepted,
+                            &predecessor,
+                            &next_roster
+                        )
+                        .is_err()
+                );
+                assert!(
+                    reopened.load().unwrap().mls_group_states[observer.group_id().as_str()]
+                        == observer_checkpoint,
+                    "historical rejection changed checkpoint"
+                );
+            }
+            let untouched = serde_json::to_value(reopened.load().unwrap()).unwrap();
+            let mut invalid_roster = next_roster.clone();
+            invalid_roster.pages.clear();
+            assert!(
+                reopened
+                    .install_historical_mls_commit_with_roster(
+                        &next_accepted,
+                        &historical_predecessor,
+                        &invalid_roster
+                    )
+                    .is_err()
+            );
+            assert!(
+                serde_json::to_value(reopened.load().unwrap()).unwrap() == untouched,
+                "invalid historical roster changed durable crypto state"
+            );
+            // Exercise the actual protected continuation barrier over restart
+            // using structural head bytes. Garth separately owns signatures
+            // and proof that the preceding ordinary interval contains no MLS.
+            let mut continued_target = next_accepted.clone();
+            continued_target.commit.stream_position += 2;
+            let mut ordinary_head = historical_predecessor.commit.clone();
+            ordinary_head.stream_position += 1;
+            reopened
+                .save_mls_replay_continuation(
+                    &scope,
+                    &continued_target,
+                    &historical_predecessor.event.event_id,
+                    Some(ordinary_head.clone()),
+                )
+                .unwrap();
+            let progress =
+                FileArkretCryptoStore::for_account(home.path(), "accepted-roster", "alice");
+            assert!(
+                progress
+                    .mls_replay_continuation(&scope, &continued_target)
+                    .unwrap()
+                    == Some(ordinary_head)
+            );
+            let mut other_target = continued_target.clone();
+            other_target.commit.commit_id = RealmCommitId::from_digest([95; 32]);
+            assert!(
+                progress
+                    .mls_replay_continuation(&scope, &other_target)
+                    .unwrap()
+                    .is_none()
+            );
+            other_target = continued_target.clone();
+            other_target.event.created_at += chrono::Duration::milliseconds(1);
+            assert!(
+                progress
+                    .mls_replay_continuation(&scope, &other_target)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                progress
+                    .save_mls_replay_continuation(
+                        &scope,
+                        &continued_target,
+                        &FIXTURE_EVENT_13,
+                        None
+                    )
+                    .is_err()
+            );
+            let durable =
+                FileArkretCryptoStore::for_account(home.path(), "accepted-roster", "alice");
+            assert!(
+                durable
+                    .install_historical_mls_commit_with_roster(
+                        &next_accepted,
+                        &historical_predecessor,
+                        &next_roster
+                    )
+                    .unwrap()
+            );
+            assert!(
+                !durable
+                    .install_historical_mls_commit_with_roster(
+                        &next_accepted,
+                        &historical_predecessor,
+                        &next_roster
+                    )
+                    .unwrap()
+            );
+            let installed_state = serde_json::to_value(durable.load().unwrap()).unwrap();
+            let mut wrong_gce = next_accepted.clone();
+            let mut payload = serde_json::to_value(&wrong_gce.event.payload).unwrap();
+            payload["governance_binding"]["key_access_revision"] = serde_json::json!(1);
+            payload["covers_key_access_revision"] = serde_json::json!(1);
+            wrong_gce.event.payload = serde_json::from_value(payload).unwrap();
+            assert!(
+                durable
+                    .install_historical_mls_commit_with_roster(
+                        &wrong_gce,
+                        &historical_predecessor,
+                        &next_roster
+                    )
+                    .is_err()
+            );
+            assert!(
+                serde_json::to_value(durable.load().unwrap()).unwrap() == installed_state,
+                "same-epoch wrong GroupContext changed durable crypto state"
+            );
+            assert!(
+                durable.installed_mls_base_candidate(&scope).unwrap()
+                    == Some(next_accepted.clone())
+            );
+            assert!(
+                durable
+                    .mls_replay_continuation(&scope, &continued_target)
+                    .unwrap()
+                    .is_none()
+            );
+            let mut fork = next_accepted.clone();
+            fork.event.event_id = FIXTURE_EVENT_13.clone();
+            fork.commit.event_ref = fork.event.event_id.clone();
+            let mut fork_roster = next_roster.clone();
+            fork_roster.request.target_commit_event_ref = fork.event.event_id.clone();
+            assert!(
+                durable
+                    .install_historical_mls_commit_with_roster(
+                        &fork,
+                        &historical_predecessor,
+                        &fork_roster
+                    )
+                    .is_err()
+            );
+        } else {
+            assert!(
+                reopened
+                    .install_accepted_mls_commit_with_roster(
+                        &next_accepted,
+                        &next_base,
+                        &next_roster
+                    )
+                    .unwrap()
+            );
+        }
+        let observer_after =
+            reopened.load().unwrap().mls_group_states[observer.group_id().as_str()].clone();
+        assert_eq!(observer_after.epoch, next_epoch);
+        assert_eq!(
+            ArkretMlsGroup::restore_from_state_record(&observer_after)
+                .unwrap()
+                .verified_leaf_bindings()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert!(
+            !reopened
+                .install_accepted_mls_commit_with_roster(&next_accepted, &next_base, &next_roster)
+                .unwrap()
+        );
+        bob_group
+            .install_recovered_own_commit(&next_accepted, &historical_predecessor.event.event_id)
+            .unwrap();
+        arkret::install_verified_mls_self_roster_bindings(
+            &mut bob_group,
+            &next_roster.pages,
+            &next_roster.request,
+            &next_roster.genesis_material,
+        )
+        .unwrap();
+        let next_header = EventContentPreEncryptionHeader::reconstruct(
+            "1.0",
+            ContentBlock::MLS_CONTENT_TYPE,
+            EncryptedPayloadScheme::MlsRfc9420,
+            scope.clone(),
+            "ak.message.create",
+            next_epoch,
+            next_accepted.event.event_id.clone(),
+            bob_group.local_content_sender_domain().unwrap(),
+            EventContentRoutingContext::None,
+        )
+        .unwrap();
+        let next_encrypted = bob_group
+            .encrypt_payload(next_header, &serde_json::to_vec(&content).unwrap())
+            .unwrap();
+        let next_reference = CommittedEventRef {
+            event_id: FIXTURE_EVENT_13.clone(),
+            commit_id: RealmCommitId::from_digest([64; 32]),
+            stream_ref: next_accepted.commit.stream_ref.clone(),
+            stream_position: 4,
+        };
+        let observer_reopened =
+            FileArkretCryptoStore::for_account(home.path(), "accepted-roster", "alice");
+        let ArkretDecryptDetailedOutcome::Decrypted {
+            content: next_decrypted,
+            ..
+        } = observer_reopened
+            .try_decrypt_accepted_content_block_detailed(&next_reference, &next_encrypted)
+            .unwrap()
+        else {
+            panic!("existing observer decrypt");
+        };
+        assert_eq!(next_decrypted, content);
+    }
+
+    #[test]
     fn accepted_native_decryption_retries_after_reopen_without_reusing_rfc_secrets() {
         use arkret::{
             Base64UrlString, CommitStreamRef, CommittedEventFullView, DetachedObjectSignature,
@@ -3683,6 +5055,7 @@ mod tests {
                     FIXTURE_EVENT_1.clone(),
                 ),
                 committed_at: Utc::now(),
+                producer_signer_fact_digest: None,
                 signature: signature(DetachedSignatureContext::RealmCommit),
             },
         };

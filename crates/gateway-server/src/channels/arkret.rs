@@ -61,6 +61,40 @@ struct ArkretRuntimeState {
     diagnostics: HashMap<String, ArkretListenerDiagnostic>,
 }
 
+fn account_runtime_generations() -> &'static StdMutex<HashMap<String, u64>> {
+    static GENERATIONS: OnceLock<StdMutex<HashMap<String, u64>>> = OnceLock::new();
+    GENERATIONS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn advance_account_runtime_generation(key: &str) {
+    let mut generations = account_runtime_generations()
+        .lock()
+        .expect("Arkret runtime generations");
+    let generation = generations.entry(key.to_owned()).or_default();
+    *generation = generation
+        .checked_add(1)
+        .expect("Arkret runtime generation overflow");
+}
+
+fn account_runtime_fence(
+    channel_id: &str,
+    account_id: &str,
+) -> Arc<dyn Fn() -> bool + Send + Sync> {
+    let key = task_key(channel_id, account_id);
+    let expected = *account_runtime_generations()
+        .lock()
+        .expect("Arkret runtime generations")
+        .entry(key.clone())
+        .or_default();
+    Arc::new(move || {
+        account_runtime_generations()
+            .lock()
+            .ok()
+            .and_then(|generations| generations.get(&key).copied())
+            == Some(expected)
+    })
+}
+
 fn known_revoked_authorizations() -> &'static StdMutex<HashSet<(String, String, String)>> {
     static REVOKED: OnceLock<StdMutex<HashSet<(String, String, String)>>> = OnceLock::new();
     REVOKED.get_or_init(|| StdMutex::new(HashSet::new()))
@@ -334,6 +368,16 @@ pub(crate) async fn start_arkret_channel(
 /// channel the operator already removed. Returns the number of tasks stopped.
 pub(crate) fn stop_arkret_account_listeners(channel_id: &str) -> usize {
     let prefix = format!("{channel_id}::");
+    let invalidated: Vec<String> = account_runtime_generations()
+        .lock()
+        .expect("Arkret runtime generations")
+        .keys()
+        .filter(|key| key.starts_with(&prefix))
+        .cloned()
+        .collect();
+    for key in invalidated {
+        advance_account_runtime_generation(&key);
+    }
     let Ok(mut state) = runtime_state().lock() else {
         warn!("arkret: runtime state mutex poisoned; cannot stop listeners for '{channel_id}'");
         return 0;
@@ -364,6 +408,7 @@ pub(crate) fn stop_arkret_account_listeners(channel_id: &str) -> usize {
 /// failed even while the replacement listener is healthy.
 fn forget_arkret_account_runtime(channel_id: &str, account_id: &str) {
     let key = task_key(channel_id, account_id);
+    advance_account_runtime_generation(&key);
     let Ok(mut state) = runtime_state().lock() else {
         warn!(
             channel_id,
@@ -417,6 +462,7 @@ fn spawn_account_listener(
     session_store: Arc<SessionStore>,
 ) {
     let key = task_key(&channel.id, &account.id);
+    advance_account_runtime_generation(&key);
     if let Ok(mut state) = runtime_state().lock() {
         state.diagnostics.insert(
             key.clone(),
@@ -583,8 +629,8 @@ async fn run_account_listener(
             return;
         }
     };
-    let client = match provider.provide().await {
-        Ok(client) => ArkretHttpClient::from_inner(client),
+    let client = match ArkretHttpClient::from_provider(&provider, &crypto_store).await {
+        Ok(client) => client,
         Err(error) => {
             warn!(
                 "arkret: account '{}' failed to build authenticated HTTP client: {error}",
@@ -729,8 +775,8 @@ async fn refresh_account_presence(
         record_presence_failure(channel, account, "missing runtime verificationMethod");
         return;
     };
-    let client = match provider.provide().await {
-        Ok(client) => ArkretHttpClient::from_inner(client),
+    let client = match ArkretHttpClient::from_provider(&provider, &crypto_store).await {
+        Ok(client) => client,
         Err(error) => {
             record_presence_failure(
                 channel,
@@ -774,9 +820,7 @@ async fn refresh_account_presence(
             }
         };
         let eligible_head =
-            match verified_realm_presence_head(client.inner(), crypto_store, account, &realm_id)
-                .await
-            {
+            match verified_realm_presence_head(&client, crypto_store, account, &realm_id).await {
                 Ok(Some(head)) => head,
                 Ok(None) => continue,
                 Err(error) => {
@@ -788,8 +832,7 @@ async fn refresh_account_presence(
                     continue;
                 }
             };
-        let authority_head = match verified_presence_authority_head(client.inner(), &realm_id).await
-        {
+        let authority_head = match verified_presence_authority_head(&client, &realm_id).await {
             Ok(head) => head,
             Err(error) => {
                 record_presence_failure(
@@ -933,7 +976,7 @@ fn owner_direct_presence_binding(
 }
 
 async fn verified_realm_presence_head(
-    http: &arkret::http_client::Client,
+    http: &ArkretHttpClient,
     crypto_store: &FileArkretCryptoStore,
     account: &ArkretAccountConfig,
     realm_id: &RealmId,
@@ -958,12 +1001,13 @@ async fn verified_realm_presence_head(
             return Ok(Some(head.clone()));
         }
     }
-    let outcome = garth::agent_interaction::read_verified_agent_interaction(
-        http,
+    let outcome = garth::own_station_results::read_own_station_agent_interaction(
+        http.own_station()?,
         realm_id,
         &account.actor_account_id,
     )
-    .await;
+    .await
+    .and_then(|response| response.into_value().map_err(garth::Error::from));
     public_presence_head_from_verified_read(outcome, account)
 }
 
@@ -984,29 +1028,30 @@ fn public_presence_head_from_verified_read(
 }
 
 async fn verified_presence_authority_head(
-    http: &arkret::http_client::Client,
+    http: &ArkretHttpClient,
     realm_id: &RealmId,
 ) -> anyhow::Result<arkret::CommitStreamHead> {
-    let request = arkret::AuthorityBundleRequest {
+    let response = http.own_station()?.snapshot_head(realm_id).await?;
+    let mut replica = garth::own_station_results::OwnStationReplica::new(realm_id.clone());
+    replica.install_bound_snapshot(&response)?;
+    let stream = arkret::CommitStreamRef::Realm {
         realm_id: realm_id.clone(),
-        nonce: arkret::Base64UrlString::new(arkret::base64url_encode(rand::random::<[u8; 32]>()))
-            .map_err(anyhow::Error::msg)?,
     };
-    let authority = garth::AuthorityClient::new(http.clone());
-    let bundle = authority.resolve_authority(&request).await?;
-    let keys = garth::fetch_historical_station_key_directory(http, &bundle, None, None).await?;
-    let freshness =
-        arkret::identity::RealmAuthorityFreshness::new(Utc::now(), request.nonce.clone());
-    let mut replica = garth::RealmReplica::new(realm_id.clone());
-    replica.install_verified_authority(&request, bundle.clone(), &freshness, &keys)?;
+    let mut heads = response
+        .value()?
+        .visible_stream_heads
+        .iter()
+        .filter(|head| head.stream_ref == stream);
+    let head = heads
+        .next()
+        .context("presence current snapshot omits Realm head")?
+        .clone();
     anyhow::ensure!(
-        bundle.realm_stream_head.stream_ref
-            == arkret::CommitStreamRef::Realm {
-                realm_id: realm_id.clone()
-            },
-        "presence authority bundle does not name the Realm stream"
+        heads.next().is_none(),
+        "presence snapshot duplicates Realm head"
     );
-    Ok(bundle.realm_stream_head)
+    http.own_station()?.check_session()?;
+    Ok(head)
 }
 
 fn record_presence_failure(
@@ -1063,10 +1108,10 @@ async fn process_durable_account_work(
         return;
     }
 
-    let client = match provider.provide().await {
+    let client = match ArkretHttpClient::from_provider(provider, crypto_store).await {
         Ok(client) => {
             *last_auth_warning = None;
-            ArkretHttpClient::from_inner(client)
+            client
         }
         Err(error) => {
             let now = tokio::time::Instant::now();
@@ -1085,6 +1130,20 @@ async fn process_durable_account_work(
             return;
         }
     };
+    // Welcome recovery remains independent of a blocked account inbox head.
+    // The retrying Commit must not prevent installing its missing local base.
+    if let Err(error) = run_account_key_lifecycle_maintenance(
+        &client,
+        channel,
+        account,
+        account_store,
+        crypto_store,
+        "durable_retry",
+    )
+    .await
+    {
+        warn!("arkret: key lifecycle maintenance before inbox retry failed: {error:#}");
+    }
     process_durable_account_inbox(
         provider,
         &client,
@@ -1232,7 +1291,7 @@ async fn drain_pending_account_outbound(
     let options = arkret::http_client::ClientRequestOptions::default();
     loop {
         let current = async {
-            let transport = provider.provide().await?;
+            let client = ArkretHttpClient::from_provider(provider, crypto_store).await?;
             let observation = provider
                 .session()
                 .current_state()
@@ -1240,7 +1299,7 @@ async fn drain_pending_account_outbound(
                 .agent_participation_observation(Utc::now())?;
             cancel_unusable_account_submissions(&outbound, account, crypto_store, &observation)
                 .await?;
-            anyhow::Ok(garth::AuthorityClient::new(transport))
+            anyhow::Ok(garth::AuthorityClient::new(client.own_station()?.clone()))
         }
         .await;
         let authority = match current {
@@ -1334,50 +1393,54 @@ async fn process_durable_account_inbox(
                     break;
                 }
             }
-            if let Some(error) = processing_error {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    "arkret: durable account delivery processing failed; retry scheduled: {error:#}"
-                );
-                let delay_secs = 1_u64
-                    .checked_shl(delivery.attempts.min(6))
-                    .unwrap_or(60)
-                    .min(60);
-                let next_at = Utc::now() + chrono::Duration::seconds(delay_secs as i64);
-                if let Err(store_error) = account_store
-                    .retry(
-                        delivery.id,
-                        Some(next_at.timestamp_millis()),
-                        garth::DeliveryErrorClass::Processing,
-                        format!("{error:#}"),
-                    )
-                    .await
-                {
-                    warn!(
-                        channel_id = %channel.id,
-                        account_id = %account.id,
-                        delivery_id = delivery.id.get(),
-                        "arkret: failed to persist delivery retry: {store_error}"
-                    );
+            let processing = processing_error.map_or(Ok(()), Err);
+            match settle_account_delivery(account_store, delivery.id, delivery.attempts, processing)
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    blocked_scopes.insert(delivery.scope.clone());
+                    continue;
+                }
+                Err(error) => {
+                    warn!(channel_id = %channel.id, account_id = %account.id,
+                        "arkret: failed to persist durable account delivery outcome: {error:#}");
                     return;
                 }
-                // Retain the complete failed batch and its unchanged checkpoint.
-                // Only this exact independent scope waits; no successor overtakes it.
-                blocked_scopes.insert(delivery.scope.clone());
-                continue;
-            }
-            if let Err(error) = account_store.ack(delivery.id).await {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    delivery_id = delivery.id.get(),
-                    "arkret: failed to acknowledge durable account delivery: {error}"
-                );
-                return;
             }
         }
     }
+}
+
+/// A failed dependency retains original delivery bytes and cursor over restart.
+/// Only complete successful processing crosses the durable acknowledgement.
+async fn settle_account_delivery(
+    store: &garth::FileStore,
+    id: garth::DeliveryId,
+    attempts: u32,
+    processing: anyhow::Result<()>,
+) -> anyhow::Result<bool> {
+    if let Err(error) = processing {
+        let delay_secs = 1_u64.checked_shl(attempts.min(6)).unwrap_or(60).min(60);
+        let next_at = Utc::now() + chrono::Duration::seconds(delay_secs as i64);
+        anyhow::ensure!(
+            store
+                .retry(
+                    id,
+                    Some(next_at.timestamp_millis()),
+                    garth::DeliveryErrorClass::Processing,
+                    format!("{error:#}")
+                )
+                .await?,
+            "failed delivery disappeared before retry persistence"
+        );
+        return Ok(false);
+    }
+    anyhow::ensure!(
+        store.ack(id).await?,
+        "successful delivery disappeared before acknowledgement"
+    );
+    Ok(true)
 }
 
 async fn handle_account_client_event(
@@ -1428,21 +1491,16 @@ async fn handle_account_client_event(
             }
             if let Ok(value) = serde_json::to_value(&event) {
                 crypto_store.record_direct_conversation_binding_from_value(&value)?;
-                apply_account_mls_commits_from_value_tree(
-                    client,
-                    crypto_store,
-                    &value,
-                    channel,
-                    account,
-                    "committed_stream",
-                )
-                .await?;
             }
             let accepted_ref = delta.committed_ref();
             let accepted_view = arkret::CommittedEventFullView {
                 event: event.clone(),
                 commit: delta.commit().clone(),
             };
+            // Keep the Garth-verified Event and signed RealmCommit together.
+            // A missing historical dependency must retry this durable delivery.
+            apply_account_accepted_mls_commit(client, crypto_store, &accepted_view, account)
+                .await?;
             let native_sidecar = matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. });
             let causal_after_event_ids = event
                 .semantic_refs
@@ -1967,7 +2025,7 @@ async fn drain_account_device_messages_from_cursor(
                 }
                 arkret::RecipientDelivery::MlsWelcome { mls_welcome } => {
                     match governance::admit_owned_agent_welcome_delivery(
-                        client.inner(),
+                        client,
                         crypto_store,
                         mls_welcome,
                         account,
@@ -1976,7 +2034,7 @@ async fn drain_account_device_messages_from_cursor(
                     {
                         Ok((admitted, accepted)) => {
                             if let Err(error) = receive::seed_welcome_checkpoint(
-                                client.inner(),
+                                client,
                                 channel,
                                 account,
                                 account_store,
@@ -2564,45 +2622,65 @@ fn event_declares_direct_conversation_realm(event: &arkret::Event) -> bool {
             })
 }
 
-async fn apply_account_mls_commits_from_value_tree(
+async fn apply_account_accepted_mls_commit(
     client: &ArkretHttpClient,
     crypto_store: &FileArkretCryptoStore,
-    value: &Value,
-    channel: &ArkretChannelConfig,
+    accepted: &arkret::CommittedEventFullView,
     account: &ArkretAccountConfig,
-    source: &'static str,
-) -> anyhow::Result<usize> {
-    let mut commits = Vec::new();
-    collect_typed_mls_commit_events(value, 8, &mut commits);
-    let mut applied = 0;
-    for (event_ref, payload) in commits {
-        if !crypto_store.mls_commit_needs_accepted_leaf_authority(&payload)? {
-            continue;
-        }
-        let scope = payload.governance_binding().effective_scope();
-        let realm_id = scope
-            .realm_id_opt()
-            .context("MLS Commit has no Realm scope")?;
-        let base = crypto_store
-            .station_mls_current_for_scope_epoch(scope, payload.base_epoch())?
-            .context("exact Station MLS base current is unavailable; Commit remains pending")?;
-        let accepted =
-            governance::accepted_commit_for_event(client.inner(), realm_id, scope, &event_ref)
-                .await?;
-        let roster = governance::accepted_commit_roster(client.inner(), &accepted, account).await?;
-        if crypto_store.install_accepted_mls_commit(&accepted, &base, &roster)? {
-            applied += 1;
-            debug!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                source,
-                event_id = %event_ref,
-                epoch = payload.next_epoch(),
-                "arkret: applied accepted MLS Commit and verified roster from account inbound event"
-            );
-        }
+) -> anyhow::Result<()> {
+    if accepted.event.kind != arkret::EventKind::MlsCommit {
+        return Ok(());
     }
-    Ok(applied)
+    let payload: arkret::MlsCommitPayload = serde_json::from_value(serde_json::Value::Object(
+        accepted.event.payload.clone().into_iter().collect(),
+    ))?;
+    payload.validate()?;
+    let scope = &accepted.event.scope_ref;
+    anyhow::ensure!(
+        payload.governance_binding().effective_scope() == scope,
+        "accepted MLS scope differs from Event"
+    );
+    let (epoch, base_ref) = crypto_store.installed_mls_base(scope)?;
+    if epoch == payload.next_epoch() {
+        anyhow::ensure!(
+            base_ref == accepted.event.event_id,
+            "same-epoch accepted MLS Event differs from durable checkpoint"
+        );
+        crypto_store.verify_installed_mls_base(accepted)?;
+        return Ok(());
+    }
+    // This input is a verified continuous Garth delivery. An already installed
+    // earlier row can occur after a durable inbox retry, without undoing state.
+    if epoch > payload.next_epoch() {
+        return Ok(());
+    }
+    let (mut predecessor, prefix, continuation) = governance::verified_mls_prefix(
+        client,
+        accepted,
+        &base_ref,
+        crypto_store.installed_mls_base_candidate(scope)?,
+        crypto_store.mls_replay_continuation(scope, accepted)?,
+    )
+    .await?;
+    for transition in prefix {
+        client.own_station()?.check_session()?;
+        let roster = governance::accepted_commit_roster(client, &transition, account).await?;
+        client.own_station()?.check_session()?;
+        crypto_store.install_historical_mls_commit_with_roster(
+            &transition,
+            &predecessor,
+            &roster,
+        )?;
+        predecessor = transition;
+    }
+    let (installed_epoch, installed_ref) = crypto_store.installed_mls_base(scope)?;
+    client.own_station()?.check_session()?;
+    crypto_store.save_mls_replay_continuation(scope, accepted, &installed_ref, continuation)?;
+    anyhow::ensure!(
+        installed_epoch == payload.next_epoch() && installed_ref == accepted.event.event_id,
+        "accepted MLS prefix did not install target"
+    );
+    Ok(())
 }
 
 fn collect_typed_mls_commit_events(
@@ -2975,14 +3053,15 @@ async fn agent_interaction_trigger_allowed(
     if crypto.realm_is_direct_conversation(realm_id)? {
         return Ok(owner);
     }
-    let http = provider.provide().await?;
+    let http = ArkretHttpClient::from_provider(provider, crypto).await?;
     let realm = RealmId::new(realm_id.to_owned())?;
-    let mode = match garth::agent_interaction::read_verified_agent_interaction(
-        &http,
+    let mode = match garth::own_station_results::read_own_station_agent_interaction(
+        http.own_station()?,
         &realm,
         &account.actor_account_id,
     )
     .await
+    .and_then(|response| response.into_value().map_err(garth::Error::from))
     {
         Ok(arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present {
             entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry),
@@ -3978,8 +4057,22 @@ async fn construct_account_provider(
                 account.id
             )
         })?;
-    let principal = DidCoreId::new(account.principal_id.clone())
-        .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
+    anyhow::ensure!(
+        account.actor_account_id.principal_id.as_str() == account.principal_id,
+        "Agent config principal differs from its full Account"
+    );
+    let selected = url::Url::parse(&channel.base_url)?;
+    let description =
+        arkret::http_client::station_connection::fetch_station_description(&selected, true).await?;
+    let candidate =
+        arkret::StationConnectionBinding::from_description(&selected, &description, true)?;
+    anyhow::ensure!(
+        candidate.service_id == account.actor_account_id.station_id
+            && candidate.service_id.as_str() == audience,
+        "configured Agent Station differs from selected Station"
+    );
+    let crypto = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
+    let accepted_binding = crypto.accept_station_binding(&candidate)?;
     let _device_id = DeviceId::new(account.device_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid Arkret device_id: {err}"))?;
     let runtime_public_key_digest =
@@ -3994,7 +4087,9 @@ async fn construct_account_provider(
     let (provider, session) = ArkretHttpClient::login_agent_provider(
         &channel.base_url,
         key_ref,
-        principal.clone(),
+        account.actor_account_id.clone(),
+        &accepted_binding,
+        account_runtime_fence(&channel.id, &account.id),
         verification_method,
         authorization_ref,
         account.requested_scope.clone(),
@@ -4112,7 +4207,8 @@ pub(crate) async fn send_to_arkret_account(
         "Arkret runtime has no locally verified active key authorization"
     );
     let provider = construct_account_provider(savfox_home, &channel, &account).await?;
-    let client = ArkretHttpClient::from_inner(provider.provide().await?);
+    let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
+    let client = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
     // The authenticated observation only suppresses local work; the Station
     // independently evaluates owner-current and governance at acceptance.
     let observation = provider
@@ -4151,16 +4247,16 @@ pub(crate) async fn send_to_arkret_account(
         &account.id,
         ACCOUNT_EVENT_DEDUPE_MAX,
     )?;
-    let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     if !matches!(scope_ref, arkret::ScopeRef::Sidecar { .. })
         && !crypto_store.realm_is_direct_conversation(realm_id)?
     {
-        let current = garth::agent_interaction::read_verified_agent_interaction(
-            client.inner(),
+        let current = garth::own_station_results::read_own_station_agent_interaction(
+            client.own_station()?,
             &realm_id_typed,
             &account.actor_account_id,
         )
-        .await?;
+        .await?
+        .into_value()?;
         if !matches!(current, arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present { entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry), .. } if entry.value.controller_account_id == account.controller_account_id && entry.value.interaction_mode == arkret::AgentInteractionMode::Public)
         {
             anyhow::bail!("shared Agent execution authority is unavailable");
@@ -4253,7 +4349,7 @@ pub(crate) async fn send_to_arkret_account(
     cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation).await?;
     let options = arkret::http_client::ClientRequestOptions::default();
     loop {
-        let transport = provider.provide().await?;
+        let client = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
         let observation = provider
             .session()
             .current_state()
@@ -4261,7 +4357,7 @@ pub(crate) async fn send_to_arkret_account(
             .agent_participation_observation(Utc::now())?;
         cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation)
             .await?;
-        let authority = garth::AuthorityClient::new(transport);
+        let authority = garth::AuthorityClient::new(client.own_station()?.clone());
         match outbound.submit_next(&authority, &options).await? {
             OutboundEngineOutcome::Committed { item, .. } if item.event_id() == &event_id => {
                 if let Some(context) = sidecar_exchange {
@@ -4481,6 +4577,26 @@ mod tests {
             let mentioned = inbound_agent_is_mentioned(&event, &account);
             assert_eq!(mentioned, expected);
         }
+    }
+
+    #[test]
+    fn own_station_host_runtime_generation_rejects_late_response_across_replace_and_stop() {
+        let channel = "native-own-station-runtime-fence";
+        let account = "agent-no-listener";
+        let first = account_runtime_fence(channel, account);
+        assert!(first());
+        advance_account_runtime_generation(&task_key(channel, account));
+        let replacement = account_runtime_fence(channel, account);
+        assert!(!first());
+        assert!(replacement());
+        assert_eq!(stop_arkret_account_listeners(channel), 0);
+        assert!(!replacement());
+        let third = account_runtime_fence(channel, account);
+        assert!(third());
+        forget_arkret_account_runtime(channel, account);
+        assert!(!first());
+        assert!(!replacement());
+        assert!(!third());
     }
 
     fn make_account() -> ArkretAccountConfig {
@@ -4815,6 +4931,75 @@ mod tests {
         observation.controller_account.station_id =
             DidCoreId::new("ak:did_core:web:other.example").unwrap();
         assert!(!observed_reply_allowed(&event, &account, &observation));
+    }
+
+    #[tokio::test]
+    async fn accepted_mls_dependency_error_keeps_original_durable_delivery_until_replay_success() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("account-inbox.json");
+        let store = garth::FileStore::open(&path).unwrap();
+        let (account, event) = queued_message_fixture();
+        let scope = garth::CursorScope::Account {
+            service_id: Some(account.actor_account_id.station_id.clone()),
+            actor_id: event.actor_id.clone(),
+            device_id: arkret::DeviceId::new("ak:device:01964139-0000-7000-8000-000000000001")
+                .unwrap(),
+        };
+        // This fixture tests the actual inbox settlement barrier, not Station
+        // authority. The separate RFC fixture supplies historical MLS proof.
+        let payload = vec![ClientEvent::Event(Box::new(event))];
+        let bytes = serde_json::to_value(&payload).unwrap();
+        let id = store
+            .commit(
+                scope.clone(),
+                Some("original-account-cursor".to_owned()),
+                payload,
+            )
+            .await
+            .unwrap();
+        assert!(
+            !settle_account_delivery(
+                &store,
+                id,
+                0,
+                Err(anyhow::anyhow!(
+                    "accepted MLS predecessor dependency unavailable"
+                ))
+            )
+            .await
+            .unwrap()
+        );
+        drop(store);
+        let reopened = garth::FileStore::open(&path).unwrap();
+        let pending = reopened.pending(1).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, id);
+        assert_eq!(pending[0].scope, scope);
+        assert_eq!(
+            pending[0].cursor.as_deref(),
+            Some("original-account-cursor")
+        );
+        assert_eq!(pending[0].attempts, 1);
+        assert_eq!(
+            pending[0].error_class,
+            Some(garth::DeliveryErrorClass::Processing)
+        );
+        assert_eq!(serde_json::to_value(&pending[0].payload).unwrap(), bytes);
+        assert!(
+            settle_account_delivery(&reopened, id, pending[0].attempts, Ok(()))
+                .await
+                .unwrap()
+        );
+        assert!(reopened.pending(1).await.unwrap().is_empty());
+        drop(reopened);
+        assert!(
+            garth::FileStore::open(path)
+                .unwrap()
+                .pending(1)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
