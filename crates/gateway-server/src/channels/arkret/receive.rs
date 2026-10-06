@@ -605,7 +605,7 @@ async fn recover_pending_content(
                     if recovery.complete() {
                         break;
                     }
-                    let request = arkret::StreamScanRequest {
+                    let mut request = arkret::StreamScanRequest {
                         realm_id: stream_ref.realm_id().clone(),
                         stream_ref: stream_ref.clone(),
                         direction: arkret::StreamScanDirection::After(Some(recovery.after)),
@@ -624,6 +624,14 @@ async fn recover_pending_content(
                         .replica
                         .install_bound_snapshot(&snapshot_response)?;
                     let snapshot = snapshot_response.into_value()?;
+                    request.limit = own_station_scan_limit(
+                        &stream_ref,
+                        &snapshot.visible_stream_heads,
+                        recovery.after,
+                    )?;
+                    if request.limit == 0 {
+                        break;
+                    }
                     let response = read_budget
                         .run(
                             &scope_service(&scope),
@@ -724,6 +732,27 @@ fn account_mls_endpoint(
                 .context("Agent scan runtime authorization is unavailable")?,
         )?,
     })
+}
+
+/// Cap a forward scan at its installed current cut despite concurrent appends.
+fn own_station_scan_limit(
+    stream: &arkret::CommitStreamRef,
+    heads: &[arkret::CommitStreamHead],
+    after: u64,
+) -> anyhow::Result<u16> {
+    let mut matching = heads.iter().filter(|head| &head.stream_ref == stream);
+    let head = matching
+        .next()
+        .context("Agent scan scope has no authorized own-Station head")?;
+    anyhow::ensure!(
+        matching.next().is_none(),
+        "Agent scan scope has duplicate own-Station heads"
+    );
+    let remaining = head
+        .stream_position
+        .checked_sub(after)
+        .context("Agent scan current cut is behind its durable checkpoint")?;
+    Ok(remaining.min(200) as u16)
 }
 
 /// The authenticated own Station verifies governance history. Consumers still
@@ -1144,6 +1173,38 @@ mod installed_scope_tests {
     }
 
     #[test]
+    fn forward_scans_stay_inside_the_snapshot_cut_during_concurrent_writes() {
+        let realm = arkret::RealmId::from_event_id(&arkret::EventId::from_digest(
+            arkret::DigestSuite::Sha256,
+            [1; 32],
+        ));
+        let stream = arkret::CommitStreamRef::Realm { realm_id: realm };
+        let head = arkret::CommitStreamHead {
+            stream_ref: stream.clone(),
+            stream_position: 28,
+            commit_id: arkret::RealmCommitId::from_digest([2; 32]),
+        };
+        // Later appends cannot enter a request ending at the captured cap.
+        assert_eq!(
+            own_station_scan_limit(&stream, &[head.clone()], 27).unwrap(),
+            1
+        );
+        assert_eq!(
+            own_station_scan_limit(&stream, &[head.clone()], 28).unwrap(),
+            0
+        );
+        assert!(own_station_scan_limit(&stream, &[head.clone()], 29).is_err());
+        assert!(own_station_scan_limit(&stream, &[], 27).is_err());
+        assert!(own_station_scan_limit(&stream, &[head.clone(), head.clone()], 27).is_err());
+        let mut distant = head;
+        distant.stream_position = 1000;
+        assert_eq!(
+            own_station_scan_limit(&stream, &[distant], 27).unwrap(),
+            200
+        );
+    }
+
+    #[test]
     fn recovery_and_live_scans_reject_wrong_stream_generation_and_forked_cuts() {
         let event = arkret::EventId::from_digest(arkret::DigestSuite::Sha256, [1; 32]);
         let realm = arkret::RealmId::from_event_id(&event);
@@ -1397,13 +1458,21 @@ async fn scan_installed_scopes(
                     .as_ref()
                     .context("installed Agent scope has no durable accepted Welcome checkpoint")?
                     .baseline_through;
+                let limit = own_station_scan_limit(
+                    &stream_ref,
+                    &snapshot.visible_stream_heads,
+                    previous.head.stream_position,
+                )?;
+                if limit == 0 {
+                    return Ok(());
+                }
                 let request = arkret::StreamScanRequest {
                     realm_id: realm_id.clone(),
                     stream_ref: stream_ref.clone(),
                     direction: arkret::StreamScanDirection::After(
                         checkpoint.as_ref().map(|c| c.head.stream_position),
                     ),
-                    limit: 200,
+                    limit,
                 };
                 let response = read_budget
                     .run(
