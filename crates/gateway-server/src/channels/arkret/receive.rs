@@ -641,12 +641,25 @@ async fn recover_pending_content(
                             async { Ok(own.scan_commit_stream(&request).await?) },
                         )
                         .await?;
+                    // Refresh the covering current cut after the bounded page read,
+                    // under the same own-Station session as the retained head.
+                    let after_response = read_budget
+                        .run(
+                            &scope_service(&scope),
+                            ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
+                            retrying,
+                            tokio::time::Instant::now(),
+                            async { Ok(own.snapshot_head(&request.realm_id).await?) },
+                        )
+                        .await?;
+                    recovery.replica.install_bound_snapshot(&after_response)?;
+                    let after = after_response.into_value()?;
                     let admitted = recovery.replica.apply_bound_scan(own, response).await?;
                     for item in admitted.rows()? {
                         require_own_station_scan_cut(
                             item,
-                            &snapshot.visible_stream_heads,
-                            snapshot.governance_generation,
+                            &after.visible_stream_heads,
+                            after.governance_generation,
                         )?;
                     }
                     let page_len = admitted.rows()?.len();
@@ -1484,21 +1497,25 @@ async fn scan_installed_scopes(
                     )
                     .await?;
                 let page = response.value()?.clone();
+                // Freeze a current cut after the page read, under the same
+                // own-Station session binding as the page and durable head.
+                let after_response = read_budget
+                    .run(
+                        &scope_service(&scope),
+                        ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
+                        retrying,
+                        tokio::time::Instant::now(),
+                        async { Ok(own.snapshot_head(&realm_id).await?) },
+                    )
+                    .await?;
+                replica.install_bound_snapshot(&after_response)?;
+                let after = after_response.into_value()?;
                 let admitted = replica.apply_bound_scan(own, response).await?;
                 admitted.rows()?;
                 if page.committed_events.is_empty() {
                     return Ok(());
                 }
                 page.validate_for_request(&request)?;
-                let (after, _) = read_budget
-                    .run(
-                        &scope_service(&scope),
-                        ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
-                        retrying,
-                        tokio::time::Instant::now(),
-                        governance::verified_scope_snapshot(client, &realm_id),
-                    )
-                    .await?;
                 if let Some(previous) = &checkpoint {
                     anyhow::ensure!(
                         previous.head.stream_ref == stream_ref
