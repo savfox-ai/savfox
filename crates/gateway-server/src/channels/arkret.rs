@@ -228,6 +228,43 @@ fn update_listener_diagnostic(
     }
 }
 
+/// Emit only bounded, non-identifying observations from the existing listener state.
+fn observe_inbound_boundary(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    stage: &'static str,
+) {
+    let counters = runtime_state().lock().ok().and_then(|state| {
+        state
+            .diagnostics
+            .get(&task_key(&channel.id, &account.id))
+            .map(|diagnostic| {
+                (
+                    diagnostic.received_events,
+                    diagnostic.dispatched_events,
+                    diagnostic.baselined_events,
+                    diagnostic.skipped_events,
+                )
+            })
+    });
+    if let Some((received, dispatched, baselined, skipped)) = counters {
+        info!(
+            stage,
+            received_events = received,
+            dispatched_events = dispatched,
+            baselined_events = baselined,
+            skipped_events = skipped,
+            "arkret: safe inbound boundary"
+        );
+    } else {
+        info!(
+            stage,
+            listener_present = false,
+            "arkret: safe inbound boundary"
+        );
+    }
+}
+
 fn record_listener_failure(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
@@ -1538,6 +1575,7 @@ async fn handle_account_client_event(
                     event.chat_type = Some("dm".to_owned());
                 }
             }
+            observe_inbound_boundary(channel, account, "verified_receive");
             handle_parsed_account_events(
                 provider,
                 client,
@@ -3100,6 +3138,7 @@ async fn dispatch_to_agent(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> anyhow::Result<()> {
+    observe_inbound_boundary(channel, account, "dispatch_interaction_entered");
     match agent_interaction_trigger_allowed(
         provider,
         crypto_store,
@@ -3111,9 +3150,13 @@ async fn dispatch_to_agent(
     )
     .await
     {
-        Ok(true) => {}
-        Ok(false) => return Ok(()),
+        Ok(true) => observe_inbound_boundary(channel, account, "dispatch_interaction_allowed"),
+        Ok(false) => {
+            observe_inbound_boundary(channel, account, "dispatch_interaction_suppressed");
+            return Ok(());
+        }
         Err(error) => {
+            observe_inbound_boundary(channel, account, "dispatch_interaction_unavailable");
             warn!(account_id = %account.id, "arkret: current interaction gate unavailable; request remains pending: {error:#}");
             return Err(error);
         }
@@ -3217,6 +3260,7 @@ async fn dispatch_authorized_agent_event(
         "arkret: dispatching inbound event to resolved Savfox agent"
     );
 
+    observe_inbound_boundary(channel, account, "dispatch_entered");
     let accepted = runtime::spawn_start_thread_pipeline_with_meta_coordinated(
         gateway_channel,
         session_store,
@@ -3227,6 +3271,15 @@ async fn dispatch_authorized_agent_event(
         Some(start_meta),
     )
     .await;
+    observe_inbound_boundary(
+        channel,
+        account,
+        if accepted {
+            "dispatch_accepted"
+        } else {
+            "dispatch_not_accepted"
+        },
+    );
     anyhow::ensure!(
         accepted,
         "Arkret inbound task was not accepted by the coordinator"
@@ -3335,6 +3388,7 @@ async fn try_handle_encrypted_account_skip(
     }
     // Ordinary MLS decrypt consumes the sender secret. Read transient current
     // authority first so a failed mode read leaves ciphertext retryable.
+    observe_inbound_boundary(channel, account, "decrypt_interaction_entered");
     let ordinary_interaction_allowed =
         if inbound_mode == AccountInboundMode::Trigger && !native_sidecar {
             let Some(realm_id) = skipped.realm_id.as_deref() else {
@@ -3353,6 +3407,15 @@ async fn try_handle_encrypted_account_skip(
         } else {
             true
         };
+    observe_inbound_boundary(
+        channel,
+        account,
+        if ordinary_interaction_allowed {
+            "decrypt_interaction_allowed"
+        } else {
+            "decrypt_interaction_suppressed"
+        },
+    );
     match crypto_store.plan_bootstrap_for_payload(
         &account.principal_id,
         &account.device_id,
@@ -3372,6 +3435,7 @@ async fn try_handle_encrypted_account_skip(
         ),
     }
 
+    observe_inbound_boundary(channel, account, "mls_decrypt_entered");
     let decrypted = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
         Some(reference) => {
             crypto_store.try_decrypt_accepted_content_block_detailed(reference, payload)
@@ -3383,6 +3447,7 @@ async fn try_handle_encrypted_account_skip(
             content,
             consume_bindings,
         }) => {
+            observe_inbound_boundary(channel, account, "mls_decrypted");
             consume_account_mls_key_packages(
                 client,
                 channel,
@@ -3392,6 +3457,7 @@ async fn try_handle_encrypted_account_skip(
             )
             .await;
             if inbound_mode == AccountInboundMode::Baseline || !ordinary_interaction_allowed {
+                observe_inbound_boundary(channel, account, "decrypted_non_triggering");
                 debug!(
                     channel_id = %channel.id,
                     account_id = %account.id,

@@ -192,8 +192,8 @@ pub struct TerminalAgentConfig {
 ///
 /// Execution modes include:
 ///
-/// * **Codex app-server** — the gateway drives `codex app-server` over stdio
-///   JSON-RPC and resumes a durable Codex thread for subsequent turns.
+/// * **Codex app-server** — the gateway drives `codex app-server` over stdio JSON-RPC and resumes a
+///   durable Codex thread for subsequent turns.
 /// * **One-shot delegate** — the gateway spawns `command` with `args`, pipes the prompt to stdin,
 ///   captures stdout/stderr, and returns the captured output as the agent's reply. Use `enabled =
 ///   true` plus the `command` / `args` / `stdin` / `cwd` / `env` / `timeout_secs` fields.

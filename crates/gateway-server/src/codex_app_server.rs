@@ -377,8 +377,9 @@ pub(crate) async fn run(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tokio::io::{DuplexStream, ReadHalf, WriteHalf};
+
+    use super::*;
 
     fn client(
         stream: DuplexStream,
