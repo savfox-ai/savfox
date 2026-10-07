@@ -130,13 +130,6 @@ pub async fn run_main(
 ) -> IoResult<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // Initialise the global rate limiter from the operator's config
-    // *before* any handler or background task touches it. The OnceLock
-    // is idempotent so this is safe even if a request races us — and
-    // crucially the maintenance task in this fn does not have access to
-    // the depot, so it relies on the limiter already being initialised.
-    server::init_global_rate_limiter(&gateway_config);
-
     // Install tracing subscriber with a reloadable filter so the log level
     // can be changed at runtime via the `log.set_level` RPC.
     let env_filter = env_filter_from_default("info");
@@ -181,6 +174,10 @@ pub async fn run_main(
         }
     };
 
+    let gateway_config =
+        gateway_config.with_runtime_settings(&config.config_layer_stack.effective_config())?;
+    // Install effective operator limits before handlers or background tasks use them.
+    server::init_global_rate_limiter(&gateway_config);
     let config = Arc::new(config);
     let feedback = SavfoxFeedback::new();
 
