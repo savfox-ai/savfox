@@ -234,6 +234,7 @@ impl ScopeMaintenanceRetries {
             return Ok(None);
         }
         match work.await {
+            Err(error) if error.is::<ScopeVisibilityPending>() => Ok(None),
             Ok(()) => {
                 self.failures.remove(&scope);
                 Ok(None)
@@ -255,6 +256,17 @@ impl ScopeMaintenanceRetries {
         }
     }
 }
+
+#[derive(Debug)]
+struct ScopeVisibilityPending;
+
+impl std::fmt::Display for ScopeVisibilityPending {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("installed Agent stream is absent from the authorized current cut")
+    }
+}
+
+impl std::error::Error for ScopeVisibilityPending {}
 
 #[derive(Debug)]
 struct ScopeReadDeferred(tokio::time::Instant);
@@ -865,6 +877,45 @@ mod installed_scope_tests {
     use super::*;
 
     #[tokio::test]
+    async fn hidden_current_does_not_create_or_reset_failed_scope_retries() {
+        let (scope, _) = maintenance_test_scopes();
+        let mut retries = ScopeMaintenanceRetries::default();
+        let now = tokio::time::Instant::now();
+        assert!(
+            retries
+                .run(scope.clone(), now, async {
+                    Err(ScopeVisibilityPending.into())
+                })
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(retries.failures.is_empty());
+        retries
+            .run(scope.clone(), now, async {
+                anyhow::bail!("actual read failed")
+            })
+            .await
+            .unwrap();
+        let due = retries.failures[&scope].1;
+        assert!(
+            retries
+                .run(scope.clone(), due, async {
+                    Err(ScopeVisibilityPending.into())
+                })
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(retries.failures[&scope].1, due);
+        retries
+            .run(scope.clone(), due, async { Ok(()) })
+            .await
+            .unwrap();
+        assert!(retries.failures.is_empty());
+    }
+
+    #[tokio::test]
     async fn endpoint_retry_budget_is_shared_by_scopes_and_preserves_fresh_private_reads() {
         let mut budget = ScopeReadBudget::default();
         let now = tokio::time::Instant::now();
@@ -1391,6 +1442,45 @@ mod installed_scope_tests {
     }
 }
 
+async fn restore_visible_checkpoint<Q>(
+    own: &arkret::http_client::own_station_results::OwnStationResultClient,
+    replica: &mut garth::own_station_results::OwnStationReplica,
+    previous: &arkret::CommitStreamHead,
+    snapshot: &arkret::http_client::own_station_results::BoundOwnStationResponse<
+        Q,
+        arkret::RealmStateSnapshot,
+    >,
+    service: &Option<arkret::DidCoreId>,
+    retrying: bool,
+    read_budget: &mut ScopeReadBudget,
+) -> anyhow::Result<u16> {
+    replica.install_bound_snapshot(snapshot)?;
+    let heads = &snapshot.value()?.visible_stream_heads;
+    if !heads
+        .iter()
+        .any(|head| head.stream_ref == previous.stream_ref)
+    {
+        // A valid current cut may temporarily hide an installed stream during
+        // roster convergence. Retain its durable head, without issuing a read
+        // that the current cut does not authorize or clearing failed retries.
+        return Err(ScopeVisibilityPending.into());
+    }
+    let limit = own_station_scan_limit(&previous.stream_ref, heads, previous.stream_position)?;
+    read_budget
+        .run(
+            service,
+            ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+            retrying,
+            tokio::time::Instant::now(),
+            async { Ok(replica.restore_checkpoint_head(own, previous).await?) },
+        )
+        .await?;
+    // Recheck the same current cut against the now re-admitted exact original;
+    // a snapshot at the checkpoint position must not substitute another head.
+    replica.install_bound_snapshot(snapshot)?;
+    Ok(limit)
+}
+
 async fn scan_installed_scopes(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
@@ -1436,15 +1526,6 @@ async fn scan_installed_scopes(
                 let previous = checkpoint
                     .as_ref()
                     .context("installed Agent scope has no durable checkpoint")?;
-                read_budget
-                    .run(
-                        &scope_service(&scope),
-                        ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
-                        retrying,
-                        tokio::time::Instant::now(),
-                        async { Ok(replica.restore_checkpoint_head(own, &previous.head).await?) },
-                    )
-                    .await?;
                 let snapshot_response = read_budget
                     .run(
                         &scope_service(&scope),
@@ -1454,7 +1535,16 @@ async fn scan_installed_scopes(
                         async { Ok(own.snapshot_head(&realm_id).await?) },
                     )
                     .await?;
-                replica.install_bound_snapshot(&snapshot_response)?;
+                let limit = restore_visible_checkpoint(
+                    own,
+                    &mut replica,
+                    &previous.head,
+                    &snapshot_response,
+                    &scope_service(&scope),
+                    retrying,
+                    read_budget,
+                )
+                .await?;
                 let snapshot = snapshot_response.into_value()?;
                 own.check_session()?;
                 crypto_store
@@ -1471,11 +1561,6 @@ async fn scan_installed_scopes(
                     .as_ref()
                     .context("installed Agent scope has no durable accepted Welcome checkpoint")?
                     .baseline_through;
-                let limit = own_station_scan_limit(
-                    &stream_ref,
-                    &snapshot.visible_stream_heads,
-                    previous.head.stream_position,
-                )?;
                 if limit == 0 {
                     return Ok(());
                 }
@@ -1812,6 +1897,190 @@ mod recovery_tests {
             source,
             server,
         )
+    }
+
+    fn scan_snapshot(realm: &arkret::RealmId, mut heads: Vec<arkret::CommitStreamHead>) -> Value {
+        heads.sort_by(|left, right| left.stream_ref.cmp(&right.stream_ref));
+        let at = "2026-10-05T00:00:01.000Z".parse().unwrap();
+        let signature = arkret::signatures::detached_object::sign_detached_object(
+            &json!({}),
+            arkret::DetachedSignatureContext::RealmSnapshot,
+            arkret::DidUrl::new("did:web:station.example#key-1").unwrap(),
+            at,
+            &ed25519_dalek::SigningKey::from_bytes(&[83; 32]),
+        )
+        .unwrap();
+        let mut snapshot = arkret::RealmStateSnapshot {
+            snapshot_id: arkret::RealmSnapshotId::from_digest([1; 32]),
+            realm_id: realm.clone(),
+            governance_generation: 0,
+            retention_and_history_floor: arkret::RetentionAndHistoryFloor {
+                history_access: arkret::HistoryAccess::SinceJoin,
+                stream_floors: heads
+                    .iter()
+                    .map(|head| arkret::StreamHistoryFloor {
+                        stream_ref: head.stream_ref.clone(),
+                        oldest_position: 0,
+                    })
+                    .collect(),
+            },
+            visible_stream_heads: heads,
+            current_state_entries: vec![],
+            created_at: at,
+            signature,
+        };
+        let body =
+            arkret::canonical::canonical::unsigned_value(&snapshot, &["snapshot_id", "signature"])
+                .unwrap();
+        snapshot.snapshot_id =
+            arkret::RealmSnapshotId::from_digest(arkret::canonical::sha256_bytes(
+                &arkret::canonical::canonical_json_bytes(&body).unwrap(),
+            ));
+        snapshot.signature = arkret::signatures::detached_object::sign_detached_object(
+            &arkret::canonical::canonical::unsigned_value(&snapshot, &["signature"]).unwrap(),
+            arkret::DetachedSignatureContext::RealmSnapshot,
+            arkret::DidUrl::new("did:web:station.example#key-1").unwrap(),
+            at,
+            &ed25519_dalek::SigningKey::from_bytes(&[83; 32]),
+        )
+        .unwrap();
+        serde_json::to_value(snapshot).unwrap()
+    }
+
+    #[tokio::test]
+    async fn hidden_installed_stream_waits_for_current_before_exact_checkpoint_read() {
+        let (event, _) = target();
+        let realm_commit = fixture_commit(&event, 0, None);
+        let realm_head = arkret::CommitStreamHead {
+            stream_ref: realm_commit.stream_ref.clone(),
+            stream_position: 0,
+            commit_id: realm_commit.commit_id.clone(),
+        };
+        let mut private = realm_commit.clone();
+        private.stream_ref = arkret::CommitStreamRef::Sidecar {
+            realm_id: event.realm_id.clone(),
+            sidecar_id: arkret::SidecarId::from_event_id(&event.event_id),
+        };
+        seal_fixture_commit(&mut private);
+        let previous = arkret::CommitStreamHead {
+            stream_ref: private.stream_ref.clone(),
+            stream_position: 0,
+            commit_id: private.commit_id.clone(),
+        };
+        // The second response is a snapshot, not a scan: any premature
+        // checkpoint request consumes the wrong typed response and fails.
+        let (own, _, server) = http(vec![
+            scan_snapshot(&event.realm_id, vec![realm_head.clone()]),
+            scan_snapshot(&event.realm_id, vec![realm_head, previous.clone()]),
+            json!({"committed_events":[{"commit":private,"event_disclosure":{"status":"withheld"}}],"readable_floor":{"oldest_position":0,"floor_commit_id":private.commit_id,"floor_reason":"stream_start"},"truncated":false}),
+        ]);
+        let mut budget = ScopeReadBudget::default();
+        let mut replica =
+            garth::own_station_results::OwnStationReplica::new(event.realm_id.clone());
+        let hidden = own.snapshot_head(&event.realm_id).await.unwrap();
+        let error = restore_visible_checkpoint(
+            &own,
+            &mut replica,
+            &previous,
+            &hidden,
+            &None,
+            false,
+            &mut budget,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.is::<ScopeVisibilityPending>());
+        assert!(replica.head(&previous.stream_ref).is_none());
+        assert!(budget.attempts.is_empty());
+        let visible = own.snapshot_head(&event.realm_id).await.unwrap();
+        assert_eq!(
+            restore_visible_checkpoint(
+                &own,
+                &mut replica,
+                &previous,
+                &visible,
+                &None,
+                false,
+                &mut budget,
+            )
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(replica.head(&previous.stream_ref), Some(&previous));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn visible_checkpoint_rejects_snapshot_fork_after_exact_read() {
+        let (event, _) = target();
+        let commit = fixture_commit(&event, 0, None);
+        let previous = arkret::CommitStreamHead {
+            stream_ref: commit.stream_ref.clone(),
+            stream_position: 0,
+            commit_id: commit.commit_id.clone(),
+        };
+        let mut fork = previous.clone();
+        fork.commit_id = arkret::RealmCommitId::from_digest([17; 32]);
+        let (own, _, server) = http(vec![
+            scan_snapshot(&event.realm_id, vec![fork]),
+            json!({"committed_events":[{"commit":commit,"event_disclosure":{"status":"withheld"}}],"readable_floor":{"oldest_position":0,"floor_commit_id":commit.commit_id,"floor_reason":"stream_start"},"truncated":false}),
+        ]);
+        let snapshot = own.snapshot_head(&event.realm_id).await.unwrap();
+        let mut replica = garth::own_station_results::OwnStationReplica::new(event.realm_id);
+        let error = restore_visible_checkpoint(
+            &own,
+            &mut replica,
+            &previous,
+            &snapshot,
+            &None,
+            false,
+            &mut ScopeReadBudget::default(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("fork"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn visible_checkpoint_rejects_late_session_before_read() {
+        let (event, _) = target();
+        let commit = fixture_commit(&event, 0, None);
+        let previous = arkret::CommitStreamHead {
+            stream_ref: commit.stream_ref.clone(),
+            stream_position: 0,
+            commit_id: commit.commit_id,
+        };
+        let (own, source, server) =
+            http(vec![scan_snapshot(&event.realm_id, vec![previous.clone()])]);
+        let snapshot = own.snapshot_head(&event.realm_id).await.unwrap();
+        let old = source.snapshot().unwrap();
+        *source.0.lock().unwrap() = OwnStationSessionSnapshot::new(
+            old.binding().clone(),
+            old.account_id().clone(),
+            old.account_id().station_id.clone(),
+            old.grant_id().clone(),
+            old.epoch(),
+            "test-grant".into(),
+        )
+        .unwrap()
+        .with_provider_identity(Default::default());
+        let mut replica = garth::own_station_results::OwnStationReplica::new(event.realm_id);
+        let error = restore_visible_checkpoint(
+            &own,
+            &mut replica,
+            &previous,
+            &snapshot,
+            &None,
+            false,
+            &mut ScopeReadBudget::default(),
+        )
+        .await
+        .unwrap_err();
+        assert!(!error.is::<ScopeVisibilityPending>());
+        assert!(replica.head(&previous.stream_ref).is_none());
+        server.join().unwrap();
     }
 
     fn setup(
