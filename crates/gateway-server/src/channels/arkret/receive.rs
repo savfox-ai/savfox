@@ -300,6 +300,26 @@ fn scope_service(scope: &garth::CursorScope) -> Option<arkret::DidCoreId> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ScopeReadOperation {
+    SnapshotHead(arkret::RealmId),
+    Checkpoint(arkret::CommitStreamRef),
+    ForwardScan(arkret::CommitStreamRef),
+    RecoveryAnchor(arkret::CommitStreamRef),
+    RecoveryScan(arkret::CommitStreamRef),
+}
+
+impl ScopeReadOperation {
+    fn endpoint(&self) -> &'static str {
+        match self {
+            Self::SnapshotHead(_) => {
+                ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1
+            }
+            _ => ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+        }
+    }
+}
+
 #[derive(Default)]
 struct ScopeReadBudget {
     // One drive is bound to a single authenticated Agent Account. Both scan
@@ -308,21 +328,24 @@ struct ScopeReadBudget {
         (Option<arkret::DidCoreId>, &'static str),
         std::collections::VecDeque<tokio::time::Instant>,
     >,
+    failed_reads: std::collections::BTreeSet<(Option<arkret::DidCoreId>, ScopeReadOperation)>,
 }
 
 impl ScopeReadBudget {
     async fn run<T>(
         &mut self,
         service: &Option<arkret::DidCoreId>,
-        endpoint: &'static str,
-        retrying: bool,
+        operation: ScopeReadOperation,
         now: tokio::time::Instant,
         read: impl std::future::Future<Output = anyhow::Result<T>>,
     ) -> anyhow::Result<T> {
-        if retrying {
+        let key = (service.clone(), operation);
+        // A failed stream scan does not turn successful current observations
+        // or other proof reads into retries of that failed request.
+        if self.failed_reads.contains(&key) {
             let attempts = self
                 .attempts
-                .entry((service.clone(), endpoint))
+                .entry((service.clone(), key.1.endpoint()))
                 .or_default();
             while attempts
                 .front()
@@ -338,7 +361,13 @@ impl ScopeReadBudget {
             }
             attempts.push_back(now);
         }
-        read.await
+        let result = read.await;
+        if result.is_ok() {
+            self.failed_reads.remove(&key);
+        } else {
+            self.failed_reads.insert(key);
+        }
+        result
     }
 }
 
@@ -527,7 +556,6 @@ async fn recover_pending_content(
         if !recovery_scope_available(&pending_scopes, &scope) {
             continue;
         }
-        let retrying = retries.failures.contains_key(&scope);
         let error = retries
             .run(scope.clone(), tokio::time::Instant::now(), async {
                 let Some(bytes) = account_store
@@ -573,8 +601,7 @@ async fn recover_pending_content(
                     let anchor = read_budget
                         .run(
                             &scope_service(&scope),
-                            ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
-                            retrying,
+                            ScopeReadOperation::RecoveryAnchor(stream_ref.clone()),
                             tokio::time::Instant::now(),
                             async { Ok(own.scan_commit_stream(&request).await?) },
                         )
@@ -626,8 +653,7 @@ async fn recover_pending_content(
                     let snapshot_response = read_budget
                         .run(
                             &scope_service(&scope),
-                            ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
-                            retrying,
+                            ScopeReadOperation::SnapshotHead(request.realm_id.clone()),
                             tokio::time::Instant::now(),
                             async { Ok(own.snapshot_head(&request.realm_id).await?) },
                         )
@@ -647,8 +673,7 @@ async fn recover_pending_content(
                     let response = read_budget
                         .run(
                             &scope_service(&scope),
-                            ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
-                            retrying,
+                            ScopeReadOperation::RecoveryScan(stream_ref.clone()),
                             tokio::time::Instant::now(),
                             async { Ok(own.scan_commit_stream(&request).await?) },
                         )
@@ -658,8 +683,7 @@ async fn recover_pending_content(
                     let after_response = read_budget
                         .run(
                             &scope_service(&scope),
-                            ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
-                            retrying,
+                            ScopeReadOperation::SnapshotHead(request.realm_id.clone()),
                             tokio::time::Instant::now(),
                             async { Ok(own.snapshot_head(&request.realm_id).await?) },
                         )
@@ -916,41 +940,146 @@ mod installed_scope_tests {
     }
 
     #[tokio::test]
+    async fn hidden_current_observation_does_not_spend_failed_scan_budget() {
+        let mut budget = ScopeReadBudget::default();
+        let now = tokio::time::Instant::now();
+        let service = Some(arkret::DidCoreId::new("ak:did_core:web:station.example").unwrap());
+        let (_, scope) = maintenance_test_scopes();
+        let garth::CursorScope::CommitStream { stream_ref, .. } = scope else {
+            panic!("expected private stream");
+        };
+        let checkpoint = ScopeReadOperation::Checkpoint(stream_ref.clone());
+        assert!(
+            budget
+                .run::<()>(&service, checkpoint.clone(), now, async {
+                    anyhow::bail!("stream temporarily not readable")
+                },)
+                .await
+                .is_err()
+        );
+        for _ in 0..=arkret::SPEC_MAX_RETRIES {
+            let current = budget
+                .run(
+                    &service,
+                    ScopeReadOperation::SnapshotHead(stream_ref.realm_id().clone()),
+                    now,
+                    async { Ok(()) },
+                )
+                .await;
+            assert!(
+                current.is_ok(),
+                "a successful current observation spent a failed scan's retry budget"
+            );
+        }
+        assert!(budget.attempts.is_empty());
+        budget
+            .run(&service, checkpoint, now, async { Ok(()) })
+            .await
+            .unwrap();
+        budget
+            .run(
+                &service,
+                ScopeReadOperation::ForwardScan(stream_ref),
+                now,
+                async { Ok(()) },
+            )
+            .await
+            .unwrap();
+        assert!(budget.failed_reads.is_empty());
+        assert_eq!(
+            budget.attempts[&(
+                service,
+                ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1
+            )]
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
     async fn endpoint_retry_budget_is_shared_by_scopes_and_preserves_fresh_private_reads() {
         let mut budget = ScopeReadBudget::default();
         let now = tokio::time::Instant::now();
         let service = Some(arkret::DidCoreId::new("ak:did_core:web:station.example").unwrap());
         let endpoint = ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1;
         let calls = std::cell::Cell::new(0);
-        for _ in 0..arkret::SPEC_MAX_RETRIES {
-            budget
-                .run(&service, endpoint, true, now, async {
-                    calls.set(calls.get() + 1);
-                    Ok(())
-                })
-                .await
-                .unwrap();
+        let (shared, private) = maintenance_test_scopes();
+        let garth::CursorScope::CommitStream {
+            stream_ref: shared, ..
+        } = shared
+        else {
+            panic!("expected shared stream");
+        };
+        let garth::CursorScope::CommitStream {
+            stream_ref: private,
+            ..
+        } = private
+        else {
+            panic!("expected private stream");
+        };
+        let operations = [
+            ScopeReadOperation::ForwardScan(shared.clone()),
+            ScopeReadOperation::ForwardScan(private),
+        ];
+        for operation in &operations {
+            assert!(
+                budget
+                    .run::<()>(&service, operation.clone(), now, async {
+                        anyhow::bail!("initial read failed")
+                    })
+                    .await
+                    .is_err()
+            );
+        }
+        for index in 0..arkret::SPEC_MAX_RETRIES {
+            assert!(
+                budget
+                    .run::<()>(
+                        &service,
+                        operations[index as usize % 2].clone(),
+                        now,
+                        async {
+                            calls.set(calls.get() + 1);
+                            anyhow::bail!("retry failed")
+                        }
+                    )
+                    .await
+                    .is_err()
+            );
         }
         let error = budget
-            .run::<()>(&service, endpoint, true, now, async {
+            .run::<()>(&service, operations[1].clone(), now, async {
                 panic!("another failed scope bypassed the endpoint retry window")
             })
             .await
             .unwrap_err();
         assert!(error.is::<ScopeReadDeferred>());
         budget
-            .run(&service, endpoint, false, now, async {
-                calls.set(calls.get() + 1);
-                Ok(())
-            })
+            .run(
+                &service,
+                ScopeReadOperation::Checkpoint(shared),
+                now,
+                async {
+                    calls.set(calls.get() + 1);
+                    Ok(())
+                },
+            )
             .await
             .unwrap();
         assert_eq!(calls.get(), arkret::SPEC_MAX_RETRIES + 1);
+        assert_eq!(budget.attempts[&(service.clone(), endpoint)].len(), 5);
+        assert_eq!(budget.failed_reads.len(), 2);
+        let error = budget
+            .run::<()>(&service, operations[0].clone(), now, async {
+                panic!("a successful proof read reset the shared retry window")
+            })
+            .await
+            .unwrap_err();
+        assert!(error.is::<ScopeReadDeferred>());
         budget
             .run(
                 &service,
-                endpoint,
-                true,
+                operations[0].clone(),
                 now + arkret::SPEC_RETRY_WINDOW,
                 async {
                     calls.set(calls.get() + 1);
@@ -960,6 +1089,17 @@ mod installed_scope_tests {
             .await
             .unwrap();
         assert_eq!(calls.get(), arkret::SPEC_MAX_RETRIES + 2);
+        assert_eq!(budget.attempts[&(service.clone(), endpoint)].len(), 1);
+        budget
+            .run(
+                &service,
+                operations[0].clone(),
+                now + arkret::SPEC_RETRY_WINDOW,
+                async { Ok(()) },
+            )
+            .await
+            .unwrap();
+        assert_eq!(budget.attempts[&(service, endpoint)].len(), 1);
     }
 
     #[tokio::test]
@@ -1451,7 +1591,6 @@ async fn restore_visible_checkpoint<Q>(
         arkret::RealmStateSnapshot,
     >,
     service: &Option<arkret::DidCoreId>,
-    retrying: bool,
     read_budget: &mut ScopeReadBudget,
 ) -> anyhow::Result<u16> {
     replica.install_bound_snapshot(snapshot)?;
@@ -1469,8 +1608,7 @@ async fn restore_visible_checkpoint<Q>(
     read_budget
         .run(
             service,
-            ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
-            retrying,
+            ScopeReadOperation::Checkpoint(previous.stream_ref.clone()),
             tokio::time::Instant::now(),
             async { Ok(replica.restore_checkpoint_head(own, previous).await?) },
         )
@@ -1509,7 +1647,6 @@ async fn scan_installed_scopes(
             service_id: service_id.clone(),
             stream_ref: stream_ref.clone(),
         };
-        let retrying = retries.failures.contains_key(&scope);
         let error = retries
             .run(scope.clone(), tokio::time::Instant::now(), async {
                 let realm_id = stream_ref.realm_id().clone();
@@ -1529,8 +1666,7 @@ async fn scan_installed_scopes(
                 let snapshot_response = read_budget
                     .run(
                         &scope_service(&scope),
-                        ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
-                        retrying,
+                        ScopeReadOperation::SnapshotHead(realm_id.clone()),
                         tokio::time::Instant::now(),
                         async { Ok(own.snapshot_head(&realm_id).await?) },
                     )
@@ -1541,7 +1677,6 @@ async fn scan_installed_scopes(
                     &previous.head,
                     &snapshot_response,
                     &scope_service(&scope),
-                    retrying,
                     read_budget,
                 )
                 .await?;
@@ -1575,8 +1710,7 @@ async fn scan_installed_scopes(
                 let response = read_budget
                     .run(
                         &scope_service(&scope),
-                        ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
-                        retrying,
+                        ScopeReadOperation::ForwardScan(stream_ref.clone()),
                         tokio::time::Instant::now(),
                         async { Ok(own.scan_commit_stream(&request).await?) },
                     )
@@ -1587,8 +1721,7 @@ async fn scan_installed_scopes(
                 let after_response = read_budget
                     .run(
                         &scope_service(&scope),
-                        ServiceOperationId::SELF_REALM_STATE_SNAPSHOT_READ_MANIFEST_HEAD_V1,
-                        retrying,
+                        ScopeReadOperation::SnapshotHead(realm_id.clone()),
                         tokio::time::Instant::now(),
                         async { Ok(own.snapshot_head(&realm_id).await?) },
                     )
@@ -1986,17 +2119,10 @@ mod recovery_tests {
         let mut replica =
             garth::own_station_results::OwnStationReplica::new(event.realm_id.clone());
         let hidden = own.snapshot_head(&event.realm_id).await.unwrap();
-        let error = restore_visible_checkpoint(
-            &own,
-            &mut replica,
-            &previous,
-            &hidden,
-            &None,
-            false,
-            &mut budget,
-        )
-        .await
-        .unwrap_err();
+        let error =
+            restore_visible_checkpoint(&own, &mut replica, &previous, &hidden, &None, &mut budget)
+                .await
+                .unwrap_err();
         assert!(error.is::<ScopeVisibilityPending>());
         assert!(replica.head(&previous.stream_ref).is_none());
         assert!(budget.attempts.is_empty());
@@ -2008,7 +2134,6 @@ mod recovery_tests {
                 &previous,
                 &visible,
                 &None,
-                false,
                 &mut budget,
             )
             .await
@@ -2042,7 +2167,6 @@ mod recovery_tests {
             &previous,
             &snapshot,
             &None,
-            false,
             &mut ScopeReadBudget::default(),
         )
         .await
@@ -2081,7 +2205,6 @@ mod recovery_tests {
             &previous,
             &snapshot,
             &None,
-            false,
             &mut ScopeReadBudget::default(),
         )
         .await
