@@ -1899,7 +1899,15 @@ mod recovery_tests {
         )
     }
 
-    fn scan_snapshot(realm: &arkret::RealmId, mut heads: Vec<arkret::CommitStreamHead>) -> Value {
+    fn scan_snapshot(realm: &arkret::RealmId, heads: Vec<arkret::CommitStreamHead>) -> Value {
+        scan_snapshot_at_floor(realm, heads, 0)
+    }
+
+    fn scan_snapshot_at_floor(
+        realm: &arkret::RealmId,
+        mut heads: Vec<arkret::CommitStreamHead>,
+        oldest_position: u64,
+    ) -> Value {
         heads.sort_by(|left, right| left.stream_ref.cmp(&right.stream_ref));
         let at = "2026-10-05T00:00:01.000Z".parse().unwrap();
         let signature = arkret::signatures::detached_object::sign_detached_object(
@@ -1920,7 +1928,7 @@ mod recovery_tests {
                     .iter()
                     .map(|head| arkret::StreamHistoryFloor {
                         stream_ref: head.stream_ref.clone(),
-                        oldest_position: 0,
+                        oldest_position,
                     })
                     .collect(),
             },
@@ -2081,6 +2089,74 @@ mod recovery_tests {
         assert!(!error.is::<ScopeVisibilityPending>());
         assert!(replica.head(&previous.stream_ref).is_none());
         server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn mls_prefix_page_requires_matching_authorized_nonzero_floor() {
+        for snapshot_floor in [1, 2] {
+            let (event, _) = target();
+            let base = fixture_commit(
+                &event,
+                1,
+                Some(arkret::RealmCommitId::from_digest([19; 32])),
+            );
+            let next = fixture_commit(&event, 2, Some(base.commit_id.clone()));
+            let base_head = arkret::CommitStreamHead {
+                stream_ref: base.stream_ref.clone(),
+                stream_position: 1,
+                commit_id: base.commit_id.clone(),
+            };
+            let next_head = arkret::CommitStreamHead {
+                stream_ref: next.stream_ref.clone(),
+                stream_position: 2,
+                commit_id: next.commit_id.clone(),
+            };
+            let floor = json!({"oldest_position":1,"floor_commit_id":base.commit_id,"floor_reason":"membership_join"});
+            let (own, _, server) = http(vec![
+                json!({"committed_events":[{"commit":base,"event_disclosure":{"status":"withheld"}}],"readable_floor":floor,"truncated":false}),
+                json!({"committed_events":[{"commit":next,"event_disclosure":{"status":"withheld"}}],"readable_floor":floor,"truncated":false}),
+                scan_snapshot_at_floor(&event.realm_id, vec![next_head], snapshot_floor),
+            ]);
+            let mut replica =
+                garth::own_station_results::OwnStationReplica::new(event.realm_id.clone());
+            replica
+                .restore_checkpoint_head(&own, &base_head)
+                .await
+                .unwrap();
+            let response = own
+                .scan_commit_stream(&arkret::StreamScanRequest {
+                    realm_id: event.realm_id,
+                    stream_ref: base_head.stream_ref.clone(),
+                    direction: arkret::StreamScanDirection::After(Some(1)),
+                    limit: 1,
+                })
+                .await
+                .unwrap();
+            let missing_basis = replica
+                .apply_bound_scan(&own, response.clone())
+                .await
+                .err()
+                .expect("nonzero floor was admitted without a snapshot basis");
+            assert!(missing_basis.to_string().contains("exact snapshot basis"));
+            let result =
+                super::super::governance::admit_mls_prefix_page(&own, &mut replica, response).await;
+            if snapshot_floor == 1 {
+                assert_eq!(
+                    result.unwrap().rows().unwrap()[0].commit().stream_position,
+                    2
+                );
+            } else {
+                assert!(
+                    result
+                        .err()
+                        .expect("mismatched snapshot floor was admitted")
+                        .to_string()
+                        .contains("different history floors")
+                );
+                assert_eq!(replica.head(&base_head.stream_ref), Some(&base_head));
+            }
+            server.join().unwrap();
+        }
     }
 
     fn setup(

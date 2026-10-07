@@ -142,7 +142,7 @@ pub(super) async fn verified_mls_prefix(
         };
         let response = own.scan_commit_stream(&scan_request).await?;
         let truncated = response.value()?.truncated;
-        let verified = replica.apply_bound_scan(own, response).await?;
+        let verified = admit_mls_prefix_page(own, &mut replica, response).await?;
         anyhow::ensure!(
             !verified.rows()?.is_empty(),
             "historical MLS prefix did not advance"
@@ -185,6 +185,22 @@ pub(super) async fn verified_mls_prefix(
     // Persist any verified MLS progress before the original durable target is
     // retried. The next cycle resumes from that newly installed accepted base.
     Ok((base, commits, last_head))
+}
+
+pub(super) async fn admit_mls_prefix_page(
+    own: &arkret::http_client::own_station_results::OwnStationResultClient,
+    replica: &mut garth::own_station_results::OwnStationReplica,
+    response: arkret::http_client::own_station_results::BoundOwnStationResponse<
+        arkret::StreamScanRequest,
+        arkret::StreamScanOutcome,
+    >,
+) -> anyhow::Result<garth::own_station_results::OwnStationScanPage> {
+    // An installed MLS base is not a history-floor basis. Freeze a covering
+    // authenticated current cut after the candidate page, before admitting
+    // any original or advancing MLS state. Garth binds its floor and heads.
+    let current = own.snapshot_head(&response.request().realm_id).await?;
+    replica.install_bound_snapshot(&current)?;
+    Ok(replica.apply_bound_scan(own, response).await?)
 }
 
 /// Consume the recipient's claim through its authenticated accepted Station.
