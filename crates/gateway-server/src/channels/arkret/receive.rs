@@ -2009,7 +2009,7 @@ mod recovery_tests {
                         request_id: request.request_id,
                         realm_id: request.realm_id,
                         recipient_account_id: request.recipient_account_id,
-                        results: vec![arkret::SignerKeyQueryResult::HistoricalResolved {
+                        results: vec![arkret::SignerKeyQueryOutcome::HistoricalResolved {
                             selector: request.queries[0].clone(),
                             key: serde_json::from_value(key.clone()).unwrap(),
                             accepted_at: serde_json::from_value(body["__accepted_at"].clone())

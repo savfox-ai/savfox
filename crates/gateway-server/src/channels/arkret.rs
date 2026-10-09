@@ -952,7 +952,7 @@ fn presence_observation_matches_runtime(
 }
 
 fn public_presence_mode_matches_account(
-    entry: &arkret::AgentInteractionExactCurrentResult,
+    entry: &arkret::AgentInteractionExactCurrentRow,
     account: &ArkretAccountConfig,
 ) -> bool {
     entry.selector.agent_account_id == account.actor_account_id
@@ -961,7 +961,7 @@ fn public_presence_mode_matches_account(
 }
 
 fn owner_direct_presence_binding(
-    entries: &[arkret::TypedCurrentResult],
+    entries: &[arkret::TypedCurrentRow],
     realm_id: &RealmId,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<bool> {
@@ -972,7 +972,7 @@ fn owner_direct_presence_binding(
     let controller = arkret::ActorId::account(account.controller_account_id.clone());
     let mut matched = false;
     for entry in entries {
-        let arkret::TypedCurrentResult::Value {
+        let arkret::TypedCurrentRow::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding { pair_key },
             source_stream_ref,
             value,
@@ -4765,7 +4765,7 @@ mod tests {
         let head = presence_head_fixture();
         let selector =
             arkret::AgentInteractionExactCurrentSelector::new(account.actor_account_id.clone());
-        let mut entry = arkret::AgentInteractionExactCurrentResult {
+        let mut entry = arkret::AgentInteractionExactCurrentRow {
             selector: selector.clone(),
             source_stream_ref: head.stream_ref.clone(),
             revision: arkret::CurrentRevision {
@@ -4855,7 +4855,7 @@ mod tests {
                 value: payload,
             }],
         };
-        let row = |value| arkret::TypedCurrentResult::Value {
+        let row = |value| arkret::TypedCurrentRow::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding {
                 pair_key: pair_key.clone(),
             },

@@ -17,7 +17,7 @@ use arkret::{
     EventContentPreEncryptionHeader, EventContentRoutingContext, EventId, MessageMetadata,
     MlsCommitPayload, MlsEncryptedPayload, MlsEndpointIdentity, MlsKeyPackageRecord,
     MlsKeyPackageState, MlsPayloadType, MlsWelcomeDelivery, PresencePlaintext, PresenceState,
-    RealmId, ScopeRef, SignalSequenceDomain, SignalSequenceEndpoint, TypedCurrentResult,
+    RealmId, ScopeRef, SignalSequenceDomain, SignalSequenceEndpoint, TypedCurrentRow,
     seal_signal_plaintext,
 };
 use arkret_models_crypto::MlsGroupStateRecord as CurrentMlsGroupStateRecord;
@@ -1362,7 +1362,7 @@ impl FileArkretCryptoStore {
     /// epoch; a newer current result is never substituted for that base.
     pub fn record_station_mls_currents(
         &self,
-        current: &arkret::AccountCurrentResult,
+        current: &arkret::AccountCurrentView,
     ) -> anyhow::Result<usize> {
         current.validate()?;
         self.record_verified_mls_current_entries(&current.realm_id, &current.entries)
@@ -1372,12 +1372,12 @@ impl FileArkretCryptoStore {
     pub fn record_verified_mls_current_entries(
         &self,
         realm_id: &RealmId,
-        entries: &[TypedCurrentResult],
+        entries: &[TypedCurrentRow],
     ) -> anyhow::Result<usize> {
         let mut accepted = Vec::new();
         let mut direct = false;
         for entry in entries {
-            if let TypedCurrentResult::Value {
+            if let TypedCurrentRow::Value {
                 selector: arkret::CurrentSelector::RealmGenesis,
                 source_stream_ref,
                 value,
@@ -1395,7 +1395,7 @@ impl FileArkretCryptoStore {
                 genesis.validate()?;
                 direct = genesis.purpose == arkret::RealmPurpose::DirectConversation;
             }
-            let TypedCurrentResult::Value {
+            let TypedCurrentRow::Value {
                 selector: arkret::CurrentSelector::MlsGroup { scope_ref },
                 source_stream_ref,
                 value,
@@ -2061,11 +2061,11 @@ impl FileArkretCryptoStore {
         &self,
         realm_id: &RealmId,
         actor: &ActorId,
-        entries: &[TypedCurrentResult],
+        entries: &[TypedCurrentRow],
     ) -> anyhow::Result<usize> {
         let mut payloads = Vec::new();
         for entry in entries {
-            let TypedCurrentResult::Value {
+            let TypedCurrentRow::Value {
                 selector: arkret::CurrentSelector::DirectConversationBinding { pair_key },
                 source_stream_ref,
                 value,
@@ -3138,7 +3138,7 @@ mod tests {
         assert!(error.is::<serde_json::Error>());
         std::fs::remove_file(store.path()).unwrap();
         store.ensure_created().unwrap();
-        let entry = TypedCurrentResult::Value {
+        let entry = TypedCurrentRow::Value {
             selector: arkret::CurrentSelector::RealmGenesis,
             source_stream_ref: arkret::CommitStreamRef::Realm {
                 realm_id: FIXTURE_REALM_B.clone(),
@@ -3283,7 +3283,7 @@ mod tests {
                 value: payload.clone(),
             }],
         };
-        let entry = TypedCurrentResult::Value {
+        let entry = TypedCurrentRow::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding {
                 pair_key: payload.pair_key.clone(),
             },
@@ -3341,7 +3341,7 @@ mod tests {
                 .is_err()
         );
         let mut wrong_pair = entry;
-        let TypedCurrentResult::Value { selector, .. } = &mut wrong_pair;
+        let TypedCurrentRow::Value { selector, .. } = &mut wrong_pair;
         *selector = arkret::CurrentSelector::DirectConversationBinding {
             pair_key: Hash::new(format!("sha256:{}", "cc".repeat(32))).unwrap(),
         };
@@ -5514,7 +5514,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let mut entry = TypedCurrentResult::Value {
+        let mut entry = TypedCurrentRow::Value {
             selector: arkret::CurrentSelector::RealmGenesis,
             source_stream_ref: arkret::CommitStreamRef::Realm {
                 realm_id: FIXTURE_REALM_B.clone(),
@@ -5535,7 +5535,7 @@ mod tests {
                 .realm_is_direct_conversation(FIXTURE_REALM.as_str())
                 .unwrap()
         );
-        let TypedCurrentResult::Value {
+        let TypedCurrentRow::Value {
             source_stream_ref, ..
         } = &mut entry;
         *source_stream_ref = arkret::CommitStreamRef::Realm {
