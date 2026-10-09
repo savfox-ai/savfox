@@ -140,14 +140,16 @@ revision 与 head。snapshot 缺项不能证明 never-written 默认值。
 保护的数据。保留身份、聊天历史、wrapped crypto 与恢复材料，不通过清库、重置 epoch 或重新
 Genesis 消除 pending。仅在 controller 明确授权解绑且远端确认后执行原解绑清理。
 
-### Applet 出站身份
+### Applet 管理与执行身份
 
-Applet 模式必须配置由已接受 provision 结果保留的完整 `bot_account_id`，其值为
-Arkret `AccountId` 对象，包含 `principal_id` 和 `station_id`。旧字符串配置
-`botActorId` / `bot_actor_id` 不再接受；服务 DID 或目标服务器地址不能补出账户 Station。
+安装只接纳 Service，必须提供被 registration epoch 绑定的 HTTPS `baseUrl`，用于发现、主体 authoring 与签名 completion。该地址不能订阅群 Event／Signal。管理 transaction 接收方逐次验证 Station RFC9421 签名，不再要求 Applet bearer session；出站管理请求使用 SDK Service HTTP 签名，原生 Event producer proof 仍独立。
 
-同时明确配置可解析的 `service_did`、与其对应的 `serviceId`、`trust_domain` 和服务
-`verification_method`；`keyRef` 必须对应该服务签名密钥。出站运行时还需要已有的
-`namespaces` 以及 `managed_actor_authoring`，后者包含 `principal_endpoint` 与
-`key_encryption_key_hex`，应使用实际安装的身份托管配置。消息 `actor_id` 保留完整
-Bot Account，`executed_by` 为 Applet 服务。普通发送使用本地保留的授权上下文。
+安装不创建默认 Bot。需要以 Bot 执行时，单个 runtime 配置独立接受的完整 `bot_account_id`（`principal_id`／`station_id`）；同一 Service 可管理多个独立执行 Account，各配置选择一个 exact Account。未配置 Bot 时只提供 Service 管理。旧 `botActorId` 字符串与从 Service 拼接 Ghost DID 的机制已撤回；尚未接线的 Ghost 查询不能广告虚假身份。
+
+配置可解析的 `service_did`、对应 `serviceId`、`trust_domain`、`verification_method` 与真实私钥 `keyRef`。身份托管继续使用 `managed_actor_authoring` 的 `principal_endpoint`／`key_encryption_key_hex`。创建是 provenance，不授业务权限；群业务必须具有当前 Service parent／terminal child、独立 membership 与 accepted Device。 Bot／Ghost subject 的子授权必须由实际 Bot／Ghost 消费；Service proof 不能通过 `executed_by` 代替该 Account。
+
+Applet 模式的首 Device 私态与 possession、原生 queue／Welcome／ACK／MLS／Blob reader、native resolution rotation installer 和持续 scope refresh 尚未接线。旧管理 transaction 群 dispatch 已关闭；Account 模式 Agent 原生 MLS 路径保持独立，本轮不能证明 Applet 群业务 runtime 已打通。
+
+Savfox Applet 模式尚未接入 fresh managed identity authoring 私钥托管执行器；正式 author 地址明确返回 unavailable。completion 要求本地冻结的精确创建材料，不能接收外来 bundle 代替主体创建。Bridges 已提供生产 authoring 实现。
+
+个人 Agent 回复始终使用其接纳的 Account 与原生 delivery binding；Applet namespace 声明不会把回复转给另一个 Bot 发送。

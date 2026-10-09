@@ -188,17 +188,38 @@ wrapped crypto, and recovery material. Clearing storage, resetting epochs, or
 repeating Genesis cannot repair pending state. Use unbind cleanup only after the
 controller explicitly authorizes unbinding and the remote operation is confirmed.
 
-### Applet outbound identity
+### Applet management and execution identity
 
-Applet mode requires `bot_account_id` as the complete Arkret `AccountId` object
-(`principal_id` and `station_id`) retained from accepted provisioning. The retired
-`botActorId` / `bot_actor_id` string is rejected; a service DID or destination URL
-cannot supply an omitted account Station.
+A Service-only installation requires an HTTPS `baseUrl` bound by the accepted
+registration epoch. The URL supplies discovery, authoring and signed completion
+management APIs. It never subscribes to group Events or Signals. The management
+transaction receiver verifies RFC9421 Station signatures and no longer requires
+an Applet bearer session. Outbound management requests carry SDK Service HTTP
+signatures; their native Event producer proofs remain independent.
 
-Configure the resolvable `service_did`, matching `serviceId`, `trust_domain`, and
-an explicit service `verification_method`. `keyRef` selects that service signing
-key. Outbound bridge configuration also requires the existing `namespaces` and
-`managed_actor_authoring` object with `principal_endpoint` and
-`key_encryption_key_hex`; use the actual installed identity-custody settings.
-The bridge preserves the Bot Account as `actor_id` and signs as the Applet service
-in `executed_by`. Ordinary sends use retained local authority context.
+An installation does not create a default Bot. A runtime that executes as a Bot
+must configure an independently accepted `bot_account_id`, a complete Arkret
+`AccountId` with `principal_id` and `station_id`. A Service may manage multiple
+independent execution Accounts; an execution configuration selects one exact
+Account. An absent Bot permits Service management only. Synthetic `botActorId`
+strings and Service-derived Ghost DIDs are rejected or removed. Unimplemented
+Ghost mapping queries return no accepted identity.
+
+Configure a resolvable `service_did`, its matching `serviceId`, `trust_domain`,
+`verification_method` and actual private `keyRef`. Managed identity custody uses
+`managed_actor_authoring` with `principal_endpoint` and
+`key_encryption_key_hex`. Creation proves provenance; it does not grant business
+permissions. Actual group execution needs current Service parents and terminal
+managed-Account children, independent native membership and accepted Devices. A child
+whose subject is a Bot or Ghost must be consumed by that actual managed Account;
+a Service proof cannot act as the Account through `executed_by`.
+
+Applet-mode Device custody/possession, native queue/Welcome/ACK/MLS/Blob readers,
+resolution rotation installation and continuous scope refresh remain unwired.
+Legacy management transaction group dispatch is closed. Account-mode Agent native
+MLS handling is unchanged; these management updates do not establish a working
+Applet group execution runtime.
+
+Fresh managed identity authoring custody is not connected in Savfox Applet mode; the standard author endpoint returns unavailable. Completion requires exact locally frozen creation material, so it cannot bootstrap a new Account by accepting foreign bundles. Bridges supplies the production authoring implementation.
+
+Personal Agent replies always retain their accepted Account and native delivery binding. Applet namespace ownership never redirects those replies through another Bot.

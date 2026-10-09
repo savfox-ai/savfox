@@ -1116,13 +1116,13 @@ impl GatewayChannel {
         session_id: Option<&str>,
         reply_target: Option<&str>,
         saved_channel_config_id: Option<&str>,
-        delivery_operation_id: Option<&str>,
+        _delivery_operation_id: Option<&str>,
     ) -> anyhow::Result<()> {
         let runtime = self.runtime_channel_secrets.read().await.clone();
         let (platform, channel_id) = channel.split_once(':').unwrap_or(("webhook", channel));
         let savfox_home = &self.config.savfox_home;
         #[cfg(not(feature = "arkret"))]
-        let _ = (saved_channel_config_id, delivery_operation_id);
+        let _ = saved_channel_config_id;
 
         match platform {
             "discord" => {
@@ -1484,30 +1484,8 @@ impl GatewayChannel {
                     None => (None, None),
                 };
                 let strand_id = strand_id.as_deref();
-                // Sidecar exchange replies must carry the encrypted
-                // `user_facing_response` binding, which only the account path
-                // can attach; the applet path would silently drop it.
-                // A single local delivery gets an id before transport. Retry owners pass
-                // the same id; the Applet journal durably freezes it with the signed Event.
-                let allocated_operation;
-                let operation_id = match delivery_operation_id {
-                    Some(id) => id,
-                    None => {
-                        allocated_operation = uuid::Uuid::now_v7().to_string();
-                        &allocated_operation
-                    }
-                };
-                if sidecar_exchange.is_none()
-                    && crate::channels::arkret_applet::send_to_arkret_applet_for_realm(
-                        channel_id,
-                        strand_id,
-                        text,
-                        operation_id,
-                    )
-                    .await?
-                {
-                    return Ok(());
-                }
+                // Personal Agent replies retain their exact Account and native
+                // delivery binding; an Applet namespace cannot substitute a Bot.
                 let bound_account_id = if let Some(session_id) = session_id {
                     crate::arkret_delivery::ArkretExecutionBindingStore::new(savfox_home)
                         .binding_for_session(session_id)

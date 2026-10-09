@@ -379,19 +379,6 @@ impl ArkretHttpClient {
         })
     }
 
-    /// Build an applet HTTP client bound to `base_url`, authenticated via the
-    /// Applet bearer token. Agent account runtimes use
-    /// [`Self::login_agent`] instead.
-    pub fn new(base_url: &str, access_token: &str) -> anyhow::Result<Self> {
-        let url =
-            Url::parse(base_url).with_context(|| format!("invalid Arkret base_url: {base_url}"))?;
-        let inner = ClientBuilder::new(url)
-            .auth(Auth::Bearer(access_token.to_owned()))
-            .build()
-            .map_err(|err| anyhow::anyhow!("failed to build Arkret HTTP client: {err}"))?;
-        Ok(Self::from_inner(inner))
-    }
-
     /// Construct an Agent HTTP client by exchanging a runtime-key
     /// `agent_key_proof` for a short-lived DPoP-bound session grant.
     #[allow(clippy::too_many_arguments)]

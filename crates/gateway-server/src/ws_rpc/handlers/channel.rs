@@ -4802,12 +4802,9 @@ mod tests {
                 "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
                 "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "bot_account_id":{"principal_id":"ak:did_core:web:slack-bridge.example:bot", "station_id":"ak:did_core:webvh:z6mkstation"},
                 "arkretServerUrl": "https://arkret.example.org",
-                "arkretServerDid": "did:webvh:arkret.example.org",
-                "accessToken": "applet-bearer-1",
+                "arkretServerDid": "did:webvh:z6mkstation:arkret.example.org",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" },
-                "loginChallenge": "applet-login-challenge-1234",
                 "protocols": ["slack"],
                 "namespaces": {
                     "actors": [
@@ -4822,7 +4819,7 @@ mod tests {
                 }
             }),
         );
-        let missing_namespaces = channel_config(
+        let missing_server_trust = channel_config(
             "arkret",
             json!({
                 "mode": "applet",
@@ -4837,12 +4834,11 @@ mod tests {
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
                 "bot_account_id":{"principal_id":"ak:did_core:web:slack-bridge.example:bot", "station_id":"ak:did_core:webvh:z6mkstation"},
                 "arkretServerUrl": "https://arkret.example.org",
-                "accessToken": "applet-bearer-1",
                 "protocols": ["slack"]
             }),
         );
 
         assert!(saved_channel_config_ready(&ready));
-        assert!(!saved_channel_config_ready(&missing_namespaces));
+        assert!(!saved_channel_config_ready(&missing_server_trust));
     }
 }
