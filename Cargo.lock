@@ -414,6 +414,7 @@ dependencies = [
  "arkret-wire",
  "async-trait",
  "chrono",
+ "ed25519-dalek 3.0.0",
  "hex",
  "parking_lot",
  "redb",
@@ -705,6 +706,7 @@ name = "arkret-models-integration"
 version = "0.3.0"
 dependencies = [
  "arkret-canonical",
+ "arkret-models-collaboration",
  "arkret-models-identity",
  "arkret-wire",
  "chrono",
