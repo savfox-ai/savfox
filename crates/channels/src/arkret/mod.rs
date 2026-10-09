@@ -40,9 +40,8 @@ mod signer;
 
 pub use account_store::{delete_account_store, device_messages_scope, open_account_store};
 pub use applet::{
-    AppletDispatchSkip, AppletEventOutcome, AppletInboundCommand, AppletNamespaces,
-    AppletNamespacesExt, ArkretAppletConfig, NamespacePattern, NamespacePatternExt,
-    classify_inbound_event, load_arkret_applet_configs, mint_ghost_did, namespace_pattern_matches,
+    AppletNamespaces, AppletNamespacesExt, ArkretAppletConfig, NamespacePattern,
+    NamespacePatternExt, load_arkret_applet_configs, namespace_pattern_matches,
 };
 pub use crypto_state::UnableToDecryptReason;
 

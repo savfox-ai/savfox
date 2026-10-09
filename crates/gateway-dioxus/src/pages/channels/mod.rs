@@ -682,15 +682,6 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Arkret service DID used as the agent_key_proof audience and DPoP-bound self endpoint service identity.",
                 },
                 ConfigField {
-                    key: "accessToken".into(),
-                    label: "Applet Bearer Token".into(),
-                    field_type: FieldType::Password,
-                    placeholder: "applet bearer token".into(),
-                    secret: true,
-                    required: false,
-                    help: "Inbound applet bearer token configured in Arkret. Agent mode does not store a static session grant here.",
-                },
-                ConfigField {
                     key: "deviceId".into(),
                     label: "Device ID (internal)".into(),
                     field_type: FieldType::Text,
@@ -768,8 +759,8 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     field_type: FieldType::Textarea,
                     placeholder: r#"{"principal_id":"ak:did_core:webvh:zBotScid","station_id":"ak:did_core:web:station.example"}"#.into(),
                     secret: false,
-                    required: true,
-                    help: "Complete Bot Account from accepted provisioning, including its Station.",
+                    required: false,
+                    help: "Optional independent Bot Account from accepted provisioning, including its Station. Service installation does not create a Bot.",
                 },
                 ConfigField {
                     key: "arkretServerUrl".into(),
@@ -824,15 +815,6 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     secret: false,
                     required: false,
                     help: "Applet third-party handle namespace patterns. Saved as Arkret namespaces.handles[].",
-                },
-                ConfigField {
-                    key: "ghostDidPrefix".into(),
-                    label: "Ghost DID Prefix".into(),
-                    field_type: FieldType::Text,
-                    placeholder: "ghost:".into(),
-                    secret: false,
-                    required: false,
-                    help: "Prefix used when minting ghost actor DIDs for external users",
                 },
                 ConfigField {
                     key: "requestedScopes".into(),
@@ -896,15 +878,6 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     secret: false,
                     required: false,
                     help: "Optional array of Arkret server HTTP Message Signature public keys",
-                },
-                ConfigField {
-                    key: "loginChallenge".into(),
-                    label: "Applet DID-proof Challenge".into(),
-                    field_type: FieldType::Text,
-                    placeholder: "challenge-from-arkret".into(),
-                    secret: false,
-                    required: false,
-                    help: "Applet outbound DID-proof challenge. Personal agent runtime uses agent_key_proof instead.",
                 },
                 ConfigField {
                     key: "verificationMethod".into(),
@@ -1871,7 +1844,6 @@ fn arkret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>
     }
     let applet_advanced = [
         "arkretServerDid",
-        "ghostDidPrefix",
         "requestedScopes",
         "receiveEvents",
         "receiveEphemeral",
@@ -1879,7 +1851,6 @@ fn arkret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>
         "authorizationGrantId",
         "registrationEpoch",
         "trustedVerificationMethods",
-        "loginChallenge",
         "verificationMethod",
         "grantEventPath",
         "keyRef",
@@ -2288,7 +2259,6 @@ fn field_display_label(
             ("baseUrl", _) => return "Arkret Base URL".to_string(),
             ("serviceId", "applet") => return "Applet Service DID".to_string(),
             ("serviceId", _) => return "Arkret Service DID".to_string(),
-            ("accessToken", "applet") => return "Bearer Token".to_string(),
             _ => {}
         }
     }
@@ -2307,9 +2277,8 @@ fn field_display_placeholder(
                 return "https://savfox.example/appservices/arkret/arkret-default".to_string();
             }
             ("baseUrl", _) => return "https://arkret.example.org".to_string(),
-            ("serviceId", "applet") => return "did:web:savfox.example".to_string(),
+            ("serviceId", "applet") => return "ak:did_core:webvh:zServiceScid".to_string(),
             ("serviceId", _) => return "ak:did_core:web:arkret.example.org".to_string(),
-            ("accessToken", "applet") => return "applet bearer token".to_string(),
             _ => {}
         }
     }
@@ -2325,7 +2294,7 @@ fn field_display_help(
         let mode = current_arkret_mode(ch_id, values);
         match (field.key.as_str(), mode.as_str()) {
             ("baseUrl", "applet") => {
-                return "Public Savfox callback URL registered as the Arkret Applet endpoint."
+                return "Public HTTPS Applet address for discovery, identity authoring and completion. Group content requires an accepted Bot or Ghost Device."
                     .to_string();
             }
             ("baseUrl", _) => {
@@ -2336,9 +2305,6 @@ fn field_display_help(
             }
             ("serviceId", _) => {
                 return "Arkret service DID used as the agent_key_proof audience.".to_string();
-            }
-            ("accessToken", "applet") => {
-                return "Inbound applet bearer token configured in Arkret.".to_string();
             }
             _ => {}
         }
@@ -2417,15 +2383,12 @@ fn is_arkret_applet_only_field(field_key: &str) -> bool {
             | "service_did"
             | "trust_domain"
             | "managed_actor_authoring"
-            | "accessToken"
-            | "loginChallenge"
             | "arkretServerUrl"
             | "protocols"
             | "requestedScopes"
             | "namespaceActors"
             | "namespaceRealms"
             | "namespaceHandles"
-            | "ghostDidPrefix"
             | "receiveEvents"
             | "receiveEphemeral"
             | "rateLimited"
@@ -2453,15 +2416,13 @@ fn is_arkret_advanced_field(field_key: &str, mode: &str) -> bool {
         || (mode == "applet"
             && matches!(
                 field_key,
-                "ghostDidPrefix"
-                    | "requestedScopes"
+                "requestedScopes"
                     | "receiveEvents"
                     | "receiveEphemeral"
                     | "rateLimited"
                     | "authorizationGrantId"
                     | "registrationEpoch"
                     | "trustedVerificationMethods"
-                    | "loginChallenge"
                     | "verificationMethod"
                     | "grantEventPath"
                     | "keyRef"
@@ -2475,7 +2436,6 @@ fn should_skip_hidden_arkret_field(field_key: &str) -> bool {
             | "receiveEvents"
             | "receiveEphemeral"
             | "rateLimited"
-            | "ghostDidPrefix"
             | "keyRef"
             | "verificationMethod"
             | "authorizedEventRef"
@@ -3020,10 +2980,6 @@ fn default_channel_values(
         values.insert(
             field_value_key(channel_id, "rateLimited"),
             "true".to_string(),
-        );
-        values.insert(
-            field_value_key(channel_id, "ghostDidPrefix"),
-            "ghost:".to_string(),
         );
     }
     values
@@ -7833,6 +7789,17 @@ mod tests {
         let patch = build_channel_patch("arkret", &fields, &values).expect("patch");
 
         assert_eq!(patch["mode"], json!("applet"));
+        assert!(patch.get("accessToken").is_none());
+        assert!(patch.get("loginChallenge").is_none());
+        assert!(patch.get("ghostDidPrefix").is_none());
+        assert!(patch["bot_account_id"].is_null());
+        assert!(
+            !fields
+                .iter()
+                .find(|field| field.key == "bot_account_id")
+                .unwrap()
+                .required
+        );
         assert_eq!(
             patch["controllerPrincipalId"],
             json!("ak:did_core:webvh:zAdminScid")

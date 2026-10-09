@@ -1,11 +1,9 @@
 //! Applet mode configuration.
 //!
-//! A Arkret channel saved with `mode = "applet"` declares this savfox node
-//! as a registered Applet (the Matrix-AppService equivalent in the Arkret
-//! universe). The config carries: applet identity, service URL where this
-//! node receives `POST /_arkret/edge/applet/transactions`, the Arkret server we
-//! write events back to, namespace declarations, and a ghost-DID
-//! generation rule.
+//! An Arkret channel saved with `mode = "applet"` declares an Applet Service.
+//! Its HTTPS management origin supplies discovery and signed completion.
+//! Independent managed Accounts require the formal authoring contract; this
+//! runtime does not yet connect its authoring custody or managed Device reader.
 
 use std::path::PathBuf;
 
@@ -49,11 +47,11 @@ pub struct ArkretAppletConfig {
     pub service_id: String,
     /// Controller principal identity core that signs the registration.
     pub controller_principal_id: String,
-    /// Public URL where this savfox node accepts inbound transactions
+    /// Mandatory HTTPS discovery, authoring and completion management origin
     /// (mounted under `/appservices/arkret/{id}/_arkret/edge/applet`).
     pub base_url: String,
     /// Exact Bot Account retained from accepted Applet provisioning.
-    pub bot_account_id: AccountId,
+    pub bot_account_id: Option<AccountId>,
     /// Resolvable Applet service DID; its projected core must equal service_id.
     pub service_did: Did,
     pub trust_domain: TrustDomainId,
@@ -61,50 +59,35 @@ pub struct ArkretAppletConfig {
     pub managed_actor_authoring: ManagedActorAuthoringSettings,
     /// Optional Arkret device id for the bot/applet local MLS member. Required
     /// for generating precise MLS recovery plans, but kept optional for
-    /// existing bearer-only applet deployments.
+    /// a concrete accepted Bot Device runtime.
     pub device_id: Option<String>,
     /// Arkret server base URL where outbound events are POSTed.
     pub arkret_server_url: String,
     /// Arkret server service DID used by applet outbound authentication.
     pub arkret_server_did: Option<String>,
-    /// Static server verification methods accepted for inbound applet HTTP
-    /// Message Signatures and event pushes.
+    /// Static server verification methods accepted for inbound management
+    /// HTTP Message Signatures and completion proofs.
     pub trusted_verification_methods: Vec<ArkretAppletTrustedVerificationMethod>,
-    /// Retained compatibility field from the retired Applet DID-proof login
-    /// flow. Current Applet transport authentication uses the registered
-    /// bearer credential.
-    pub login_challenge: Option<String>,
-    /// Optional bearer for outbound `events_submit` calls. In a fully
-    /// signed flow this is replaced by the ghost actor's detached JWS.
-    pub arkret_bearer_token: Option<String>,
-    /// Namespaces declared in the registration. Used for inbound transaction
-    /// filtering and for actor / realm lookup endpoints.
+    /// Namespaces declared in the registration. They constrain managed
+    /// creation and discovery but do not establish an accepted mapping.
     pub namespaces: AppletNamespaces,
     /// External protocols this Applet bridges (`["slack"]`, `["discord"]`, ...).
     pub protocols: Vec<String>,
-    /// Prefix to prepend when minting ghost DIDs (colon path-segment form):
-    /// `{service_id}:{ghost_did_prefix}{external_id_slug}`.
-    /// Default `"ghost:"` → `did:web:host:ghost:<slug>`.
-    pub ghost_did_prefix: String,
     /// `requested_scopes[]` — informational; reducer ignores this and only
     /// honors actual `ak.capability.grant` events.
     pub requested_scopes: Vec<String>,
-    /// Whether the Arkret server is expected to push event transactions
-    /// (`receive_events: true`). Default `true`.
+    /// Management delivery preference; it never permits group subscriptions.
     pub receive_events: bool,
-    /// Whether to receive ephemeral (typing/presence) events. Default `false`.
+    /// Retained management preference; never permits group Signal delivery.
     pub receive_ephemeral: bool,
     /// Whether the server is permitted to rate-limit transaction pushes.
     pub rate_limited: bool,
     /// Optional `ak.capability.grant` event id this applet currently holds.
     /// When set, outbound events include it as `authorization_ref`.
     pub authorization_grant_id: Option<String>,
-    /// Operator-supplied security epoch hash (`sha256:<hex>`) over the
-    /// registration evidence (DID Document + signing key + endpoint + auth),
-    /// per `applet-schema.md` §1. savfox cannot synthesize it locally; when
-    /// absent, applet registration validation
-    /// emits a zero placeholder suitable only for an unsigned draft destined
-    /// for offline controller signing.
+    /// Retained accepted registration epoch (`sha256:<hex>`), bound to the
+    /// Service identity, signing key and management endpoint. Management
+    /// completion fails closed when this accepted coordinate is absent.
     pub registration_epoch: Option<String>,
     /// Ed25519 key used to sign outbound Applet events.
     pub key_ref: Option<ArkretKeyRef>,
@@ -148,7 +131,12 @@ impl ArkretAppletConfig {
         if raw.contains_key("botActorId") || raw.contains_key("bot_actor_id") {
             return None;
         }
-        let bot_account_id = serde_json::from_value(raw.get("bot_account_id")?.clone()).ok()?;
+        let bot_account_id = raw
+            .get("bot_account_id")
+            .filter(|value| !value.is_null())
+            .map(|value| serde_json::from_value(value.clone()))
+            .transpose()
+            .ok()?;
         let service_did = serde_json::from_value(raw.get("service_did")?.clone()).ok()?;
         let trust_domain = serde_json::from_value(raw.get("trust_domain")?.clone()).ok()?;
         let managed_actor_authoring =
@@ -170,16 +158,11 @@ impl ArkretAppletConfig {
             raw.get("trustedVerificationMethods")
                 .or_else(|| raw.get("trusted_verification_methods")),
         )?;
-        let login_challenge = first_non_empty(raw, &["loginChallenge", "login_challenge"]);
-        let arkret_bearer_token =
-            first_non_empty(raw, &["accessToken", "access_token", "arkretBearerToken"]);
 
         let namespaces = parse_namespaces(raw.get("namespaces"));
         let protocols = parse_string_list(raw.get("protocols"));
         let requested_scopes =
             parse_string_list(raw.get("requestedScopes").or(raw.get("requested_scopes")));
-        let ghost_did_prefix = first_non_empty(raw, &["ghostDidPrefix", "ghost_did_prefix"])
-            .unwrap_or_else(|| "ghost:".to_owned());
 
         let receive_events = raw
             .get("receiveEvents")
@@ -235,11 +218,8 @@ impl ArkretAppletConfig {
             arkret_server_url,
             arkret_server_did,
             trusted_verification_methods,
-            login_challenge,
-            arkret_bearer_token,
             namespaces,
             protocols,
-            ghost_did_prefix,
             requested_scopes,
             receive_events,
             receive_ephemeral,
@@ -281,7 +261,22 @@ impl ArkretAppletConfig {
                 )
             })?;
         }
-        self.bot_account_id.validate()?;
+        let management_url = url::Url::parse(&self.base_url)?;
+        anyhow::ensure!(
+            management_url.scheme() == "https"
+                && management_url.host_str().is_some()
+                && management_url.username().is_empty()
+                && management_url.password().is_none()
+                && management_url.fragment().is_none(),
+            "Applet base_url requires HTTPS and cannot contain credentials or a fragment"
+        );
+        if let Some(account) = &self.bot_account_id {
+            account.validate()?;
+        }
+        anyhow::ensure!(
+            self.device_id.is_none() || self.bot_account_id.is_some(),
+            "Device runtime requires its exact accepted Account"
+        );
         let custody_endpoint = url::Url::parse(&self.managed_actor_authoring.principal_endpoint)?;
         anyhow::ensure!(
             custody_endpoint.scheme() == "https"
@@ -386,30 +381,9 @@ impl ArkretAppletConfig {
                 )
             })?;
         }
-        if self.namespaces.actors.is_empty()
-            && self.namespaces.realms.is_empty()
-            && self.namespaces.handles.is_empty()
-        {
-            anyhow::bail!(
-                "Arkret applet channel '{}' declares no namespaces; at least one of \
-                 actors/realms/handles is required",
-                self.id
-            );
-        }
         if self.protocols.is_empty() {
             anyhow::bail!(
                 "Arkret applet channel '{}' declares no protocols (e.g. [\"slack\"])",
-                self.id
-            );
-        }
-        if self
-            .arkret_bearer_token
-            .as_deref()
-            .map(str::trim)
-            .is_none_or(str::is_empty)
-        {
-            anyhow::bail!(
-                "Arkret applet channel '{}' missing access_token / arkretBearerToken for inbound applet authentication",
                 self.id
             );
         }
@@ -557,7 +531,7 @@ pub async fn load_arkret_applet_configs(
             continue;
         }
         let parsed = ArkretAppletConfig::from_channel_config(config).ok_or_else(||
-            anyhow::anyhow!("Arkret Applet '{}' requires complete bot_account_id, service_did, trust_domain and managed_actor_authoring configuration", config.id))?;
+            anyhow::anyhow!("Arkret Applet '{}' requires complete service_did, trust_domain and managed_actor_authoring configuration", config.id))?;
         parsed.validate()?;
         applets.push(parsed);
     }
@@ -601,10 +575,8 @@ mod tests {
             "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
             "arkretServerUrl": "https://arkret.example.org",
             "arkretServerDid": "did:webvh:arkret.example.org",
-            "accessToken": "applet-bearer-1",
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" },
             "signerResolutionEvidenceRef": "ak:signer_evidence:sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            "loginChallenge": "arkret-applet-login-challenge",
             "protocols": ["slack"],
             "namespaces": {
                 "actors": [
@@ -638,10 +610,36 @@ mod tests {
         let parsed =
             ArkretAppletConfig::from_channel_config(&make_channel_config(valid_body())).unwrap();
         assert_eq!(
-            parsed.bot_account_id.station_id.as_str(),
+            parsed.bot_account_id.as_ref().unwrap().station_id.as_str(),
             "ak:did_core:webvh:z6mkstation"
         );
-        assert_ne!(parsed.bot_account_id.station_id.as_str(), parsed.service_id);
+        assert_ne!(
+            parsed.bot_account_id.as_ref().unwrap().station_id.as_str(),
+            parsed.service_id
+        );
+    }
+
+    #[test]
+    fn service_installation_does_not_require_a_default_bot() {
+        let mut body = valid_body();
+        body["bot_account_id"] = Value::Null;
+        body.as_object_mut().unwrap().remove("deviceId");
+        body.as_object_mut().unwrap().remove("device_id");
+        let parsed = ArkretAppletConfig::from_channel_config(&make_channel_config(body)).unwrap();
+        assert!(parsed.bot_account_id.is_none());
+        parsed.validate().unwrap();
+    }
+
+    #[test]
+    fn management_base_url_requires_https() {
+        let mut body = valid_body();
+        body["baseUrl"] = json!("http://127.0.0.1:18881");
+        assert!(
+            ArkretAppletConfig::from_channel_config(&make_channel_config(body))
+                .unwrap()
+                .validate()
+                .is_err()
+        );
     }
 
     #[test]
@@ -659,7 +657,6 @@ mod tests {
         );
         assert_eq!(parsed.namespaces.actors.len(), 1);
         assert!(parsed.namespaces.actors[0].exclusive);
-        assert_eq!(parsed.ghost_did_prefix, "ghost:");
         parsed.validate().expect("validate");
     }
 
@@ -709,20 +706,6 @@ mod tests {
             .validate()
             .expect_err("service identity is not a controller principal");
         assert!(error.to_string().contains("cannot reuse service_id"));
-    }
-
-    #[test]
-    fn parses_keyed_applet_login_challenge() {
-        let mut body = valid_body();
-        body["keyRef"] = json!({ "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" });
-        body["loginChallenge"] = json!("challenge-from-arkret");
-        let cfg = make_channel_config(body);
-        let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
-        assert_eq!(
-            parsed.login_challenge.as_deref(),
-            Some("challenge-from-arkret")
-        );
-        parsed.validate().expect("validate");
     }
 
     #[test]
@@ -810,13 +793,14 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_no_namespaces() {
+    fn service_only_installation_does_not_require_a_ghost_namespace() {
         let mut body = valid_body();
         body["namespaces"] = json!({"actors": [], "realms": [], "handles": []});
         let cfg = make_channel_config(body);
         let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
-        let err = parsed.validate().expect_err("empty namespaces should fail");
-        assert!(err.to_string().contains("namespaces"));
+        parsed
+            .validate()
+            .expect("independent Bots do not need an external identity namespace");
     }
 
     #[test]
@@ -839,17 +823,16 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_missing_inbound_bearer_token() {
+    fn service_transport_does_not_require_a_bearer_token() {
         let mut body = valid_body();
         body.as_object_mut()
             .expect("valid body should be an object")
             .remove("accessToken");
         let cfg = make_channel_config(body);
         let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
-        let err = parsed
+        parsed
             .validate()
-            .expect_err("missing inbound bearer token should fail");
-        assert!(err.to_string().contains("inbound applet authentication"));
+            .expect("Service HTTP signatures do not need a bearer token");
     }
 
     #[test]
