@@ -93,6 +93,7 @@ impl TerminalAgentRuntime {
 
 string_enum!(TerminalMode {
     AppServer => "app_server",
+    ClaudeStream => "claude_stream",
     OneShot => "one_shot",
     ManagedPty => "managed_pty",
     InteractiveLaunch => "interactive_launch",
@@ -207,7 +208,7 @@ pub struct AgentTerminalDelegateConfig {
     /// Terminal agent profile. Expected values are `codex` and `claude`.
     pub profile: Option<TerminalProfile>,
     /// Runtime mode. Expected values include `app_server`, `one_shot`, `managed_pty`,
-    /// `interactive_launch`, and `jsonl_adapter`.
+    /// `interactive_launch`, `jsonl_adapter`, and `claude_stream`.
     pub mode: Option<TerminalMode>,
     /// Session scoping strategy. Expected values include `per_turn`,
     /// `per_session`, `per_agent`, and `manual`.
@@ -227,6 +228,9 @@ pub struct AgentTerminalDelegateConfig {
     /// Whether Savfox should bridge vendor CLI approvals. Expected values
     /// include `disabled`, `prompt`, and `required`.
     pub savfox_approval_bridge: Option<SavfoxApprovalBridge>,
+    /// Configuration for the Rust Claude Code stdio adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude: Option<ClaudeCodeConfig>,
     /// Declarative workspace policy for the terminal runtime.
     pub workspace: Option<AgentTerminalWorkspaceConfig>,
     pub command: Option<String>,
@@ -244,6 +248,37 @@ pub struct AgentTerminalDelegateConfig {
     /// invokes the program with no arguments (suitable for TUI tools like
     /// `codex` that drop into an interactive shell by default).
     pub interactive_args: Option<Vec<String>>,
+}
+
+/// Claude owns authentication and tool execution. Controlled settings are not
+/// an operating-system sandbox. Version opt-in is explicit until live CLI
+/// compatibility has been established on the deployment machine.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ClaudeCodeConfig {
+    pub model: Option<String>,
+    pub settings_policy: String,
+    pub allowed_tools: Vec<String>,
+    pub mcp_config: Option<String>,
+    pub expected_version: Option<String>,
+    pub initialize_timeout_secs: u64,
+    pub approval_timeout_secs: u64,
+    pub shutdown_timeout_secs: u64,
+}
+
+impl Default for ClaudeCodeConfig {
+    fn default() -> Self {
+        Self {
+            model: None,
+            settings_policy: "controlled".to_owned(),
+            allowed_tools: Vec::new(),
+            mcp_config: None,
+            expected_version: None,
+            initialize_timeout_secs: 20,
+            approval_timeout_secs: 120,
+            shutdown_timeout_secs: 5,
+        }
+    }
 }
 
 /// Summary view of an agent as returned by `agents.list` and the agent

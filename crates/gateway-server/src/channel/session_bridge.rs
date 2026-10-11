@@ -324,14 +324,49 @@ impl GatewayChannel {
             }
         }
 
+        let claude_execution = if self
+            .resolve_terminal_delegate(model)
+            .await?
+            .is_some_and(|delegate| delegate.is_claude_stream())
+        {
+            let scope = approval_scope.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("Claude Channel execution requires an authenticated peer scope")
+            })?;
+            let owner = format!(
+                "channel:{}",
+                crate::claude_code::digest(&serde_json::to_vec(
+                    &serde_json::json!({"channel":scope.channel,"instance":scope.channel_config_id,"account":scope.account_id,"peer":scope.peer_id})
+                )?)
+            );
+            let logical_id = requested_session_id
+                .clone()
+                .unwrap_or_else(|| scope.logical_session_id.clone());
+            Some(crate::claude_code::Execution {
+                owner,
+                // This caller has no stable upstream event ID. Identical text
+                // on a later turn is a new request, not a cached response.
+                request_id: uuid::Uuid::now_v7().to_string(),
+                session_id: logical_id,
+                agent_id: model.to_owned(),
+                approval_client: false,
+                trusted_context: trusted_developer_context.clone(),
+            })
+        } else {
+            None
+        };
+        let terminal_session_id = claude_execution
+            .as_ref()
+            .map(|execution| execution.session_id.as_str())
+            .or(requested_session_id.as_deref());
         if let Some(invocation) = self
-            .invoke_terminal_delegate_agent(
+            .invoke_terminal_delegate_with_execution(
                 prompt,
                 model,
                 model,
-                requested_session_id.as_deref(),
+                terminal_session_id,
                 &[],
                 None,
+                claude_execution.clone(),
             )
             .await?
         {

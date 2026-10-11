@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::sync::RwLock;
 
@@ -149,6 +149,20 @@ impl GatewayAuth {
         signature_hex: &str,
         nonce: &str,
     ) -> Option<TokenInfo> {
+        self.validate_challenge_response_with_subject(signature_hex, nonce)
+            .await
+            .map(|(info, _)| info)
+    }
+
+    pub(crate) fn token_subject(token: &str) -> String {
+        hex::encode(Sha256::digest(token.as_bytes()))
+    }
+
+    pub(crate) async fn validate_challenge_response_with_subject(
+        &self,
+        signature_hex: &str,
+        nonce: &str,
+    ) -> Option<(TokenInfo, String)> {
         let tokens = self.tokens.read().await;
         for (token, info) in tokens.iter() {
             // Compute HMAC-SHA256(nonce, key=token)
@@ -161,7 +175,7 @@ impl GatewayAuth {
             // Constant-time comparison to avoid leaking the valid HMAC via a
             // timing side-channel on the byte-by-byte `String ==` path.
             if expected.as_bytes().ct_eq(signature_hex.as_bytes()).into() {
-                return Some(info.clone());
+                return Some((info.clone(), Self::token_subject(token)));
             }
         }
         None
@@ -436,6 +450,9 @@ pub fn required_scope(method: &str) -> Scope {
     }
 
     // ── Chat / send ──────────────────────────────────────────────────
+    if method == "chat.run.get" {
+        return Scope::Read;
+    }
     if method.starts_with("chat.") || method == "send" {
         return Scope::Chat;
     }

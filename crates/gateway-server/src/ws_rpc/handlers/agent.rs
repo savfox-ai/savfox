@@ -1380,6 +1380,78 @@ fn validate_agent_shape(config: &Value) -> std::result::Result<(), String> {
             }
             required_non_empty_string(terminal, "command")
                 .map_err(|err| format!("invalid terminal agent: {err}"))?;
+            let parsed: crate::agent_terminal_delegate::AgentTerminalDelegateConfig =
+                serde_json::from_value(terminal.clone())
+                    .map_err(|error| format!("invalid terminal configuration: {error}"))?;
+            if let Some(mode) = parsed.mode.as_deref() {
+                if !matches!(
+                    mode,
+                    "one_shot"
+                        | "app_server"
+                        | "managed_pty"
+                        | "interactive_launch"
+                        | "jsonl_adapter"
+                        | "claude_stream"
+                ) {
+                    return Err(format!("unsupported terminal mode: {mode}"));
+                }
+                if mode == "claude_stream" {
+                    if runtime != "claude"
+                        || parsed
+                            .profile
+                            .as_deref()
+                            .is_some_and(|profile| profile != "claude")
+                    {
+                        return Err(
+                            "claude_stream requires the Claude runtime and profile".to_owned()
+                        );
+                    }
+                    crate::claude_code::validate(&parsed.claude, &parsed.args)
+                        .map_err(|error| error.to_string())?;
+                    crate::claude_code::validate_workspace(parsed.workspace.mode.as_deref())
+                        .map_err(|error| error.to_string())?;
+                    if parsed.stdin.is_some()
+                        || parsed
+                            .io_protocol
+                            .as_deref()
+                            .is_some_and(|protocol| protocol != "jsonl")
+                    {
+                        return Err("claude_stream owns stdin and JSONL framing".to_owned());
+                    }
+                    if parsed
+                        .session_scope
+                        .as_deref()
+                        .is_some_and(|scope| !matches!(scope, "per_turn" | "per_session"))
+                    {
+                        return Err("claude_stream supports per_turn and per_session".to_owned());
+                    }
+                    if parsed
+                        .savfox_approval_bridge
+                        .as_deref()
+                        .is_some_and(|bridge| !matches!(bridge, "required" | "prompt"))
+                    {
+                        return Err(
+                            "claude_stream requires prompt or required approval bridge".to_owned()
+                        );
+                    }
+                    if parsed.session_scope.as_deref().unwrap_or("per_session") == "per_session"
+                        && [
+                            parsed.cleanup_policy.as_deref(),
+                            parsed.workspace.cleanup_policy.as_deref(),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .any(|policy| {
+                            matches!(policy, "per_turn" | "delete_on_success" | "delete_always")
+                        })
+                    {
+                        return Err(
+                            "Claude resume requires retained workspace and session directories"
+                                .to_owned(),
+                        );
+                    }
+                }
+            }
         }
         _ => return Err("invalid `kind`; expected `native` or `terminal`".to_owned()),
     }

@@ -222,6 +222,8 @@ pub(crate) struct ExecApprovalRequest {
     pub available_decisions: Vec<String>,
     #[serde(default)]
     pub policy_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub questions: Option<Value>,
 }
 
 impl ExecApprovalRequest {
@@ -775,7 +777,8 @@ pub(crate) async fn approvals_list_handler(depot: &mut Depot, res: &mut Response
     }
 
     match list_pending_approvals(&channel.config().savfox_home).await {
-        Ok(approvals) => {
+        Ok(mut approvals) => {
+            approvals.retain(|approval| approval.kind.as_deref() != Some("claude"));
             let count = approvals.len();
             res.render(Json(json!({
                 "approvals": approvals,

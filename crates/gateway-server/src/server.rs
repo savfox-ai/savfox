@@ -13,8 +13,8 @@ use tracing::{info, warn};
 use crate::auth::{GatewayAuth, TokenInfo, TokenScope};
 use crate::channel::{GatewayChannel, RuntimeBridgeSecrets};
 use crate::chat_session::{
-    abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
-    provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
+    abort_first_active_candidate, persist_chat_session_metadata, provider_from_model,
+    resolve_abort_candidate_ids, validate_uuid_v7_session_id,
 };
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
@@ -611,6 +611,7 @@ pub(crate) async fn start_server(
     // Install the global HTTP body size cap before any handler runs.
     salvo::http::request::set_global_secure_max_size(MAX_HTTP_BODY_SIZE);
 
+    let claude_runtime = channel.claude_runtime.clone();
     let router = build_router(
         auth,
         session_mgr,
@@ -627,10 +628,26 @@ pub(crate) async fn start_server(
     let acceptor = TcpListener::new(bind_addr).bind().await;
     let server = Server::new(acceptor);
     let shutdown_handle = server.handle();
+    let shutdown_runtime = claude_runtime.clone();
     tokio::spawn(async move {
-        match tokio::signal::ctrl_c().await {
+        let signal = async {
+            #[cfg(unix)]
+            {
+                let mut terminate =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+                tokio::select! {
+                    result = tokio::signal::ctrl_c() => result,
+                    _ = terminate.recv() => Ok(()),
+                }
+            }
+            #[cfg(not(unix))]
+            tokio::signal::ctrl_c().await
+        }
+        .await;
+        match signal {
             Ok(()) => {
                 info!("gateway shutdown signal received");
+                shutdown_runtime.shutdown().await;
                 shutdown_handle.stop_graceful(std::time::Duration::from_secs(10));
             }
             Err(err) => {
@@ -639,6 +656,7 @@ pub(crate) async fn start_server(
         }
     });
     server.serve(router).await;
+    claude_runtime.shutdown().await;
 
     Ok(())
 }
@@ -2027,7 +2045,31 @@ async fn session_history_handler(req: &mut Request, depot: &mut Depot, res: &mut
         return;
     };
 
-    let payload = build_history_payload(&session_id, limit, None, &session_store, &channel).await;
+    let principal = req
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .map(GatewayAuth::token_subject);
+    if let Err(error) = channel
+        .claude_runtime
+        .authorize_session(principal.as_deref(), &session_id)
+        .await
+    {
+        res.status_code(StatusCode::FORBIDDEN);
+        res.render(Text::Json(json!({"error":error.to_string()}).to_string()));
+        return;
+    }
+    let payload = build_history_payload(
+        &session_id,
+        limit,
+        None,
+        &session_store,
+        &channel,
+        principal.as_deref(),
+    )
+    .await;
     res.render(Text::Json(payload.to_string()));
 }
 
@@ -2068,6 +2110,39 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let candidates =
         resolve_abort_candidate_ids(session_store.as_ref(), Some(thread_id), Some(session_id))
             .await;
+    let principal = req
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .map(GatewayAuth::token_subject);
+    for target in [session_id, thread_id]
+        .into_iter()
+        .filter(|target| !target.is_empty())
+    {
+        if channel
+            .claude_runtime
+            .authorize_session(principal.as_deref(), target)
+            .await
+            .is_err()
+        {
+            res.status_code(StatusCode::FORBIDDEN);
+            res.render(Text::Json(
+                json!({"error":"chat is outside your execution scope"}).to_string(),
+            ));
+            return;
+        }
+        if let Some(owner) = principal.as_deref()
+            && channel.claude_runtime.cancel(owner, target).await
+        {
+            res.render(Text::Json(
+                json!({"status":"stop_requested","execution_target":"claude","target":target})
+                    .to_string(),
+            ));
+            return;
+        }
+    }
     if let Some(aborted_thread_id) =
         abort_first_active_candidate(channel.as_ref(), &candidates).await
     {
@@ -2083,13 +2158,11 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
         return;
     }
 
-    let aborted_count = abort_all_active_threads(channel.as_ref()).await;
-
     res.render(Text::Json(
         json!({
-            "status": "ok",
+            "status": "not_found",
             "session_id": session_id,
-            "aborted_count": aborted_count,
+            "aborted_count": 0,
             "message": "chat abort attempted",
         })
         .to_string(),

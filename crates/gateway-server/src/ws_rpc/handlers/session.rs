@@ -276,6 +276,7 @@ pub(crate) async fn handle_chat_send(
     channel: &Arc<GatewayChannel>,
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
+    principal: Option<&str>,
 ) -> RpcResult {
     use savfox_core::models_manager::manager::RefreshStrategy;
     use savfox_protocol::protocol::{EventMsg, Op};
@@ -471,7 +472,26 @@ pub(crate) async fn handle_chat_send(
         native_provider.unwrap_or_else(|| provider_from_model(&effective_model))
     };
 
-    if channel.resolve_terminal_delegate(agent).await.is_some() {
+    if let Some(delegate) = channel
+        .resolve_terminal_delegate(agent)
+        .await
+        .map_err(|error| (INVALID_REQUEST, error.to_string()))?
+    {
+        if delegate.is_claude_stream() {
+            return handle_claude_send(
+                channel,
+                session_mgr,
+                session_store,
+                principal,
+                &request_id,
+                requested_session_id.as_deref(),
+                &prompt,
+                agent,
+                &effective_model,
+                &attachments,
+            )
+            .await;
+        }
         let logical_session_id = requested_session_id
             .clone()
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
@@ -1306,10 +1326,144 @@ pub(crate) async fn handle_chat_send(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn handle_claude_send(
+    channel: &Arc<GatewayChannel>,
+    sessions: &Arc<GatewaySessionManager>,
+    store: &Arc<SessionStore>,
+    principal: Option<&str>,
+    request_id: &str,
+    session_id: Option<&str>,
+    prompt: &str,
+    agent: &str,
+    model: &str,
+    attachments: &[ChatAttachment],
+) -> RpcResult {
+    use crate::auth::TokenScope;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let owner = principal
+        .ok_or((
+            INVALID_REQUEST,
+            "claude_stream requires an authenticated connection".to_owned(),
+        ))?
+        .to_owned();
+    if !sessions
+        .has_owner_client(&owner, TokenScope::OperatorWrite)
+        .await
+    {
+        return Err((
+            INVALID_REQUEST,
+            "Claude native execution requires operator.write".to_owned(),
+        ));
+    }
+    let session_id = session_id
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+    let execution = crate::claude_code::Execution {
+        owner: owner.clone(),
+        request_id: request_id.to_owned(),
+        session_id: session_id.clone(),
+        agent_id: agent.to_owned(),
+        approval_client: sessions
+            .has_owner_client(&owner, TokenScope::OperatorApprovals)
+            .await,
+        trusted_context: None,
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<TerminalAgentEvent>(64);
+    let dropped = Arc::new(AtomicBool::new(false));
+    let stream_dropped = dropped.clone();
+    let sink: TerminalEventSink = Arc::new(move |event| {
+        if tx.try_send(event).is_err() {
+            stream_dropped.store(true, Ordering::Relaxed);
+        }
+    });
+    let event_sessions = sessions.clone();
+    let event_owner = owner.clone();
+    let event_request = request_id.to_owned();
+    let event_session = session_id.clone();
+    let consumer = tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            if let Some((topic, payload)) = terminal_event_stream_payload(
+                &event_request,
+                &event_session,
+                &event_session,
+                &event,
+                false,
+                false,
+                "",
+            ) {
+                event_sessions
+                    .send_to_owner(&event_owner, TokenScope::OperatorWrite, topic, payload)
+                    .await;
+            }
+        }
+    });
+    sessions.send_to_owner(&owner, TokenScope::OperatorWrite, "agent.stream", json!({"request_id":request_id,"session_id":session_id,"thread_id":session_id,"phase":"start","terminal_event":"started","provider":"terminal"})).await;
+    let task_channel = channel.clone();
+    let task_prompt = prompt.to_owned();
+    let task_agent = agent.to_owned();
+    let task_model = model.to_owned();
+    let task_session = session_id.clone();
+    let task_attachments = attachments.to_vec();
+    // The gateway-owned task outlives the request and browser connection.
+    let invocation = tokio::spawn(async move {
+        task_channel
+            .invoke_terminal_delegate_with_execution(
+                &task_prompt,
+                &task_agent,
+                &task_model,
+                Some(&task_session),
+                &task_attachments,
+                Some(sink),
+                Some(execution),
+            )
+            .await
+    })
+    .await
+    .map_err(|error| (INTERNAL_ERROR, format!("Claude owner task failed: {error}")))?;
+    let _ = consumer.await;
+    let invocation = match invocation {
+        Ok(Some(invocation)) => invocation,
+        outcome => {
+            let error = match outcome {
+                Err(error) => error.to_string(),
+                _ => "Claude terminal delegate unavailable".to_owned(),
+            };
+            sessions.send_to_owner(&owner, TokenScope::OperatorWrite, "agent.error", json!({"request_id":request_id,"session_id":session_id,"error":error,"execution_target":"claude"})).await;
+            return Err((INTERNAL_ERROR, error));
+        }
+    };
+    let result = invocation.result;
+    if !invocation.terminal.replayed {
+        persist_chat_session_metadata(
+            store.as_ref(),
+            &channel.config().savfox_home,
+            &session_id,
+            &session_id,
+            &invocation.model,
+            &invocation.provider,
+            result.rollout_path.as_deref(),
+            result.last_token_usage.as_ref(),
+        )
+        .await;
+    }
+    let payload = json!({"request_id":request_id,"session_id":session_id,"thread_id":session_id,"response":result.reply,"raw_response":result.reply,"model":invocation.model,"provider":invocation.provider,"terminal_event":"completed","terminal":{"mode":"claude_stream","profile":"claude","run_id":invocation.terminal.run_id,"exit_code":invocation.terminal.exit_code,"vendor_usage":invocation.terminal.vendor_usage},"usage":result.last_token_usage,"stream_dropped":dropped.load(Ordering::Relaxed),"aborted":false});
+    sessions
+        .send_to_owner(
+            &owner,
+            TokenScope::OperatorWrite,
+            "agent.complete",
+            payload.clone(),
+        )
+        .await;
+    Ok(payload)
+}
+
 pub(crate) async fn handle_chat_history(
     params: &Value,
     session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
+    principal: Option<&str>,
 ) -> RpcResult {
     let session_id = params
         .get("session_id")
@@ -1333,14 +1487,40 @@ pub(crate) async fn handle_chat_history(
         return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
 
-    Ok(build_history_payload(session_id, limit, source_channel, session_store, channel).await)
+    Ok(build_history_payload(
+        session_id,
+        limit,
+        source_channel,
+        session_store,
+        channel,
+        principal,
+    )
+    .await)
 }
 
 pub(crate) async fn handle_chat_abort(
     params: &Value,
     channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
+    principal: Option<&str>,
 ) -> RpcResult {
+    let target = params
+        .get("run_id")
+        .or_else(|| params.get("session_id"))
+        .or_else(|| params.get("thread_id"))
+        .and_then(Value::as_str);
+    if let Some(target) = target
+        && let Some(owner) = principal
+        && channel.claude_runtime.cancel(owner, target).await
+    {
+        return Ok(json!({"status":"stop_requested","target":target,"execution_target":"claude"}));
+    }
+    if params.get("run_id").is_some() {
+        return Err((
+            INVALID_REQUEST,
+            "Claude run not found in your execution scope".to_owned(),
+        ));
+    }
     let thread_id_param = params
         .get("thread_id")
         .and_then(|v| v.as_str())
@@ -1364,6 +1544,15 @@ pub(crate) async fn handle_chat_abort(
         return Ok(json!({ "status": "aborted", "thread_id": thread_id }));
     }
 
+    if thread_id_param.is_some() || session_id_param.is_some() {
+        return Ok(json!({"status":"not_found"}));
+    }
+    if params.get("all").and_then(Value::as_bool) != Some(true) {
+        return Err((
+            INVALID_REQUEST,
+            "specify a session_id, run_id or explicit all=true".to_owned(),
+        ));
+    }
     let aborted = abort_all_active_threads(channel.as_ref()).await;
     Ok(json!({ "status": "aborted", "aborted_count": aborted }))
 }
@@ -1374,18 +1563,27 @@ pub(crate) async fn handle_sessions_list(
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
+    principal: Option<&str>,
 ) -> RpcResult {
     let ws_ids = session_mgr.session_ids().await;
     let persistent = session_store.list().await;
     let mut sorted_sessions = persistent.clone();
     sorted_sessions.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
 
-    let persistent_keys: Vec<String> = sorted_sessions
-        .iter()
-        .map(|e| e.session_id.clone())
-        .collect();
+    let mut persistent_keys = Vec::with_capacity(sorted_sessions.len());
+    let mut total_tokens = 0_u64;
     let mut entries: Vec<Value> = Vec::with_capacity(sorted_sessions.len());
     for entry in sorted_sessions {
+        if channel
+            .claude_runtime
+            .authorize_session(principal, &entry.session_id)
+            .await
+            .is_err()
+        {
+            continue;
+        }
+        persistent_keys.push(entry.session_id.clone());
+        total_tokens = total_tokens.saturating_add(entry.total_tokens);
         #[cfg(feature = "arkret")]
         let arkret_delivery =
             crate::arkret_delivery::ArkretExecutionBindingStore::new(&channel.config().savfox_home)
@@ -1440,13 +1638,12 @@ pub(crate) async fn handle_sessions_list(
             "agent_id": agent_id,
         }));
     }
-    let stats = session_store.stats().await;
     Ok(json!({
         "active_connections": ws_ids,
         "persistent_sessions": persistent_keys,
         "entries": entries,
-        "total_persistent": stats.total_sessions,
-        "total_tokens": stats.total_tokens,
+        "total_persistent": persistent_keys.len(),
+        "total_tokens": total_tokens,
     }))
 }
 

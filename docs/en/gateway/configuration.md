@@ -298,3 +298,7 @@ The session store uses the following defaults:
 | Cache TTL       | 45 seconds  | In-memory cache validity period     |
 
 The session store file is located at `{savfox_home}/sessions/sessions.json`.
+
+## Local Claude terminal agent
+
+The experimental Rust `claude_stream` mode has separate model/settings configuration, explicit version gating, credential-bound approvals and durable session resume. See [Local Claude Code](claude-code.md) for configuration, permissions, cancellation, compatibility limits and migration from one-shot mode.

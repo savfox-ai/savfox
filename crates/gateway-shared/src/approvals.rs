@@ -35,6 +35,9 @@ pub struct ExecApprovalFull {
     pub node: Option<String>,
     pub timestamp: Option<String>,
     pub status: Option<String>,
+    pub nonce: Option<String>,
+    pub kind: Option<String>,
+    pub questions: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

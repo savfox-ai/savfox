@@ -191,6 +191,13 @@ fn agent_has_managed_terminal(agents: &[AgentEntry], selected: &str) -> bool {
         .is_some_and(|mode| mode.as_str() == "managed_pty")
 }
 
+fn agent_has_claude_stream(agents: &[AgentEntry], selected: &str) -> bool {
+    find_agent_entry(agents, selected)
+        .and_then(|entry| entry.terminal.as_ref())
+        .and_then(|terminal| terminal.delegate.mode.as_ref())
+        .is_some_and(|mode| mode.as_str() == "claude_stream")
+}
+
 fn parse_terminal_events(value: Option<&Value>) -> Vec<ChatTerminalEvent> {
     value
         .and_then(Value::as_array)
@@ -882,8 +889,23 @@ pub fn Sessions() -> Element {
             }
         });
     });
+    let ws_abort = ws.clone();
     let on_abort = move |_: ()| {
         let agents = agents_data.read().as_ref().cloned().unwrap_or_default();
+        if agent_has_claude_stream(&agents, &selected_agent()) {
+            if let Some(session_id) = current_session_id() {
+                let ws = ws_abort.clone();
+                spawn(async move {
+                    if let Err(error) = ws
+                        .call::<Value>("chat.abort", Some(json!({"session_id":session_id})))
+                        .await
+                    {
+                        terminal_control_error.set(Some(error));
+                    }
+                });
+            }
+            return;
+        }
         if agent_has_managed_terminal(&agents, &selected_agent()) {
             terminal_control.call("interrupt".to_owned());
             return;
@@ -1497,6 +1519,12 @@ pub fn Sessions() -> Element {
                         }
                     }
 
+                    if agent_has_claude_stream(&agents_list, &selected_agent()) {
+                        div { style: "padding:8px 16px;font-size:13px;",
+                            Link { to: crate::route::Route::Approvals {}, "Review Claude approvals and questions" }
+                            if let Some(error) = terminal_control_error() { span { role: "alert", "{error}" } }
+                        }
+                    }
                     if agent_has_managed_terminal(&agents_list, &selected_agent()) && current_session_id().is_some() {
                         div { class: "terminal-session-controls", style: "display:flex;gap:8px;align-items:center;padding:8px 16px;flex-wrap:wrap;",
                             input { aria_label: "Terminal input", placeholder: "Reply to a terminal prompt", value: "{terminal_input}",

@@ -11016,6 +11016,7 @@ dependencies = [
  "lopdf",
  "matrix-bot-sdk",
  "mime_guess",
+ "nix 0.31.3",
  "rand 0.10.2",
  "regex",
  "reqwest 0.13.4",

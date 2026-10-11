@@ -69,6 +69,7 @@ pub(crate) async fn dispatch_rpc(
         params,
     } = request;
     let params = params.unwrap_or_else(|| Value::Object(serde_json::Map::new()));
+    let principal = session_mgr.principal(_session_id).await;
 
     // ── Scope check ──────────────────────────────────────────────────
     let scope = required_scope(&method);
@@ -78,6 +79,29 @@ pub(crate) async fn dispatch_rpc(
             PERMISSION_DENIED,
             format!("permission denied: method \"{method}\" requires scope \"{scope}\""),
         );
+    }
+    if method == "chat.abort"
+        && params.get("all").and_then(Value::as_bool) == Some(true)
+        && !token_info.has_scope(crate::auth::TokenScope::OperatorAdmin)
+    {
+        return rpc_error(
+            id,
+            PERMISSION_DENIED,
+            "global abort requires operator.admin".to_owned(),
+        );
+    }
+    if (matches!(method.as_str(), "chat.history" | "chat.send" | "chat.abort")
+        || method.starts_with("sessions."))
+        && let Some(session_id) = params
+            .get("session_id")
+            .or_else(|| params.get("thread_id"))
+            .and_then(Value::as_str)
+        && let Err(error) = channel
+            .claude_runtime
+            .authorize_session(principal.as_deref(), session_id)
+            .await
+    {
+        return rpc_error(id, PERMISSION_DENIED, error.to_string());
     }
 
     // Store only the selected handler future. Embedding all handler variants
@@ -134,12 +158,42 @@ pub(crate) async fn dispatch_rpc(
             channel,
             session_mgr,
             session_store,
+            principal.as_deref(),
         )),
-        "chat.history" => Box::pin(handle_chat_history(&params, session_store, channel)),
-        "chat.abort" => Box::pin(handle_chat_abort(&params, channel, session_store)),
+        "chat.history" => Box::pin(handle_chat_history(
+            &params,
+            session_store,
+            channel,
+            principal.as_deref(),
+        )),
+        "chat.abort" => Box::pin(handle_chat_abort(
+            &params,
+            channel,
+            session_store,
+            principal.as_deref(),
+        )),
+        "chat.run.get" => Box::pin(async {
+            let owner = principal.as_deref().ok_or((
+                PERMISSION_DENIED,
+                "authenticated connection required".to_owned(),
+            ))?;
+            let request_id = params["request_id"]
+                .as_str()
+                .ok_or((INVALID_REQUEST, "missing request_id".to_owned()))?;
+            channel
+                .claude_runtime
+                .query(owner, request_id)
+                .await
+                .map_err(|error| (INVALID_REQUEST, error.to_string()))
+        }),
 
         // ── Sessions ────────────────────────────────────────────────────
-        "sessions.list" => Box::pin(handle_sessions_list(session_mgr, session_store, channel)),
+        "sessions.list" => Box::pin(handle_sessions_list(
+            session_mgr,
+            session_store,
+            channel,
+            principal.as_deref(),
+        )),
         "sessions.ambient.get" => {
             Box::pin(handle_sessions_ambient_get(&params, session_store, channel))
         }
@@ -323,7 +377,7 @@ pub(crate) async fn dispatch_rpc(
         "skills.install_zip" => Box::pin(handle_skills_install_zip(&params, channel)),
 
         // ── Exec approvals ──────────────────────────────────────────────
-        "exec.approvals.get" => Box::pin(handle_exec_approvals_get(channel)),
+        "exec.approvals.get" => Box::pin(handle_exec_approvals_get(channel, principal.as_deref())),
         "exec.approvals.set" => Box::pin(handle_exec_approvals_set(&params, channel)),
         "exec.approvals.node.get" => Box::pin(handle_exec_approvals_node_get(&params, channel)),
         "exec.approvals.node.set" => Box::pin(handle_exec_approvals_node_set(&params, channel)),
@@ -335,6 +389,7 @@ pub(crate) async fn dispatch_rpc(
             channel,
             session_mgr,
             &token_info.label,
+            principal.as_deref(),
         )),
         "security.policy.simulate" => Box::pin(handle_security_policy_simulate(&params, channel)),
         "security.rules.list" => Box::pin(handle_security_rules_list(channel)),

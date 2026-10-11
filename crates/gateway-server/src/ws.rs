@@ -209,9 +209,13 @@ async fn handle_ws_connection(
     // 1. Via query parameter `?token=...` (already extracted)
     // 2. By sending a `Connect` message as the first frame
 
-    let (token_info, _client_info) = if let Some(ref token) = query_token {
+    let (token_info, principal, _client_info) = if let Some(ref token) = query_token {
         if let Some(info) = auth.validate(token).await {
-            (info, None::<crate::protocol::ClientInfo>)
+            (
+                info,
+                GatewayAuth::token_subject(token),
+                None::<crate::protocol::ClientInfo>,
+            )
         } else {
             let err = GatewayMessage::Error {
                 id: None,
@@ -256,12 +260,15 @@ async fn handle_ws_connection(
                 {
                     // Try direct token validation first (backwards-compatible)
                     if let Some(info) = auth.validate(&token).await {
-                        (info, client_info)
+                        (info, GatewayAuth::token_subject(&token), client_info)
                     } else {
                         // Try as HMAC signature: client sent HMAC-SHA256(nonce, real_token)
                         // We need to check all known tokens to see if any matches
-                        if let Some(info) = auth.validate_challenge_response(&token, &nonce).await {
-                            (info, client_info)
+                        if let Some((info, principal)) = auth
+                            .validate_challenge_response_with_subject(&token, &nonce)
+                            .await
+                        {
+                            (info, principal, client_info)
                         } else {
                             let err = GatewayMessage::Error {
                                 id: None,
@@ -295,7 +302,8 @@ async fn handle_ws_connection(
 
     // Keep a copy of token_info for per-method scope checks in the dispatch loop.
     let rpc_token_info = token_info.clone();
-    let session = ClientSession::new(session_id, token_info, outgoing_tx);
+    let mut session = ClientSession::new(session_id, token_info, outgoing_tx);
+    session.principal = principal;
     session_mgr.add_session(session).await;
     let mut _guard = SessionCleanupGuard::new((*session_mgr).clone(), session_id);
 
@@ -601,6 +609,341 @@ mod terminal_ws_tests {
         ))
         .await
         .expect("send");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[cfg(unix)]
+    async fn claude_approval_survives_reattach_and_rejects_other_credentials() {
+        use crate::auth::{TokenInfo, TokenScope};
+        let home = tempfile::tempdir().expect("tempdir");
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let mut config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        config.cwd = home.path().to_path_buf();
+        std::fs::create_dir_all(home.path().join("agents")).unwrap();
+        std::fs::write(home.path().join("agents/claude-test.json"), json!({
+            "id":"claude-test","name":"Claude","kind":"terminal","system_prompt":"initial instructions",
+            "terminal":{"enabled":true,"runtime":"claude","profile":"claude","mode":"claude_stream","session_scope":"per_session","command":concat!(env!("CARGO_MANIFEST_DIR"),"/tests/fixtures/claude/cli.sh"),"env":{"FAKE_MODE":"approval","FAKE_INPUT":home.path().join("input.log")},"savfox_approval_bridge":"required","claude":{"expected_version":"synthetic-claude-2","approval_timeout_secs":5,"shutdown_timeout_secs":1}}
+        }).to_string()).unwrap();
+        let auth = Arc::new(GatewayAuth::new(std::collections::HashMap::from([
+            (
+                "owner-token".to_owned(),
+                TokenInfo {
+                    label: "identical label".to_owned(),
+                    scopes: vec![TokenScope::Operator],
+                },
+            ),
+            (
+                "other-token".to_owned(),
+                TokenInfo {
+                    label: "identical label".to_owned(),
+                    scopes: vec![TokenScope::Operator],
+                },
+            ),
+        ])));
+        let sessions = Arc::new(GatewaySessionManager::new());
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let (outgoing_tx, _outgoing_rx) = mpsc::channel(128);
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: store.clone(),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            feedback: savfox_feedback::SavfoxFeedback::new(),
+            savfox_linux_sandbox_exe: None,
+            websocket_manager: (*sessions).clone(),
+            outgoing_tx,
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = reservation.local_addr().unwrap().port();
+        drop(reservation);
+        let router = crate::server::build_router(
+            auth,
+            sessions,
+            channel.clone(),
+            &GatewayConfig::default(),
+            store.clone(),
+            Arc::new(CronService::from_home(home.path())),
+            home.path().to_path_buf(),
+        );
+        let server = Server::new(TcpListener::new(format!("127.0.0.1:{port}")).bind().await);
+        let shutdown = server.handle();
+        let server_task = tokio::spawn(async move { server.serve(router).await });
+        let owner_url = format!("ws://127.0.0.1:{port}/ws?token=owner-token");
+        let (mut owner, _) = tokio_tungstenite::connect_async(&owner_url).await.unwrap();
+        let (mut other, _) =
+            tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws?token=other-token"))
+                .await
+                .unwrap();
+        assert_eq!(receive(&mut owner).await["type"], "connected");
+        assert_eq!(receive(&mut other).await["type"], "connected");
+        let session_id = uuid::Uuid::now_v7().to_string();
+        let params = json!({"agent":"claude-test","message":"run once","session_id":session_id,"request_id":"one-request"});
+        send(&mut owner, 1, "chat.send", params.clone()).await;
+        let request = loop {
+            let frame = receive(&mut owner).await;
+            if frame["event"] == "exec.approval.requested" {
+                break frame["payload"].clone();
+            }
+            assert!(frame.get("error").is_none(), "{frame}");
+        };
+        let resolution = json!({"request_id":request["request_id"],"nonce":request["nonce"],"decision":"approve-once"});
+        send(&mut other, 2, "exec.approval.resolve", resolution.clone()).await;
+        let denied = receive(&mut other).await;
+        assert_eq!(denied["id"], 2);
+        assert!(denied.get("error").is_some());
+        send(
+            &mut other,
+            3,
+            "chat.history",
+            json!({"session_id":session_id}),
+        )
+        .await;
+        assert!(receive(&mut other).await.get("error").is_some());
+        send(
+            &mut other,
+            13,
+            "chat.history",
+            json!({"session_id":session_id.to_uppercase()}),
+        )
+        .await;
+        assert!(receive(&mut other).await.get("error").is_some());
+        owner.close(None).await.unwrap();
+        let (mut owner, _) = tokio_tungstenite::connect_async(&owner_url).await.unwrap();
+        assert_eq!(receive(&mut owner).await["type"], "connected");
+        send(
+            &mut owner,
+            4,
+            "chat.run.get",
+            json!({"request_id":"one-request"}),
+        )
+        .await;
+        loop {
+            let frame = receive(&mut owner).await;
+            if frame["id"] == 4 {
+                assert_eq!(frame["result"]["status"], "running");
+                assert_eq!(
+                    frame["result"]["pending_approvals"]
+                        .as_array()
+                        .unwrap()
+                        .len(),
+                    1
+                );
+                break;
+            }
+        }
+        send(&mut owner, 10, "chat.send", json!({"agent":"claude-test","message":"queued request","session_id":session_id,"request_id":"queued-request"})).await;
+        let owner_subject = GatewayAuth::token_subject("owner-token");
+        let queued = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(run) = channel
+                    .claude_runtime
+                    .query(&owner_subject, "queued-request")
+                    .await
+                {
+                    break run;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(queued["status"], "starting");
+        send(
+            &mut owner,
+            12,
+            "chat.abort",
+            json!({"run_id":queued["run_id"]}),
+        )
+        .await;
+        let mut cancel_response = false;
+        let mut queued_response = false;
+        while !cancel_response || !queued_response {
+            let frame = receive(&mut owner).await;
+            if frame["id"] == 12 {
+                assert_eq!(frame["result"]["status"], "stop_requested");
+                cancel_response = true;
+            }
+            if frame["id"] == 10 {
+                assert!(frame.get("error").is_some(), "{frame}");
+                queued_response = true;
+            }
+        }
+        assert_eq!(
+            channel
+                .claude_runtime
+                .query(&owner_subject, "queued-request")
+                .await
+                .unwrap()["status"],
+            "cancelled"
+        );
+        assert_eq!(
+            channel
+                .claude_runtime
+                .query(&owner_subject, "one-request")
+                .await
+                .unwrap()["pending_approvals"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        send(&mut owner, 5, "exec.approval.resolve", resolution).await;
+        loop {
+            let frame = receive(&mut owner).await;
+            if frame["event"] == "agent.complete" {
+                assert_eq!(frame["payload"]["raw_response"], "allowed");
+                assert_eq!(frame["payload"]["usage"]["total_tokens"], 20);
+                break;
+            }
+        }
+        send(&mut owner, 6, "chat.send", params).await;
+        loop {
+            let frame = receive(&mut owner).await;
+            if frame["id"] == 6 {
+                assert_eq!(frame["result"]["raw_response"], "allowed");
+                break;
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(home.path().join("input.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        let entry = store.get(&session_id).await.unwrap();
+        assert_eq!(entry.total_tokens, 20);
+        send(
+            &mut owner,
+            7,
+            "chat.history",
+            json!({"session_id":session_id}),
+        )
+        .await;
+        loop {
+            let frame = receive(&mut owner).await;
+            if frame["id"] == 7 {
+                assert_eq!(frame["result"]["messages"].as_array().unwrap().len(), 2);
+                break;
+            }
+        }
+        send(&mut other, 14, "sessions.list", json!({})).await;
+        let other_sessions = receive(&mut other).await;
+        assert_eq!(other_sessions["result"]["persistent_sessions"], json!([]));
+        assert_eq!(other_sessions["result"]["entries"], json!([]));
+        assert_eq!(other_sessions["result"]["total_persistent"], 0);
+        assert_eq!(other_sessions["result"]["total_tokens"], 0);
+        send(
+            &mut other,
+            15,
+            "sessions.ambient.get",
+            json!({"session_id":session_id}),
+        )
+        .await;
+        assert!(receive(&mut other).await.get("error").is_some());
+        for (index, terminal_change) in [
+            (8, json!({"expected_version":123})),
+            (9, json!({"expected_version":"synthetic-claude-2"})),
+        ] {
+            let path = home.path().join("agents/claude-test.json");
+            let mut config: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            config["terminal"]["claude"] = terminal_change;
+            if index == 9 {
+                config["terminal"]["mode"] = json!("unknown-mode");
+            }
+            std::fs::write(path, config.to_string()).unwrap();
+            send(&mut owner, index, "chat.send", json!({"agent":"claude-test","message":"must not execute","session_id":session_id,"request_id":format!("invalid-{index}")})).await;
+            loop {
+                let frame = receive(&mut owner).await;
+                if frame["id"] == index {
+                    assert!(frame.get("error").is_some(), "{frame}");
+                    break;
+                }
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(home.path().join("input.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), other.next())
+                .await
+                .is_err(),
+            "Claude events leaked to another credential"
+        );
+        let path = home.path().join("agents/claude-test.json");
+        let mut config: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        config["terminal"]["mode"] = json!("claude_stream");
+        config["terminal"]["env"]["FAKE_MODE"] = json!("normal");
+        std::fs::write(path, config.to_string()).unwrap();
+        let guard_session = uuid::Uuid::now_v7().to_string();
+        let invocation = channel
+            .invoke_terminal_delegate_with_execution(
+                "guard test",
+                "claude-test",
+                "default",
+                Some(&guard_session),
+                &[],
+                None,
+                Some(crate::claude_code::Execution {
+                    owner: owner_subject,
+                    request_id: "guard-request".to_owned(),
+                    session_id: guard_session.clone(),
+                    agent_id: "claude-test".to_owned(),
+                    approval_client: true,
+                    trusted_context: None,
+                }),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let metadata_path = home
+            .path()
+            .join("terminal-agents/claude-test/sessions")
+            .join(&guard_session)
+            .join("metadata.json");
+        // Returning the CLI result must not unlock before the caller persists
+        // its session metadata. Dropping the invocation releases the lock.
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(50),
+                crate::codex_app_server::session_lock(&metadata_path)
+            )
+            .await
+            .is_err()
+        );
+        drop(invocation);
+        let guard = tokio::time::timeout(
+            Duration::from_secs(1),
+            crate::codex_app_server::session_lock(&metadata_path),
+        )
+        .await
+        .unwrap();
+        drop(guard);
+        owner.close(None).await.unwrap();
+        other.close(None).await.unwrap();
+        channel.claude_runtime.shutdown().await;
+        shutdown.stop_graceful(Duration::from_secs(1));
+        tokio::time::timeout(Duration::from_secs(3), server_task)
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
