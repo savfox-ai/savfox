@@ -2009,9 +2009,6 @@ impl FileArkretCryptoStore {
                 device_verification_method,
                 ..
             } => device_verification_method,
-            arkret::RecipientMlsDurableSigner::MinimalMetadataPairwise { .. } => {
-                anyhow::bail!("pairwise endpoint cannot consume an ordinary MLS Welcome")
-            }
         }
         .clone();
         let receipt = arkret::RecipientMlsDurableReceipt {
@@ -2705,12 +2702,6 @@ fn new_mls_identity(
             agent_key_authorize_event_id,
             signer,
         ),
-        MlsEndpointIdentity::MinimalMetadataPairwise {
-            verification_method,
-            ..
-        } => {
-            ArkretMlsIdentity::new_minimal_metadata_pairwise(actor_id, verification_method, signer)
-        }
     }
     .map_err(anyhow::Error::from)
 }
@@ -2738,56 +2729,7 @@ fn new_human_mls_identity(
 pub fn mls_key_package_record_from_claim(
     claim: &arkret::KeyPackageClaimRecord,
 ) -> anyhow::Result<MlsKeyPackageRecord> {
-    claim.actor_id.validate()?;
-    anyhow::ensure!(
-        claim.actor_id.signing_principal_id() == &claim.principal_id,
-        "KeyPackage claim ActorId does not bind its principal"
-    );
-    let endpoint = match (
-        &claim.device_id,
-        &claim.agent_id,
-        &claim.agent_verification_method,
-        &claim.agent_key_authorize_event_id,
-    ) {
-        (Some(device_id), None, None, None) => {
-            MlsEndpointIdentity::human_device(claim.principal_id.clone(), device_id.clone())
-        }
-        (None, Some(agent_id), Some(method), Some(authorization_ref)) => {
-            if agent_id != &claim.principal_id {
-                anyhow::bail!("Agent KeyPackage claim endpoint binding mismatch");
-            }
-            MlsEndpointIdentity::agent_runtime(
-                agent_id.clone(),
-                method.clone(),
-                authorization_ref.clone(),
-            )?
-        }
-        (None, None, None, None) => MlsEndpointIdentity::minimal_metadata_pairwise(
-            claim.principal_id.clone(),
-            claim
-                .pairwise_verification_method
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("pairwise KeyPackage claim omits its method"))?,
-        )?,
-        _ => anyhow::bail!("KeyPackage claim has an incomplete or mixed endpoint identity"),
-    };
-    let keypackage = arkret::base64url_decode(claim.keypackage.as_bytes())?;
-    let keypackage_ref = arkret::Hash::new(arkret::canonical::sha256_digest(&keypackage))?;
-    let cipher_suite = arkret::mls::keypackage_ciphersuite_canonical_id(&keypackage)?;
-    Ok(MlsKeyPackageRecord {
-        keypackage_id: claim.keypackage_ref.clone(),
-        actor_id: claim.actor_id.clone(),
-        endpoint,
-        keypackage: claim.keypackage.clone(),
-        keypackage_ref,
-        cipher_suites: vec![cipher_suite.to_owned()],
-        capabilities: claim.capabilities.clone(),
-        state: MlsKeyPackageState::Claimed,
-        claim_id: Some(claim.claim_id.clone()),
-        created_at: Utc::now(),
-        expires_at: Some(claim.expires_at),
-        last_resort: claim.last_resort.unwrap_or(false),
-    })
+    arkret::mls_key_package_record_from_claim(claim).map_err(anyhow::Error::from)
 }
 
 #[must_use]
@@ -2932,8 +2874,7 @@ fn mls_identity_signature_public_key(identity: &ArkretMlsIdentity) -> anyhow::Re
 fn endpoint_human_device_id(endpoint: &MlsEndpointIdentity) -> Option<&DeviceId> {
     match endpoint {
         MlsEndpointIdentity::HumanDevice { device_id, .. } => Some(device_id),
-        MlsEndpointIdentity::AgentRuntime { .. }
-        | MlsEndpointIdentity::MinimalMetadataPairwise { .. } => None,
+        MlsEndpointIdentity::AgentRuntime { .. } => None,
     }
 }
 
@@ -5781,7 +5722,6 @@ mod tests {
             device_id: Some(DeviceId::new(bob_device.to_owned()).unwrap()),
             agent_id: None,
             agent_verification_method: None,
-            pairwise_verification_method: None,
             keypackage: bob_key_package.keypackage.clone(),
             capabilities: bob_key_package.capabilities.clone(),
             device_authorize_event_id: Some(
@@ -5817,8 +5757,18 @@ mod tests {
                 realm_id: FIXTURE_CLAIM_REALM.clone(),
             })
             .unwrap();
+        let binding = arkret::MlsGovernanceBindingPayload::new(
+            ScopeRef::Realm {
+                realm_id: FIXTURE_CLAIM_REALM.clone(),
+            },
+            Some(FIXTURE_EVENT_1.clone()),
+            0,
+            1,
+            0,
+        )
+        .unwrap();
         let add = alice_group
-            .add_member(&claimed)
+            .add_member_with_governance_binding(&claimed, &binding)
             .expect("claimed KeyPackage should add to MLS group");
         assert!(matches!(
             &add.welcome.recipient,

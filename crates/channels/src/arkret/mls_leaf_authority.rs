@@ -77,9 +77,6 @@ pub fn verified_welcome_leaf_authority(
                 verification_method.clone(),
             )
         }
-        MlsEndpointIdentity::MinimalMetadataPairwise { .. } => {
-            anyhow::bail!("pairwise MLS endpoint cannot consume an ordinary Welcome")
-        }
     };
     let claim = garth::mls::verify_welcome_claim(
         delivery,

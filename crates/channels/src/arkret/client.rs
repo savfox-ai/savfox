@@ -328,7 +328,6 @@ pub fn build_mls_key_packages_claim_request(
         target_agent_id: None,
         target_agent_verification_method: None,
         target_agent_key_authorize_event_id: None,
-        target_pairwise_verification_method: None,
         timeout_ms,
         strand_id,
         pair_key: None,

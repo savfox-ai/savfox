@@ -1959,6 +1959,24 @@ fn build_signed_keypackage_upload_request(
     verification_method: &str,
     authorized_event_ref: &str,
 ) -> anyhow::Result<KeyPackagesUploadRequestBody> {
+    let first = records
+        .first()
+        .context("KeyPackage upload batch is empty")?;
+    anyhow::ensure!(
+        first.actor_id == actor_id
+            && records
+                .iter()
+                .all(|record| { record.actor_id == actor_id && record.endpoint == first.endpoint }),
+        "KeyPackage upload batch mixes ActorIds or endpoints"
+    );
+    anyhow::ensure!(
+        matches!(&first.endpoint, arkret::MlsEndpointIdentity::AgentRuntime {
+            agent_id, verification_method: method, agent_key_authorize_event_id
+        } if agent_id == &principal_id
+            && method.as_str() == verification_method
+            && agent_key_authorize_event_id.as_str() == authorized_event_ref),
+        "KeyPackage upload batch differs from the authorized Agent endpoint"
+    );
     let key_packages = records
         .iter()
         .map(arkret::mls_key_package_record_upload_entry)
@@ -1969,8 +1987,6 @@ fn build_signed_keypackage_upload_request(
         actor_id,
         principal_id,
         device_id: None,
-        pairwise_verification_method: None,
-        intended_realm_id: None,
         agent_verification_method: Some(
             arkret::DidUrl::new(verification_method.to_owned()).map_err(anyhow::Error::msg)?,
         ),
@@ -5830,21 +5846,32 @@ mod tests {
     #[test]
     fn keypackage_upload_uses_sdk_batch_transcript_without_entry_signatures() {
         let principal_id = DidCoreId::new("ak:did_core:web:agent.example".to_owned()).unwrap();
-        let device_id =
-            DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned()).unwrap();
         let verification_method = "did:web:agent.example#runtime-1".to_owned();
         let authorize_event_id = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
         let seed = [7_u8; 32];
         let key_ref = ArkretKeyRef::InlineSeedBase64 {
             value: STANDARD_NO_PAD.encode(seed),
         };
+        let actor = arkret::ActorId::account(arkret::AccountId::new(
+            principal_id.clone(),
+            principal_server_id(),
+        ));
+        let identity = arkret::ArkretMlsIdentity::new_agent(
+            actor.clone(),
+            arkret::DidUrl::new(verification_method.clone()).unwrap(),
+            EventId::new(authorize_event_id).unwrap(),
+            arkret::ArkretMlsSigner::from_ed25519_signing_key(
+                ed25519_dalek::SigningKey::from_bytes(&seed),
+            ),
+        )
+        .unwrap();
         let records = [
-            keypackage_record(&principal_id, &device_id, 1, false),
-            keypackage_record(&principal_id, &device_id, 2, true),
+            identity.key_package_record().unwrap(),
+            identity.key_package_record().unwrap(),
         ];
 
         let request = build_signed_keypackage_upload_request(
-            arkret::ActorId::account(make_account().actor_account_id),
+            actor.clone(),
             principal_id.clone(),
             &records,
             &key_ref,
@@ -5869,7 +5896,7 @@ mod tests {
             Some(authorize_event_id)
         );
         assert_eq!(request.keypackages[0].last_resort, None);
-        assert_eq!(request.keypackages[1].last_resort, Some(true));
+        assert_eq!(request.keypackages[1].last_resort, None);
         let unsigned = request.unsigned();
         let batch_input = arkret::keypackages_upload_signing_input(&unsigned).unwrap();
         let public_key = ed25519_dalek::SigningKey::from_bytes(&seed)
@@ -5882,6 +5909,46 @@ mod tests {
             &request.endpoint_signature,
         )
         .unwrap();
+
+        let wrong_station = arkret::ActorId::account(arkret::AccountId::new(
+            principal_id.clone(),
+            DidCoreId::new("ak:did_core:web:other-station.example").unwrap(),
+        ));
+        assert!(
+            build_signed_keypackage_upload_request(
+                wrong_station.clone(),
+                principal_id.clone(),
+                &records,
+                &key_ref,
+                &verification_method,
+                authorize_event_id,
+            )
+            .is_err()
+        );
+        let mut mixed = records.clone();
+        mixed[1].actor_id = wrong_station;
+        assert!(
+            build_signed_keypackage_upload_request(
+                actor.clone(),
+                principal_id.clone(),
+                &mixed,
+                &key_ref,
+                &verification_method,
+                authorize_event_id,
+            )
+            .is_err()
+        );
+        assert!(
+            build_signed_keypackage_upload_request(
+                actor,
+                principal_id,
+                &records,
+                &key_ref,
+                "did:web:agent.example#runtime-2",
+                authorize_event_id,
+            )
+            .is_err()
+        );
     }
 
     #[test]
