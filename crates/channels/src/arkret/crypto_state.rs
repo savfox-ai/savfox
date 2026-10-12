@@ -399,7 +399,120 @@ fn crypto_scope_lock(scope_id: &str) -> Arc<ReentrantMutex<()>> {
         .clone()
 }
 
+// Stable separate inode: encrypted state is atomically renamed. Both the UI
+// sender and native listener take this outer guard across the WHOLE RMW.
+// Nested original load/save calls reuse the same thread's OS lock while the
+// existing ReentrantMutex excludes other threads in this process.
+thread_local! {
+    static CRYPTO_OS_LOCKS: std::cell::RefCell<BTreeMap<PathBuf, (std::fs::File, usize)>> =
+        std::cell::RefCell::new(BTreeMap::new());
+}
+struct CryptoMutationGuard<'a> {
+    _process: parking_lot::ReentrantMutexGuard<'a, ()>,
+    path: PathBuf,
+}
+impl Drop for CryptoMutationGuard<'_> {
+    fn drop(&mut self) {
+        CRYPTO_OS_LOCKS.with(|locks| {
+            let mut locks = locks.borrow_mut();
+            let entry = locks
+                .get_mut(&self.path)
+                .expect("crypto lock guard ownership");
+            entry.1 -= 1;
+            if entry.1 == 0 {
+                locks.remove(&self.path);
+            }
+        });
+        // File close releases OS lock before the outer process guard drops.
+    }
+}
+
 impl FileArkretCryptoStore {
+    // Separate lifecycle inode: holding this lease never holds the MLS RMW
+    // lock. It records no protocol state and is released by process/task Drop.
+    fn native_owner_file(&self) -> anyhow::Result<std::fs::File> {
+        let parent = self.path.parent().context("crypto state parent missing")?;
+        std::fs::create_dir_all(parent)?;
+        let path = parent.canonicalize()?.join(
+            self.path
+                .with_extension("native-owner.lock")
+                .file_name()
+                .context("native owner lock name missing")?,
+        );
+        if let Ok(metadata) = std::fs::symlink_metadata(&path) {
+            anyhow::ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "native owner lock is not a regular file"
+            );
+        }
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).truncate(false).read(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        Ok(options.open(path)?)
+    }
+
+    /// One account inbox/MLS listener owns this lease for its entire task.
+    /// A competing owner fails closed rather than blocking an async worker.
+    pub fn try_acquire_native_owner(&self) -> anyhow::Result<std::fs::File> {
+        let file = self.native_owner_file()?;
+        file.try_lock()
+            .map_err(|_| anyhow::anyhow!("native account owner is active or unavailable"))?;
+        Ok(file)
+    }
+
+    /// After a durable disabled config, wait on a blocking worker until the
+    /// previous account task has dropped. Keep this lease through original erase.
+    pub fn acquire_native_owner_for_unbind(&self) -> anyhow::Result<std::fs::File> {
+        let file = self.native_owner_file()?;
+        file.lock()?;
+        Ok(file)
+    }
+    fn acquire_mutation(&self) -> anyhow::Result<CryptoMutationGuard<'_>> {
+        let process = self.mutation_lock.lock();
+        let parent = self.path.parent().context("crypto state parent missing")?;
+        std::fs::create_dir_all(parent)?;
+        // Resolve the actual existing directory so relative/symlink aliases
+        // cannot split the lock for the same state file.
+        let path = parent.canonicalize()?.join(
+            self.path
+                .with_extension("lock")
+                .file_name()
+                .context("crypto lock name missing")?,
+        );
+        CRYPTO_OS_LOCKS.with(|locks| -> anyhow::Result<()> {
+            let mut locks = locks.borrow_mut();
+            if let Some((_, depth)) = locks.get_mut(&path) {
+                *depth = depth.checked_add(1).context("crypto lock depth overflow")?;
+                return Ok(());
+            }
+            if let Ok(metadata) = std::fs::symlink_metadata(&path) {
+                anyhow::ensure!(
+                    metadata.is_file() && !metadata.file_type().is_symlink(),
+                    "crypto lock is not a regular file"
+                );
+            }
+            let mut options = std::fs::OpenOptions::new();
+            options.create(true).truncate(false).read(true).write(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.mode(0o600);
+            }
+            let file = options.open(&path)?;
+            file.lock()?;
+            locks.insert(path.clone(), (file, 1));
+            Ok(())
+        })?;
+        Ok(CryptoMutationGuard {
+            _process: process,
+            path,
+        })
+    }
+
     #[must_use]
     pub fn for_account(savfox_home: &Path, channel_id: &str, account_id: &str) -> Self {
         let scope_id = account_scope_id(channel_id, account_id);
@@ -448,7 +561,7 @@ impl FileArkretCryptoStore {
         &self,
         candidate: &arkret::StationConnectionBinding,
     ) -> anyhow::Result<arkret::StationConnectionBinding> {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load_unlocked()?;
         if let Some(accepted) = state.accepted_station {
             accepted.require_same(candidate)?;
@@ -466,7 +579,7 @@ impl FileArkretCryptoStore {
     }
 
     pub fn load(&self) -> anyhow::Result<ArkretCryptoStateFile> {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         self.load_unlocked()
             .map_err(|error| error.context(ArkretCryptoStorageFailure))
     }
@@ -522,7 +635,7 @@ impl FileArkretCryptoStore {
     }
 
     fn save_state(&self, state: &mut ArkretCryptoStateFile) -> anyhow::Result<()> {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         if state.scope_id != self.scope_id {
             anyhow::bail!(
                 "refusing to save Arkret crypto state for scope '{}' into '{}'",
@@ -660,14 +773,14 @@ impl FileArkretCryptoStore {
     }
 
     pub fn ensure_created(&self) -> anyhow::Result<()> {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         self.save(&mut state)
     }
 
     pub fn upsert_realm_policy(&self, policy: ArkretRealmCryptoPolicy) -> anyhow::Result<()> {
         policy.group_id_for_realm()?;
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         state.realm_policies.insert(policy.realm_id.clone(), policy);
         self.save(&mut state)
@@ -692,7 +805,7 @@ impl FileArkretCryptoStore {
                 && authority_refs.windows(2).all(|pair| pair[0] < pair[1]),
             "Realm authority references must be non-empty, sorted, and unique"
         );
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         state
             .realm_authority_refs
@@ -755,7 +868,7 @@ impl FileArkretCryptoStore {
                 },
             "presence authority head belongs to another independent stream"
         );
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let policy = state
             .realm_policies
@@ -885,7 +998,7 @@ impl FileArkretCryptoStore {
         let Some(realms) = realms_value.as_object() else {
             return Ok(0);
         };
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let mut updated = 0usize;
         for (realm_id, realm_value) in realms {
@@ -963,7 +1076,7 @@ impl FileArkretCryptoStore {
             .to_bytes();
         signing_seed.zeroize();
 
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         account_id.validate()?;
         let actor_id = ActorId::account(account_id.clone());
@@ -1023,7 +1136,7 @@ impl FileArkretCryptoStore {
     ) -> anyhow::Result<MlsKeyPackageRecord> {
         use zeroize::Zeroize as _;
 
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         actor_id.validate()?;
         endpoint.validate()?;
@@ -1128,7 +1241,7 @@ impl FileArkretCryptoStore {
         let payload: MlsCommitPayload =
             serde_json::from_value(serde_json::to_value(&accepted.event.payload)?)?;
         let commit_bytes = arkret::base64url_decode(payload.commit_bytes_b64())?;
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let mut changed = false;
         for record in state.mls_key_packages.values_mut() {
@@ -1257,7 +1370,7 @@ impl FileArkretCryptoStore {
 
     /// A lost response leaves these exact public bytes pending for retry.
     pub fn confirm_key_package_uploads(&self, accepted_refs: &[String]) -> anyhow::Result<()> {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         for reference in accepted_refs {
             state.pending_key_package_uploads.remove(reference);
@@ -1335,6 +1448,7 @@ impl FileArkretCryptoStore {
     /// the server-side pool has been revoked. Removing a missing file is a
     /// no-op, not an error.
     pub fn delete_persisted(&self) -> std::io::Result<()> {
+        let _guard = self.acquire_mutation().map_err(std::io::Error::other)?;
         match std::fs::remove_file(self.path()) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -1420,7 +1534,7 @@ impl FileArkretCryptoStore {
         if accepted.is_empty() && !direct {
             return Ok(0);
         }
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         if direct {
             state.realm_policies.insert(
@@ -1576,7 +1690,7 @@ impl FileArkretCryptoStore {
         head: Option<arkret::RealmCommit>,
     ) -> anyhow::Result<()> {
         let group_id = scope.canonical_mls_group_id()?;
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let record = state
             .mls_group_states
@@ -1637,7 +1751,7 @@ impl FileArkretCryptoStore {
         ))?;
         payload.validate()?;
         let group_id = payload.mls_group_id()?;
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let record = state
             .mls_group_states
@@ -1716,7 +1830,7 @@ impl FileArkretCryptoStore {
         ))?;
         payload.validate()?;
         let group_id = payload.mls_group_id()?;
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let record = state
             .mls_group_states
@@ -1856,7 +1970,7 @@ impl FileArkretCryptoStore {
             delivery.keypackage_claim_ref
         );
 
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let identity_record = state
             .mls_identities
@@ -2109,7 +2223,7 @@ impl FileArkretCryptoStore {
         if payloads.is_empty() {
             return Ok(0);
         }
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let mut changed = false;
         for (payload, binding_event_ref) in payloads {
@@ -2211,7 +2325,7 @@ impl FileArkretCryptoStore {
         device_id: &str,
         payload: &EncryptedPayload,
     ) -> anyhow::Result<ArkretBootstrapRecord> {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let _principal = DidCoreId::new(principal_id.to_owned())
             .with_context(|| format!("invalid Arkret principal DID '{principal_id}'"))?;
@@ -2263,7 +2377,7 @@ impl FileArkretCryptoStore {
         encrypted_content: EncryptedPayload,
         reason: UnableToDecryptReason,
     ) -> anyhow::Result<()> {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let record = UnableToDecryptRecord {
             event_id: EventId::new(event_id.to_owned())
@@ -2283,7 +2397,7 @@ impl FileArkretCryptoStore {
     }
 
     pub fn clear_unable_to_decrypt(&self, event_id: &str) -> anyhow::Result<()> {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         if state
             .unable_to_decrypt
@@ -2344,13 +2458,35 @@ impl FileArkretCryptoStore {
         self.decrypt_content_block_detailed(payload, Some(accepted_ref))
     }
 
+    /// Exact original Garth-verified shared delivery; cache uses existing sealed
+    /// crypto state atomically with the same RFC ratchet, never raw backfill.
+    pub fn try_decrypt_native_shared_reply(
+        &self,
+        accepted_ref: &CommittedEventRef,
+        payload: &EncryptedPayload,
+    ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
+        anyhow::ensure!(
+            matches!(
+                payload.pre_encryption_header.effective_scope,
+                ScopeRef::Realm { .. } | ScopeRef::Circle { .. }
+            ) && accepted_ref.stream_ref
+                == arkret::CommitStreamRef::from_scope(
+                    &payload.pre_encryption_header.effective_scope,
+                    None
+                )?,
+            "native shared decryption requires exact accepted stream"
+        );
+        payload.verify_payload_digest()?;
+        self.decrypt_content_block_detailed(payload, Some(accepted_ref))
+    }
+
     fn decrypt_content_block_detailed(
         &self,
         payload: &EncryptedPayload,
         accepted_ref: Option<&CommittedEventRef>,
     ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
         use sha2::Digest as _;
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let cache_key = accepted_ref
             .map(|reference| {
@@ -2494,7 +2630,7 @@ impl FileArkretCryptoStore {
     where
         T: MlsPayloadType + Serialize,
     {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let realm_id = scope
             .realm_id_opt()
@@ -2584,7 +2720,7 @@ impl FileArkretCryptoStore {
         keypackage_ref_or_id: &str,
         update: impl FnOnce(&mut MlsKeyPackageRecord) -> anyhow::Result<()>,
     ) -> anyhow::Result<Option<MlsKeyPackageRecord>> {
-        let _guard = self.mutation_lock.lock();
+        let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let Some(cache_key) =
             find_mls_key_package_cache_key(&state.mls_key_packages, keypackage_ref_or_id)
@@ -5840,5 +5976,102 @@ mod tests {
                     && record.state == MlsKeyPackageState::Consumed)
         );
         let _ = std::fs::remove_dir_all(&home);
+    }
+}
+
+#[cfg(test)]
+mod native_crypto_process_tests {
+    use super::*;
+    const CHILD: &str =
+        "arkret::crypto_state::native_crypto_process_tests::native_crypto_process_writer";
+    #[test]
+    fn native_crypto_process_writer() {
+        let Ok(home) = std::env::var("SAVFOX_CRYPTO_PROCESS_TEST_HOME") else {
+            return;
+        };
+        let label = std::env::var("SAVFOX_CRYPTO_PROCESS_TEST_LABEL").unwrap();
+        let store =
+            FileArkretCryptoStore::new(Path::new(&home), "account:process:shared".to_owned());
+        let guard = store.acquire_mutation().unwrap();
+        let mut state = store.load().unwrap();
+        // Both children must retain their RMW lock while they deliberately
+        // overlap. Losing one update is observable in the cold parent reader.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        state.realm_authority_refs.insert(label, Vec::new());
+        store.save(&mut state).unwrap();
+        drop(guard);
+    }
+    #[test]
+    fn native_crypto_two_process_rmw_and_cold_read_preserve_both_updates() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::new(home.path(), "account:process:shared".to_owned());
+        store.ensure_created().unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let spawn = |label| {
+            std::process::Command::new(&exe)
+                .args(["--exact", CHILD])
+                .env("SAVFOX_CRYPTO_PROCESS_TEST_HOME", home.path())
+                .env("SAVFOX_CRYPTO_PROCESS_TEST_LABEL", label)
+                .spawn()
+                .unwrap()
+        };
+        let mut a = spawn("first");
+        let mut b = spawn("second");
+        assert!(a.wait().unwrap().success());
+        assert!(b.wait().unwrap().success());
+        drop(store);
+        let cold = FileArkretCryptoStore::new(home.path(), "account:process:shared".to_owned());
+        let state = cold.load().unwrap();
+        assert!(state.realm_authority_refs.contains_key("first"));
+        assert!(state.realm_authority_refs.contains_key("second"));
+        assert_eq!(state.generation, 3);
+    }
+    #[test]
+    fn native_crypto_nested_guard_keeps_outer_os_lock() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::new(home.path(), "account:process:nested".to_owned());
+        let outer = store.acquire_mutation().unwrap();
+        let mut state = store.load().unwrap();
+        store.save(&mut state).unwrap();
+        let contender = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(store.path().with_extension("lock"))
+            .unwrap();
+        assert!(contender.try_lock().is_err());
+        drop(outer);
+        contender.try_lock().unwrap();
+        assert_eq!(state.generation, 1);
+    }
+    #[test]
+    fn native_owner_lease_blocks_erase_but_not_crypto_rmw() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::new(home.path(), "account:process:owner".into());
+        let owner = store.try_acquire_native_owner().unwrap();
+        assert!(store.try_acquire_native_owner().is_err());
+        // Independent short RMW is available to the UI sender while native
+        // listens; a lifecycle lease must not monopolize the ratchet lock.
+        store.ensure_created().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
+        let erase_store = store.clone();
+        let erase = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let lease = erase_store.acquire_native_owner_for_unbind().unwrap();
+            acquired_tx.send(()).unwrap();
+            erase_store.delete_persisted().unwrap();
+            drop(lease);
+        });
+        started_rx.recv().unwrap();
+        assert!(acquired_rx.try_recv().is_err());
+        assert!(store.path().exists());
+        drop(owner);
+        acquired_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        erase.join().unwrap();
+        assert!(!store.path().exists());
+        let reopened = store.try_acquire_native_owner().unwrap();
+        drop(reopened);
     }
 }

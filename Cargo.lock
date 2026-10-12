@@ -10884,6 +10884,7 @@ dependencies = [
 name = "savfox-exec-policy"
 version = "0.3.1"
 dependencies = [
+ "allocative",
  "anyhow",
  "clap",
  "multimap",
@@ -11037,6 +11038,7 @@ dependencies = [
  "savfox-login-oauth",
  "savfox-memory",
  "savfox-model",
+ "savfox-otel",
  "savfox-protocol",
  "savfox-skill-registry",
  "savfox-utils",

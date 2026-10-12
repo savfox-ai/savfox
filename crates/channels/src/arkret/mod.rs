@@ -49,8 +49,8 @@ pub(crate) const DIGEST_SUITE: arkret::canonical::DigestSuite =
     arkret::canonical::DigestSuite::Sha256;
 pub use client::{
     ArkretAccountFrameStream, ArkretAgentSessionProvider, ArkretHttpClient,
-    agent_session_exchange_reason, agent_session_reason_is_irreversibly_terminal,
-    build_mls_key_packages_claim_request,
+    ArkretNativeAgentCredentials, ArkretNativeCredentialSource, agent_session_exchange_reason,
+    agent_session_reason_is_irreversibly_terminal, build_mls_key_packages_claim_request,
 };
 pub use config::{
     ArkretAccountConfig, ArkretAccountMode, ArkretChannelConfig, VerifiedArkretRuntimeScope,

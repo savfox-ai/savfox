@@ -52,6 +52,7 @@ use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
 pub(crate) mod governance;
+pub mod native_reply;
 mod receive;
 
 /// Per-(channel, account) runtime handles. Indexed by `{channel_id}::{account_id}`.
@@ -383,6 +384,16 @@ pub(crate) async fn start_arkret_channel(
         arkret_config.base_url,
     );
 
+    if let Some(owner_home) = std::env::var_os("SAVFOX_ARKRET_NATIVE_OWNER_HOME") {
+        let owner = std::path::PathBuf::from(owner_home).canonicalize()?;
+        anyhow::ensure!(
+            gateway_channel.config().savfox_home.canonicalize()? == owner,
+            "native Arkret owner home differs from the UI gateway home"
+        );
+        // Explicit native deployment leaves the ordinary process UI/onboarding
+        // only. It must NOT consume, decrypt or ACK any account listener input.
+        return Ok(());
+    }
     for account in &arkret_config.accounts {
         if account.listen {
             spawn_account_listener(
@@ -4111,10 +4122,46 @@ fn decrypted_text_body(content: &Value) -> Option<String> {
 
 /// Build a shared session-backed transport provider for one agent runtime.
 async fn construct_account_provider(
+    home: &std::path::Path,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<ArkretAgentSessionProvider> {
+    let (provider, _) = construct_native_account_provider(home, channel, account).await?;
+    Ok(provider)
+}
+
+async fn construct_native_account_provider(
+    savfox_home: &std::path::Path,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<(
+    ArkretAgentSessionProvider,
+    savfox_channels::arkret::ArkretNativeCredentialSource,
+)> {
+    construct_native_account_provider_inner(savfox_home, channel, account, true).await
+}
+
+async fn construct_account_provider_for_onboarding(
     savfox_home: &std::path::Path,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<ArkretAgentSessionProvider> {
+    Ok(
+        construct_native_account_provider_inner(savfox_home, channel, account, false)
+            .await?
+            .0,
+    )
+}
+
+async fn construct_native_account_provider_inner(
+    savfox_home: &std::path::Path,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    persist_runtime_binding: bool,
+) -> anyhow::Result<(
+    ArkretAgentSessionProvider,
+    savfox_channels::arkret::ArkretNativeCredentialSource,
+)> {
     let key_ref = account
         .key_ref
         .as_ref()
@@ -4154,7 +4201,15 @@ async fn construct_account_provider(
         "configured Agent Station differs from selected Station"
     );
     let crypto = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
-    let accepted_binding = crypto.accept_station_binding(&candidate)?;
+    let accepted_binding = if persist_runtime_binding {
+        crypto.accept_station_binding(&candidate)?
+    } else if crypto.path().exists() {
+        let accepted = crypto.accepted_station_binding()?;
+        accepted.require_same(&candidate)?;
+        accepted
+    } else {
+        candidate
+    };
     let _device_id = DeviceId::new(account.device_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid Arkret device_id: {err}"))?;
     let runtime_public_key_digest =
@@ -4166,19 +4221,20 @@ async fn construct_account_provider(
         runtime_public_key_digest,
         "arkret: constructing agent session provider"
     );
-    let (provider, session) = ArkretHttpClient::login_agent_provider(
-        &channel.base_url,
-        key_ref,
-        account.actor_account_id.clone(),
-        &accepted_binding,
-        account_runtime_fence(&channel.id, &account.id),
-        verification_method,
-        authorization_ref,
-        account.requested_scope.clone(),
-        &audience,
-        None,
-    )
-    .await?;
+    let (provider, session, credentials) =
+        ArkretHttpClient::login_agent_provider_with_native_credentials(
+            &channel.base_url,
+            key_ref,
+            account.actor_account_id.clone(),
+            &accepted_binding,
+            account_runtime_fence(&channel.id, &account.id),
+            verification_method,
+            authorization_ref,
+            account.requested_scope.clone(),
+            &audience,
+            None,
+        )
+        .await?;
     let granted = provider
         .session()
         .current_state()
@@ -4190,19 +4246,21 @@ async fn construct_account_provider(
         ),
         "Agent session grant differs from the exact requested runtime scope"
     );
-    savfox_channels::arkret::save_verified_runtime_scope(
-        savfox_home,
-        &channel.id,
-        account,
-        runtime_public_key_digest.clone(),
-        &granted.granted_scope,
-    )
-    .await?;
+    if persist_runtime_binding {
+        savfox_channels::arkret::save_verified_runtime_scope(
+            savfox_home,
+            &channel.id,
+            account,
+            runtime_public_key_digest.clone(),
+            &granted.granted_scope,
+        )
+        .await?;
+    }
     info!(
         "arkret: agent '{}' obtained DPoP-bound session; audience='{}' expires_at='{}'",
         account.id, audience, session.expires_at
     );
-    Ok(provider)
+    Ok((provider, credentials))
 }
 
 /// Send a `ak.message.create` event as one of the channel's configured

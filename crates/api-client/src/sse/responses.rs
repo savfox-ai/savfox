@@ -367,6 +367,421 @@ pub async fn process_sse(
     }
 }
 
+/// Quiet fixed-text parser. Ordinary Responses parsing remains unchanged.
+pub fn spawn_native_response_stream(
+    response: StreamResponse,
+    idle_timeout: Duration,
+    _telemetry: Option<Arc<dyn SseTelemetry>>,
+    _turn_state: Option<Arc<OnceLock<String>>>,
+) -> ResponseStream {
+    let (tx_event, rx_event) = mpsc::channel(16);
+    tokio::spawn(async move {
+        let mut stream = response.bytes.eventsource();
+        let mut state = NativeTextStreamState::default();
+        loop {
+            let next = tokio::select! {
+                _ = tx_event.closed() => return,
+                next = timeout(idle_timeout, stream.next()) => next,
+            };
+            let event = match next {
+                Ok(Some(Ok(event))) if event.data.len() <= 1_048_576 => state.process(&event.data),
+                _ => Err(ApiError::Stream(
+                    "native SSE unavailable or oversized".into(),
+                )),
+            };
+            match event {
+                Ok(events) => {
+                    for event in events {
+                        let completed = matches!(event, ResponseEvent::Completed { .. });
+                        if tx_event.send(Ok(event)).await.is_err() || completed {
+                            return;
+                        }
+                    }
+                }
+                Err(_) => {
+                    let _ = tx_event
+                        .send(Err(ApiError::Stream("native SSE rejected".into())))
+                        .await;
+                    return;
+                }
+            }
+        }
+    });
+    ResponseStream { rx_event }
+}
+
+const NATIVE_TEXT_MAX: usize = 65_536;
+
+// No Debug or public DTO: this belongs to one native response connection.
+// Standard Responses item/delta frames need not contain response_id; when
+// present it must agree. Their item_id/output_index bind the unique message,
+// whose final identity and complete text are checked in completed.output.
+#[derive(Default)]
+struct NativeTextStreamState {
+    response_id: Option<String>,
+    message_id: Option<String>,
+    output_index: Option<u64>,
+    parts: std::collections::BTreeMap<u64, String>,
+    declared_parts: std::collections::BTreeMap<u64, String>,
+    text: String,
+    saw_delta: bool,
+    message_done: Option<String>,
+    completed: bool,
+}
+
+impl NativeTextStreamState {
+    fn invalid() -> ApiError {
+        ApiError::Stream("native SSE identity or complete text rejected".into())
+    }
+
+    fn bind_message(&mut self, id: &str, index: u64) -> Result<(), ApiError> {
+        if id.is_empty() || id.len() > 1024 {
+            return Err(Self::invalid());
+        }
+        match (&self.message_id, self.output_index) {
+            (None, None) => {
+                self.message_id = Some(id.to_owned());
+                self.output_index = Some(index);
+            }
+            (Some(original), Some(original_index)) if original == id && original_index == index => {
+            }
+            _ => return Err(Self::invalid()),
+        }
+        Ok(())
+    }
+
+    fn complete_message(value: &Value) -> Result<String, ApiError> {
+        // Typed validation rejects tools, non-assistant messages and non-text.
+        native_text_item(value.clone())?;
+        if value
+            .get("status")
+            .is_some_and(|status| status.as_str() != Some("completed"))
+        {
+            return Err(Self::invalid());
+        }
+        if value.get("type").and_then(Value::as_str) != Some("message") {
+            return Err(Self::invalid());
+        }
+        let parts = value
+            .get("content")
+            .and_then(Value::as_array)
+            .ok_or_else(Self::invalid)?;
+        if parts.is_empty() {
+            return Err(Self::invalid());
+        }
+        let mut text = String::new();
+        for part in parts {
+            if part.get("type").and_then(Value::as_str) != Some("output_text") {
+                return Err(Self::invalid());
+            }
+            let value = part
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(Self::invalid)?;
+            if text.len().saturating_add(value.len()) > NATIVE_TEXT_MAX {
+                return Err(Self::invalid());
+            }
+            text.push_str(value);
+        }
+        if text.trim().is_empty() {
+            return Err(Self::invalid());
+        }
+        Ok(text)
+    }
+
+    fn process(&mut self, raw: &str) -> Result<Vec<ResponseEvent>, ApiError> {
+        if self.completed {
+            return Err(Self::invalid());
+        }
+        let parsed = parse_native_text_event(raw)?;
+        let value: Value = serde_json::from_str(raw).map_err(|_| Self::invalid())?;
+        let kind = value
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(Self::invalid)?;
+        if kind == "response.created" {
+            let response = value.get("response").ok_or_else(Self::invalid)?;
+            let id = response
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(Self::invalid)?;
+            if self.response_id.is_some()
+                || id.is_empty()
+                || id.len() > 1024
+                || !matches!(
+                    response.get("status").and_then(Value::as_str),
+                    Some("in_progress" | "queued")
+                )
+            {
+                return Err(Self::invalid());
+            }
+            self.response_id = Some(id.to_owned());
+        } else {
+            let response_id = self.response_id.as_deref().ok_or_else(Self::invalid)?;
+            if let Some(id) = value.get("response_id") {
+                if id.as_str() != Some(response_id) {
+                    return Err(Self::invalid());
+                }
+            }
+            if let Some(response) = value.get("response") {
+                if response.get("id").and_then(Value::as_str) != Some(response_id) {
+                    return Err(Self::invalid());
+                }
+            }
+            if kind == "response.in_progress"
+                && value
+                    .get("response")
+                    .and_then(|response| response.get("status"))
+                    .and_then(Value::as_str)
+                    != Some("in_progress")
+            {
+                return Err(Self::invalid());
+            }
+            match kind {
+                "response.output_item.added" | "response.output_item.done" => {
+                    let item = value.get("item").ok_or_else(Self::invalid)?;
+                    if item.get("type").and_then(Value::as_str) == Some("message") {
+                        let id = item
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .ok_or_else(Self::invalid)?;
+                        let index = value
+                            .get("output_index")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(Self::invalid)?;
+                        self.bind_message(id, index)?;
+                        if kind.ends_with("done") {
+                            if self.message_done.is_some() {
+                                return Err(Self::invalid());
+                            }
+                            let text = Self::complete_message(item)?;
+                            if self.saw_delta && text != self.text {
+                                return Err(Self::invalid());
+                            }
+                            self.message_done = Some(text);
+                        }
+                    }
+                }
+                "response.output_text.delta"
+                | "response.output_text.done"
+                | "response.content_part.added"
+                | "response.content_part.done" => {
+                    let id = value
+                        .get("item_id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(Self::invalid)?;
+                    let index = value
+                        .get("output_index")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(Self::invalid)?;
+                    let content = value
+                        .get("content_index")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(Self::invalid)?;
+                    self.bind_message(id, index)?;
+                    if kind == "response.output_text.delta" {
+                        if self.message_done.is_some() || self.declared_parts.contains_key(&content)
+                        {
+                            return Err(Self::invalid());
+                        }
+                        let delta = value
+                            .get("delta")
+                            .and_then(Value::as_str)
+                            .ok_or_else(Self::invalid)?;
+                        if self.text.len().saturating_add(delta.len()) > NATIVE_TEXT_MAX {
+                            return Err(Self::invalid());
+                        }
+                        self.text.push_str(delta);
+                        self.parts.entry(content).or_default().push_str(delta);
+                        self.saw_delta = true;
+                    } else if kind == "response.output_text.done"
+                        || kind == "response.content_part.done"
+                    {
+                        let text = if kind == "response.output_text.done" {
+                            value.get("text")
+                        } else {
+                            value.get("part").and_then(|part| part.get("text"))
+                        }
+                        .and_then(Value::as_str)
+                        .ok_or_else(Self::invalid)?;
+                        if text.len() > NATIVE_TEXT_MAX
+                            || self.parts.get(&content).is_some_and(|part| part != text)
+                        {
+                            return Err(Self::invalid());
+                        }
+                        if self
+                            .declared_parts
+                            .get(&content)
+                            .is_some_and(|part| part != text)
+                        {
+                            return Err(Self::invalid());
+                        }
+                        self.declared_parts.insert(content, text.to_owned());
+                    }
+                }
+                "response.completed" | "response.done" => {
+                    let response = value.get("response").ok_or_else(Self::invalid)?;
+                    let output = response
+                        .get("output")
+                        .and_then(Value::as_array)
+                        .ok_or_else(Self::invalid)?;
+                    let messages: Vec<_> = output
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, item)| {
+                            item.get("type").and_then(Value::as_str) == Some("message")
+                        })
+                        .collect();
+                    if messages.len() != 1 {
+                        return Err(Self::invalid());
+                    }
+                    let (index, item) = messages[0];
+                    let id = item
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(Self::invalid)?;
+                    self.bind_message(id, index as u64)?;
+                    let complete = Self::complete_message(item)?;
+                    if (self.saw_delta && self.text != complete)
+                        || self
+                            .message_done
+                            .as_ref()
+                            .is_some_and(|text| text != &complete)
+                    {
+                        return Err(Self::invalid());
+                    }
+                    let parts = item
+                        .get("content")
+                        .and_then(Value::as_array)
+                        .ok_or_else(Self::invalid)?;
+                    for (index, text) in self.parts.iter().chain(self.declared_parts.iter()) {
+                        if parts
+                            .get(usize::try_from(*index).map_err(|_| Self::invalid())?)
+                            .and_then(|part| part.get("text"))
+                            .and_then(Value::as_str)
+                            != Some(text.as_str())
+                        {
+                            return Err(Self::invalid());
+                        }
+                    }
+                    self.completed = true;
+                    let mut events = Vec::new();
+                    if !self.saw_delta {
+                        events.push(ResponseEvent::OutputTextDelta(complete));
+                    }
+                    events.push(parsed.ok_or_else(Self::invalid)?);
+                    return Ok(events);
+                }
+                _ => {} // Only native parser's explicit no-effect frames remain.
+            }
+        }
+        Ok(parsed.into_iter().collect())
+    }
+}
+
+fn native_text_item(value: Value) -> Result<ResponseItem, ApiError> {
+    let item: ResponseItem = serde_json::from_value(value)
+        .map_err(|_| ApiError::Stream("invalid native item".into()))?;
+    match &item {
+        ResponseItem::Message { role, content, .. }
+            if role == "assistant"
+                && content.iter().all(|part| {
+                    matches!(
+                        part,
+                        savfox_protocol::models::ContentItem::OutputText { .. }
+                    )
+                }) =>
+        {
+            Ok(item)
+        }
+        ResponseItem::Reasoning { .. } => Ok(item),
+        _ => Err(ApiError::Stream("native non-text item rejected".into())),
+    }
+}
+
+fn parse_native_text_event(raw: &str) -> Result<Option<ResponseEvent>, ApiError> {
+    let value: Value = serde_json::from_str(raw)
+        .map_err(|_| ApiError::Stream("invalid native SSE JSON".into()))?;
+    let kind = value
+        .get("type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::Stream("missing native SSE kind".into()))?;
+    let invalid = || ApiError::Stream("invalid native SSE event".into());
+    match kind {
+        "response.created" => {
+            if !value.get("response").is_some_and(Value::is_object) {
+                return Err(invalid());
+            }
+            Ok(Some(ResponseEvent::Created))
+        }
+        "response.output_item.added" | "response.output_item.done" => {
+            let item = native_text_item(value.get("item").cloned().ok_or_else(invalid)?)?;
+            if matches!(item, ResponseItem::Reasoning { .. }) {
+                return Ok(None);
+            }
+            Ok(Some(if kind.ends_with("added") {
+                ResponseEvent::OutputItemAdded(item)
+            } else {
+                ResponseEvent::OutputItemDone(item)
+            }))
+        }
+        "response.output_text.delta" => Ok(Some(ResponseEvent::OutputTextDelta(
+            value
+                .get("delta")
+                .and_then(Value::as_str)
+                .ok_or_else(invalid)?
+                .to_owned(),
+        ))),
+        "response.completed" | "response.done" => {
+            let response = value.get("response").cloned().ok_or_else(invalid)?;
+            // The outer event label is insufficient: embedded failure/unknown
+            // status must never settle already received text as successful.
+            if response.get("status").and_then(Value::as_str) != Some("completed") {
+                return Err(invalid());
+            }
+            for item in response
+                .get("output")
+                .and_then(Value::as_array)
+                .ok_or_else(invalid)?
+            {
+                native_text_item(item.clone())?;
+            }
+            let response: ResponseCompleted =
+                serde_json::from_value(response).map_err(|_| invalid())?;
+            if response.id.is_empty() {
+                return Err(invalid());
+            }
+            Ok(Some(ResponseEvent::Completed {
+                response_id: response.id,
+                token_usage: response.usage.map(Into::into),
+            }))
+        }
+        // Known no-effect housekeeping frames only; never tool argument frames.
+        "response.in_progress"
+        | "response.output_text.done"
+        | "response.reasoning_summary_text.delta"
+        | "response.reasoning_text.delta"
+        | "response.reasoning_summary_text.done"
+        | "response.reasoning_text.done"
+        | "response.reasoning_summary_part.added"
+        | "response.reasoning_summary_part.done" => Ok(None),
+        "response.content_part.added" | "response.content_part.done" => {
+            let part = value.get("part").cloned().ok_or_else(invalid)?;
+            let part: savfox_protocol::models::ContentItem =
+                serde_json::from_value(part).map_err(|_| invalid())?;
+            if !matches!(
+                part,
+                savfox_protocol::models::ContentItem::OutputText { .. }
+            ) {
+                return Err(invalid());
+            }
+            Ok(None)
+        }
+        // This includes response.failed/incomplete/error, tool calls and unknown kinds.
+        _ => Err(invalid()),
+    }
+}
+
 fn try_parse_retry_after(err: &Error) -> Option<Duration> {
     if err.code.as_deref() != Some("rate_limit_exceeded") {
         return None;
@@ -429,6 +844,266 @@ mod tests {
     use tokio_test::io::Builder as IoBuilder;
 
     use super::*;
+
+    fn native_created_state() -> NativeTextStreamState {
+        let mut state = NativeTextStreamState::default();
+        state.process(&json!({"type":"response.created","response":{"id":"native-result","status":"in_progress"}}).to_string()).unwrap();
+        state
+    }
+
+    fn native_complete_value(text: &str) -> Value {
+        json!({"type":"response.completed","response":{"id":"native-result","status":"completed","output":[{
+            "type":"message","id":"native-message","role":"assistant","content":[{"type":"output_text","text":text}]
+        }]}})
+    }
+
+    fn native_delta_value(text: &str) -> Value {
+        json!({"type":"response.output_text.delta","item_id":"native-message","output_index":0,"content_index":0,"delta":text})
+    }
+
+    #[test]
+    fn native_text_completion_requires_actual_completed_status() {
+        for kind in ["response.completed", "response.done"] {
+            let mut completed = native_complete_value("original plain text");
+            completed["type"] = json!(kind);
+            let events = native_created_state()
+                .process(&completed.to_string())
+                .unwrap();
+            assert!(
+                matches!(events.as_slice(), [ResponseEvent::OutputTextDelta(text), ResponseEvent::Completed { .. }] if text == "original plain text")
+            );
+            for status in [
+                "failed",
+                "incomplete",
+                "in_progress",
+                "cancelled",
+                "unknown",
+                "",
+            ] {
+                let mut invalid = completed.clone();
+                invalid["response"]["status"] = json!(status);
+                assert!(
+                    native_created_state()
+                        .process(&invalid.to_string())
+                        .is_err()
+                );
+            }
+            let mut absent = completed.clone();
+            absent["response"].as_object_mut().unwrap().remove("status");
+            assert!(native_created_state().process(&absent.to_string()).is_err());
+            let mut wrong_type = completed;
+            wrong_type["response"]["status"] = json!(true);
+            assert!(
+                native_created_state()
+                    .process(&wrong_type.to_string())
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn native_text_completion_refuses_terminal_tool_unknown_and_missing_identity() {
+        for kind in [
+            "response.failed",
+            "response.incomplete",
+            "error",
+            "response.function_call_arguments.delta",
+            "unregistered",
+        ] {
+            let event = json!({"type":kind,"response":{"id":"native-result","status":"completed"}});
+            assert!(native_created_state().process(&event.to_string()).is_err());
+        }
+        for field in ["id", "output"] {
+            let mut absent = native_complete_value("original plain text");
+            absent["response"].as_object_mut().unwrap().remove(field);
+            assert!(native_created_state().process(&absent.to_string()).is_err());
+        }
+        let mut empty_id = native_complete_value("original plain text");
+        empty_id["response"]["id"] = json!("");
+        assert!(
+            native_created_state()
+                .process(&empty_id.to_string())
+                .is_err()
+        );
+        let mut tool = native_complete_value("original plain text");
+        tool["response"]["output"] = json!([{"type":"function_call","name":"not_allowed","arguments":"{}","call_id":"call"}]);
+        assert!(native_created_state().process(&tool.to_string()).is_err());
+    }
+
+    #[test]
+    fn native_text_delta_is_supported_but_malformed_and_tools_are_refused() {
+        let mut state = native_created_state();
+        let events = state
+            .process(&native_delta_value("original plain text").to_string())
+            .unwrap();
+        assert!(
+            matches!(events.as_slice(), [ResponseEvent::OutputTextDelta(text)] if text == "original plain text")
+        );
+        let events = state
+            .process(&native_complete_value("original plain text").to_string())
+            .unwrap();
+        assert!(matches!(
+            events.as_slice(),
+            [ResponseEvent::Completed { .. }]
+        ));
+        assert!(native_created_state().process("invalid JSON").is_err());
+        let mut bad_delta = native_delta_value("original plain text");
+        bad_delta["delta"] = json!({"text":"not string"});
+        assert!(
+            native_created_state()
+                .process(&bad_delta.to_string())
+                .is_err()
+        );
+        let tool = json!({"type":"response.output_item.added","item":{"type":"function_call","name":"not_allowed","arguments":"{}","call_id":"call"}});
+        assert!(native_created_state().process(&tool.to_string()).is_err());
+    }
+
+    #[test]
+    fn native_text_stream_refuses_response_and_message_identity_rebinding() {
+        assert!(
+            NativeTextStreamState::default()
+                .process(&native_delta_value("text").to_string())
+                .is_err()
+        );
+        let mut state = native_created_state();
+        assert!(state.process(&json!({"type":"response.created","response":{"id":"native-result","status":"in_progress"}}).to_string()).is_err());
+        for field in ["response_id", "item_id", "output_index", "content_index"] {
+            let mut state = native_created_state();
+            state
+                .process(&native_delta_value("one").to_string())
+                .unwrap();
+            let mut delta = native_delta_value("two");
+            if field == "response_id" || field == "item_id" {
+                delta[field] = json!("different");
+            } else {
+                delta[field] = json!(1);
+            }
+            let result = state.process(&delta.to_string());
+            // A second content index may be valid, but is not allowed to
+            // disguise these deltas as one complete output part.
+            if field == "content_index" {
+                assert!(result.is_ok());
+                assert!(
+                    state
+                        .process(&native_complete_value("onetwo").to_string())
+                        .is_err()
+                );
+            } else {
+                assert!(result.is_err());
+            }
+        }
+        for field in ["item_id", "output_index", "content_index"] {
+            let mut delta = native_delta_value("text");
+            delta.as_object_mut().unwrap().remove(field);
+            assert!(native_created_state().process(&delta.to_string()).is_err());
+        }
+        let mut state = native_created_state();
+        state
+            .process(&native_delta_value("text").to_string())
+            .unwrap();
+        let mut done = native_complete_value("text");
+        done["response"]["id"] = json!("another-response");
+        assert!(state.process(&done.to_string()).is_err());
+        let mut state = native_created_state();
+        state
+            .process(&native_delta_value("text").to_string())
+            .unwrap();
+        let mut done = native_complete_value("text");
+        done["response"]["output"][0]["id"] = json!("another-message");
+        assert!(state.process(&done.to_string()).is_err());
+    }
+
+    #[test]
+    fn native_text_stream_requires_complete_output_equal_to_all_deltas() {
+        let mut state = native_created_state();
+        state
+            .process(&native_delta_value("one").to_string())
+            .unwrap();
+        state
+            .process(&native_delta_value("two").to_string())
+            .unwrap();
+        let events = state
+            .process(&native_complete_value("onetwo").to_string())
+            .unwrap();
+        assert!(matches!(
+            events.as_slice(),
+            [ResponseEvent::Completed { .. }]
+        ));
+        assert!(
+            state
+                .process(&native_complete_value("onetwo").to_string())
+                .is_err()
+        );
+        for text in ["different", "one", "", "  "] {
+            let mut state = native_created_state();
+            state
+                .process(&native_delta_value("onetwo").to_string())
+                .unwrap();
+            assert!(
+                state
+                    .process(&native_complete_value(text).to_string())
+                    .is_err()
+            );
+        }
+        for output in [
+            json!([]),
+            json!(null),
+            json!([{"type":"unknown"}]),
+            json!([
+                native_complete_value("one")["response"]["output"][0].clone(),
+                native_complete_value("two")["response"]["output"][0].clone()
+            ]),
+        ] {
+            let mut done = native_complete_value("one");
+            done["response"]["output"] = output;
+            assert!(native_created_state().process(&done.to_string()).is_err());
+        }
+        let mut state = native_created_state();
+        let oversized = "x".repeat(NATIVE_TEXT_MAX + 1);
+        assert!(
+            state
+                .process(&native_delta_value(&oversized).to_string())
+                .is_err()
+        );
+        assert!(
+            native_created_state()
+                .process(&native_complete_value(&oversized).to_string())
+                .is_err()
+        );
+        // Real complete-output-only provider responses emit one text event
+        // only after complete response identity/output validation succeeds.
+        let events = native_created_state()
+            .process(&native_complete_value("complete only").to_string())
+            .unwrap();
+        assert!(
+            matches!(events.as_slice(), [ResponseEvent::OutputTextDelta(text), ResponseEvent::Completed { .. }] if text == "complete only")
+        );
+    }
+
+    #[tokio::test]
+    async fn native_text_stream_eof_never_settles_partial_deltas() {
+        let created = json!({"type":"response.created","response":{"id":"native-result","status":"in_progress"}});
+        let body = format!(
+            "data: {}\n\ndata: {}\n\n",
+            created,
+            native_delta_value("partial")
+        );
+        let bytes = ReaderStream::new(std::io::Cursor::new(body))
+            .map_err(|_| TransportError::Network("test reader".into()));
+        let response = StreamResponse {
+            status: http::StatusCode::OK,
+            headers: http::HeaderMap::new(),
+            bytes: Box::pin(bytes),
+        };
+        let mut events = spawn_native_response_stream(response, idle_timeout(), None, None);
+        let mut completed = false;
+        let mut rejected = false;
+        while let Some(event) = events.next().await {
+            completed |= matches!(&event, Ok(ResponseEvent::Completed { .. }));
+            rejected |= event.is_err();
+        }
+        assert!(rejected && !completed);
+    }
 
     async fn collect_events(chunks: &[&[u8]]) -> Vec<Result<ResponseEvent, ApiError>> {
         let mut builder = IoBuilder::new();

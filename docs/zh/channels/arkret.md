@@ -92,6 +92,25 @@ Standard MLS 消息以完整 sender ActorId（包含 Station）作为 AAD 身份
 
 待处理的接收项不阻断后续投递，但累计 ACK 和持久队列 cursor 不跨过首个未完成项。Welcome 分配先从本机可用库存扣除对应一次性 KeyPackage，因此过期领取也会触发补充。替换初始库存项时保留旧记录；缺失的公开记录只能根据已验证 claim 恢复，并要求本机已持有逐字匹配的私钥包。
 
+## 治理 Station 上的 Native Public 回复
+
+部署 Native Public 回复时，在治理 Coland 进程设置 `COLAND_ARKRET_RUNTIME_HOME`，
+在 Savfox UI 网关设置 `SAVFOX_ARKRET_NATIVE_OWNER_HOME`，两者指向同一现有 Savfox
+home。治理进程拥有该账户的 Arkret inbox 与 MLS 监听；UI 网关继续处理配对、配置和
+发送请求。这两个进程必须共同使用显式部署模式。普通网关部署保留原有监听。
+
+真实配对获批后，在 **Configure Arkret** 点击 **Save Changes**。首次保存记录已批准
+的 Agent/controller 绑定，不启用模型消息流。加入共享 Realm 并取得所需的精确内容权限
+后，再次保存配置，初始化实际已接受的共享消息流。重启必须读取已有记录；记录丢失或
+损坏不能静默建立新 bootstrap 或重置原消息流位置。解绑先禁用该消费者并等待其停止，
+然后才清除本地密钥与 MLS 状态。
+
+共享 MessageCreate 必须明确提及完整 Agent AccountId，并通过 Station 当前 Public、
+participation、session、controller 和内容权限检查。Public 分支仅生成一次文本回复，
+不使用工具或私有执行上下文。Provider 结果不确定时，该来源保持终态抑制，恢复不会
+再次调用模型；已保留的签名回复只能按原精确 payload 重试。Private 与 Direct 输入
+继续使用原 Arkret 调度器及其平台审批消息。
+
 ## 回复模式、确认与故障恢复
 
 `interactive_chat` 将模型回复正文发回原远端对话；`task_delivery` 将完整模型执行输出保留在

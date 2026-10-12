@@ -2590,3 +2590,127 @@ mod recovery_tests {
         server.join().unwrap();
     }
 }
+
+/// SAME accepted-source receiver/MLS maintenance as the original account
+/// listener. Native factory owns the only inbox. No extra subscribe/ACK engine.
+pub(super) async fn drive_native(
+    receiver: &super::native_reply::factory::NativeReceiver,
+    provider: &ArkretAgentSessionProvider,
+    credentials: &savfox_channels::arkret::ArkretNativeCredentialSource,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: garth::FileStore,
+    crypto_store: FileArkretCryptoStore,
+) -> anyhow::Result<()> {
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut presence = tokio::time::interval(ACCOUNT_PRESENCE_REFRESH);
+    presence.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut recovery_due = tokio::time::Instant::now();
+    let mut progress = std::collections::BTreeMap::new();
+    let mut recovery_retries = ScopeMaintenanceRetries::default();
+    let mut scan_retries = ScopeMaintenanceRetries::default();
+    let mut budget = ScopeReadBudget::default();
+    loop {
+        tokio::select! {
+            _ = tick.tick() => {
+                let client = ArkretHttpClient::from_provider(provider,&crypto_store).await?;
+                // Frozen final submissions retry only original Event/MLS bytes.
+                drain_pending_account_outbound(provider,&account_store,channel,account,&crypto_store).await;
+                receiver.process_inbox(provider,credentials,&client,channel,account,&account_store,&crypto_store).await?;
+                run_account_key_lifecycle_maintenance(&client,channel,account,&account_store,&crypto_store,"native_receive").await?;
+                if tokio::time::Instant::now() >= recovery_due {
+                    recover_pending_content(&client,channel,account,&account_store,&crypto_store,&mut progress,&mut recovery_retries,&mut budget).await?;
+                    recovery_due=tokio::time::Instant::now()+Duration::from_secs(20);
+                }
+                scan_installed_scopes(&client,channel,account,&account_store,&crypto_store,&mut scan_retries,&mut budget).await?;
+                receiver.process_inbox(provider,credentials,&client,channel,account,&account_store,&crypto_store).await?;
+            }
+            _ = presence.tick() => refresh_account_presence(provider,channel,account,&crypto_store).await,
+        }
+    }
+}
+
+pub(super) fn native_installed_shared_scopes(
+    state: &savfox_channels::arkret::ArkretCryptoStateFile,
+    cursors: Vec<garth::CursorScope>,
+    account: &ArkretAccountConfig,
+    service: &Option<arkret::DidCoreId>,
+) -> anyhow::Result<std::collections::BTreeSet<arkret::CommitStreamRef>> {
+    let actor = arkret::ActorId::account(account.actor_account_id.clone());
+    let endpoint = account_mls_endpoint(account)?;
+    Ok(
+        installed_scan_scopes(state, cursors, &actor, service, &endpoint)?
+            .into_iter()
+            .filter(|stream| {
+                matches!(
+                    stream,
+                    arkret::CommitStreamRef::Realm { .. } | arkret::CommitStreamRef::Circle { .. }
+                )
+            })
+            .collect(),
+    )
+}
+
+pub(super) async fn native_actual_onboarding_heads(
+    client: &ArkretHttpClient,
+    scopes: &std::collections::BTreeSet<arkret::CommitStreamRef>,
+) -> anyhow::Result<Vec<arkret::CommittedEventRef>> {
+    let own = client.own_station()?;
+    let mut result = Vec::new();
+    for stream in scopes {
+        let realm = stream.realm_id().clone();
+        let snapshot = own.snapshot_head(&realm).await?;
+        let mut replica = garth::own_station_results::OwnStationReplica::new(realm.clone());
+        replica.install_bound_snapshot(&snapshot)?;
+        let head = snapshot
+            .value()?
+            .visible_stream_heads
+            .iter()
+            .find(|head| &head.stream_ref == stream)
+            .context("native onboarding installed stream lacks current accepted head")?
+            .clone();
+        let request = arkret::StreamScanRequest {
+            realm_id: realm,
+            stream_ref: stream.clone(),
+            direction: arkret::StreamScanDirection::Before(Some(
+                head.stream_position
+                    .checked_add(1)
+                    .context("native onboarding head overflow")?,
+            )),
+            limit: 1,
+        };
+        let row = own.scan_commit_stream(&request).await?;
+        let [arkret::CommittedEventView::Full(exact)] = row.value()?.committed_events.as_slice()
+        else {
+            anyhow::bail!("native onboarding requires full visible accepted head");
+        };
+        exact.validate_shape()?;
+        anyhow::ensure!(
+            exact.commit.stream_ref == head.stream_ref
+                && exact.commit.stream_position == head.stream_position
+                && exact.commit.commit_id == head.commit_id,
+            "native onboarding head changed"
+        );
+        let reference = arkret::CommittedEventRef {
+            event_id: exact.event.event_id.clone(),
+            commit_id: exact.commit.commit_id.clone(),
+            stream_ref: exact.commit.stream_ref.clone(),
+            stream_position: exact.commit.stream_position,
+        };
+        let exact = exact.clone();
+        let verified =
+            garth::own_station_results::consume_bound_scan_row(own, &reference, row).await?;
+        anyhow::ensure!(
+            verified.value()?.committed_events
+                == vec![arkret::CommittedEventView::Full(exact.clone())],
+            "native onboarding verified head changed"
+        );
+        exact.event.verify_producer_proof_self_consistency(
+            exact.event.realm_id.digest_suite_code().digest_suite(),
+        )?;
+        own.check_session()?;
+        result.push(reference);
+    }
+    Ok(result)
+}

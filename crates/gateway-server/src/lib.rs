@@ -581,3 +581,10 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "arkret")]
+pub use channels::arkret::native_reply::{
+    FrozenNativeProviderRequest, NativeAgentCredentials, NativePublicReplyGuard,
+    NativePublicReplyHandle, NativePublicReplyHost, NativeReplySource,
+    start_native_arkret_public_replies,
+};

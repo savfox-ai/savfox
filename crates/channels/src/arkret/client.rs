@@ -393,6 +393,39 @@ impl ArkretHttpClient {
         audience: &str,
         realm_id: Option<&str>,
     ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
+        let (provider, session, _) = Self::login_agent_provider_with_native_credentials(
+            base_url,
+            key_ref,
+            account_id,
+            accepted_binding,
+            runtime_fence,
+            verification_method,
+            agent_key_authorization_ref,
+            requested_scope,
+            audience,
+            realm_id,
+        )
+        .await?;
+        Ok((provider, session))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn login_agent_provider_with_native_credentials(
+        base_url: &str,
+        key_ref: &ArkretKeyRef,
+        account_id: arkret::AccountId,
+        accepted_binding: &arkret::StationConnectionBinding,
+        runtime_fence: Arc<dyn Fn() -> bool + Send + Sync>,
+        verification_method: &str,
+        agent_key_authorization_ref: &str,
+        requested_scope: Vec<String>,
+        audience: &str,
+        realm_id: Option<&str>,
+    ) -> anyhow::Result<(
+        ArkretAgentSessionProvider,
+        ArkretSession,
+        ArkretNativeCredentialSource,
+    )> {
         savfox_gateway_shared::arkret::validate_agent_runtime_scope(&requested_scope)
             .map_err(anyhow::Error::msg)?;
         let principal_did = account_id.principal_id.clone();
@@ -542,7 +575,14 @@ impl ArkretHttpClient {
                     .build(&state)
                     .map_err(|error| anyhow::anyhow!("restored Agent grant scope: {error}"))?;
                 let session = arkret_session_from_state(&state)?;
-                return Ok((restored, session));
+                return Ok((
+                    restored.clone(),
+                    session,
+                    ArkretNativeCredentialSource {
+                        provider: restored,
+                        factory,
+                    },
+                ));
             }
             grant_store
                 .clear()
@@ -563,13 +603,17 @@ impl ArkretHttpClient {
 
         let provider = SessionTransportProvider::with_store(
             session_engine,
-            factory,
+            factory.clone(),
             refresh_options,
             grant_store,
         )
         .await
         .map_err(|error| anyhow::anyhow!("persist agent session grant: {error}"))?;
-        Ok((provider, arkret_session_from_state(&state)?))
+        Ok((
+            provider.clone(),
+            arkret_session_from_state(&state)?,
+            ArkretNativeCredentialSource { provider, factory },
+        ))
     }
 
     /// `GET /_arkret/describe` — used at startup to verify the target
@@ -793,6 +837,105 @@ fn build_dpop_client(
         )))
         .build()
         .map_err(garth::Error::from)
+}
+
+/// Process-only original session proof, never parsed authority or a wire DTO.
+pub struct ArkretNativeAgentCredentials {
+    pub method: String,
+    pub canonical_url: String,
+    pub headers: reqwest::header::HeaderMap,
+    pub operation: arkret::ServiceOperationId,
+}
+
+/// Holds the SAME ephemeral session signer and live provider as normal receive.
+/// No Clone/Debug/serde exposure of the signer or credentials.
+pub struct ArkretNativeCredentialSource {
+    provider: ArkretAgentSessionProvider,
+    factory: AgentAuthenticatedTransportFactory,
+}
+impl ArkretNativeCredentialSource {
+    pub async fn source_request(
+        &self,
+        event_id: &EventId,
+    ) -> anyhow::Result<ArkretNativeAgentCredentials> {
+        use arkret::signatures::http_signature::{
+            HttpSignatureScenario, SignedRequestParts, sign_http_message_for_scenario,
+        };
+        use reqwest::header::{HeaderMap, HeaderValue};
+        // Refresh/rebuild normal grant before host acquires any local current lock.
+        garth::TransportProvider::provide(&self.provider).await?;
+        let state = self
+            .provider
+            .session()
+            .current_state()
+            .context("native Agent session absent")?;
+        self.factory.build(&state)?;
+        let method = "GET";
+        let path = format!("/_arkret/self/committed-events/{event_id}");
+        let canonical_url = joined_htu(&self.factory.base_url, &path)?;
+        let operation = arkret::ServiceOperationId::SelfCommittedEventResourceGetV1;
+        anyhow::ensure!(
+            operation.matches_http_request(method, &path),
+            "native source operation mismatch"
+        );
+        let dpop = arkret::dpop::build_dpop_proof(
+            &arkret::dpop::DpopProofRequest::new(method, canonical_url.clone())
+                .access_token(state.grant_jwt.clone()),
+            self.factory.dpop_signing_key.as_ref(),
+        )?;
+        anyhow::ensure!(
+            dpop.jkt == self.factory.dpop_jkt,
+            "native session holder changed"
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("DPoP {}", state.grant_jwt))?,
+        );
+        headers.insert("dpop", HeaderValue::from_str(&dpop.header_value)?);
+        headers.insert(
+            "arkret-operation",
+            HeaderValue::from_static(
+                arkret::ServiceOperationId::SELF_COMMITTED_EVENT_RESOURCE_GET_V1,
+            ),
+        );
+        let url = Url::parse(&canonical_url)?;
+        let authority = url[url::Position::BeforeHost..url::Position::AfterPort].to_owned();
+        let parts = SignedRequestParts {
+            method: method.into(),
+            target_uri: canonical_url.clone(),
+            authority,
+            path,
+            headers: headers
+                .iter()
+                .map(|(k, v)| Ok((k.as_str().to_owned(), v.to_str()?.to_owned())))
+                .collect::<anyhow::Result<Vec<_>>>()?,
+            body_digest: None,
+        };
+        let signed = sign_http_message_for_scenario(
+            &parts,
+            HttpSignatureScenario::ClientSessionPopV1,
+            &[],
+            "sig1",
+            &self.factory.dpop_jkt,
+            Utc::now().timestamp(),
+            self.factory.dpop_signing_key.as_ref(),
+        )?;
+        headers.insert(
+            "signature-input",
+            HeaderValue::from_str(&signed.signature_input_header)?,
+        );
+        headers.insert(
+            "signature",
+            HeaderValue::from_str(&signed.signature_header)?,
+        );
+        Ok(ArkretNativeAgentCredentials {
+            method: method.into(),
+            canonical_url,
+            headers,
+            operation,
+        })
+    }
 }
 
 #[cfg(test)]

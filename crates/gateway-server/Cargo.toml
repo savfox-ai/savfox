@@ -32,6 +32,7 @@ bcrypt = { workspace = true }
 savfox-app-server-protocol = { workspace = true }
 savfox-common = { workspace = true, features = ["cli"] }
 savfox-core = { workspace = true }
+savfox-otel = { workspace = true }
 savfox-exec-policy = { workspace = true }
 savfox-keyring-store = { workspace = true }
 savfox-login-oauth = { workspace = true }

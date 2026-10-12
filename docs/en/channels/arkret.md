@@ -123,6 +123,32 @@ Standard MLS content authenticates the complete sender ActorId credential, inclu
 
 A pending recipient delivery does not block processing later deliveries. Cumulative ACK and the durable queue cursor remain before the first incomplete delivery. Welcome allocation removes the matching single-use KeyPackage from available private inventory before claim admission, so expired allocations still trigger replenishment. Replacing the initial pool entry preserves prior records; repairing a missing public record requires a verified claim and its exact private bundle already held locally.
 
+## Native Public replies on the governing Station
+
+For the native Public reply deployment, set `COLAND_ARKRET_RUNTIME_HOME` on the
+governing Coland process and `SAVFOX_ARKRET_NATIVE_OWNER_HOME` on the Savfox UI
+gateway to the same existing Savfox home. The governing process owns that
+account's Arkret inbox and MLS listener; the UI gateway still handles pairing,
+configuration, and outbound requests. Use this explicit deployment mode on both
+processes together. Ordinary gateway deployments retain their existing listener.
+
+After approving the real pairing, use **Save Changes** in **Configure Arkret**.
+This first save records the approved Agent/controller binding without enabling a
+model lane. After joining the shared Realm and granting the required narrow
+content permissions, save the configuration again to initialize its actual
+accepted shared streams. A restart requires the existing record; a missing or
+corrupt record cannot silently create a new bootstrap or reset prior stream
+positions. Disconnecting an account disables its consumer and waits for it to
+stop before erasing local key and MLS state.
+
+A shared MessageCreate must mention the complete Agent AccountId and pass the
+Station's current Public, participation, session, controller, and content checks.
+The Public branch produces one text reply with no tools or private session
+context. An uncertain provider attempt remains suppressed for that source;
+recovery never invokes the model again. A retained signed reply is retried only
+with its original exact payload. Private and Direct inputs retain the original
+Arkret dispatcher, including its platform approval messages.
+
 ## Reply modes, acknowledgment, and recovery
 
 `interactive_chat` sends the model's reply body to the original remote conversation.

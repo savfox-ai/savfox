@@ -684,6 +684,43 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
         validate_arkret_config_before_save(&channel.config().savfox_home, &candidate)
             .await
             .map_err(|error| (INVALID_REQUEST, error))?;
+        if let Some(owner_home) = std::env::var_os("SAVFOX_ARKRET_NATIVE_OWNER_HOME") {
+            let owner = std::path::PathBuf::from(owner_home)
+                .canonicalize()
+                .map_err(|_| {
+                    (
+                        INVALID_REQUEST,
+                        "native Arkret home is unavailable".to_owned(),
+                    )
+                })?;
+            let home = &channel.config().savfox_home;
+            if home.canonicalize().ok().as_ref() != Some(&owner) {
+                return Err((
+                    INVALID_REQUEST,
+                    "native Arkret owner home mismatch".to_owned(),
+                ));
+            }
+            let previous = channel_store::get_channel_config(home, &candidate.id)
+                .await
+                .map_err(|_| {
+                    (
+                        INVALID_REQUEST,
+                        "native previous configuration unavailable".to_owned(),
+                    )
+                })?;
+            crate::channels::arkret::native_reply::native_save_onboarding(
+                home,
+                &candidate,
+                previous.as_ref(),
+            )
+            .await
+            .map_err(|_| {
+                (
+                    INVALID_REQUEST,
+                    "native onboarding could not verify its durable owned state".to_owned(),
+                )
+            })?;
+        }
     }
 
     match channel_store::merge_channel_config(
@@ -872,6 +909,77 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             }));
         };
 
+        // Native deployment has a different process owning this same inbox.
+        // Persist revocation before waiting for its lifecycle lease; acquiring
+        // the lease proves the previous listener/body/guard task has dropped.
+        let _native_owner = if let Some(owner_home) =
+            std::env::var_os("SAVFOX_ARKRET_NATIVE_OWNER_HOME")
+        {
+            let owner_home = PathBuf::from(owner_home)
+                .canonicalize()
+                .map_err(|_| (INTERNAL_ERROR, "native owner home unavailable".into()))?;
+            if home
+                .canonicalize()
+                .map_err(|_| (INTERNAL_ERROR, "gateway home unavailable".into()))?
+                != owner_home
+            {
+                return Err((
+                    INVALID_REQUEST,
+                    "native owner home differs from gateway home".into(),
+                ));
+            }
+            channel_store::merge_channel_config(
+                &home,
+                &config.kind,
+                &config.name,
+                &json!({"id":config.id, "enabled":false}),
+            )
+            .await
+            .map_err(|_| {
+                (
+                    INTERNAL_ERROR,
+                    "failed to disable native account before unbind".into(),
+                )
+            })?;
+            let channel_dir = home.join("channels");
+            tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+                let mut options = std::fs::OpenOptions::new();
+                options.read(true);
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::OpenOptionsExt as _;
+                    options.custom_flags(0x02000000); // FILE_FLAG_BACKUP_SEMANTICS
+                }
+                options.open(channel_dir)?.sync_all()
+            })
+            .await
+            .map_err(|_| {
+                (
+                    INTERNAL_ERROR,
+                    "native disable durability worker failed".into(),
+                )
+            })?
+            .map_err(|_| (INTERNAL_ERROR, "native disable durability failed".into()))?;
+            let crypto = savfox_channels::arkret::FileArkretCryptoStore::for_account(
+                &home,
+                &parsed.id,
+                &account.id,
+            );
+            Some(
+                tokio::task::spawn_blocking(move || crypto.acquire_native_owner_for_unbind())
+                    .await
+                    .map_err(|_| (INTERNAL_ERROR, "native owner shutdown worker failed".into()))?
+                    .map_err(|_| {
+                        (
+                            INTERNAL_ERROR,
+                            "native owner shutdown unavailable; local state retained".into(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
         let report = crate::channels::arkret::unbind_arkret_account(&home, &parsed, account)
             .await
             .map_err(|error| {
@@ -884,6 +992,7 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
         // Return the channel to an unbound state so a new Agent can be paired.
         let clear_patch = json!({
             "id": config.id,
+            "enabled": config.enabled,
             "keyRef": Value::Null,
             "verificationMethod": Value::Null,
             "authorizedEventRef": Value::Null,

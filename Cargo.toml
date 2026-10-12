@@ -77,7 +77,8 @@ mcp_test_support = { version = "0.3.1", path = "crates/mcp-server/tests/common" 
 
 aead = "0.5"
 aes-gcm = "0.10"
-allocative = "0.3.4"
+# Starlark 0.13 uses hashbrown 0.14; allocative 0.3.6 targets incompatible hashbrown 0.16.
+allocative = "=0.3.4"
 ansi-to-tui = "8.0.1"
 anyhow = "1"
 arc-swap = "1.9.0"
