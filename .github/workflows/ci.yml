@@ -119,7 +119,7 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Run tests (nextest)
-        run: cargo nextest run --workspace --profile ci
+        run: cargo nextest run --no-fail-fast --workspace --profile ci
       - name: Run doctests
         run: cargo test --workspace --doc
 
@@ -144,7 +144,7 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Run tests (nextest)
-        run: cargo nextest run --workspace --profile ci
+        run: cargo nextest run --no-fail-fast --workspace --profile ci
       - name: Run doctests
         run: cargo test --workspace --doc
 
@@ -184,7 +184,7 @@ jobs:
           fi
       - name: Core matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        run: cargo nextest run --profile ci -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
       - name: Check config schema freshness
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: |
@@ -192,13 +192,13 @@ jobs:
           git diff --exit-code -- crates/core/config.schema.json
       - name: Protocol matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.protocol == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        run: cargo nextest run --profile ci -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
       - name: TUI matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.tui == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        run: cargo nextest run --profile ci -p savfox-tui
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-tui
       - name: Gateway and channel matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        run: cargo nextest run --profile ci -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
 
   # ─── Code coverage ─────────────────────────────────────────────────
   coverage:
