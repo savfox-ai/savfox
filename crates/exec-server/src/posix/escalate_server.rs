@@ -297,7 +297,7 @@ mod tests {
                 argv: vec![
                     "sh".to_owned(),
                     "-c".to_owned(),
-                    r#"if [ "$KEY" = VALUE ]; then exit 42; else exit 1; fi"#.to_string(),
+                    r#"if [ "$KEY" = VALUE ]; then exit 42; else exit 1; fi"#.to_owned(),
                 ],
                 workdir: std::env::current_dir()?,
                 env: HashMap::from([("KEY".to_owned(), "VALUE".to_owned())]),

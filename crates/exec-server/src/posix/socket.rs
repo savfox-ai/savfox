@@ -424,7 +424,8 @@ mod tests {
         client.send_with_fds(payload.clone(), &send_fds).await?;
         drop(send_fds);
 
-        let (received_payload, received_fds) = receive_task.await.unwrap()?;
+        let (received_payload, received_fds) =
+            receive_task.await.expect("receiver task completes")?;
         assert_eq!(payload, received_payload);
         assert_eq!(1, received_fds.len());
         let fd_status = unsafe { libc::fcntl(received_fds[0].as_raw_fd(), libc::F_GETFD) };
@@ -441,7 +442,7 @@ mod tests {
         let payload = vec![b'A'; 10_000];
         let receive_task = tokio::spawn(async move { server.receive::<Vec<u8>>().await });
         client.send(payload.clone()).await?;
-        let received_payload = receive_task.await.unwrap()?;
+        let received_payload = receive_task.await.expect("receiver task completes")?;
         assert_eq!(payload, received_payload);
         Ok(())
     }
@@ -456,7 +457,8 @@ mod tests {
         client.send_with_fds(&data, &send_fds).await?;
         drop(send_fds);
 
-        let (received_bytes, received_fds) = receive_task.await.unwrap()?;
+        let (received_bytes, received_fds) =
+            receive_task.await.expect("receiver task completes")?;
         assert_eq!(data, received_bytes);
         assert_eq!(1, received_fds.len());
         Ok(())
@@ -466,7 +468,8 @@ mod tests {
     fn send_datagram_bytes_rejects_excessive_fd_counts() -> std::io::Result<()> {
         let (socket, _peer) = Socket::pair(Domain::UNIX, Type::DGRAM, None)?;
         let fds = fd_list(MAX_FDS_PER_MESSAGE + 1)?;
-        let err = send_datagram_bytes(&socket, b"hi", &fds).unwrap_err();
+        let err = send_datagram_bytes(&socket, b"hi", &fds)
+            .expect_err("operation must reject invalid input");
         assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
         Ok(())
     }
@@ -475,14 +478,15 @@ mod tests {
     fn send_stream_chunk_rejects_excessive_fd_counts() -> std::io::Result<()> {
         let (socket, _peer) = Socket::pair(Domain::UNIX, Type::STREAM, None)?;
         let fds = fd_list(MAX_FDS_PER_MESSAGE + 1)?;
-        let err = send_stream_chunk(&socket, b"hello", &fds, true).unwrap_err();
+        let err = send_stream_chunk(&socket, b"hello", &fds, true)
+            .expect_err("operation must reject invalid input");
         assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
         Ok(())
     }
 
     #[test]
     fn encode_length_errors_for_oversized_messages() {
-        let err = encode_length(usize::MAX).unwrap_err();
+        let err = encode_length(usize::MAX).expect_err("operation must reject invalid input");
         assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
     }
 

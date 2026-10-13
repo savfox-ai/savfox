@@ -37,8 +37,15 @@ impl TestSavfoxExecBuilder {
 }
 
 pub fn test_savfox_exec() -> TestSavfoxExecBuilder {
+    let home = TempDir::new().expect("create temp home");
+    crate::models::write_test_catalog(home.path()).expect("write test model catalog");
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!("model = {:?}\n", crate::models::DEFAULT_TEST_MODEL),
+    )
+    .expect("write test model selection");
     TestSavfoxExecBuilder {
-        home: TempDir::new().expect("create temp home"),
+        home,
         cwd: TempDir::new().expect("create temp cwd"),
     }
 }

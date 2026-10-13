@@ -327,7 +327,7 @@ mod tests {
 
         let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
             protocol: NetworkProtocol::Socks5Tcp,
-            host: "tcp.example.com".to_owned(),
+            host: "203.0.113.10".to_owned(),
             port: 22,
             client_addr: None,
             method: None,

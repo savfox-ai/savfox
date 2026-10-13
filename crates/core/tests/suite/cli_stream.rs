@@ -54,6 +54,15 @@ async fn chat_mode_stream_cli() {
         .await;
 
     let home = TempDir::new().unwrap();
+    core_test_support::models::write_test_catalog(home.path()).unwrap();
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!(
+            "model = {:?}\n",
+            core_test_support::models::DEFAULT_TEST_MODEL
+        ),
+    )
+    .unwrap();
     write_config(
         &home,
         &format!(
@@ -143,6 +152,15 @@ async fn exec_cli_applies_model_instructions_file() {
     let custom_path_str = custom_path.to_string_lossy().replace('\\', "/");
 
     let home = TempDir::new().unwrap();
+    core_test_support::models::write_test_catalog(home.path()).unwrap();
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!(
+            "model = {:?}\n",
+            core_test_support::models::DEFAULT_TEST_MODEL
+        ),
+    )
+    .unwrap();
     write_config(
         &home,
         &format!(
@@ -207,6 +225,15 @@ async fn responses_api_stream_cli() {
     let repo_root = repo_root();
 
     let home = TempDir::new().unwrap();
+    core_test_support::models::write_test_catalog(home.path()).unwrap();
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!(
+            "model = {:?}\n",
+            core_test_support::models::DEFAULT_TEST_MODEL
+        ),
+    )
+    .unwrap();
     let bin = savfox_utils::cargo_bin::cargo_bin("savfox").unwrap();
     let mut cmd = AssertCommand::new(bin);
     cmd.arg("exec")

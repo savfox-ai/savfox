@@ -3474,7 +3474,11 @@ async fn model_popup_prefers_provider_store_models() {
   "version": 2,
   "provider_id": "provider-a",
   "name": "Provider A",
-  "disabled_models": []
+  "disabled_models": ["hidden-model"],
+  "models": [
+    {"id": "provider-a/model-one", "name": "Model One"},
+    {"id": "provider-a/hidden-model", "model_slug": "hidden-model", "name": "Hidden Model"}
+  ]
 }"#,
     )
     .expect("write provider-a");
@@ -3484,7 +3488,8 @@ async fn model_popup_prefers_provider_store_models() {
   "version": 2,
   "provider_id": "provider-b",
   "name": "Provider B",
-  "disabled_models": []
+  "disabled_models": [],
+  "models": [{"id": "provider-b/model-two", "name": "Model Two"}]
 }"#,
     )
     .expect("write provider-b");
@@ -3531,7 +3536,12 @@ fn provider_store_loader_parses_disabled_models_field() {
   "version": 2,
   "provider_id": "provider-enabled",
   "name": "Provider Enabled",
-  "disabled_models": []
+  "disabled_models": ["model-hidden"],
+  "models": [
+    {"id": "provider-enabled/model-a", "model_slug": "model-a"},
+    {"id": "provider-enabled/model-b", "model_slug": "model-b"},
+    {"id": "provider-enabled/model-hidden", "model_slug": "model-hidden"}
+  ]
 }"#,
     )
     .expect("write enabled models file");

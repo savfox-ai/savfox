@@ -115,7 +115,7 @@ fn savfox_account_outbound_uses_garth_durable_queue() {
     assert!(
         send_source.contains("OutboundEngine::new(outbound_store")
             && send_source.contains(".enqueue(")
-            && send_source.contains(".submit_next_with_fence("),
+            && send_source.contains(".submit_next(&authority,"),
         "Savfox account outbound must enqueue and submit through Garth's durable engine"
     );
     assert!(

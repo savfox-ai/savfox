@@ -10,7 +10,7 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{
-    load_default_config_for_test, skip_if_no_network, skip_if_sandbox, wait_for_event,
+    load_config_without_catalog_for_test, skip_if_no_network, skip_if_sandbox, wait_for_event,
     wait_for_event_match,
 };
 use pretty_assertions::assert_eq;
@@ -82,6 +82,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
     .await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
@@ -205,6 +206,7 @@ async fn remote_models_truncation_policy_without_override_preserves_remote() -> 
     .await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
@@ -250,6 +252,7 @@ async fn remote_models_truncation_policy_with_tool_output_override() -> Result<(
     .await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
@@ -332,6 +335,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
     .await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
@@ -407,7 +411,7 @@ async fn remote_models_catalog_contains_only_discovered_models() -> Result<()> {
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -467,7 +471,7 @@ async fn remote_models_merge_adds_new_high_priority_first() -> Result<()> {
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -516,7 +520,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -562,7 +566,7 @@ async fn empty_remote_response_does_not_fabricate_local_presets() -> Result<()> 
     let models_mock = mount_models_once(&server, ModelsResponse { models: Vec::new() }).await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -609,7 +613,7 @@ async fn remote_models_request_times_out_after_5s() -> Result<()> {
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -679,7 +683,7 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
