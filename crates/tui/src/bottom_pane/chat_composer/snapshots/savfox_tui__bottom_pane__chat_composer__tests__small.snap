@@ -1,5 +1,5 @@
 ---
-source: crates/tui/src/bottom_pane/chat_composer.rs
+source: crates/tui/src/bottom_pane/chat_composer/tests.rs
 expression: terminal.backend()
 ---
 "                                                                                                    "
@@ -11,4 +11,4 @@ expression: terminal.backend()
 "                                                                                                    "
 "                                                                                                    "
 "────────────────────────────────────────────────────────────────────────────────────────────────────"
-"                                                                                 100% context left  "
+"                                                                                   [░░░░░░░░░░] 0%  "
