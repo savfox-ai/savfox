@@ -5,7 +5,7 @@ use core_test_support::responses::{
     start_mock_server,
 };
 use core_test_support::test_savfox::test_savfox;
-use core_test_support::{load_default_config_for_test, skip_if_no_network, wait_for_event};
+use core_test_support::{load_config_without_catalog_for_test, skip_if_no_network, wait_for_event};
 use pretty_assertions::assert_eq;
 use savfox_core::config::types::Personality;
 use savfox_core::features::Feature;
@@ -31,7 +31,7 @@ fn sse_completed(id: &str) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn personality_does_not_mutate_base_instructions_without_template() {
     let savfox_home = TempDir::new().expect("create temp dir");
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::Personality);
     config.personality = Some(Personality::Friendly);
 
@@ -45,7 +45,7 @@ async fn personality_does_not_mutate_base_instructions_without_template() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn base_instructions_override_disables_personality_template() {
     let savfox_home = TempDir::new().expect("create temp dir");
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::Personality);
     config.personality = Some(Personality::Friendly);
     config.base_instructions = Some("override instructions".to_owned());
@@ -65,10 +65,13 @@ async fn user_turn_personality_none_does_not_add_update_message() -> anyhow::Res
 
     let server = start_mock_server().await;
     let resp_mock = mount_sse_once(&server, sse_completed("resp-1")).await;
-    let mut builder = test_savfox().with_model(TEST_MODEL).with_config(|config| {
-        config.features.disable(Feature::RemoteModels);
-        config.features.enable(Feature::Personality);
-    });
+    let mut builder = test_savfox()
+        .without_model_catalog()
+        .with_model(TEST_MODEL)
+        .with_config(|config| {
+            config.features.disable(Feature::RemoteModels);
+            config.features.enable(Feature::Personality);
+        });
     let test = builder.build(&server).await?;
 
     test.savfox
@@ -113,11 +116,14 @@ async fn user_turn_personality_same_value_does_not_add_update_message() -> anyho
         vec![sse_completed("resp-1"), sse_completed("resp-2")],
     )
     .await;
-    let mut builder = test_savfox().with_model(TEST_MODEL).with_config(|config| {
-        config.features.disable(Feature::RemoteModels);
-        config.features.enable(Feature::Personality);
-        config.personality = Some(Personality::Pragmatic);
-    });
+    let mut builder = test_savfox()
+        .without_model_catalog()
+        .with_model(TEST_MODEL)
+        .with_config(|config| {
+            config.features.disable(Feature::RemoteModels);
+            config.features.enable(Feature::Personality);
+            config.personality = Some(Personality::Pragmatic);
+        });
     let test = builder.build(&server).await?;
 
     test.savfox
@@ -196,7 +202,7 @@ async fn user_turn_personality_same_value_does_not_add_update_message() -> anyho
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn instructions_uses_base_if_feature_disabled() -> anyhow::Result<()> {
     let savfox_home = TempDir::new().expect("create temp dir");
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.disable(Feature::Personality);
     config.personality = Some(Personality::Friendly);
 
@@ -219,10 +225,13 @@ async fn user_turn_personality_skips_if_feature_disabled() -> anyhow::Result<()>
         vec![sse_completed("resp-1"), sse_completed("resp-2")],
     )
     .await;
-    let mut builder = test_savfox().with_model(TEST_MODEL).with_config(|config| {
-        config.features.disable(Feature::RemoteModels);
-        config.features.disable(Feature::Personality);
-    });
+    let mut builder = test_savfox()
+        .without_model_catalog()
+        .with_model(TEST_MODEL)
+        .with_config(|config| {
+            config.features.disable(Feature::RemoteModels);
+            config.features.disable(Feature::Personality);
+        });
     let test = builder.build(&server).await?;
 
     test.savfox
@@ -358,6 +367,7 @@ async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow
     let resp_mock = mount_sse_once(&server, sse_completed("resp-1")).await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(savfox_core::SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
@@ -475,6 +485,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
     .await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(savfox_core::SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);

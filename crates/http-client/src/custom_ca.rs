@@ -5,11 +5,10 @@
 //! reqwest clients so login, model, update, and registry requests can all share
 //! the same behavior.
 
-use std::io::{self, Cursor};
 use std::path::{Path, PathBuf};
-use std::{env, fs};
+use std::{env, fs, io};
 
-use rustls_pemfile::Item;
+use rustls_pki_types::pem::{PemObject, SectionKind};
 use thiserror::Error;
 use tracing::{info, warn};
 
@@ -199,21 +198,20 @@ impl ConfiguredCaBundle {
         let normalized_pem = NormalizedPem::from_pem_data(self.source_env, &self.path, &pem_data);
         let mut certificates = Vec::new();
         let mut ignored_crl = false;
-        let mut cursor = Cursor::new(normalized_pem.contents().as_bytes());
-        for item in rustls_pemfile::read_all(&mut cursor) {
-            let item = item.map_err(|error| {
+        for item in <(SectionKind, Vec<u8>)>::pem_slice_iter(normalized_pem.contents().as_bytes()) {
+            let (kind, contents) = item.map_err(|error| {
                 self.invalid_ca_file(format!("failed to parse PEM file: {error}"))
             })?;
-            match item {
-                Item::X509Certificate(cert) => {
-                    let der = normalized_pem.certificate_der(cert.as_ref()).ok_or_else(|| {
+            match kind {
+                SectionKind::Certificate => {
+                    let der = normalized_pem.certificate_der(&contents).ok_or_else(|| {
                         self.invalid_ca_file(
                             "failed to extract certificate data from TRUSTED CERTIFICATE: invalid DER length",
                         )
                     })?;
                     certificates.push(der.to_vec());
                 }
-                Item::Crl(_) if !ignored_crl => {
+                SectionKind::Crl if !ignored_crl => {
                     info!(
                         source_env = self.source_env,
                         ca_path = %self.path.display(),
@@ -221,7 +219,7 @@ impl ConfiguredCaBundle {
                     );
                     ignored_crl = true;
                 }
-                Item::Crl(_) => {}
+                SectionKind::Crl => {}
                 _ => {}
             }
         }

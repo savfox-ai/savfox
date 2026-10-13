@@ -68,7 +68,6 @@ savfox-windows-sandbox = { version = "0.3.1", path = "crates/windows-sandbox", d
 savfox-skill-registry = { version = "0.3.1", path = "crates/skill-registry", default-features = true }
 savfox-browser-automation = { version = "0.3.1", path = "crates/browser-automation", default-features = true }
 savfox-memory = { version = "0.3.1", path = "crates/memory", default-features = true }
-savfox-link-understanding = { version = "0.3.1", path = "crates/link-understanding", default-features = true }
 savfox-channels = { version = "0.3.1", path = "crates/channels", default-features = true }
 app_test_support = { version = "0.3.1", path = "crates/app-server/tests/common" }
 core_test_support = { version = "0.3.1", path = "crates/core/tests/common" }
@@ -172,8 +171,8 @@ landlock = "0.4.4"
 lazy_static = "1"
 libc = "0.2.183"
 log = "0.4"
-lopdf = "0.40"
-lru = "0.16.3"
+lopdf = "0.45"
+lru = "0.18.5"
 maplit = "1.0.2"
 matrix-bot-sdk = { version = "0.2.4", default-features = false }
 mime = "0.3"
@@ -185,16 +184,16 @@ multimap = "0.10"
 native-tls = "0.2"
 nix = { version = "0.31", default-features = false }
 notify = "8.2.0"
-nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
+nucleo = { version = "0.5.0", git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
 oauth2 = "5"
 once_cell = "1.21.4"
 openssl-sys = "*"
-opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc", default-features = false }
-opentelemetry-appender-tracing = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
-opentelemetry-http = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc", default-features = false }
-opentelemetry-otlp = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
-opentelemetry-semantic-conventions = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc", default-features = false }
-opentelemetry_sdk = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
+opentelemetry = { version = "0.31.0", git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc", default-features = false }
+opentelemetry-appender-tracing = { version = "0.31.1", git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
+opentelemetry-http = { version = "0.31.0", git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc", default-features = false }
+opentelemetry-otlp = { version = "0.31.0", git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
+opentelemetry-semantic-conventions = { version = "0.31.0", git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc", default-features = false }
+opentelemetry_sdk = { version = "0.31.0", git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
 os_info = "3.14.0"
 owo-colors = "4.3.0"
 parking_lot = "0.12"
@@ -235,16 +234,16 @@ rmcp = { version = "1.3.0", default-features = false }
 serenity = { version = "0.12", default-features = false, features = [
     "client",
     "gateway",
-    "rustls_backend",
+    "native_tls_backend",
     "model",
     "utils",
     "cache",
 ] }
-runfiles = { git = "https://github.com/dzbarsky/rules_rust", rev = "b56cbaa8465e74127f1ea216f813cd377295ad81" }
+runfiles = { version = "0.1.0", git = "https://github.com/dzbarsky/rules_rust", rev = "b56cbaa8465e74127f1ea216f813cd377295ad81" }
 rust-embed = { version = ">= 6, <= 9" }
 rust_decimal = "1"
 rustls = { version = "0.23", features = ["aws-lc-rs"] }
-rustls-pemfile = "2"
+rustls-pki-types = { version = "1.14", features = ["std"] }
 schemars = "1.2.1"
 seccompiler = "0.5.0"
 secrecy = "0.10"
@@ -258,7 +257,7 @@ serde_path_to_error = "0.1.20"
 serde_urlencoded = "0.7"
 serde_with = "3"
 teloxide = { version = "0.17", default-features = false, features = ["rustls"] }
-serde_yaml = "0.9"
+serde-saphyr = "1.2"
 serial_test = "3.4.0"
 sha1 = "0.11.0"
 sha2 = { version = "0.11", default-features = false }
@@ -332,22 +331,22 @@ scraper = "0.26.0"
 feishu-sdk = { version = "0.1.2", features = ["websocket"] }
 dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-sdk", rev = "14ba4f9d784e1dd2e8830108529a1c968be7f3b7" }
 
-# Optional Arkret v1 integration crates. These are path dependencies during
-# local protocol/runtime co-development across the sibling Arkret workspace.
-arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk", default-features = false, features = [
+# Optional Arkret v1 integration crates pinned for standalone builds and CI.
+# Local co-development overrides are documented in CONTRIBUTING.md.
+arkret = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7", default-features = false, features = [
     "client",
     "tls-rustls",
     "mls",
     "signer",
 ] }
-arkret-schema = { path = "../../arkret-org/arkret-rust-sdk/crates/schema", default-features = false }
-arkret-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/crypto", default-features = false }
-arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-collaboration", default-features = false }
-arkret-models-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/models-crypto", default-features = false }
-arkret-signatures = { path = "../../arkret-org/arkret-rust-sdk/crates/signatures", default-features = false, features = ["collaboration"] }
-arkret-wire = { path = "../../arkret-org/arkret-rust-sdk/crates/wire", default-features = false }
-garth = { path = "../../arkret-org/garth", default-features = false, features = ["native"] }
-arkret-bridge-runtime = { path = "../../arkret-org/bridges/crates/runtime", default-features = false, features = ["edge"] }
+arkret-schema = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7", default-features = false }
+arkret-crypto = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7", default-features = false }
+arkret-models-collaboration = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7", default-features = false }
+arkret-models-crypto = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7", default-features = false }
+arkret-signatures = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7", default-features = false, features = ["collaboration"] }
+arkret-wire = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7", default-features = false }
+garth = { version = "0.3.0", git = "https://github.com/arkret-org/garth.git", rev = "cb3d1d4f31897780413da8474333f47f87bd32c7", default-features = false, features = ["native"] }
+arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "724d98de6d8b7f1de8fbd2df99647d0990e1c5d5", default-features = false, features = ["edge"] }
 
 # WASM dependencies for gateway-dioxus
 dioxus = { version = "=0.7.10", default-features = false, features = [
@@ -428,6 +427,39 @@ opentelemetry-http = { git = "https://github.com/open-telemetry/opentelemetry-ru
 opentelemetry-otlp = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
 opentelemetry-appender-tracing = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
 opentelemetry-semantic-conventions = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
+
+# The Garth and bridge manifests use sibling SDK paths. Redirect their Git
+# source dependencies to the same SDK revision to keep shared types identical.
+[patch."https://github.com/arkret-org/garth.git"]
+arkret-auth={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-canonical={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-event-draft={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-hlc={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-http-client={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-identifiers={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-identity={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-keystore={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-models-collaboration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-models-crypto={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-models-discovery={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-models-identity={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-policy={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-retry={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-signatures={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-wire={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+
+[patch."https://github.com/arkret-org/bridges.git"]
+arkret={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-canonical={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-egress-reqwest={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-event-draft={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-identifiers={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-models-collaboration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-models-discovery={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-models-integration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-retry={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-signatures={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
+arkret-wire={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "f4aae2269746187661461b30856dfec22354fff7" }
 
 # ── Build profiles ──────────────────────────────────────────────────────────
 

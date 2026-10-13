@@ -2,11 +2,12 @@
 source: crates/tui/src/chat_screen/tests.rs
 expression: term.backend().vt100().screen().contents()
 ---
-              ▄█▀▀▀▀█▄  ▄█▀▀█▄  ██    ██ ██████  ▄█▀▀█▄  ██    ██
-              ██▄▄     ██    ██ ██    ██ ██     ██    ██  ▀█▄▄█▀ 
-               ▀▀▀▀█▄  ████████ ██    ██ █████  ██    ██    ██   
-              ▄▄    ██ ██    ██  ██  ██  ██     ██    ██  ▄█▀▀█▄ 
-               ▀████▀  ██    ██   ▀██▀   ██      ▀█▄▄█▀  ██    ██
+         ▄▄▄▄▄▄     ▄█▀▀▀▀█▄  ▄█▀▀█▄  ██    ██ ██████  ▄█▀▀█▄  ██    ██
+         ▄▀▀▀▀▄▄▄   ██▄▄     ██    ██ ██    ██ ██     ██    ██  ▀█▄▄█▀ 
+         ▀▀▀▀▄▄▀▄▄▄  ▀▀▀▀█▄  ████████ ██    ██ █████  ██    ██    ██   
+         ▀▀▀▀▀▀▀▀▀▀ ▄▄    ██ ██    ██  ██  ██  ██     ██    ██  ▄█▀▀█▄ 
+         ▀▀▀▄▄▄▀▀▀   ▀████▀  ██    ██   ▀██▀   ██      ▀█▄▄█▀  ██    ██
+
 
                                 Welcome to Savfox
                             Your AI coding assistant
@@ -20,9 +21,8 @@ expression: term.backend().vt100().screen().contents()
   ↳ Hello, world! 2
   ↳ Hello, world! 3
   ↳ Hello, world! 4
-  ↳ Hello, world! 5
-D:\Works\savfox-ai\savfox\crates\tui                      gpt-5.2-codex OpenAI
+/test/workspace                                              test-model OpenAI
 ────────────────────────────────────────────────────────────────────────────────
 ❯ Type @ to mention files, / for commands, or ? for shortcuts
 ────────────────────────────────────────────────────────────────────────────────
-  ? for shortcuts                                            100% context left
+  ? for shortcuts                                              [░░░░░░░░░░] 0%

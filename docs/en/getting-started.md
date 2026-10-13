@@ -16,6 +16,10 @@ cd savfox
 cargo install --path crates/savfox-cli
 ```
 
+Cargo fetches the pinned Arkret SDK, Garth, and bridge Git dependencies itself;
+source builds do not require sibling repository checkouts. For local Arkret
+co-development, see the overrides in [CONTRIBUTING.md](../../CONTRIBUTING.md).
+
 ### Verify Installation
 
 ```bash

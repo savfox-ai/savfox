@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "savfox-async-utils"
 version.workspace = true
 edition.workspace = true

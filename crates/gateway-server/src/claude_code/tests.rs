@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::protocol::State;
 
@@ -107,6 +107,7 @@ mod process {
 
     use savfox_gateway_shared::ClaudeCodeConfig;
     use savfox_protocol::SessionId;
+    use serde_json::Value;
     use tokio::sync::mpsc;
 
     use super::*;

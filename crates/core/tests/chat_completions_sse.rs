@@ -275,7 +275,8 @@ async fn streams_reasoning_from_object_delta() {
             content_index,
         } => {
             assert_eq!(delta, "partB");
-            assert_eq!(content_index, &1);
+            // Both deltas append to the same reasoning content part.
+            assert_eq!(content_index, &0);
         }
         other => panic!("expected reasoning delta, got {other:?}"),
     }

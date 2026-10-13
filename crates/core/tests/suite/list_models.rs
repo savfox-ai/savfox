@@ -1,5 +1,5 @@
 use anyhow::Result;
-use core_test_support::load_default_config_for_test;
+use core_test_support::load_config_without_catalog_for_test;
 use savfox_core::config::provider_store::{ProviderStoreFile, save_provider_store_file};
 use savfox_core::models_manager::manager::RefreshStrategy;
 use savfox_core::{SavfoxAuth, SessionManager, built_in_model_providers};
@@ -31,7 +31,7 @@ async fn list_models_hides_api_unsupported_models_from_api_key_auth() -> Result<
         &savfox_home,
         &[model("api-ok", true), model("chatgpt-only", false)],
     );
-    let config = load_default_config_for_test(&savfox_home).await;
+    let config = load_config_without_catalog_for_test(&savfox_home).await;
     let manager = SessionManager::with_models_provider_and_home(
         SavfoxAuth::from_api_key("sk-test"),
         built_in_model_providers()["openai"].clone(),
@@ -57,7 +57,7 @@ async fn list_models_returns_every_model_for_chatgpt_auth() -> Result<()> {
         &savfox_home,
         &[model("api-ok", true), model("chatgpt-only", false)],
     );
-    let config = load_default_config_for_test(&savfox_home).await;
+    let config = load_config_without_catalog_for_test(&savfox_home).await;
     let manager = SessionManager::with_models_provider_and_home(
         SavfoxAuth::create_dummy_chatgpt_auth_for_testing(),
         built_in_model_providers()["openai"].clone(),
@@ -82,7 +82,7 @@ async fn list_models_returns_every_model_for_chatgpt_auth() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn list_models_is_empty_without_a_catalog() -> Result<()> {
     let savfox_home = tempdir()?;
-    let config = load_default_config_for_test(&savfox_home).await;
+    let config = load_config_without_catalog_for_test(&savfox_home).await;
     let manager = SessionManager::with_models_provider_and_home(
         SavfoxAuth::from_api_key("sk-test"),
         built_in_model_providers()["openai"].clone(),

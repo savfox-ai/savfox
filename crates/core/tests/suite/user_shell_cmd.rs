@@ -124,7 +124,7 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
     #[cfg(windows)]
     let command = r#"$val = $env:SAVFOX_SANDBOX; if ([string]::IsNullOrEmpty($val)) { $val = 'not-set' } ; [System.Console]::Write($val)"#.to_owned();
     #[cfg(not(windows))]
-    let command = r#"sh -c "printf '%s' \"${SAVFOX_SANDBOX:-not-set}\"""#.to_string();
+    let command = r#"sh -c "printf '%s' \"${SAVFOX_SANDBOX:-not-set}\"""#.to_owned();
 
     test.savfox
         .submit(Op::RunUserShellCommand {
@@ -207,7 +207,7 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
     #[cfg(windows)]
     let command = r#"for ($i=1; $i -le 400; $i++) { Write-Output $i }"#.to_string();
     #[cfg(not(windows))]
-    let command = "seq 1 400".to_string();
+    let command = "seq 1 400".to_owned();
 
     test.savfox
         .submit(Op::RunUserShellCommand {

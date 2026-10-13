@@ -16,6 +16,8 @@ use tracing::{info, warn};
 use super::config::DingtalkChannelConfig;
 use super::parse::parse_inbound_payload;
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait DingtalkActionSink: Send + Sync {
     async fn handle_action(

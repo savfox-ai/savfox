@@ -139,11 +139,15 @@ impl TerminalPtyChild for NativeTerminalPtyChild {
     }
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub(crate) trait TerminalPtyBackend: Send + Sync {
     async fn spawn(&self, spec: TerminalPtySpawnSpec) -> io::Result<TerminalPtyProcess>;
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub(crate) trait TerminalPtyChild: Send {
     fn pid(&self) -> Option<u32>;
@@ -1074,7 +1078,7 @@ fn spawn_native_reader(
             }
             match tokio::time::timeout(wait, output.recv()).await {
                 Ok(Ok(bytes)) => session.append_output("stdout", decoder.push(&bytes)).await,
-                Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+                Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
                 _ => break,
             }
         }

@@ -1,5 +1,5 @@
 ---
-source: crates/tui/src/bottom_pane/chat_composer.rs
+source: crates/tui/src/bottom_pane/chat_composer/tests.rs
 expression: terminal.backend()
 ---
 "                                                            "
@@ -10,4 +10,4 @@ expression: terminal.backend()
 "                                                            "
 "                                                            "
 "────────────────────────────────────────────────────────────"
-"  Plan mode (shift+tab to cycle)         100% context left  "
+"  Plan mode (shift+tab to cycle)           [░░░░░░░░░░] 0%  "

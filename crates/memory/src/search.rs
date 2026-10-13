@@ -120,13 +120,15 @@ impl HybridSearch {
 
         for (chunk, score) in vector_results {
             let normalized = score / max_vector_score;
-            *scores.entry(chunk.id.clone()).or_insert(0.0) += normalized * self.vector_weight;
+            let combined = scores.entry(chunk.id.clone()).or_insert(0.0);
+            *combined = normalized.mul_add(self.vector_weight, *combined);
             chunks.insert(chunk.id.clone(), chunk);
         }
 
         for (chunk, score) in keyword_results {
             let normalized = score / max_keyword_score;
-            *scores.entry(chunk.id.clone()).or_insert(0.0) += normalized * self.keyword_weight;
+            let combined = scores.entry(chunk.id.clone()).or_insert(0.0);
+            *combined = normalized.mul_add(self.keyword_weight, *combined);
             chunks.insert(chunk.id.clone(), chunk);
         }
 

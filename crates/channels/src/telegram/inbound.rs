@@ -50,6 +50,8 @@ fn describe_update(payload: &serde_json::Value) -> (String, String, usize) {
     (kind.to_owned(), chat_id, text.len())
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait TelegramUpdateSink: Send + Sync {
     async fn handle_update(&self, payload: serde_json::Value);

@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "savfox-ansi-escape"
 version.workspace = true
 edition.workspace = true

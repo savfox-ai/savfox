@@ -70,7 +70,7 @@ fn install_filesystem_landlock_rules_on_current_session(
         .create()?
         .add_rules(landlock::path_beneath_rules(&["/"], access_ro))?
         .add_rules(landlock::path_beneath_rules(&["/dev/null"], access_rw))?
-        .set_no_new_privs(true);
+        .no_new_privs(true);
 
     if !writable_roots.is_empty() {
         ruleset = ruleset.add_rules(landlock::path_beneath_rules(&writable_roots, access_rw))?;

@@ -6408,11 +6408,11 @@ mod tests {
         assert_eq!(payload["claude"], settings);
         assert!(payload.get("args").is_none());
         assert!(payload.get("stdin").is_none());
-        let (_, _, args, _, _, _, _, _) = json_terminal_delegate_fields(Some(&payload));
+        let (_, _, args, ..) = json_terminal_delegate_fields(Some(&payload));
         assert_eq!(serde_json::from_str::<Value>(&args).unwrap(), settings);
         // The edit form loads the typed agents.get response, not the raw import JSON.
         let detail: AgentTerminalDelegateConfig = serde_json::from_value(payload).unwrap();
-        let (_, _, args, _, _, _, _, _) = detail_terminal_delegate_fields(Some(&detail));
+        let (_, _, args, ..) = detail_terminal_delegate_fields(Some(&detail));
         let edited = serde_json::from_str::<Value>(&args).unwrap();
         assert_eq!(edited, serde_json::to_value(&detail.claude).unwrap());
         assert_eq!(edited["expected_version"], settings["expected_version"]);

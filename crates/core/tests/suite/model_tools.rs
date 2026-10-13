@@ -44,6 +44,7 @@ async fn collect_tool_identifiers_for_model(model_info: ModelInfo) -> Vec<String
     let resp_mock = responses::mount_sse_once(&server, sse).await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_model(&model)
         // Keep tool expectations stable when the default web_search mode changes.
         .with_config(|config| {

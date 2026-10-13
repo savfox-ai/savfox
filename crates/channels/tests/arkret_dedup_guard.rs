@@ -115,12 +115,12 @@ fn savfox_account_outbound_uses_garth_durable_queue() {
     assert!(
         send_source.contains("OutboundEngine::new(outbound_store")
             && send_source.contains(".enqueue(")
-            && send_source.contains(".submit_next_with_fence("),
+            && send_source.contains(".submit_next(&authority,"),
         "Savfox account outbound must enqueue and submit through Garth's durable engine"
     );
     assert!(
         source.contains("drain_pending_account_outbound")
-            && source.contains("durable outbound worker completed queued event"),
+            && source.contains("durable producer submission committed"),
         "Savfox listener must resume pending outbound items after process restart"
     );
     assert!(

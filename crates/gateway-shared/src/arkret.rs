@@ -32,6 +32,7 @@ pub fn agent_verification_method_matches_core_id(
 }
 
 /// Return only a recovery selected by a service-supplied registered reason.
+#[must_use]
 pub fn agent_scope_recovery(reason: &str) -> Option<&'static str> {
     use arkret_schema::agent_runtime_scope::AgentRuntimeScopeLayer;
     use arkret_wire::error_codes::ReasonCode;
@@ -102,6 +103,7 @@ pub fn validate_agent_runtime_scope(actions: &[String]) -> Result<(), String> {
 /// Every granted action must have been requested, while the schema-owned
 /// runtime floor must remain complete. Content capabilities can legitimately
 /// be removed when no Realm capability/policy evidence grants them.
+#[must_use]
 pub fn session_scope_matches_request(requested: &[String], granted: &[String]) -> bool {
     validate_agent_runtime_scope(requested).is_ok()
         && validate_agent_runtime_scope(granted).is_ok()
@@ -114,8 +116,8 @@ mod tests {
 
     #[test]
     fn agent_scope_candidate_is_registered_complete_and_minimal() {
-        let actions = default_agent_runtime_scope().unwrap();
-        validate_agent_runtime_scope(&actions).unwrap();
+        let actions = default_agent_runtime_scope().expect("complete default scope");
+        validate_agent_runtime_scope(&actions).expect("valid default scope");
         assert!(
             actions
                 .iter()
@@ -126,9 +128,11 @@ mod tests {
                 .iter()
                 .any(|action| action == ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1)
         );
-        for excluded in [ServiceOperationId::SELF_REALM_READ_EXPORT_V1] {
-            assert!(!actions.iter().any(|action| action == excluded));
-        }
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action == ServiceOperationId::SELF_REALM_READ_EXPORT_V1)
+        );
     }
 
     #[test]
@@ -162,10 +166,10 @@ mod tests {
             assert!(validate_agent_runtime_scope(&actions).is_err());
             assert_eq!(actions, [invalid]);
         }
-        let mut incomplete = default_agent_runtime_scope().unwrap();
+        let mut incomplete = default_agent_runtime_scope().expect("complete default scope");
         incomplete.retain(|action| action != ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1);
         let original = incomplete.clone();
-        let error = validate_agent_runtime_scope(&incomplete).unwrap_err();
+        let error = validate_agent_runtime_scope(&incomplete).expect_err("incomplete scope");
         assert!(error.contains(ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1));
         assert_eq!(incomplete, original);
     }
@@ -190,7 +194,7 @@ mod tests {
     #[test]
     fn agent_scope_session_accepts_authoritative_narrowing_but_rejects_overgrant_and_missing_floor()
     {
-        let requested = default_agent_runtime_scope().unwrap();
+        let requested = default_agent_runtime_scope().expect("complete default scope");
         assert!(session_scope_matches_request(&requested, &requested));
         let mut extra = requested.clone();
         extra.push(ServiceOperationId::SELF_REALM_READ_EXPORT_V1.to_owned());
@@ -201,7 +205,7 @@ mod tests {
         let mut content_narrowed = requested.clone();
         content_narrowed.retain(|action| action != "ak.message.create");
         assert!(session_scope_matches_request(&requested, &content_narrowed));
-        let mut old = requested.clone();
+        let mut old = requested;
         old.push("ak.self.events.read.scan".to_owned());
         assert!(!session_scope_matches_request(&old, &old));
     }

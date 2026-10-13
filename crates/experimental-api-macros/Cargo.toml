@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "savfox-experimental-api-macros"
 version.workspace = true
 edition.workspace = true

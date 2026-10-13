@@ -1,5 +1,4 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-use std::borrow::Cow;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -12,7 +11,7 @@ use maplit::hashset;
 use pretty_assertions::assert_eq;
 use rmcp::ServiceExt;
 use rmcp::model::{
-    CallToolRequestParam, CallToolResult, CreateElicitationRequestParams, EmptyResult,
+    CallToolRequestParams, CallToolResult, CreateElicitationRequestParams, EmptyResult,
     ServerResult, object,
 };
 use savfox_exec_server::ExecResult;
@@ -90,7 +89,7 @@ prefix_rule(
         content, is_error, ..
     } = service
         .call_tool(
-            CallToolRequestParam::new("shell").with_arguments(object(json!(
+            CallToolRequestParams::new("shell").with_arguments(object(json!(
                 {
                     "login": USE_LOGIN_SHELL,
                     "command": "git init .",
@@ -181,7 +180,7 @@ async fn resolve_git_path(use_login_shell: bool) -> Result<String> {
     let git_path = String::from_utf8(git.stdout)
         .context("git path was not valid utf8")?
         .trim()
-        .to_string();
+        .to_owned();
     ensure!(!git_path.is_empty(), "git path should not be empty");
     Ok(git_path)
 }

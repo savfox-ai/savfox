@@ -742,13 +742,8 @@ mod tests {
             &std::fs::read_to_string(&savfox_file).expect("read persisted provider file"),
         )
         .expect("parse persisted provider file");
-        assert_eq!(
-            raw.get("disabled_models")
-                .and_then(Value::as_array)
-                .and_then(|arr| arr.first())
-                .and_then(Value::as_str),
-            Some("claude-sonnet")
-        );
+        assert_eq!(raw.get("disabled_models"), Some(&json!([])));
+        assert_eq!(raw["models"][0]["id"], json!("anthropic/claude-sonnet"));
         assert!(
             raw.get("models").is_some(),
             "persisted provider file should include serialized model metadata"

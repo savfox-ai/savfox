@@ -23,6 +23,8 @@ pub struct DiscordInboundMessage {
     pub bot_username: String,
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait DiscordEventSink: Send + Sync {
     async fn handle_message(&self, event: DiscordInboundMessage);

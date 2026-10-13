@@ -25,7 +25,7 @@ async fn turn_interrupt_aborts_running_turn() -> Result<()> {
         "Start-Sleep -Seconds 10".to_string(),
     ];
     #[cfg(not(target_os = "windows"))]
-    let shell_command = vec!["sleep".to_string(), "10".to_string()];
+    let shell_command = vec!["sleep".to_owned(), "10".to_owned()];
 
     let tmp = TempDir::new()?;
     let savfox_home = tmp.path().join("savfox_home");
@@ -49,7 +49,7 @@ async fn turn_interrupt_aborts_running_turn() -> Result<()> {
     // Start a v2 session and capture its id.
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -65,7 +65,7 @@ async fn turn_interrupt_aborts_running_turn() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "run sleep".to_string(),
+                text: "run sleep".to_owned(),
                 text_elements: Vec::new(),
             }],
             cwd: Some(working_directory.clone()),

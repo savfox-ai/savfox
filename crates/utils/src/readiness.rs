@@ -25,6 +25,8 @@ pub struct Token(i32);
 
 const LOCK_TIMEOUT: Duration = Duration::from_millis(1000);
 
+// async-trait adds must_use to futures, which Clippy already considers must-use.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait Readiness: Send + Sync + 'static {
     /// Returns true if the flag is currently marked ready. At least one token needs to be marked

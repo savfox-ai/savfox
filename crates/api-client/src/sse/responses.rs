@@ -368,6 +368,7 @@ pub async fn process_sse(
 }
 
 /// Quiet fixed-text parser. Ordinary Responses parsing remains unchanged.
+#[must_use]
 pub fn spawn_native_response_stream(
     response: StreamResponse,
     idle_timeout: Duration,
@@ -389,21 +390,18 @@ pub fn spawn_native_response_stream(
                     "native SSE unavailable or oversized".into(),
                 )),
             };
-            match event {
-                Ok(events) => {
-                    for event in events {
-                        let completed = matches!(event, ResponseEvent::Completed { .. });
-                        if tx_event.send(Ok(event)).await.is_err() || completed {
-                            return;
-                        }
+            if let Ok(events) = event {
+                for event in events {
+                    let completed = matches!(event, ResponseEvent::Completed { .. });
+                    if tx_event.send(Ok(event)).await.is_err() || completed {
+                        return;
                     }
                 }
-                Err(_) => {
-                    let _ = tx_event
-                        .send(Err(ApiError::Stream("native SSE rejected".into())))
-                        .await;
-                    return;
-                }
+            } else {
+                let _ = tx_event
+                    .send(Err(ApiError::Stream("native SSE rejected".into())))
+                    .await;
+                return;
             }
         }
     });
@@ -518,15 +516,15 @@ impl NativeTextStreamState {
             self.response_id = Some(id.to_owned());
         } else {
             let response_id = self.response_id.as_deref().ok_or_else(Self::invalid)?;
-            if let Some(id) = value.get("response_id") {
-                if id.as_str() != Some(response_id) {
-                    return Err(Self::invalid());
-                }
+            if let Some(id) = value.get("response_id")
+                && id.as_str() != Some(response_id)
+            {
+                return Err(Self::invalid());
             }
-            if let Some(response) = value.get("response") {
-                if response.get("id").and_then(Value::as_str) != Some(response_id) {
-                    return Err(Self::invalid());
-                }
+            if let Some(response) = value.get("response")
+                && response.get("id").and_then(Value::as_str) != Some(response_id)
+            {
+                return Err(Self::invalid());
             }
             if kind == "response.in_progress"
                 && value
