@@ -10,6 +10,10 @@ documentation.workspace = true
 name = "savfox_channels"
 path = "src/lib.rs"
 
+[[example]]
+name = "arkret_binding_worker"
+required-features = ["arkret"]
+
 [lints]
 workspace = true
 
