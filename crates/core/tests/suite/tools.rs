@@ -28,7 +28,7 @@ fn tool_names(body: &Value) -> Vec<String> {
                     tool.get("name")
                         .or_else(|| tool.get("type"))
                         .and_then(Value::as_str)
-                        .map(str::to_string)
+                        .map(str::to_owned)
                 })
                 .collect()
         })
@@ -464,7 +464,7 @@ time.sleep(60)
         timeout_item
             .get("output")
             .and_then(Value::as_str)
-            .map(str::to_string)
+            .map(str::to_owned)
             .context("timeout output string")
     })
     .await

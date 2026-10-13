@@ -54,15 +54,7 @@ async fn chat_mode_stream_cli() {
         .await;
 
     let home = TempDir::new().unwrap();
-    core_test_support::models::write_test_catalog(home.path()).unwrap();
-    std::fs::write(
-        home.path().join("config.toml"),
-        format!(
-            "model = {:?}\n",
-            core_test_support::models::DEFAULT_TEST_MODEL
-        ),
-    )
-    .unwrap();
+    core_test_support::models::write_cli_config(home.path()).unwrap();
     write_config(
         &home,
         &format!(
@@ -94,7 +86,11 @@ wire_api = "chat"
     println!("Status: {}", output.status);
     println!("Stdout:\n{}", String::from_utf8_lossy(&output.stdout));
     println!("Stderr:\n{}", String::from_utf8_lossy(&output.stderr));
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let hi_lines = stdout.lines().filter(|line| line.trim() == "hi").count();
     assert_eq!(hi_lines, 1, "Expected exactly one line with 'hi'");
@@ -152,15 +148,7 @@ async fn exec_cli_applies_model_instructions_file() {
     let custom_path_str = custom_path.to_string_lossy().replace('\\', "/");
 
     let home = TempDir::new().unwrap();
-    core_test_support::models::write_test_catalog(home.path()).unwrap();
-    std::fs::write(
-        home.path().join("config.toml"),
-        format!(
-            "model = {:?}\n",
-            core_test_support::models::DEFAULT_TEST_MODEL
-        ),
-    )
-    .unwrap();
+    core_test_support::models::write_cli_config(home.path()).unwrap();
     write_config(
         &home,
         &format!(
@@ -194,7 +182,11 @@ wire_api = "responses"
     println!("Status: {}", output.status);
     println!("Stdout:\n{}", String::from_utf8_lossy(&output.stdout));
     println!("Stderr:\n{}", String::from_utf8_lossy(&output.stderr));
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // Inspect the captured request and verify our custom base instructions were
     // included in the `instructions` field.
@@ -225,15 +217,7 @@ async fn responses_api_stream_cli() {
     let repo_root = repo_root();
 
     let home = TempDir::new().unwrap();
-    core_test_support::models::write_test_catalog(home.path()).unwrap();
-    std::fs::write(
-        home.path().join("config.toml"),
-        format!(
-            "model = {:?}\n",
-            core_test_support::models::DEFAULT_TEST_MODEL
-        ),
-    )
-    .unwrap();
+    core_test_support::models::write_cli_config(home.path()).unwrap();
     let bin = savfox_utils::cargo_bin::cargo_bin("savfox").unwrap();
     let mut cmd = AssertCommand::new(bin);
     cmd.arg("exec")
@@ -247,7 +231,11 @@ async fn responses_api_stream_cli() {
         .env("OPENAI_BASE_URL", "http://unused.local");
 
     let output = cmd.output().unwrap();
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("fixture hello"));
 }
@@ -260,6 +248,7 @@ async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
 
     // 1. Temp home so we read/write isolated session files.
     let home = TempDir::new()?;
+    core_test_support::models::write_cli_config(home.path())?;
 
     // 2. Unique marker we'll look for in the session log.
     let marker = format!("integration-test-{}", Uuid::new_v4());

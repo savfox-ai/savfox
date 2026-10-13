@@ -51,6 +51,9 @@ pub fn test_catalog() -> Vec<ModelInfo> {
                     .map(str::to_owned)
                     .to_vec();
         }
+        if slug == "test-gpt-5.1-savfox" {
+            model.truncation_policy = TruncationPolicyConfig::tokens(10_000);
+        }
         model
     })
     .collect()
@@ -62,11 +65,29 @@ pub fn write_test_catalog(home: &Path) -> std::io::Result<()> {
     if cache_path.exists() {
         return Ok(());
     }
+    write_model_cache(home, test_catalog())
+}
+
+fn write_model_cache(home: &Path, models: Vec<ModelInfo>) -> std::io::Result<()> {
     let cache = serde_json::json!({
         "fetched_at": chrono::Utc::now(),
         "etag": null,
         "client_version": savfox_core::models_manager::client_version_to_whole(),
-        "models": test_catalog(),
+        "models": models,
     });
-    std::fs::write(cache_path, serde_json::to_vec(&cache)?)
+    std::fs::write(home.join("models_cache.json"), serde_json::to_vec(&cache)?)
+}
+
+/// Configure an isolated CLI process using the current structured model format.
+pub fn write_cli_config(home: &Path) -> std::io::Result<()> {
+    let mut models = test_catalog();
+    // Config selections are provider-qualified; CLI overrides may use bare slugs.
+    let mut selected = models[0].clone();
+    selected.slug = format!("openai/{DEFAULT_TEST_MODEL}");
+    models.push(selected);
+    write_model_cache(home, models)?;
+    std::fs::write(
+        home.join("config.toml"),
+        format!("model = {{ slug = {DEFAULT_TEST_MODEL:?}, provider = \"openai\" }}\n"),
+    )
 }

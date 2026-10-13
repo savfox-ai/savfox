@@ -120,7 +120,7 @@ fn savfox_account_outbound_uses_garth_durable_queue() {
     );
     assert!(
         source.contains("drain_pending_account_outbound")
-            && source.contains("durable outbound worker completed queued event"),
+            && source.contains("durable producer submission committed"),
         "Savfox listener must resume pending outbound items after process restart"
     );
     assert!(

@@ -67,7 +67,7 @@ async fn backfill_scans_existing_rollouts() -> Result<()> {
 
     let uuid = Uuid::now_v7();
     let session_id = SessionId::from_string(&uuid.to_string())?;
-    let rollout_rel_path = format!("sessions/{uuid}.jsonl");
+    let rollout_rel_path = format!("sessions/rollout-2026-01-27T12-00-00-{uuid}.jsonl");
     let rollout_rel_path_for_hook = rollout_rel_path.clone();
 
     let dynamic_tools = vec![

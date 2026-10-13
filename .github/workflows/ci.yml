@@ -191,7 +191,7 @@ jobs:
         run: |
           bins=(--bin savfox)
           if [ "${{ needs.changes.outputs.workspace }}" = "true" ] || [ "${{ needs.changes.outputs.core }}" = "true" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
-            bins+=(--bin savfox-exec --bin savfox-linux-sandbox)
+            bins+=(--bin savfox-exec --bin savfox-linux-sandbox --bin test_stdio_server --bin test_streamable_http_server)
           fi
 
           cargo build "${bins[@]}"
@@ -203,6 +203,8 @@ jobs:
             {
               echo "CARGO_BIN_EXE_savfox_exec=$PWD/target/debug/savfox-exec"
               echo "CARGO_BIN_EXE_savfox_linux_sandbox=$PWD/target/debug/savfox-linux-sandbox"
+              echo "CARGO_BIN_EXE_test_stdio_server=$PWD/target/debug/test_stdio_server"
+              echo "CARGO_BIN_EXE_test_streamable_http_server=$PWD/target/debug/test_streamable_http_server"
             } >> "$GITHUB_ENV"
           fi
       - name: Core matrix

@@ -165,13 +165,22 @@ async fn list_skills_includes_system_cache_entries() -> Result<()> {
             !system_skill_path.exists(),
             "expected embedded system skills not yet installed, but {system_skill_path:?} exists"
         );
+        // The shared test manager skips registry installation. Seed its local
+        // system cache explicitly to exercise list-skills without network access.
+        fs::create_dir_all(system_skill_path.parent().expect("system skill parent"))
+            .expect("create system skill cache");
+        fs::write(
+            system_skill_path,
+            include_str!("../../src/skills/assets/samples/skill-creator/SKILL.md"),
+        )
+        .expect("write system skill cache fixture");
     });
     let test = builder.build(&server).await?;
 
     let system_skill_path = system_skill_md_path(test.savfox_home_path(), SYSTEM_SKILL_NAME);
     assert!(
         system_skill_path.exists(),
-        "expected embedded system skills installed to {system_skill_path:?}"
+        "expected system skill cache fixture at {system_skill_path:?}"
     );
     let system_skill_contents = fs::read_to_string(&system_skill_path)?;
     let expected_name_line = format!("name: {SYSTEM_SKILL_NAME}");
