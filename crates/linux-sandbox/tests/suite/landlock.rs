@@ -203,10 +203,6 @@ async fn assert_network_blocked(cmd: &[&str]) {
         }
     };
 
-    dbg!(&output.stderr.text);
-    dbg!(&output.stdout.text);
-    dbg!(&output.exit_code);
-
     // A completely missing binary exits with 127.  Anything else should also
     // be non‑zero (EPERM from seccomp will usually bubble up as 1, 2, 13…)
     // If—*and only if*—the command exits 0 we consider the sandbox breached.

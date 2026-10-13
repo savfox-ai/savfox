@@ -44,6 +44,7 @@ struct ChannelHealthInfo {
     connected: usize,
     total: usize,
     has_error: bool,
+    status: String,
     channel_name: Option<String>,
     channel_id: Option<String>,
 }
@@ -79,6 +80,61 @@ fn platform_brand_colors(platform: &str) -> (&'static str, &'static str) {
 }
 
 fn extract_channel_health(snapshot: &ChannelsStatusSnapshot) -> Vec<ChannelHealthInfo> {
+    if let Some(instances) = snapshot.instances.as_ref()
+        && !instances.is_empty()
+    {
+        let mut instance_entries = instances.iter().collect::<Vec<_>>();
+        instance_entries.sort_by(|(id_a, a), (id_b, b)| {
+            a.platform.cmp(&b.platform).then_with(|| id_a.cmp(id_b))
+        });
+        return instance_entries
+            .into_iter()
+            .map(|(id, info)| {
+                let phase = info.recovery_phase.as_deref().unwrap_or("");
+                let health_state = info.health_state.as_deref().unwrap_or("");
+                let has_error = info
+                    .last_error
+                    .as_deref()
+                    .is_some_and(|error| !error.trim().is_empty())
+                    || matches!(
+                        phase,
+                        "failed" | "retrying" | "unsupported_runtime" | "stopped"
+                    );
+                let status = match phase {
+                    "disabled" => "Disabled",
+                    "starting" => "Starting",
+                    "retrying" => "Retrying",
+                    "failed" => "Failed",
+                    "stopped" => "Stopped",
+                    "unsupported_runtime" => "Unsupported runtime",
+                    _ => match health_state {
+                        "connected" => "Connected",
+                        "listening" => "Listening",
+                        "configured" => "Configured",
+                        "degraded" => "Needs attention",
+                        _ if info.connected.unwrap_or(false) => "Connected",
+                        _ if info.running.unwrap_or(false) => "Listening",
+                        _ => "Configured",
+                    },
+                }
+                .to_owned();
+                let healthy =
+                    !has_error && matches!(health_state, "configured" | "listening" | "connected");
+
+                ChannelHealthInfo {
+                    platform: info.platform.clone(),
+                    icon: platform_icon(&info.platform).to_owned(),
+                    connected: usize::from(healthy),
+                    total: 1,
+                    has_error,
+                    status,
+                    channel_name: info.channel_name.as_ref().or(info.slug.as_ref()).cloned(),
+                    channel_id: info.id.clone().or_else(|| Some(id.clone())),
+                }
+            })
+            .collect();
+    }
+
     let Some(channels) = snapshot.channels.as_ref() else {
         return Vec::new();
     };
@@ -124,6 +180,15 @@ fn extract_channel_health(snapshot: &ChannelsStatusSnapshot) -> Vec<ChannelHealt
                 connected: connected_count,
                 total: accounts.max(1),
                 has_error,
+                status: if has_error {
+                    "Error".to_owned()
+                } else if is_running && is_connected {
+                    "Connected".to_owned()
+                } else if is_running {
+                    "Listening".to_owned()
+                } else {
+                    "Configured".to_owned()
+                },
                 channel_name,
                 channel_id,
             });
@@ -691,13 +756,7 @@ pub fn Overview() -> Element {
                                 } else {
                                     "var(--text-muted)"
                                 };
-                                let status_text = if ch.has_error {
-                                    "Error".to_string()
-                                } else if ch.connected == ch.total {
-                                    "Connected".to_string()
-                                } else {
-                                    format!("{}/{}", ch.connected, ch.total)
-                                };
+                                let status_text = ch.status.clone();
                                 let card_style = if ch.has_error {
                                     "cursor:pointer;border-left:3px solid var(--danger);"
                                 } else {

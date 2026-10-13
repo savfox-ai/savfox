@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::parse_arguments;
+use super::{gateway_endpoint, gateway_http_client, parse_arguments};
 use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::registry::{ToolHandler, ToolKind};
@@ -54,10 +54,7 @@ impl ToolHandler for GatewayStatusHandler {
             REQUEST_TIMEOUT
         };
 
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .build()
-            .or_else(|err| model_err(format!("failed to build HTTP client: {err}")))?;
+        let client = gateway_http_client(timeout)?;
 
         match args.action.as_str() {
             // Original read-only actions.
@@ -126,9 +123,10 @@ async fn send_get(
     base_url: &str,
     path: &str,
 ) -> Result<ToolOutput, FunctionCallError> {
-    let url = format!("{base_url}{path}");
+    let segments = path.trim_matches('/').split('/').collect::<Vec<_>>();
+    let url = gateway_endpoint(base_url, &segments)?;
     let response = client
-        .get(&url)
+        .get(url.as_str())
         .send()
         .await
         .or_else(|err| model_err(format!("failed to reach gateway at {url}: {err}")))?;
@@ -152,9 +150,10 @@ async fn send_post(
     path: &str,
     body: serde_json::Value,
 ) -> Result<ToolOutput, FunctionCallError> {
-    let url = format!("{base_url}{path}");
+    let segments = path.trim_matches('/').split('/').collect::<Vec<_>>();
+    let url = gateway_endpoint(base_url, &segments)?;
     let response = client
-        .post(&url)
+        .post(url.as_str())
         .header("Content-Type", "application/json")
         .json(&body)
         .send()

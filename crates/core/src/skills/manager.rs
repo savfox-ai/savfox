@@ -33,6 +33,17 @@ impl SkillsManager {
         }
     }
 
+    /// Construct a manager without installing the network-backed system skill
+    /// registry. Tests supply their own skill roots and must not turn every
+    /// temporary Savfox home into a registry clone.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn new_for_tests(savfox_home: PathBuf) -> Self {
+        Self {
+            savfox_home,
+            cache_by_cwd: RwLock::new(HashMap::new()),
+        }
+    }
+
     /// Load skills for an already-constructed [`Config`], avoiding any additional config-layer
     /// loading. This also seeds the per-cwd cache for subsequent lookups.
     pub fn skills_for_config(&self, config: &Config) -> SkillLoadOutcome {
@@ -196,7 +207,7 @@ mod tests {
             .await
             .expect("defaults for test should always succeed");
 
-        let skills_manager = SkillsManager::new(savfox_home.path().to_path_buf(), None);
+        let skills_manager = SkillsManager::new_for_tests(savfox_home.path().to_path_buf());
 
         write_user_skill(&savfox_home, "a", "skill-a", "from a");
         let outcome1 = skills_manager.skills_for_config(&cfg);

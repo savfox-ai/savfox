@@ -64,9 +64,7 @@ impl Stopwatch {
                     _ = &mut sleep => {
                         break;
                     }
-                    _ = notify.notified() => {
-                        continue;
-                    }
+                    _ = notify.notified() => {}
                 }
             }
             cancel.cancel();

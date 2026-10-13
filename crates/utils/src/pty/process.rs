@@ -24,6 +24,7 @@ impl fmt::Debug for PtyHandles {
 
 /// Handle for driving an interactive process (PTY or pipe).
 pub struct ProcessHandle {
+    pid: Option<u32>,
     writer_tx: mpsc::Sender<Vec<u8>>,
     output_tx: broadcast::Sender<Vec<u8>>,
     killer: StdMutex<Option<Box<dyn ChildTerminator>>>,
@@ -47,6 +48,7 @@ impl fmt::Debug for ProcessHandle {
 impl ProcessHandle {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
+        pid: Option<u32>,
         writer_tx: mpsc::Sender<Vec<u8>>,
         output_tx: broadcast::Sender<Vec<u8>>,
         initial_output_rx: broadcast::Receiver<Vec<u8>>,
@@ -61,6 +63,7 @@ impl ProcessHandle {
     ) -> (Self, broadcast::Receiver<Vec<u8>>) {
         (
             Self {
+                pid,
                 writer_tx,
                 output_tx,
                 killer: StdMutex::new(Some(killer)),
@@ -79,6 +82,40 @@ impl ProcessHandle {
     /// Returns a channel sender for writing raw bytes to the child stdin.
     pub fn writer_sender(&self) -> mpsc::Sender<Vec<u8>> {
         self.writer_tx.clone()
+    }
+
+    /// The process originally started in this session (not a terminal launcher).
+    pub fn process_id(&self) -> Option<u32> {
+        self.pid
+    }
+
+    /// Resize the actual terminal. Pipe sessions cannot be resized.
+    pub fn resize(&self, rows: u16, cols: u16) -> io::Result<()> {
+        if rows == 0 || cols == 0 || rows > i16::MAX as u16 || cols > i16::MAX as u16 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid terminal size",
+            ));
+        }
+        let handles = self
+            ._pty_handles
+            .lock()
+            .map_err(|_| io::Error::other("PTY lock poisoned"))?;
+        let handles = handles.as_ref().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                "pipe sessions cannot be resized",
+            )
+        })?;
+        handles
+            ._master
+            .resize(portable_pty::PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(io::Error::other)
     }
 
     /// Returns a broadcast receiver that yields stdout/stderr chunks.

@@ -16,6 +16,8 @@ pub struct ClientSession {
     pub id: SessionId,
     /// Authentication info for this session.
     pub token_info: TokenInfo,
+    /// Server-derived credential identity; labels are not unique identities.
+    pub(crate) principal: String,
     /// Optional log level filter.
     pub log_level_filter: Option<String>,
     /// Channel to send outbound messages to this client's WebSocket writer.
@@ -38,6 +40,7 @@ impl ClientSession {
         Self {
             id,
             token_info,
+            principal: id.to_string(),
             subscriptions: HashSet::new(),
             subscribed_to_logs: false,
             log_level_filter: None,
@@ -65,6 +68,50 @@ pub struct GatewaySessionManager {
 }
 
 impl GatewaySessionManager {
+    pub(crate) async fn principal(&self, connection_id: &str) -> Option<String> {
+        let id = SessionId::from_string(connection_id).ok()?;
+        let session = self.get_session(&id).await?;
+        Some(session.read().await.principal.clone())
+    }
+
+    pub(crate) async fn has_owner_client(&self, owner: &str, scope: TokenScope) -> bool {
+        for session in self.sessions.read().await.values() {
+            let session = session.read().await;
+            if session.principal == owner && session.token_info.has_scope(scope) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Only credential owners with the required scope receive vendor content.
+    /// Reliable control delivery fails explicitly if every owner queue is full.
+    pub(crate) async fn send_to_owner(
+        &self,
+        owner: &str,
+        scope: TokenScope,
+        event: &str,
+        payload: serde_json::Value,
+    ) -> bool {
+        let mut delivered = false;
+        for session in self.sessions.read().await.values() {
+            let session = session.read().await;
+            if session.principal != owner || !session.token_info.has_scope(scope) {
+                continue;
+            }
+            let message = GatewayMessage::Event {
+                event: event.to_owned(),
+                payload: payload.clone(),
+                seq: Some(session.next_seq()),
+            };
+            if session.sender.try_send(message).is_ok() {
+                delivered = true;
+            } else {
+                session.record_drop();
+            }
+        }
+        delivered
+    }
     #[must_use]
     pub fn new() -> Self {
         Self {

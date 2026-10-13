@@ -652,6 +652,8 @@ Get detailed connection status for all configured channels.
 - **Scope**: Write
 - **Params**:
   - `channel` / `platform` (optional): return one channel only
+  - `id` / `config_id` (optional): when combined with a platform, return that
+    exact saved instance rather than the platform aggregate
   - `probe` (optional, bool): refresh probe status
 - **Response**:
   ```json
@@ -671,6 +673,26 @@ Get detailed connection status for all configured channels.
     }
   }
   ```
+
+For Arkret, the platform aggregate also returns `instance_count`,
+`ready_count`, `retrying_count`, `migration_required_count`, and
+`failed_count`. Instance entries expose `runtime_phase`, `last_reason_code`,
+the local requested scope, and the last service-verified authorization scope.
+Verified authority state is bound to the exact channel, Agent principal,
+authorization Event, and current runtime public-key digest; a key change returns
+the instance to `pending_session` until a new service-accepted session succeeds.
+
+### `channels.arkret.inspect`
+
+Return non-secret diagnostics for one exact Arkret Agent instance.
+
+- **Scope**: Write
+- **Params**: `{ "id": "arkret-bb" }` (`config_id` is also accepted)
+- **Response fields**: instance/Agent/account IDs, runtime public-key digest,
+  authorization reference, local and service-verified scopes, scope excess,
+  runtime phase, last reason code, and listener diagnostics.
+- Keyring seed material, bearer credentials, and gateway tokens are never
+  returned.
 
 ### `channels.login`
 

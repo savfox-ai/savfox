@@ -826,7 +826,7 @@ impl MediaUnderstandingService {
         }
 
         let mut amplitudes = Vec::with_capacity(pcm.len() / 2);
-        for sample in pcm.chunks_exact(2) {
+        for sample in pcm.as_chunks::<2>().0 {
             let value = i16::from_le_bytes([sample[0], sample[1]]);
             let amp = (i32::from(value).abs() as f32) / (i16::MAX as f32);
             amplitudes.push(amp.min(1.0));

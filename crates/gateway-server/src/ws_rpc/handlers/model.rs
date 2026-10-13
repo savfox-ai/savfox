@@ -217,21 +217,6 @@ struct RemoteModelsHttpResponse {
     body: String,
 }
 
-fn canonical_models_provider_id(provider_id: &str) -> String {
-    match provider_id.trim().to_ascii_lowercase().as_str() {
-        "zhipu" | "zhipu-ai" => "zhipuai".to_owned(),
-        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_owned(),
-        "volc" | "volc-engine" | "ark" => "volcengine".to_owned(),
-        "together" | "together-ai" => "togetherai".to_owned(),
-        "gemini" => "google".to_owned(),
-        "bedrock" => "amazon-bedrock".to_owned(),
-        "qwen" => "alibaba".to_owned(),
-        "googlevertex" | "google_vertex" => "google-vertex".to_owned(),
-        "google_vertex_anthropic" => "google-vertex-anthropic".to_owned(),
-        other => other.to_owned(),
-    }
-}
-
 fn models_provider_display_name(provider_id: &str) -> String {
     let canonical = savfox_core::canonical_provider_id(provider_id);
     savfox_core::built_in_model_providers()
@@ -315,7 +300,7 @@ fn model_test_resolve_remote_request(
 
     let provider = model_test_nonempty_string(params.get("provider"))
         .or_else(|| model_test_nonempty_string(params.get("provider_id")))
-        .map(|value| canonical_models_provider_id(&value))
+        .map(|value| savfox_core::canonical_provider_id(&value))
         .unwrap_or_default();
     let explicit_base_url = model_test_nonempty_string(params.get("base_url"));
     let base_url = explicit_base_url
@@ -544,7 +529,7 @@ fn extract_model_provider_and_slug(entry: &Value) -> Option<(String, String)> {
         .and_then(savfox_core::parse_provider_prefixed_model)
         .map(|(provider_id, model_slug)| {
             (
-                canonical_models_provider_id(provider_id),
+                savfox_core::canonical_provider_id(provider_id),
                 model_slug.trim().to_owned(),
             )
         });
@@ -559,7 +544,7 @@ fn extract_model_provider_and_slug(entry: &Value) -> Option<(String, String)> {
                 .map(str::to_owned),
             _ => None,
         })
-        .map(|value| canonical_models_provider_id(&value))
+        .map(|value| savfox_core::canonical_provider_id(&value))
         .filter(|value| !value.is_empty())
         .or_else(|| {
             parsed_from_id

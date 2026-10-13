@@ -49,6 +49,24 @@ where
     Some(prompt)
 }
 
+fn parse_approval_callback(data: &str) -> Option<(&str, &str)> {
+    let mut parts = data.splitn(3, '|');
+    if parts.next()? != "approval" {
+        return None;
+    }
+    let decision = parts.next()?;
+    let request_id = parts.next()?;
+    if request_id.is_empty()
+        || !matches!(
+            decision,
+            "approve-once" | "approve-session" | "allow-rule" | "deny" | "abort"
+        )
+    {
+        return None;
+    }
+    Some((decision, request_id))
+}
+
 pub fn parse_update(payload: &Value) -> anyhow::Result<ChannelAction> {
     parse_update_with_resolver(payload, |_| None)
 }
@@ -60,6 +78,23 @@ pub fn parse_update_with_resolver<F>(
 where
     F: Fn(&str) -> Option<String>,
 {
+    if let Some(callback) = payload.get("callback_query") {
+        let data = callback.get("data").and_then(Value::as_str).unwrap_or("");
+        if let Some((decision, request_id)) = parse_approval_callback(data) {
+            let channel = callback
+                .pointer("/message/chat/id")
+                .and_then(Value::as_i64)
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            if !channel.is_empty() {
+                return Ok(ChannelAction::StartThread {
+                    channel,
+                    prompt: format!("{decision}:{request_id}"),
+                });
+            }
+        }
+    }
+
     let message = inbound_message(payload);
     let text = message
         .and_then(|msg| {
@@ -326,6 +361,24 @@ mod tests {
         assert_eq!(
             super::parse_display_name(&payload).as_deref(),
             Some("Release Feed")
+        );
+    }
+
+    #[test]
+    fn structured_approval_callback_routes_as_correlated_reply() {
+        let payload = json!({
+            "callback_query": {
+                "data": "approval|approve-session|request-123",
+                "message": { "chat": { "id": 42, "type": "private" } }
+            }
+        });
+        let action = parse_update_with_resolver(&payload, resolve_command_name).expect("parse");
+        assert_eq!(
+            action,
+            ChannelAction::StartThread {
+                channel: "42".to_owned(),
+                prompt: "approve-session:request-123".to_owned(),
+            }
         );
     }
 }

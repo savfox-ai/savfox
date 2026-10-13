@@ -244,7 +244,7 @@ impl RmcpClient {
             .peer()
             .peer_info()
             .ok_or_else(|| anyhow!("handshake succeeded but server info was missing"))?;
-        let initialize_result = initialize_result_rmcp.clone();
+        let initialize_result = (*initialize_result_rmcp).clone();
 
         {
             let mut guard = self.state.lock().await;

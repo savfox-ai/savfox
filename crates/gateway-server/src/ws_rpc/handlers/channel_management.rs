@@ -1,12 +1,259 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use savfox_gateway_shared::{
+    CHANNEL_SECRET_REDACTION_PLACEHOLDER, channel_config_key_is_sensitive,
+};
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_REQUEST, RpcResult};
 use super::super::utils::require_str;
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
+
+fn redact_sensitive_value(value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            if !text.trim().is_empty() {
+                *text = CHANNEL_SECRET_REDACTION_PLACEHOLDER.to_owned();
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                redact_sensitive_value(value);
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values_mut() {
+                redact_sensitive_value(value);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+fn redact_channel_secrets(value: &mut Value) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                redact_channel_secrets(value);
+            }
+        }
+        Value::Object(values) => {
+            for (key, value) in values {
+                if channel_config_key_is_sensitive(key) {
+                    redact_sensitive_value(value);
+                } else {
+                    redact_channel_secrets(value);
+                }
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn redacted_channel_config_json(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> Value {
+    let mut value = savfox_core::config::channel_store::channel_config_to_json(config);
+    redact_channel_secrets(&mut value);
+    value
+}
+
+fn redacted_channel_configs_json(
+    configs: &[savfox_core::config::channel_store::ChannelConfig],
+) -> Value {
+    let mut value = savfox_core::config::channel_store::channel_configs_to_json(configs);
+    redact_channel_secrets(&mut value);
+    value
+}
+
+fn restore_redacted_channel_secrets(incoming: &mut Value, persisted: &Value) {
+    if incoming.as_str() == Some(CHANNEL_SECRET_REDACTION_PLACEHOLDER) {
+        *incoming = persisted.clone();
+        return;
+    }
+
+    match (incoming, persisted) {
+        (Value::Array(incoming), Value::Array(persisted)) => {
+            for (index, value) in incoming.iter_mut().enumerate() {
+                if let Some(persisted) = persisted.get(index) {
+                    restore_redacted_channel_secrets(value, persisted);
+                }
+            }
+        }
+        (Value::Object(incoming), Value::Object(persisted)) => {
+            for (key, value) in incoming {
+                if let Some(persisted) = persisted.get(key) {
+                    restore_redacted_channel_secrets(value, persisted);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn contains_redacted_channel_secret(value: &Value) -> bool {
+    match value {
+        Value::String(value) => value == CHANNEL_SECRET_REDACTION_PLACEHOLDER,
+        Value::Array(values) => values.iter().any(contains_redacted_channel_secret),
+        Value::Object(values) => values.values().any(contains_redacted_channel_secret),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+async fn restore_saved_channel_secrets(
+    savfox_home: &PathBuf,
+    channel_kind: &str,
+    channel_name: &str,
+    patch: &mut Value,
+) -> Result<(), String> {
+    use savfox_core::config::channel_store;
+
+    if !contains_redacted_channel_secret(patch) {
+        return Ok(());
+    }
+
+    let existing = if let Some(id) = patch
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        channel_store::get_channel_config(savfox_home, id)
+            .await
+            .map_err(|error| format!("failed to load channel config '{id}': {error}"))?
+    } else {
+        channel_store::list_channel_configs(savfox_home)
+            .await
+            .map_err(|error| format!("failed to list channel configs: {error}"))?
+            .into_iter()
+            .find(|config| {
+                config.kind.eq_ignore_ascii_case(channel_kind)
+                    && config.name.trim().eq_ignore_ascii_case(channel_name.trim())
+            })
+    };
+
+    if let Some(existing) = existing {
+        restore_redacted_channel_secrets(patch, &existing.config);
+    }
+    if contains_redacted_channel_secret(patch) {
+        return Err(
+            "redacted channel credential does not match an existing saved value; provide a new credential"
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(feature = "arkret")]
+async fn validate_arkret_config_before_save(
+    savfox_home: &std::path::Path,
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> Result<(), String> {
+    let raw = config
+        .config
+        .as_object()
+        .ok_or_else(|| "Arkret config must be a JSON object".to_owned())?;
+    let mode = raw
+        .get("mode")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Arkret config requires mode='agent' or mode='applet'".to_owned())?;
+    if mode == "applet" {
+        let mut enabled = config.clone();
+        enabled.enabled = true;
+        let parsed =
+            savfox_channels::arkret::applet::ArkretAppletConfig::from_channel_config(&enabled)
+                .ok_or_else(|| "Arkret applet config is invalid".to_owned())?;
+        return parsed.validate().map_err(|error| error.to_string());
+    }
+    if mode != "agent" {
+        return Err(format!(
+            "Arkret mode '{mode}' is invalid; only 'agent' and 'applet' are accepted"
+        ));
+    }
+
+    let parsed = savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(config)
+        .map_err(|error| format!("{error:#}"))?;
+    let account = &parsed.accounts[0];
+    if let Some(previous) = savfox_core::config::channel_store::get_channel_config(
+        &savfox_home.to_path_buf(),
+        &config.id,
+    )
+    .await
+    .map_err(|error| error.to_string())?
+    {
+        validate_existing_arkret_scope_edit(&previous.config, &config.config)?;
+    }
+    let key_ref = account
+        .key_ref
+        .as_ref()
+        .ok_or_else(|| "Arkret agent config is missing keyRef".to_owned())?;
+    let verification_method = account
+        .verification_method
+        .as_deref()
+        .ok_or_else(|| "Arkret agent config is missing verificationMethod".to_owned())?;
+    savfox_channels::arkret::ed25519_runtime_public_key_digest(key_ref, verification_method)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(feature = "arkret")]
+fn validate_existing_arkret_scope_edit(previous: &Value, candidate: &Value) -> Result<(), String> {
+    if previous.get("mode").and_then(Value::as_str) != Some("agent") {
+        return Ok(());
+    }
+    if [
+        "inksonBootstrap",
+        "keyRef",
+        "verificationMethod",
+        "authorizedEventRef",
+    ]
+    .iter()
+    .all(|key| previous.get(*key).is_none_or(Value::is_null))
+    {
+        return Ok(());
+    }
+    let previous_agent = previous
+        .pointer("/inksonBootstrap/agent_id")
+        .and_then(Value::as_str);
+    let candidate_agent = candidate
+        .pointer("/inksonBootstrap/agent_id")
+        .and_then(Value::as_str);
+    if previous_agent.is_none() || candidate_agent.is_none() {
+        return Err(
+            "Existing Agent identity is unavailable; recover or unbind it before changing scope."
+                .to_owned(),
+        );
+    }
+    if previous_agent != candidate_agent {
+        if previous
+            .get("authorizedEventRef")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            return Err("Unbind the current Agent before pairing a different Agent.".to_owned());
+        }
+        return Ok(());
+    }
+    let previous_scope: Vec<String> = serde_json::from_value(
+        previous.get("requestedScope").cloned().unwrap_or(Value::Null)
+    ).map_err(|_| "Existing Agent scope is unavailable; recover its exact authorization scope instead of adding defaults.".to_owned())?;
+    let requested: Vec<String> = serde_json::from_value(
+        candidate
+            .get("requestedScope")
+            .cloned()
+            .unwrap_or(Value::Null),
+    )
+    .map_err(|_| "requestedScope must be an exact string array".to_owned())?;
+    if requested
+        .iter()
+        .any(|action| !previous_scope.contains(action))
+    {
+        return Err("Editing a saved Agent cannot expand requestedScope. Revalidate provision and key ceilings through the authorization workflow; an expired or missing local session cache is not authority.".to_owned());
+    }
+    Ok(())
+}
 
 pub(in crate::ws_rpc) async fn handle_web_login_start(
     params: &Value,
@@ -91,7 +338,7 @@ pub(in crate::ws_rpc) async fn save_nostr_profile(
     crate::json_store::ensure_parent_dir(&path).await?;
     let payload = serde_json::to_string_pretty(profile)
         .map_err(|err| format!("failed to serialize nostr profile: {err}"))?;
-    tokio::fs::write(path, payload)
+    savfox_utils::fs::write_atomically_async(&path, payload.into_bytes(), Some(0o600))
         .await
         .map_err(|err| format!("failed to write nostr profile: {err}"))
 }
@@ -99,7 +346,8 @@ pub(in crate::ws_rpc) async fn save_nostr_profile(
 pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_get(
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let profile = load_nostr_profile(channel).await;
+    let mut profile = load_nostr_profile(channel).await;
+    redact_channel_secrets(&mut profile);
     Ok(json!({ "profile": profile }))
 }
 
@@ -107,7 +355,8 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_set(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let mut profile = load_nostr_profile(channel).await;
+    let persisted = load_nostr_profile(channel).await;
+    let mut profile = persisted.clone();
     if let Some(incoming) = params.get("profile").and_then(|v| v.as_object()) {
         for (key, value) in incoming {
             profile[key] = value.clone();
@@ -127,10 +376,20 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_set(
             }
         }
     }
+    restore_redacted_channel_secrets(&mut profile, &persisted);
+    if contains_redacted_channel_secret(&profile) {
+        return Err((
+            INVALID_REQUEST,
+            "redacted Nostr credential does not match an existing saved value; provide a new credential"
+                .to_owned(),
+        ));
+    }
     save_nostr_profile(channel, &profile)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))?;
-    Ok(json!({ "status": "saved", "profile": profile }))
+    let mut response_profile = profile;
+    redact_channel_secrets(&mut response_profile);
+    Ok(json!({ "status": "saved", "profile": response_profile }))
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_import(
@@ -156,6 +415,7 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_import(
     save_nostr_profile(channel, &profile)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))?;
+    redact_channel_secrets(&mut profile);
     Ok(json!({
         "status": "imported",
         "profile": profile,
@@ -212,7 +472,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_list(
                 format!("failed to list channel configs: {e}"),
             )
         })?;
-    Ok(channel_store::channel_configs_to_json(&configs))
+    Ok(redacted_channel_configs_json(&configs))
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_config_get(
@@ -223,7 +483,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_get(
 
     let channel_id = require_str(params, "channel")?;
     match channel_store::get_channel_config(&channel.config().savfox_home, channel_id).await {
-        Ok(Some(config)) => Ok(json!({ "config": channel_store::channel_config_to_json(&config) })),
+        Ok(Some(config)) => Ok(json!({ "config": redacted_channel_config_json(&config) })),
         Ok(None) => Ok(json!({ "config": serde_json::Value::Null })),
         Err(e) => Err((INTERNAL_ERROR, format!("failed to get channel config: {e}"))),
     }
@@ -273,6 +533,15 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     if let Some(group_policy) = params.get("group_policy") {
         patch["group_policy"] = group_policy.clone();
     }
+
+    restore_saved_channel_secrets(
+        &channel.config().savfox_home,
+        channel_kind,
+        channel_name,
+        &mut patch,
+    )
+    .await
+    .map_err(|error| (INVALID_REQUEST, error))?;
 
     // Validate uniqueness for Matrix appservice channels: no two appservice
     // channels may share the same server_name AND user_prefix.
@@ -346,24 +615,28 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     // Fail-closed rebind guard: a single Arkret runtime channel binds exactly
     // one Agent. Refuse to persist a pairing for a *different* Agent while the
     // channel is still bound — silently overwriting the binding orphaned the
-    // previous Agent's KeyPackage pool (empty pool → `direct_conversation_
-    // unavailable`). The operator must explicitly unbind first
-    // (`channels.arkret.unbind`), which revokes the old pool and purges local
-    // state. Progression saves for the *same* Agent, and saves that clear the
+    // previous Agent's local MLS state. The operator must explicitly unbind
+    // first (`channels.arkret.unbind`) to purge that local state. Progression
+    // saves for the *same* Agent, and saves that clear the
     // binding (unbind), carry no differing agent id and pass through.
     #[cfg(feature = "arkret")]
     if channel_kind.eq_ignore_ascii_case("arkret")
         && let Some(incoming_agent) = arkret_patch_agent_id(&patch)
     {
+        let target_id = patch
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let existing = channel_store::list_channel_configs(&channel.config().savfox_home)
             .await
             .unwrap_or_default();
         for cfg in &existing {
-            if !cfg.kind.eq_ignore_ascii_case("arkret") {
+            if !arkret_save_targets_config(cfg, target_id, channel_name) {
                 continue;
             }
-            let Some(parsed) =
-                savfox_channels::arkret::ArkretChannelConfig::from_channel_config(cfg)
+            let Ok(parsed) =
+                savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(cfg)
             else {
                 continue;
             };
@@ -384,12 +657,69 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
                             "Arkret channel '{}' is already bound to Agent {bound_agent}. \
                              Unbind the current Agent (channels.arkret.unbind) before pairing \
                              {incoming_agent}; rebinding without unbinding would orphan the \
-                             current Agent's KeyPackage pool.",
+                             current Agent's local MLS state.",
                             cfg.id
                         ),
                     ));
                 }
             }
+        }
+    }
+
+    #[cfg(feature = "arkret")]
+    if channel_kind.eq_ignore_ascii_case("arkret") {
+        let candidate = channel_store::preview_merged_channel_config(
+            &channel.config().savfox_home,
+            channel_kind,
+            channel_name,
+            &patch,
+        )
+        .await
+        .map_err(|error| {
+            (
+                INVALID_REQUEST,
+                format!("failed to validate Arkret config patch: {error}"),
+            )
+        })?;
+        validate_arkret_config_before_save(&channel.config().savfox_home, &candidate)
+            .await
+            .map_err(|error| (INVALID_REQUEST, error))?;
+        if let Some(owner_home) = std::env::var_os("SAVFOX_ARKRET_NATIVE_OWNER_HOME") {
+            let owner = std::path::PathBuf::from(owner_home)
+                .canonicalize()
+                .map_err(|_| {
+                    (
+                        INVALID_REQUEST,
+                        "native Arkret home is unavailable".to_owned(),
+                    )
+                })?;
+            let home = &channel.config().savfox_home;
+            if home.canonicalize().ok().as_ref() != Some(&owner) {
+                return Err((
+                    INVALID_REQUEST,
+                    "native Arkret owner home mismatch".to_owned(),
+                ));
+            }
+            let previous = channel_store::get_channel_config(home, &candidate.id)
+                .await
+                .map_err(|_| {
+                    (
+                        INVALID_REQUEST,
+                        "native previous configuration unavailable".to_owned(),
+                    )
+                })?;
+            crate::channels::arkret::native_reply::native_save_onboarding(
+                home,
+                &candidate,
+                previous.as_ref(),
+            )
+            .await
+            .map_err(|_| {
+                (
+                    INVALID_REQUEST,
+                    "native onboarding could not verify its durable owned state".to_owned(),
+                )
+            })?;
         }
     }
 
@@ -402,39 +732,13 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     .await
     {
         Ok(config) => {
-            let mut runtime = Value::Null;
-            if channel_kind.eq_ignore_ascii_case("arkret") {
-                // An enabled Arkret listener captures its parsed account config
-                // when the task starts. Persisting a repaired pairing alone
-                // therefore leaves the old listener retrying stale credentials.
-                // Reconcile this exact instance immediately after the durable
-                // write, then let the regular login path start every enabled,
-                // ready Arkret config that is not already running.
-                #[cfg(feature = "arkret")]
-                {
-                    crate::channels::arkret::stop_arkret_account_listeners(&config.id);
-                    crate::channels::arkret_applet::remove_arkret_applet_channel(&config.id)
-                        .map_err(|error| {
-                            (
-                                INTERNAL_ERROR,
-                                format!(
-                                    "saved Arkret channel '{}' but failed to stop its stale runtime: {error}",
-                                    config.id
-                                ),
-                            )
-                        })?;
-                    if config.enabled {
-                        runtime = super::super::handle_channels_login(
-                            &json!({ "platform": "arkret" }),
-                            channel,
-                            session_store,
-                        )
-                        .await?;
-                    }
-                }
-            }
+            // Reconcile only the immutable ID returned by the durable save.
+            // This applies mode validation/capability reporting uniformly and
+            // prevents edits to one instance from broadcasting to its type.
+            let runtime =
+                crate::channels::reconcile_channel_instance(&config, channel, session_store).await;
             Ok(json!({
-                "config": channel_store::channel_config_to_json(&config),
+                "config": redacted_channel_config_json(&config),
                 "status": "saved",
                 "runtime": runtime,
             }))
@@ -468,49 +772,33 @@ pub(in crate::ws_rpc) async fn handle_channels_config_delete(
     // Runtime instances are keyed by the persisted config ID. Stop that exact
     // instance before removing its credentials so deletion cannot leave an
     // orphaned listener running until the gateway is restarted.
-    let stopped = match config.kind.to_ascii_lowercase().as_str() {
-        "discord" => u32::from(savfox_channels::discord::stop_discord_stream(&config.id).await),
-        "telegram" => u32::from(savfox_channels::telegram::stop_telegram_polling(&config.id).await),
-        "feishu" | "lark" => {
-            u32::from(savfox_channels::feishu::stop_feishu_stream(&config.id).await)
-        }
-        "matrix" => {
-            let registry = channel.channel_registry();
-            let removed_registry = registry.write().await.remove(&config.id).is_some();
-            let had_appservice =
-                crate::channels::matrix::matrix_appservice_channel_for(&config.id).is_some();
-            crate::channels::matrix::remove_matrix_appservice_channel(&config.id);
-            u32::from(removed_registry || had_appservice)
-        }
-        "arkret" => {
-            #[cfg(feature = "arkret")]
-            {
-                let listeners = crate::channels::arkret::stop_arkret_account_listeners(&config.id);
-                let removed_applet =
-                    crate::channels::arkret_applet::remove_arkret_applet_channel(&config.id)
-                        .map_err(|e| {
-                            (
-                                INTERNAL_ERROR,
-                                format!("failed to stop Arkret channel '{}': {e}", config.id),
-                            )
-                        })?;
-                u32::from(listeners > 0 || removed_applet)
-            }
-            #[cfg(not(feature = "arkret"))]
-            {
-                0
-            }
-        }
-        _ => 0,
-    };
+    let stopped = u32::from(
+        crate::channels::stop_channel_instance(&config, channel)
+            .await
+            .map_err(|e| {
+                (
+                    INTERNAL_ERROR,
+                    format!("failed to stop channel '{}': {e}", config.id),
+                )
+            })?,
+    );
 
     match channel_store::delete_channel_config(&channel.config().savfox_home, &config.id).await {
-        Ok(deleted) => Ok(json!({
-            "deleted": deleted,
-            "channel": config.id,
-            "platform": config.kind,
-            "stopped": stopped,
-        })),
+        Ok(deleted) => {
+            if deleted {
+                crate::channels::recovery::remove_channel_report(
+                    &channel.channel_recovery_registry(),
+                    &config.id,
+                )
+                .await;
+            }
+            Ok(json!({
+                "deleted": deleted,
+                "channel": config.id,
+                "platform": config.kind,
+                "stopped": stopped,
+            }))
+        }
         Err(e) => Err((
             INTERNAL_ERROR,
             format!("failed to delete channel config: {e}"),
@@ -537,13 +825,26 @@ fn arkret_patch_agent_id(patch: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+#[cfg(feature = "arkret")]
+fn arkret_save_targets_config(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+    target_id: Option<&str>,
+    target_name: &str,
+) -> bool {
+    config.kind.eq_ignore_ascii_case("arkret")
+        && target_id.map_or_else(
+            || config.name.trim().eq_ignore_ascii_case(target_name.trim()),
+            |id| config.id.eq_ignore_ascii_case(id),
+        )
+}
+
 /// Explicitly unbind the Agent runtime currently bound to the Arkret channel.
 ///
 /// Single-Agent-per-runtime is intentional; switching Agents is an explicit
-/// operation, not a silent overwrite. This revokes the bound Agent's published
-/// KeyPackage pool (with its still-current runtime key), stops the listener,
-/// purges local Agent MLS identity / durable state, and clears the persisted
-/// binding so a new Agent can be paired.
+/// operation, not a silent overwrite. This stops the listener, purges local
+/// Agent MLS identity / durable state, and clears the persisted binding so a
+/// new Agent can be paired. Controller key replacement fences the old remote
+/// KeyPackage pool; the revoke endpoint only admits real devices.
 pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
     params: &Value,
     channel: &Arc<GatewayChannel>,
@@ -583,17 +884,8 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
                 "message": "no Arkret channel config to unbind",
             }));
         };
-        let Some(parsed) =
-            savfox_channels::arkret::ArkretChannelConfig::from_channel_config(&config)
-        else {
-            return Ok(json!({
-                "platform": "arkret",
-                "ok": true,
-                "unbound": false,
-                "channel": config.id,
-                "message": "Arkret channel has no bound Agent runtime",
-            }));
-        };
+        let parsed = savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&config)
+            .map_err(|error| (INVALID_REQUEST, format!("Cannot safely unbind the saved Agent: {error}. Restore its exact identity/scope or revoke it through the controller; local state was retained.")))?;
         let account_id = params
             .get("account_id")
             .or_else(|| params.get("accountId"))
@@ -617,15 +909,95 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             }));
         };
 
-        let report = crate::channels::arkret::unbind_arkret_account(&home, &parsed, account).await;
+        // Native deployment has a different process owning this same inbox.
+        // Persist revocation before waiting for its lifecycle lease; acquiring
+        // the lease proves the previous listener/body/guard task has dropped.
+        let _native_owner = if let Some(owner_home) =
+            std::env::var_os("SAVFOX_ARKRET_NATIVE_OWNER_HOME")
+        {
+            let owner_home = PathBuf::from(owner_home)
+                .canonicalize()
+                .map_err(|_| (INTERNAL_ERROR, "native owner home unavailable".into()))?;
+            if home
+                .canonicalize()
+                .map_err(|_| (INTERNAL_ERROR, "gateway home unavailable".into()))?
+                != owner_home
+            {
+                return Err((
+                    INVALID_REQUEST,
+                    "native owner home differs from gateway home".into(),
+                ));
+            }
+            channel_store::merge_channel_config(
+                &home,
+                &config.kind,
+                &config.name,
+                &json!({"id":config.id, "enabled":false}),
+            )
+            .await
+            .map_err(|_| {
+                (
+                    INTERNAL_ERROR,
+                    "failed to disable native account before unbind".into(),
+                )
+            })?;
+            let channel_dir = home.join("channels");
+            tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+                let mut options = std::fs::OpenOptions::new();
+                options.read(true);
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::OpenOptionsExt as _;
+                    options.custom_flags(0x02000000); // FILE_FLAG_BACKUP_SEMANTICS
+                }
+                options.open(channel_dir)?.sync_all()
+            })
+            .await
+            .map_err(|_| {
+                (
+                    INTERNAL_ERROR,
+                    "native disable durability worker failed".into(),
+                )
+            })?
+            .map_err(|_| (INTERNAL_ERROR, "native disable durability failed".into()))?;
+            let crypto = savfox_channels::arkret::FileArkretCryptoStore::for_account(
+                &home,
+                &parsed.id,
+                &account.id,
+            );
+            Some(
+                tokio::task::spawn_blocking(move || crypto.acquire_native_owner_for_unbind())
+                    .await
+                    .map_err(|_| (INTERNAL_ERROR, "native owner shutdown worker failed".into()))?
+                    .map_err(|_| {
+                        (
+                            INTERNAL_ERROR,
+                            "native owner shutdown unavailable; local state retained".into(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        let report = crate::channels::arkret::unbind_arkret_account(&home, &parsed, account)
+            .await
+            .map_err(|error| {
+                (
+                    INTERNAL_ERROR,
+                    format!("Arkret Agent unbind stopped before local state was erased: {error:#}"),
+                )
+            })?;
 
         // Return the channel to an unbound state so a new Agent can be paired.
         let clear_patch = json!({
             "id": config.id,
+            "enabled": config.enabled,
             "keyRef": Value::Null,
             "verificationMethod": Value::Null,
             "authorizedEventRef": Value::Null,
             "inksonBootstrap": Value::Null,
+            "requestedScope": Value::Null,
         });
         if let Err(e) =
             channel_store::merge_channel_config(&home, &config.kind, &config.name, &clear_patch)
@@ -637,6 +1009,7 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             ));
         }
 
+        let message = "Unbound Agent runtime: purged local state and cleared the binding; replace or deactivate its controller authorization to fence the old KeyPackage pool";
         Ok(json!({
             "platform": "arkret",
             "ok": true,
@@ -645,8 +1018,202 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
             "principal_id": report.principal_id,
             "device_id": report.device_id,
             "listeners_stopped": report.listeners_stopped,
-            "pool_revoke_attempted": report.revoke_attempted,
-            "message": "Unbound Agent runtime: revoked KeyPackage pool, purged local state, and cleared the binding",
+            "message": message,
         }))
+    }
+}
+
+#[cfg(test)]
+mod credential_redaction_tests {
+    use savfox_core::config::channel_store::{self, ChannelConfig};
+
+    use super::*;
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn agent_scope_saved_edits_cannot_expand_without_current_authority() {
+        let scope = savfox_channels::arkret::default_agent_runtime_scope().unwrap();
+        let previous = json!({"mode":"agent", "inksonBootstrap":{"agent_id":"ak:did_core:web:agent.example"}, "authorizedEventRef":"accepted-key-authorization", "requestedScope":scope});
+        let mut candidate = previous.clone();
+        assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_ok());
+        candidate["requestedScope"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(arkret::ServiceOperationId::SELF_REALM_READ_EXPORT_V1));
+        assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_err());
+        candidate["authorizedEventRef"] = json!("replacement-authorization");
+        assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_err());
+        candidate["inksonBootstrap"]["agent_id"] = json!("ak:did_core:web:another.example");
+        assert!(validate_existing_arkret_scope_edit(&previous, &candidate).is_err());
+        let mut missing = previous.clone();
+        missing.as_object_mut().unwrap().remove("requestedScope");
+        assert!(validate_existing_arkret_scope_edit(&missing, &previous).is_err());
+        let mut narrower = previous.clone();
+        narrower["requestedScope"].as_array_mut().unwrap().pop();
+        assert!(validate_existing_arkret_scope_edit(&previous, &narrower).is_ok());
+        let unbound = json!({"mode":"agent", "inksonBootstrap":null, "keyRef":null, "verificationMethod":null, "authorizedEventRef":null, "requestedScope":null});
+        assert!(validate_existing_arkret_scope_edit(&unbound, &previous).is_ok());
+    }
+
+    fn sample_channel_config() -> ChannelConfig {
+        ChannelConfig {
+            id: "matrix-support".to_owned(),
+            kind: "matrix".to_owned(),
+            slug: "support".to_owned(),
+            name: "Support".to_owned(),
+            enabled: true,
+            config: json!({
+                "homeserver": "https://matrix.example.com",
+                "bot_token": "bot-secret-value",
+                "password": "",
+                "webhook_url": "https://hooks.example.com/private/path",
+                "room_tokens": {
+                    "!public:example.com": "room-secret-value"
+                },
+                "keyRef": {
+                    "kind": "env",
+                    "var": "MATRIX_PRIVATE_KEY"
+                },
+                "private_key": "private-key-value",
+                "public_key": "safe-public-key"
+            }),
+            router: None,
+            dm_policy: None,
+            group_policy: None,
+            created_at: Some(1),
+            updated_at: Some(1),
+        }
+    }
+
+    #[test]
+    fn channel_config_responses_replace_credentials_with_stable_placeholder() {
+        let redacted = redacted_channel_config_json(&sample_channel_config());
+
+        assert_eq!(
+            redacted["config"]["bot_token"],
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
+        );
+        assert_eq!(redacted["config"]["password"], "");
+        assert_eq!(
+            redacted["config"]["webhook_url"],
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
+        );
+        assert_eq!(
+            redacted["config"]["room_tokens"]["!public:example.com"],
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
+        );
+        assert_eq!(
+            redacted["config"]["keyRef"]["kind"],
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
+        );
+        assert_eq!(
+            redacted["config"]["private_key"],
+            CHANNEL_SECRET_REDACTION_PLACEHOLDER
+        );
+        assert_eq!(redacted["config"]["public_key"], "safe-public-key");
+        assert_eq!(
+            redacted["config"]["homeserver"],
+            "https://matrix.example.com"
+        );
+        assert!(!redacted.to_string().contains("bot-secret-value"));
+        assert!(!redacted.to_string().contains("room-secret-value"));
+    }
+
+    #[test]
+    fn unchanged_placeholders_restore_persisted_values_but_new_secrets_win() {
+        let config = sample_channel_config();
+        let mut patch = redacted_channel_config_json(&config)["config"].clone();
+        patch["homeserver"] = json!("https://new.example.com");
+        patch["webhook_url"] = json!("https://hooks.example.com/replacement");
+
+        restore_redacted_channel_secrets(&mut patch, &config.config);
+
+        assert_eq!(patch["bot_token"], "bot-secret-value");
+        assert_eq!(
+            patch["room_tokens"]["!public:example.com"],
+            "room-secret-value"
+        );
+        assert_eq!(patch["keyRef"]["kind"], "env");
+        assert_eq!(patch["keyRef"]["var"], "MATRIX_PRIVATE_KEY");
+        assert_eq!(patch["homeserver"], "https://new.example.com");
+        assert_eq!(
+            patch["webhook_url"],
+            "https://hooks.example.com/replacement"
+        );
+        assert!(!contains_redacted_channel_secret(&patch));
+    }
+
+    #[tokio::test]
+    async fn save_placeholder_must_match_an_existing_config() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().to_path_buf();
+        let config = sample_channel_config();
+        channel_store::save_channel_config(&home, &config)
+            .await
+            .expect("save config");
+
+        let mut existing_patch = json!({
+            "id": "matrix-support",
+            "bot_token": CHANNEL_SECRET_REDACTION_PLACEHOLDER,
+        });
+        restore_saved_channel_secrets(&home, "matrix", "Support", &mut existing_patch)
+            .await
+            .expect("restore existing credential");
+        assert_eq!(existing_patch["bot_token"], "bot-secret-value");
+
+        let mut new_patch = json!({ "bot_token": CHANNEL_SECRET_REDACTION_PLACEHOLDER });
+        let error = restore_saved_channel_secrets(&home, "discord", "New", &mut new_patch)
+            .await
+            .expect_err("unmatched placeholder must fail closed");
+        assert!(error.contains("does not match an existing saved value"));
+    }
+}
+
+#[cfg(all(test, feature = "arkret"))]
+mod tests {
+    use savfox_core::config::channel_store::ChannelConfig;
+
+    use super::*;
+
+    fn arkret_config(id: &str, name: &str) -> ChannelConfig {
+        ChannelConfig {
+            id: id.to_owned(),
+            kind: "arkret".to_owned(),
+            slug: name.to_ascii_lowercase().replace(' ', "-"),
+            name: name.to_owned(),
+            enabled: true,
+            config: json!({}),
+            router: None,
+            dm_policy: None,
+            group_policy: None,
+            created_at: Some(1),
+            updated_at: Some(1),
+        }
+    }
+
+    #[test]
+    fn arkret_rebind_guard_targets_only_the_exact_instance_id() {
+        let support = arkret_config("arkret-support", "Support");
+        let sales = arkret_config("arkret-sales", "Sales");
+
+        assert!(arkret_save_targets_config(
+            &support,
+            Some("arkret-support"),
+            "Renamed support"
+        ));
+        assert!(!arkret_save_targets_config(
+            &sales,
+            Some("arkret-support"),
+            "Renamed support"
+        ));
+    }
+
+    #[test]
+    fn arkret_new_save_falls_back_to_exact_name_without_an_id() {
+        let support = arkret_config("arkret-support", "Support");
+        let sales = arkret_config("arkret-sales", "Sales");
+
+        assert!(arkret_save_targets_config(&support, None, "Support"));
+        assert!(!arkret_save_targets_config(&sales, None, "Support"));
     }
 }

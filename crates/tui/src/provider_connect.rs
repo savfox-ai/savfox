@@ -17,7 +17,7 @@ const DEFAULT_CHATGPT_OPENAI_BASE_URL: &str = "https://chatgpt.com/backend-api/c
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
 const DEFAULT_LMSTUDIO_BASE_URL: &str = "http://localhost:1234/v1";
 
-const CONNECT_PROVIDER_PRIORITY: [&str; 15] = [
+const CONNECT_PROVIDER_PRIORITY: [&str; 17] = [
     "openai",
     "anthropic",
     "gemini",
@@ -29,6 +29,8 @@ const CONNECT_PROVIDER_PRIORITY: [&str; 15] = [
     "together",
     "qwen",
     "minimax",
+    "kimi-for-coding",
+    "moonshotai",
     "bedrock",
     "ollama",
     "ollama-chat",
@@ -740,13 +742,8 @@ mod tests {
             &std::fs::read_to_string(&savfox_file).expect("read persisted provider file"),
         )
         .expect("parse persisted provider file");
-        assert_eq!(
-            raw.get("disabled_models")
-                .and_then(Value::as_array)
-                .and_then(|arr| arr.first())
-                .and_then(Value::as_str),
-            Some("claude-sonnet")
-        );
+        assert_eq!(raw.get("disabled_models"), Some(&json!([])));
+        assert_eq!(raw["models"][0]["id"], json!("anthropic/claude-sonnet"));
         assert!(
             raw.get("models").is_some(),
             "persisted provider file should include serialized model metadata"

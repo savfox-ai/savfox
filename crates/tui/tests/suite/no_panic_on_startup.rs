@@ -27,6 +27,11 @@ async fn malformed_rules_should_not_panic() -> anyhow::Result<()> {
         r#"
 # Pick a local provider so the CLI doesn't prompt for OpenAI auth in this test.
 model_provider = "ollama"
+model = {{ slug = "test-startup-model", provider = "ollama" }}
+check_for_update_on_startup = false
+
+[features]
+remote_models = false
 
 [projects]
 "{cwd}" = {{ trust_level = "trusted" }}
@@ -64,7 +69,9 @@ async fn run_savfox_cli(
         savfox_home.as_ref().display().to_string(),
     );
 
-    let args: Vec<String> = Vec::new();
+    // New sessions bootstrap on their first operation. Supply a prompt so the
+    // test reaches rule loading instead of waiting at the empty composer.
+    let args = vec!["Check startup rules".to_owned()];
     let spawned = savfox_utils::pty::spawn_pty_process(
         savfox_cli.to_string_lossy().as_ref(),
         &args,
@@ -104,7 +111,13 @@ async fn run_savfox_cli(
         Ok(Err(err)) => return Err(err.into()),
         Err(_) => {
             spawned.session.terminate();
-            anyhow::bail!("timed out waiting for savfox CLI to exit");
+            let startup_log =
+                std::fs::read_to_string(savfox_home.as_ref().join("log/savfox-tui.log"))
+                    .unwrap_or_default();
+            anyhow::bail!(
+                "timed out waiting for savfox CLI to exit; output: {}\nstartup log: {startup_log}",
+                String::from_utf8_lossy(&output),
+            );
         }
     };
     // Drain any output that raced with the exit notification.

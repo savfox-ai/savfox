@@ -1,0 +1,64 @@
+# Explicit opt-in overrides for sibling Arkret co-development.
+# Use: cargo --config .cargo/arkret-local.toml.example build
+
+[patch."https://github.com/arkret-org/arkret-rust-sdk.git"]
+arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk" }
+arkret-auth = { path = "../../arkret-org/arkret-rust-sdk/crates/auth" }
+arkret-bootstrap = { path = "../../arkret-org/arkret-rust-sdk/crates/bootstrap" }
+arkret-canonical = { path = "../../arkret-org/arkret-rust-sdk/crates/canonical" }
+arkret-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/crypto" }
+arkret-egress-policy = { path = "../../arkret-org/arkret-rust-sdk/crates/egress-policy" }
+arkret-egress-reqwest = { path = "../../arkret-org/arkret-rust-sdk/crates/egress-reqwest" }
+arkret-event-draft = { path = "../../arkret-org/arkret-rust-sdk/crates/event-draft" }
+arkret-hlc = { path = "../../arkret-org/arkret-rust-sdk/crates/hlc" }
+arkret-http-client = { path = "../../arkret-org/arkret-rust-sdk/crates/http-client" }
+arkret-identifiers = { path = "../../arkret-org/arkret-rust-sdk/crates/identifiers" }
+arkret-identity = { path = "../../arkret-org/arkret-rust-sdk/crates/identity" }
+arkret-keystore = { path = "../../arkret-org/arkret-rust-sdk/crates/keystore" }
+arkret-locale = { path = "../../arkret-org/arkret-rust-sdk/crates/locale" }
+arkret-mls = { path = "../../arkret-org/arkret-rust-sdk/crates/mls" }
+arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-collaboration" }
+arkret-models-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/models-crypto" }
+arkret-models-discovery = { path = "../../arkret-org/arkret-rust-sdk/crates/models-discovery" }
+arkret-models-identity = { path = "../../arkret-org/arkret-rust-sdk/crates/models-identity" }
+arkret-models-integration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-integration" }
+arkret-policy = { path = "../../arkret-org/arkret-rust-sdk/crates/policy" }
+arkret-push-policy = { path = "../../arkret-org/arkret-rust-sdk/crates/push-policy" }
+arkret-retry = { path = "../../arkret-org/arkret-rust-sdk/crates/retry" }
+arkret-schema = { path = "../../arkret-org/arkret-rust-sdk/crates/schema" }
+arkret-signatures = { path = "../../arkret-org/arkret-rust-sdk/crates/signatures" }
+arkret-state = { path = "../../arkret-org/arkret-rust-sdk/crates/state" }
+arkret-wire = { path = "../../arkret-org/arkret-rust-sdk/crates/wire" }
+
+[patch."https://github.com/arkret-org/garth.git"]
+arkret-auth = { path = "../../arkret-org/arkret-rust-sdk/crates/auth" }
+arkret-canonical = { path = "../../arkret-org/arkret-rust-sdk/crates/canonical" }
+arkret-event-draft = { path = "../../arkret-org/arkret-rust-sdk/crates/event-draft" }
+arkret-hlc = { path = "../../arkret-org/arkret-rust-sdk/crates/hlc" }
+arkret-http-client = { path = "../../arkret-org/arkret-rust-sdk/crates/http-client" }
+arkret-identifiers = { path = "../../arkret-org/arkret-rust-sdk/crates/identifiers" }
+arkret-identity = { path = "../../arkret-org/arkret-rust-sdk/crates/identity" }
+arkret-keystore = { path = "../../arkret-org/arkret-rust-sdk/crates/keystore" }
+arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-collaboration" }
+arkret-models-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/models-crypto" }
+arkret-models-discovery = { path = "../../arkret-org/arkret-rust-sdk/crates/models-discovery" }
+arkret-models-identity = { path = "../../arkret-org/arkret-rust-sdk/crates/models-identity" }
+arkret-policy = { path = "../../arkret-org/arkret-rust-sdk/crates/policy" }
+arkret-retry = { path = "../../arkret-org/arkret-rust-sdk/crates/retry" }
+arkret-signatures = { path = "../../arkret-org/arkret-rust-sdk/crates/signatures" }
+arkret-wire = { path = "../../arkret-org/arkret-rust-sdk/crates/wire" }
+garth = { path = "../../arkret-org/garth" }
+
+[patch."https://github.com/arkret-org/bridges.git"]
+arkret = { path = "../../arkret-org/arkret-rust-sdk/crates/sdk" }
+arkret-canonical = { path = "../../arkret-org/arkret-rust-sdk/crates/canonical" }
+arkret-egress-reqwest = { path = "../../arkret-org/arkret-rust-sdk/crates/egress-reqwest" }
+arkret-event-draft = { path = "../../arkret-org/arkret-rust-sdk/crates/event-draft" }
+arkret-identifiers = { path = "../../arkret-org/arkret-rust-sdk/crates/identifiers" }
+arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-collaboration" }
+arkret-models-discovery = { path = "../../arkret-org/arkret-rust-sdk/crates/models-discovery" }
+arkret-models-integration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-integration" }
+arkret-retry = { path = "../../arkret-org/arkret-rust-sdk/crates/retry" }
+arkret-signatures = { path = "../../arkret-org/arkret-rust-sdk/crates/signatures" }
+arkret-wire = { path = "../../arkret-org/arkret-rust-sdk/crates/wire" }
+arkret-bridge-runtime = { path = "../../arkret-org/bridges/crates/runtime" }

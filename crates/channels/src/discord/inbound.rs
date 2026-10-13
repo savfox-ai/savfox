@@ -23,6 +23,8 @@ pub struct DiscordInboundMessage {
     pub bot_username: String,
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait DiscordEventSink: Send + Sync {
     async fn handle_message(&self, event: DiscordInboundMessage);
@@ -359,8 +361,15 @@ pub async fn stop_discord_stream(channel_id: &str) -> bool {
 }
 
 pub async fn is_discord_stream_running(channel_id: &str) -> bool {
-    stream_handles()
-        .lock()
-        .map(|handles| handles.contains_key(channel_id))
-        .unwrap_or(false)
+    let Ok(mut handles) = stream_handles().lock() else {
+        return false;
+    };
+    if handles
+        .get(channel_id)
+        .is_some_and(|entry| entry.handle.is_finished())
+    {
+        handles.remove(channel_id);
+        return false;
+    }
+    handles.contains_key(channel_id)
 }

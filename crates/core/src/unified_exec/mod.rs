@@ -181,7 +181,7 @@ mod tests {
         yield_time_ms: u64,
     ) -> Result<UnifiedExecResponse, UnifiedExecError> {
         let context =
-            UnifiedExecContext::new(Arc::clone(session), Arc::clone(turn), "call".to_string());
+            UnifiedExecContext::new(Arc::clone(session), Arc::clone(turn), "call".to_owned());
         let process_id = session
             .services
             .unified_exec_manager
@@ -193,7 +193,7 @@ mod tests {
             .unified_exec_manager
             .exec_command(
                 ExecCommandRequest {
-                    command: vec!["bash".to_string(), "-lc".to_string(), cmd.to_string()],
+                    command: vec!["bash".to_owned(), "-lc".to_owned(), cmd.to_owned()],
                     process_id,
                     yield_time_ms,
                     max_output_tokens: None,

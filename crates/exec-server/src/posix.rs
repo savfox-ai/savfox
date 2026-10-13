@@ -115,16 +115,15 @@ pub async fn main_mcp_server() -> anyhow::Result<()> {
         .init();
 
     let cli = McpServerCli::parse();
-    let execve_wrapper = match cli.execve_wrapper {
-        Some(path) => path,
-        None => {
-            let cwd = std::env::current_exe()?;
-            cwd.parent()
-                .map(|p| p.join(SAVFOX_EXECVE_WRAPPER_EXE_NAME))
-                .ok_or_else(|| {
-                    anyhow::anyhow!("failed to determine execve wrapper path from current exe")
-                })?
-        }
+    let execve_wrapper = if let Some(path) = cli.execve_wrapper {
+        path
+    } else {
+        let cwd = std::env::current_exe()?;
+        cwd.parent()
+            .map(|p| p.join(SAVFOX_EXECVE_WRAPPER_EXE_NAME))
+            .ok_or_else(|| {
+                anyhow::anyhow!("failed to determine execve wrapper path from current exe")
+            })?
     };
     let bash_path = match cli.bash_path {
         Some(path) => path,
@@ -157,6 +156,8 @@ pub struct ExecveWrapperCli {
 }
 
 #[tokio::main]
+// This binary wrapper must propagate the child's exact exit status.
+#[allow(clippy::exit)]
 pub async fn main_execve_wrapper() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -222,9 +223,9 @@ pub(crate) fn evaluate_exec_policy(
 
 fn format_program_name(path: &Path, preserve_program_paths: bool) -> Option<String> {
     if preserve_program_paths {
-        path.to_str().map(str::to_string)
+        path.to_str().map(str::to_owned)
     } else {
-        path.file_name()?.to_str().map(str::to_string)
+        path.file_name()?.to_str().map(str::to_owned)
     }
 }
 
@@ -264,7 +265,7 @@ mod tests {
     fn evaluate_exec_policy_uses_heuristics_for_dangerous_commands() {
         let policy = Policy::empty();
         let file = Path::new("/bin/rm");
-        let argv = vec!["rm".to_string(), "-rf".to_string(), "/".to_string()];
+        let argv = vec!["rm".to_owned(), "-rf".to_owned(), "/".to_owned()];
 
         let outcome = evaluate_exec_policy(&policy, file, &argv, false).expect("policy evaluation");
 
@@ -281,18 +282,15 @@ mod tests {
         let mut policy = Policy::empty();
         policy
             .add_prefix_rule(
-                &[
-                    "/usr/local/bin/custom-cmd".to_string(),
-                    "--flag".to_string(),
-                ],
+                &["/usr/local/bin/custom-cmd".to_owned(), "--flag".to_owned()],
                 Decision::Allow,
             )
             .expect("policy rule should be added");
         let file = Path::new("/usr/local/bin/custom-cmd");
         let argv = vec![
-            "/usr/local/bin/custom-cmd".to_string(),
-            "--flag".to_string(),
-            "value".to_string(),
+            "/usr/local/bin/custom-cmd".to_owned(),
+            "--flag".to_owned(),
+            "value".to_owned(),
         ];
 
         let outcome = evaluate_exec_policy(&policy, file, &argv, true).expect("policy evaluation");

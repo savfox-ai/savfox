@@ -189,6 +189,11 @@ pub fn provider_description(provider_id: &str) -> String {
         "zhipuai-coding-plan" => "Zhipu AI coding plan models and tooling".to_string(),
         "zai-coding-plan" => "Z.ai coding plan models and tooling".to_string(),
         "volcengine" => "Volcengine coding plan models and tooling".to_string(),
+        "kimi-for-coding" => "Kimi Code subscription models and tooling".to_string(),
+        "moonshotai" => "Connect Kimi models on the Moonshot AI platform".to_string(),
+        "moonshotai-cn" => {
+            "Connect Kimi models on the Moonshot AI platform (mainland China)".to_string()
+        }
         _ => format!("Connect {} models", provider_display_name(&canonical)),
     }
 }
@@ -215,6 +220,8 @@ pub fn provider_api_key_env(provider_id: &str) -> String {
         "alibaba" | "alibaba-cn" => "DASHSCOPE_API_KEY".to_string(),
         "zhipuai" | "zhipuai-coding-plan" => "ZHIPUAI_API_KEY".to_string(),
         "volcengine" => "ARK_API_KEY".to_string(),
+        "kimi-for-coding" => "KIMI_API_KEY".to_string(),
+        "moonshotai" | "moonshotai-cn" => "MOONSHOT_API_KEY".to_string(),
         "github-copilot" | "github-copilot-enterprise" => "GITHUB_TOKEN".to_string(),
         "azure" | "azure-cognitive-services" => "AZURE_OPENAI_API_KEY".to_string(),
         "cohere" => "COHERE_API_KEY".to_string(),
@@ -246,6 +253,9 @@ pub fn provider_api_key_help_url(provider_id: &str) -> Option<&'static str> {
         "openrouter" => Some("https://openrouter.ai/keys"),
         "zhipuai" | "zhipuai-coding-plan" => Some("https://open.bigmodel.cn/"),
         "volcengine" => Some("https://console.volcengine.com/"),
+        "kimi-for-coding" => Some("https://www.kimi.com/code"),
+        "moonshotai" => Some("https://platform.moonshot.ai/console/api-keys"),
+        "moonshotai-cn" => Some("https://platform.moonshot.cn/console/api-keys"),
         _ => None,
     }
 }
@@ -264,6 +274,9 @@ pub fn provider_icon_text(provider_id: &str) -> String {
         "volcengine" => "VO".to_string(),
         "zai" => "ZA".to_string(),
         "zai-coding-plan" => "ZP".to_string(),
+        "kimi-for-coding" => "KC".to_string(),
+        "moonshotai" => "MS".to_string(),
+        "moonshotai-cn" => "MC".to_string(),
         _ => {
             let mut text = String::new();
             for ch in canonical.chars() {
@@ -299,6 +312,22 @@ mod tests {
                 "expected default base url mapping entry for known provider id {provider_id}"
             );
         }
+    }
+
+    #[test]
+    fn kimi_and_moonshot_registry_defaults() {
+        assert_eq!(canonical_provider_id("kimi"), "kimi-for-coding");
+        assert_eq!(canonical_provider_id("moonshot"), "moonshotai");
+        assert_eq!(provider_api_key_env("kimi-for-coding"), "KIMI_API_KEY");
+        assert_eq!(provider_api_key_env("moonshot-cn"), "MOONSHOT_API_KEY");
+        assert_eq!(
+            provider_default_base_url("kimi"),
+            Some("https://api.kimi.com/coding/v1")
+        );
+        assert_eq!(
+            provider_default_base_url("moonshot"),
+            Some("https://api.moonshot.ai/v1")
+        );
     }
 
     #[test]

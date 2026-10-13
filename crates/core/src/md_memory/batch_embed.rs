@@ -37,7 +37,7 @@ pub struct EmbedConfig {
     /// Embedding model name (e.g., "text-embedding-3-small").
     pub model: String,
     /// Maximum number of texts per batch request.
-    pub batch_size: usize,
+    pub batch_item_count: usize,
 }
 
 impl Default for EmbedConfig {
@@ -46,7 +46,7 @@ impl Default for EmbedConfig {
             base_url: "https://api.openai.com/v1".to_owned(),
             api_key: String::new(),
             model: "text-embedding-3-small".to_owned(),
-            batch_size: 100,
+            batch_item_count: 100,
         }
     }
 }
@@ -62,7 +62,7 @@ pub struct BatchEmbedResult {
 
 /// Generate embeddings for a batch of (key, text) pairs.
 ///
-/// Texts are sent in chunks of `config.batch_size` to the embedding API.
+/// Texts are sent in chunks of `config.batch_item_count` to the embedding API.
 /// Returns a map from key to embedding vector.
 pub async fn batch_embed(
     texts: &[(String, String)],
@@ -74,7 +74,7 @@ pub async fn batch_embed(
         errors: 0,
     };
 
-    for chunk in texts.chunks(config.batch_size) {
+    for chunk in texts.chunks(config.batch_item_count) {
         let input: Vec<String> = chunk.iter().map(|(_, text)| text.clone()).collect();
         let keys: Vec<&str> = chunk.iter().map(|(key, _)| key.as_str()).collect();
 

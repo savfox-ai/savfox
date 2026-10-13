@@ -2,8 +2,8 @@
 //!
 //! The 32-byte ed25519 seed is loaded from a [`ArkretKeyRef`] location (env
 //! var, file, or — debug only — inline base64). The resulting
-//! [`arkret::Ed25519MoveSigner`] is the savfox-owned runtime key in
-//! personal-agent mode, and also supports applet signer flows:
+//! [`arkret::Ed25519PayloadSigner`] is the savfox-owned runtime key in
+//! Agent mode, and also supports Applet signer flows:
 //!
 //! * **Applet DID-proof login** for applet outbound authentication.
 //! * **Event signing** (`arkret_signatures::sign_event`) before every outbound submit.
@@ -17,12 +17,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Context as _;
-use arkret::{Did, Ed25519MoveSigner};
+use arkret::{Did, DidUrl, Ed25519PayloadSigner};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
+
+use super::key_store::ArkretKeyringStore;
 
 /// How to find the ed25519 seed for an Arkret runtime or applet bot.
 ///
@@ -43,7 +45,7 @@ pub enum ArkretKeyRef {
     /// * UTF-8 text holding base64-no-pad of the 32-byte seed.
     File { path: PathBuf },
     /// Read the seed from the platform credential vault (Keychain, DPAPI or
-    /// Secret Service). Personal-agent session providers require this form.
+    /// Secret Service). Agent session providers require this form.
     Keyring { service: String, account: String },
     /// **TEST ONLY** — inline base64-no-pad seed in the config JSON. Refused
     /// at runtime in release builds.
@@ -58,25 +60,28 @@ impl ArkretKeyRef {
     }
 }
 
-/// Load a [`Ed25519MoveSigner`] from a [`ArkretKeyRef`].
+/// Load an [`Ed25519PayloadSigner`] from an [`ArkretKeyRef`].
 ///
 /// Returns `Err` on:
 /// * missing env var
 /// * unreadable file
 /// * decoded seed length != 32
 /// * invalid base64 in env / inline value
-/// * invalid DID URI
+/// * invalid DID URI or verification-method DID URL
 /// * release build + `InlineSeedBase64` (refused regardless of value)
 pub fn load_ed25519_signer(
     key_ref: &ArkretKeyRef,
     did: &str,
     verification_method: &str,
-) -> anyhow::Result<Ed25519MoveSigner> {
+) -> anyhow::Result<Ed25519PayloadSigner> {
     let mut seed_arr = load_seed_array(key_ref)?;
 
     let did =
         Did::new(did.to_owned()).with_context(|| format!("arkret signer: invalid DID '{did}'"))?;
-    let signer = Ed25519MoveSigner::from_did_key_seed(seed_arr, did, verification_method);
+    let verification_method = DidUrl::new(verification_method.to_owned()).map_err(|err| {
+        anyhow::anyhow!("arkret signer: invalid verification method '{verification_method}': {err}")
+    })?;
+    let signer = Ed25519PayloadSigner::from_did_key_seed(seed_arr, did, verification_method);
     // `from_did_key_seed` copies the seed into a SigningKey; wipe ours.
     seed_arr.zeroize();
     Ok(signer)
@@ -88,31 +93,6 @@ pub fn load_ed25519_seed_hex(key_ref: &ArkretKeyRef) -> anyhow::Result<String> {
     let encoded = hex::encode(seed);
     seed.zeroize();
     Ok(encoded)
-}
-
-/// Copy an existing runtime signing seed into the platform credential vault.
-///
-/// This is the one-way upgrade path for personal-agent configurations created
-/// before the session provider required `kind=keyring`. The caller must persist
-/// the returned reference before removing any legacy file/env source.
-pub fn migrate_ed25519_key_ref_to_keyring(
-    source: &ArkretKeyRef,
-    service: impl Into<String>,
-    account: impl Into<String>,
-) -> anyhow::Result<ArkretKeyRef> {
-    use savfox_keyring_store::KeyringStore as _;
-
-    let service = service.into();
-    let account = account.into();
-    let mut seed = load_seed_array(source)?;
-    let mut encoded = STANDARD_NO_PAD.encode(seed);
-    let save_result = savfox_keyring_store::DefaultKeyringStore
-        .save(&service, &account, &encoded)
-        .with_context(|| format!("arkret signer: save platform keyring entry {service}/{account}"));
-    seed.zeroize();
-    encoded.zeroize();
-    save_result?;
-    Ok(ArkretKeyRef::Keyring { service, account })
 }
 
 /// Generate a fresh Ed25519 runtime seed directly in the platform credential
@@ -127,7 +107,7 @@ pub fn generate_ed25519_key_ref_in_keyring(
     let account = account.into();
     let mut seed: [u8; 32] = rand::random();
     let mut encoded = STANDARD_NO_PAD.encode(seed);
-    let save_result = savfox_keyring_store::DefaultKeyringStore
+    let save_result = ArkretKeyringStore
         .save(&service, &account, &encoded)
         .with_context(|| format!("arkret signer: save platform keyring entry {service}/{account}"));
     seed.zeroize();
@@ -151,11 +131,22 @@ pub fn get_or_generate_ed25519_key_ref_in_keyring(
     let _guard = KEYRING_GENERATION_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    get_or_generate_ed25519_key_ref_in_store(
-        &savfox_keyring_store::DefaultKeyringStore,
-        service.into(),
-        account.into(),
-    )
+    get_or_generate_ed25519_key_ref_in_store(&ArkretKeyringStore, service.into(), account.into())
+}
+
+/// Delete an Arkret runtime key from the platform credential vault after its
+/// remote authority and published KeyPackages have been retired.
+pub fn delete_ed25519_key_ref_from_keyring(key_ref: &ArkretKeyRef) -> anyhow::Result<bool> {
+    use savfox_keyring_store::KeyringStore as _;
+
+    let ArkretKeyRef::Keyring { service, account } = key_ref else {
+        anyhow::bail!("arkret signer: only keyring runtime keys can be deleted automatically");
+    };
+    ArkretKeyringStore
+        .delete(service, account)
+        .with_context(|| {
+            format!("arkret signer: delete platform keyring entry {service}/{account}")
+        })
 }
 
 fn get_or_generate_ed25519_key_ref_in_store(
@@ -236,20 +227,46 @@ pub fn sign_keypackages_revoke_request(
     result.context("arkret signer: sign canonical KeyPackage revoke request")
 }
 
+/// Build the canonical Agent runtime public-key DTO for this runtime key.
+///
+/// The DTO is the SDK type [`arkret::PublicKey`], never a hand-written JSON
+/// object: its field names are part of the digest preimage, so an ad-hoc
+/// `json!` here silently diverges from every peer that speaks the same
+/// profile (the SDK's own `algorithm` field, for instance, is not `alg`).
+pub fn ed25519_runtime_public_key(
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+) -> anyhow::Result<arkret::PublicKey> {
+    let signing_key = load_ed25519_signing_key(key_ref)?;
+    runtime_public_key_from_signing_key(&signing_key, verification_method)
+}
+
+pub(super) fn runtime_public_key_from_signing_key(
+    signing_key: &SigningKey,
+    verification_method: &str,
+) -> anyhow::Result<arkret::PublicKey> {
+    Ok(arkret::PublicKey {
+        kty: arkret::NonEmptyString::new("OKP")
+            .map_err(|reason| anyhow::anyhow!("arkret signer: public_key.kty: {reason}"))?,
+        kid: arkret::NonEmptyString::new(verification_method.to_owned())
+            .map_err(|reason| anyhow::anyhow!("arkret signer: public_key.kid: {reason}"))?,
+        algorithm: arkret::NonEmptyString::new("Ed25519")
+            .map_err(|reason| anyhow::anyhow!("arkret signer: public_key.algorithm: {reason}"))?,
+        key: arkret::Base64UrlString::new(arkret::base64url_encode(
+            signing_key.verifying_key().to_bytes(),
+        ))
+        .map_err(|reason| anyhow::anyhow!("arkret signer: public_key.key: {reason}"))?,
+        key_digest: None,
+    })
+}
+
 /// Return the canonical public-key digest for diagnostics and authorization
 /// binding checks. No seed or private-key material leaves this function.
 pub fn ed25519_runtime_public_key_digest(
     key_ref: &ArkretKeyRef,
     verification_method: &str,
 ) -> anyhow::Result<String> {
-    let signing_key = load_ed25519_signing_key(key_ref)?;
-    let public_key = serde_json::json!({
-        "kty": "OKP",
-        "kid": verification_method,
-        "alg": "Ed25519",
-        "key": base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(signing_key.verifying_key().as_bytes()),
-    });
+    let public_key = ed25519_runtime_public_key(key_ref, verification_method)?;
     arkret_signatures::agent::agent_runtime_public_key_digest(&public_key)
         .map(|digest| digest.as_str().to_owned())
         .map_err(|error| anyhow::anyhow!("arkret signer: public-key digest: {error}"))
@@ -268,6 +285,23 @@ pub(super) fn load_seed_array(key_ref: &ArkretKeyRef) -> anyhow::Result<[u8; 32]
     Ok(seed_arr)
 }
 
+#[cfg(test)]
+fn test_keyring_seeds()
+-> &'static std::sync::Mutex<std::collections::HashMap<(String, String), Vec<u8>>> {
+    static SEEDS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<(String, String), Vec<u8>>>,
+    > = std::sync::OnceLock::new();
+    SEEDS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(test)]
+pub(super) fn install_test_keyring_seed(service: &str, account: &str, seed: &[u8; 32]) {
+    test_keyring_seeds()
+        .lock()
+        .unwrap()
+        .insert((service.to_owned(), account.to_owned()), seed.to_vec());
+}
+
 fn load_seed_bytes(key_ref: &ArkretKeyRef) -> anyhow::Result<Vec<u8>> {
     match key_ref {
         ArkretKeyRef::Env { var } => {
@@ -277,9 +311,17 @@ fn load_seed_bytes(key_ref: &ArkretKeyRef) -> anyhow::Result<Vec<u8>> {
         }
         ArkretKeyRef::File { path } => load_file_seed(path),
         ArkretKeyRef::Keyring { service, account } => {
+            #[cfg(test)]
+            if let Some(seed) = test_keyring_seeds()
+                .lock()
+                .unwrap()
+                .get(&(service.clone(), account.clone()))
+            {
+                return Ok(seed.clone());
+            }
             use savfox_keyring_store::KeyringStore as _;
 
-            let value = savfox_keyring_store::DefaultKeyringStore
+            let value = ArkretKeyringStore
                 .load(service, account)
                 .with_context(|| {
                     format!("arkret signer: load platform keyring entry {service}/{account}")
@@ -334,7 +376,7 @@ fn decode_base64_no_pad(text: &str, source: &str) -> anyhow::Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use arkret::MoveSigner;
+    use arkret::PayloadSigner;
     use base64::engine::general_purpose::STANDARD_NO_PAD;
     use savfox_keyring_store::KeyringStore as _;
     use savfox_keyring_store::tests::MockKeyringStore;
@@ -342,6 +384,7 @@ mod tests {
     use super::*;
 
     const TEST_DID: &str = "did:webvh:example.org:agents:support";
+    const TEST_CORE_DID: &str = "ak:did_core:webvh:example.org";
     const TEST_VM: &str = "did:webvh:example.org:agents:support#key-1";
     const TEST_SEED: [u8; 32] = [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
@@ -350,6 +393,51 @@ mod tests {
 
     fn seed_b64() -> String {
         STANDARD_NO_PAD.encode(TEST_SEED)
+    }
+
+    fn test_recipient_durable_receipt() -> arkret::RecipientMlsDurableReceipt {
+        arkret::RecipientMlsDurableReceipt {
+            domain: arkret::NonEmptyString::new("ak.recipient-mls-durable-receipt.v1").unwrap(),
+            claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
+            key_package_ref: arkret::NonEmptyString::new(
+                "ak:mls:kp:01904100-0000-7000-8000-000000000001",
+            )
+            .unwrap(),
+            recipient: arkret::RecipientMlsDurableSigner::Device {
+                recipient_account_id: arkret::AccountId::new(
+                    arkret::DidCoreId::new(TEST_CORE_DID).unwrap(),
+                    arkret::DidCoreId::new("ak:did_core:web:service.example").unwrap(),
+                ),
+                recipient_device_id: arkret::DeviceId::new(
+                    "ak:device:01904100-0000-7000-8000-000000000001",
+                )
+                .unwrap(),
+                device_verification_method: arkret::DidUrl::new(TEST_VM).unwrap(),
+            },
+            recipient_id: arkret::DidCoreId::new("ak:did_core:web:service.example").unwrap(),
+            realm_id: arkret::RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI")
+                .unwrap(),
+            mls_group_id: arkret::ScopeRef::Realm {
+                realm_id: arkret::RealmId::new(
+                    "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI",
+                )
+                .unwrap(),
+            }
+            .canonical_mls_group_id()
+            .unwrap(),
+            mls_epoch: 3,
+            welcome_ref: arkret::identifiers::MlsWelcomeDeliveryId::new(
+                "ak:mls_welcome_delivery:01904100-0000-7000-8000-000000000001",
+            )
+            .unwrap(),
+            welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
+            durable_at: chrono::Utc::now(),
+            signature: arkret::KeyOperationSignature {
+                kid: arkret::NonEmptyString::new(TEST_VM).unwrap(),
+                signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
+                sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+            },
+        }
     }
 
     // Use process-unique names so parallel tests don't clobber.
@@ -368,7 +456,7 @@ mod tests {
     // (process-spawn). The workspace forbids unsafe code, and Rust 2024
     // marks `std::env::set_var` as unsafe — so we exercise env semantics
     // outside this unit-test module. Here we cover `File` + `InlineSeedBase64`
-    // + happy-path round-trip through `Ed25519MoveSigner::sign_payload`.
+    // + happy-path round-trip through `Ed25519PayloadSigner::sign_payload`.
 
     #[test]
     fn env_missing_returns_typed_error() {
@@ -461,17 +549,11 @@ mod tests {
     fn keypackage_consume_signer_uses_sdk_canonical_input() {
         let key_ref = ArkretKeyRef::InlineSeedBase64 { value: seed_b64() };
         let unsigned = arkret::KeyPackagesConsumeUnsignedRequest {
-            key_package_refs: vec!["ak:mls:kp:01904100-0000-7000-8000-000000000001".to_owned()],
-            consumer_device_id: arkret::DeviceId::new(
-                "ak:device:01904100-0000-7000-8000-000000000001".to_owned(),
+            claim_id: arkret::identifiers::KeypackageClaimId::new(
+                "ak:keypackage_claim:01904100-0000-7000-8000-000000000001",
             )
             .unwrap(),
-            claim_ids: vec!["ak:claim:fixture".to_owned()],
-            welcome_ref: Some("ak:event:01904100-0000-7000-8000-000000000002".to_owned()),
-            realm_id: None,
-            strand_id: None,
-            mls_group_id: Some("mls-group-fixture".to_owned()),
-            epoch: Some(3),
+            recipient_durable_receipt: test_recipient_durable_receipt(),
         };
 
         let signature = sign_keypackages_consume_request(&key_ref, TEST_VM, &unsigned).unwrap();

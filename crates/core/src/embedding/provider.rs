@@ -22,6 +22,8 @@ pub enum EmbeddingError {
 /// Trait for embedding providers.
 ///
 /// Implementations generate dense vector embeddings from text inputs.
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync + std::fmt::Debug {
     /// Generate embeddings for a batch of texts.

@@ -35,11 +35,11 @@ enum TargetPath {
 impl TargetPath {
     fn resolve_for_patch(self, test: &TestSavfox) -> (PathBuf, String) {
         match self {
-            TargetPath::Workspace(name) => {
+            Self::Workspace(name) => {
                 let path = test.cwd.path().join(name);
-                (path, name.to_string())
+                (path, name.to_owned())
             }
-            TargetPath::OutsideWorkspace(name) => {
+            Self::OutsideWorkspace(name) => {
                 let path = env::current_dir()
                     .expect("current dir should be available")
                     .join(name);
@@ -88,14 +88,14 @@ impl ActionKind {
         sandbox_permissions: SandboxPermissions,
     ) -> Result<(Value, Option<String>)> {
         match self {
-            ActionKind::WriteFile { target, content } => {
+            Self::WriteFile { target, content } => {
                 let (path, _) = target.resolve_for_patch(test);
                 let _ = fs::remove_file(&path);
                 let command = format!("printf {content:?} > {path:?} && cat {path:?}");
                 let event = shell_event(call_id, &command, 1_000, sandbox_permissions)?;
                 Ok((event, Some(command)))
             }
-            ActionKind::FetchUrl {
+            Self::FetchUrl {
                 endpoint,
                 response_body,
             } => {
@@ -117,11 +117,11 @@ impl ActionKind {
                 let event = shell_event(call_id, &command, 5_000, sandbox_permissions)?;
                 Ok((event, Some(command)))
             }
-            ActionKind::RunCommand { command } => {
+            Self::RunCommand { command } => {
                 let event = shell_event(call_id, command, 1_000, sandbox_permissions)?;
                 Ok((event, Some(command.to_string())))
             }
-            ActionKind::RunUnifiedExecCommand {
+            Self::RunUnifiedExecCommand {
                 command,
                 justification,
             } => {
@@ -134,13 +134,13 @@ impl ActionKind {
                 )?;
                 Ok((event, Some(command.to_string())))
             }
-            ActionKind::ApplyPatchFunction { target, content } => {
+            Self::ApplyPatchFunction { target, content } => {
                 let (path, patch_path) = target.resolve_for_patch(test);
                 let _ = fs::remove_file(&path);
                 let patch = build_add_file_patch(&patch_path, content);
                 Ok((ev_apply_patch_function_call(call_id, &patch), None))
             }
-            ActionKind::ApplyPatchShell { target, content } => {
+            Self::ApplyPatchShell { target, content } => {
                 let (path, patch_path) = target.resolve_for_patch(test);
                 let _ = fs::remove_file(&path);
                 let patch = build_add_file_patch(&patch_path, content);
@@ -191,7 +191,7 @@ fn exec_command_event(
     justification: Option<&str>,
 ) -> Result<Value> {
     let mut args = json!({
-        "cmd": cmd.to_string(),
+        "cmd": cmd.to_owned(),
     });
     if let Some(yield_time_ms) = yield_time_ms {
         args["yield_time_ms"] = json!(yield_time_ms);
@@ -246,7 +246,7 @@ enum Expectation {
 impl Expectation {
     fn verify(&self, test: &TestSavfox, result: &CommandResult) -> Result<()> {
         match self {
-            Expectation::FileCreated { target, content } => {
+            Self::FileCreated { target, content } => {
                 let (path, _) = target.resolve_for_patch(test);
                 assert_eq!(
                     result.exit_code,
@@ -265,7 +265,7 @@ impl Expectation {
                 );
                 let _ = fs::remove_file(path);
             }
-            Expectation::FileCreatedNoExitCode { target, content } => {
+            Self::FileCreatedNoExitCode { target, content } => {
                 let (path, _) = target.resolve_for_patch(test);
                 assert!(
                     result.exit_code.is_none() || result.exit_code == Some(0),
@@ -283,7 +283,7 @@ impl Expectation {
                 );
                 let _ = fs::remove_file(path);
             }
-            Expectation::PatchApplied { target, content } => {
+            Self::PatchApplied { target, content } => {
                 let (path, _) = target.resolve_for_patch(test);
                 match result.exit_code {
                     Some(0) | None => {
@@ -307,7 +307,7 @@ impl Expectation {
                 );
                 let _ = fs::remove_file(path);
             }
-            Expectation::FileNotCreated {
+            Self::FileNotCreated {
                 target,
                 message_contains,
             } => {
@@ -340,7 +340,7 @@ impl Expectation {
                     "command should not create {path:?}, but file exists"
                 );
             }
-            Expectation::NetworkSuccess { body_contains } => {
+            Self::NetworkSuccess { body_contains } => {
                 assert_eq!(
                     result.exit_code,
                     Some(0),
@@ -358,7 +358,7 @@ impl Expectation {
                     result.stdout
                 );
             }
-            Expectation::NetworkSuccessNoExitCode { body_contains } => {
+            Self::NetworkSuccessNoExitCode { body_contains } => {
                 assert!(
                     result.exit_code.is_none() || result.exit_code == Some(0),
                     "expected no exit code for successful network call: {}",
@@ -375,7 +375,7 @@ impl Expectation {
                     result.stdout
                 );
             }
-            Expectation::NetworkFailure { expect_tag } => {
+            Self::NetworkFailure { expect_tag } => {
                 assert_ne!(
                     result.exit_code,
                     Some(0),
@@ -393,7 +393,7 @@ impl Expectation {
                     result.stdout
                 );
             }
-            Expectation::CommandSuccess { stdout_contains } => {
+            Self::CommandSuccess { stdout_contains } => {
                 assert_eq!(
                     result.exit_code,
                     Some(0),
@@ -406,7 +406,7 @@ impl Expectation {
                     result.stdout
                 );
             }
-            Expectation::CommandSuccessNoExitCode { stdout_contains } => {
+            Self::CommandSuccessNoExitCode { stdout_contains } => {
                 assert!(
                     result.exit_code.is_none() || result.exit_code == Some(0),
                     "expected no exit code for trusted command: {}",
@@ -418,7 +418,7 @@ impl Expectation {
                     result.stdout
                 );
             }
-            Expectation::CommandFailure { output_contains } => {
+            Self::CommandFailure { output_contains } => {
                 assert_ne!(
                     result.exit_code,
                     Some(0),
@@ -501,36 +501,33 @@ fn parse_result(item: &Value) -> CommandResult {
         .get("output")
         .and_then(Value::as_str)
         .expect("shell output payload");
-    match serde_json::from_str::<Value>(output_str) {
-        Ok(parsed) => {
-            let exit_code = parsed["metadata"]["exit_code"].as_i64();
-            let stdout = parsed["output"].as_str().unwrap_or_default().to_string();
-            CommandResult { exit_code, stdout }
-        }
-        Err(_) => {
-            let structured = Regex::new(r"(?s)^Exit code:\s*(-?\d+).*?Output:\n(.*)$").unwrap();
-            let regex =
-                Regex::new(r"(?s)^.*?Process exited with code (\d+)\n.*?Output:\n(.*)$").unwrap();
-            // parse freeform output
-            if let Some(captures) = structured.captures(output_str) {
-                let exit_code = captures.get(1).unwrap().as_str().parse::<i64>().unwrap();
-                let output = captures.get(2).unwrap().as_str();
-                CommandResult {
-                    exit_code: Some(exit_code),
-                    stdout: output.to_string(),
-                }
-            } else if let Some(captures) = regex.captures(output_str) {
-                let exit_code = captures.get(1).unwrap().as_str().parse::<i64>().unwrap();
-                let output = captures.get(2).unwrap().as_str();
-                CommandResult {
-                    exit_code: Some(exit_code),
-                    stdout: output.to_string(),
-                }
-            } else {
-                CommandResult {
-                    exit_code: None,
-                    stdout: output_str.to_string(),
-                }
+    if let Ok(parsed) = serde_json::from_str::<Value>(output_str) {
+        let exit_code = parsed["metadata"]["exit_code"].as_i64();
+        let stdout = parsed["output"].as_str().unwrap_or_default().to_owned();
+        CommandResult { exit_code, stdout }
+    } else {
+        let structured = Regex::new(r"(?s)^Exit code:\s*(-?\d+).*?Output:\n(.*)$").unwrap();
+        let regex =
+            Regex::new(r"(?s)^.*?Process exited with code (\d+)\n.*?Output:\n(.*)$").unwrap();
+        // parse freeform output
+        if let Some(captures) = structured.captures(output_str) {
+            let exit_code = captures.get(1).unwrap().as_str().parse::<i64>().unwrap();
+            let output = captures.get(2).unwrap().as_str();
+            CommandResult {
+                exit_code: Some(exit_code),
+                stdout: output.to_owned(),
+            }
+        } else if let Some(captures) = regex.captures(output_str) {
+            let exit_code = captures.get(1).unwrap().as_str().parse::<i64>().unwrap();
+            let output = captures.get(2).unwrap().as_str();
+            CommandResult {
+                exit_code: Some(exit_code),
+                stdout: output.to_owned(),
+            }
+        } else {
+            CommandResult {
+                exit_code: None,
+                stdout: output_str.to_owned(),
             }
         }
     }
@@ -1451,7 +1448,7 @@ async fn symbolic_approve_reply_resolves_pending_exec_approval() -> Result<()> {
         .with_model("gpt-5.1")
         .with_config(move |config| {
             config.approval_policy = Constrained::allow_any(approval_policy_for_config);
-            config.sandbox_policy = Constrained::allow_any(sandbox_policy_for_config.clone());
+            config.sandbox_policy = Constrained::allow_any(sandbox_policy_for_config);
         });
     let test = builder.build(&server).await?;
 
@@ -1520,7 +1517,7 @@ async fn structured_approve_reply_resolves_pending_exec_approval() -> Result<()>
         .with_model("gpt-5.1")
         .with_config(move |config| {
             config.approval_policy = Constrained::allow_any(approval_policy_for_config);
-            config.sandbox_policy = Constrained::allow_any(sandbox_policy_for_config.clone());
+            config.sandbox_policy = Constrained::allow_any(sandbox_policy_for_config);
         });
     let test = builder.build(&server).await?;
 
@@ -1832,7 +1829,7 @@ async fn approving_execpolicy_amendment_persists_policy_and_skips_future_prompts
     let expected_command =
         expected_command.expect("execpolicy amendment scenario should produce a shell command");
     let expected_execpolicy_amendment =
-        ExecPolicyAmendment::new(vec!["touch".to_string(), "allow-prefix.txt".to_string()]);
+        ExecPolicyAmendment::new(vec!["touch".to_owned(), "allow-prefix.txt".to_owned()]);
 
     let _ = mount_sse_once(
         &server,

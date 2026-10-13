@@ -405,7 +405,7 @@ async fn mcp_tool_call_output_exceeds_limit_truncated_for_model() -> Result<()> 
     let mut builder = test_savfox().with_config(move |config| {
         let mut servers = config.mcp_servers.get().clone();
         servers.insert(
-            server_name.to_string(),
+            server_name.to_owned(),
             savfox_core::config::types::McpServerConfig {
                 transport: savfox_core::config::types::McpServerTransportConfig::Stdio {
                     command: rmcp_test_server_bin,
@@ -496,14 +496,14 @@ async fn mcp_image_output_preserves_image_and_no_text_summary() -> Result<()> {
     let mut builder = test_savfox().with_config(move |config| {
         let mut servers = config.mcp_servers.get().clone();
         servers.insert(
-            server_name.to_string(),
+            server_name.to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
                     command: rmcp_test_server_bin,
                     args: Vec::new(),
                     env: Some(HashMap::from([(
-                        "MCP_TEST_IMAGE_DATA_URL".to_string(),
-                        openai_png.to_string(),
+                        "MCP_TEST_IMAGE_DATA_URL".to_owned(),
+                        openai_png.to_owned(),
                     )])),
                     env_vars: Vec::new(),
                     cwd: None,
@@ -766,7 +766,7 @@ async fn mcp_tool_call_output_not_truncated_with_custom_limit() -> Result<()> {
         config.tool_output_token_limit = Some(50_000);
         let mut servers = config.mcp_servers.get().clone();
         servers.insert(
-            server_name.to_string(),
+            server_name.to_owned(),
             savfox_core::config::types::McpServerConfig {
                 transport: savfox_core::config::types::McpServerTransportConfig::Stdio {
                     command: rmcp_test_server_bin,

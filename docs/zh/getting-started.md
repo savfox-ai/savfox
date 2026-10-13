@@ -2,7 +2,7 @@
 
 ## 前置要求
 
-- **Rust 1.94+**（从源码构建时需要）
+- **Rust 1.98+**（从源码构建时需要）
 - 支持的 LLM 提供商账号（OpenAI，或本地提供商如 Ollama / LM Studio）
 - Git（用于会话 diff 和补丁应用）
 
@@ -15,6 +15,10 @@ git clone https://github.com/savfox-ai/savfox.git
 cd savfox
 cargo install --path crates/savfox-cli
 ```
+
+Cargo 会自行获取固定提交的 Arkret SDK、Garth 和桥接 Git 依赖；
+从源码构建无需检出相邻仓库。Arkret 本地协同开发的覆盖配置见
+[CONTRIBUTING.md](../../CONTRIBUTING.md)。
 
 ### 验证安装
 

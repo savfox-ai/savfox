@@ -1510,7 +1510,8 @@ trust_level = "untrusted"
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "disabled_models": []
+  "disabled_models": [],
+  "models": [{"id": "zhipuai-coding-plan/glm-5", "is_default": true}]
 }"#,
         )?;
 
@@ -1547,7 +1548,8 @@ trust_level = "untrusted"
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "disabled_models": []
+  "disabled_models": [],
+  "models": [{"id": "zhipuai-coding-plan/glm-4.5", "is_default": true}]
 }"#,
         )?;
 

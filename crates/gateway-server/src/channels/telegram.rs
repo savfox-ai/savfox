@@ -148,6 +148,7 @@ async fn process_update_payload(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     body: Value,
+    saved_channel_config_id: Option<String>,
 ) {
     let update_id = body
         .get("update_id")
@@ -183,6 +184,7 @@ async fn process_update_payload(
             meta.is_command = telegram_is_command(&prompt);
             meta.used_plain_text_fallback = telegram_used_plain_text_fallback(&body, &prompt);
             meta.explicitly_targets_other_agent = telegram_explicitly_targets_other(&body);
+            meta.saved_channel_config_id = saved_channel_config_id;
             let name = parse_display_name(&body);
             debug!(
                 ?update_id, %channel_id, peer_id = ?meta.peer_id, thread_id = ?meta.thread_id,
@@ -226,6 +228,7 @@ async fn process_update_payload(
 struct TelegramRuntimeSink {
     channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
+    config_id: String,
 }
 
 #[async_trait]
@@ -235,6 +238,7 @@ impl TelegramUpdateSink for TelegramRuntimeSink {
             Arc::clone(&self.channel),
             Arc::clone(&self.session_store),
             payload,
+            Some(self.config_id.clone()),
         )
         .await;
     }
@@ -243,11 +247,13 @@ impl TelegramUpdateSink for TelegramRuntimeSink {
 pub(crate) fn telegram_sink(
     channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
+    config_id: String,
 ) -> Arc<dyn TelegramUpdateSink> {
     debug!("Creating runtime sink for polling updates");
     Arc::new(TelegramRuntimeSink {
         channel,
         session_store,
+        config_id,
     })
 }
 
@@ -295,7 +301,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     let Some((gateway_channel, session_store)) = super::obtain_channel_and_store(depot, res) else {
         return;
     };
-    process_update_payload(gateway_channel, session_store, body).await;
+    process_update_payload(gateway_channel, session_store, body, None).await;
 
     res.status_code(StatusCode::OK);
 }

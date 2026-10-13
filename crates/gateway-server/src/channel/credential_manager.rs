@@ -11,6 +11,7 @@ use tracing::{debug, warn};
 use url::Url;
 
 use super::{GatewayChannel, ResolvedMatrixClient, non_empty_trimmed};
+use crate::security::approval_coordinator::ApprovalNotification;
 
 fn matrix_invite_matches_target(invite: &MatrixInviteEvent, target: &str) -> bool {
     let target = target.trim();
@@ -1007,11 +1008,104 @@ impl GatewayChannel {
             slack_token,
             None,
             None,
+            None,
+            None,
         )
         .await
     }
 
-    /// Send a message with optional thread and reply context.
+    /// Send a message with optional thread, reply, and saved-instance context.
+    pub(crate) async fn send_approval_message_with_context(
+        &self,
+        channel: &str,
+        notification: &ApprovalNotification,
+        session_id: Option<&str>,
+        reply_target: Option<&str>,
+        saved_channel_config_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let runtime = self.runtime_channel_secrets.read().await.clone();
+        let (platform, channel_id) = channel.split_once(':').unwrap_or(("webhook", channel));
+        let savfox_home = &self.config.savfox_home;
+        let actions = notification
+            .actions
+            .iter()
+            .map(|action| {
+                (
+                    action.label.to_owned(),
+                    match platform {
+                        "telegram" => {
+                            format!("approval|{}|{}", action.decision, notification.request_id)
+                        }
+                        _ => format!("approval:{}:{}", action.decision, notification.request_id),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        match platform {
+            "telegram" => {
+                let saved_token =
+                    savfox_channels::telegram::resolve_telegram_outbound_token(savfox_home)
+                        .await
+                        .ok()
+                        .flatten();
+                let token = saved_token
+                    .or(runtime.telegram_bot_token)
+                    .or_else(|| std::env::var("TELEGRAM_BOT_TOKEN").ok());
+                if let Some(token) = token {
+                    savfox_channels::telegram::send_message_with_inline_keyboard(
+                        &self.http_client,
+                        &token,
+                        channel_id,
+                        &notification.text,
+                        Some("HTML"),
+                        reply_target,
+                        &actions,
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            }
+            "discord" => {
+                let saved_token =
+                    savfox_channels::discord::resolve_discord_outbound_token(savfox_home)
+                        .await
+                        .ok()
+                        .flatten();
+                let token = saved_token
+                    .or(runtime.discord_bot_token)
+                    .or_else(|| std::env::var("DISCORD_BOT_TOKEN").ok());
+                if let Some(token) = token {
+                    savfox_channels::discord::send_message_with_components_returning_id(
+                        &self.http_client,
+                        &token,
+                        channel_id,
+                        &notification.text,
+                        reply_target,
+                        &actions,
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+
+        self.send_platform_message_with_context(
+            channel,
+            &notification.text,
+            None,
+            None,
+            None,
+            session_id,
+            reply_target,
+            saved_channel_config_id,
+            Some(&notification.request_id),
+        )
+        .await
+    }
+
+    /// Send a message with optional thread, reply, and saved-instance context.
     pub(crate) async fn send_platform_message_with_context(
         &self,
         channel: &str,
@@ -1021,10 +1115,14 @@ impl GatewayChannel {
         slack_token: Option<&str>,
         session_id: Option<&str>,
         reply_target: Option<&str>,
+        saved_channel_config_id: Option<&str>,
+        _delivery_operation_id: Option<&str>,
     ) -> anyhow::Result<()> {
         let runtime = self.runtime_channel_secrets.read().await.clone();
         let (platform, channel_id) = channel.split_once(':').unwrap_or(("webhook", channel));
         let savfox_home = &self.config.savfox_home;
+        #[cfg(not(feature = "arkret"))]
+        let _ = saved_channel_config_id;
 
         match platform {
             "discord" => {
@@ -1375,35 +1473,36 @@ impl GatewayChannel {
                 // `reply_target` is either a plain strand id or a strand id
                 // with an encoded Sidecar exchange context appended by the
                 // inbound dispatch (see `encode_sidecar_reply_target`).
-                let (strand_id, sidecar_exchange) =
-                    match non_empty_trimmed(reply_target)
-                        .filter(|value| value.starts_with("ak:strand:"))
-                    {
-                        Some(value) => {
-                            let (strand, context) =
-                                savfox_channels::arkret::split_sidecar_reply_target(value);
-                            (Some(strand), context)
-                        }
-                        None => (None, None),
-                    };
-                let strand_id = strand_id.as_deref();
-                // Sidecar exchange replies must carry the encrypted
-                // `user_facing_response` binding, which only the account path
-                // can attach; the applet path would silently drop it.
-                if sidecar_exchange.is_none()
-                    && crate::channels::arkret_applet::send_to_arkret_applet_for_realm(
-                        channel_id, strand_id, text,
-                    )
-                    .await?
+                let (strand_id, sidecar_exchange) = match non_empty_trimmed(reply_target)
+                    .filter(|value| value.starts_with("ak:strand:"))
                 {
-                    return Ok(());
-                }
+                    Some(value) => {
+                        let (strand, context) =
+                            savfox_channels::arkret::split_sidecar_reply_target(value);
+                        (Some(strand), context)
+                    }
+                    None => (None, None),
+                };
+                let strand_id = strand_id.as_deref();
+                // Personal Agent replies retain their exact Account and native
+                // delivery binding; an Applet namespace cannot substitute a Bot.
+                let bound_account_id = if let Some(session_id) = session_id {
+                    crate::arkret_delivery::ArkretExecutionBindingStore::new(savfox_home)
+                        .binding_for_session(session_id)
+                        .await?
+                        .map(|binding| binding.conversation.account_id)
+                } else {
+                    None
+                };
                 crate::channels::arkret::send_to_arkret_account(
                     savfox_home,
                     channel_id,
                     strand_id,
                     text,
                     sidecar_exchange.as_ref(),
+                    saved_channel_config_id,
+                    bound_account_id.as_deref(),
+                    None,
                 )
                 .await?;
             }

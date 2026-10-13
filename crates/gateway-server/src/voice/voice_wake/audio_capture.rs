@@ -32,6 +32,8 @@ pub struct AudioFrame {
 }
 
 /// Audio capture trait for different backends.
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait AudioCapture: Send + Sync {
     async fn start(&mut self) -> Result<()>;
@@ -148,7 +150,9 @@ impl AudioLevelDetector {
 #[must_use]
 pub fn bytes_to_samples(bytes: &[u8]) -> Vec<i16> {
     bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect()
 }

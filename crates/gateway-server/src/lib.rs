@@ -51,6 +51,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 mod agent_terminal_delegate;
 mod agent_terminal_launcher;
 mod approval_policy_store;
+#[cfg(feature = "arkret")]
+mod arkret_delivery;
 pub mod audit;
 pub mod auto_reply;
 mod cached_db;
@@ -58,9 +60,10 @@ pub mod canvas_host;
 pub mod channel;
 #[path = "channels/mod.rs"]
 pub mod channels;
-pub(crate) mod chat_attachments;
 pub(crate) mod chat_sanitize;
 pub(crate) mod chat_session;
+mod claude_code;
+mod codex_app_server;
 pub mod compaction;
 pub mod config;
 pub mod cron_service;
@@ -128,13 +131,6 @@ pub async fn run_main(
 ) -> IoResult<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // Initialise the global rate limiter from the operator's config
-    // *before* any handler or background task touches it. The OnceLock
-    // is idempotent so this is safe even if a request races us — and
-    // crucially the maintenance task in this fn does not have access to
-    // the depot, so it relies on the limiter already being initialised.
-    server::init_global_rate_limiter(&gateway_config);
-
     // Install tracing subscriber with a reloadable filter so the log level
     // can be changed at runtime via the `log.set_level` RPC.
     let env_filter = env_filter_from_default("info");
@@ -179,6 +175,10 @@ pub async fn run_main(
         }
     };
 
+    let gateway_config =
+        gateway_config.with_runtime_settings(&config.config_layer_stack.effective_config())?;
+    // Install effective operator limits before handlers or background tasks use them.
+    server::init_global_rate_limiter(&gateway_config);
     let config = Arc::new(config);
     let feedback = SavfoxFeedback::new();
 
@@ -233,6 +233,8 @@ pub async fn run_main(
     let auth = Arc::new(GatewayAuth::single_token(token.clone()));
     let session_mgr = Arc::new(GatewaySessionManager::new());
     let channel_registry = channels::create_channel_registry();
+    let channel_recovery_registry = channels::recovery::create_channel_recovery_registry();
+    let channel_recovery_supervisors = channels::recovery::create_channel_recovery_supervisors();
     let session_store = Arc::new(SessionStore::from_home(&config.savfox_home));
     info!("session store initialized");
 
@@ -249,6 +251,8 @@ pub async fn run_main(
         websocket_manager: (*session_mgr).clone(),
         outgoing_tx,
         channel_registry: channel_registry.clone(),
+        channel_recovery_registry,
+        channel_recovery_supervisors,
     }));
 
     info!("gateway channel created");
@@ -402,12 +406,14 @@ pub async fn run_main(
         &gateway_config,
         auth,
         session_mgr,
-        channel,
+        Arc::clone(&channel),
         session_store,
         cron_service,
         config.savfox_home.clone(),
     )
     .await;
+
+    channels::shutdown_all_channel_instances(&config.savfox_home, &channel).await;
 
     // On graceful shutdown, reap any managed PTY subprocesses so they are not
     // left orphaned. Best-effort: log and continue regardless of outcome.
@@ -575,3 +581,10 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "arkret")]
+pub use channels::arkret::native_reply::{
+    FrozenNativeProviderRequest, NativeAgentCredentials, NativePublicReplyGuard,
+    NativePublicReplyHandle, NativePublicReplyHost, NativeReplySource,
+    start_native_arkret_public_replies,
+};

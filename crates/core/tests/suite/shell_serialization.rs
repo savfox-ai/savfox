@@ -260,7 +260,7 @@ async fn shell_output_preserves_fixture_json_without_serialization(
         .get("output")
         .and_then(Value::as_str)
         .unwrap_or_default()
-        .to_string();
+        .to_owned();
     assert_eq!(
         stdout, FIXTURE_JSON,
         "expected shell output to match the fixture contents"

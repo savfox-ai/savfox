@@ -2,6 +2,7 @@
 name = "savfox-gateway-server"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 documentation.workspace = true
 
@@ -16,6 +17,8 @@ workspace = true
 default = []
 arkret = [
     "dep:arkret",
+    "dep:arkret-wire",
+    "dep:arkret-models-collaboration",
     "dep:garth",
     "dep:arkret-bridge-runtime",
     "savfox-channels/arkret",
@@ -29,10 +32,13 @@ bcrypt = { workspace = true }
 savfox-app-server-protocol = { workspace = true }
 savfox-common = { workspace = true, features = ["cli"] }
 savfox-core = { workspace = true }
+savfox-otel = { workspace = true }
+savfox-exec-policy = { workspace = true }
 savfox-keyring-store = { workspace = true }
 savfox-login-oauth = { workspace = true }
 savfox-feedback = { workspace = true }
 savfox-gateway-shared = { workspace = true }
+savfox-http-client = { workspace = true }
 savfox-protocol = { workspace = true }
 savfox-utils = { workspace = true }
 savfox-skill-registry = { workspace = true }
@@ -62,9 +68,10 @@ rustls = { workspace = true, features = ["aws-lc-rs"] }
 salvo = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
+serde-saphyr = { workspace = true }
 sqlx = { workspace = true }
 sha2 = { workspace = true }
+shlex = { workspace = true }
 subtle = { workspace = true }
 thiserror = { workspace = true }
 tokio-stream = { workspace = true }
@@ -84,13 +91,20 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v7"] }
 arkret = { workspace = true, optional = true }
+arkret-wire = { workspace = true, optional = true }
+arkret-models-collaboration = { workspace = true, optional = true }
 garth = { workspace = true, optional = true }
 arkret-bridge-runtime = { workspace = true, optional = true }
 
 [dev-dependencies]
+keyring = { workspace = true }
+arkret-wire = { workspace = true, features = ["test-support"] }
 reqwest = { workspace = true, features = ["json"] }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, features = ["signal", "process"] }

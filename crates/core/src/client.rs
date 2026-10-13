@@ -105,6 +105,7 @@ pub struct ModelClientSession {
     /// keep sending it unchanged between turn requests (e.g., for retries, incremental
     /// appends, or continuation requests), and must not send it between different turns.
     turn_state: Arc<OnceLock<String>>,
+    native_reply_started: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -129,12 +130,36 @@ impl ModelClient {
         session_source: SessionSource,
         transport_manager: TransportManager,
     ) -> Self {
-        // Build the HTTP transport once and share it across every API call
-        // this client makes (M12). The `reqwest::Client` inside is `Arc`-
-        // shared and cheap to clone, so individual call sites receive a
-        // shared connection-pooled handle without rebuilding the env-read
-        // / header-build / custom-CA-parse pipeline on every request.
-        let http_transport = ReqwestTransport::new(build_reqwest_client());
+        Self::new_with_http_transport(
+            config,
+            auth_manager,
+            model_info,
+            otel_manager,
+            provider,
+            effort,
+            summary,
+            conversation_id,
+            session_source,
+            transport_manager,
+            ReqwestTransport::new(build_reqwest_client()),
+        )
+    }
+
+    /// Process-local native factories inject a strictly built client. No wire DTO.
+    #[must_use]
+    pub fn new_with_http_transport(
+        config: Arc<Config>,
+        auth_manager: Option<Arc<AuthManager>>,
+        model_info: ModelInfo,
+        otel_manager: OtelManager,
+        provider: ModelProviderInfo,
+        effort: Option<ReasoningEffortConfig>,
+        summary: ReasoningSummaryConfig,
+        conversation_id: SessionId,
+        session_source: SessionSource,
+        transport_manager: TransportManager,
+        http_transport: ReqwestTransport,
+    ) -> Self {
         Self {
             state: Arc::new(ModelClientState {
                 config,
@@ -153,6 +178,13 @@ impl ModelClient {
         }
     }
 
+    /// Exact fixed native reply template. The original input custody owner
+    /// binds these same bytes in its canonical input digest before preparation.
+    #[must_use]
+    pub fn native_reply_instructions() -> &'static str {
+        "Reply to this message with plain text only. Do not invoke tools or perform actions."
+    }
+
     #[must_use]
     pub fn new_session(&self, turn_metadata_cwd: Option<PathBuf>) -> ModelClientSession {
         self.prewarm_turn_metadata_header(turn_metadata_cwd);
@@ -162,6 +194,7 @@ impl ModelClient {
             websocket_last_items: Vec::new(),
             transport_manager: self.state.transport_manager.clone(),
             turn_state: Arc::new(OnceLock::new()),
+            native_reply_started: false,
         }
     }
 
@@ -336,6 +369,100 @@ impl ModelClientSession {
             .try_read()
             .ok()
             .and_then(|cache| cache.header.clone())
+    }
+
+    /// Fixed native reply authoring. The mounting factory supplies its guarded
+    /// transport; this method never grants authority or dispatches tools.
+    /// A caller must retain text only after Completed and never retry this turn.
+    pub async fn stream_native_single_text<T: savfox_http_client::HttpTransport>(
+        &mut self,
+        input: &str,
+        transport: T,
+    ) -> Result<ResponseStream> {
+        if self.native_reply_started {
+            return Err(SavfoxError::UnsupportedOperation(
+                "native turn already started".into(),
+            ));
+        }
+        self.native_reply_started = true;
+        if !matches!(self.state.provider.wire_api, WireApi::Responses)
+            || input.is_empty()
+            || input.len() > 65_536
+        {
+            return Err(SavfoxError::UnsupportedOperation(
+                "unsupported native text request".into(),
+            ));
+        }
+        // Cached provider credential only: no token refresh network request.
+        let auth = self
+            .state
+            .auth_manager
+            .as_ref()
+            .and_then(|m| m.auth_cached());
+        let mut provider = self.state.provider.to_api_provider(
+            Some(self.state.config.model_provider_id.as_str()),
+            auth.as_ref().map(SavfoxAuth::internal_auth_mode),
+            Some(self.state.config.chatgpt_base_url.as_str()),
+        )?;
+        // run_with_retry uses 0..=max_attempts: zero means exactly one attempt.
+        provider.retry.max_attempts = 0;
+        provider.retry.retry_429 = false;
+        provider.retry.retry_5xx = false;
+        provider.retry.retry_transport = false;
+        let auth = auth_provider_from_auth(
+            auth,
+            &self.state.provider,
+            &self.state.config.model_provider_id,
+        )?;
+        let mut prompt = Prompt::default();
+        prompt.base_instructions.text = ModelClient::native_reply_instructions().into();
+        prompt.input.push(ResponseItem::Message {
+            id: None,
+            role: "user".into(),
+            content: vec![savfox_protocol::models::ContentItem::InputText { text: input.into() }],
+            end_turn: None,
+            phase: None,
+        });
+        let api_prompt = self.build_responses_request(&prompt)?;
+        let model = self.request_model_slug();
+        let request = savfox_api_client::ResponsesRequestBuilder::new(
+            &model,
+            &api_prompt.instructions,
+            &api_prompt.input,
+        )
+        .tools(&api_prompt.tools)
+        .parallel_tool_calls(false)
+        .store_override(Some(false))
+        .compression(Compression::None)
+        .build(&provider)
+        .map_err(map_api_error)?;
+        // stream_request avoids normal stream_prompt's provider-error logging;
+        // no ordinary options, sticky history, metadata, fixture or fallback.
+        let api_stream = ApiResponsesClient::new(transport, provider, auth)
+            .stream_request_native(request)
+            .await
+            .map_err(|_| SavfoxError::Stream("native model request failed".into(), None))?;
+        let (tx_event, rx_event) = mpsc::channel(16);
+        tokio::spawn(async move {
+            let mut stream = api_stream;
+            loop {
+                let event = tokio::select! {
+                    _ = tx_event.closed() => return,
+                    event = stream.next() => event,
+                };
+                let Some(event) = event else {
+                    return;
+                };
+                let event = event
+                    .map_err(|_| SavfoxError::Stream("native model stream failed".into(), None));
+                let terminal =
+                    event.is_err() || matches!(&event, Ok(ResponseEvent::Completed { .. }));
+                if tx_event.send(event).await.is_err() || terminal {
+                    return;
+                }
+            }
+        });
+        Ok(ResponseStream { rx_event })
     }
 
     /// Streams a single model turn using either the Responses or Chat

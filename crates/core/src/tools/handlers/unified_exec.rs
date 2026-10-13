@@ -142,11 +142,15 @@ impl ToolHandler for UnifiedExecHandler {
                     None
                 };
 
+                let allows_explicit_escalation = match context.turn.approval_policy {
+                    savfox_protocol::protocol::AskForApproval::OnRequest => true,
+                    savfox_protocol::protocol::AskForApproval::Granular(config) => {
+                        config.allows_sandbox_approval()
+                    }
+                    _ => false,
+                };
                 if sandbox_permissions.requires_escalated_permissions()
-                    && !matches!(
-                        context.turn.approval_policy,
-                        savfox_protocol::protocol::AskForApproval::OnRequest
-                    )
+                    && !allows_explicit_escalation
                 {
                     let approval_policy = context.turn.approval_policy;
                     manager.release_process_id(&process_id).await;

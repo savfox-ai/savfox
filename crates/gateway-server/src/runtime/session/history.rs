@@ -20,6 +20,7 @@ pub(crate) async fn build_history_payload(
     source_channel: Option<&str>,
     session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
+    principal: Option<&str>,
 ) -> Value {
     let entry = match session_store.get(session_ref).await {
         Some(v) => Some(v),
@@ -32,6 +33,14 @@ pub(crate) async fn build_history_payload(
         .unwrap_or_else(|| session_ref.to_owned());
 
     let savfox_home = &channel.config().savfox_home;
+    if channel
+        .claude_runtime
+        .authorize_session(principal, &session_id)
+        .await
+        .is_err()
+    {
+        return json!({"error":"Claude chat is outside your execution scope","messages":[]});
+    }
     let rollout_path = match resolve_rollout_path(savfox_home, session_ref, entry.as_ref()).await {
         Ok(v) => v,
         Err(err) => {

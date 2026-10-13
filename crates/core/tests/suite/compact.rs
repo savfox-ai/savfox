@@ -1943,12 +1943,14 @@ async fn manual_compact_twice_preserves_latest_user_messages() {
         .into_iter()
         .collect::<VecDeque<_>>();
 
-    // Permissions developer message
-    final_output.pop_front();
-    // User instructions (project docs/skills)
-    final_output.pop_front();
-    // Environment context
-    final_output.pop_front();
+    // Bootstrap messages vary with the configured instruction and skill roots.
+    // Preserve everything from the first real user message onward.
+    while final_output
+        .front()
+        .is_some_and(|item| !contains_user_text(std::slice::from_ref(item), first_user_message))
+    {
+        final_output.pop_front();
+    }
 
     let _ = final_output
         .iter_mut()

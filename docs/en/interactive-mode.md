@@ -56,7 +56,7 @@ You can approve or decline each action. The approval policy can be configured gl
 
 ```bash
 savfox --ask-for-approval unless-trusted   # default: ask unless command is trusted
-savfox --ask-for-approval never            # auto-approve everything (use with sandbox)
+savfox --ask-for-approval never            # never prompt; boundary requests are denied
 savfox --ask-for-approval on-failure       # only ask when something fails
 ```
 

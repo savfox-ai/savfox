@@ -28,7 +28,10 @@ pub mod parser;
 pub mod policy;
 pub mod rule;
 
-pub use amend::{AmendError, blocking_append_allow_prefix_rule};
+pub use amend::{
+    AmendError, blocking_append_allow_prefix_rule, blocking_append_prefix_rule,
+    blocking_remove_prefix_rule,
+};
 pub use decision::Decision;
 pub use error::{Error, ErrorLocation, Result, TextPosition, TextRange};
 pub use execpolicycheck::ExecPolicyCheckCommand;

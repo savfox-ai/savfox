@@ -1,7 +1,8 @@
-﻿[package]
+[package]
 name = "savfox-exec-policy"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Savfox exec policy: prefix-based Starlark rules for command decisions."
 
@@ -17,6 +18,8 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
+# Keep Starlark's allocation traits on its hashbrown 0.14 type family in embedding workspaces.
+allocative = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 multimap = { workspace = true }

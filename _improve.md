@@ -338,3 +338,215 @@
 - [x] `cargo test -p savfox-windows-sandbox --lib`
 
 注：`savfox-windows-sandbox` 的 setup 二进制集成测试需要 UAC 提权（os error 740），与本轮改动无关，已用 `--lib` 仅跑库测试。
+
+---
+
+# 第十轮（2026-08-08）—— Gateway 工具、路由与凭据边界
+
+审计日期：2026-08-08
+
+## 范围与说明
+
+本轮以当前工作树为基线，重点检查了 `savfox-core` 工具注册与 HTTP 调用、Gateway REST / WebSocket RPC 的鉴权边界、对外路由、持久化凭据、明确的未实现标记以及无调用方模块。检查方式包括调用链检索、路由与客户端交叉核对、编译检查和针对性测试。
+
+这不是一次覆盖整个大型工作区的形式化安全证明。勾选项表示本轮已经修改并验证；未勾选项是已经通过代码证据确认、但需要更大设计或跨端工作的后续事项。
+
+## 本轮已改进
+
+- [x] **S1 / 高：Core 的 Gateway HTTP 工具没有携带 Gateway Bearer Token。** `message`、`gateway_status`、`agent_step`、`sessions`、`sessions_send_a2a` 和 `channel_tools` 调用的都是受保护的 `/api/*` 路由，但此前没有读取 `SAVFOX_GATEWAY_TOKEN`，正常启用 Gateway 鉴权后会稳定得到 401。已新增统一 HTTP client 构造逻辑，自动注入敏感 `Authorization` header，并拒绝非法 header 值。
+
+- [x] **S2 / 中：动态 session ID 直接拼入 URL。** `agent_step` 和 A2A/history 路径直接字符串拼接 session ID，斜杠、问号、`..` 等字符可改变请求路径或查询含义。已改为分段构造 URL，动态值会被百分号编码，并补充基本单元测试。
+
+- [x] **F1 / 高：`sessions_history` 和 `session_status` 返回伪成功占位数据。** history 固定返回空消息，status 固定返回 `unknown`，但 Gateway 已经存在 session list/history API。现已接入真实 API；history limit 被限制在 1..=500，status 根据活动 session 列表返回 `active` 或 `not_found`，list 的 filter 也不再被服务端静默忽略。
+
+- [x] **F2 / 高：`channel_tools` 宣称支持多个动作，但调用的 `/api/channel/action` 路由并不存在。** `react/edit/delete/history/list_channels` 此前必然落到 404。已收缩工具声明为当前真实可用的 `send`，其余动作返回明确的未实现错误，不再产生误导性的网络调用。
+
+- [x] **S3 / 高：普通 Channel Write scope 可以读取长期凭据。** `channels.config.get/list` 直接序列化包含 bot token、password、app secret 的配置；Nostr profile get/export 也包含 `private_key`，但所有 `channels.*` 原先只要求 Write。现已将 `channels.config.*` 和 `channels.nostr.profile.*` 提升为 Admin，并补充 scope 测试。
+
+- [x] **S4 / 高：Nostr 私钥文件不是原子、owner-only 写入。** profile 中保存 `private_key`，此前使用普通 `tokio::fs::write`，Unix 权限依赖 umask，崩溃时也可能留下截断文件。现改为原子写入并显式使用 `0600`。
+
+- [x] **F3 / 高：文档、测试和客户端使用的 OpenAI 兼容 `/v1/*` 路由没有挂载。** Router 只注册了 `/api/chat/completions`、`/api/models/openai` 和 `/api/responses`，而文档、E2E 测试及 `llm_task` 都使用 `/v1/chat/completions`、`/v1/models`、`/v1/responses`。现已恢复三个 canonical 路由、保留旧 alias，并把 `/v1/*` 纳入全局 Bearer 鉴权。
+
+- [x] **D1 / 低：`chat_attachments` 是完整但无调用方的重复实现。** 模块只有声明，没有任何构造或调用；实际会话附件由 `MediaStore` 和 terminal attachment 路径处理。已删除该模块及 171 行不可达维护负担。
+
+- [x] **B1 / 低：提交中的 `Cargo.lock` 与当前 workspace manifest 不一致。** Cargo 在首次 check/clippy 时重新计算了 Arkret 本地 crate 的依赖边（移除已不再声明的依赖、补上 `arkret-identifiers` 的 `base64`）。已保留 Cargo 自动生成的 lockfile 更新，避免后续 `--locked` 构建使用过期依赖图。
+
+## 已确认、待后续处理
+
+- [x] **S5 / 严重：REST API 只验证 token 有效，不执行细粒度 scope 授权。** 已在第十一轮修复：全局 `bearer_auth_hoop` 现在按 HTTP method + path 强制执行 scope，未知受保护路由默认要求 Admin，并补充路由权限与角色隔离测试。
+
+- [x] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** 已在第十二轮修复：config list/get/save 与普通 Nostr profile 响应使用稳定的不可逆占位符，保存时原样占位符会恢复旧值；状态轮询也不再返回 Matrix registration token 或凭据型 webhook URL。
+
+- [x] **F4 / 高：`gateway` 工具 POST 到不存在的 `/rpc`。** 已在第十四轮从工具 spec/handler 注册中移除该断路入口并删除死实现；在实现带 scope 鉴权的 WebSocket/HTTP adapter 前，模型不会再发现或调用它。
+
+- [x] **F5 / 高：多会话编排工具仍有未完成路径。** 已在第十四轮停止注册 `sessions_spawn`、`sessions_send`、`sessions_send_a2a` 并删除其占位 handler/spec；真实可用的 `sessions_list`、`sessions_history`、`session_status` 与 `agent_step` 保持可用，并新增“不完整工具不可暴露”测试。
+
+- [x] **F6 / 高：多个已注册 WebSocket RPC 方法固定返回未实现。** 已在第十四轮从 dispatcher 移除 `chat.inject`、`node.rename`、`reactions.add`、`reactions.remove` 并删除固定失败的 handler；调用方现在得到标准 `METHOD_NOT_FOUND`，不会误认为协议声明了可用能力。
+
+- [x] **F7 / 高：Gateway compaction 不是语义摘要。** 已在第十五轮删除字符截断 `build_summary`，改为要求外部模型/结构化抽取器显式提供语义摘要；缺失、空白或超预算摘要都会 fail-closed，原消息保持不变。自动 memory flush 在摘要器未接入时记录跳过；另移除了仅改计数/返回 placeholder 的 REST/WS `sessions.compact` 入口。
+
+- [x] **F8 / 中：iOS/Android 客户端是会误报成功的 UI 壳。** 已在第十六轮删除不可达的 connected/chat/discovery 状态与本地伪消息逻辑；连接、发现和扫码操作现在保持在设置页并明确提示当前构建未接入 Native Gateway transport，建议使用 Web UI。
+
+- [x] **F9 / 中：macOS 菜单端仍未接入核心操作。** 已在第十六轮移除 Quick Chat、Recent Sessions、Active Model、Connect 等无效动作及死状态，菜单明确显示 Native client unavailable；保留真实可用的 Open Web UI，并从持久化 Gateway URL 安全转换 ws/wss 到 http/https。
+
+- [x] **F10 / 中：`savfox status` 的参数和退出语义不完整。** 已在第十六轮改为携带 Bearer token 请求受保护 `/api/status`；`--format` 使用 clap enum 支持 table/json，JSON 模式无附加提示；缺 token、不可达、非 2xx 或无效 JSON 都返回错误并产生非零退出码，同时补充中英文 CLI 文档。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-core`
+- `cargo check -p savfox-gateway-server`
+- `cargo check -p savfox-core -p savfox-gateway-server --locked`
+- `cargo clippy -p savfox-core -p savfox-gateway-server --all-targets -- -D warnings`
+- `cargo test -p savfox-core --lib gateway_endpoint`（2 passed）
+- `cargo test -p savfox-gateway-server --lib channel_credential_methods_require_admin`（1 passed）
+- `cargo test -p savfox-gateway-server --lib protected_paths_require_auth`（1 passed）
+
+---
+
+# 第十一轮（2026-08-08）—— Gateway REST 最小权限授权
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **S5 / 严重：低权限有效 token 可以越权调用 REST API。** 此前全局 hoop 只验证 Bearer token 是否存在且有效，`Chat`、`Viewer` 或单一 approval scope token 通过验证后，仍能进入 session mutation、device pairing、config mutation、agent policy、plugin/hook/tool 等更高权限 handler。现已增加闭合的 `HTTP method + path -> TokenScope` 映射，并在 handler 执行前统一返回 403。
+
+- [x] **S5.1 / 高：新增 REST 路由可能因遗漏授权规则而默认放行。** 权限映射采用 fail-closed 默认值；未显式分类的受保护路由要求 `OperatorAdmin`。读取、普通写入、Chat、Pairing、Admin 以及 approval request/read/resolve 分别映射到独立 scope，`/api/token/validate` 只要求 token 已认证。
+
+- [x] **S5.2 / 中：角色继承与路由权限缺少回归测试。** 已覆盖当前主要 REST 路由的最小权限映射、未知路由默认 Admin，以及 Viewer、Chat、approval requester、Operator 的权限隔离和继承关系；另通过真实 Salvo hoop 请求矩阵验证无 token 返回 401、scope 不足返回 403、匹配 scope 才进入 handler。
+
+## 仍待后续处理
+
+- [x] **S6 / 高：Channel 配置响应仍向 Admin 客户端回传明文凭据。** 已在第十二轮完成凭据脱敏、旧值保留、无法匹配占位符时 fail-closed，以及状态响应中的旁路泄露清理。
+
+- [x] **T1 / 中：REST 权限表与 Router 注册仍是两处维护。** 已在第十三轮把 handler、HTTP method、path template 与所需 scope 合并为同一声明表，由宏同时生成 Router 注册和授权元数据；未知受保护路径继续 fail-closed 到 Admin。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-gateway-server --locked`
+- `cargo clippy -p savfox-gateway-server --all-targets --locked -- -D warnings`
+- `cargo test -p savfox-gateway-server --lib http_ -- --nocapture`（4 passed）
+- `cargo test -p savfox-gateway-server --lib bearer_auth_hoop_enforces_http_scope_matrix -- --nocapture`（1 passed）
+- `cargo test -p savfox-gateway-server --lib --locked`（400 passed）
+
+---
+
+# 第十二轮（2026-08-08）—— Channel 凭据只写响应边界
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **S6 / 高：Channel config list/get/save 返回完整明文凭据。** `channels.config.list`、`channels.config.get` 和保存成功响应现会递归识别 token、secret、password、private/signing key、key reference、access code、credential-bearing webhook URL 等字段，并以固定占位符替代非空值；空值和普通配置仍保持原类型和内容。
+
+- [x] **S6.1 / 高：脱敏值经编辑表单回写会破坏真实凭据。** 保存前会按配置 ID（兼容同 kind 多实例）从持久化配置恢复未修改的占位符；用户输入的新凭据优先。新配置或结构不匹配时出现占位符会返回 `INVALID_REQUEST`，不会把占位符写进磁盘。嵌套对象和数组（如 `room_tokens`、Arkret `keyRef`）也支持逐层恢复。
+
+- [x] **S6.2 / 高：普通 Channel Write scope 可通过状态响应旁路读取凭据。** `channels.status` 此前会返回 Matrix appservice registration 中的 `as_token`/`hs_token`，还会回传可能内嵌 access token 的 webhook URL。现已从状态与连接测试响应移除 registration secret，并把 webhook 状态收缩为 `callback_configured` 布尔值。
+
+- [x] **S6.3 / 中：Nostr 普通 profile 响应回显私钥。** profile get/set/import 现均脱敏 `private_key`，set 接受未修改占位符并保留旧私钥。显式的 Admin-only `channels.nostr.profile.export` 仍保留导出私钥的既有语义，不会在普通读取或保存响应中自动触发。
+
+- [x] **U1 / 中：Matrix YAML 导出会把脱敏占位符当成真实 token。** Web 配置页检测到只写占位符时会禁用导出并提示重新输入 appservice/homeserver token；普通状态页不再缓存或展示包含 token 的 registration。
+
+## 新确认、待后续处理
+
+- [x] **T2 / 中：Channel secret 分类仍依赖前后端各自维护的安全含义。** 已在第十三轮把字段敏感性规则及脱敏占位符下沉到 `savfox-gateway-shared`，Gateway 与 Dioxus 共同消费；新增回归测试逐项断言所有 UI `secret: true` 字段都被服务端共享 schema 覆盖。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo test -p savfox-gateway-server --lib credential -- --nocapture`（5 passed）
+- `cargo test -p savfox-gateway-server --lib --locked`（404 passed）
+- `cargo check -p savfox-gateway-dioxus --locked`
+- `cargo test -p savfox-gateway-dioxus --locked`（51 passed）
+- `cargo clippy -p savfox-gateway-server -p savfox-gateway-dioxus --all-targets --locked -- -D warnings`
+- `scripts/build-web.ps1`（Dioxus Web 构建及 Gateway static 同步成功）
+
+# 第十三轮（2026-08-08）—— 安全元数据单一来源
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **T1 / 中：REST 路由注册与授权规则可能漂移。** 受保护路由现由同一声明同时生成 Salvo Router 注册和 `method + path template -> scope` 授权元数据；动态 path segment 和 catch-all plugin route 由统一 matcher 识别，未登记路径仍要求 Admin。
+
+- [x] **T2 / 中：Channel secret 安全语义在前后端重复维护。** 敏感字段规则与只写占位符已移动到 `savfox-gateway-shared`。Gateway 脱敏/恢复逻辑和 Web 导出保护共享同一常量与分类函数，并用表单元数据回归测试保证当前所有 secret 字段都在服务端 schema 覆盖范围内。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-gateway-server`
+- `cargo test -p savfox-gateway-server --lib http_ -q`（5 passed）
+- `cargo test -p savfox-gateway-server --lib bearer_auth_hoop_enforces_http_scope_matrix -q`（1 passed）
+- `cargo test -p savfox-gateway-shared channel_secret_schema -q`（1 passed）
+- `cargo test -p savfox-gateway-dioxus every_secret_form_field -q`（1 passed）
+- `cargo test -p savfox-gateway-server --lib -q`（404 passed）
+- `cargo clippy -p savfox-gateway-server -p savfox-gateway-shared -p savfox-gateway-dioxus --all-targets -- -D warnings`
+- `scripts/build-web.ps1`（Dioxus Web 构建及 Gateway static 同步成功）
+
+---
+
+# 第十四轮（2026-08-08）—— 未完成能力断路
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **F4 / 高：Core `gateway` 工具固定请求不存在的 `/rpc`。** 删除该 experimental tool 的 spec、handler 和注册；在安全的 RPC transport 接入前不再向模型宣称可用。
+
+- [x] **F5 / 高：多会话编排占位工具可被模型调用。** 移除 `sessions_spawn`、`sessions_send`、`sessions_send_a2a` 的 spec/handler/注册，保留真实可用的 session 读取、状态与 `agent_step`。新增测试确保即使模型目录包含旧 experimental 名称，这些断路工具仍不会暴露。
+
+- [x] **F6 / 高：四个 WS RPC 方法已注册但固定失败。** `chat.inject`、`node.rename`、`reactions.add`、`reactions.remove` 已从 dispatcher 和 handler 实现移除；请求统一落入标准 `METHOD_NOT_FOUND` 分支，客户端不会把占位入口识别为受支持能力。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-core -p savfox-gateway-server -q`
+- `cargo test -p savfox-core --lib incomplete_gateway_orchestration_tools_are_not_exposed -- --nocapture`（1 passed）
+- `cargo test -p savfox-gateway-server --lib -q`（404 passed）
+- `cargo clippy -p savfox-core -p savfox-gateway-server --all-targets -- -D warnings`
+
+---
+
+# 第十五轮（2026-08-08）—— Compaction 数据保全
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **F7 / 高：截断拼接结果被作为永久 compaction summary。** 删除本地 `build_summary`；`compact` 在需要移除消息但没有语义摘要时返回 `SemanticSummaryRequired`，`compact_with_summary` 只接受非空且不超过配置预算的外部摘要。任何校验失败都不生成替换历史，调用方继续持有原消息。
+
+- [x] **F7.1 / 高：自动 memory flush 在没有语义摘要器时持久化有损文本。** 当前 runtime 会明确记录 `semantic compaction unavailable` 并跳过写入，不增加 flush/compaction 计数，也不声称节省 token。
+
+- [x] **F7.2 / 中：`sessions.compact` REST/WS 入口伪报完成。** REST handler 只返回 placeholder，WS handler 只增加计数或执行无关的 stale prune；两者已从路由与 dispatcher 移除，待真实会话历史和语义摘要事务接入后再公开。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo check -p savfox-gateway-server -q`
+- `cargo test -p savfox-gateway-server --lib compaction -q`（13 passed）
+- `cargo test -p savfox-gateway-server --lib -q`（405 passed）
+- `cargo clippy -p savfox-gateway-server --all-targets -- -D warnings`
+
+---
+
+# 第十六轮（2026-08-08）—— 客户端与 CLI 真实状态语义
+
+审计日期：2026-08-08
+
+## 本轮已改进
+
+- [x] **F8 / 中：iOS/Android 连接和发送伪报成功。** 删除 connected/chat/discovery 壳状态、伪消息模型与发送 UI；尚未接入原生 transport 的操作只显示明确不可用提示，不再构造成功状态。
+
+- [x] **F9 / 中：macOS 菜单动作无 RPC 效果。** 删除 Quick Chat、Recent Sessions、Active Model 与 Connect 的 TODO/no-op UI 和死状态，明确标注当前 Native client 不可用。仍可打开 Web UI，且会读取持久化 Gateway URL 并将 ws/wss 正确转换为 http/https。
+
+- [x] **F10 / 中：`savfox status` 忽略 token/format 且离线返回成功。** 命令现请求受保护的 `/api/status`，支持 `--token`/`SAVFOX_GATEWAY_TOKEN`（兼容 `SAVFOX_TOKEN`）、严格的 `table|json` 格式、IPv4/IPv6/hostname URL 构造和 10 秒超时；认证、网络、HTTP、JSON 失败均向上返回错误。中英文 CLI 文档已同步。
+
+## 本轮验证
+
+- `cargo fmt --all`
+- `cargo test -p savfox-cli --bin savfox status_cmd -q`（3 passed，含离线错误退出语义）
+- `cargo clippy -p savfox-cli --all-targets -- -D warnings`
+- `rg -n 'TODO|connectionState|CONNECTED|sendMessage|openSession|setModel|showQuickChat|showConnectionSheet' apps/ios/SavfoxApp/ContentView.swift apps/android/app/src/main/java/ai/savfox/app/MainActivity.kt apps/macos/SavfoxMenu/SavfoxMenuApp.swift`（无残留）
+- 移动端目录仅包含单文件源码、没有 Xcode/Gradle 工程，无法在本仓库执行平台编译。

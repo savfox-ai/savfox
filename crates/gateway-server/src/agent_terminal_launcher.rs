@@ -272,10 +272,8 @@ async fn spawn_in_terminal(resolved: ResolvedLaunch) -> Result<InteractiveLaunch
 async fn spawn_in_terminal(resolved: ResolvedLaunch) -> Result<InteractiveLaunchResult> {
     let cmd_line = build_posix_command_line(&resolved.program, &resolved.args);
     let cwd_str = resolved.cwd.to_string_lossy().to_string();
-    let inner_script = format!(
-        "{}; echo; echo '[savfox] command exited — press Enter to close'; read _",
-        cmd_line
-    );
+    let inner_script =
+        format!("{cmd_line}; echo; echo '[savfox] command exited — press Enter to close'; read _");
 
     let candidates: &[(&str, &[&str])] = &[
         (

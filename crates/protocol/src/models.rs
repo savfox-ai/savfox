@@ -238,7 +238,7 @@ impl DeveloperInstructions {
             AskForApproval::Never => APPROVAL_POLICY_NEVER.to_owned(),
             AskForApproval::UnlessTrusted => APPROVAL_POLICY_UNLESS_TRUSTED.to_owned(),
             AskForApproval::OnFailure => APPROVAL_POLICY_ON_FAILURE.to_owned(),
-            AskForApproval::OnRequest => {
+            AskForApproval::OnRequest | AskForApproval::Granular(_) => {
                 if !request_rule_enabled {
                     APPROVAL_POLICY_ON_REQUEST.to_owned()
                 } else {

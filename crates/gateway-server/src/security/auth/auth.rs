@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::sync::RwLock;
 
@@ -32,6 +32,12 @@ pub enum TokenScope {
     OperatorAdmin,
     /// Can manage execution approvals.
     OperatorApprovals,
+    /// Can create an approval request but cannot discover nonces or resolve it.
+    OperatorApprovalsRequest,
+    /// Can list approval requests, including their single-use response nonce.
+    OperatorApprovalsRead,
+    /// Can submit an approval decision but cannot list or discover nonces.
+    OperatorApprovalsResolve,
     /// Can pair/manage devices and nodes.
     OperatorPairing,
 }
@@ -49,11 +55,21 @@ impl TokenScope {
                     | Self::OperatorWrite
                     | Self::OperatorAdmin
                     | Self::OperatorApprovals
+                    | Self::OperatorApprovalsRequest
+                    | Self::OperatorApprovalsRead
+                    | Self::OperatorApprovalsResolve
                     | Self::OperatorPairing
                     | Self::Viewer
                     | Self::Chat
             ),
             Self::Viewer => matches!(other, Self::Viewer | Self::OperatorRead),
+            Self::OperatorApprovals => matches!(
+                other,
+                Self::OperatorApprovals
+                    | Self::OperatorApprovalsRequest
+                    | Self::OperatorApprovalsRead
+                    | Self::OperatorApprovalsResolve
+            ),
             _ => self == other,
         }
     }
@@ -133,6 +149,20 @@ impl GatewayAuth {
         signature_hex: &str,
         nonce: &str,
     ) -> Option<TokenInfo> {
+        self.validate_challenge_response_with_subject(signature_hex, nonce)
+            .await
+            .map(|(info, _)| info)
+    }
+
+    pub(crate) fn token_subject(token: &str) -> String {
+        hex::encode(Sha256::digest(token.as_bytes()))
+    }
+
+    pub(crate) async fn validate_challenge_response_with_subject(
+        &self,
+        signature_hex: &str,
+        nonce: &str,
+    ) -> Option<(TokenInfo, String)> {
         let tokens = self.tokens.read().await;
         for (token, info) in tokens.iter() {
             // Compute HMAC-SHA256(nonce, key=token)
@@ -145,7 +175,7 @@ impl GatewayAuth {
             // Constant-time comparison to avoid leaking the valid HMAC via a
             // timing side-channel on the byte-by-byte `String ==` path.
             if expected.as_bytes().ct_eq(signature_hex.as_bytes()).into() {
-                return Some(info.clone());
+                return Some((info.clone(), Self::token_subject(token)));
             }
         }
         None
@@ -263,6 +293,12 @@ pub enum Scope {
     Write,
     /// Execution-approval management.
     Approvals,
+    /// Submit an approval request without permission to approve it.
+    ApprovalsRequest,
+    /// Read pending approvals and their response nonces.
+    ApprovalsRead,
+    /// Resolve a known approval using its nonce.
+    ApprovalsResolve,
     /// Device and node pairing.
     Pairing,
     /// Chat and message-sending operations.
@@ -278,6 +314,9 @@ impl Scope {
             Self::Read => TokenScope::OperatorRead,
             Self::Write => TokenScope::OperatorWrite,
             Self::Approvals => TokenScope::OperatorApprovals,
+            Self::ApprovalsRequest => TokenScope::OperatorApprovalsRequest,
+            Self::ApprovalsRead => TokenScope::OperatorApprovalsRead,
+            Self::ApprovalsResolve => TokenScope::OperatorApprovalsResolve,
             Self::Pairing => TokenScope::OperatorPairing,
             Self::Chat => TokenScope::Chat,
         }
@@ -291,6 +330,9 @@ impl std::fmt::Display for Scope {
             Self::Read => write!(f, "read"),
             Self::Write => write!(f, "write"),
             Self::Approvals => write!(f, "approvals"),
+            Self::ApprovalsRequest => write!(f, "approvals_request"),
+            Self::ApprovalsRead => write!(f, "approvals_read"),
+            Self::ApprovalsResolve => write!(f, "approvals_resolve"),
             Self::Pairing => write!(f, "pairing"),
             Self::Chat => write!(f, "chat"),
         }
@@ -306,9 +348,10 @@ impl std::fmt::Display for Scope {
 ///   `tts.*`, `node.*` (non-pairing), `tools.*`, `wizard.*` -> `Read` for
 ///   list/get/status/search/layers/preview/tail/runs, `Write` for
 ///   create/update/delete/patch/set/compact/reset/promote/run
-/// - `exec.approval*`, `exec.approvals*` -> `Approvals`
+/// - approval reads -> `ApprovalsRead`; resolution -> `ApprovalsResolve`
 /// - `chat.*`, `send` -> `Chat`
-/// - `channels.*` -> `Write`
+/// - credential-bearing `channels.config.*` and `channels.nostr.profile.*` -> `Admin`; other
+///   `channels.*` -> `Write`
 /// - `directory.*` -> `Read`
 /// - `node.pair.*`, `device.*` -> `Pairing`
 /// - `security.audit`, `security.analyze` -> `Read`; `security.rotate` -> `Write`
@@ -322,7 +365,18 @@ pub fn required_scope(method: &str) -> Scope {
 
     // ── Approvals ────────────────────────────────────────────────────
     if method.starts_with("exec.approval") {
-        return Scope::Approvals;
+        return if method.ends_with(".get")
+            || method.ends_with(".list")
+            || method.ends_with("approvals.get")
+        {
+            Scope::ApprovalsRead
+        } else if method.ends_with(".resolve") {
+            Scope::ApprovalsResolve
+        } else if method.ends_with(".request") {
+            Scope::ApprovalsRequest
+        } else {
+            Scope::Approvals
+        };
     }
 
     // ── Hooks (privileged: writes register shell handlers) ───────────
@@ -369,22 +423,48 @@ pub fn required_scope(method: &str) -> Scope {
         return Scope::Admin;
     }
 
+    // Agent lifecycle writes can change sandbox, approval, tool, and network
+    // policy. Treat them as security-boundary mutations, not ordinary CRUD.
+    if matches!(
+        method,
+        "agents.create" | "agents.update" | "agents.delete" | "agents.reset"
+    ) {
+        return Scope::Admin;
+    }
+
     // ── Security ─────────────────────────────────────────────────────
-    if method == "security.audit" || method == "security.analyze" {
+    if method == "security.audit"
+        || method == "security.analyze"
+        || method == "security.policy.simulate"
+        || method == "security.rules.list"
+    {
         return Scope::Read;
     }
-    if method == "security.rotate" {
+    if method == "security.rotate"
+        || method == "security.rules.add"
+        || method == "security.rules.remove"
+    {
         // Rotates the gateway bearer token + webhook signing secrets and rewrites
         // the config file — credential-touching, so require Admin like config.*.
         return Scope::Admin;
     }
 
     // ── Chat / send ──────────────────────────────────────────────────
+    if method == "chat.run.get" {
+        return Scope::Read;
+    }
     if method.starts_with("chat.") || method == "send" {
         return Scope::Chat;
     }
 
-    // ── Channels (always Write) ──────────────────────────────────────
+    // Channel configuration and Nostr profile methods can read or replace
+    // long-lived bot tokens, signing secrets, passwords, and private keys.
+    // Keep credential material behind the same Admin boundary as config.*.
+    if method.starts_with("channels.config.") || method.starts_with("channels.nostr.profile.") {
+        return Scope::Admin;
+    }
+
+    // ── Channels (ordinary operations require Write) ─────────────────
     if method.starts_with("channels.") {
         return Scope::Write;
     }
@@ -563,6 +643,9 @@ mod tests {
             TokenScope::OperatorWrite,
             TokenScope::OperatorAdmin,
             TokenScope::OperatorApprovals,
+            TokenScope::OperatorApprovalsRequest,
+            TokenScope::OperatorApprovalsRead,
+            TokenScope::OperatorApprovalsResolve,
             TokenScope::OperatorPairing,
             TokenScope::Viewer,
             TokenScope::Chat,
@@ -596,6 +679,9 @@ mod tests {
             TokenScope::OperatorWrite,
             TokenScope::OperatorAdmin,
             TokenScope::OperatorApprovals,
+            TokenScope::OperatorApprovalsRequest,
+            TokenScope::OperatorApprovalsRead,
+            TokenScope::OperatorApprovalsResolve,
             TokenScope::OperatorPairing,
         ] {
             assert!(s.implies(s));
@@ -616,6 +702,9 @@ mod tests {
         assert!(has_scope(&info, &Scope::Write));
         assert!(has_scope(&info, &Scope::Admin));
         assert!(has_scope(&info, &Scope::Approvals));
+        assert!(has_scope(&info, &Scope::ApprovalsRequest));
+        assert!(has_scope(&info, &Scope::ApprovalsRead));
+        assert!(has_scope(&info, &Scope::ApprovalsResolve));
         assert!(has_scope(&info, &Scope::Pairing));
         assert!(has_scope(&info, &Scope::Chat));
     }
@@ -627,6 +716,9 @@ mod tests {
         assert!(!has_scope(&info, &Scope::Write));
         assert!(!has_scope(&info, &Scope::Admin));
         assert!(!has_scope(&info, &Scope::Approvals));
+        assert!(!has_scope(&info, &Scope::ApprovalsRequest));
+        assert!(!has_scope(&info, &Scope::ApprovalsRead));
+        assert!(!has_scope(&info, &Scope::ApprovalsResolve));
     }
 
     #[test]
@@ -635,6 +727,24 @@ mod tests {
         assert!(has_scope(&info, &Scope::Write));
         assert!(!has_scope(&info, &Scope::Read));
         assert!(!has_scope(&info, &Scope::Admin));
+    }
+
+    #[test]
+    fn legacy_approvals_scope_implies_split_request_read_and_resolve_scopes() {
+        let info = token_info(vec![TokenScope::OperatorApprovals]);
+        assert!(has_scope(&info, &Scope::Approvals));
+        assert!(has_scope(&info, &Scope::ApprovalsRequest));
+        assert!(has_scope(&info, &Scope::ApprovalsRead));
+        assert!(has_scope(&info, &Scope::ApprovalsResolve));
+
+        let requester = token_info(vec![TokenScope::OperatorApprovalsRequest]);
+        assert!(has_scope(&requester, &Scope::ApprovalsRequest));
+        assert!(!has_scope(&requester, &Scope::ApprovalsRead));
+        assert!(!has_scope(&requester, &Scope::ApprovalsResolve));
+
+        let resolver = token_info(vec![TokenScope::OperatorApprovalsResolve]);
+        assert!(has_scope(&resolver, &Scope::ApprovalsResolve));
+        assert!(!has_scope(&resolver, &Scope::ApprovalsRead));
     }
 
     // ── required_scope mapping ────────────────────────────────────────
@@ -647,9 +757,17 @@ mod tests {
     }
 
     #[test]
-    fn approval_methods_require_approvals_scope() {
-        assert_eq!(required_scope("exec.approval.resolve"), Scope::Approvals);
-        assert_eq!(required_scope("exec.approval.list"), Scope::Approvals);
+    fn approval_methods_split_nonce_discovery_from_resolution() {
+        assert_eq!(
+            required_scope("exec.approval.request"),
+            Scope::ApprovalsRequest
+        );
+        assert_eq!(
+            required_scope("exec.approval.resolve"),
+            Scope::ApprovalsResolve
+        );
+        assert_eq!(required_scope("exec.approval.list"), Scope::ApprovalsRead);
+        assert_eq!(required_scope("exec.approval.get"), Scope::ApprovalsRead);
     }
 
     #[test]
@@ -730,6 +848,22 @@ mod tests {
     }
 
     #[test]
+    fn channel_credential_methods_require_admin() {
+        for method in [
+            "channels.config.list",
+            "channels.config.get",
+            "channels.config.save",
+            "channels.config.delete",
+            "channels.nostr.profile.get",
+            "channels.nostr.profile.set",
+            "channels.nostr.profile.import",
+            "channels.nostr.profile.export",
+        ] {
+            assert_eq!(required_scope(method), Scope::Admin, "{method}");
+        }
+    }
+
+    #[test]
     fn read_suffix_resolves_to_read_for_crud_domains() {
         for method in [
             "sessions.list",
@@ -754,13 +888,24 @@ mod tests {
             "sessions.delete",
             "memory.set",
             "agents.compact",
-            "agents.reset",
         ] {
             assert_eq!(
                 required_scope(method),
                 Scope::Write,
                 "{method} should be Write"
             );
+        }
+    }
+
+    #[test]
+    fn agent_security_boundary_mutations_require_admin() {
+        for method in [
+            "agents.create",
+            "agents.update",
+            "agents.delete",
+            "agents.reset",
+        ] {
+            assert_eq!(required_scope(method), Scope::Admin);
         }
     }
 

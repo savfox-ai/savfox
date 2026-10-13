@@ -302,6 +302,24 @@ where
         3 => {
             let data = payload.get("data").unwrap_or(&Value::Null);
             let custom_id = data.get("custom_id").and_then(Value::as_str).unwrap_or("");
+            if let Some(encoded) = custom_id.strip_prefix("approval:")
+                && let Some((decision, request_id)) = encoded.split_once(':')
+                && matches!(
+                    decision,
+                    "approve-once" | "approve-session" | "allow-rule" | "deny" | "abort"
+                )
+                && !request_id.is_empty()
+            {
+                let channel = payload
+                    .get("channel_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+                    .to_owned();
+                return Ok(ChannelAction::StartThread {
+                    channel,
+                    prompt: format!("{decision}:{request_id}"),
+                });
+            }
 
             if let Some(thread_id) = custom_id.strip_prefix("approve:") {
                 Ok(ChannelAction::Approve {
@@ -542,5 +560,22 @@ mod tests {
         });
 
         assert_eq!(parse_display_name(&payload).as_deref(), Some("Alice Nick"));
+    }
+
+    #[test]
+    fn structured_approval_button_routes_as_correlated_reply() {
+        let payload = json!({
+            "type": 3,
+            "channel_id": "123",
+            "data": { "custom_id": "approval:allow-rule:request-123" }
+        });
+        let action = parse_interaction_with_resolver(&payload, |_, _| None).expect("parse");
+        assert_eq!(
+            action,
+            ChannelAction::StartThread {
+                channel: "123".to_owned(),
+                prompt: "allow-rule:request-123".to_owned(),
+            }
+        );
     }
 }

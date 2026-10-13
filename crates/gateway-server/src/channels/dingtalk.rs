@@ -3,8 +3,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use salvo::prelude::*;
 pub(crate) use savfox_channels::dingtalk::{
-    DingtalkActionSink, DingtalkChannelConfig, DingtalkMessageMeta, load_dingtalk_channel_config,
-    parse_inbound_payload, resolve_dingtalk_outbound_config, start_dingtalk_stream,
+    DingtalkActionSink, DingtalkChannelConfig, DingtalkMessageMeta, parse_inbound_payload,
+    resolve_dingtalk_outbound_config, start_dingtalk_stream,
 };
 use serde_json::json;
 use tracing::info;
@@ -17,6 +17,7 @@ use crate::session::SessionStore;
 struct DingtalkRuntimeSink {
     channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
+    config_id: String,
 }
 
 #[async_trait]
@@ -54,6 +55,7 @@ impl DingtalkActionSink for DingtalkRuntimeSink {
                 parent_thread_id: meta.thread_id,
                 reply_target: meta.reply_target.or_else(|| message_id.map(str::to_owned)),
                 chat_type: meta.chat_type,
+                saved_channel_config_id: Some(self.config_id.clone()),
                 ..runtime::StartThreadMeta::default()
             };
             let gateway_channel = Arc::clone(&self.channel);
@@ -77,10 +79,12 @@ impl DingtalkActionSink for DingtalkRuntimeSink {
 pub(crate) fn dingtalk_sink(
     channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
+    config_id: String,
 ) -> Arc<dyn DingtalkActionSink> {
     Arc::new(DingtalkRuntimeSink {
         channel,
         session_store,
+        config_id,
     })
 }
 

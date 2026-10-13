@@ -28,7 +28,7 @@ fn tool_names(body: &Value) -> Vec<String> {
                     tool.get("name")
                         .or_else(|| tool.get("type"))
                         .and_then(Value::as_str)
-                        .map(str::to_string)
+                        .map(str::to_owned)
                 })
                 .collect()
         })
@@ -191,8 +191,8 @@ async fn sandbox_denied_shell_returns_original_output() -> Result<()> {
     let target_path = fixture.workspace_path("sandbox-denied.txt");
     let sentinel = "sandbox-denied sentinel output";
     let command = vec![
-        "/bin/sh".to_string(),
-        "-c".to_string(),
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
         format!(
             "printf {sentinel:?}; printf {content:?} > {path:?}",
             sentinel = format!("{sentinel}\n"),
@@ -464,7 +464,7 @@ time.sleep(60)
         timeout_item
             .get("output")
             .and_then(Value::as_str)
-            .map(str::to_string)
+            .map(str::to_owned)
             .context("timeout output string")
     })
     .await

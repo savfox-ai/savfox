@@ -1,17 +1,9 @@
-use savfox_protocol::config_types::Verbosity;
 use savfox_protocol::openai_models::{
-    ApplyPatchToolType, ConfigShellToolType, ModelInfo, ModelInstructionsVariables, ModelMessages,
-    ModelVisibility, ReasoningEffort, TruncationPolicyConfig, default_input_modalities,
+    ConfigShellToolType, ModelInfo, ModelVisibility, TruncationPolicyConfig,
+    default_input_modalities,
 };
 
 pub const BASE_INSTRUCTIONS: &str = include_str!("../prompt.md");
-
-const COMPACT_INSTRUCTIONS: &str = include_str!("../compact_prompt.md");
-const COMPACT_INSTRUCTIONS_TEMPLATE: &str =
-    include_str!("../templates/model_instructions/instructions_template.md");
-
-const PERSONALITY_FRIENDLY: &str = include_str!("../templates/personalities/friendly.md");
-const PERSONALITY_PRAGMATIC: &str = include_str!("../templates/personalities/pragmatic.md");
 
 const CONTEXT_WINDOW_272K: i64 = 272_000;
 
@@ -51,6 +43,7 @@ macro_rules! model_info {
             effective_context_window_percent: 95,
             experimental_supported_tools: Vec::new(),
             input_modalities: default_input_modalities(),
+            used_fallback_model_metadata: false,
         };
 
         $(
@@ -60,95 +53,22 @@ macro_rules! model_info {
     }};
 }
 
+/// Conservative metadata for a model no catalog describes.
+///
+/// Capabilities are never inferred from the slug. A name says nothing about
+/// what a model can do, and Savfox talks to a dozen providers whose naming has
+/// no relation to OpenAI's — guessing from a prefix silently hands every one of
+/// them a GPT-shaped feature set. Real metadata comes from the remote catalog
+/// or from the provider store; this is only what is left when neither has an
+/// entry, and it is marked as such via `used_fallback_model_metadata` so the
+/// difference stays visible downstream.
 #[must_use]
 pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
-    if slug.starts_with("exp-savfox") || slug.starts_with("savfox-1p") {
-        model_info!(
-            slug,
-            base_instructions: COMPACT_INSTRUCTIONS.to_owned(),
-            model_messages: Some(ModelMessages {
-                instructions_template: Some(COMPACT_INSTRUCTIONS_TEMPLATE.to_owned()),
-                instructions_variables: Some(ModelInstructionsVariables {
-                    personality_default: Some("".to_owned()),
-                    personality_friendly: Some(PERSONALITY_FRIENDLY.to_owned()),
-                    personality_pragmatic: Some(PERSONALITY_PRAGMATIC.to_owned()),
-                }),
-            }),
-            apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
-            shell_type: ConfigShellToolType::ShellCommand,
-            supports_parallel_tool_calls: true,
-            supports_reasoning_summaries: true,
-            support_verbosity: false,
-            truncation_policy: TruncationPolicyConfig::tokens(10_000),
-            context_window: Some(CONTEXT_WINDOW_272K),
-        )
-    } else if slug.starts_with("exp-5.1") {
-        // exp-5.1 defaults to the unified exec shell tool variant and ships
-        // apply_patch enabled.
-        model_info!(
-            slug,
-            apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
-            shell_type: ConfigShellToolType::UnifiedExec,
-            supports_parallel_tool_calls: true,
-            supports_reasoning_summaries: true,
-            truncation_policy: TruncationPolicyConfig::bytes(10_000),
-        )
-    } else if slug.starts_with("gpt-5.1-savfox") {
-        model_info!(
-            slug,
-            apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
-            default_reasoning_level: Some(ReasoningEffort::Medium),
-            shell_type: ConfigShellToolType::ShellCommand,
-            supports_parallel_tool_calls: true,
-            supports_reasoning_summaries: true,
-            truncation_policy: TruncationPolicyConfig::tokens(10_000),
-        )
-    } else if slug == "gpt-5.1" {
-        model_info!(
-            slug,
-            apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
-            default_reasoning_level: Some(ReasoningEffort::Medium),
-            shell_type: ConfigShellToolType::ShellCommand,
-            supports_parallel_tool_calls: true,
-            supports_reasoning_summaries: true,
-            support_verbosity: true,
-            default_verbosity: Some(Verbosity::Low),
-            truncation_policy: TruncationPolicyConfig::bytes(10_000),
-        )
-    } else if slug.starts_with("gpt-5.1") {
-        // GPT-5.1 series ship the shell_command tool variant and include the
-        // apply_patch tool by default.
-        model_info!(
-            slug,
-            apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
-            default_reasoning_level: Some(ReasoningEffort::Medium),
-            shell_type: ConfigShellToolType::ShellCommand,
-            supports_parallel_tool_calls: true,
-            supports_reasoning_summaries: true,
-            truncation_policy: TruncationPolicyConfig::bytes(10_000),
-        )
-    } else if slug.starts_with("test-") {
-        // Internal test models expose experimental tools so test cases can
-        // exercise tool-routing without depending on remote metadata.
-        model_info!(
-            slug,
-            supports_parallel_tool_calls: true,
-            supports_reasoning_summaries: true,
-            truncation_policy: TruncationPolicyConfig::bytes(10_000),
-            experimental_supported_tools: vec![
-                "test_sync_tool".to_owned(),
-                "read_file".to_owned(),
-                "grep_files".to_owned(),
-                "list_dir".to_owned(),
-            ],
-        )
-    } else {
-        // General fallback for any model
-        model_info!(
-            slug,
-            supports_parallel_tool_calls: true,
-            supports_reasoning_summaries: true,
-            truncation_policy: TruncationPolicyConfig::bytes(10_000),
-        )
-    }
+    model_info!(
+        slug,
+        supports_parallel_tool_calls: true,
+        supports_reasoning_summaries: true,
+        truncation_policy: TruncationPolicyConfig::bytes(10_000),
+        used_fallback_model_metadata: true,
+    )
 }

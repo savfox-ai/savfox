@@ -354,25 +354,17 @@ fn parse_config_file_content(config_file: &Path, contents: &str) -> io::Result<T
             Ok(json_to_toml_value(&json_value))
         }
         Some("yaml" | "yml") => {
-            let yaml_value: serde_yaml::Value = serde_yaml::from_str(contents).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!(
-                        "Error parsing YAML config file {}: {err}",
-                        config_file.display()
-                    ),
-                )
-            })?;
-            let json_value = serde_json::to_value(yaml_value).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!(
-                        "Error converting YAML config file {} to JSON: {err}",
-                        config_file.display()
-                    ),
-                )
-            })?;
-            Ok(json_to_toml_value(&json_value))
+            let yaml_value: serde_json::Value =
+                serde_saphyr::from_str(contents).map_err(|err| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "Error parsing YAML config file {}: {err}",
+                            config_file.display()
+                        ),
+                    )
+                })?;
+            Ok(json_to_toml_value(&yaml_value))
         }
         _ => {
             let config: TomlValue = toml::from_str(contents).map_err(|err| {
