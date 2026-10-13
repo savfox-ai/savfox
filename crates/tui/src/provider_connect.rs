@@ -17,7 +17,7 @@ const DEFAULT_CHATGPT_OPENAI_BASE_URL: &str = "https://chatgpt.com/backend-api/c
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
 const DEFAULT_LMSTUDIO_BASE_URL: &str = "http://localhost:1234/v1";
 
-const CONNECT_PROVIDER_PRIORITY: [&str; 15] = [
+const CONNECT_PROVIDER_PRIORITY: [&str; 17] = [
     "openai",
     "anthropic",
     "gemini",
@@ -29,6 +29,8 @@ const CONNECT_PROVIDER_PRIORITY: [&str; 15] = [
     "together",
     "qwen",
     "minimax",
+    "kimi-for-coding",
+    "moonshotai",
     "bedrock",
     "ollama",
     "ollama-chat",

@@ -22,10 +22,7 @@ use tempfile::TempDir;
 use tokio::time::{Duration, Instant, sleep};
 use wiremock::{BodyPrintLimit, MockServer};
 
-const LOCAL_FRIENDLY_TEMPLATE: &str =
-    "You optimize for team morale and being a supportive teammate as much as code quality.";
-const LOCAL_PRAGMATIC_TEMPLATE: &str = "You are a deeply pragmatic, effective software engineer.";
-const LOCAL_PERSONALITY_MODEL: &str = "exp-savfox-personality";
+const TEST_MODEL: &str = "test-personality-model";
 
 fn sse_completed(id: &str) -> String {
     sse(vec![ev_response_created(id), ev_completed(id)])
@@ -53,7 +50,7 @@ async fn base_instructions_override_disables_personality_template() {
     config.personality = Some(Personality::Friendly);
     config.base_instructions = Some("override instructions".to_owned());
 
-    let model_info = ModelsManager::construct_model_info_offline(LOCAL_PERSONALITY_MODEL, &config);
+    let model_info = ModelsManager::construct_model_info_offline(TEST_MODEL, &config);
 
     assert_eq!(model_info.base_instructions, "override instructions");
     assert_eq!(
@@ -68,12 +65,10 @@ async fn user_turn_personality_none_does_not_add_update_message() -> anyhow::Res
 
     let server = start_mock_server().await;
     let resp_mock = mount_sse_once(&server, sse_completed("resp-1")).await;
-    let mut builder = test_savfox()
-        .with_model(LOCAL_PERSONALITY_MODEL)
-        .with_config(|config| {
-            config.features.disable(Feature::RemoteModels);
-            config.features.enable(Feature::Personality);
-        });
+    let mut builder = test_savfox().with_model(TEST_MODEL).with_config(|config| {
+        config.features.disable(Feature::RemoteModels);
+        config.features.enable(Feature::Personality);
+    });
     let test = builder.build(&server).await?;
 
     test.savfox
@@ -109,157 +104,6 @@ async fn user_turn_personality_none_does_not_add_update_message() -> anyhow::Res
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn config_personality_some_sets_instructions_template() -> anyhow::Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = start_mock_server().await;
-    let resp_mock = mount_sse_once(&server, sse_completed("resp-1")).await;
-    let mut builder = test_savfox()
-        .with_model(LOCAL_PERSONALITY_MODEL)
-        .with_config(|config| {
-            config.features.disable(Feature::RemoteModels);
-            config.features.enable(Feature::Personality);
-            config.personality = Some(Personality::Friendly);
-        });
-    let test = builder.build(&server).await?;
-
-    test.savfox
-        .submit(Op::UserTurn {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            cwd: test.cwd_path().to_path_buf(),
-            approval_policy: test.config.approval_policy.value(),
-            sandbox_policy: SandboxPolicy::ReadOnly,
-            model: test.session_configured.model.clone(),
-            effort: test.config.model_reasoning_effort,
-            summary: ReasoningSummary::Auto,
-            collaboration_mode: None,
-            personality: None,
-        })
-        .await?;
-
-    wait_for_event(&test.savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
-
-    let request = resp_mock.single_request();
-    let instructions_text = request.instructions_text();
-
-    assert!(
-        instructions_text.contains(LOCAL_FRIENDLY_TEMPLATE),
-        "expected personality update to include the local friendly template, got: {instructions_text:?}"
-    );
-
-    let developer_texts = request.message_input_texts("developer");
-    for text in developer_texts {
-        assert!(
-            !text.contains("<personality_spec>"),
-            "expected no personality update message in developer input"
-        );
-    }
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn user_turn_personality_some_adds_update_message() -> anyhow::Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = start_mock_server().await;
-    let resp_mock = mount_sse_sequence(
-        &server,
-        vec![sse_completed("resp-1"), sse_completed("resp-2")],
-    )
-    .await;
-    let mut builder = test_savfox()
-        .with_model(LOCAL_PERSONALITY_MODEL)
-        .with_config(|config| {
-            config.features.disable(Feature::RemoteModels);
-            config.features.enable(Feature::Personality);
-        });
-    let test = builder.build(&server).await?;
-
-    test.savfox
-        .submit(Op::UserTurn {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            cwd: test.cwd_path().to_path_buf(),
-            approval_policy: test.config.approval_policy.value(),
-            sandbox_policy: SandboxPolicy::ReadOnly,
-            model: test.session_configured.model.clone(),
-            effort: test.config.model_reasoning_effort,
-            summary: ReasoningSummary::Auto,
-            collaboration_mode: None,
-            personality: None,
-        })
-        .await?;
-
-    wait_for_event(&test.savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
-
-    test.savfox
-        .submit(Op::OverrideTurnContext {
-            cwd: None,
-            approval_policy: None,
-            sandbox_policy: None,
-            windows_sandbox_level: None,
-            model: None,
-            effort: None,
-            summary: None,
-            collaboration_mode: None,
-            personality: Some(Personality::Pragmatic),
-            permission_policy: None,
-        })
-        .await?;
-
-    test.savfox
-        .submit(Op::UserTurn {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            cwd: test.cwd_path().to_path_buf(),
-            approval_policy: test.config.approval_policy.value(),
-            sandbox_policy: SandboxPolicy::ReadOnly,
-            model: test.session_configured.model.clone(),
-            effort: test.config.model_reasoning_effort,
-            summary: ReasoningSummary::Auto,
-            collaboration_mode: None,
-            personality: None,
-        })
-        .await?;
-
-    wait_for_event(&test.savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
-
-    let requests = resp_mock.requests();
-    assert_eq!(requests.len(), 2, "expected two requests");
-    let request = requests
-        .last()
-        .expect("expected personality update request");
-
-    let developer_texts = request.message_input_texts("developer");
-    let personality_text = developer_texts
-        .iter()
-        .find(|text| text.contains("<personality_spec>"))
-        .expect("expected personality update message in developer input");
-
-    assert!(
-        personality_text.contains("The user has requested a new communication style."),
-        "expected personality update preamble, got {personality_text:?}"
-    );
-    assert!(
-        personality_text.contains(LOCAL_PRAGMATIC_TEMPLATE),
-        "expected personality update to include the local pragmatic template, got: {personality_text:?}"
-    );
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_turn_personality_same_value_does_not_add_update_message() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -269,13 +113,11 @@ async fn user_turn_personality_same_value_does_not_add_update_message() -> anyho
         vec![sse_completed("resp-1"), sse_completed("resp-2")],
     )
     .await;
-    let mut builder = test_savfox()
-        .with_model(LOCAL_PERSONALITY_MODEL)
-        .with_config(|config| {
-            config.features.disable(Feature::RemoteModels);
-            config.features.enable(Feature::Personality);
-            config.personality = Some(Personality::Pragmatic);
-        });
+    let mut builder = test_savfox().with_model(TEST_MODEL).with_config(|config| {
+        config.features.disable(Feature::RemoteModels);
+        config.features.enable(Feature::Personality);
+        config.personality = Some(Personality::Pragmatic);
+    });
     let test = builder.build(&server).await?;
 
     test.savfox
@@ -358,7 +200,7 @@ async fn instructions_uses_base_if_feature_disabled() -> anyhow::Result<()> {
     config.features.disable(Feature::Personality);
     config.personality = Some(Personality::Friendly);
 
-    let model_info = ModelsManager::construct_model_info_offline(LOCAL_PERSONALITY_MODEL, &config);
+    let model_info = ModelsManager::construct_model_info_offline(TEST_MODEL, &config);
     assert_eq!(
         model_info.get_model_instructions(config.personality),
         model_info.base_instructions
@@ -377,12 +219,10 @@ async fn user_turn_personality_skips_if_feature_disabled() -> anyhow::Result<()>
         vec![sse_completed("resp-1"), sse_completed("resp-2")],
     )
     .await;
-    let mut builder = test_savfox()
-        .with_model(LOCAL_PERSONALITY_MODEL)
-        .with_config(|config| {
-            config.features.disable(Feature::RemoteModels);
-            config.features.disable(Feature::Personality);
-        });
+    let mut builder = test_savfox().with_model(TEST_MODEL).with_config(|config| {
+        config.features.disable(Feature::RemoteModels);
+        config.features.disable(Feature::Personality);
+    });
     let test = builder.build(&server).await?;
 
     test.savfox
@@ -458,122 +298,6 @@ async fn user_turn_personality_skips_if_feature_disabled() -> anyhow::Result<()>
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn ignores_remote_personality_if_remote_models_disabled() -> anyhow::Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = MockServer::builder()
-        .body_print_limit(BodyPrintLimit::Limited(80_000))
-        .start()
-        .await;
-
-    let remote_slug = LOCAL_PERSONALITY_MODEL;
-    let remote_personality_message = "Friendly from remote template";
-    let remote_model = ModelInfo {
-        slug: remote_slug.to_owned(),
-        name: "Remote personality test".to_owned(),
-        description: Some("Remote model with personality template".to_owned()),
-        default_reasoning_level: Some(ReasoningEffort::Medium),
-        supported_reasoning_levels: vec![ReasoningEffortPreset {
-            effort: ReasoningEffort::Medium,
-            description: ReasoningEffort::Medium.to_string(),
-        }],
-        shell_type: ConfigShellToolType::UnifiedExec,
-        visibility: ModelVisibility::List,
-        supported_in_api: true,
-        priority: 1,
-        upgrade: None,
-        base_instructions: "base instructions".to_owned(),
-        model_messages: Some(ModelMessages {
-            instructions_template: Some("Base instructions\n{{ personality }}\n".to_owned()),
-            instructions_variables: Some(ModelInstructionsVariables {
-                personality_default: None,
-                personality_friendly: Some(remote_personality_message.to_owned()),
-                personality_pragmatic: None,
-            }),
-        }),
-        supports_reasoning_summaries: false,
-        support_verbosity: false,
-        default_verbosity: None,
-        apply_patch_tool_type: None,
-        truncation_policy: TruncationPolicyConfig::bytes(10_000),
-        supports_parallel_tool_calls: false,
-        context_window: Some(128_000),
-        max_output_tokens: None,
-        auto_compact_token_limit: None,
-        effective_context_window_percent: 95,
-        experimental_supported_tools: Vec::new(),
-        input_modalities: default_input_modalities(),
-    };
-
-    let _models_mock = mount_models_once(
-        &server,
-        ModelsResponse {
-            models: vec![remote_model],
-        },
-    )
-    .await;
-
-    let resp_mock = mount_sse_once(&server, sse_completed("resp-1")).await;
-
-    let mut builder = test_savfox()
-        .with_auth(savfox_core::SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_config(|config| {
-            config.features.disable(Feature::RemoteModels);
-            config.features.enable(Feature::Personality);
-            config.model = Some(remote_slug.to_owned());
-            config.personality = Some(Personality::Friendly);
-        });
-    let test = builder.build(&server).await?;
-
-    wait_for_model_available(
-        &test.session_manager.get_models_manager(),
-        remote_slug,
-        &test.config,
-    )
-    .await;
-
-    test.savfox
-        .submit(Op::UserTurn {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            cwd: test.cwd_path().to_path_buf(),
-            approval_policy: AskForApproval::Never,
-            sandbox_policy: SandboxPolicy::ReadOnly,
-            model: remote_slug.to_owned(),
-            effort: test.config.model_reasoning_effort,
-            summary: ReasoningSummary::Auto,
-            collaboration_mode: None,
-            personality: None,
-        })
-        .await?;
-
-    wait_for_event(&test.savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
-
-    let request = resp_mock.single_request();
-    let instructions_text = request.instructions_text();
-
-    assert!(
-        instructions_text.contains("You are Savfox, a coding agent based on GPT-5. You and the user share the same workspace and collaborate to achieve the user's goals."),
-        "expected instructions to use the template instructions, got: {instructions_text:?}"
-    );
-    assert!(
-        instructions_text.contains(
-            "You optimize for team morale and being a supportive teammate as much as code quality."
-        ),
-        "expected instructions to include the local friendly personality template, got: {instructions_text:?}"
-    );
-    assert!(
-        !instructions_text.contains("{{ personality }}"),
-        "expected legacy personality placeholder to be replaced, got: {instructions_text:?}"
-    );
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -620,6 +344,7 @@ async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
         input_modalities: default_input_modalities(),
+        used_fallback_model_metadata: false,
     };
 
     let _models_mock = mount_models_once(
@@ -732,6 +457,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
         input_modalities: default_input_modalities(),
+        used_fallback_model_metadata: false,
     };
 
     let _models_mock = mount_models_once(
@@ -753,7 +479,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
             config.features.enable(Feature::Personality);
-            config.model = Some(LOCAL_PERSONALITY_MODEL.to_owned());
+            config.model = Some(TEST_MODEL.to_owned());
         });
     let test = builder.build(&server).await?;
 

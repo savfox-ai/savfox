@@ -7,9 +7,8 @@ const FORBIDDEN_DEFINITION_PREFIXES: &[&str] = &["struct ", "enum ", "type "];
 const SDK_MODEL_NAME: &str = "AgentPairingBootstrap";
 
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -45,9 +44,8 @@ fn savfox_does_not_reintroduce_agent_pairing_bootstrap_shadow_type() {
 
     let mut violations = Vec::new();
     for file in files {
-        let contents = match fs::read_to_string(&file) {
-            Ok(contents) => contents,
-            Err(_) => continue,
+        let Ok(contents) = fs::read_to_string(&file) else {
+            continue;
         };
         for prefix in FORBIDDEN_DEFINITION_PREFIXES {
             let definition = format!("{prefix}{SDK_MODEL_NAME}");
@@ -115,7 +113,7 @@ fn savfox_account_outbound_uses_garth_durable_queue() {
         .expect("missing account outbound entrypoint");
     let send_source = &source[send_start..];
     assert!(
-        send_source.contains("OutboundEngine::new(outbound_store)")
+        send_source.contains("OutboundEngine::new(outbound_store")
             && send_source.contains(".enqueue(")
             && send_source.contains(".submit_next_with_fence("),
         "Savfox account outbound must enqueue and submit through Garth's durable engine"

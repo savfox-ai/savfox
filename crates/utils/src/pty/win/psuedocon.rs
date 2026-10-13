@@ -242,7 +242,7 @@ fn build_environment_block(cmd: &CommandBuilder) -> Vec<u16> {
 }
 
 fn build_cmdline(cmd: &CommandBuilder) -> anyhow::Result<(Vec<u16>, Vec<u16>)> {
-    let exe_os: OsString = if cmd.is_default_prog() {
+    let mut exe_os: OsString = if cmd.is_default_prog() {
         cmd.get_env("ComSpec")
             .unwrap_or(OsStr::new("cmd.exe"))
             .to_os_string()
@@ -254,8 +254,46 @@ fn build_cmdline(cmd: &CommandBuilder) -> anyhow::Result<(Vec<u16>, Vec<u16>)> {
         search_path(cmd, first)
     };
 
+    // npm installs extensionless Unix scripts alongside Windows shims. Prefer
+    // a PowerShell shim and use -File (argv), never interpolate arguments into
+    // a shell command string.
+    let extension = Path::new(&exe_os)
+        .extension()
+        .and_then(OsStr::to_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if matches!(extension.as_str(), "cmd" | "bat") {
+        let script = Path::new(&exe_os).with_extension("ps1");
+        ensure!(
+            script.is_file(),
+            "batch-only PTY commands require an explicit cmd.exe command; no PowerShell shim found for {:?}",
+            exe_os
+        );
+        exe_os = script.into_os_string();
+    }
+    let script = Path::new(&exe_os)
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("ps1"))
+        .then(|| exe_os.clone());
+    if script.is_some() {
+        exe_os = search_path(cmd, OsStr::new("powershell.exe"));
+    }
     let mut cmdline = Vec::new();
     append_quoted(&exe_os, &mut cmdline);
+    if let Some(script) = script {
+        for arg in [
+            OsStr::new("-NoLogo"),
+            OsStr::new("-NoProfile"),
+            OsStr::new("-ExecutionPolicy"),
+            OsStr::new("Bypass"),
+            OsStr::new("-File"),
+            script.as_os_str(),
+        ] {
+            cmdline.push(' ' as u16);
+            append_quoted(arg, &mut cmdline);
+        }
+    }
     for arg in cmd.get_argv().iter().skip(1) {
         cmdline.push(' ' as u16);
         ensure!(
@@ -277,6 +315,14 @@ fn search_path(cmd: &CommandBuilder, exe: &OsStr) -> OsString {
         let extensions = cmd.get_env("PATHEXT").unwrap_or(OsStr::new(".EXE"));
         for path in env::split_paths(path) {
             let candidate = path.join(exe);
+            if Path::new(exe).extension().is_none() {
+                for ext in ["exe", "com", "ps1"] {
+                    let windows_candidate = candidate.with_extension(ext);
+                    if windows_candidate.is_file() {
+                        return windows_candidate.into_os_string();
+                    }
+                }
+            }
             if candidate.exists() {
                 return candidate.into_os_string();
             }

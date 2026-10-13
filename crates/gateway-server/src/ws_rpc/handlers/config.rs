@@ -3,9 +3,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::super::types::{
-    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, RpcResult,
-};
+use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
 use super::browser::handle_config_snapshot;
 use super::model::model_test_default_base_url;
 use crate::channel::GatewayChannel;
@@ -601,51 +599,6 @@ pub(crate) async fn handle_hooks_disable(params: &Value, channel: &GatewayChanne
         .map_err(|e| (INTERNAL_ERROR, format!("write error: {e}")))?;
 
     Ok(json!({ "id": hook_id, "status": "disabled" }))
-}
-
-// ── Message Reactions (#37) ──────────────────────────────────────────────────
-
-pub(crate) async fn handle_reactions_add(params: &Value, _channel: &GatewayChannel) -> RpcResult {
-    let message_id = params
-        .get("message_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let emoji = params.get("emoji").and_then(|v| v.as_str()).unwrap_or("");
-    let channel = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
-
-    if message_id.is_empty() || emoji.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'message_id' or 'emoji'".to_owned()));
-    }
-    let _ = channel;
-
-    // No channel adapter currently dispatches reactions; returning success here
-    // would falsely report that the emoji was delivered.
-    Err((
-        METHOD_NOT_FOUND,
-        "reactions.add is not implemented: no channel adapter dispatches reactions yet".to_owned(),
-    ))
-}
-
-pub(crate) async fn handle_reactions_remove(
-    params: &Value,
-    _channel: &GatewayChannel,
-) -> RpcResult {
-    let message_id = params
-        .get("message_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let emoji = params.get("emoji").and_then(|v| v.as_str()).unwrap_or("");
-
-    if message_id.is_empty() || emoji.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'message_id' or 'emoji'".to_owned()));
-    }
-
-    // See handle_reactions_add: reaction dispatch is not wired to any channel yet.
-    Err((
-        METHOD_NOT_FOUND,
-        "reactions.remove is not implemented: no channel adapter dispatches reactions yet"
-            .to_owned(),
-    ))
 }
 
 // ── Streaming Config (#36) ──────────────────────────────────────────────────

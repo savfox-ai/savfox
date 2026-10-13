@@ -23,6 +23,10 @@ use crate::session::{DmScope, SessionStore};
 pub(crate) struct StartThreadMeta {
     pub peer_id: Option<String>,
     pub forced_agent_id: Option<String>,
+    /// Channel namespace used only for deterministic local routing. This lets
+    /// transports retain their real outbound channel id while adding config
+    /// and account isolation to the local session key.
+    pub routing_channel_id: Option<String>,
     pub routing_group_id: Option<String>,
     pub routing_thread_id: Option<String>,
     pub group_id: Option<String>,
@@ -39,6 +43,13 @@ pub(crate) struct StartThreadMeta {
     pub dm_scope: Option<DmScope>,
     pub topic: Option<String>,
     pub saved_channel_config_id: Option<String>,
+    pub remote_realm_id: Option<String>,
+    pub remote_strand_id: Option<String>,
+    #[cfg(feature = "arkret")]
+    pub remote_stream_ref: Option<arkret::CommitStreamRef>,
+    pub remote_event_id: Option<String>,
+    pub remote_agent_did: Option<String>,
+    pub delivery_mode: Option<String>,
     pub sender_kind: SenderKind,
     pub is_mentioned: bool,
     pub reply_to_self: bool,
@@ -95,7 +106,7 @@ async fn resolve_parent_thread_agent(
     let mut current = parent_thread_id?.to_owned();
     let mut by_thread = HashMap::new();
     for entry in session_store.list().await {
-        if let Some(thread_id) = entry.thread_id.clone() {
+        if let Some(thread_id) = entry.remote_thread_id.clone().or(entry.thread_id.clone()) {
             by_thread.insert(thread_id, entry);
         }
     }
@@ -477,7 +488,16 @@ fn split_leading_alias<'a>(text: &'a str, alias: &str) -> Option<&'a str> {
     None
 }
 
-pub(super) async fn resolve_text_target_match(savfox_home: &Path, text: &str) -> TextTargetMatch {
+pub(super) async fn resolve_text_target_match(
+    savfox_home: &Path,
+    platform: &str,
+    text: &str,
+) -> TextTargetMatch {
+    // Arkret addressing comes from authenticated complete-account mentions;
+    // local aliases and body text cannot select or wake another runtime.
+    if platform == "arkret" {
+        return TextTargetMatch::default();
+    }
     let mut best_match: Option<(usize, TextTargetMatch)> = None;
 
     for (stem, config) in load_all_agent_configs(savfox_home).await {
@@ -814,12 +834,17 @@ mod tests {
         .await
         .expect("write config");
 
-        let matched = resolve_text_target_match(home.path(), "reviewer: inspect this diff").await;
+        let matched =
+            resolve_text_target_match(home.path(), "matrix", "reviewer: inspect this diff").await;
         assert_eq!(matched.agent_id.as_deref(), Some("reviewer"));
         assert_eq!(
             matched.stripped_prompt.as_deref(),
             Some("inspect this diff")
         );
+        let literal =
+            resolve_text_target_match(home.path(), "arkret", "@reviewer inspect this diff").await;
+        assert!(literal.agent_id.is_none());
+        assert!(literal.stripped_prompt.is_none());
     }
 
     #[tokio::test]

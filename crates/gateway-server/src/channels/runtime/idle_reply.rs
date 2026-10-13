@@ -390,7 +390,7 @@ pub(crate) async fn resume_pending_idle_replies(
             saved_channel_config_id: (!pending.saved_channel_config_id.is_empty())
                 .then_some(pending.saved_channel_config_id.clone()),
             agent_id: pending.agent_id.clone(),
-            thread_id: entry.thread_id.clone(),
+            thread_id: entry.remote_thread_id.clone(),
             reply_target: entry.reply_target.clone(),
             prompt_override: config.idle_reply.prompt.clone(),
             delay_secs: remaining_delay_secs(now_ms, pending.deadline_at_ms),
@@ -513,7 +513,7 @@ async fn fire_idle_reply(
             .update(&session_id, move |session| {
                 session.session_file = Some(session_file.clone());
                 if session.thread_id.is_none() {
-                    session.thread_id = Some(thread_id);
+                    session.remote_thread_id = Some(thread_id);
                 }
             })
             .await;
@@ -524,7 +524,10 @@ async fn fire_idle_reply(
         return Ok(());
     }
 
-    let send_thread_id = entry.thread_id.as_deref().or(schedule.thread_id.as_deref());
+    let send_thread_id = entry
+        .remote_thread_id
+        .as_deref()
+        .or(schedule.thread_id.as_deref());
     let send_reply_target = entry
         .reply_target
         .as_deref()
@@ -702,7 +705,7 @@ mod tests {
         let pending = serde_json::from_value::<IdleReplyPendingStatus>(serde_json::json!({
             "session_id": "session-1",
             "agent_id": "default",
-            "outbound_channel": "arkret:ak:realm:01904100-0000-7000-8000-000000000001",
+            "outbound_channel": "arkret:ak:realm:01904100-0000-8000-8000-000000000001",
             "delay_secs": 60,
             "scheduled_at_ms": 1,
             "deadline_at_ms": 61_000,

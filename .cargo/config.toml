@@ -1,5 +1,5 @@
-[target.'cfg(all(windows, target_env = "msvc"))']
-linker = "C:\\Program Files\\LLVM\\bin\\lld-link.exe"
+# Windows MSVC targets use Rust's default linker from Visual Studio Build Tools.
+# No standalone LLVM installation is required for linking.
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))']
 linker = "clang"

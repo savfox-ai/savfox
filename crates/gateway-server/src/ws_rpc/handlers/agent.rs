@@ -34,8 +34,6 @@ struct ManagedPtyDelegateSpec {
     #[serde(default)]
     command: Option<String>,
     #[serde(default)]
-    args: Vec<String>,
-    #[serde(default)]
     stdin: Option<String>,
     #[serde(default)]
     cwd: Option<String>,
@@ -65,18 +63,13 @@ fn parse_pty_size(params: &Value) -> TerminalPtySize {
 }
 
 fn parse_string_array(value: Option<&Value>) -> Option<Vec<String>> {
-    value
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .filter(|items| !items.is_empty())
+    value.and_then(Value::as_array).map(|items| {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>()
+    })
 }
 
 fn parse_string_map(value: Option<&Value>) -> std::collections::BTreeMap<String, String> {
@@ -170,7 +163,7 @@ async fn resolve_terminal_pty_spawn_spec(
         })?;
     let args = parse_string_array(params.get("args"))
         .or_else(|| spec.interactive_args.clone())
-        .unwrap_or(spec.args.clone());
+        .unwrap_or_default();
     let cwd = params
         .get("cwd")
         .and_then(Value::as_str)
@@ -1198,7 +1191,7 @@ fn legacy_fallback_models(config: &Value) -> Option<Value> {
     }
 }
 
-fn normalize_native_agent_config(config: &mut Value) {
+fn normalize_agent_model_config(config: &mut Value) {
     let legacy_model = legacy_primary_model(config);
     let legacy_fallbacks = legacy_fallback_models(config);
 
@@ -1302,7 +1295,7 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
         .unwrap_or_else(|| "native".to_owned());
     config["kind"] = json!(kind.as_str());
     if kind == "native" {
-        normalize_native_agent_config(config);
+        normalize_agent_model_config(config);
     } else if kind == "terminal"
         && let Some(terminal) = config.get_mut("terminal").and_then(Value::as_object_mut)
         && !terminal.contains_key("runtime")
@@ -1317,7 +1310,7 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
             .is_some_and(|kind| kind == "native")
         && !config.get("native").is_some_and(Value::is_object)
     {
-        normalize_native_agent_config(config);
+        normalize_agent_model_config(config);
     }
 
     if !builtin {
@@ -1387,6 +1380,78 @@ fn validate_agent_shape(config: &Value) -> std::result::Result<(), String> {
             }
             required_non_empty_string(terminal, "command")
                 .map_err(|err| format!("invalid terminal agent: {err}"))?;
+            let parsed: crate::agent_terminal_delegate::AgentTerminalDelegateConfig =
+                serde_json::from_value(terminal.clone())
+                    .map_err(|error| format!("invalid terminal configuration: {error}"))?;
+            if let Some(mode) = parsed.mode.as_deref() {
+                if !matches!(
+                    mode,
+                    "one_shot"
+                        | "app_server"
+                        | "managed_pty"
+                        | "interactive_launch"
+                        | "jsonl_adapter"
+                        | "claude_stream"
+                ) {
+                    return Err(format!("unsupported terminal mode: {mode}"));
+                }
+                if mode == "claude_stream" {
+                    if runtime != "claude"
+                        || parsed
+                            .profile
+                            .as_deref()
+                            .is_some_and(|profile| profile != "claude")
+                    {
+                        return Err(
+                            "claude_stream requires the Claude runtime and profile".to_owned()
+                        );
+                    }
+                    crate::claude_code::validate(&parsed.claude, &parsed.args)
+                        .map_err(|error| error.to_string())?;
+                    crate::claude_code::validate_workspace(parsed.workspace.mode.as_deref())
+                        .map_err(|error| error.to_string())?;
+                    if parsed.stdin.is_some()
+                        || parsed
+                            .io_protocol
+                            .as_deref()
+                            .is_some_and(|protocol| protocol != "jsonl")
+                    {
+                        return Err("claude_stream owns stdin and JSONL framing".to_owned());
+                    }
+                    if parsed
+                        .session_scope
+                        .as_deref()
+                        .is_some_and(|scope| !matches!(scope, "per_turn" | "per_session"))
+                    {
+                        return Err("claude_stream supports per_turn and per_session".to_owned());
+                    }
+                    if parsed
+                        .savfox_approval_bridge
+                        .as_deref()
+                        .is_some_and(|bridge| !matches!(bridge, "required" | "prompt"))
+                    {
+                        return Err(
+                            "claude_stream requires prompt or required approval bridge".to_owned()
+                        );
+                    }
+                    if parsed.session_scope.as_deref().unwrap_or("per_session") == "per_session"
+                        && [
+                            parsed.cleanup_policy.as_deref(),
+                            parsed.workspace.cleanup_policy.as_deref(),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .any(|policy| {
+                            matches!(policy, "per_turn" | "delete_on_success" | "delete_always")
+                        })
+                    {
+                        return Err(
+                            "Claude resume requires retained workspace and session directories"
+                                .to_owned(),
+                        );
+                    }
+                }
+            }
         }
         _ => return Err("invalid `kind`; expected `native` or `terminal`".to_owned()),
     }
@@ -2623,8 +2688,9 @@ mod tests {
 
         assert_eq!(
             parse_string_array(Some(&json!([" run ", "", 1, "now"]))),
-            Some(vec!["run".to_owned(), "now".to_owned()])
+            Some(vec![" run ".to_owned(), "".to_owned(), "now".to_owned()])
         );
+        assert_eq!(parse_string_array(Some(&json!([]))), Some(vec![]));
         assert_eq!(
             parse_string_map(Some(&json!({
                 " FOO ": "bar",

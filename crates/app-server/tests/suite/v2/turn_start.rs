@@ -6,7 +6,7 @@ use app_test_support::{
     McpProcess, create_apply_patch_sse_response, create_exec_command_sse_response,
     create_final_assistant_message_sse_response, create_mock_responses_server_sequence,
     create_mock_responses_server_sequence_unchecked, create_shell_command_sse_response,
-    format_with_current_shell_display, to_response,
+    format_with_current_shell_display, to_response, write_models_cache_with_models,
 };
 use core_test_support::{responses, skip_if_no_network};
 use pretty_assertions::assert_eq;
@@ -22,7 +22,9 @@ use savfox_app_server_protocol::{
 use savfox_core::features::{FEATURES, Feature};
 use savfox_core::protocol_config_types::ReasoningSummary;
 use savfox_protocol::config_types::{CollaborationMode, ModeKind, Personality, Settings};
-use savfox_protocol::openai_models::ReasoningEffort;
+use savfox_protocol::openai_models::{
+    ModelInfo, ModelInstructionsVariables, ModelMessages, ModelVisibility, ReasoningEffort,
+};
 use tempfile::TempDir;
 use tokio::time::timeout;
 
@@ -41,7 +43,6 @@ async fn turn_start_sends_originator_header() -> Result<()> {
         "never",
         &BTreeMap::from([(Feature::Personality, true)]),
     )?;
-
     let mut mcp = McpProcess::new(savfox_home.path()).await?;
     timeout(
         DEFAULT_READ_TIMEOUT,
@@ -116,7 +117,6 @@ async fn turn_start_emits_user_message_item_with_text_elements() -> Result<()> {
         "never",
         &BTreeMap::from([(Feature::Personality, true)]),
     )?;
-
     let mut mcp = McpProcess::new(savfox_home.path()).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
@@ -403,13 +403,14 @@ async fn turn_start_accepts_personality_override_v2() -> Result<()> {
         "never",
         &BTreeMap::from([(Feature::Personality, true)]),
     )?;
+    write_personality_models_cache(savfox_home.path())?;
 
     let mut mcp = McpProcess::new(savfox_home.path()).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("exp-savfox-personality".to_owned()),
+            model: Some("personality-catalog-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -484,13 +485,14 @@ async fn turn_start_change_personality_mid_session_v2() -> Result<()> {
         "never",
         &BTreeMap::from([(Feature::Personality, true)]),
     )?;
+    write_personality_models_cache(savfox_home.path())?;
 
     let mut mcp = McpProcess::new(savfox_home.path()).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("exp-savfox-personality".to_owned()),
+            model: Some("personality-catalog-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -1773,4 +1775,21 @@ stream_max_retries = 0
 "#
         ),
     )
+}
+
+fn write_personality_models_cache(savfox_home: &Path) -> std::io::Result<()> {
+    let mut model = ModelInfo::new("personality-catalog-model", "Personality Catalog Model");
+    model.visibility = ModelVisibility::List;
+    model.base_instructions = "Base catalog instructions".to_owned();
+    model.model_messages = Some(ModelMessages {
+        instructions_template: Some("{{ personality }}".to_owned()),
+        instructions_variables: Some(ModelInstructionsVariables {
+            personality_default: Some("<personality_spec>default</personality_spec>".to_owned()),
+            personality_friendly: Some("<personality_spec>friendly</personality_spec>".to_owned()),
+            personality_pragmatic: Some(
+                "<personality_spec>pragmatic</personality_spec>".to_owned(),
+            ),
+        }),
+    });
+    write_models_cache_with_models(savfox_home, vec![model])
 }

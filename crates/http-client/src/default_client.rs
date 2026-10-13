@@ -21,6 +21,15 @@ impl HttpClient {
         Self { inner }
     }
 
+    /// Native transport executes an already-built exact request after its
+    /// trusted process-local authority/ledger hook. No payload logging here.
+    pub async fn execute_native_request(
+        &self,
+        request: reqwest::Request,
+    ) -> Result<Response, reqwest::Error> {
+        self.inner.execute(request).await
+    }
+
     pub fn get<U>(&self, url: U) -> RequestBuilder
     where
         U: IntoUrl,
@@ -106,6 +115,12 @@ impl RequestBuilder {
         B: Into<reqwest::Body>,
     {
         self.map(|builder| builder.body(body))
+    }
+
+    /// Completes trace-header injection and JSON/body construction before the
+    /// native authority hook sees the actual request. This does not send.
+    pub fn build_native(self) -> Result<reqwest::Request, reqwest::Error> {
+        self.builder.headers(trace_headers()).build()
     }
 
     pub async fn send(self) -> Result<Response, reqwest::Error> {

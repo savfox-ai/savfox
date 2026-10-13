@@ -659,7 +659,6 @@ async fn exec(
         env,
         arg0,
         expiration,
-        windows_sandbox_level: _,
         ..
     } = params;
 

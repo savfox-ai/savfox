@@ -97,6 +97,7 @@ pub(crate) struct GatewayChannel {
     logical_session_threads: Arc<Mutex<HashMap<String, SessionId>>>,
     /// Active Channel approvals mapped to their exact Core session/turn.
     approval_coordinator: ApprovalCoordinator,
+    pub(crate) claude_runtime: crate::claude_code::Runtime,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -175,11 +176,18 @@ impl GatewayChannel {
             args.cloud_requirements.clone(),
         );
 
-        let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .unwrap_or_default();
+        let http_client = savfox_http_client::custom_ca::build_reqwest_client_with_custom_ca(
+            reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)),
+        )
+        .unwrap_or_else(|err| {
+            tracing::warn!(%err, "failed to apply the configured custom CA to gateway requests");
+            reqwest::Client::default()
+        });
         let approval_coordinator = ApprovalCoordinator::new(args.config.savfox_home.clone());
+        let claude_runtime = crate::claude_code::Runtime::new(
+            args.config.savfox_home.clone(),
+            args.websocket_manager.clone(),
+        );
 
         Self {
             auth_manager,
@@ -202,6 +210,7 @@ impl GatewayChannel {
             active_login: Arc::new(Mutex::new(None)),
             logical_session_threads: Arc::new(Mutex::new(HashMap::new())),
             approval_coordinator,
+            claude_runtime,
         }
     }
 

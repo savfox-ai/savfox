@@ -16,8 +16,8 @@
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
 
-        # Rust toolchain matching workspace rust-version = "1.94"
-        rustToolchain = pkgs.rust-bin.stable."1.94.0".default.override {
+        # Rust toolchain matching workspace rust-version = "1.98"
+        rustToolchain = pkgs.rust-bin.stable."1.98.0".default.override {
           extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" ];
           targets = [ "wasm32-unknown-unknown" ];
         };

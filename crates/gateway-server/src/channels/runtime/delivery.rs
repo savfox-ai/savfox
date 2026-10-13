@@ -165,6 +165,7 @@ async fn write_dead_letter(
     reply_target: Option<&str>,
     saved_channel_config_id: Option<&str>,
     attempts: usize,
+    delivery_operation_id: &str,
 ) {
     let dir = policy_cfg.dead_letter_path(&gateway_channel.config().savfox_home);
     if tokio::fs::create_dir_all(&dir).await.is_err() {
@@ -182,6 +183,7 @@ async fn write_dead_letter(
         "reply_target": reply_target,
         "saved_channel_config_id": saved_channel_config_id,
         "attempts": attempts,
+        "operation_id": delivery_operation_id,
         "error": error,
         "text": text,
     });
@@ -234,6 +236,7 @@ pub(super) async fn send_approval_with_retry(
                     reply_target,
                     saved_channel_config_id,
                     attempt,
+                    &notification.request_id,
                 )
                 .await;
                 return Err(error);
@@ -251,6 +254,7 @@ pub(super) async fn send_approval_with_retry(
                     reply_target,
                     saved_channel_config_id,
                     attempt,
+                    &notification.request_id,
                 )
                 .await;
                 return Err(error);
@@ -321,6 +325,9 @@ pub(super) async fn send_with_retry(
             None
         };
 
+        // This identifies the delivery, not its content. The Arkret Applet freezes
+        // it durably before its first HTTP request and retains it across retries.
+        let delivery_operation_id = uuid::Uuid::now_v7().to_string();
         for attempt in 1..=max_attempts {
             let started = Instant::now();
             let send_result = tokio::time::timeout(
@@ -334,6 +341,7 @@ pub(super) async fn send_with_retry(
                     scoped_thread_id,
                     scoped_reply_target,
                     saved_channel_config_id,
+                    Some(&delivery_operation_id),
                 ),
             )
             .await;
@@ -373,6 +381,7 @@ pub(super) async fn send_with_retry(
                             scoped_reply_target,
                             saved_channel_config_id,
                             attempt,
+                            &delivery_operation_id,
                         )
                         .await;
                         return Err(err);
@@ -402,6 +411,7 @@ pub(super) async fn send_with_retry(
                             scoped_reply_target,
                             saved_channel_config_id,
                             attempt,
+                            &delivery_operation_id,
                         )
                         .await;
                         return Err(err);

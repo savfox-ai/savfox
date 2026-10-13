@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::super::types::{INTERNAL_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, RpcResult};
+use super::super::types::{INTERNAL_ERROR, INVALID_REQUEST, RpcResult};
 use super::super::utils::{now_ms, opt_str, require_str};
 use super::super::{NodeInvokeRecord, get_node_invoke_result, save_node_invoke_result};
 use crate::channel::GatewayChannel;
@@ -303,32 +303,6 @@ pub(crate) async fn handle_node_event(params: &Value, _channel: &Arc<GatewayChan
         "status": "received",
         "node_known": node_exists,
     }))
-}
-
-pub(crate) async fn handle_node_rename(
-    params: &Value,
-    _channel: &Arc<GatewayChannel>,
-) -> RpcResult {
-    let node_id = require_str(params, "node_id")?;
-    let _name = require_str(params, "name")?;
-
-    // Validate the node exists so callers get a meaningful error, but the
-    // pairing store has no rename capability — the device name is only set at
-    // pairing time. Returning success here would be a lie (the next node.list
-    // still shows the old name), so report the method as unimplemented instead
-    // (consistent with reactions.add / chat.inject).
-    let records = pairing_store::list_requests().await.unwrap_or_default();
-    if !records.iter().any(|r| r.node_id == node_id) {
-        return Err((
-            INVALID_REQUEST,
-            format!("node '{node_id}' not found in pairing store"),
-        ));
-    }
-
-    Err((
-        METHOD_NOT_FOUND,
-        "node.rename is not implemented: the pairing store does not support renaming".to_owned(),
-    ))
 }
 
 // ── Device pairing ──────────────────────────────────────────────────────────

@@ -92,6 +92,8 @@ impl TerminalAgentRuntime {
 }
 
 string_enum!(TerminalMode {
+    AppServer => "app_server",
+    ClaudeStream => "claude_stream",
     OneShot => "one_shot",
     ManagedPty => "managed_pty",
     InteractiveLaunch => "interactive_launch",
@@ -169,7 +171,7 @@ pub struct AgentIdleReplyConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-pub struct NativeAgentConfig {
+pub struct AgentConfig {
     pub provider: String,
     pub model: String,
     pub fallback_models: Option<Vec<String>>,
@@ -189,8 +191,10 @@ pub struct TerminalAgentConfig {
 /// (e.g. `codex`, `claude`, a custom script) instead of the in-process
 /// model client.
 ///
-/// Two execution modes are supported:
+/// Execution modes include:
 ///
+/// * **Codex app-server** — the gateway drives `codex app-server` over stdio JSON-RPC and resumes a
+///   durable Codex thread for subsequent turns.
 /// * **One-shot delegate** — the gateway spawns `command` with `args`, pipes the prompt to stdin,
 ///   captures stdout/stderr, and returns the captured output as the agent's reply. Use `enabled =
 ///   true` plus the `command` / `args` / `stdin` / `cwd` / `env` / `timeout_secs` fields.
@@ -203,8 +207,8 @@ pub struct AgentTerminalDelegateConfig {
     pub enabled: Option<bool>,
     /// Terminal agent profile. Expected values are `codex` and `claude`.
     pub profile: Option<TerminalProfile>,
-    /// Runtime mode. Expected values include `one_shot`, `managed_pty`,
-    /// `interactive_launch`, and `jsonl_adapter`.
+    /// Runtime mode. Expected values include `app_server`, `one_shot`, `managed_pty`,
+    /// `interactive_launch`, `jsonl_adapter`, and `claude_stream`.
     pub mode: Option<TerminalMode>,
     /// Session scoping strategy. Expected values include `per_turn`,
     /// `per_session`, `per_agent`, and `manual`.
@@ -224,6 +228,9 @@ pub struct AgentTerminalDelegateConfig {
     /// Whether Savfox should bridge vendor CLI approvals. Expected values
     /// include `disabled`, `prompt`, and `required`.
     pub savfox_approval_bridge: Option<SavfoxApprovalBridge>,
+    /// Configuration for the Rust Claude Code stdio adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude: Option<ClaudeCodeConfig>,
     /// Declarative workspace policy for the terminal runtime.
     pub workspace: Option<AgentTerminalWorkspaceConfig>,
     pub command: Option<String>,
@@ -243,6 +250,37 @@ pub struct AgentTerminalDelegateConfig {
     pub interactive_args: Option<Vec<String>>,
 }
 
+/// Claude owns authentication and tool execution. Controlled settings are not
+/// an operating-system sandbox. Version opt-in is explicit until live CLI
+/// compatibility has been established on the deployment machine.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ClaudeCodeConfig {
+    pub model: Option<String>,
+    pub settings_policy: String,
+    pub allowed_tools: Vec<String>,
+    pub mcp_config: Option<String>,
+    pub expected_version: Option<String>,
+    pub initialize_timeout_secs: u64,
+    pub approval_timeout_secs: u64,
+    pub shutdown_timeout_secs: u64,
+}
+
+impl Default for ClaudeCodeConfig {
+    fn default() -> Self {
+        Self {
+            model: None,
+            settings_policy: "controlled".to_owned(),
+            allowed_tools: Vec::new(),
+            mcp_config: None,
+            expected_version: None,
+            initialize_timeout_secs: 20,
+            approval_timeout_secs: 120,
+            shutdown_timeout_secs: 5,
+        }
+    }
+}
+
 /// Summary view of an agent as returned by `agents.list` and the agent
 /// picker in the UI. Concrete on-disk shape (under
 /// `<savfox_home>/agents/<id>.json`) carries strictly more fields; the
@@ -257,7 +295,7 @@ pub struct AgentEntry {
     /// Canonical agent shape. `native` agents run through Savfox model
     /// providers; `terminal` agents delegate to a supported local CLI runtime.
     pub kind: AgentKind,
-    pub native: Option<NativeAgentConfig>,
+    pub native: Option<AgentConfig>,
     pub terminal: Option<TerminalAgentConfig>,
     pub system_prompt: Option<String>,
     /// Operator-set status string (e.g. `"online"` / `"draft"` /
@@ -429,7 +467,7 @@ pub struct AgentPermissionPolicy {
 pub struct AgentDetail {
     pub name: String,
     pub kind: AgentKind,
-    pub native: Option<NativeAgentConfig>,
+    pub native: Option<AgentConfig>,
     pub terminal: Option<TerminalAgentConfig>,
     pub system_prompt: Option<String>,
     pub status: Option<String>,

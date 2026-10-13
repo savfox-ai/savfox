@@ -80,7 +80,15 @@ Idle --> Thinking --> Executing --> Idle
 - 注入新输入
 - 查询状态
 
-## Terminal Agent Runtime
+## External Agent Runtime
+
+设置页区分 **Native Agent**（Savfox 内置引擎）和 **External Agent**（Codex 或 Claude）。
+为保持协议兼容，外部 Agent 仍使用 `kind = "terminal"` 和 `terminal` 配置分支。
+选择 Codex App Server 后，页面隐藏通用 I/O 协议、stdin 模板、终端执行、审批桥接
+和交互终端启动控件。Savfox 自动管理 app-server 命令和 stdio 连接；额外 CLI 参数
+及环境变量放在 **Advanced Codex settings** 折叠区中。保存此模式时会移除遗留的
+stdin/协议配置，并保持审批桥接关闭。页面说明认证、模型和沙箱沿用本机 Codex
+配置，目前不支持交互审批。
 
 Gateway agent 可以通过顶层 `terminal` 分支作为 Terminal Agent 运行。
 Terminal Agent 必须声明 `kind = "terminal"`，并且
@@ -91,6 +99,42 @@ Terminal Agent 必须声明 `kind = "terminal"`，并且
 渲染到参数或 stdin，捕获 stdout/stderr，把 user/assistant 交换写入 session
 rollout，然后把捕获结果作为回复返回。`agent.terminal.launch` 仍然用于人工可控
 的交互式场景，例如登录、使用 TUI、或直接接管复杂 agent 会话。
+
+### 原生托管终端
+
+Sessions 提供 **Send to terminal** 直接输入，可在聊天执行期间回复 CLI 自身的交互提示。
+**Interrupt** 发送 Ctrl+C，**Complete turn** 完成本轮等待，**Close terminal** 关闭进程。
+重连或聊天超时后，使用 **Refresh terminal output** 读取当前 Agent/session 保留的终端输出。
+
+`terminal.mode = "managed_pty"` 已接入共享 PTY：Windows 使用 ConPTY，
+Linux/macOS 使用 Unix PTY。启动 `interactive_command`（缺省回退到 `command`）
+及 `interactive_args`（缺省为空），不复用 one-shot 的 `args`。
+同一个 `(agent_id, session_id)` 在多轮聊天之间复用进程。
+`agent.terminal.pty.start/write/read/resize/close/list` 也使用这套后端。
+metadata 返回 `native_pty: true`、`conpty`/`unix_pty`、PID、退出码和
+`turn_pending`。stdout/stderr 合并为带 ANSI 控制序列的终端流，尚不是厂商事件解析器。
+
+托管聊天默认以 bracketed paste 加 Enter 提交上下文。显式 `stdin` 模板用于
+按行交互的程序，例如 `"stdin": "{{user_prompt}}"`。
+只有输出独立一行 `::savfox-complete`、通过 `pty.write` 发送
+`kind: "manual_complete"` 或进程退出，才会结束本轮。
+Codex/Claude 不会自动发送 Savfox 标记；Agent 就绪后可点击 Sessions 的
+**Complete turn**。停止按钮发送 Ctrl+C，**Close terminal** 关闭进程并释放会话。
+这些操作沿用终端 Admin 权限；厂商审批和自动状态识别仍是独立能力。
+
+`timeout_secs` 只限制聊天等待，不会因等待超时杀掉托管进程；超时后需要手动完成
+或关闭旧会话，才可提交下一轮。托管聊天拒绝 `per_turn` 会话/清理策略，工作树会
+保留，避免删除运行中进程的目录。改变启动命令、参数、cwd 或 env 需要先关闭旧会话。
+
+浏览器或 WebSocket 断开后进程继续运行，可使用相同键重连，并通过
+`since_sequence` 获取最近的内存 transcript（每会话最多约 2 MiB）。
+`text`/`control_sequence` 保留输入内容，`line`/`newline` 发送终端 Enter（CR），
+resize 会调整真实 PTY。Gateway 退出会关闭托管终端；重启后尚不恢复旧进程或
+厂商原生会话。空闲回收不会终止仍处于 pending 状态的托管聊天轮次。
+
+Windows 可直接启动原生程序和 PowerShell 脚本。npm 包装器优先使用相邻的 `.ps1`，
+通过 PowerShell `-File` 传参，避免误执行同名 Unix 脚本；仅提供 batch 的程序需要
+显式配置 `cmd.exe` 及其参数。
 
 one-shot 路径现在统一经过 Terminal Supervisor。Supervisor 会校验解析后的 cwd、
 启动进程、写入 stdin、限量读取 stdout/stderr、杀掉超时进程，并把 `spawn` 失败、
@@ -114,7 +158,7 @@ terminal 的权限边界。
 |------|------|
 | `runtime` | Terminal runtime，当前支持 `codex` 或 `claude` |
 | `enabled` | Terminal Agent 必须为 `true` |
-| `mode` | 运行模式，例如 `one_shot`、`managed_pty`、`interactive_launch` |
+| `mode` | 运行模式：`app_server`（Codex）、`one_shot`、`managed_pty`、`interactive_launch` |
 | `session_scope` | 终端状态按 turn、session、agent 或 manual 作用域隔离 |
 | `io_protocol` | 输出解释方式，例如 plain text、JSONL、profile parser、sentinel |
 | `terminal_execution` | 命令权限边界声明，例如 `native_terminal`、`managed_workspace`、`disabled` |
@@ -210,7 +254,19 @@ manual complete；read 可以按 sequence 增量读取 transcript，也可以带
 指定文本。会启动/写入/关闭本地进程的 PTY 方法需要 Admin scope，`read` 和 `list`
 只需要 Read scope。
 
-Codex one-shot terminal agent 示例：
+Codex 预设使用 `app_server` 模式，启动 `codex app-server --listen stdio://`。
+使用前请安装 Codex 并完成登录。Gateway 执行初始化握手、创建 thread、转发回复流，
+并检查最终 turn 状态。Codex thread ID 保存在 terminal session 目录中，后续消息
+通过 `thread/resume` 继续会话；`per_turn` 则每次创建新 thread。每轮结束或超时后
+停止子进程，历史由 Codex 持久化。恢复会话时只发送新提示和附件清单，不重复回放
+Savfox 的历史消息。
+
+认证、模型、沙箱和审批策略使用 Codex 自身配置，可通过 app-server 的 CLI 配置参数
+覆盖。当前适配器尚未桥接交互审批，因此会拒绝审批请求；不支持的服务端请求会明确
+报错。此模式不能设置 `stdin`，且忽略 `io_protocol`。迁移已有 Codex agent 时，
+请按下例同时修改 `mode` 和 `args`；保留 `one_shot` 和 `exec` 参数的旧配置仍走原路径。
+
+Codex app-server terminal agent 示例：
 
 ```json
 {
@@ -218,7 +274,7 @@ Codex one-shot terminal agent 示例：
   "terminal": {
     "runtime": "codex",
     "enabled": true,
-    "mode": "one_shot",
+    "mode": "app_server",
     "session_scope": "per_session",
     "io_protocol": "plain_text",
     "terminal_execution": "native_terminal",
@@ -228,7 +284,7 @@ Codex one-shot terminal agent 示例：
       "cleanup_policy": "per_session"
     },
     "command": "codex",
-    "args": ["exec", "{{prompt}}"],
+    "args": ["app-server", "--listen", "stdio://"],
     "interactive_command": "codex"
   }
 }
@@ -263,19 +319,17 @@ Claude one-shot terminal agent 示例：
 
 ### Managed PTY 平台状态
 
-当前 Managed PTY 是 gateway 管理的 session registry 加 process-backed 后端，已支持
-公开 WS-RPC start/write/read/resize/close、transcript 读取、resize/kill trait 调用、
-idle/explicit close，以及 fake REPL 测试中的 sentinel/manual complete。它还不是完整
-的原生 terminal emulator。
+Managed PTY 使用共享的原生终端后端及 Gateway 持有的 session registry。
+托管聊天与公开 WS-RPC 操作同一组进程。Web 聊天展示终端输出记录，尚非完整的终端屏幕模拟器。
 
-| 平台 | 当前后端 | 原生 PTY hook | 状态 |
-|---|---|---|---|
-| Windows | process-backed stdio 后端 | 预留 ConPTY hook | WS-RPC 可用；非原生 PTY |
-| macOS | process-backed stdio 后端 | 预留 Unix pty hook | WS-RPC 可用；非原生 PTY |
-| Linux | process-backed stdio 后端 | 预留 Unix pty hook | WS-RPC 可用；非原生 PTY |
+| 平台 | 当前后端 | 状态 |
+|---|---|---|
+| Windows | 共享 ConPTY runtime | 原生输入输出、窗口调整与进程生命周期 |
+| macOS | 共享 Unix PTY runtime | 已接入；发布前仍需在 macOS 实测 |
+| Linux | 共享 Unix PTY runtime | 已接入；发布前仍需在 Linux 实测 |
 
-在 runtime 明确报告原生 PTY backend 和 approval bridge 支持前，客户端不应假设
-Codex 或 Claude 的完整交互协议已经可用。
+原生 PTY 支持不等于 Codex/Claude 语义 adapter 或审批桥接。当前使用显式轮次完成和
+直接终端输入处理交互提示，尚未实现厂商专用的自动状态检测。
 
 ## 与 Gateway Agent 配置的区别
 

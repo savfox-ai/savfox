@@ -9,7 +9,6 @@ pub(crate) mod collab;
 mod cron;
 mod discord_actions;
 mod dynamic;
-mod gateway;
 mod gateway_status;
 mod grep_files;
 mod image_analyze;
@@ -27,8 +26,6 @@ mod process;
 mod read_file;
 mod request_user_input;
 mod sessions;
-mod sessions_send_a2a;
-mod sessions_spawn;
 mod shell;
 mod slack_actions;
 mod telegram_actions;
@@ -51,7 +48,6 @@ pub use collab::CollabHandler;
 pub use cron::CronHandler;
 pub use discord_actions::DiscordActionsHandler;
 pub use dynamic::DynamicToolHandler;
-pub use gateway::GatewayToolHandler;
 pub use gateway_status::GatewayStatusHandler;
 pub use grep_files::GrepFilesHandler;
 pub use image_analyze::ImageAnalyzeHandler;
@@ -70,8 +66,6 @@ pub use read_file::ReadFileHandler;
 pub use request_user_input::RequestUserInputHandler;
 use serde::Deserialize;
 pub use sessions::SessionsHandler;
-pub use sessions_send_a2a::SessionsSendA2AHandler;
-pub use sessions_spawn::SessionsSpawnHandler;
 pub use shell::{ShellCommandHandler, ShellHandler};
 pub use slack_actions::SlackActionsHandler;
 pub use telegram_actions::TelegramActionsHandler;
@@ -87,6 +81,60 @@ pub use write_file::WriteFileHandler;
 use crate::function_tool::FunctionCallError;
 
 const MAX_TOOL_ERROR_BODY_CHARS: usize = 2_000;
+
+pub(crate) fn gateway_http_client(
+    timeout: std::time::Duration,
+) -> Result<reqwest::Client, FunctionCallError> {
+    let mut builder = reqwest::Client::builder().timeout(timeout);
+    if let Some(token) = std::env::var("SAVFOX_GATEWAY_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+            .map_err(|_| {
+                FunctionCallError::RespondToModel(
+                    "SAVFOX_GATEWAY_TOKEN contains characters that are not valid in an HTTP header"
+                        .to_owned(),
+                )
+            })?;
+        value.set_sensitive(true);
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(reqwest::header::AUTHORIZATION, value);
+        builder = builder.default_headers(headers);
+    }
+
+    builder.build().map_err(|err| {
+        FunctionCallError::RespondToModel(format!("failed to build gateway HTTP client: {err}"))
+    })
+}
+
+pub(crate) fn gateway_endpoint(
+    base_url: &str,
+    path_segments: &[&str],
+) -> Result<reqwest::Url, FunctionCallError> {
+    let mut url = reqwest::Url::parse(base_url).map_err(|err| {
+        FunctionCallError::RespondToModel(format!("invalid SAVFOX_GATEWAY_URL: {err}"))
+    })?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(FunctionCallError::RespondToModel(
+            "SAVFOX_GATEWAY_URL must use http or https".to_owned(),
+        ));
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    let mut segments = url.path_segments_mut().map_err(|()| {
+        FunctionCallError::RespondToModel(
+            "SAVFOX_GATEWAY_URL cannot be used as an HTTP base URL".to_owned(),
+        )
+    })?;
+    segments.pop_if_empty();
+    for segment in path_segments {
+        segments.push(segment);
+    }
+    drop(segments);
+    Ok(url)
+}
 
 fn parse_arguments<T>(arguments: &str) -> Result<T, FunctionCallError>
 where
@@ -130,4 +178,34 @@ pub(crate) fn sanitize_error_body(body: &str, secrets: &[&str]) -> String {
         .take(MAX_TOOL_ERROR_BODY_CHARS)
         .collect::<String>();
     format!("{truncated}\n[response truncated]")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gateway_endpoint_preserves_base_path_and_encodes_dynamic_segments() {
+        let url = gateway_endpoint(
+            "http://127.0.0.1:18881/root/?stale=query#fragment",
+            &["api", "sessions", "session/../?token=x", "history"],
+        )
+        .expect("valid gateway URL");
+
+        assert_eq!(
+            url.as_str(),
+            "http://127.0.0.1:18881/root/api/sessions/session%2F..%2F%3Ftoken=x/history"
+        );
+    }
+
+    #[test]
+    fn gateway_endpoint_rejects_non_hierarchical_base_url() {
+        let error = gateway_endpoint("mailto:operator@example.com", &["api", "status"])
+            .expect_err("gateway URLs must use HTTP");
+        assert!(
+            error
+                .to_string()
+                .contains("SAVFOX_GATEWAY_URL must use http or https")
+        );
+    }
 }

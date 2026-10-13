@@ -13,8 +13,7 @@ use savfox_gateway_shared::{
     AgentApprovalMode, AgentExecutionMode, AgentExecutionPolicy, AgentPermissionPolicy,
     AgentSandboxMode,
 };
-use savfox_protocol::protocol::GranularApprovalConfig;
-use savfox_protocol::protocol::ToolAccessPolicy;
+use savfox_protocol::protocol::{GranularApprovalConfig, ToolAccessPolicy};
 use savfox_utils::home_dir::AGENTS_SUBDIR;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

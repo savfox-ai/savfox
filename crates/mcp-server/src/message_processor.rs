@@ -271,7 +271,7 @@ impl MessageProcessor {
         &self,
         id: RequestId,
         method: &str,
-        params: &impl std::fmt::Debug,
+        params: &(impl std::fmt::Debug + Sync),
     ) {
         tracing::info!("{method} -> params: {params:?} (unimplemented)");
         self.outgoing

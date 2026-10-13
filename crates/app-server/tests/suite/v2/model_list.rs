@@ -1,13 +1,12 @@
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use app_test_support::{McpProcess, to_response, write_models_cache};
+use app_test_support::{McpProcess, test_catalog, to_response, write_models_cache};
 use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     JSONRPCError, JSONRPCResponse, Model, ModelListParams, ModelListResponse,
     ReasoningEffortOption, RequestId,
 };
-use savfox_core::models_manager::model_presets::all_model_presets;
 use savfox_protocol::openai_models::ModelPreset;
 use tempfile::TempDir;
 use tokio::time::timeout;
@@ -43,17 +42,23 @@ fn model_from_preset(preset: &ModelPreset) -> Model {
     }
 }
 
-/// Build the list of models the v2 RPC is expected to return for a fresh
-/// cache + non-ChatGPT auth, drawn directly from the bundled catalog so that
-/// adding or rebranding a preset does not require touching this test.
+/// Build the list of models the v2 RPC is expected to return for a fresh cache
+/// with non-ChatGPT auth, projected from the same fixture the cache was written
+/// from. There is no bundled catalog to draw on: what the server can list is
+/// exactly what the test published.
 fn expected_visible_models() -> Vec<Model> {
-    let presets =
-        ModelPreset::filter_by_auth(all_model_presets().clone(), /* chatgpt_mode */ false);
-    presets
-        .iter()
-        .filter(|preset| preset.show_in_picker)
-        .map(model_from_preset)
-        .collect()
+    let presets: Vec<ModelPreset> = test_catalog().into_iter().map(Into::into).collect();
+    let mut visible: Vec<ModelPreset> =
+        ModelPreset::filter_by_auth(presets, /* chatgpt_mode */ false)
+            .into_iter()
+            .filter(|preset| preset.show_in_picker)
+            .collect();
+    // The catalog's first listed model is the default, matching how
+    // `ModelsManager::build_available_models` marks one.
+    if let Some(first) = visible.first_mut() {
+        first.is_default = true;
+    }
+    visible.iter().map(model_from_preset).collect()
 }
 
 #[tokio::test]

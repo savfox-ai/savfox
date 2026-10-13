@@ -112,6 +112,26 @@ impl Default for GatewayConfig {
     }
 }
 
+impl GatewayConfig {
+    /// Apply settings without CLI equivalents from the effective configuration.
+    pub(crate) fn with_runtime_settings(
+        mut self,
+        effective: &toml::Value,
+    ) -> std::io::Result<Self> {
+        if let Some(value) = effective.get("gateway") {
+            let configured: Self = value
+                .clone()
+                .try_into()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+            self.channels = configured.channels;
+            self.response_footer = configured.response_footer;
+            self.rate_limit = configured.rate_limit;
+            self.trust_x_forwarded_for = configured.trust_x_forwarded_for;
+        }
+        Ok(self)
+    }
+}
+
 fn default_host() -> IpAddr {
     IpAddr::V4(Ipv4Addr::LOCALHOST)
 }
@@ -538,6 +558,94 @@ impl GatewayCommand {
             response_footer: ResponseFooterConfig::default(),
             rate_limit: RateLimitTomlConfig::default(),
             trust_x_forwarded_for: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod runtime_settings_tests {
+    use super::*;
+
+    #[test]
+    fn configured_runtime_settings_preserve_listener_and_credentials() {
+        let effective: toml::Value = toml::from_str(
+            r#"
+[gateway]
+host = "0.0.0.0"
+port = 19000
+token = "file-token"
+trust_x_forwarded_for = true
+[gateway.response_footer]
+enabled = false
+[gateway.rate_limit]
+max_requests = 17
+[gateway.channels.webhook]
+enabled = true
+callback_url = "https://example.org/callback"
+"#,
+        )
+        .expect("valid TOML");
+        let original = GatewayConfig {
+            port: 19001,
+            token: Some("cli-token".to_owned()),
+            tls_cert: Some("cli-cert.pem".to_owned()),
+            tls_key: Some("cli-key.pem".to_owned()),
+            ..GatewayConfig::default()
+        };
+        let configured = original
+            .with_runtime_settings(&effective)
+            .expect("valid gateway settings");
+        assert_eq!(configured.host, default_host());
+        assert_eq!(configured.port, 19001);
+        assert_eq!(configured.token.as_deref(), Some("cli-token"));
+        assert_eq!(configured.tls_cert.as_deref(), Some("cli-cert.pem"));
+        assert_eq!(configured.tls_key.as_deref(), Some("cli-key.pem"));
+        assert!(!configured.response_footer.enabled);
+        assert_eq!(configured.rate_limit.max_requests, 17);
+        assert_eq!(configured.rate_limit.window_secs, 60);
+        assert!(configured.trust_x_forwarded_for);
+        assert!(
+            configured
+                .channels
+                .webhook
+                .expect("configured channel")
+                .enabled
+        );
+    }
+
+    #[test]
+    fn absent_gateway_settings_keep_existing_configuration() {
+        let effective: toml::Value =
+            toml::from_str("model_provider = 'fixture'").expect("valid TOML");
+        let mut original = GatewayConfig::default();
+        original.response_footer.enabled = false;
+        let configured = original
+            .with_runtime_settings(&effective)
+            .expect("absent gateway");
+        assert!(!configured.response_footer.enabled);
+    }
+
+    #[test]
+    fn omitted_footer_uses_product_default() {
+        let effective: toml::Value =
+            toml::from_str("[gateway]\ntrust_x_forwarded_for = false").expect("valid TOML");
+        let configured = GatewayConfig::default()
+            .with_runtime_settings(&effective)
+            .expect("valid gateway");
+        assert!(configured.response_footer.enabled);
+    }
+
+    #[test]
+    fn malformed_gateway_settings_do_not_fall_back_to_defaults() {
+        for source in [
+            "gateway = false",
+            "[gateway.response_footer]\nenabled = 'false'",
+        ] {
+            let effective: toml::Value = toml::from_str(source).expect("valid TOML syntax");
+            let error = GatewayConfig::default()
+                .with_runtime_settings(&effective)
+                .expect_err("invalid gateway must stop startup");
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         }
     }
 }

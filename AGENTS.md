@@ -103,7 +103,7 @@ savfox-cli / savfox-exec / savfox-tui
 
 ## Project Conventions
 
-- Rust edition is `2024`; workspace `rust-version` is `1.94`.
+- Rust edition is `2024`; workspace `rust-version` is `1.98`.
 - Crate names are consistently prefixed with `savfox-`.
 - Prefer workspace dependency declarations: add shared deps to `[workspace.dependencies]` and reference them with `{ workspace = true }`.
 - Workspace lints matter here:
