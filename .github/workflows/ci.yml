@@ -127,6 +127,13 @@ jobs:
         run: cargo nextest run --no-fail-fast --workspace --profile ci
       - name: Run doctests
         run: cargo test --workspace --doc
+      - name: Upload failed snapshots
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failed-snapshots-linux
+          path: crates/**/snapshots/*.snap.new
+          if-no-files-found: ignore
 
   # Full cross-platform tests are expensive; keep regular CI fast and run these
   # on demand or on the weekly scheduled sweep.
