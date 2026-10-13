@@ -15,13 +15,20 @@ Thank you for your interest in contributing to Savfox! This document provides gu
 ```bash
 git clone https://github.com/savfox-ai/savfox.git
 cd savfox
-pwsh -File scripts/setup-arkret.ps1
 cargo build
 ```
 
-Install PowerShell 7 (`pwsh`) to prepare the pinned sibling Arkret workspaces.
-The setup script leaves existing checkouts unchanged and rejects unexpected
-revisions or local edits. CI uses the same script before invoking Cargo.
+Cargo downloads pinned Arkret SDK, Garth, and bridge Git dependencies, so a
+standalone checkout works for contributors, CI, containers, and Dependabot.
+
+For co-development with the sibling workspaces under `../../arkret-org/`, use
+the optional overrides explicitly:
+
+```bash
+cargo --config .cargo/arkret-local.toml.example build
+```
+
+These overrides use your local SDK, Garth, and bridge checkout contents.
 
 ### Install Git Hooks
 

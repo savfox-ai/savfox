@@ -70,6 +70,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         auto_compact_token_limit: None,
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
+        used_fallback_model_metadata: false,
     };
 
     let models_mock = mount_models_once(
@@ -310,6 +311,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
         auto_compact_token_limit: None,
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
+        used_fallback_model_metadata: false,
     };
     mount_models_once(
         &server,
@@ -390,7 +392,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn remote_models_preserve_builtin_presets() -> Result<()> {
+async fn remote_models_catalog_contains_only_discovered_models() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
@@ -439,12 +441,7 @@ async fn remote_models_preserve_builtin_presets() -> Result<()> {
         1,
         "expected a single default model"
     );
-    assert!(
-        available
-            .iter()
-            .any(|model| model.slug == "gpt-5.1-savfox-max"),
-        "builtin presets should remain available after refresh"
-    );
+    assert_eq!(available, vec![expected_remote]);
     assert_eq!(
         models_mock.requests().len(),
         1,
@@ -557,7 +554,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn local_presets_available_on_empty_remote_response() -> Result<()> {
+async fn empty_remote_response_does_not_fabricate_local_presets() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
@@ -583,8 +580,8 @@ async fn local_presets_available_on_empty_remote_response() -> Result<()> {
         .list_models(&config, RefreshStrategy::OnlineIfUncached)
         .await;
     assert!(
-        !available.is_empty(),
-        "local presets should remain available after empty remote response"
+        available.is_empty(),
+        "an empty catalog must not gain bundled vendor models"
     );
     assert_eq!(
         models_mock.requests().len(),
@@ -633,11 +630,13 @@ async fn remote_models_request_times_out_after_5s() -> Result<()> {
     )
     .await;
     let elapsed = start.elapsed();
-    // get_model should return a default model even when refresh times out
-    let default_model = model.expect("get_model should finish and return default model");
+    // An empty catalog must fail without sending an invented model to the provider.
+    let error = model
+        .expect("get_model should finish before the outer timeout")
+        .expect_err("timed-out discovery has no default model");
     assert!(
-        default_model == "gpt-5.2-savfox",
-        "get_model should return default model when refresh times out, got: {default_model}"
+        error.to_string().contains("no models are available"),
+        "expected an empty-catalog error after discovery timed out, got: {error}"
     );
     let _ = server
         .received_requests()
@@ -670,10 +669,11 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
 
     let server = MockServer::start().await;
     let remote_model = test_remote_model("savfox-auto-balanced", ModelVisibility::Hide, 0);
+    let visible_model = test_remote_model("remote-visible", ModelVisibility::List, 1);
     mount_models_once(
         &server,
         ModelsResponse {
-            models: vec![remote_model],
+            models: vec![remote_model, visible_model],
         },
     )
     .await;
@@ -695,8 +695,8 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
 
     let selected = manager
         .get_default_model(&None, &config, RefreshStrategy::OnlineIfUncached)
-        .await;
-    assert_eq!(selected, "gpt-5.2-savfox");
+        .await?;
+    assert_eq!(selected, "remote-visible");
 
     let available = manager
         .list_models(&config, RefreshStrategy::OnlineIfUncached)
@@ -779,5 +779,6 @@ fn test_remote_model_with_policy(
         auto_compact_token_limit: None,
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
+        used_fallback_model_metadata: false,
     }
 }

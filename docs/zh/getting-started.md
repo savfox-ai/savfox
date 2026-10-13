@@ -13,13 +13,12 @@
 ```bash
 git clone https://github.com/savfox-ai/savfox.git
 cd savfox
-pwsh -File scripts/setup-arkret.ps1
 cargo install --path crates/savfox-cli
 ```
 
-从源码构建还需要 PowerShell 7（`pwsh`）。准备脚本会将固定提交的 Arkret SDK、
-Garth 和桥接依赖检出到相对于 Savfox 的 `../../arkret-org/` 目录。
-脚本保留已有检出；遇到提交不匹配或本地修改时会报错，不会覆盖。
+Cargo 会自行获取固定提交的 Arkret SDK、Garth 和桥接 Git 依赖；
+从源码构建无需检出相邻仓库。Arkret 本地协同开发的覆盖配置见
+[CONTRIBUTING.md](../../CONTRIBUTING.md)。
 
 ### 验证安装
 
