@@ -14,7 +14,7 @@ http = { workspace = true }
 opentelemetry = { workspace = true, features = ["trace"] }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls", "stream"] }
-rustls-pemfile = { workspace = true }
+rustls-pki-types = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

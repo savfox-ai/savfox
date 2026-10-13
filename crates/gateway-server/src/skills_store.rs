@@ -175,7 +175,7 @@ async fn required_os_list(manifest_path: &Path) -> Vec<String> {
         return Vec::new();
     };
     let yaml = &rest[..closing];
-    let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(yaml) else {
+    let Ok(value) = serde_saphyr::from_str::<serde_json::Value>(yaml) else {
         return Vec::new();
     };
 
@@ -184,7 +184,7 @@ async fn required_os_list(manifest_path: &Path) -> Vec<String> {
         .and_then(|v| v.get("savfox"))
         .and_then(|v| v.get("requires"))
         .and_then(|v| v.get("os"))
-        .and_then(|v| v.as_sequence())
+        .and_then(|v| v.as_array())
     else {
         return Vec::new();
     };

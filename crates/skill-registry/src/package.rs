@@ -112,8 +112,8 @@ pub enum SkillSourceType {
 }
 
 impl SkillManifest {
-    pub fn parse(content: &str) -> Result<Self, serde_yaml::Error> {
-        serde_yaml::from_str(content)
+    pub fn parse(content: &str) -> Result<Self, serde_saphyr::Error> {
+        serde_saphyr::from_str(content)
     }
 
     #[must_use]
@@ -177,7 +177,7 @@ keywords:
 categories:
   - developer-tools
 "#;
-        let manifest: SkillManifest = serde_yaml::from_str(yaml).unwrap();
+        let manifest: SkillManifest = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(manifest.name, "github");
         assert_eq!(manifest.keywords.len(), 2);
     }

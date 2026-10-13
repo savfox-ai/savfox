@@ -94,7 +94,7 @@ const MAX_SKILLS_DIRS_PER_ROOT: usize = 2000;
 enum SkillParseError {
     Read(std::io::Error),
     MissingFrontmatter,
-    InvalidYaml(serde_yaml::Error),
+    InvalidYaml(serde_saphyr::Error),
     MissingField(&'static str),
     InvalidField { field: &'static str, reason: String },
 }
@@ -480,7 +480,7 @@ fn parse_skill_file(path: &Path, scope: SkillScope) -> Result<SkillMetadata, Ski
     let frontmatter = extract_frontmatter(&contents).ok_or(SkillParseError::MissingFrontmatter)?;
 
     let parsed: SkillFrontmatter =
-        serde_yaml::from_str(&frontmatter).map_err(SkillParseError::InvalidYaml)?;
+        serde_saphyr::from_str(&frontmatter).map_err(SkillParseError::InvalidYaml)?;
 
     let name = sanitize_single_line(&parsed.name);
     let description = sanitize_single_line(&parsed.description);
@@ -539,7 +539,7 @@ fn load_skill_metadata(skill_path: &Path) -> (Option<SkillInterface>, Option<Ski
         }
     };
 
-    let parsed: SkillMetadataFile = match serde_yaml::from_str(&contents) {
+    let parsed: SkillMetadataFile = match serde_saphyr::from_str(&contents) {
         Ok(parsed) => parsed,
         Err(error) => {
             tracing::warn!(
