@@ -400,7 +400,7 @@ pub(crate) async fn handle_config_export(
     let content = match requested {
         "json" => serde_json::to_string_pretty(&doc.value)
             .map_err(|e| (INTERNAL_ERROR, format!("JSON serialization failed: {e}")))?,
-        "yaml" => serde_yaml::to_string(&doc.value)
+        "yaml" => serde_saphyr::to_string(&doc.value)
             .map_err(|e| (INTERNAL_ERROR, format!("YAML serialization failed: {e}")))?,
         "toml" => json_value_to_toml_string(&doc.value).map_err(|e| (INTERNAL_ERROR, e))?,
         _ => unreachable!("validated above"),
@@ -728,7 +728,7 @@ pub(crate) async fn handle_config_convert(params: &Value, channel: &GatewayChann
     let intermediate: Value = match from_format {
         "json" => serde_json::from_str(&source_content)
             .map_err(|e| (INVALID_PARAMS, format!("invalid JSON input: {e}")))?,
-        "yaml" => serde_yaml::from_str(&source_content)
+        "yaml" => serde_saphyr::from_str(&source_content)
             .map_err(|e| (INVALID_PARAMS, format!("invalid YAML input: {e}")))?,
         "toml" => {
             let toml_val: toml::Value = toml::from_str(&source_content)
@@ -749,7 +749,7 @@ pub(crate) async fn handle_config_convert(params: &Value, channel: &GatewayChann
         "json" => serde_json::to_string_pretty(&intermediate)
             .map_err(|e| (INTERNAL_ERROR, format!("JSON serialization failed: {e}")))?,
         "yaml" => {
-            let yaml = serde_yaml::to_string(&intermediate)
+            let yaml = serde_saphyr::to_string(&intermediate)
                 .map_err(|e| (INTERNAL_ERROR, format!("YAML serialization failed: {e}")))?;
             if from_format == "toml" {
                 preserve_toml_leading_comments_for_yaml(&source_content, &yaml)

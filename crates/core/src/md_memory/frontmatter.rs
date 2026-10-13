@@ -22,7 +22,7 @@ pub fn parse_md_file(content: &str) -> (MemoryFrontmatter, String) {
             .trim_start_matches('\n')
             .trim_start_matches('\r');
 
-        let frontmatter: MemoryFrontmatter = serde_yaml::from_str(yaml_str).unwrap_or_default();
+        let frontmatter: MemoryFrontmatter = serde_saphyr::from_str(yaml_str).unwrap_or_default();
 
         (frontmatter, body.to_owned())
     } else {
@@ -34,7 +34,7 @@ pub fn parse_md_file(content: &str) -> (MemoryFrontmatter, String) {
 /// Render a `MemoryFrontmatter` + body back into a Markdown string with YAML frontmatter.
 #[must_use]
 pub fn render_md_file(frontmatter: &MemoryFrontmatter, body: &str) -> String {
-    let yaml = serde_yaml::to_string(frontmatter).unwrap_or_default();
+    let yaml = serde_saphyr::to_string(frontmatter).unwrap_or_default();
     format!("---\n{yaml}---\n\n{body}\n")
 }
 

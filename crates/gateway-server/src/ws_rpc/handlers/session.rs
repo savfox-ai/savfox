@@ -1339,8 +1339,9 @@ async fn handle_claude_send(
     model: &str,
     attachments: &[ChatAttachment],
 ) -> RpcResult {
-    use crate::auth::TokenScope;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    use crate::auth::TokenScope;
     let owner = principal
         .ok_or((
             INVALID_REQUEST,
