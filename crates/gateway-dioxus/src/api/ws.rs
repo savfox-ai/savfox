@@ -451,8 +451,20 @@ impl WsRpc {
                 })?;
         }
 
-        // Await the response (borrow is released).
-        let result = rx.await.map_err(|_| "Channel closed".to_string())??;
+        // Pairing must leave its busy state even when the connection remains
+        // open but the gateway never answers. Late replies are discarded.
+        let result = if method.starts_with("channels.arkret.") {
+            match futures::future::select(rx, Box::pin(crate::utils::sleep_ms(30_000))).await {
+                futures::future::Either::Left((result, _)) => result,
+                futures::future::Either::Right(((), _)) => {
+                    self.inner.pending.borrow_mut().remove(&id);
+                    return Err(format!("{method} timed out after 30 seconds"));
+                }
+            }
+        } else {
+            rx.await
+        };
+        let result = result.map_err(|_| "Channel closed".to_string())??;
         serde_json::from_value(result).map_err(|e| e.to_string())
     }
 

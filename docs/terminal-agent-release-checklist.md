@@ -50,6 +50,12 @@ terminal-agent slice.
   list, and idle cleanup.
 - [x] Process-backed fake REPL tests cover create/reuse/write/read/close.
 - [x] Platform-specific PTY support is behind the `TerminalPtyBackend` trait.
+- [x] Managed chat and terminal RPC use the shared native PTY backend.
+- [x] Windows native tests cover Unicode input, actual resize, npm shims,
+  process reuse, exit codes, and explicit completion.
+- [x] Real WebSocket tests cover live managed chat output, concurrent terminal
+  input, manual completion, browser reattachment, and frontend asset serving.
+- [ ] Verify the native backend on Linux and macOS before releasing those builds.
 - [x] Reconnect metadata clearly distinguishes attached, closed, and
   manual-rebind-needed states.
 

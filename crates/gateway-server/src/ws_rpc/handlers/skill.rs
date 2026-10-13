@@ -289,10 +289,24 @@ pub(crate) async fn handle_skills_install_zip(
 
 // ── Exec approvals ──────────────────────────────────────────────────────────
 
-pub(crate) async fn handle_exec_approvals_get(channel: &Arc<GatewayChannel>) -> RpcResult {
-    let approvals = list_pending_approvals(&channel.config().savfox_home)
+pub(crate) async fn handle_exec_approvals_get(
+    channel: &Arc<GatewayChannel>,
+    principal: Option<&str>,
+) -> RpcResult {
+    let mut approvals = list_pending_approvals(&channel.config().savfox_home)
         .await
         .map_err(|err| (INTERNAL_ERROR, format!("failed to load approvals: {err}")))?;
+    let owner_digest = principal.map(|principal| crate::claude_code::digest(principal.as_bytes()));
+    let active = channel
+        .claude_runtime
+        .pending_ids(principal.unwrap_or(""))
+        .await;
+    approvals.retain(|approval| {
+        approval.kind.as_deref() != Some("claude")
+            || (owner_digest.is_some()
+                && approval.peer_id == owner_digest
+                && active.contains(&approval.id))
+    });
     let policy = approval_policy_store::get_global(&channel.config().savfox_home)
         .await
         .map_err(|err| {
@@ -424,6 +438,7 @@ pub(crate) async fn handle_exec_approval_resolve(
     channel: &Arc<GatewayChannel>,
     session_mgr: &Arc<GatewaySessionManager>,
     authenticated_subject: &str,
+    principal: Option<&str>,
 ) -> RpcResult {
     let request_id = require_str(params, "request_id")?;
     let legacy_approved = opt_bool(params, "approved", false);
@@ -436,6 +451,15 @@ pub(crate) async fn handle_exec_approval_resolve(
             "deny"
         });
     let nonce = require_str(params, "nonce")?;
+    if let Some(owner) = principal
+        && let Some(result) = channel
+            .claude_runtime
+            .resolve(owner, params)
+            .await
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?
+    {
+        return Ok(result);
+    }
     let resolved_by = Some(format!("token:{authenticated_subject}"));
     let reason = params
         .get("reason")

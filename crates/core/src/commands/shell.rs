@@ -495,7 +495,7 @@ mod tests {
             .output()
             .unwrap();
 
-        let shell_path = String::from_utf8_lossy(&shell.stdout).trim().to_string();
+        let shell_path = String::from_utf8_lossy(&shell.stdout).trim().to_owned();
         if shell_path.ends_with("/zsh") {
             assert_eq!(
                 default_user_shell(),

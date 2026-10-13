@@ -210,7 +210,7 @@ fn try_dump_windows_clipboard_image() -> Option<String> {
             Ok(output) => {
                 if output.status.success() {
                     // Decode as UTF-8 (forced by the script above).
-                    let win_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    let win_path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
                     if !win_path.is_empty() {
                         tracing::debug!("{} saved clipboard image to {}", cmd, win_path);
                         return Some(win_path);

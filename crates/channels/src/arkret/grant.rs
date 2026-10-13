@@ -12,14 +12,18 @@
 //!
 //! 1. Deserialize the JSON into a [`arkret::Event`].
 //! 2. Deserialize `event.payload` into a [`arkret::CapabilityGrant`].
-//! 3. Require production-shaped proofs and validate proof bindings (digest matches content).
-//! 4. Sanity-check subject / realm / expiry against expected values.
+//! 3. Require a production-shaped producer proof and validate proof bindings (digest matches
+//!    content).
+//! 4. Sanity-check subject / realm / effective validity window against expected values.
 //! 5. Return [`ArkretGrant`] holding the event_id + the grant fields.
 
 use std::path::Path;
 
 use anyhow::Context as _;
-use arkret::{CapabilityGrantPayload, CapabilitySubject, Event};
+use arkret::{
+    CapabilityGrantPayload, CapabilitySubject, Did, Event, GrantConstraint, GrantConstraintKind,
+    project_did_to_core_id,
+};
 use chrono::{DateTime, Utc};
 
 /// Loaded capability grant ready for use as `authorization_ref` on
@@ -37,18 +41,22 @@ pub struct ArkretGrant {
     pub realm_id: Option<String>,
     /// Authorized actions (e.g. `["ak.message.create"]`).
     pub actions: Vec<String>,
-    /// Expiry, if any.
+    /// Constraints retained from the grant for consumers that need to inspect
+    /// more than the precomputed validity window.
+    pub constraints: Vec<GrantConstraint>,
+    /// Effective activation time: the latest `not_before` across temporal constraints.
+    pub not_before: Option<DateTime<Utc>>,
+    /// Effective expiry: the earliest `expires_at` across temporal constraints.
     pub expires_at: Option<DateTime<Utc>>,
 }
 
 impl ArkretGrant {
-    /// True if the grant has not expired (or has no expiry).
+    /// True if the grant's effective temporal window contains the current time.
     #[must_use]
     pub fn is_active(&self) -> bool {
-        match &self.expires_at {
-            Some(t) => Utc::now() < *t,
-            None => true,
-        }
+        let now = Utc::now();
+        self.not_before.is_none_or(|start| now >= start)
+            && self.expires_at.is_none_or(|end| now < end)
     }
 
     /// True if the grant covers the given action.
@@ -64,11 +72,11 @@ impl ArkretGrant {
 /// * Event JSON is parseable.
 /// * `event.kind == "ak.capability.grant"`.
 /// * Event payload deserializes into [`CapabilityGrant`].
-/// * Event has at least one production-shaped proof.
+/// * Event has a production-shaped producer proof.
 /// * `event.validate_proof_bindings()` passes (proof digest matches body).
 /// * `grant.subject == expected_subject` (caller's DID).
 /// * If `expected_realm` is provided, the grant's `realm_id` matches.
-/// * Grant has not expired.
+/// * Grant's effective temporal window is currently active.
 pub async fn load_and_verify_grant(
     path: &Path,
     expected_subject: &str,
@@ -91,45 +99,45 @@ pub async fn load_and_verify_grant(
     // Proof binding (digest-content tie). Real cryptographic signature
     // verification (issuer DID document lookup) is still out of scope here,
     // but unsigned or dev-proof grants must not be accepted.
-    if event.proofs.is_empty() {
-        anyhow::bail!("capability grant {}: missing proofs", path.display());
-    }
-    for proof in &event.proofs {
-        proof
-            .validate_production()
-            .map_err(|err| anyhow::anyhow!("grant proof is not production-grade: {err}"))?;
-    }
-    event
-        .validate_proof_bindings()
-        .map_err(|err| anyhow::anyhow!("grant proof binding invalid: {err}"))?;
-
-    let payload: CapabilityGrantPayload = event
-        .payload_as()
-        .with_context(|| format!("decode CapabilityGrant payload in {}", path.display()))?;
-    let grant = payload.grant.ok_or_else(|| {
+    let producer = event.producer_proof.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
-            "capability grant {}: payload.grant is required",
+            "capability grant {}: missing producer_proof",
             path.display()
         )
     })?;
+    producer
+        .validate_production()
+        .map_err(|err| anyhow::anyhow!("grant proof is not production-grade: {err}"))?;
+    event
+        .validate_proof_bindings_with_digest_suite(super::DIGEST_SUITE)
+        .map_err(|err| anyhow::anyhow!("grant proof binding invalid: {err}"))?;
 
-    if event.actor_id.as_str() != grant.issuer.as_str() {
+    let payload: CapabilityGrantPayload = serde_json::from_value(
+        serde_json::to_value(&event.payload)
+            .with_context(|| format!("encode CapabilityGrant payload in {}", path.display()))?,
+    )
+    .with_context(|| format!("decode CapabilityGrant payload in {}", path.display()))?;
+    let grant = payload.grant;
+
+    if event.actor_id != grant.issuer_id {
         anyhow::bail!(
             "capability grant {}: event actor '{}' does not match grant issuer '{}'",
             path.display(),
-            event.actor_id.as_str(),
-            grant.issuer.as_str()
+            event.actor_id,
+            grant.issuer_id
         );
     }
-    let issuer_vm_prefix = format!("{}#", grant.issuer.as_str());
-    if !event.proofs.iter().any(|proof| {
-        proof.verification_method == grant.issuer.as_str()
-            || proof.verification_method.starts_with(&issuer_vm_prefix)
-    }) {
+    let producer_controller = producer
+        .verification_method
+        .as_str()
+        .split_once('#')
+        .and_then(|(controller, _)| Did::new(controller).ok())
+        .and_then(|did| project_did_to_core_id(&did).ok());
+    if producer_controller.as_ref() != Some(grant.issuer_id.signing_principal_id()) {
         anyhow::bail!(
             "capability grant {}: no proof verification_method belongs to issuer '{}'",
             path.display(),
-            grant.issuer.as_str()
+            grant.issuer_id
         );
     }
 
@@ -168,7 +176,40 @@ pub async fn load_and_verify_grant(
         }
     }
 
-    if let Some(exp) = grant.expires_at
+    let temporal_constraints = || {
+        grant
+            .constraints
+            .iter()
+            .filter(|constraint| constraint.constraint_kind == GrantConstraintKind::Temporal)
+    };
+    let not_before = temporal_constraints()
+        .filter_map(|constraint| constraint.not_before)
+        .max();
+    let expires_at = temporal_constraints()
+        .filter_map(|constraint| constraint.expires_at)
+        .min();
+
+    if let (Some(start), Some(end)) = (not_before, expires_at)
+        && start >= end
+    {
+        anyhow::bail!(
+            "capability grant {}: effective temporal window is empty ({} >= {})",
+            path.display(),
+            start,
+            end
+        );
+    }
+
+    if let Some(start) = not_before
+        && Utc::now() < start
+    {
+        anyhow::bail!(
+            "capability grant {}: not active until {}",
+            path.display(),
+            start
+        );
+    }
+    if let Some(exp) = expires_at
         && Utc::now() >= exp
     {
         anyhow::bail!("capability grant {}: expired at {}", path.display(), exp);
@@ -177,17 +218,19 @@ pub async fn load_and_verify_grant(
     Ok(ArkretGrant {
         event_id: event.event_id.as_str().to_owned(),
         subject: subject.to_owned(),
-        issuer: grant.issuer.as_str().to_owned(),
+        issuer: grant.issuer_id.to_string(),
         realm_id,
         actions: grant.actions,
-        expires_at: grant.expires_at,
+        constraints: grant.constraints,
+        not_before,
+        expires_at,
     })
 }
 
 fn capability_subject_did(subject: &CapabilitySubject) -> Option<&str> {
     match subject {
-        CapabilitySubject::Did(did) => Some(did.as_str()),
-        CapabilitySubject::Selector(_) => None,
+        CapabilitySubject::Actor(actor) => Some(actor.signing_principal_id().as_str()),
+        CapabilitySubject::Condition(_) => None,
     }
 }
 
@@ -195,10 +238,13 @@ fn capability_subject_did(subject: &CapabilitySubject) -> Option<&str> {
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use arkret::Hash;
     use serde_json::json;
 
     use super::*;
+
+    const DEFAULT_REALM: &str = "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
+    const ISSUER_PRINCIPAL: &str = "ak:did_core:webvh:z6mkadminfixture";
+    const STATION_PRINCIPAL: &str = "ak:did_core:web:principal.example";
 
     fn unique_path(label: &str) -> std::path::PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
@@ -219,75 +265,80 @@ mod tests {
         action: &str,
         expires: Option<DateTime<Utc>>,
     ) -> serde_json::Value {
-        let mut grant = serde_json::Map::new();
-        let grant_id = "ak:grant:01904100-0000-7000-8000-000000000abc";
-        let issuer = "did:webvh:example.com:admin";
-        let proof = json!({
-            "kind": "detached_jws",
-            "alg": "EdDSA",
-            "verification_method": "did:webvh:example.com:admin#grant-key-1",
-            "payload_digest": format!("sha256:{}", "0".repeat(64)),
-            "created_at": "2026-05-27T00:00:00.000Z",
-            "jws": "grant.detached.signature"
-        });
-        grant.insert("id".into(), json!(grant_id));
-        grant.insert("schema".into(), json!("ak.schema.capability.v1"));
-        grant.insert("issuer".into(), json!(issuer));
-        grant.insert("subject".into(), json!(subject));
-        grant.insert("actions".into(), json!([action]));
-        grant.insert("resources".into(), json!([{"kind": "*"}]));
-        grant.insert("issued_at".into(), json!("2026-05-27T00:00:00.000Z"));
-        grant.insert("proofs".into(), json!([proof]));
-        if let Some(realm) = realm {
-            grant.insert("realm_id".into(), json!(realm));
-        }
-        if let Some(exp) = expires {
-            grant.insert(
-                "expires_at".into(),
-                json!(exp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
-            );
-        }
-        let mut content = serde_json::Map::new();
-        content.insert("grant_id".into(), json!(grant_id));
-        content.insert("grant".into(), serde_json::Value::Object(grant));
-        let mut event = json!({
-            "event_id": "ak:event:01904100-0000-7000-8000-000000000def",
-            "kind": "ak.capability.grant",
-            "realm_id": realm.unwrap_or("ak:realm:01904100-0000-7000-8000-000000000001"),
-            "scope_ref": {
-                "kind": "realm",
-                "realm_id": realm.unwrap_or("ak:realm:01904100-0000-7000-8000-000000000001")
+        let realm_id = arkret::RealmId::new(realm.unwrap_or(DEFAULT_REALM)).expect("realm id");
+        let issuer_account = arkret::AccountId::new(
+            arkret::DidCoreId::new(ISSUER_PRINCIPAL).expect("issuer core id"),
+            arkret::DidCoreId::new(STATION_PRINCIPAL).expect("station core id"),
+        );
+        let subject_account = arkret::AccountId::new(
+            arkret::DidCoreId::new(subject.to_owned()).expect("subject core id"),
+            arkret::DidCoreId::new(STATION_PRINCIPAL).expect("station core id"),
+        );
+        let constraints = expires
+            .map(|exp| {
+                let mut constraint = GrantConstraint::new(
+                    GrantConstraintKind::Temporal,
+                    arkret::GrantConstraintEffect::Allow,
+                );
+                constraint.expires_at = Some(exp);
+                vec![constraint]
+            })
+            .unwrap_or_default();
+        let payload = arkret::CapabilityGrantPayload {
+            grant: arkret::CapabilityGrantCreateBody {
+                schema: arkret::SchemaId::CAPABILITY_V1.to_owned(),
+                realm_id: realm.map(|_| realm_id.clone()),
+                issuer_id: arkret::ActorId::account(issuer_account.clone()),
+                subject: CapabilitySubject::Actor(arkret::ActorId::account(subject_account)),
+                actions: vec![action.to_owned()],
+                resources: vec![arkret::WireResourceSelector::realm(realm_id.clone())],
+                constraints,
+                issuer_authority_refs: vec![arkret::IssuerAuthorityRef::RealmRoot {
+                    realm_id: realm_id.clone(),
+                    authority_event_ref: arkret::EventId::from_digest(
+                        crate::arkret::DIGEST_SUITE,
+                        [0x51; 32],
+                    ),
+                    authority_generation: 1,
+                }],
+                issued_at: DateTime::from_timestamp_millis(0).expect("epoch timestamp"),
             },
-            "actor_id": issuer,
-            "actor_seq": 1,
+        };
+        let intent: arkret::EventIntent = serde_json::from_value(json!({
+            "kind": "ak.capability.grant",
+            "scope_ref": arkret::ScopeRef::Realm { realm_id },
+            "actor_id": arkret::ActorId::account(issuer_account),
             "created_at": "2026-05-27T00:00:00.000Z",
-            "hlc": "000000000000-0000-00000000",
-            "prev_refs": [],
-            "refs": [],
-            "payload": serde_json::Value::Object(content),
-            "proofs": []
-        });
-        let parsed: Event = serde_json::from_value(event.clone()).expect("event");
-        let digest = Hash::new(parsed.event_digest().expect("digest")).expect("hash");
-        event["proofs"] = json!([{
-            "kind": "detached_jws",
-            "alg": "EdDSA",
-            "verification_method": "did:webvh:example.com:admin#key-1",
-            "event_digest": digest.as_str(),
-            "created_at": "2026-05-27T00:00:00.000Z",
-            "jws": "test.detached.signature"
-        }]);
+            "payload": payload,
+        }))
+        .expect("grant intent");
+        let mut authored = intent
+            .author_with_digest_suite(crate::arkret::DIGEST_SUITE)
+            .expect("grant Event");
+        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(
+            ed25519_dalek::SigningKey::from_bytes(&[67; 32]),
+            "did:webvh:z6mkadminfixture:admin.example#key-1",
+        );
+        arkret::signatures::sign_event(
+            &mut authored,
+            &signer,
+            arkret::signatures::SignEventOptions::new(),
+        )
+        .expect("signed grant");
+        let event = serde_json::to_value(authored.event()).expect("grant Event value");
         event
     }
 
     #[tokio::test]
     async fn loads_valid_grant() {
         let path = unique_path("valid");
+        let expires_at = DateTime::from_timestamp_millis(Utc::now().timestamp_millis() + 60_000)
+            .expect("future timestamp should be valid");
         let ev = make_grant_event(
-            "did:webvh:example.org:agents:support",
-            Some("ak:realm:01904100-0000-7000-8000-000000000001"),
+            "ak:did_core:webvh:z6mksupportfixture",
+            Some("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI"),
             "ak.message.create",
-            None,
+            Some(expires_at),
         );
         tokio::fs::write(
             &path,
@@ -297,13 +348,15 @@ mod tests {
         .expect("write");
         let grant = load_and_verify_grant(
             &path,
-            "did:webvh:example.org:agents:support",
-            Some("ak:realm:01904100-0000-7000-8000-000000000001"),
+            "ak:did_core:webvh:z6mksupportfixture",
+            Some("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI"),
         )
         .await
         .expect("load");
-        assert_eq!(grant.subject, "did:webvh:example.org:agents:support");
+        assert_eq!(grant.subject, "ak:did_core:webvh:z6mksupportfixture");
         assert!(grant.covers_action("ak.message.create"));
+        assert_eq!(grant.constraints.len(), 1);
+        assert_eq!(grant.expires_at, Some(expires_at));
         assert!(grant.is_active());
         let _ = tokio::fs::remove_file(&path).await;
     }
@@ -312,8 +365,8 @@ mod tests {
     async fn rejects_subject_mismatch() {
         let path = unique_path("subj");
         let ev = make_grant_event(
-            "did:webvh:example.org:agents:other",
-            Some("ak:realm:01904100-0000-7000-8000-000000000001"),
+            "ak:did_core:webvh:z6mkotherfixture",
+            Some("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI"),
             "ak.message.create",
             None,
         );
@@ -323,7 +376,7 @@ mod tests {
         )
         .await
         .expect("write");
-        let err = load_and_verify_grant(&path, "did:webvh:example.org:agents:support", None)
+        let err = load_and_verify_grant(&path, "ak:did_core:webvh:z6mksupportfixture", None)
             .await
             .expect_err("subject mismatch should fail");
         assert!(err.to_string().contains("does not match expected"));
@@ -334,7 +387,7 @@ mod tests {
     async fn rejects_expired_grant() {
         let path = unique_path("exp");
         let ev = make_grant_event(
-            "did:webvh:example.org:agents:support",
+            "ak:did_core:webvh:z6mksupportfixture",
             None,
             "ak.message.create",
             Some(Utc::now() - chrono::Duration::seconds(60)),
@@ -345,7 +398,7 @@ mod tests {
         )
         .await
         .expect("write");
-        let err = load_and_verify_grant(&path, "did:webvh:example.org:agents:support", None)
+        let err = load_and_verify_grant(&path, "ak:did_core:webvh:z6mksupportfixture", None)
             .await
             .expect_err("expired grant should fail");
         assert!(
@@ -359,7 +412,7 @@ mod tests {
     async fn rejects_wrong_kind() {
         let path = unique_path("kind");
         let mut ev = make_grant_event(
-            "did:webvh:example.org:agents:support",
+            "ak:did_core:webvh:z6mksupportfixture",
             None,
             "ak.message.create",
             None,
@@ -371,7 +424,7 @@ mod tests {
         )
         .await
         .expect("write");
-        let err = load_and_verify_grant(&path, "did:webvh:example.org:agents:support", None)
+        let err = load_and_verify_grant(&path, "ak:did_core:webvh:z6mksupportfixture", None)
             .await
             .expect_err("wrong event kind should fail");
         assert!(err.to_string().contains("ak.capability.grant"));
@@ -379,25 +432,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_missing_proofs() {
+    async fn rejects_missing_producer_proof() {
         let path = unique_path("proof");
         let mut ev = make_grant_event(
-            "did:webvh:example.org:agents:support",
+            "ak:did_core:webvh:z6mksupportfixture",
             None,
             "ak.message.create",
             None,
         );
-        ev["proofs"] = json!([]);
+        ev["producer_proof"] = serde_json::Value::Null;
         tokio::fs::write(
             &path,
             serde_json::to_vec(&ev).expect("grant event should serialize"),
         )
         .await
         .expect("write");
-        let err = load_and_verify_grant(&path, "did:webvh:example.org:agents:support", None)
+        let err = load_and_verify_grant(&path, "ak:did_core:webvh:z6mksupportfixture", None)
             .await
-            .expect_err("missing proofs should fail");
-        assert!(err.to_string().contains("missing proofs"));
+            .expect_err("missing producer proof should fail");
+        assert!(err.to_string().contains("missing producer_proof"));
         let _ = tokio::fs::remove_file(&path).await;
     }
 
@@ -405,19 +458,20 @@ mod tests {
     async fn rejects_issuer_proof_mismatch() {
         let path = unique_path("issuer");
         let mut ev = make_grant_event(
-            "did:webvh:example.org:agents:support",
+            "ak:did_core:webvh:z6mksupportfixture",
             None,
             "ak.message.create",
             None,
         );
-        ev["proofs"][0]["verification_method"] = json!("did:webvh:other.example:admin#key-1");
+        ev["producer_proof"]["verification_method"] =
+            json!("did:webvh:z6mkotheradminfixture:admin.example#key-1");
         tokio::fs::write(
             &path,
             serde_json::to_vec(&ev).expect("grant event should serialize"),
         )
         .await
         .expect("write");
-        let err = load_and_verify_grant(&path, "did:webvh:example.org:agents:support", None)
+        let err = load_and_verify_grant(&path, "ak:did_core:webvh:z6mksupportfixture", None)
             .await
             .expect_err("issuer proof mismatch should fail");
         assert!(err.to_string().contains("verification_method"));
@@ -432,6 +486,8 @@ mod tests {
             issuer: "did:webvh:i".into(),
             realm_id: None,
             actions: vec!["ak.message.create".into()],
+            constraints: Vec::new(),
+            not_before: None,
             expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
         };
         assert!(g.covers_action("ak.message.create"));

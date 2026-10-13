@@ -102,3 +102,7 @@ gateway 支持在运行时通过 API 修改配置，而不一定要重启：
 - 需要公网访问时再配置 `TLS`
 
 更细的字段定义请以当前代码和 schema 为准。
+
+## 本地 Claude terminal agent
+
+实验性纯 Rust `claude_stream` 模式使用独立模型/设置、显式版本门槛、按凭证隔离的审批及持久会话恢复。配置、停止、权限边界和旧 one-shot 迁移说明见[本地 Claude Code](claude-code.md)。

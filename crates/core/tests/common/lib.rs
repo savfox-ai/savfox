@@ -9,6 +9,7 @@ use savfox_utils::absolute_path::AbsolutePathBuf;
 use savfox_utils::cargo_bin::{CargoBinError, find_resource};
 use tempfile::TempDir;
 
+pub mod models;
 pub mod process;
 pub mod responses;
 pub mod streaming_sse;
@@ -74,6 +75,16 @@ pub fn test_tmp_path_buf() -> PathBuf {
 /// temporary directory. Using a per-test directory keeps tests hermetic and
 /// avoids clobbering a developer’s real `~/.savfox`.
 pub async fn load_default_config_for_test(savfox_home: &TempDir) -> Config {
+    models::write_test_catalog(savfox_home.path()).expect("write test model catalog");
+    let mut config = load_config_without_catalog_for_test(savfox_home).await;
+    if config.model.is_none() {
+        config.model = Some(models::DEFAULT_TEST_MODEL.to_owned());
+    }
+    config
+}
+
+/// Use an empty catalog when the test exercises model discovery itself.
+pub async fn load_config_without_catalog_for_test(savfox_home: &TempDir) -> Config {
     ConfigBuilder::default()
         .savfox_home(savfox_home.path().to_path_buf())
         .harness_overrides(default_test_overrides())

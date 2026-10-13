@@ -133,15 +133,20 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
         .as_ref()
         .expect("rmcp echo tool should return success");
     assert_eq!(result.is_error, Some(false));
-    assert!(
-        result.content.is_empty(),
-        "content should default to an empty array"
+    assert_eq!(
+        result.content.len(),
+        1,
+        "structured results include legacy text"
     );
 
     let structured = result
         .structured_content
         .as_ref()
         .expect("structured content");
+    let text = result.content[0]["text"]
+        .as_str()
+        .expect("JSON text content");
+    assert_eq!(&serde_json::from_str::<Value>(text)?, structured);
     let Value::Object(map) = structured else {
         panic!("structured content should be an object: {structured:?}");
     };
@@ -624,15 +629,20 @@ async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
         .as_ref()
         .expect("rmcp echo tool should return success");
     assert_eq!(result.is_error, Some(false));
-    assert!(
-        result.content.is_empty(),
-        "content should default to an empty array"
+    assert_eq!(
+        result.content.len(),
+        1,
+        "structured results include legacy text"
     );
 
     let structured = result
         .structured_content
         .as_ref()
         .expect("structured content");
+    let text = result.content[0]["text"]
+        .as_str()
+        .expect("JSON text content");
+    assert_eq!(&serde_json::from_str::<Value>(text)?, structured);
     let Value::Object(map) = structured else {
         panic!("structured content should be an object: {structured:?}");
     };
@@ -785,15 +795,20 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
         .as_ref()
         .expect("rmcp echo tool should return success");
     assert_eq!(result.is_error, Some(false));
-    assert!(
-        result.content.is_empty(),
-        "content should default to an empty array"
+    assert_eq!(
+        result.content.len(),
+        1,
+        "structured results include legacy text"
     );
 
     let structured = result
         .structured_content
         .as_ref()
         .expect("structured content");
+    let text = result.content[0]["text"]
+        .as_str()
+        .expect("JSON text content");
+    assert_eq!(&serde_json::from_str::<Value>(text)?, structured);
     let Value::Object(map) = structured else {
         panic!("structured content should be an object: {structured:?}");
     };
@@ -979,15 +994,20 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
         .as_ref()
         .expect("rmcp echo tool should return success");
     assert_eq!(result.is_error, Some(false));
-    assert!(
-        result.content.is_empty(),
-        "content should default to an empty array"
+    assert_eq!(
+        result.content.len(),
+        1,
+        "structured results include legacy text"
     );
 
     let structured = result
         .structured_content
         .as_ref()
         .expect("structured content");
+    let text = result.content[0]["text"]
+        .as_str()
+        .expect("JSON text content");
+    assert_eq!(&serde_json::from_str::<Value>(text)?, structured);
     let Value::Object(map) = structured else {
         panic!("structured content should be an object: {structured:?}");
     };

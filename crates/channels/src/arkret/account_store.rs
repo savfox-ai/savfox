@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use arkret::{DeviceId, Did};
+use arkret::{AccountId, ActorId, DeviceId, DidCoreId};
 use garth::{CursorScope, FileStore};
 
 use crate::arkret::account_scope_id;
@@ -48,20 +48,18 @@ pub fn delete_account_store(
 
 pub fn device_messages_scope(
     service_id: Option<&str>,
-    actor_id: &str,
+    account_id: &AccountId,
     device_id: &str,
 ) -> arkret::Result<CursorScope> {
     Ok(CursorScope::DeviceMessages {
         service_id: service_id
             .map(|value| {
-                Did::new(value.to_owned()).map_err(|error| {
+                DidCoreId::new(value.to_owned()).map_err(|error| {
                     arkret::Error::Protocol(format!("invalid service DID '{value}': {error}"))
                 })
             })
             .transpose()?,
-        actor_id: Did::new(actor_id.to_owned()).map_err(|error| {
-            arkret::Error::Protocol(format!("invalid actor DID '{actor_id}': {error}"))
-        })?,
+        actor_id: ActorId::account(account_id.clone()),
         device_id: DeviceId::new(device_id.to_owned()).map_err(|error| {
             arkret::Error::Protocol(format!("invalid Arkret device id '{device_id}': {error}"))
         })?,
@@ -88,8 +86,7 @@ pub(super) fn safe_file_stem(scope_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use arkret::{NotificationDelta, NotificationDeltaAction, NotificationId, NotificationKind};
-    use garth::{ClientEvent, DurableInboxStore};
+    use garth::{ClientEvent, CursorStore, DurableInboxStore};
 
     use super::*;
 
@@ -103,6 +100,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn device_message_cursor_isolated_by_complete_account_identity() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-garth-account-isolation-{}",
+            arkret::new_prefixed_uuid7("scope-")
+        ));
+        let store = open_account_store(&home, "channel", "account", 16).unwrap();
+        let principal = DidCoreId::new("ak:did_core:web:alice.example").unwrap();
+        let first = AccountId::new(
+            principal.clone(),
+            DidCoreId::new("ak:did_core:web:first.example").unwrap(),
+        );
+        let second = AccountId::new(
+            principal,
+            DidCoreId::new("ak:did_core:web:second.example").unwrap(),
+        );
+        let device = "ak:device:01904100-0000-7000-8000-000000000001";
+        let first_scope = device_messages_scope(None, &first, device).unwrap();
+        let second_scope = device_messages_scope(None, &second, device).unwrap();
+        assert_ne!(first_scope, second_scope);
+        store
+            .save(first_scope, "ak:cursor:first".to_owned())
+            .await
+            .unwrap();
+        assert_eq!(store.load(second_scope).await.unwrap(), None);
+    }
+
+    #[tokio::test]
     async fn pending_delivery_survives_account_store_reopen() {
         let home = std::env::temp_dir().join(format!("savfox-garth-inbox-{}", std::process::id()));
         let path = account_store_path(&home, "channel", "account");
@@ -110,7 +134,10 @@ mod tests {
         let store = open_account_store(&home, "channel", "account", 16).unwrap();
         let scope = device_messages_scope(
             None,
-            "did:webvh:z6mkfixture:alice.example",
+            &AccountId::new(
+                DidCoreId::new("ak:did_core:webvh:z6mkfixturealice").unwrap(),
+                DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+            ),
             "ak:device:01904100-0000-7000-8000-000000000001",
         )
         .unwrap();
@@ -118,18 +145,9 @@ mod tests {
             .commit(
                 scope,
                 Some("ak:cursor:restart".to_owned()),
-                vec![ClientEvent::Notification(NotificationDelta {
-                    id: NotificationId::new(
-                        "ak:notification:01904100-0000-7000-8000-000000000001".to_owned(),
-                    )
-                    .unwrap(),
-                    notification_kind: NotificationKind::Agent,
-                    action: NotificationDeltaAction::Remove,
-                    data: None,
-                })],
+                vec![ClientEvent::AccountUpdates(Default::default())],
             )
             .await
-            .unwrap()
             .unwrap();
         drop(store);
 

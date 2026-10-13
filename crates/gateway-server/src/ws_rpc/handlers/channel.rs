@@ -46,6 +46,7 @@ pub(crate) async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -
             thread_id,
             reply_target,
             saved_channel_config_id,
+            params.get("operation_id").and_then(Value::as_str),
         )
         .await
     {
@@ -211,10 +212,37 @@ fn arkret_namespace_count(map: &serde_json::Map<String, Value>) -> Option<u32> {
 }
 
 #[cfg(feature = "arkret")]
+fn arkret_diagnostics_for_account(account_id: Option<&str>, diagnostics: Vec<Value>) -> Vec<Value> {
+    diagnostics
+        .into_iter()
+        .filter(|diagnostic| {
+            account_id.is_some()
+                && diagnostic.get("account_id").and_then(Value::as_str) == account_id
+        })
+        .collect()
+}
+
+#[cfg(feature = "arkret")]
+fn saved_arkret_agent_diagnostics(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> Vec<Value> {
+    let account_id = savfox_channels::arkret::ArkretChannelConfig::from_channel_config(config)
+        .and_then(|parsed| parsed.accounts.first().map(|account| account.id.clone()));
+    arkret_diagnostics_for_account(
+        account_id.as_deref(),
+        crate::channels::arkret::arkret_account_runtime_diagnostics(&config.id),
+    )
+}
+
+#[cfg(feature = "arkret")]
 fn insert_arkret_listener_summary(
     info: &mut serde_json::Map<String, Value>,
     diagnostics: Vec<Value>,
 ) {
+    // A re-paired channel retains audit diagnostics for its retired account.
+    // Only the account selected by the saved config can describe this runtime.
+    let diagnostics =
+        arkret_diagnostics_for_account(info.get("account_id").and_then(Value::as_str), diagnostics);
     let ready = diagnostics.iter().any(|diagnostic| {
         diagnostic
             .get("running")
@@ -254,10 +282,12 @@ fn insert_arkret_listener_summary(
 
     info.insert("runtime_ready".to_owned(), json!(ready));
     info.insert("runtime_phase".to_owned(), json!(phase));
-    if let Some(error) = last_error {
-        info.insert("lastError".to_owned(), json!(error));
-        info.insert("last_error".to_owned(), json!(error));
-    }
+    let reason = diagnostics
+        .iter()
+        .find_map(|diagnostic| diagnostic.get("last_reason_code").and_then(Value::as_str));
+    info.insert("last_reason_code".to_owned(), json!(reason));
+    info.insert("lastError".to_owned(), json!(last_error));
+    info.insert("last_error".to_owned(), json!(last_error));
     info.insert("listener_diagnostics".to_owned(), json!(diagnostics));
 }
 
@@ -275,7 +305,9 @@ fn arkret_saved_config_running(config: &savfox_core::config::channel_store::Chan
         if arkret_mode_from_config_obj(raw) == "applet" {
             crate::channels::arkret_applet::is_arkret_applet_registered(&config.id)
         } else {
-            crate::channels::arkret::arkret_account_listener_count(&config.id) > 0
+            saved_arkret_agent_diagnostics(config)
+                .iter()
+                .any(|diagnostic| diagnostic.get("running").and_then(Value::as_bool) == Some(true))
         }
     }
 }
@@ -296,7 +328,7 @@ fn arkret_saved_config_connected(
         if arkret_mode_from_config_obj(raw) == "applet" {
             crate::channels::arkret_applet::is_arkret_applet_registered(&config.id)
         } else {
-            crate::channels::arkret::arkret_account_runtime_diagnostics(&config.id)
+            saved_arkret_agent_diagnostics(config)
                 .iter()
                 .any(|diagnostic| {
                     diagnostic
@@ -739,7 +771,7 @@ fn insert_saved_channel_metadata(
                         )
                     {
                         info.insert("applet_id".to_owned(), json!(&parsed.applet_id));
-                        info.insert("bot_actor_id".to_owned(), json!(&parsed.bot_actor_id));
+                        info.insert("bot_account_id".to_owned(), json!(&parsed.bot_account_id));
                         info.insert("base_url".to_owned(), json!(&parsed.base_url));
                         info.insert("service_id".to_owned(), json!(&parsed.service_id));
                         info.insert("protocol_count".to_owned(), json!(parsed.protocols.len()));
@@ -753,12 +785,6 @@ fn insert_saved_channel_metadata(
                             &["appletId", "applet_id"],
                         ) {
                             info.insert("applet_id".to_owned(), json!(applet_id));
-                        }
-                        if let Some(bot_actor_id) = first_non_empty_channel_config_string(
-                            config_obj,
-                            &["botActorId", "bot_actor_id"],
-                        ) {
-                            info.insert("bot_actor_id".to_owned(), json!(bot_actor_id));
                         }
                         if let Some(protocol_count) =
                             channel_config_collection_len(config_obj, &["protocols"])
@@ -849,19 +875,18 @@ fn insert_saved_channel_metadata(
             }
         }
         "webhook" => {
-            if let Some(callback_url) = first_non_empty_channel_config_string(
+            let configured = first_non_empty_channel_config_string(
                 config_obj,
                 &["callback_url", "webhook_url", "url"],
-            ) {
-                info.insert("callback_url".to_owned(), json!(callback_url));
-            }
+            )
+            .is_some();
+            info.insert("callback_configured".to_owned(), json!(configured));
         }
         "dingtalk" => {
-            if let Some(webhook_url) =
+            let configured =
                 first_non_empty_channel_config_string(config_obj, &["webhook_url", "url"])
-            {
-                info.insert("webhook_url".to_owned(), json!(webhook_url));
-            }
+                    .is_some();
+            info.insert("callback_configured".to_owned(), json!(configured));
         }
         "zalo" => {
             if let Some(app_id) =
@@ -1253,9 +1278,10 @@ pub(crate) async fn handle_channels_status(
             if let Some(config_id) = matrix_runtime.config_id.as_deref() {
                 matrix_entry.insert("config_id".to_owned(), json!(config_id));
             }
-            if let Some(registration) = matrix_runtime.registration.as_ref() {
-                matrix_entry.insert("registration".to_owned(), registration.clone());
-            }
+            // The generated registration contains as_token/hs_token. It is
+            // deliberately not included in status polling responses; those
+            // responses are retained in browser state and require only the
+            // ordinary Channel Write scope.
             matrix_entry.insert("last_error".to_owned(), json!(matrix_runtime.last_error));
         }
     }
@@ -1567,7 +1593,7 @@ pub(crate) async fn handle_channels_status(
                     .await
                     {
                         Ok(Some(verified)) => {
-                            info.insert("authority_status".to_owned(), json!("verified"));
+                            info.insert("authority_status".to_owned(), json!("last_session"));
                             info.insert(
                                 "verified_authorization_scope".to_owned(),
                                 json!(verified.actions),
@@ -2477,7 +2503,12 @@ pub(crate) async fn handle_channels_arkret_inspect(
     let key_digest =
         savfox_channels::arkret::ed25519_runtime_public_key_digest(key_ref, verification_method)
             .map_err(|error| (INTERNAL_ERROR, error.to_string()))?;
-    let diagnostics = crate::channels::arkret::arkret_account_runtime_diagnostics(config_id);
+    let diagnostics = crate::channels::arkret::arkret_account_runtime_diagnostics(config_id)
+        .into_iter()
+        .filter(|diagnostic| {
+            diagnostic.get("account_id").and_then(Value::as_str) == Some(account.id.as_str())
+        })
+        .collect::<Vec<_>>();
     let runtime_phase = diagnostics
         .iter()
         .find_map(|diagnostic| diagnostic.get("phase").and_then(Value::as_str))
@@ -2500,7 +2531,7 @@ pub(crate) async fn handle_channels_arkret_inspect(
             .filter(|action| !verified.actions.contains(action))
             .cloned()
             .collect::<Vec<_>>();
-        ("verified", json!(verified.actions), json!(excess))
+        ("last_session", json!(verified.actions), json!(excess))
     } else {
         ("pending_session", Value::Null, Value::Null)
     };
@@ -2699,8 +2730,8 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
         ));
     };
     let parsed =
-        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&raw_config)
-            .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
+        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_pairing_config(&raw_config)
+            .map_err(|error| (INVALID_REQUEST, format!("{error:#}")))?;
     let account_id = params
         .get("account_id")
         .or_else(|| params.get("accountId"))
@@ -2723,7 +2754,7 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
     })?;
     let request =
         savfox_channels::arkret::build_arkret_runtime_key_request_json(account, chrono::Utc::now())
-            .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+            .map_err(|err| (INVALID_REQUEST, format!("{err:#}")))?;
     let approval =
         submit_arkret_runtime_key_approval_request(channel.http_client(), account, request)
             .await
@@ -2737,6 +2768,15 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
         "status": approval.status,
         "message": "Arkret runtime key approval request sent to Inkson",
     }))
+}
+
+#[cfg(feature = "arkret")]
+fn canonical_arkret_request_body(
+    value: &impl serde::Serialize,
+    context: &str,
+) -> Result<Vec<u8>, String> {
+    arkret::canonical::canonical_json_bytes(value)
+        .map_err(|err| format!("serialize canonical {context}: {err}"))
 }
 
 #[cfg(feature = "arkret")]
@@ -2761,14 +2801,17 @@ async fn submit_arkret_runtime_key_approval_request(
         .map_err(|err| {
             format!("Arkret runtime approval request does not match the spec body: {err}")
         })?;
-    let request_body = serde_json::to_vec(&typed)
-        .map_err(|err| format!("serialize Arkret runtime approval request: {err}"))?;
+    let request_body = canonical_arkret_request_body(&typed, "Arkret runtime approval request")?;
     let endpoint = format!(
         "{}/_arkret/open/agent-pairing/runtime-key-requests",
         bootstrap.arkret_base_url.trim_end_matches('/')
     );
     let response = client
         .post(&endpoint)
+        .header(
+            "Arkret-Operation",
+            arkret::ServiceOperationId::OPEN_AGENT_PAIRING_COMMAND_SUBMIT_RUNTIME_KEY_REQUEST_V1,
+        )
         .header(CONTENT_TYPE, "application/json")
         .body(request_body)
         .send()
@@ -2814,8 +2857,8 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
         ));
     };
     let parsed =
-        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&raw_config)
-            .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
+        savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_pairing_config(&raw_config)
+            .map_err(|error| (INVALID_REQUEST, format!("{error:#}")))?;
     let account_id = params
         .get("account_id")
         .or_else(|| params.get("accountId"))
@@ -2838,20 +2881,57 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
     })?;
     let (request, local_public_key_digest) =
         savfox_channels::arkret::build_arkret_runtime_key_status_request_json(account)
-            .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+            .map_err(|err| (INVALID_REQUEST, format!("{err:#}")))?;
     let outcome = poll_arkret_runtime_key_status(channel.http_client(), account, request)
         .await
         .map_err(|err| (INVALID_REQUEST, err))?;
     // Two orthogonal axes (key-management.md §3.6.1): `status` is the lifecycle
     // intent (active/paused/deactivated); `runtime_state` is the derived runtime
     // readiness (pending_runtime_key/ready/replacing/pairing_expired).
-    let status = outcome.status;
+    let status = outcome.lifecycle;
     let runtime_state = outcome.runtime_state;
-    let authorized_public_key_digest = outcome.authorized_public_key_digest.as_deref();
+    let authorized_public_key_digest = outcome
+        .authorized_public_key_digest
+        .as_ref()
+        .map(arkret::Hash::as_str);
     let key_digest_matches =
         authorized_public_key_digest.map(|digest| digest == local_public_key_digest);
     let (approved, ready, paired_by_other_runtime) =
         arkret_runtime_key_status_flags(status, key_digest_matches);
+    if approved {
+        let method = outcome
+            .authorized_verification_method
+            .as_ref()
+            .ok_or_else(|| {
+                (
+                    INVALID_REQUEST,
+                    "active Agent omitted its verification method".to_owned(),
+                )
+            })?;
+        let evidence = outcome.current_signer_evidence.as_ref().ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "active Agent omitted its signer evidence".to_owned(),
+            )
+        })?;
+        let signer = &evidence.authenticated_signer_evidence;
+        if signer.signer_kind != arkret::AuthenticatedSignerKind::Agent {
+            return Err((
+                INVALID_REQUEST,
+                "active Agent returned non-Agent signer evidence".to_owned(),
+            ));
+        }
+        if signer.subject_id.as_str() != account.principal_id
+            || &signer.verification_method != method
+            || account.verification_method.as_deref() != Some(method.as_str())
+        {
+            return Err((
+                INVALID_REQUEST,
+                "active Agent signer evidence does not match the paired runtime identity"
+                    .to_owned(),
+            ));
+        }
+    }
     let message = if ready {
         "Runtime key approved by Inkson; agent is active"
     } else if status == arkret::AgentLifecycleState::Paused && approved {
@@ -2879,6 +2959,8 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
         "key_digest_matches": key_digest_matches,
         "paired_by_other_runtime": paired_by_other_runtime,
         "authorized_event_ref": outcome.authorized_event_ref,
+        "signer_resolution_evidence_ref": outcome.signer_resolution_evidence_ref,
+        "current_signer_evidence": outcome.current_signer_evidence,
         "message": message,
     }))
 }
@@ -2911,14 +2993,17 @@ async fn poll_arkret_runtime_key_status(
         .map_err(|err| {
             format!("Arkret runtime key status request does not match the spec body: {err}")
         })?;
-    let request_body = serde_json::to_vec(&typed)
-        .map_err(|err| format!("serialize Arkret runtime key status request: {err}"))?;
+    let request_body = canonical_arkret_request_body(&typed, "Arkret runtime key status request")?;
     let endpoint = format!(
         "{}/_arkret/open/agent-pairing/runtime-key-requests/status",
         bootstrap.arkret_base_url.trim_end_matches('/')
     );
     let response = client
         .post(&endpoint)
+        .header(
+            "Arkret-Operation",
+            arkret::ServiceOperationId::OPEN_AGENT_PAIRING_READ_RUNTIME_KEY_REQUEST_STATUS_V1,
+        )
         .header(CONTENT_TYPE, "application/json")
         .body(request_body)
         .send()
@@ -2936,9 +3021,14 @@ async fn poll_arkret_runtime_key_status(
             "Arkret runtime key status endpoint returned HTTP {status}: {detail}"
         ));
     }
-    serde_json::from_slice::<arkret::AgentRuntimeApprovalStatusOutcome>(&bytes).map_err(|err| {
-        format!("Arkret runtime key status endpoint returned invalid outcome: {err}")
-    })
+    let outcome = serde_json::from_slice::<arkret::AgentRuntimeApprovalStatusOutcome>(&bytes)
+        .map_err(|err| {
+            format!("Arkret runtime key status endpoint returned invalid outcome: {err}")
+        })?;
+    outcome
+        .validate_signer_evidence_delivery()
+        .map_err(|err| format!("Arkret runtime key status outcome failed validation: {err}"))?;
+    Ok(outcome)
 }
 
 #[cfg(not(feature = "arkret"))]
@@ -3082,11 +3172,18 @@ async fn fetch_arkret_pairing_bootstrap(
         .map_err(|err| format!("serialize pairing resolver request: {err}"))?;
     let response = client
         .post(resolve_url)
+        .header(
+            "Arkret-Operation",
+            arkret::ServiceOperationId::OPEN_AGENT_PAIRING_READ_RESOLVE_V1,
+        )
         .header(CONTENT_TYPE, "application/json")
         .body(body)
         .send()
         .await
-        .map_err(|err| format!("resolve Arkret pairing link failed: {err}"))?;
+        .map_err(|err| {
+            tracing::warn!(url = %resolve_url, error = ?err, "Arkret pairing resolver request failed");
+            format!("resolve Arkret pairing link failed: {err}")
+        })?;
     let status = response.status();
     let bytes = response
         .bytes()
@@ -3116,6 +3213,7 @@ fn validate_arkret_pairing_bootstrap_value(value: Value) -> Result<Value, String
     {
         return Err("Arkret pairing bootstrap contains empty required fields".to_owned());
     }
+    bootstrap.validated_runtime_identity()?;
     Ok(value)
 }
 
@@ -3136,7 +3234,9 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let label = params
-        .get("account_id")
+        .get("pairing_request_id")
+        .or_else(|| params.get("pairingRequestId"))
+        .or_else(|| params.get("account_id"))
         .or_else(|| params.get("accountId"))
         .or_else(|| params.get("agent_id"))
         .or_else(|| params.get("agentId"))
@@ -3174,7 +3274,7 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
             "savfox-arkret",
             keyring_account,
         )
-        .map_err(|err| (INTERNAL_ERROR, err.to_string()))?,
+        .map_err(|err| (INTERNAL_ERROR, format!("{err:#}")))?,
     };
     let key_ref_json = serde_json::to_value(&key_ref)
         .map_err(|err| (INTERNAL_ERROR, format!("serialize Arkret keyRef: {err}")))?;
@@ -3343,7 +3443,7 @@ async fn handle_matrix_channel_test(
             "platform": "matrix",
             "ok": true,
             "mode": "appservice",
-            "registration": crate::channels::matrix::matrix_appservice_registration_preview(&parsed),
+            "registration_configured": true,
             "message": "Matrix appservice configuration is valid",
         })),
     }
@@ -4136,17 +4236,17 @@ pub(crate) async fn handle_directory_groups_members(
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
 
+    use super::{
+        SavedChannelState, arkret_test_channel_config, insert_saved_channel_metadata,
+        matrix_test_channel_config, request_matches_channel_instance, saved_channel_config_ready,
+    };
     #[cfg(feature = "arkret")]
     use super::{
-        SavedChannelState, arkret_pairing_resolve_target, arkret_runtime_key_status_flags,
-        insert_arkret_listener_summary, insert_saved_channel_metadata,
+        arkret_pairing_resolve_target, arkret_runtime_key_status_flags,
+        canonical_arkret_request_body, insert_arkret_listener_summary,
         sanitize_arkret_runtime_key_label, validate_arkret_pairing_bootstrap_value,
-    };
-    use super::{
-        arkret_test_channel_config, matrix_test_channel_config, request_matches_channel_instance,
-        saved_channel_config_ready,
     };
 
     #[cfg(feature = "arkret")]
@@ -4160,6 +4260,20 @@ mod tests {
             arkret_runtime_key_status_flags(arkret::AgentLifecycleState::Active, Some(true)),
             (true, true, false)
         );
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_request_body_is_byte_for_byte_canonical_json() {
+        let bytes = canonical_arkret_request_body(
+            &json!({"z": {"b": 2, "a": 1}, "a": "value"}),
+            "test request",
+        )
+        .expect("canonical request body");
+
+        assert_eq!(bytes, br#"{"a":"value","z":{"a":1,"b":2}}"#.as_slice());
+        arkret::canonical::validate_canonical_bytes(&bytes)
+            .expect("request body must pass the server canonical-byte validator");
     }
 
     fn channel_config(
@@ -4212,16 +4326,166 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn channel_status_metadata_never_returns_credential_bearing_webhook_urls() {
+        for kind in ["webhook", "dingtalk"] {
+            let config = channel_config(
+                kind,
+                json!({
+                    "webhook_url": "https://hooks.example.com/send?access_token=secret-token"
+                }),
+            );
+            let state = SavedChannelState {
+                exists: true,
+                enabled: true,
+                ready: true,
+                channel_name: Some("Default".to_owned()),
+                channel_slug: Some("default".to_owned()),
+                config: Some(config),
+            };
+            let mut info = serde_json::Map::new();
+
+            insert_saved_channel_metadata(&mut info, kind, &state);
+
+            let serialized = Value::Object(info);
+            assert_eq!(serialized["callback_configured"], true);
+            assert!(!serialized.to_string().contains("secret-token"));
+            assert!(serialized.get("webhook_url").is_none());
+            assert!(serialized.get("callback_url").is_none());
+        }
+    }
+
     #[cfg(feature = "arkret")]
     fn sdk_inkson_bootstrap() -> serde_json::Value {
         json!({
             "arkret_base_url": "https://arkret.example.org",
-            "service_id": "did:webvh:arkret.example.org",
-            "agent_id": "did:webvh:example.org:agents:support",
+            "service_id": "ak:did_core:web:arkret.example.org",
+            "agent_id": "ak:did_core:web:agent.example",
             "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
             "pairing_code": "12345678",
             "pairing_expires_at": "2999-01-01T00:00:00.000Z"
         })
+    }
+
+    /// Exact verificationMethod authorized for this Agent runtime key.
+    ///
+    /// It is supplied independently as a complete DID URL and is never derived
+    /// from the stable Agent core id or a synthetic Signal device identity.
+    #[cfg(feature = "arkret")]
+    fn sdk_agent_verification_method() -> String {
+        "did:web:agent.example#runtime-1".to_owned()
+    }
+
+    #[cfg(feature = "arkret")]
+    fn approved_agent_channel_config() -> savfox_core::config::channel_store::ChannelConfig {
+        use base64::Engine as _;
+
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[37; 32]);
+        let mut config = channel_config(
+            "arkret",
+            json!({
+                "mode": "agent",
+                "inksonBootstrap": sdk_inkson_bootstrap(),
+                "keyRef": {
+                    "kind": "inline_seed_base64",
+                    "value": base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.to_bytes())
+                },
+                "verificationMethod": sdk_agent_verification_method(),
+                "authorizedEventRef": arkret::EventId::from_digest(
+                    arkret::canonical::DigestSuite::Sha256,
+                    [0x63; 32]
+                ),
+                "controllerAccountId": {
+                    "principal_id": "ak:did_core:web:controller.example",
+                    "station_id": "ak:did_core:web:station.example"
+                },
+                "requestedScope": savfox_channels::arkret::default_agent_runtime_scope().unwrap()
+            }),
+        );
+        let jwk = arkret::signatures::JsonWebKey::from_ed25519_verifying_key(
+            &signing_key.verifying_key(),
+        );
+        let evidence = arkret::build_agent_signer_evidence(
+            arkret::DidCoreId::new("ak:did_core:web:agent.example").unwrap(),
+            arkret::DidUrl::new(sdk_agent_verification_method()).unwrap(),
+            serde_json::from_value(serde_json::to_value(jwk).unwrap()).unwrap(),
+            arkret::RealmCommitId::from_digest([55; 32]),
+            "2026-09-16T00:00:00.000Z".parse().unwrap(),
+        )
+        .unwrap();
+        let reference = evidence.signer_evidence_ref().unwrap();
+        config.config["signerResolutionEvidenceRef"] = json!(reference.clone());
+        config.config["currentSignerEvidence"] = json!(arkret::KeyStateCurrentSignerEvidence {
+            signer_resolution_evidence_ref: reference,
+            authenticated_signer_evidence: evidence,
+        });
+        config
+    }
+
+    #[cfg(feature = "arkret")]
+    #[tokio::test]
+    async fn arkret_pairing_resolver_sends_operation_selector() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind resolver");
+        let endpoint = format!(
+            "http://{}/_arkret/open/agent-pairing/resolve",
+            listener.local_addr().unwrap()
+        );
+        let token = "abcdefghijklmnopqrstuvwxyz";
+        let expected_body = serde_json::to_vec(&json!({ "pairing_token": token })).unwrap();
+        let mut bootstrap = sdk_inkson_bootstrap();
+        bootstrap["runtime_identity"] = json!({
+            "controller_account_id": {
+                "principal_id": "ak:did_core:web:controller.example",
+                "station_id": "ak:did_core:web:station.example"
+            },
+            "verification_method": "did:web:agent.example#runtime-pairing"
+        });
+        let response_body = serde_json::to_string(&bootstrap).unwrap();
+        let server = async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let header_end = loop {
+                let mut buf = [0_u8; 1024];
+                let len = stream.read(&mut buf).await.unwrap();
+                assert!(len > 0, "request ended before its body arrived");
+                request.extend_from_slice(&buf[..len]);
+                if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n")
+                    && request.len() >= end + 4 + expected_body.len()
+                {
+                    break end;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+            assert!(headers.starts_with("post /_arkret/open/agent-pairing/resolve http/1.1\r\n"));
+            assert_eq!(
+                headers
+                    .lines()
+                    .filter(|line| line.starts_with("arkret-operation:"))
+                    .collect::<Vec<_>>(),
+                vec!["arkret-operation: ak.open.agent_pairing.read.resolve.v1"]
+            );
+            assert!(headers.contains("content-type: application/json"));
+            assert_eq!(&request[header_end + 4..], expected_body.as_slice());
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response_body}",
+                response_body.len()
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        };
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let ((), result) = tokio::join!(
+                server,
+                super::fetch_arkret_pairing_bootstrap(&client, &endpoint, token)
+            );
+            assert_eq!(result.expect("resolve bootstrap"), bootstrap);
+        })
+        .await
+        .expect("pairing resolver timed out");
     }
 
     #[cfg(feature = "arkret")]
@@ -4277,6 +4541,31 @@ mod tests {
             .expect_err("legacy bootstrap fields must fail validation");
 
         assert!(err.contains("unknown field"));
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_pairing_resolver_requires_valid_runtime_identity() {
+        let mut value = sdk_inkson_bootstrap();
+        assert!(
+            validate_arkret_pairing_bootstrap_value(value.clone())
+                .unwrap_err()
+                .contains("resolve a new pairing link")
+        );
+        value["runtime_identity"] = json!({
+            "controller_account_id": {
+                "principal_id": "ak:did_core:web:controller.example",
+                "station_id": "ak:did_core:web:station.example"
+            },
+            "verification_method": "did:web:agent.example#runtime-pairing"
+        });
+        assert_eq!(
+            validate_arkret_pairing_bootstrap_value(value.clone()).unwrap(),
+            value
+        );
+        value["runtime_identity"]["verification_method"] =
+            json!("did:web:foreign.example#runtime-pairing");
+        assert!(validate_arkret_pairing_bootstrap_value(value).is_err());
     }
 
     #[test]
@@ -4343,40 +4632,16 @@ mod tests {
     #[cfg(feature = "arkret")]
     #[test]
     fn arkret_agent_ready_requires_completed_runtime_pairing() {
-        let ready = channel_config(
-            "arkret",
-            json!({
-                "mode": "agent",
-                "baseUrl": "https://arkret.example.org",
-                "serviceId": "did:webvh:arkret.example.org",
-                "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "did:webvh:example.org:agents:support",
-                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
-                "requestedScope": [
-                    "ak.self.events.stream.subscribe",
-                    "ak.self.events.query.scan",
-                    "ak.self.events.command.submit",
-                    "ak.self.keys.keypackages.upload.create",
-                    "ak.self.keys.keypackages.command.consume",
-                    "ak.self.keys.keypackages.command.revoke",
-                    "ak.self.device_messages.query.list",
-                    "ak.self.device_messages.command.ack",
-                    "ak.event.read",
-                    "ak.message.create"
-                ]
-            }),
-        );
+        let ready = approved_agent_channel_config();
         let missing_authorization = channel_config(
             "arkret",
             json!({
                 "mode": "agent",
                 "baseUrl": "https://arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "did:webvh:example.org:agents:support",
+                "principalId": "ak:did_core:web:agent.example",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1"
+                "verificationMethod": "did:web:agent.example#runtime-1"
             }),
         );
 
@@ -4398,12 +4663,12 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://arkret.example.org",
-                "serviceId": "did:webvh:arkret.example.org",
+                "serviceId": "ak:did_core:web:arkret.example.org",
                 "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "did:webvh:example.org:agents:support",
+                "principalId": "ak:did_core:web:agent.example",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
+                "verificationMethod": "did:web:agent.example#runtime-1",
+                "authorizedEventRef": "ak:event:AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
                 "requestedScope": ["ak.event.read", "ak.message.create"],
                 "listen": true,
                 "send": false
@@ -4416,31 +4681,8 @@ mod tests {
     #[cfg(feature = "arkret")]
     #[test]
     fn arkret_metadata_separates_pairing_from_runtime_readiness() {
-        let config = channel_config(
-            "arkret",
-            json!({
-                "mode": "agent",
-                "baseUrl": "https://arkret.example.org",
-                "serviceId": "did:webvh:arkret.example.org",
-                "inksonBootstrap": sdk_inkson_bootstrap(),
-                "principalId": "did:webvh:example.org:agents:support",
-                "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_AGENT_KEY" },
-                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "authorizedEventRef": "ak:event:01904100-0000-7000-8000-000000000099",
-                "requestedScope": [
-                    "ak.self.events.stream.subscribe",
-                    "ak.self.events.query.scan",
-                    "ak.self.events.command.submit",
-                    "ak.self.keys.keypackages.upload.create",
-                    "ak.self.keys.keypackages.command.consume",
-                    "ak.self.keys.keypackages.command.revoke",
-                    "ak.self.device_messages.query.list",
-                    "ak.self.device_messages.command.ack",
-                    "ak.event.read",
-                    "ak.message.create"
-                ]
-            }),
-        );
+        let config = approved_agent_channel_config();
+        let authorized_event_ref = config.config["authorizedEventRef"].clone();
         let state = SavedChannelState {
             exists: true,
             enabled: true,
@@ -4456,17 +4698,13 @@ mod tests {
         assert_eq!(info["runtime_pairing_state"], "paired");
         assert_eq!(info["runtime_phase"], "stopped");
         assert_eq!(info["runtime_ready"], false);
-        assert_eq!(
-            info["authorized_event_ref"],
-            "ak:event:01904100-0000-7000-8000-000000000099"
-        );
-        assert_eq!(
-            info["verification_method"],
-            "did:webvh:example.org:agents:support#runtime-1"
-        );
+        assert_eq!(info["authorized_event_ref"], authorized_event_ref);
+        assert_eq!(info["verification_method"], sdk_agent_verification_method());
         assert_eq!(
             info["runtime_scope_count"],
-            savfox_channels::arkret::DEFAULT_AGENT_RUNTIME_SCOPE.len()
+            savfox_channels::arkret::default_agent_runtime_scope()
+                .unwrap()
+                .len()
         );
     }
 
@@ -4474,9 +4712,11 @@ mod tests {
     #[test]
     fn arkret_listener_summary_surfaces_retry_failure() {
         let mut info = serde_json::Map::new();
+        info.insert("account_id".to_owned(), json!("current"));
         insert_arkret_listener_summary(
             &mut info,
             vec![json!({
+                "account_id": "current",
                 "running": true,
                 "phase": "retry_wait",
                 "last_error": "session authentication failed"
@@ -4490,21 +4730,81 @@ mod tests {
 
     #[cfg(feature = "arkret")]
     #[test]
+    fn arkret_listener_summary_ignores_retired_pairing_failure() {
+        let mut info = serde_json::Map::new();
+        info.insert("account_id".to_owned(), json!("new-account"));
+        info.insert("last_error".to_owned(), json!("stale aggregate error"));
+        info.insert("lastError".to_owned(), json!("stale aggregate error"));
+        info.insert("last_reason_code".to_owned(), json!("proof_invalid"));
+        insert_arkret_listener_summary(
+            &mut info,
+            vec![
+                json!({"account_id":"old-account", "running":false, "phase":"stopped",
+                "last_error":"old session refused", "last_reason_code":"proof_invalid"}),
+                json!({"account_id":"new-account", "running":true, "phase":"subscribing",
+                "last_error":null, "last_reason_code":null}),
+            ],
+        );
+        assert_eq!(info["runtime_ready"], true);
+        assert_eq!(info["runtime_phase"], "subscribing");
+        assert!(info["last_error"].is_null());
+        assert!(info["lastError"].is_null());
+        assert!(info["last_reason_code"].is_null());
+        assert_eq!(info["listener_diagnostics"].as_array().unwrap().len(), 1);
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_listener_summary_cannot_inherit_retired_connection() {
+        let mut info = serde_json::Map::new();
+        info.insert("account_id".to_owned(), json!("new-account"));
+        insert_arkret_listener_summary(
+            &mut info,
+            vec![json!({"account_id":"old-account", "running":true, "phase":"subscribing"})],
+        );
+        assert_eq!(info["runtime_ready"], false);
+        assert_eq!(info["runtime_phase"], "stopped");
+        assert!(info["listener_diagnostics"].as_array().unwrap().is_empty());
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
+    fn arkret_listener_summary_keeps_current_failure_with_retired_connection() {
+        let mut info = serde_json::Map::new();
+        info.insert("account_id".to_owned(), json!("new-account"));
+        insert_arkret_listener_summary(
+            &mut info,
+            vec![
+                json!({"account_id":"old-account", "running":true, "phase":"subscribing"}),
+                json!({"account_id":"new-account", "running":true, "phase":"retry_wait",
+                "last_error":"current session refused", "last_reason_code":"proof_invalid"}),
+            ],
+        );
+        assert_eq!(info["runtime_ready"], false);
+        assert_eq!(info["runtime_phase"], "retry_wait");
+        assert_eq!(info["lastError"], "current session refused");
+        assert_eq!(info["last_reason_code"], "proof_invalid");
+    }
+
+    #[cfg(feature = "arkret")]
+    #[test]
     fn arkret_applet_ready_requires_valid_applet_config() {
         let ready = channel_config(
             "arkret",
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "did:webvh:slack-bridge.example",
-                "controllerId": "did:webvh:example.com:admin",
+                "serviceId": "ak:did_core:webvh:z6mkbridge",
+                "service_did":"did:webvh:z6mkbridge:bridge.example",
+                "trust_domain":"ak:trust_domain:example.net",
+                "verification_method":"did:webvh:z6mkbridge:bridge.example#key-1",
+                "signer_resolution_evidence_ref": format!("ak:signer_evidence:sha256:{}", "11".repeat(32)),
+                "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
+                "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "botActorId": "did:webvh:slack-bridge.example:bot",
                 "arkretServerUrl": "https://arkret.example.org",
-                "arkretServerDid": "did:webvh:arkret.example.org",
-                "accessToken": "applet-bearer-1",
+                "arkretServerDid": "did:webvh:z6mkstation:arkret.example.org",
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" },
-                "loginChallenge": "applet-login-challenge-1234",
                 "protocols": ["slack"],
                 "namespaces": {
                     "actors": [
@@ -4519,22 +4819,26 @@ mod tests {
                 }
             }),
         );
-        let missing_namespaces = channel_config(
+        let missing_server_trust = channel_config(
             "arkret",
             json!({
                 "mode": "applet",
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
-                "serviceId": "did:webvh:slack-bridge.example",
-                "controllerId": "did:webvh:example.com:admin",
+                "serviceId": "ak:did_core:webvh:z6mkbridge",
+                "service_did":"did:webvh:z6mkbridge:bridge.example",
+                "trust_domain":"ak:trust_domain:example.net",
+                "verification_method":"did:webvh:z6mkbridge:bridge.example#key-1",
+                "signer_resolution_evidence_ref": format!("ak:signer_evidence:sha256:{}", "11".repeat(32)),
+                "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
+                "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "botActorId": "did:webvh:slack-bridge.example:bot",
+                "bot_account_id":{"principal_id":"ak:did_core:web:slack-bridge.example:bot", "station_id":"ak:did_core:webvh:z6mkstation"},
                 "arkretServerUrl": "https://arkret.example.org",
-                "accessToken": "applet-bearer-1",
                 "protocols": ["slack"]
             }),
         );
 
         assert!(saved_channel_config_ready(&ready));
-        assert!(!saved_channel_config_ready(&missing_namespaces));
+        assert!(!saved_channel_config_ready(&missing_server_trust));
     }
 }

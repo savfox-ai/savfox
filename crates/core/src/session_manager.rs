@@ -120,7 +120,7 @@ impl SessionManager {
                     auth_manager.clone(),
                     provider,
                 )),
-                skills_manager: Arc::new(SkillsManager::new(savfox_home, None)),
+                skills_manager: Arc::new(SkillsManager::new_for_tests(savfox_home)),
                 auth_manager,
                 session_source: SessionSource::Exec,
                 #[cfg(any(test, feature = "test-support"))]

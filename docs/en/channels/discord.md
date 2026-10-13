@@ -6,6 +6,11 @@ buttons.
 
 Default inbound mode is `stream`.
 
+The Discord stream uses Serenity's supported native TLS backend: OpenSSL on
+Linux, SChannel on Windows, and Secure Transport on macOS. Install enterprise
+proxy roots in the platform trust store. This avoids the older Rustls
+0.22 dependency reached by Serenity 0.12's Rustls backend.
+
 ## Prerequisites
 
 - A running Savfox gateway (`savfox gateway`)

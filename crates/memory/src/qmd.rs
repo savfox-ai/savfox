@@ -29,7 +29,7 @@ pub struct QmdFrontmatter {
     #[serde(default)]
     pub archived: bool,
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_yaml::Value>,
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 pub struct QmdManager {
@@ -107,8 +107,8 @@ impl QmdManager {
 
         let path = self.qmd_dir.join(format!("{filename}.qmd"));
 
-        let yaml =
-            serde_yaml::to_string(&frontmatter).map_err(|e| QmdError::ParseError(e.to_string()))?;
+        let yaml = serde_saphyr::to_string(&frontmatter)
+            .map_err(|e| QmdError::ParseError(e.to_string()))?;
 
         let full_content = format!("---\n{yaml}---\n{content}");
 
@@ -133,7 +133,7 @@ impl QmdManager {
             qmd.content = c.to_owned();
         }
 
-        let yaml = serde_yaml::to_string(&qmd.frontmatter)
+        let yaml = serde_saphyr::to_string(&qmd.frontmatter)
             .map_err(|e| QmdError::ParseError(e.to_string()))?;
 
         let full_content = format!("---\n{}---\n{}", yaml, qmd.content);
@@ -215,7 +215,7 @@ fn parse_frontmatter(content: &str) -> Result<(QmdFrontmatter, String), QmdError
     let body = &content[end_marker + 7..];
 
     let frontmatter: QmdFrontmatter =
-        serde_yaml::from_str(frontmatter_str).map_err(|e| QmdError::ParseError(e.to_string()))?;
+        serde_saphyr::from_str(frontmatter_str).map_err(|e| QmdError::ParseError(e.to_string()))?;
 
     Ok((frontmatter, body.to_owned()))
 }

@@ -65,6 +65,29 @@ impl<T: HttpTransport, A: AuthProvider> ResponsesClient<T, A> {
         .await
     }
 
+    /// Native fixed text uses the same wire construction with a quiet, strict
+    /// SSE parser. Provider retry policy must be zero at the native caller.
+    pub async fn stream_request_native(
+        &self,
+        request: ResponsesRequest,
+    ) -> Result<ResponseStream, ApiError> {
+        if request.compression != Compression::None {
+            return Err(ApiError::InvalidRequest {
+                message: "native compression unsupported".into(),
+            });
+        }
+        self.streaming
+            .stream(
+                self.path(),
+                request.body,
+                request.headers,
+                RequestCompression::None,
+                crate::sse::responses::spawn_native_response_stream,
+                None,
+            )
+            .await
+    }
+
     #[instrument(level = "trace", skip_all, err)]
     pub async fn stream_prompt(
         &self,

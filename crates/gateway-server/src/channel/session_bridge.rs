@@ -81,6 +81,7 @@ impl GatewayChannel {
                 false,
                 None,
                 None,
+                None,
             )
             .await?;
         Ok(result.reply)
@@ -103,6 +104,7 @@ impl GatewayChannel {
                 false,
                 None,
                 None,
+                None,
             )
             .await?;
         Ok(result.reply)
@@ -120,7 +122,7 @@ impl GatewayChannel {
         F: FnMut(&str) + Send,
     {
         self.invoke_agent_text_in_session_with_metadata_impl(
-            prompt, model, session_id, on_delta, None, false, None, None,
+            prompt, model, session_id, on_delta, None, false, None, None, None,
         )
         .await
     }
@@ -138,6 +140,7 @@ impl GatewayChannel {
             |_| {},
             None,
             false,
+            None,
             None,
             None,
         )
@@ -158,6 +161,7 @@ impl GatewayChannel {
             |_| {},
             None,
             false,
+            None,
             None,
             None,
         )
@@ -193,6 +197,35 @@ impl GatewayChannel {
             true, // concurrent_fork: channel messages use fork-on-busy
             Some(security),
             Some(approval_scope),
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn invoke_agent_text_in_session_with_approval_and_context<F>(
+        &self,
+        prompt: &str,
+        model: &str,
+        session_id: Option<&str>,
+        security: ResolvedExecutionSecurity,
+        approval_scope: ChannelApprovalScope,
+        trusted_developer_context: Option<String>,
+        on_delta: F,
+        on_approval: Box<dyn FnMut(ApprovalNotification) + Send>,
+    ) -> anyhow::Result<AgentInvocationResult>
+    where
+        F: FnMut(&str) + Send,
+    {
+        self.invoke_agent_text_in_session_with_metadata_impl(
+            prompt,
+            model,
+            session_id,
+            on_delta,
+            Some(on_approval),
+            true,
+            Some(security),
+            Some(approval_scope),
+            trusted_developer_context,
         )
         .await
     }
@@ -207,6 +240,7 @@ impl GatewayChannel {
         concurrent_fork: bool,
         security: Option<ResolvedExecutionSecurity>,
         approval_scope: Option<ChannelApprovalScope>,
+        trusted_developer_context: Option<String>,
     ) -> anyhow::Result<AgentInvocationResult>
     where
         F: FnMut(&str) + Send,
@@ -257,12 +291,29 @@ impl GatewayChannel {
         if !model.is_empty() && model != "default" {
             config.model = Some(model.to_owned());
         }
+        if let Some(context) = trusted_developer_context.as_deref() {
+            let combined = match config.developer_instructions.take() {
+                Some(existing) if !existing.trim().is_empty() => {
+                    format!("{existing}\n\n{context}")
+                }
+                _ => context.to_owned(),
+            };
+            config.developer_instructions = Some(combined);
+        }
         let approval_cwd = config.cwd.clone();
 
         let requested_session_id = session_id
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
+        // A trusted remote envelope is turn-specific. Rehydrate the same
+        // rollout with the refreshed developer context rather than leaving a
+        // prior sender/event envelope attached to an active core session.
+        if trusted_developer_context.is_some()
+            && let Some(logical_id) = requested_session_id.as_deref()
+        {
+            self.invalidate_logical_session_security(logical_id).await;
+        }
         if let Some(sid) = requested_session_id.as_deref() {
             let parsed = uuid::Uuid::parse_str(sid)
                 .map_err(|err| anyhow::anyhow!("invalid session_id '{sid}': {err}"))?;
@@ -273,14 +324,49 @@ impl GatewayChannel {
             }
         }
 
+        let claude_execution = if self
+            .resolve_terminal_delegate(model)
+            .await?
+            .is_some_and(|delegate| delegate.is_claude_stream())
+        {
+            let scope = approval_scope.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("Claude Channel execution requires an authenticated peer scope")
+            })?;
+            let owner = format!(
+                "channel:{}",
+                crate::claude_code::digest(&serde_json::to_vec(
+                    &serde_json::json!({"channel":scope.channel,"instance":scope.channel_config_id,"account":scope.account_id,"peer":scope.peer_id})
+                )?)
+            );
+            let logical_id = requested_session_id
+                .clone()
+                .unwrap_or_else(|| scope.logical_session_id.clone());
+            Some(crate::claude_code::Execution {
+                owner,
+                // This caller has no stable upstream event ID. Identical text
+                // on a later turn is a new request, not a cached response.
+                request_id: uuid::Uuid::now_v7().to_string(),
+                session_id: logical_id,
+                agent_id: model.to_owned(),
+                approval_client: false,
+                trusted_context: trusted_developer_context.clone(),
+            })
+        } else {
+            None
+        };
+        let terminal_session_id = claude_execution
+            .as_ref()
+            .map(|execution| execution.session_id.as_str())
+            .or(requested_session_id.as_deref());
         if let Some(invocation) = self
-            .invoke_terminal_delegate_agent(
+            .invoke_terminal_delegate_with_execution(
                 prompt,
                 model,
                 model,
-                requested_session_id.as_deref(),
+                terminal_session_id,
                 &[],
                 None,
+                claude_execution.clone(),
             )
             .await?
         {
@@ -841,7 +927,10 @@ impl GatewayChannel {
         }
 
         if let Some(entry) = self.session_store.get(logical_session_id).await
-            && let Some(thread_id) = entry.thread_id.as_deref()
+            && let Some(thread_id) = entry
+                .core_thread_id
+                .as_deref()
+                .or(entry.thread_id.as_deref())
             && let Ok(parsed_thread_id) = SessionId::from_string(thread_id)
             && self
                 .session_manager
@@ -948,7 +1037,10 @@ impl GatewayChannel {
                 }
             }
 
-            if let Some(thread_id) = entry.thread_id.as_deref()
+            if let Some(thread_id) = entry
+                .core_thread_id
+                .as_deref()
+                .or(entry.thread_id.as_deref())
                 && let Some(path) = self.find_rollout_path_candidate(thread_id).await?
             {
                 return Ok(Some(path));

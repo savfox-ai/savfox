@@ -318,7 +318,7 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     let default_model = session_manager
         .get_models_manager()
         .get_default_model(&config.model, &config, RefreshStrategy::OnlineIfUncached)
-        .await;
+        .await?;
 
     // Handle resume subcommand by resolving a rollout path and using explicit resume API.
     let NewSession {
@@ -696,7 +696,9 @@ fn decode_utf16(
     }
 
     let units: Vec<u16> = input
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| decode_unit([chunk[0], chunk[1]]))
         .collect();
 

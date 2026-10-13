@@ -196,6 +196,7 @@ async fn web_search_mode_defaults_to_disabled_for_azure_responses() {
         .with_config(|config| {
             let base_url = config.model_provider.base_url.clone();
             let mut provider = built_in_model_providers()["openai"].clone();
+            provider.id = "azure".to_owned();
             provider.name = "Azure".to_owned();
             provider.base_url = base_url;
             provider.wire_api = WireApi::Responses;

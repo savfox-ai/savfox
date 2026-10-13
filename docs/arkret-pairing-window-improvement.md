@@ -184,6 +184,10 @@ Arkret Agent 配置目前把协议输入、异步配对、普通配置保存和�
     `Re-provision required` 并停止重试。
 14. 平台卡片显示实例计数；一个实例失败不得覆盖另一个 ready 实例。
 15. 所有 Arkret outbound 必须携带精确 saved Channel ID，缺失时 fail closed。
+16. Agent 配置以 `controllerAccountId` 保存完整的
+    `{principal_id, station_id}`，Sidecar 作者校验必须精确匹配 AccountId；Applet
+    配置使用 `controllerPrincipalId`，且不得用 `serviceId` 冒充 controller
+    principal。已退役的 principal-only controller 配置名不提供兼容别名。
 
 ## 7. 实施结果
 

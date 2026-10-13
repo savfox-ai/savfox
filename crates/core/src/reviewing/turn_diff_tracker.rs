@@ -186,11 +186,8 @@ impl TurnDiffTracker {
                 }
             }
 
-            if let Some(parent) = cur.parent() {
-                cur = parent.to_path_buf();
-            } else {
-                return None;
-            }
+            let parent = cur.parent()?;
+            cur = parent.to_path_buf();
         }
     }
 
@@ -418,7 +415,7 @@ impl FileMode {
         match self {
             Self::Regular => "100644",
             #[cfg(unix)]
-            FileMode::Executable => "100755",
+            Self::Executable => "100755",
             Self::Symlink => "120000",
         }
     }

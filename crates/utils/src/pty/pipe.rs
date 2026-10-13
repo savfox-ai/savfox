@@ -133,6 +133,7 @@ async fn spawn_process_with_stdin_mode(
     command.stderr(Stdio::piped());
 
     let mut child = command.spawn()?;
+    let child_pid = child.id();
     let pid = child
         .id()
         .ok_or_else(|| io::Error::other("missing child pid"))?;
@@ -207,6 +208,7 @@ async fn spawn_process_with_stdin_mode(
     });
 
     let (handle, output_rx) = ProcessHandle::new(
+        child_pid,
         writer_tx,
         output_tx,
         initial_output_rx,

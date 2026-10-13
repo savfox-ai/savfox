@@ -675,6 +675,11 @@ fn json_terminal_delegate_fields(
                 .join("\n")
         })
         .unwrap_or_else(|| "{{prompt}}".to_string());
+    let args = if config.get("mode").and_then(Value::as_str) == Some("claude_stream") {
+        serde_json::to_string_pretty(config.get("claude").unwrap_or(&json!({}))).unwrap_or_default()
+    } else {
+        args
+    };
     let stdin = config
         .get("stdin")
         .and_then(Value::as_str)
@@ -836,7 +841,11 @@ fn detail_terminal_delegate_fields(
     (
         config.enabled.unwrap_or(false),
         config.command.clone().unwrap_or_default(),
-        terminal_args_value(config.args.as_ref()),
+        if config.mode.as_ref().map(|mode| mode.as_str()) == Some("claude_stream") {
+            serde_json::to_string_pretty(&config.claude).unwrap_or_default()
+        } else {
+            terminal_args_value(config.args.as_ref())
+        },
         config.stdin.clone().unwrap_or_default(),
         config.cwd.clone().unwrap_or_default(),
         terminal_env_value(config.env.as_ref()),
@@ -922,6 +931,34 @@ fn normalize_terminal_args(raw: &str) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+fn codex_extra_args(raw: &str) -> Vec<String> {
+    let mut args = normalize_terminal_args(raw).into_iter();
+    let mut extra = Vec::new();
+    while let Some(arg) = args.next() {
+        if arg == "--listen" {
+            let _ = args.next();
+        } else if arg != "app-server" && !arg.starts_with("--listen=") {
+            extra.push(arg);
+        }
+    }
+    extra
+}
+
+fn claude_adapter_settings() -> String {
+    serde_json::to_string_pretty(&savfox_gateway_shared::ClaudeCodeConfig::default())
+        .unwrap_or_else(|_| "{}".to_owned())
+}
+
+fn codex_app_server_args(raw: &str) -> Vec<String> {
+    let mut args = vec![
+        "app-server".to_string(),
+        "--listen".to_string(),
+        "stdio://".to_string(),
+    ];
+    args.extend(codex_extra_args(raw));
+    args
 }
 
 fn normalize_terminal_env(raw: &str) -> std::collections::BTreeMap<String, String> {
@@ -1139,6 +1176,21 @@ fn terminal_delegate_payload(
         payload["workspace"]["base"] = json!(workspace_base);
     }
 
+    if profile == "claude" && mode == "claude_stream" {
+        payload["claude"] = serde_json::from_str::<Value>(args_raw)
+            .unwrap_or_else(|_| Value::String(args_raw.to_owned()));
+        payload.as_object_mut()?.remove("args");
+        payload.as_object_mut()?.remove("stdin");
+        payload.as_object_mut()?.remove("io_protocol");
+    }
+
+    if profile == "codex" && mode == "app_server" {
+        payload["args"] = json!(codex_app_server_args(args_raw));
+        payload.as_object_mut()?.remove("stdin");
+        payload.as_object_mut()?.remove("io_protocol");
+        payload["terminal_execution"] = json!("native_terminal");
+        payload["savfox_approval_bridge"] = json!("disabled");
+    }
     Some(payload)
 }
 
@@ -1720,7 +1772,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                 new_terminal_timeout.set("300".to_string());
                                 new_terminal_include_system_prompt.set(true);
                                 new_terminal_profile.set("codex".to_string());
-                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_mode.set("app_server".to_string());
                                 new_terminal_session_scope.set("per_session".to_string());
                                 new_terminal_io_protocol.set("plain_text".to_string());
                                 new_terminal_execution.set("native_terminal".to_string());
@@ -1815,7 +1867,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                             .and_then(|config| config.command.as_deref())
                                                             .unwrap_or("terminal");
                                                         rsx! {
-                                                            div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "Terminal Agent: {command}" }
+                                                            div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "External Agent: {command}" }
                                                         }
                                                     }
                                                 } else {
@@ -1975,7 +2027,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                     new_terminal_timeout.set("300".to_string());
                                     new_terminal_include_system_prompt.set(true);
                                     new_terminal_profile.set("codex".to_string());
-                                    new_terminal_mode.set("one_shot".to_string());
+                                    new_terminal_mode.set("app_server".to_string());
                                     new_terminal_session_scope.set("per_session".to_string());
                                     new_terminal_io_protocol.set("plain_text".to_string());
                                     new_terminal_execution.set("native_terminal".to_string());
@@ -2111,6 +2163,8 @@ fn AgentCreateForm(
     let providers = provider_data.read().0.clone();
     let selected_provider = new_provider();
     let is_terminal_agent = new_agent_kind() == "terminal";
+    let new_is_codex_app_server =
+        new_terminal_profile() == "codex" && new_terminal_mode() == "app_server";
     let model_options = provider_data
         .read()
         .1
@@ -2208,14 +2262,16 @@ fn AgentCreateForm(
                                 new_terminal_enabled.set(true);
                                 if new_terminal_profile() == "claude" {
                                     new_terminal_command.set("claude".to_string());
-                                    new_terminal_args.set("-p\n{{prompt}}".to_string());
+                                    new_terminal_args.set(claude_adapter_settings());
+                                    new_terminal_mode.set("claude_stream".to_string());
                                 } else {
                                     new_terminal_profile.set("codex".to_string());
                                     new_terminal_command.set("codex".to_string());
-                                    new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                    new_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                    new_terminal_mode.set("app_server".to_string());
                                 }
                             },
-                            "Terminal Agent"
+                            "External Agent"
                         }
                     }
                 }
@@ -2272,21 +2328,21 @@ fn AgentCreateForm(
                 }
                 if is_terminal_agent {
                 div { class: "{SECTION_CARD}", style: "padding:12px;margin-top:4px;",
-                    h4 { class: "{SECTION_TITLE}", "Terminal Agent Runtime" }
+                    h4 { class: "{SECTION_TITLE}", "External Agent Runtime" }
                     div { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;",
                         button {
                             class: if new_terminal_profile() == "claude" { "tool-btn tool-btn--primary" } else { TOOL_BTN },
                             onclick: move |_| {
                                 new_terminal_enabled.set(true);
                                 new_terminal_command.set("claude".to_string());
-                                new_terminal_args.set("-p\n{{prompt}}".to_string());
+                                new_terminal_args.set(claude_adapter_settings());
                                 new_terminal_stdin.set(String::new());
                                 new_terminal_profile.set("claude".to_string());
-                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_mode.set("claude_stream".to_string());
                                 new_terminal_session_scope.set("per_session".to_string());
-                                new_terminal_io_protocol.set("plain_text".to_string());
+                                new_terminal_io_protocol.set("jsonl".to_string());
                                 new_terminal_execution.set("native_terminal".to_string());
-                                new_terminal_approval_bridge.set("disabled".to_string());
+                                new_terminal_approval_bridge.set("required".to_string());
                             },
                             "Claude"
                         }
@@ -2295,10 +2351,10 @@ fn AgentCreateForm(
                             onclick: move |_| {
                                 new_terminal_enabled.set(true);
                                 new_terminal_command.set("codex".to_string());
-                                new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                new_terminal_args.set("app-server\n--listen\nstdio://".to_string());
                                 new_terminal_stdin.set(String::new());
                                 new_terminal_profile.set("codex".to_string());
-                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_mode.set("app_server".to_string());
                                 new_terminal_session_scope.set("per_session".to_string());
                                 new_terminal_io_protocol.set("plain_text".to_string());
                                 new_terminal_execution.set("native_terminal".to_string());
@@ -2316,10 +2372,15 @@ fn AgentCreateForm(
                                     let value = e.value();
                                     if value == "claude" {
                                         new_terminal_command.set("claude".to_string());
-                                        new_terminal_args.set("-p\n{{prompt}}".to_string());
+                                        new_terminal_args.set(claude_adapter_settings());
+                                        new_terminal_mode.set("claude_stream".to_string());
+                                    new_terminal_stdin.set(String::new());
+                                    new_terminal_io_protocol.set("jsonl".to_string());
+                                    new_terminal_approval_bridge.set("required".to_string());
                                     } else {
                                         new_terminal_command.set("codex".to_string());
-                                        new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                        new_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                        new_terminal_mode.set("app_server".to_string());
                                     }
                                     new_terminal_profile.set(value);
                                 },
@@ -2332,8 +2393,31 @@ fn AgentCreateForm(
                             label { class: "{LABEL}", "Mode" }
                             select {
                                 value: "{new_terminal_mode}",
-                                onchange: move |e| new_terminal_mode.set(e.value()),
+                                onchange: move |e| {
+                                    let mode = e.value();
+                                    if new_terminal_profile() == "codex" {
+                                        if mode == "app_server" {
+                                            new_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                            new_terminal_stdin.set(String::new());
+                                        } else if mode == "one_shot" {
+                                            new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                        }
+                                    }
+                                    if new_terminal_profile() == "claude" {
+                                        if mode == "claude_stream" {
+                                            new_terminal_args.set(claude_adapter_settings());
+                                            new_terminal_stdin.set(String::new());
+                                            new_terminal_approval_bridge.set("required".to_string());
+                                        } else if mode == "one_shot" {
+                                            new_terminal_args.set("-p\n{{prompt}}".to_string());
+                                            new_terminal_approval_bridge.set("disabled".to_string());
+                                        }
+                                    }
+                                    new_terminal_mode.set(mode);
+                                },
                                 class: "{INPUT}",
+                                if new_terminal_profile() == "codex" { option { value: "app_server", "Codex App Server" } }
+                                if new_terminal_profile() == "claude" { option { value: "claude_stream", "Claude Stream (Rust)" } }
                                 option { value: "one_shot", "One-shot" }
                                 option { value: "interactive_launch", "Interactive Launch" }
                                 option { value: "managed_pty", "Managed PTY" }
@@ -2352,38 +2436,44 @@ fn AgentCreateForm(
                                 option { value: "manual", "Manual" }
                             }
                         }
-                        div {
-                            label { class: "{LABEL}", "I/O Protocol" }
-                            select {
-                                value: "{new_terminal_io_protocol}",
-                                onchange: move |e| new_terminal_io_protocol.set(e.value()),
-                                class: "{INPUT}",
-                                option { value: "plain_text", "Plain Text" }
-                                option { value: "jsonl", "JSONL" }
-                                option { value: "profile", "Profile Default" }
-                                option { value: "sentinel", "Sentinel" }
+                        if !new_is_codex_app_server {
+                            div {
+                                label { class: "{LABEL}", "I/O Protocol" }
+                                select {
+                                    value: "{new_terminal_io_protocol}",
+                                    onchange: move |e| new_terminal_io_protocol.set(e.value()),
+                                    class: "{INPUT}",
+                                    option { value: "plain_text", "Plain Text" }
+                                    option { value: "jsonl", "JSONL" }
+                                    option { value: "profile", "Profile Default" }
+                                    option { value: "sentinel", "Sentinel" }
+                                }
                             }
                         }
-                        div {
-                            label { class: "{LABEL}", "Terminal Execution" }
-                            select {
-                                value: "{new_terminal_execution}",
-                                onchange: move |e| new_terminal_execution.set(e.value()),
-                                class: "{INPUT}",
-                                option { value: "native_terminal", "Native terminal" }
-                                option { value: "managed_workspace", "Managed workspace" }
-                                option { value: "disabled", "Disabled" }
+                        if !new_is_codex_app_server {
+                            div {
+                                label { class: "{LABEL}", "Terminal Execution" }
+                                select {
+                                    value: "{new_terminal_execution}",
+                                    onchange: move |e| new_terminal_execution.set(e.value()),
+                                    class: "{INPUT}",
+                                    option { value: "native_terminal", "Native terminal" }
+                                    option { value: "managed_workspace", "Managed workspace" }
+                                    option { value: "disabled", "Disabled" }
+                                }
                             }
                         }
-                        div {
-                            label { class: "{LABEL}", "Approval Bridge" }
-                            select {
-                                value: "{new_terminal_approval_bridge}",
-                                onchange: move |e| new_terminal_approval_bridge.set(e.value()),
-                                class: "{INPUT}",
-                                option { value: "disabled", "Disabled" }
-                                option { value: "prompt", "Prompt" }
-                                option { value: "required", "Required" }
+                        if !new_is_codex_app_server {
+                            div {
+                                label { class: "{LABEL}", "Approval Bridge" }
+                                select {
+                                    value: "{new_terminal_approval_bridge}",
+                                    onchange: move |e| new_terminal_approval_bridge.set(e.value()),
+                                    class: "{INPUT}",
+                                    option { value: "disabled", "Disabled" }
+                                    option { value: "prompt", "Prompt" }
+                                    option { value: "required", "Required" }
+                                }
                             }
                         }
                         div {
@@ -2393,7 +2483,7 @@ fn AgentCreateForm(
                                 onchange: move |e| new_terminal_workspace_mode.set(e.value()),
                                 class: "{INPUT}",
                                 option { value: "shared", "Shared" }
-                                option { value: "read_only", "Read only" }
+                                if new_terminal_mode() != "claude_stream" { option { value: "read_only", "Read only" } }
                                 option { value: "worktree", "Worktree" }
                                 option { value: "patch_only", "Patch only" }
                             }
@@ -2419,11 +2509,11 @@ fn AgentCreateForm(
                             }
                         }
                         div {
-                            label { class: "{LABEL}", "Command" }
+                            label { class: "{LABEL}", if new_is_codex_app_server { "Codex executable" } else { "Command" } }
                             input {
                                 value: "{new_terminal_command}",
                                 oninput: move |e| new_terminal_command.set(e.value()),
-                                placeholder: "claude",
+                                placeholder: if new_terminal_profile() == "codex" { "codex" } else { "claude" },
                                 class: "{INPUT}",
                             }
                         }
@@ -2446,46 +2536,88 @@ fn AgentCreateForm(
                             }
                         }
                     }
-                    p { style: "font-size:12px;color:var(--danger);margin:12px 0 0 0;line-height:1.5;",
-                        "Native terminal delegates run the vendor CLI directly. Vendor approval prompts, file writes, and network access are not intercepted step by step by Savfox."
-                    }
-                    div { style: "margin-top:12px;",
-                        label { class: "{LABEL}", "Arguments" }
-                        textarea {
-                            value: "{new_terminal_args}",
-                            oninput: move |e| new_terminal_args.set(e.value()),
-                            placeholder: "One argument per line; use {{prompt}}",
-                            rows: 4,
-                            class: "{INPUT}",
-                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                    if new_is_codex_app_server {
+                        p { style: "font-size:12px;color:var(--text-muted);margin:12px 0 0;line-height:1.5;",
+                            "Uses your local Codex sign-in, model, and sandbox configuration. Sign in with codex login before connecting. Interactive approvals are unavailable; requests that need approval are declined."
+                        }
+                        details { style: "margin-top:12px;",
+                            summary { style: "cursor:pointer;font-size:13px;color:var(--text-primary);", "Advanced Codex settings" }
+                            div { style: "margin-top:12px;",
+                                label { class: "{LABEL}", "Additional Codex arguments" }
+                                textarea {
+                                    value: codex_extra_args(&new_terminal_args()).join("\n"),
+                                    oninput: move |e| new_terminal_args.set(codex_app_server_args(&e.value()).join("\n")),
+                                    placeholder: "Optional CLI settings; one argument per line",
+                                    rows: 3,
+                                    class: "{INPUT}",
+                                    style: "resize:vertical;font-family:var(--font-mono);font-size:13px;",
+                                }
+                                p { style: "font-size:12px;color:var(--text-muted);margin-top:6px;",
+                                    "Savfox manages the app-server command and connection. Add Codex options here to override its model or configuration."
+                                }
+                            }
+                            div { style: "margin-top:12px;",
+                                label { class: "{LABEL}", "Environment" }
+                                textarea {
+                                    value: "{new_terminal_env}",
+                                    oninput: move |e| new_terminal_env.set(e.value()),
+                                    placeholder: "KEY=value",
+                                    rows: 3,
+                                    class: "{INPUT}",
+                                    style: "resize:vertical;font-family:var(--font-mono);font-size:13px;",
+                                }
+                            }
+                        }
+                    } else if new_terminal_mode() == "claude_stream" {
+                        p { style: "font-size:12px;color:var(--text-muted);margin-top:12px;", "Uses local Claude sign-in and resumes each chat. Enter the exact claude --version output in expected_version after testing your CLI. Approvals and questions appear on the Approvals page. Controlled settings are not a file or network sandbox. Channel calls require prompt mode and deny interactive permissions." }
+                    } else {
+                        p { style: "font-size:12px;color:var(--danger);margin:12px 0 0 0;line-height:1.5;",
+                            "Native terminal delegates run the vendor CLI directly. Vendor approval prompts, file writes, and network access are not intercepted step by step by Savfox."
                         }
                     }
-                    div { style: "margin-top:12px;",
-                        label { class: "{LABEL}", "Stdin Template" }
-                        textarea {
-                            value: "{new_terminal_stdin}",
-                            oninput: move |e| new_terminal_stdin.set(e.value()),
-                            placeholder: "Optional; use {{prompt}} to pass the request via stdin",
-                            rows: 3,
-                            class: "{INPUT}",
-                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                    if !new_is_codex_app_server {
+                        div { style: "margin-top:12px;",
+                            label { class: "{LABEL}", if new_terminal_mode() == "claude_stream" { "Claude settings (JSON)" } else { "Arguments" } }
+                            textarea {
+                                value: "{new_terminal_args}",
+                                oninput: move |e| new_terminal_args.set(e.value()),
+                                placeholder: "One argument per line; use {{prompt}}",
+                                rows: 4,
+                                class: "{INPUT}",
+                                style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                            }
                         }
                     }
-                    div { style: "margin-top:12px;",
-                        label { class: "{LABEL}", "Environment" }
-                        textarea {
-                            value: "{new_terminal_env}",
-                            oninput: move |e| new_terminal_env.set(e.value()),
-                            placeholder: "KEY=value",
-                            rows: 3,
-                            class: "{INPUT}",
-                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                    if !new_is_codex_app_server && new_terminal_mode() != "claude_stream" {
+                        div { style: "margin-top:12px;",
+                            label { class: "{LABEL}", "Stdin Template" }
+                            textarea {
+                                value: "{new_terminal_stdin}",
+                                oninput: move |e| new_terminal_stdin.set(e.value()),
+                                placeholder: "Optional; use {{prompt}} to pass the request via stdin",
+                                rows: 3,
+                                class: "{INPUT}",
+                                style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                            }
+                        }
+                    }
+                    if !new_is_codex_app_server {
+                        div { style: "margin-top:12px;",
+                            label { class: "{LABEL}", "Environment" }
+                            textarea {
+                                value: "{new_terminal_env}",
+                                oninput: move |e| new_terminal_env.set(e.value()),
+                                placeholder: "KEY=value",
+                                rows: 3,
+                                class: "{INPUT}",
+                                style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                            }
                         }
                     }
                     div { style: "margin-top:12px;",
                         ToggleSwitch {
                             label: "Include system prompt".to_string(),
-                            description: Some("Prepend this agent's instructions to {{prompt}} before invoking the CLI.".to_string()),
+                            description: Some("Include this agent's instructions when starting the external conversation.".to_string()),
                             checked: new_terminal_include_system_prompt(),
                             on_toggle: move |value| new_terminal_include_system_prompt.set(value),
                         }
@@ -2680,11 +2812,11 @@ fn AgentCreateForm(
                             if terminal_enabled
                                 && !matches!(terminal_profile.as_str(), "codex" | "claude")
                             {
-                                toaster.error("Terminal agent runtime must be Codex or Claude");
+                                toaster.error("External agent runtime must be Codex or Claude");
                                 return;
                             }
                             if terminal_enabled && terminal_command.trim().is_empty() {
-                                toaster.error("Terminal command is required for terminal agents");
+                                toaster.error("Executable is required for external agents");
                                 return;
                             }
                             let agents_clone = agents.clone();
@@ -2788,7 +2920,7 @@ fn AgentCreateForm(
                                         new_terminal_timeout.set("300".to_string());
                                         new_terminal_include_system_prompt.set(true);
                                         new_terminal_profile.set("codex".to_string());
-                                        new_terminal_mode.set("one_shot".to_string());
+                                        new_terminal_mode.set("app_server".to_string());
                                         new_terminal_session_scope.set("per_session".to_string());
                                         new_terminal_io_protocol.set("plain_text".to_string());
                                         new_terminal_execution.set("native_terminal".to_string());
@@ -2828,7 +2960,7 @@ fn AgentCreateForm(
                             new_terminal_timeout.set("300".to_string());
                             new_terminal_include_system_prompt.set(true);
                             new_terminal_profile.set("codex".to_string());
-                            new_terminal_mode.set("one_shot".to_string());
+                            new_terminal_mode.set("app_server".to_string());
                             new_terminal_session_scope.set("per_session".to_string());
                             new_terminal_io_protocol.set("plain_text".to_string());
                             new_terminal_execution.set("native_terminal".to_string());
@@ -3568,6 +3700,8 @@ fn AgentOverviewTab(
             &form_terminal_env(),
         );
     let form_is_terminal_agent = form_agent_kind() == "terminal";
+    let form_is_codex_app_server =
+        form_terminal_profile() == "codex" && form_terminal_mode() == "app_server";
 
     let entry_id = agent_id.clone();
     let ws_save = ws.clone();
@@ -3855,16 +3989,18 @@ fn AgentOverviewTab(
                             form_terminal_enabled.set(true);
                             if form_terminal_profile() == "claude" {
                                 form_terminal_command.set("claude".to_string());
-                                form_terminal_args.set("-p\n{{prompt}}".to_string());
+                                form_terminal_args.set(claude_adapter_settings());
+                                form_terminal_mode.set("claude_stream".to_string());
                                 form_terminal_interactive_command.set("claude".to_string());
                             } else {
                                 form_terminal_profile.set("codex".to_string());
                                 form_terminal_command.set("codex".to_string());
-                                form_terminal_args.set("exec\n{{prompt}}".to_string());
+                                form_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                form_terminal_mode.set("app_server".to_string());
                                 form_terminal_interactive_command.set("codex".to_string());
                             }
                         },
-                        "Terminal Agent"
+                        "External Agent"
                     }
                 }
             }
@@ -3915,23 +4051,23 @@ fn AgentOverviewTab(
 
             if form_is_terminal_agent {
             div { class: "{SECTION_CARD}",
-                h4 { class: "{SECTION_TITLE}", "Terminal Agent Runtime" }
+                h4 { class: "{SECTION_TITLE}", "External Agent Runtime" }
                 div { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;",
                     button {
                         class: if form_terminal_profile() == "claude" { "tool-btn tool-btn--primary" } else { TOOL_BTN },
                         onclick: move |_| {
                             form_terminal_enabled.set(true);
                             form_terminal_command.set("claude".to_string());
-                            form_terminal_args.set("-p\n{{prompt}}".to_string());
+                            form_terminal_args.set(claude_adapter_settings());
                             form_terminal_stdin.set(String::new());
                             form_terminal_interactive_command.set("claude".to_string());
                             form_terminal_interactive_args.set(String::new());
                             form_terminal_profile.set("claude".to_string());
-                            form_terminal_mode.set("one_shot".to_string());
+                            form_terminal_mode.set("claude_stream".to_string());
                             form_terminal_session_scope.set("per_session".to_string());
-                            form_terminal_io_protocol.set("plain_text".to_string());
+                            form_terminal_io_protocol.set("jsonl".to_string());
                             form_terminal_execution.set("native_terminal".to_string());
-                            form_terminal_approval_bridge.set("disabled".to_string());
+                            form_terminal_approval_bridge.set("required".to_string());
                         },
                         "Claude"
                     }
@@ -3940,12 +4076,12 @@ fn AgentOverviewTab(
                         onclick: move |_| {
                             form_terminal_enabled.set(true);
                             form_terminal_command.set("codex".to_string());
-                            form_terminal_args.set("exec\n{{prompt}}".to_string());
+                            form_terminal_args.set("app-server\n--listen\nstdio://".to_string());
                             form_terminal_stdin.set(String::new());
                             form_terminal_interactive_command.set("codex".to_string());
                             form_terminal_interactive_args.set(String::new());
                             form_terminal_profile.set("codex".to_string());
-                            form_terminal_mode.set("one_shot".to_string());
+                            form_terminal_mode.set("app_server".to_string());
                             form_terminal_session_scope.set("per_session".to_string());
                             form_terminal_io_protocol.set("plain_text".to_string());
                             form_terminal_execution.set("native_terminal".to_string());
@@ -3963,11 +4099,16 @@ fn AgentOverviewTab(
                                 let value = e.value();
                                 if value == "claude" {
                                     form_terminal_command.set("claude".to_string());
-                                    form_terminal_args.set("-p\n{{prompt}}".to_string());
+                                    form_terminal_args.set(claude_adapter_settings());
+                                    form_terminal_mode.set("claude_stream".to_string());
+                                    form_terminal_stdin.set(String::new());
+                                    form_terminal_io_protocol.set("jsonl".to_string());
+                                    form_terminal_approval_bridge.set("required".to_string());
                                     form_terminal_interactive_command.set("claude".to_string());
                                 } else {
                                     form_terminal_command.set("codex".to_string());
-                                    form_terminal_args.set("exec\n{{prompt}}".to_string());
+                                    form_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                    form_terminal_mode.set("app_server".to_string());
                                     form_terminal_interactive_command.set("codex".to_string());
                                 }
                                 form_terminal_profile.set(value);
@@ -3981,8 +4122,31 @@ fn AgentOverviewTab(
                         label { class: "{LABEL}", "Mode" }
                         select {
                             value: "{form_terminal_mode}",
-                            onchange: move |e| form_terminal_mode.set(e.value()),
+                            onchange: move |e| {
+                                let mode = e.value();
+                                if form_terminal_profile() == "codex" {
+                                    if mode == "app_server" {
+                                        form_terminal_args.set("app-server\n--listen\nstdio://".to_string());
+                                        form_terminal_stdin.set(String::new());
+                                    } else if mode == "one_shot" {
+                                        form_terminal_args.set("exec\n{{prompt}}".to_string());
+                                    }
+                                }
+                                if form_terminal_profile() == "claude" {
+                                    if mode == "claude_stream" {
+                                        form_terminal_args.set(claude_adapter_settings());
+                                        form_terminal_stdin.set(String::new());
+                                        form_terminal_approval_bridge.set("required".to_string());
+                                    } else if mode == "one_shot" {
+                                        form_terminal_args.set("-p\n{{prompt}}".to_string());
+                                        form_terminal_approval_bridge.set("disabled".to_string());
+                                    }
+                                }
+                                form_terminal_mode.set(mode);
+                            },
                             class: "{INPUT}",
+                            if form_terminal_profile() == "codex" { option { value: "app_server", "Codex App Server" } }
+                                if form_terminal_profile() == "claude" { option { value: "claude_stream", "Claude Stream (Rust)" } }
                             option { value: "one_shot", "One-shot" }
                             option { value: "interactive_launch", "Interactive Launch" }
                             option { value: "managed_pty", "Managed PTY" }
@@ -4001,38 +4165,44 @@ fn AgentOverviewTab(
                             option { value: "manual", "Manual" }
                         }
                     }
-                    div {
-                        label { class: "{LABEL}", "I/O Protocol" }
-                        select {
-                            value: "{form_terminal_io_protocol}",
-                            onchange: move |e| form_terminal_io_protocol.set(e.value()),
-                            class: "{INPUT}",
-                            option { value: "plain_text", "Plain Text" }
-                            option { value: "jsonl", "JSONL" }
-                            option { value: "profile", "Profile Default" }
-                            option { value: "sentinel", "Sentinel" }
+                    if !form_is_codex_app_server {
+                        div {
+                            label { class: "{LABEL}", "I/O Protocol" }
+                            select {
+                                value: "{form_terminal_io_protocol}",
+                                onchange: move |e| form_terminal_io_protocol.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "plain_text", "Plain Text" }
+                                option { value: "jsonl", "JSONL" }
+                                option { value: "profile", "Profile Default" }
+                                option { value: "sentinel", "Sentinel" }
+                            }
                         }
                     }
-                    div {
-                        label { class: "{LABEL}", "Terminal Execution" }
-                        select {
-                            value: "{form_terminal_execution}",
-                            onchange: move |e| form_terminal_execution.set(e.value()),
-                            class: "{INPUT}",
-                            option { value: "native_terminal", "Native terminal" }
-                            option { value: "managed_workspace", "Managed workspace" }
-                            option { value: "disabled", "Disabled" }
+                    if !form_is_codex_app_server {
+                        div {
+                            label { class: "{LABEL}", "Terminal Execution" }
+                            select {
+                                value: "{form_terminal_execution}",
+                                onchange: move |e| form_terminal_execution.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "native_terminal", "Native terminal" }
+                                option { value: "managed_workspace", "Managed workspace" }
+                                option { value: "disabled", "Disabled" }
+                            }
                         }
                     }
-                    div {
-                        label { class: "{LABEL}", "Approval Bridge" }
-                        select {
-                            value: "{form_terminal_approval_bridge}",
-                            onchange: move |e| form_terminal_approval_bridge.set(e.value()),
-                            class: "{INPUT}",
-                            option { value: "disabled", "Disabled" }
-                            option { value: "prompt", "Prompt" }
-                            option { value: "required", "Required" }
+                    if !form_is_codex_app_server {
+                        div {
+                            label { class: "{LABEL}", "Approval Bridge" }
+                            select {
+                                value: "{form_terminal_approval_bridge}",
+                                onchange: move |e| form_terminal_approval_bridge.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "disabled", "Disabled" }
+                                option { value: "prompt", "Prompt" }
+                                option { value: "required", "Required" }
+                            }
                         }
                     }
                     div {
@@ -4042,7 +4212,7 @@ fn AgentOverviewTab(
                             onchange: move |e| form_terminal_workspace_mode.set(e.value()),
                             class: "{INPUT}",
                             option { value: "shared", "Shared" }
-                            option { value: "read_only", "Read only" }
+                            if form_terminal_mode() != "claude_stream" { option { value: "read_only", "Read only" } }
                             option { value: "worktree", "Worktree" }
                             option { value: "patch_only", "Patch only" }
                         }
@@ -4068,11 +4238,11 @@ fn AgentOverviewTab(
                         }
                     }
                     div {
-                        label { class: "{LABEL}", "Command" }
+                        label { class: "{LABEL}", if form_is_codex_app_server { "Codex executable" } else { "Command" } }
                         input {
                             value: "{form_terminal_command}",
                             oninput: move |e| form_terminal_command.set(e.value()),
-                            placeholder: "claude",
+                            placeholder: if form_terminal_profile() == "codex" { "codex" } else { "claude" },
                             class: "{INPUT}",
                         }
                     }
@@ -4095,194 +4265,238 @@ fn AgentOverviewTab(
                         }
                     }
                 }
-                p { style: "font-size:12px;color:var(--danger);margin:12px 0 0 0;line-height:1.5;",
-                    "Native terminal delegates run the vendor CLI directly. Vendor approval prompts, file writes, and network access are not intercepted step by step by Savfox."
-                }
-                div { style: "margin-top:12px;",
-                    label { class: "{LABEL}", "Arguments" }
-                    textarea {
-                        value: "{form_terminal_args}",
-                        oninput: move |e| form_terminal_args.set(e.value()),
-                        placeholder: "One argument per line; use {{prompt}}",
-                        rows: 4,
-                        class: "{INPUT}",
-                        style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                if form_is_codex_app_server {
+                    p { style: "font-size:12px;color:var(--text-muted);margin:12px 0 0;line-height:1.5;",
+                        "Uses your local Codex sign-in, model, and sandbox configuration. Sign in with codex login before connecting. Interactive approvals are unavailable; requests that need approval are declined."
+                    }
+                    details { style: "margin-top:12px;",
+                        summary { style: "cursor:pointer;font-size:13px;color:var(--text-primary);", "Advanced Codex settings" }
+                        div { style: "margin-top:12px;",
+                            label { class: "{LABEL}", "Additional Codex arguments" }
+                            textarea {
+                                value: codex_extra_args(&form_terminal_args()).join("\n"),
+                                oninput: move |e| form_terminal_args.set(codex_app_server_args(&e.value()).join("\n")),
+                                placeholder: "Optional CLI settings; one argument per line",
+                                rows: 3,
+                                class: "{INPUT}",
+                                style: "resize:vertical;font-family:var(--font-mono);font-size:13px;",
+                            }
+                            p { style: "font-size:12px;color:var(--text-muted);margin-top:6px;",
+                                "Savfox manages the app-server command and connection. Add Codex options here to override its model or configuration."
+                            }
+                        }
+                        div { style: "margin-top:12px;",
+                            label { class: "{LABEL}", "Environment" }
+                            textarea {
+                                value: "{form_terminal_env}",
+                                oninput: move |e| form_terminal_env.set(e.value()),
+                                placeholder: "KEY=value",
+                                rows: 3,
+                                class: "{INPUT}",
+                                style: "resize:vertical;font-family:var(--font-mono);font-size:13px;",
+                            }
+                        }
+                    }
+                } else if form_terminal_mode() == "claude_stream" {
+                    p { style: "font-size:12px;color:var(--text-muted);margin-top:12px;", "Uses local Claude sign-in and resumes each chat. Enter the exact claude --version output in expected_version after testing your CLI. Approvals and questions appear on the Approvals page. Controlled settings are not a file or network sandbox. Channel calls require prompt mode and deny interactive permissions." }
+                } else {
+                    p { style: "font-size:12px;color:var(--danger);margin:12px 0 0 0;line-height:1.5;",
+                        "Native terminal delegates run the vendor CLI directly. Vendor approval prompts, file writes, and network access are not intercepted step by step by Savfox."
                     }
                 }
-                div { style: "margin-top:12px;",
-                    label { class: "{LABEL}", "Stdin Template" }
-                    textarea {
-                        value: "{form_terminal_stdin}",
-                        oninput: move |e| form_terminal_stdin.set(e.value()),
-                        placeholder: "Optional; use {{prompt}} to pass the request via stdin",
-                        rows: 3,
-                        class: "{INPUT}",
-                        style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                if !form_is_codex_app_server {
+                    div { style: "margin-top:12px;",
+                        label { class: "{LABEL}", if form_terminal_mode() == "claude_stream" { "Claude settings (JSON)" } else { "Arguments" } }
+                        textarea {
+                            value: "{form_terminal_args}",
+                            oninput: move |e| form_terminal_args.set(e.value()),
+                            placeholder: "One argument per line; use {{prompt}}",
+                            rows: 4,
+                            class: "{INPUT}",
+                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        }
                     }
                 }
-                div { style: "margin-top:12px;",
-                    label { class: "{LABEL}", "Environment" }
-                    textarea {
-                        value: "{form_terminal_env}",
-                        oninput: move |e| form_terminal_env.set(e.value()),
-                        placeholder: "KEY=value",
-                        rows: 3,
-                        class: "{INPUT}",
-                        style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                if !form_is_codex_app_server && form_terminal_mode() != "claude_stream" {
+                    div { style: "margin-top:12px;",
+                        label { class: "{LABEL}", "Stdin Template" }
+                        textarea {
+                            value: "{form_terminal_stdin}",
+                            oninput: move |e| form_terminal_stdin.set(e.value()),
+                            placeholder: "Optional; use {{prompt}} to pass the request via stdin",
+                            rows: 3,
+                            class: "{INPUT}",
+                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        }
+                    }
+                }
+                if !form_is_codex_app_server {
+                    div { style: "margin-top:12px;",
+                        label { class: "{LABEL}", "Environment" }
+                        textarea {
+                            value: "{form_terminal_env}",
+                            oninput: move |e| form_terminal_env.set(e.value()),
+                            placeholder: "KEY=value",
+                            rows: 3,
+                            class: "{INPUT}",
+                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        }
                     }
                 }
                 div { style: "margin-top:12px;",
                     ToggleSwitch {
                         label: "Include system prompt".to_string(),
-                        description: Some("Prepend this agent's instructions to {{prompt}} before invoking the CLI.".to_string()),
+                        description: Some("Include this agent's instructions when starting the external conversation.".to_string()),
                         checked: form_terminal_include_system_prompt(),
                         on_toggle: move |value| form_terminal_include_system_prompt.set(value),
                     }
                 }
 
                 // ── Interactive launcher ──────────────────────────────────
-                div {
-                    style: "margin-top:18px;padding-top:16px;border-top:1px solid var(--border);",
-                    h5 {
-                        style: "margin:0 0 6px 0;font-size:13px;font-weight:600;color:var(--text-primary);",
-                        "Interactive Launch"
-                    }
-                    p {
-                        style: "margin:0 0 12px 0;font-size:12px;color:var(--text-muted);line-height:1.5;",
-                        "Open the configured CLI in a system terminal window so you can interact with it directly. Login flows, TUIs, and multi-turn input all run in the OS terminal — Savfox just spawns it. Useful for tools like ",
-                        code { "codex" }
-                        ", ",
-                        code { "claude" }
-                        ", or any CLI that needs your keyboard."
-                    }
+                if !form_is_codex_app_server {
                     div {
-                        style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:12px;",
-                        div { style: "padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
-                            div { style: "font-size:11px;color:var(--text-muted);margin-bottom:2px;", "Command" }
-                            div { style: "font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;", "{launch_summary_command}" }
+                        style: "margin-top:18px;padding-top:16px;border-top:1px solid var(--border);",
+                        h5 {
+                            style: "margin:0 0 6px 0;font-size:13px;font-weight:600;color:var(--text-primary);",
+                            "Interactive Launch"
                         }
-                        div { style: "padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
-                            div { style: "font-size:11px;color:var(--text-muted);margin-bottom:2px;", "CWD" }
-                            div { style: "font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;", "{launch_summary_cwd}" }
+                        p {
+                            style: "margin:0 0 12px 0;font-size:12px;color:var(--text-muted);line-height:1.5;",
+                            "Open the configured CLI in a system terminal window so you can interact with it directly. Login flows, TUIs, and multi-turn input all run in the OS terminal — Savfox just spawns it. Useful for tools like ",
+                            code { "codex" }
+                            ", ",
+                            code { "claude" }
+                            ", or any CLI that needs your keyboard."
                         }
-                        div { style: "padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
-                            div { style: "font-size:11px;color:var(--text-muted);margin-bottom:2px;", "Env" }
-                            div { style: "font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;", "{launch_summary_env}" }
-                        }
-                    }
-                    div { style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;",
-                        button {
-                            class: "{TOOL_BTN}",
-                            disabled: checking_terminal_health(),
-                            onclick: {
-                                let ws = ws.clone();
-                                let agent_id = agent_id.clone();
-                                move |_| {
-                                    let ws = ws.clone();
-                                    let agent_id = agent_id.clone();
-                                    checking_terminal_health.set(true);
-                                    terminal_health_result.set(None);
-                                    spawn(async move {
-                                        let res = ws
-                                            .call::<serde_json::Value>(
-                                                "agent.terminal.health",
-                                                Some(json!({ "agent": agent_id })),
-                                            )
-                                            .await;
-                                        checking_terminal_health.set(false);
-                                        match res {
-                                            Ok(value) => {
-                                                let summary = terminal_health_message(&value);
-                                                if summary.0 {
-                                                    toaster.success(summary.1.clone());
-                                                } else {
-                                                    toaster.error(summary.1.clone());
-                                                }
-                                                terminal_health_result.set(Some(summary));
-                                            }
-                                            Err(err) => {
-                                                let msg = format!("Health check failed: {err}");
-                                                toaster.error(msg.clone());
-                                                terminal_health_result.set(Some((false, msg)));
-                                            }
-                                        }
-                                    });
-                                }
-                            },
-                            if checking_terminal_health() { "Checking..." } else { "Health Check" }
-                        }
-                        button {
-                            class: "{TOOL_BTN}",
-                            disabled: launching_terminal(),
-                            onclick: {
-                                let ws = ws.clone();
-                                let agent_id = agent_id.clone();
-                                move |_| {
-                                    let ws = ws.clone();
-                                    let agent_id = agent_id.clone();
-                                    launching_terminal.set(true);
-                                    spawn(async move {
-                                        let res = ws
-                                            .call::<serde_json::Value>(
-                                                "agent.terminal.launch",
-                                                Some(json!({ "agent": agent_id })),
-                                            )
-                                            .await;
-                                        launching_terminal.set(false);
-                                        match res {
-                                            Ok(value) => {
-                                                let summary = terminal_launch_result_summary(&value);
-                                                toaster.success(format!("Launched: {summary}"));
-                                                terminal_launch_result.set(Some(summary));
-                                            }
-                                            Err(err) => {
-                                                let msg = format!("Launch failed: {err}");
-                                                terminal_launch_result.set(Some(msg.clone()));
-                                                toaster.error(msg);
-                                            }
-                                        }
-                                    });
-                                }
-                            },
-                            Terminal { size: 14 }
-                            if launching_terminal() { "Launching…" } else { "Launch Terminal" }
-                        }
-                        span {
-                            style: "font-size:11px;color:var(--text-muted);",
-                            "Save the agent first to apply config changes."
-                        }
-                    }
-                    if let Some((ok, ref message)) = terminal_health_result() {
                         div {
-                            style: if ok { "font-size:12px;color:var(--success);margin-bottom:12px;" } else { "font-size:12px;color:var(--danger);margin-bottom:12px;" },
-                            "{message}"
-                        }
-                    }
-                    if let Some(ref message) = terminal_launch_result() {
-                        div {
-                            style: "font-size:12px;color:var(--text-muted);margin-bottom:12px;",
-                            "{message}"
-                        }
-                    }
-                    div { style: "display:grid;grid-template-columns:1fr;gap:12px;",
-                        div {
-                            label { class: "{LABEL}", "Interactive Command (override)" }
-                            input {
-                                value: "{form_terminal_interactive_command}",
-                                oninput: move |e| form_terminal_interactive_command.set(e.value()),
-                                placeholder: "Leave blank to reuse Command",
-                                class: "{INPUT}",
+                            style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:12px;",
+                            div { style: "padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
+                                div { style: "font-size:11px;color:var(--text-muted);margin-bottom:2px;", "Command" }
+                                div { style: "font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;", "{launch_summary_command}" }
+                            }
+                            div { style: "padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
+                                div { style: "font-size:11px;color:var(--text-muted);margin-bottom:2px;", "CWD" }
+                                div { style: "font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;", "{launch_summary_cwd}" }
+                            }
+                            div { style: "padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
+                                div { style: "font-size:11px;color:var(--text-muted);margin-bottom:2px;", "Env" }
+                                div { style: "font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;", "{launch_summary_env}" }
                             }
                         }
-                        div {
-                            label { class: "{LABEL}", "Interactive Args" }
-                            textarea {
-                                value: "{form_terminal_interactive_args}",
-                                oninput: move |e| form_terminal_interactive_args.set(e.value()),
-                                placeholder: "One argument per line. Leave blank for a bare TUI launch (e.g. `codex`).",
-                                rows: 3,
-                                class: "{INPUT}",
-                                style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        div { style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;",
+                            button {
+                                class: "{TOOL_BTN}",
+                                disabled: checking_terminal_health(),
+                                onclick: {
+                                    let ws = ws.clone();
+                                    let agent_id = agent_id.clone();
+                                    move |_| {
+                                        let ws = ws.clone();
+                                        let agent_id = agent_id.clone();
+                                        checking_terminal_health.set(true);
+                                        terminal_health_result.set(None);
+                                        spawn(async move {
+                                            let res = ws
+                                                .call::<serde_json::Value>(
+                                                    "agent.terminal.health",
+                                                    Some(json!({ "agent": agent_id })),
+                                                )
+                                                .await;
+                                            checking_terminal_health.set(false);
+                                            match res {
+                                                Ok(value) => {
+                                                    let summary = terminal_health_message(&value);
+                                                    if summary.0 {
+                                                        toaster.success(summary.1.clone());
+                                                    } else {
+                                                        toaster.error(summary.1.clone());
+                                                    }
+                                                    terminal_health_result.set(Some(summary));
+                                                }
+                                                Err(err) => {
+                                                    let msg = format!("Health check failed: {err}");
+                                                    toaster.error(msg.clone());
+                                                    terminal_health_result.set(Some((false, msg)));
+                                                }
+                                            }
+                                        });
+                                    }
+                                },
+                                if checking_terminal_health() { "Checking..." } else { "Health Check" }
+                            }
+                            button {
+                                class: "{TOOL_BTN}",
+                                disabled: launching_terminal(),
+                                onclick: {
+                                    let ws = ws.clone();
+                                    let agent_id = agent_id.clone();
+                                    move |_| {
+                                        let ws = ws.clone();
+                                        let agent_id = agent_id.clone();
+                                        launching_terminal.set(true);
+                                        spawn(async move {
+                                            let res = ws
+                                                .call::<serde_json::Value>(
+                                                    "agent.terminal.launch",
+                                                    Some(json!({ "agent": agent_id })),
+                                                )
+                                                .await;
+                                            launching_terminal.set(false);
+                                            match res {
+                                                Ok(value) => {
+                                                    let summary = terminal_launch_result_summary(&value);
+                                                    toaster.success(format!("Launched: {summary}"));
+                                                    terminal_launch_result.set(Some(summary));
+                                                }
+                                                Err(err) => {
+                                                    let msg = format!("Launch failed: {err}");
+                                                    terminal_launch_result.set(Some(msg.clone()));
+                                                    toaster.error(msg);
+                                                }
+                                            }
+                                        });
+                                    }
+                                },
+                                Terminal { size: 14 }
+                                if launching_terminal() { "Launching…" } else { "Launch Terminal" }
+                            }
+                            span {
+                                style: "font-size:11px;color:var(--text-muted);",
+                                "Save the agent first to apply config changes."
+                            }
+                        }
+                        if let Some((ok, ref message)) = terminal_health_result() {
+                            div {
+                                style: if ok { "font-size:12px;color:var(--success);margin-bottom:12px;" } else { "font-size:12px;color:var(--danger);margin-bottom:12px;" },
+                                "{message}"
+                            }
+                        }
+                        if let Some(ref message) = terminal_launch_result() {
+                            div {
+                                style: "font-size:12px;color:var(--text-muted);margin-bottom:12px;",
+                                "{message}"
+                            }
+                        }
+                        div { style: "display:grid;grid-template-columns:1fr;gap:12px;",
+                            div {
+                                label { class: "{LABEL}", "Interactive Command (override)" }
+                                input {
+                                    value: "{form_terminal_interactive_command}",
+                                    oninput: move |e| form_terminal_interactive_command.set(e.value()),
+                                    placeholder: "Leave blank to reuse Command",
+                                    class: "{INPUT}",
+                                }
+                            }
+                            div {
+                                label { class: "{LABEL}", "Interactive Args" }
+                                textarea {
+                                    value: "{form_terminal_interactive_args}",
+                                    oninput: move |e| form_terminal_interactive_args.set(e.value()),
+                                    placeholder: "One argument per line. Leave blank for a bare TUI launch (e.g. `codex`).",
+                                    rows: 3,
+                                    class: "{INPUT}",
+                                    style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                                }
                             }
                         }
                     }
@@ -4644,11 +4858,11 @@ fn AgentOverviewTab(
                             if terminal_enabled_val
                                 && !matches!(terminal_profile_val.as_str(), "codex" | "claude")
                             {
-                                toaster.error("Terminal agent runtime must be Codex or Claude");
+                                toaster.error("External agent runtime must be Codex or Claude");
                                 return;
                             }
                             if terminal_enabled_val && terminal_command_val.trim().is_empty() {
-                                toaster.error("Terminal command is required for terminal agents");
+                                toaster.error("Executable is required for external agents");
                                 return;
                             }
                             spawn(async move {
@@ -6054,13 +6268,15 @@ const TD: &str = "td-cell";
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::{
-        json_terminal_permission_fields, json_terminal_workspace_fields, model_option_label,
-        model_select_value, terminal_delegate_payload,
+        codex_app_server_args, codex_extra_args, detail_terminal_delegate_fields,
+        json_terminal_delegate_fields, json_terminal_permission_fields,
+        json_terminal_workspace_fields, model_option_label, model_select_value,
+        terminal_delegate_payload,
     };
-    use crate::api::types::AvailableModel;
+    use crate::api::types::{AgentTerminalDelegateConfig, AvailableModel};
 
     fn test_model(id: &str, name: Option<&str>, model_slug: Option<&str>) -> AvailableModel {
         AvailableModel {
@@ -6161,6 +6377,96 @@ mod tests {
                 "base": "D:/base",
                 "cleanup_policy": "delete_on_success"
             })
+        );
+    }
+
+    #[test]
+    fn claude_stream_configuration_round_trips_without_prompt_arguments() {
+        let settings = json!({"expected_version":"tested version","model":"sonnet","mcp_config":"{\"mcpServers\":{}}"});
+        let payload = terminal_delegate_payload(
+            true,
+            "claude",
+            &settings.to_string(),
+            "{{prompt}}",
+            "",
+            "",
+            "300",
+            true,
+            "",
+            "",
+            "claude",
+            "claude_stream",
+            "per_session",
+            "jsonl",
+            "native_terminal",
+            "required",
+            "shared",
+            "",
+            "per_session",
+        )
+        .unwrap();
+        assert_eq!(payload["claude"], settings);
+        assert!(payload.get("args").is_none());
+        assert!(payload.get("stdin").is_none());
+        let (_, _, args, ..) = json_terminal_delegate_fields(Some(&payload));
+        assert_eq!(serde_json::from_str::<Value>(&args).unwrap(), settings);
+        // The edit form loads the typed agents.get response, not the raw import JSON.
+        let detail: AgentTerminalDelegateConfig = serde_json::from_value(payload).unwrap();
+        let (_, _, args, ..) = detail_terminal_delegate_fields(Some(&detail));
+        let edited = serde_json::from_str::<Value>(&args).unwrap();
+        assert_eq!(edited, serde_json::to_value(&detail.claude).unwrap());
+        assert_eq!(edited["expected_version"], settings["expected_version"]);
+        assert_eq!(edited["mcp_config"], settings["mcp_config"]);
+    }
+
+    #[test]
+    fn codex_app_server_payload_manages_transport_and_preserves_custom_settings() {
+        let payload = terminal_delegate_payload(
+            true,
+            "C:/tools/codex.exe",
+            "app-server\n--listen\nws://127.0.0.1:9000\n-c\nmodel=\"custom-model\"",
+            "{{prompt}}",
+            "D:/repo",
+            "CODEX_HOME=D:/codex",
+            "120",
+            true,
+            "codex",
+            "",
+            "codex",
+            "app_server",
+            "per_session",
+            "jsonl",
+            "disabled",
+            "required",
+            "worktree",
+            "D:/base",
+            "manual",
+        )
+        .expect("Codex configuration");
+        assert_eq!(
+            payload["args"],
+            json!([
+                "app-server",
+                "--listen",
+                "stdio://",
+                "-c",
+                "model=\"custom-model\""
+            ])
+        );
+        assert!(payload.get("stdin").is_none());
+        assert!(payload.get("io_protocol").is_none());
+        assert_eq!(payload["savfox_approval_bridge"], json!("disabled"));
+        assert_eq!(payload["command"], json!("C:/tools/codex.exe"));
+        assert_eq!(payload["cwd"], json!("D:/repo"));
+        assert_eq!(payload["env"]["CODEX_HOME"], json!("D:/codex"));
+        assert_eq!(payload["workspace"]["mode"], json!("worktree"));
+        assert_eq!(
+            codex_app_server_args(""),
+            vec!["app-server", "--listen", "stdio://"]
+        );
+        assert_eq!(
+            codex_extra_args("app-server\n--listen=stdio://\n-c\nmodel=\"custom-model\""),
+            vec!["-c", "model=\"custom-model\""]
         );
     }
 

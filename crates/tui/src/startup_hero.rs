@@ -224,7 +224,7 @@ mod tests {
         let line = super::subtitle_line();
         assert_eq!(line.spans.len(), 1);
         assert_eq!(line.spans[0].style.fg, None);
-        assert!(line.spans[0].style.add_modifier.contains(Modifier::DIM));
+        assert!(line.style.add_modifier.contains(Modifier::DIM));
     }
 
     #[test]

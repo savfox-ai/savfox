@@ -61,6 +61,26 @@ impl SessionOverrides {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionMessageOrigin {
+    ArkretRemote,
+    LocalOperator,
+    Agent,
+    Tool,
+    #[default]
+    System,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionMessageVisibility {
+    RemotePublic,
+    #[default]
+    LocalPrivate,
+    PublishCandidate,
+}
+
 /// Provenance metadata for a user-originated message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +93,24 @@ pub struct SessionMessageProvenance {
     pub name: String,
     /// Capture timestamp (epoch milliseconds).
     pub timestamp: u64,
+    #[serde(default)]
+    pub origin: SessionMessageOrigin,
+    #[serde(default)]
+    pub visibility: SessionMessageVisibility,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_config_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realm_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strand_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_did: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_kind: Option<String>,
 }
 
 /// Sender information for a session.
@@ -129,7 +167,18 @@ pub struct SessionEntry {
     /// Account ID (for multi-account setups).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
-    /// Thread ID within a channel (for forum-style channels).
+    /// Core Savfox thread UUID. This is separate from any remote platform
+    /// thread/strand id and is the canonical rollout-resume pointer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core_thread_id: Option<String>,
+    /// Remote platform thread identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_thread_id: Option<String>,
+    /// Remote Event id to which a public response is causally related.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to_event_id: Option<String>,
+    /// Legacy mixed-namespace thread field. New writes use `core_thread_id`
+    /// and `remote_thread_id`; it remains readable for one-time migration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<String>,
     /// Parent thread ID when this session is spawned from another thread.
@@ -260,6 +309,23 @@ impl SessionEntry {
         self.version += 1;
     }
 
+    /// One-time compatibility migration for metadata written before core and
+    /// remote thread namespaces were separated.
+    pub fn migrate_legacy_thread_namespaces(&mut self) {
+        let Some(legacy) = self.thread_id.clone() else {
+            return;
+        };
+        let is_core_uuid = uuid::Uuid::parse_str(&legacy)
+            .ok()
+            .is_some_and(|value| value.get_version_num() == 7);
+        if is_core_uuid && self.core_thread_id.is_none() {
+            self.core_thread_id = Some(legacy);
+        } else if !is_core_uuid && self.remote_thread_id.is_none() {
+            self.remote_thread_id = Some(legacy);
+        }
+        self.thread_id = None;
+    }
+
     /// Add token usage.
     pub fn add_tokens(&mut self, input: u64, output: u64) {
         self.input_tokens += input;
@@ -310,6 +376,9 @@ impl Default for SessionEntry {
             to: None,
             last_to: None,
             account_id: None,
+            core_thread_id: None,
+            remote_thread_id: None,
+            reply_to_event_id: None,
             thread_id: None,
             parent_thread_id: None,
             reply_target: None,
@@ -533,6 +602,9 @@ impl SessionStore {
         match serde_json::from_str::<HashMap<String, SessionEntry>>(&content) {
             Ok(mut entries) => {
                 entries.retain(|session_id, entry| entry.session_id == *session_id);
+                for entry in entries.values_mut() {
+                    entry.migrate_legacy_thread_namespaces();
+                }
                 entries
             }
             Err(err) => {
@@ -794,6 +866,7 @@ impl SessionStore {
     /// conflicting fields, while additive counters like token usage are
     /// always accumulated).
     pub async fn upsert(&self, mut entry: SessionEntry) {
+        entry.migrate_legacy_thread_namespaces();
         let key = entry.session_id.clone();
         entry.version += 1;
 

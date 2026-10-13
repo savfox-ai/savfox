@@ -128,7 +128,7 @@ pub enum ManifestError {
     MissingFrontmatter,
 
     #[error("YAML parse error: {0}")]
-    Yaml(#[from] serde_yaml::Error),
+    Yaml(#[from] serde_saphyr::Error),
 }
 
 /// Split raw file content into (yaml_str, markdown_body).
@@ -183,7 +183,7 @@ pub fn parse_skill_manifest(content: &str) -> Result<SkillManifest, ManifestErro
         "parsing skill manifest"
     );
 
-    let mut manifest: SkillManifest = serde_yaml::from_str(yaml_str)?;
+    let mut manifest: SkillManifest = serde_saphyr::from_str(yaml_str)?;
     manifest.instructions = body.to_owned();
     Ok(manifest)
 }

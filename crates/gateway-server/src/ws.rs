@@ -146,21 +146,24 @@ const MAX_WS_MESSAGE_SIZE: usize = 1 << 20;
 /// Maximum size of a single inbound WebSocket frame (1 MiB).
 const MAX_WS_FRAME_SIZE: usize = 1 << 20;
 
-/// Quick string-prefix sniff to decide whether `text` is a JSON-RPC 2.0
+/// Inspect the root object to decide whether `text` is a JSON-RPC 2.0
 /// frame (carries a top-level `"jsonrpc"`) or a `GatewayMessage` (top-level
 /// `"type"`). Returning true does **not** guarantee the message is well-
 /// formed; `dispatch_rpc` runs the actual typed parse and surfaces parse
 /// errors as JSON-RPC error responses.
 ///
-/// Looks at only the first ~64 bytes after the opening `{`. That window
-/// always contains the discriminator field name in our wire format and
-/// avoids a second full parse of the body just to peek at the field name
-/// (M18 in the security/quality review).
+/// JSON object order is insignificant. A discriminator can follow a large or
+/// non-ASCII params value; nested keys and quoted text cannot select the route.
+/// Inbound size remains bounded by MAX_WS_FRAME_SIZE before this inspection.
 fn looks_like_jsonrpc(text: &str) -> bool {
-    let head = text.trim_start();
-    let head = head.strip_prefix('{').unwrap_or(head);
-    let probe_len = head.len().min(64);
-    head[..probe_len].contains("\"jsonrpc\"")
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|value| {
+            value
+                .as_object()
+                .map(|object| object.contains_key("jsonrpc"))
+        })
+        .unwrap_or(false)
 }
 
 /// RAII guard that releases the per-IP connection slot reserved by
@@ -206,9 +209,13 @@ async fn handle_ws_connection(
     // 1. Via query parameter `?token=...` (already extracted)
     // 2. By sending a `Connect` message as the first frame
 
-    let (token_info, _client_info) = if let Some(ref token) = query_token {
+    let (token_info, principal, _client_info) = if let Some(ref token) = query_token {
         if let Some(info) = auth.validate(token).await {
-            (info, None::<crate::protocol::ClientInfo>)
+            (
+                info,
+                GatewayAuth::token_subject(token),
+                None::<crate::protocol::ClientInfo>,
+            )
         } else {
             let err = GatewayMessage::Error {
                 id: None,
@@ -253,12 +260,15 @@ async fn handle_ws_connection(
                 {
                     // Try direct token validation first (backwards-compatible)
                     if let Some(info) = auth.validate(&token).await {
-                        (info, client_info)
+                        (info, GatewayAuth::token_subject(&token), client_info)
                     } else {
                         // Try as HMAC signature: client sent HMAC-SHA256(nonce, real_token)
                         // We need to check all known tokens to see if any matches
-                        if let Some(info) = auth.validate_challenge_response(&token, &nonce).await {
-                            (info, client_info)
+                        if let Some((info, principal)) = auth
+                            .validate_challenge_response_with_subject(&token, &nonce)
+                            .await
+                        {
+                            (info, principal, client_info)
                         } else {
                             let err = GatewayMessage::Error {
                                 id: None,
@@ -292,7 +302,8 @@ async fn handle_ws_connection(
 
     // Keep a copy of token_info for per-method scope checks in the dispatch loop.
     let rpc_token_info = token_info.clone();
-    let session = ClientSession::new(session_id, token_info, outgoing_tx);
+    let mut session = ClientSession::new(session_id, token_info, outgoing_tx);
+    session.principal = principal;
     session_mgr.add_session(session).await;
     let mut _guard = SessionCleanupGuard::new((*session_mgr).clone(), session_id);
 
@@ -310,11 +321,24 @@ async fn handle_ws_connection(
 
     info!(session_id = %session_id, "WebSocket client authenticated");
 
+    // RPC work must not occupy the socket read/write loop: a terminal turn
+    // needs outgoing deltas and incoming input/completion on this same socket.
+    let mut rpc_tasks = tokio::task::JoinSet::new();
+    const MAX_IN_FLIGHT_RPC: usize = 32;
     // --- Message loop ---
     // We use a select loop to handle both reading from the WebSocket
     // and sending outgoing messages from the channel.
     loop {
         tokio::select! {
+            reply = rpc_tasks.join_next(), if !rpc_tasks.is_empty() => {
+                match reply {
+                    Some(Ok(reply)) => {
+                        if ws.send(Message::text(reply)).await.is_err() { break; }
+                    }
+                    Some(Err(err)) => warn!(error = %err, "WebSocket RPC task failed"),
+                    None => {}
+                }
+            }
             // Outgoing messages from the session channel.
             outgoing = outgoing_rx.recv() => {
                 let Some(msg) = outgoing else {
@@ -360,9 +384,24 @@ async fn handle_ws_connection(
                 // well-formed message; `dispatch_rpc` runs the typed parse
                 // and surfaces parse errors as JSON-RPC error responses.
                 if looks_like_jsonrpc(text) {
+                    if rpc_tasks.len() >= MAX_IN_FLIGHT_RPC {
+                        let id = serde_json::from_str::<Value>(text).ok()
+                            .and_then(|request| request.get("id").cloned()).unwrap_or(Value::Null);
+                        let reply = serde_json::json!({"jsonrpc":"2.0", "id":id,
+                            "error":{"code":-32000,"message":"too many in-flight requests"}});
+                        if ws.send(Message::text(reply.to_string())).await.is_err() { break; }
+                        continue;
+                    }
                     let session_id_str = session_id.to_string();
-                    let reply = crate::ws_rpc::dispatch_rpc(
-                        text,
+                    let text = text.to_owned();
+                    let auth = Arc::clone(&auth);
+                    let session_mgr = Arc::clone(&session_mgr);
+                    let channel = Arc::clone(&channel);
+                    let session_store = Arc::clone(&session_store);
+                    let cron_service = Arc::clone(&cron_service);
+                    let rpc_token_info = rpc_token_info.clone();
+                    rpc_tasks.spawn(async move { Box::pin(crate::ws_rpc::dispatch_rpc(
+                        &text,
                         &session_id_str,
                         &auth,
                         &session_mgr,
@@ -370,12 +409,8 @@ async fn handle_ws_connection(
                         &session_store,
                         &cron_service,
                         &rpc_token_info,
-                    )
-                    .await;
-                    // Send the raw JSON-RPC response directly.
-                    if ws.send(Message::text(reply)).await.is_err() {
-                        break;
-                    }
+                    ))
+                    .await });
                     continue;
                 }
 
@@ -391,16 +426,19 @@ async fn handle_ws_connection(
                 };
 
                 let session_id_str = session_id.to_string();
-                handle_client_message(
+                Box::pin(handle_client_message(
                     &session_id_str,
                     gateway_msg,
                     &session_mgr,
                     &channel,
-                ).await;
+                )).await;
             }
         }
     }
 
+    // Browser detach does not cancel accepted work. Managed terminal ownership
+    // stays with the gateway, which closes processes on explicit close/shutdown.
+    rpc_tasks.detach_all();
     // Cleanup — disarm guard and do it explicitly so we log properly.
     _guard.disarm();
     session_mgr.remove_session(&session_id).await;
@@ -502,11 +540,628 @@ mod discriminator_tests {
 
     #[test]
     fn rejects_message_with_jsonrpc_only_in_payload() {
-        // The discriminator `"jsonrpc"` appearing far inside the body
-        // (e.g. inside a quoted user message) must not be treated as a
-        // JSON-RPC frame.
-        let payload = format!(r#"{{"type":"chat","text":"{}"}}"#, "x".repeat(200));
-        // The first 64 bytes do not contain "jsonrpc".
-        assert!(!looks_like_jsonrpc(&payload));
+        assert!(!looks_like_jsonrpc(
+            r#"{"params":{"jsonrpc":"2.0"},"type":"chat"}"#
+        ));
+        assert!(!looks_like_jsonrpc(
+            r#"{"type":"chat","text":"\"jsonrpc\":\"2.0\""}"#
+        ));
+    }
+
+    #[test]
+    fn detects_jsonrpc_after_large_non_ascii_params() {
+        let frame = serde_json::json!({
+            "params": {"name": "é".repeat(300)},
+            "method": "channels.config.save",
+            "id": 1,
+            "jsonrpc": "2.0"
+        });
+        // Force the discriminator to be last regardless of serde's map order.
+        let text = format!(
+            r#"{{"params":{},"method":"channels.config.save","id":1,"jsonrpc":"2.0"}}"#,
+            frame["params"]
+        );
+        assert!(looks_like_jsonrpc(&text));
+    }
+
+    #[test]
+    fn rejects_non_object_and_malformed_roots() {
+        for text in [r#"[{"jsonrpc":"2.0"}]"#, "null", r#"{"params": "#] {
+            assert!(!looks_like_jsonrpc(text));
+        }
+    }
+}
+
+#[cfg(test)]
+mod terminal_ws_tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use futures_util::{SinkExt, StreamExt};
+    use salvo::prelude::*;
+    use savfox_core::config::ConfigBuilder;
+    use serde_json::{Value, json};
+    use tokio::sync::mpsc;
+    use tokio_tungstenite::tungstenite::Message;
+
+    use crate::auth::GatewayAuth;
+    use crate::channel::{GatewayBridgeArgs, GatewayChannel};
+    use crate::config::GatewayConfig;
+    use crate::cron_service::CronService;
+    use crate::session::{GatewaySessionManager, SessionStore};
+
+    type Socket = tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >;
+
+    async fn receive(ws: &mut Socket) -> Value {
+        let message = tokio::time::timeout(Duration::from_secs(10), ws.next())
+            .await
+            .expect("socket response timeout")
+            .expect("socket closed")
+            .expect("socket read");
+        serde_json::from_str(message.to_text().expect("text")).expect("JSON")
+    }
+
+    async fn send(ws: &mut Socket, id: u64, method: &str, params: Value) {
+        ws.send(Message::text(
+            json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}).to_string(),
+        ))
+        .await
+        .expect("send");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[cfg(unix)]
+    async fn claude_approval_survives_reattach_and_rejects_other_credentials() {
+        use crate::auth::{TokenInfo, TokenScope};
+        let home = tempfile::tempdir().expect("tempdir");
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let mut config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        config.cwd = home.path().to_path_buf();
+        std::fs::create_dir_all(home.path().join("agents")).unwrap();
+        std::fs::write(home.path().join("agents/claude-test.json"), json!({
+            "id":"claude-test","name":"Claude","kind":"terminal","system_prompt":"initial instructions",
+            "terminal":{"enabled":true,"runtime":"claude","profile":"claude","mode":"claude_stream","session_scope":"per_session","command":concat!(env!("CARGO_MANIFEST_DIR"),"/tests/fixtures/claude/cli.sh"),"env":{"FAKE_MODE":"approval","FAKE_INPUT":home.path().join("input.log")},"savfox_approval_bridge":"required","claude":{"expected_version":"synthetic-claude-2","approval_timeout_secs":5,"shutdown_timeout_secs":1}}
+        }).to_string()).unwrap();
+        let auth = Arc::new(GatewayAuth::new(std::collections::HashMap::from([
+            (
+                "owner-token".to_owned(),
+                TokenInfo {
+                    label: "identical label".to_owned(),
+                    scopes: vec![TokenScope::Operator],
+                },
+            ),
+            (
+                "other-token".to_owned(),
+                TokenInfo {
+                    label: "identical label".to_owned(),
+                    scopes: vec![TokenScope::Operator],
+                },
+            ),
+        ])));
+        let sessions = Arc::new(GatewaySessionManager::new());
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let (outgoing_tx, _outgoing_rx) = mpsc::channel(128);
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: store.clone(),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            feedback: savfox_feedback::SavfoxFeedback::new(),
+            savfox_linux_sandbox_exe: None,
+            websocket_manager: (*sessions).clone(),
+            outgoing_tx,
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = reservation.local_addr().unwrap().port();
+        drop(reservation);
+        let router = crate::server::build_router(
+            auth,
+            sessions,
+            channel.clone(),
+            &GatewayConfig::default(),
+            store.clone(),
+            Arc::new(CronService::from_home(home.path())),
+            home.path().to_path_buf(),
+        );
+        let server = Server::new(TcpListener::new(format!("127.0.0.1:{port}")).bind().await);
+        let shutdown = server.handle();
+        let server_task = tokio::spawn(async move { server.serve(router).await });
+        let owner_url = format!("ws://127.0.0.1:{port}/ws?token=owner-token");
+        let (mut owner, _) = tokio_tungstenite::connect_async(&owner_url).await.unwrap();
+        let (mut other, _) =
+            tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws?token=other-token"))
+                .await
+                .unwrap();
+        assert_eq!(receive(&mut owner).await["type"], "connected");
+        assert_eq!(receive(&mut other).await["type"], "connected");
+        let session_id = uuid::Uuid::now_v7().to_string();
+        let params = json!({"agent":"claude-test","message":"run once","session_id":session_id,"request_id":"one-request"});
+        send(&mut owner, 1, "chat.send", params.clone()).await;
+        let request = loop {
+            let frame = receive(&mut owner).await;
+            if frame["event"] == "exec.approval.requested" {
+                break frame["payload"].clone();
+            }
+            assert!(frame.get("error").is_none(), "{frame}");
+        };
+        let resolution = json!({"request_id":request["request_id"],"nonce":request["nonce"],"decision":"approve-once"});
+        send(&mut other, 2, "exec.approval.resolve", resolution.clone()).await;
+        let denied = receive(&mut other).await;
+        assert_eq!(denied["id"], 2);
+        assert!(denied.get("error").is_some());
+        send(
+            &mut other,
+            3,
+            "chat.history",
+            json!({"session_id":session_id}),
+        )
+        .await;
+        assert!(receive(&mut other).await.get("error").is_some());
+        send(
+            &mut other,
+            13,
+            "chat.history",
+            json!({"session_id":session_id.to_uppercase()}),
+        )
+        .await;
+        assert!(receive(&mut other).await.get("error").is_some());
+        owner.close(None).await.unwrap();
+        let (mut owner, _) = tokio_tungstenite::connect_async(&owner_url).await.unwrap();
+        assert_eq!(receive(&mut owner).await["type"], "connected");
+        send(
+            &mut owner,
+            4,
+            "chat.run.get",
+            json!({"request_id":"one-request"}),
+        )
+        .await;
+        loop {
+            let frame = receive(&mut owner).await;
+            if frame["id"] == 4 {
+                assert_eq!(frame["result"]["status"], "running");
+                assert_eq!(
+                    frame["result"]["pending_approvals"]
+                        .as_array()
+                        .unwrap()
+                        .len(),
+                    1
+                );
+                break;
+            }
+        }
+        send(&mut owner, 10, "chat.send", json!({"agent":"claude-test","message":"queued request","session_id":session_id,"request_id":"queued-request"})).await;
+        let owner_subject = GatewayAuth::token_subject("owner-token");
+        let queued = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(run) = channel
+                    .claude_runtime
+                    .query(&owner_subject, "queued-request")
+                    .await
+                {
+                    break run;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(queued["status"], "starting");
+        send(
+            &mut owner,
+            12,
+            "chat.abort",
+            json!({"run_id":queued["run_id"]}),
+        )
+        .await;
+        let mut cancel_response = false;
+        let mut queued_response = false;
+        while !cancel_response || !queued_response {
+            let frame = receive(&mut owner).await;
+            if frame["id"] == 12 {
+                assert_eq!(frame["result"]["status"], "stop_requested");
+                cancel_response = true;
+            }
+            if frame["id"] == 10 {
+                assert!(frame.get("error").is_some(), "{frame}");
+                queued_response = true;
+            }
+        }
+        assert_eq!(
+            channel
+                .claude_runtime
+                .query(&owner_subject, "queued-request")
+                .await
+                .unwrap()["status"],
+            "cancelled"
+        );
+        assert_eq!(
+            channel
+                .claude_runtime
+                .query(&owner_subject, "one-request")
+                .await
+                .unwrap()["pending_approvals"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        send(&mut owner, 5, "exec.approval.resolve", resolution).await;
+        loop {
+            let frame = receive(&mut owner).await;
+            if frame["event"] == "agent.complete" {
+                assert_eq!(frame["payload"]["raw_response"], "allowed");
+                assert_eq!(frame["payload"]["usage"]["total_tokens"], 20);
+                break;
+            }
+        }
+        send(&mut owner, 6, "chat.send", params).await;
+        loop {
+            let frame = receive(&mut owner).await;
+            if frame["id"] == 6 {
+                assert_eq!(frame["result"]["raw_response"], "allowed");
+                break;
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(home.path().join("input.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        let entry = store.get(&session_id).await.unwrap();
+        assert_eq!(entry.total_tokens, 20);
+        send(
+            &mut owner,
+            7,
+            "chat.history",
+            json!({"session_id":session_id}),
+        )
+        .await;
+        loop {
+            let frame = receive(&mut owner).await;
+            if frame["id"] == 7 {
+                assert_eq!(frame["result"]["messages"].as_array().unwrap().len(), 2);
+                break;
+            }
+        }
+        send(&mut other, 14, "sessions.list", json!({})).await;
+        let other_sessions = receive(&mut other).await;
+        assert_eq!(other_sessions["result"]["persistent_sessions"], json!([]));
+        assert_eq!(other_sessions["result"]["entries"], json!([]));
+        assert_eq!(other_sessions["result"]["total_persistent"], 0);
+        assert_eq!(other_sessions["result"]["total_tokens"], 0);
+        send(
+            &mut other,
+            15,
+            "sessions.ambient.get",
+            json!({"session_id":session_id}),
+        )
+        .await;
+        assert!(receive(&mut other).await.get("error").is_some());
+        for (index, terminal_change) in [
+            (8, json!({"expected_version":123})),
+            (9, json!({"expected_version":"synthetic-claude-2"})),
+        ] {
+            let path = home.path().join("agents/claude-test.json");
+            let mut config: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            config["terminal"]["claude"] = terminal_change;
+            if index == 9 {
+                config["terminal"]["mode"] = json!("unknown-mode");
+            }
+            std::fs::write(path, config.to_string()).unwrap();
+            send(&mut owner, index, "chat.send", json!({"agent":"claude-test","message":"must not execute","session_id":session_id,"request_id":format!("invalid-{index}")})).await;
+            loop {
+                let frame = receive(&mut owner).await;
+                if frame["id"] == index {
+                    assert!(frame.get("error").is_some(), "{frame}");
+                    break;
+                }
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(home.path().join("input.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), other.next())
+                .await
+                .is_err(),
+            "Claude events leaked to another credential"
+        );
+        let path = home.path().join("agents/claude-test.json");
+        let mut config: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        config["terminal"]["mode"] = json!("claude_stream");
+        config["terminal"]["env"]["FAKE_MODE"] = json!("normal");
+        std::fs::write(path, config.to_string()).unwrap();
+        let guard_session = uuid::Uuid::now_v7().to_string();
+        let invocation = channel
+            .invoke_terminal_delegate_with_execution(
+                "guard test",
+                "claude-test",
+                "default",
+                Some(&guard_session),
+                &[],
+                None,
+                Some(crate::claude_code::Execution {
+                    owner: owner_subject,
+                    request_id: "guard-request".to_owned(),
+                    session_id: guard_session.clone(),
+                    agent_id: "claude-test".to_owned(),
+                    approval_client: true,
+                    trusted_context: None,
+                }),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let metadata_path = home
+            .path()
+            .join("terminal-agents/claude-test/sessions")
+            .join(&guard_session)
+            .join("metadata.json");
+        // Returning the CLI result must not unlock before the caller persists
+        // its session metadata. Dropping the invocation releases the lock.
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(50),
+                crate::codex_app_server::session_lock(&metadata_path)
+            )
+            .await
+            .is_err()
+        );
+        drop(invocation);
+        let guard = tokio::time::timeout(
+            Duration::from_secs(1),
+            crate::codex_app_server::session_lock(&metadata_path),
+        )
+        .await
+        .unwrap();
+        drop(guard);
+        owner.close(None).await.unwrap();
+        other.close(None).await.unwrap();
+        channel.claude_runtime.shutdown().await;
+        shutdown.stop_graceful(Duration::from_secs(1));
+        tokio::time::timeout(Duration::from_secs(3), server_task)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn terminal_rpc_long_read_allows_input_and_browser_reattach() {
+        let home = tempfile::tempdir().expect("tempdir");
+        // Keep this transport test offline: core startup otherwise clones the
+        // default skills registry into each fresh test home.
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry"))
+                .expect("registry placeholder");
+        }
+        let mut config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .expect("config");
+        config.cwd = home.path().to_path_buf();
+        let config = Arc::new(config);
+        let auth = Arc::new(GatewayAuth::single_token("terminal-test-token".to_owned()));
+        let sessions = Arc::new(GatewaySessionManager::new());
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let (outgoing_tx, _outgoing_rx) = mpsc::channel(128);
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config,
+            session_store: Arc::clone(&store),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            feedback: savfox_feedback::SavfoxFeedback::new(),
+            savfox_linux_sandbox_exe: None,
+            websocket_manager: (*sessions).clone(),
+            outgoing_tx,
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let reservation = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve port");
+        let port = reservation.local_addr().expect("address").port();
+        drop(reservation);
+        let gateway_config = GatewayConfig::default();
+        let router = crate::server::build_router(
+            auth,
+            sessions,
+            channel,
+            &gateway_config,
+            store,
+            Arc::new(CronService::from_home(home.path())),
+            home.path().to_path_buf(),
+        );
+        let acceptor = TcpListener::new(format!("127.0.0.1:{port}")).bind().await;
+        let server = Server::new(acceptor);
+        let shutdown = server.handle();
+        let server_task = tokio::spawn(async move { server.serve(router).await });
+        let client = reqwest::Client::new();
+        let index = client
+            .get(format!("http://127.0.0.1:{port}/"))
+            .send()
+            .await
+            .expect("serve frontend")
+            .error_for_status()
+            .expect("frontend status")
+            .text()
+            .await
+            .expect("frontend HTML");
+        assert!(index.contains("Savfox"), "gateway must serve its frontend");
+        let module = regex::Regex::new(r#"<script[^>]*src="([^"]+\.js)""#).expect("module pattern");
+        if let Some(captures) = module.captures(&index) {
+            let asset = client
+                .get(format!("http://127.0.0.1:{port}{}", &captures[1]))
+                .send()
+                .await
+                .expect("serve frontend module")
+                .error_for_status()
+                .expect("module status");
+            assert!(
+                asset.headers()["content-type"]
+                    .to_str()
+                    .expect("MIME type")
+                    .contains("javascript")
+            );
+        }
+        let url = format!("ws://127.0.0.1:{port}/ws?token=terminal-test-token");
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("connect");
+        assert_eq!(receive(&mut ws).await["type"], "connected");
+        let session_id = uuid::Uuid::now_v7().to_string();
+        let key = json!({"agent":"ws-native-test", "session_id":session_id});
+        let (program, args) = if cfg!(windows) {
+            (
+                "powershell.exe",
+                vec![
+                    "-NoProfile",
+                    "-Command",
+                    "[Console]::WriteLine('ready'); while (($line = [Console]::ReadLine()) -ne $null) { [Console]::WriteLine('pong') }",
+                ],
+            )
+        } else {
+            (
+                "sh",
+                vec![
+                    "-c",
+                    "printf 'ready\\n'; while IFS= read -r line; do printf 'pong\\n'; done",
+                ],
+            )
+        };
+        let mut start = key.clone();
+        start["command"] = json!(program);
+        start["args"] = json!(args);
+        send(&mut ws, 1, "agent.terminal.pty.start", start).await;
+        let started = receive(&mut ws).await;
+        assert_eq!(
+            started["result"]["metadata"]["native_pty"], true,
+            "{started}"
+        );
+        let pid = started["result"]["metadata"]["pid"].clone();
+        let mut wait = key.clone();
+        wait["wait_for_text"] = json!("pong");
+        wait["timeout_ms"] = json!(8000);
+        send(&mut ws, 2, "agent.terminal.pty.read", wait).await;
+        let mut input = key.clone();
+        input["text"] = json!("ping");
+        send(&mut ws, 3, "agent.terminal.pty.write", input).await;
+        let responses = tokio::time::timeout(Duration::from_secs(6), async {
+            vec![receive(&mut ws).await, receive(&mut ws).await]
+        })
+        .await
+        .expect("long read must not block input on the same socket");
+        let read = responses
+            .iter()
+            .find(|response| response["id"] == 2)
+            .expect("read reply");
+        assert!(
+            read["result"]["entries"].to_string().contains("pong"),
+            "{read}"
+        );
+        ws.close(None).await.expect("detach");
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("reattach");
+        receive(&mut ws).await;
+        send(&mut ws, 4, "agent.terminal.pty.read", key.clone()).await;
+        let restored = receive(&mut ws).await;
+        assert_eq!(restored["result"]["metadata"]["pid"], pid);
+        assert!(restored["result"]["entries"].to_string().contains("pong"));
+        send(&mut ws, 5, "agent.terminal.pty.close", key).await;
+        let closed = receive(&mut ws).await;
+        assert!(closed.get("error").is_none(), "{closed}");
+
+        // Exercise chat.send through the same public socket. The REPL has no
+        // completion marker: streamed output must arrive before manual_complete.
+        let agents = home.path().join("agents");
+        std::fs::create_dir_all(&agents).expect("agents directory");
+        std::fs::write(
+            agents.join("ws-chat-test.json"),
+            json!({
+                "id":"ws-chat-test", "kind":"terminal", "terminal":{
+                    "enabled":true, "mode":"managed_pty", "command":program,
+                    "interactive_command":program, "interactive_args":args,
+                    "stdin":"{{user_prompt}}", "timeout_secs":10
+                }
+            })
+            .to_string(),
+        )
+        .expect("managed agent config");
+        send(
+            &mut ws,
+            6,
+            "chat.send",
+            json!({"agent":"ws-chat-test", "session_id":session_id,
+            "message":"chat ping", "request_id":"terminal-chat-test"}),
+        )
+        .await;
+        tokio::time::timeout(Duration::from_secs(6), async {
+            loop {
+                let event = receive(&mut ws).await;
+                assert_ne!(
+                    event["id"], 6,
+                    "chat must remain pending until explicit completion: {event}"
+                );
+                if event.to_string().contains("pong") {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("live chat output before turn completion");
+        let chat_key = json!({"agent":"ws-chat-test", "session_id":session_id});
+        let mut complete = chat_key.clone();
+        complete["kind"] = json!("manual_complete");
+        send(&mut ws, 7, "agent.terminal.pty.write", complete).await;
+        let mut chat_done = false;
+        let mut completed = false;
+        while !chat_done || !completed {
+            let reply = receive(&mut ws).await;
+            if reply["id"] == 6 {
+                assert!(reply.get("error").is_none(), "{reply}");
+                assert!(reply["result"].to_string().contains("pong"), "{reply}");
+                chat_done = true;
+            } else if reply["id"] == 7 {
+                assert!(reply.get("error").is_none(), "{reply}");
+                completed = true;
+            }
+        }
+        send(&mut ws, 8, "agent.terminal.pty.close", chat_key).await;
+        loop {
+            let reply = receive(&mut ws).await;
+            if reply["id"] == 8 {
+                assert!(reply.get("error").is_none(), "{reply}");
+                break;
+            }
+        }
+        ws.close(None).await.expect("close socket");
+        shutdown.stop_graceful(Duration::from_secs(1));
+        tokio::time::timeout(Duration::from_secs(3), server_task)
+            .await
+            .expect("server shutdown")
+            .expect("server task");
     }
 }

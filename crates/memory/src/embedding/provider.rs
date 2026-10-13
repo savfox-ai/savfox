@@ -46,6 +46,8 @@ pub struct EmbeddingResult {
 /// trait so that callers can work with any backend through a single interface.
 /// Providers differ only in construction; the operations exposed here are
 /// uniform.
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync {
     /// Generate embeddings for the given texts.

@@ -1,0 +1,27 @@
+---
+source: crates/tui/src/chat_screen/tests.rs
+expression: popup
+---
+         ▄▄▄▄▄▄     ▄█▀▀▀▀█▄  ▄█▀▀█▄  ██    ██ ██████  ▄█▀▀█▄  ██    ██
+         ▄▀▀▀▀▄▄▄   ██▄▄     ██    ██ ██    ██ ██     ██    ██  ▀█▄▄█▀
+         ▀▀▀▀▄▄▀▄▄▄  ▀▀▀▀█▄  ████████ ██    ██ █████  ██    ██    ██
+         ▀▀▀▀▀▀▀▀▀▀ ▄▄    ██ ██    ██  ██  ██  ██     ██    ██  ▄█▀▀█▄
+         ▀▀▀▄▄▄▀▀▀   ▀████▀  ██    ██   ▀██▀   ██      ▀█▄▄█▀  ██    ██
+
+
+                                Welcome to Savfox
+                            Your AI coding assistant
+
+
+
+
+  Update Model Permissions
+
+› 1. Read Only (current)  Read files. Approval required for edits and internet
+                          access.
+  2. Default              Read/edit workspace files and run commands. Approval
+                          for internet/external.
+  3. Full Access          Full disk and internet access without approval
+                          prompts.
+
+  Press enter to confirm or esc to go back

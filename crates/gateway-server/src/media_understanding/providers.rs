@@ -26,6 +26,8 @@ async fn send_json_request(request: reqwest::RequestBuilder) -> MediaResult<serd
         .map_err(|e| format!("Failed to parse response: {e}"))
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait MediaProvider: Send + Sync {
     fn id(&self) -> &str;

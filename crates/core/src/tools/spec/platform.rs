@@ -262,8 +262,8 @@ pub(super) fn create_channel_tools_tool() -> ToolSpec {
             "action".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Channel action: \"send\", \"react\", \"edit\", \"delete\", \"history\", \
-                     \"list_channels\".".to_owned(),
+                    "Channel action. Only \"send\" is currently implemented; other values return an explicit error."
+                        .to_owned(),
                 ),
             },
         ),
@@ -284,19 +284,7 @@ pub(super) fn create_channel_tools_tool() -> ToolSpec {
         (
             "content".to_owned(),
             JsonSchema::String {
-                description: Some("Message content (for send/edit).".to_owned()),
-            },
-        ),
-        (
-            "message_id".to_owned(),
-            JsonSchema::String {
-                description: Some("Message ID (for edit/delete/react).".to_owned()),
-            },
-        ),
-        (
-            "emoji".to_owned(),
-            JsonSchema::String {
-                description: Some("Emoji for reactions.".to_owned()),
+                description: Some("Message content for the send action.".to_owned()),
             },
         ),
         (
@@ -305,17 +293,11 @@ pub(super) fn create_channel_tools_tool() -> ToolSpec {
                 description: Some("Session/reply-to ID.".to_owned()),
             },
         ),
-        (
-            "limit".to_owned(),
-            JsonSchema::Number {
-                description: Some("Maximum messages to fetch for history (default: 50).".to_owned()),
-            },
-        ),
     ]);
 
     function_tool(FunctionToolDecl {
         name: "channel_tools",
-        description: "Unified multi-platform channel tool: send messages, reactions, edit/delete messages, fetch history, and list channels across Discord, Slack, Telegram, WhatsApp, and webhooks. Routes through the gateway server.",
+        description: "Unified multi-platform channel tool. Currently supports sending messages across Discord, Slack, Telegram, WhatsApp, and webhooks through the gateway server.",
         properties,
         required: &["action", "platform"],
     })

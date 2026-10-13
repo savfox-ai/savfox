@@ -13,8 +13,8 @@ use tracing::{info, warn};
 use crate::auth::{GatewayAuth, TokenInfo, TokenScope};
 use crate::channel::{GatewayChannel, RuntimeBridgeSecrets};
 use crate::chat_session::{
-    abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
-    provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
+    abort_first_active_candidate, persist_chat_session_metadata, provider_from_model,
+    resolve_abort_candidate_ids, validate_uuid_v7_session_id,
 };
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
@@ -178,9 +178,143 @@ fn is_public_anonymous_path(path: &str) -> bool {
 /// API surfaces. Anything matching this set gets the bearer-auth hoop applied.
 fn is_protected_api_path(path: &str) -> bool {
     path.starts_with("/api/")
+        || path.starts_with("/v1/")
         || path.starts_with("/tools/")
         || path.starts_with("/hooks/")
         || path.starts_with("/plugins/")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HttpAuthorization {
+    AnyAuthenticated,
+    Scope(TokenScope),
+}
+
+// Keep route registration and least-privilege authorization in one declaration.
+// Public routes (health, WebSocket upgrade, callbacks and webhooks) deliberately
+// stay outside this table because they use different authentication mechanisms.
+macro_rules! protected_http_routes {
+    ($consumer:ident) => {
+        $consumer! {
+            (get, "api/status", HttpAuthorization::Scope(TokenScope::OperatorRead), status_handler),
+            (get, "api/logs", HttpAuthorization::Scope(TokenScope::OperatorRead), logs_handler),
+            (get, "api/config", HttpAuthorization::Scope(TokenScope::OperatorRead), config_handler),
+            (get, "api/metrics", HttpAuthorization::Scope(TokenScope::OperatorRead), otel::metrics_handler),
+            (post, "api/token/validate", HttpAuthorization::AnyAuthenticated, token_validate_handler),
+            (post, "api/message", HttpAuthorization::Scope(TokenScope::Chat), message_handler),
+            (get, "api/sessions", HttpAuthorization::Scope(TokenScope::OperatorRead), sessions_handler),
+            (get, "api/channels", HttpAuthorization::Scope(TokenScope::OperatorRead), channels_handler),
+            (get, "api/nodes", HttpAuthorization::Scope(TokenScope::OperatorPairing), nodes_handler),
+            (get, "api/devices", HttpAuthorization::Scope(TokenScope::OperatorPairing), devices_list_handler),
+            (post, "api/devices/pair", HttpAuthorization::Scope(TokenScope::OperatorPairing), devices_pair_handler),
+            (post, "api/devices/<device_id>/revoke", HttpAuthorization::Scope(TokenScope::OperatorPairing), devices_revoke_handler),
+            (post, "api/config/patch", HttpAuthorization::Scope(TokenScope::OperatorAdmin), config_patch_handler),
+            (post, "api/config/apply", HttpAuthorization::Scope(TokenScope::OperatorAdmin), config_apply_handler),
+            (post, "api/restart", HttpAuthorization::Scope(TokenScope::OperatorAdmin), restart_handler),
+            (get, "api/skills", HttpAuthorization::Scope(TokenScope::OperatorRead), skills_api::skills_list_handler),
+            (get, "api/skills/search", HttpAuthorization::Scope(TokenScope::OperatorRead), skills_api::skills_search_handler),
+            (get, "api/skills/installed", HttpAuthorization::Scope(TokenScope::OperatorRead), skills_api::skills_installed_handler),
+            (post, "api/skills/refresh", HttpAuthorization::Scope(TokenScope::OperatorWrite), skills_api::skills_refresh_handler),
+            (post, "api/skills/install", HttpAuthorization::Scope(TokenScope::OperatorAdmin), skills_api::skills_install_handler),
+            (post, "api/skills/uninstall", HttpAuthorization::Scope(TokenScope::OperatorAdmin), skills_api::skills_uninstall_handler),
+            (post, "v1/chat/completions", HttpAuthorization::Scope(TokenScope::Chat), openai::chat_completions_handler),
+            (get, "v1/models", HttpAuthorization::Scope(TokenScope::OperatorRead), openai::models_list_handler),
+            (post, "v1/responses", HttpAuthorization::Scope(TokenScope::Chat), openresponses::responses_handler),
+            (post, "api/chat/completions", HttpAuthorization::Scope(TokenScope::Chat), openai::chat_completions_handler),
+            (get, "api/models/openai", HttpAuthorization::Scope(TokenScope::OperatorRead), openai::models_list_handler),
+            (post, "api/responses", HttpAuthorization::Scope(TokenScope::Chat), openresponses::responses_handler),
+            (post, "tools/invoke", HttpAuthorization::Scope(TokenScope::OperatorAdmin), tools_invoke::tools_invoke_handler),
+            (post, "api/exec/approval/request", HttpAuthorization::Scope(TokenScope::OperatorApprovalsRequest), exec_approval::approval_request_handler),
+            (post, "api/exec/approval/resolve", HttpAuthorization::Scope(TokenScope::OperatorApprovalsResolve), exec_approval::approval_resolve_handler),
+            (get, "api/exec/approvals", HttpAuthorization::Scope(TokenScope::OperatorApprovalsRead), exec_approval::approvals_list_handler),
+            (post, "api/agent", HttpAuthorization::Scope(TokenScope::OperatorWrite), agent_handler),
+            (post, "api/agent/wait", HttpAuthorization::Scope(TokenScope::OperatorRead), agent_wait_handler),
+            (get, "api/sessions/<session_id>/history", HttpAuthorization::Scope(TokenScope::OperatorRead), session_history_handler),
+            (get, "api/agents", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::agents_list_handler),
+            (post, "api/agents", HttpAuthorization::Scope(TokenScope::OperatorAdmin), routing::agents_create_handler),
+            (get, "api/agents/<agent_id>", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::agents_get_handler),
+            (post, "api/agents/<agent_id>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), routing::agents_update_handler),
+            (delete, "api/agents/<agent_id>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), routing::agents_delete_handler),
+            (get, "api/sessions/preview", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::sessions_preview_handler),
+            (post, "api/sessions/<session_id>", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::sessions_patch_handler),
+            (post, "api/sessions/<session_id>/reset", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::sessions_reset_handler),
+            (delete, "api/sessions/<session_id>", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::sessions_delete_handler),
+            (get, "api/usage/stats", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::usage_stats_handler),
+            (get, "api/usage/timeseries", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::usage_timeseries_handler),
+            (get, "api/usage/cost", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::usage_cost_handler),
+            (get, "api/cron", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::cron_list_handler),
+            (post, "api/cron", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_add_handler),
+            (get, "api/cron/<job_id>", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::cron_get_handler),
+            (post, "api/cron/<job_id>", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_update_handler),
+            (delete, "api/cron/<job_id>", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_delete_handler),
+            (post, "api/cron/<job_id>/run", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_run_handler),
+            (get, "api/tts/status", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::tts_status_handler),
+            (post, "api/tts/enable", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::tts_enable_handler),
+            (post, "api/tts/disable", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::tts_disable_handler),
+            (get, "api/tts/providers", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::tts_providers_handler),
+            (get, "api/voicewake/status", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::voicewake_status_handler),
+            (post, "api/voicewake/enable", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::voicewake_enable_handler),
+            (post, "api/voicewake/disable", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::voicewake_disable_handler),
+            (post, "api/chat/abort", HttpAuthorization::Scope(TokenScope::Chat), chat_abort_handler),
+            (post, "plugins/<plugin_id>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), plugin_route_handler),
+            (post, "plugins/<plugin_id>/<**plugin_route>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), plugin_route_handler),
+            (post, "hooks/wake", HttpAuthorization::Scope(TokenScope::OperatorAdmin), hooks::wake_handler),
+            (post, "hooks/agent", HttpAuthorization::Scope(TokenScope::OperatorAdmin), hooks::agent_hook_handler),
+            (post, "hooks/<mapping_id>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), hooks::custom_hook_handler),
+        }
+    };
+}
+
+macro_rules! collect_protected_http_authorizations {
+    ($(($method:ident, $path:literal, $authorization:expr, $handler:path),)*) => {
+        &[$((stringify!($method), concat!("/", $path), $authorization)),*]
+    };
+}
+
+const PROTECTED_HTTP_AUTHORIZATIONS: &[(&str, &str, HttpAuthorization)] =
+    protected_http_routes!(collect_protected_http_authorizations);
+
+fn protected_route_matches(template: &str, path: &str) -> bool {
+    let mut template_segments = template.trim_matches('/').split('/');
+    let mut path_segments = path.trim_matches('/').split('/');
+
+    loop {
+        match (template_segments.next(), path_segments.next()) {
+            (None, None) => return true,
+            (Some(segment), _) if segment.starts_with("<**") => return true,
+            (Some(segment), Some(_)) if segment.starts_with('<') && segment.ends_with('>') => {}
+            (Some(template_segment), Some(path_segment)) if template_segment == path_segment => {}
+            _ => return false,
+        }
+    }
+}
+
+/// Return the least privilege required for an authenticated HTTP endpoint.
+///
+/// This is deliberately fail-closed: an unknown path under a protected prefix
+/// is Admin-only. Registered routes and their authorization are generated from
+/// the same declaration, so they cannot drift independently.
+fn required_http_authorization(method: &str, path: &str) -> HttpAuthorization {
+    let path = if path.len() > 1 {
+        path.trim_end_matches('/')
+    } else {
+        path
+    };
+
+    for &(route_method, template, authorization) in PROTECTED_HTTP_AUTHORIZATIONS {
+        if method.eq_ignore_ascii_case(route_method) && protected_route_matches(template, path) {
+            return authorization;
+        }
+    }
+
+    HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+}
+
+fn has_http_authorization(info: &TokenInfo, required: HttpAuthorization) -> bool {
+    match required {
+        HttpAuthorization::AnyAuthenticated => true,
+        HttpAuthorization::Scope(scope) => info.has_scope(scope),
+    }
 }
 
 /// Global Salvo hoop: enforce Bearer-auth on every protected endpoint.
@@ -224,6 +358,15 @@ async fn bearer_auth_hoop(
     // rate limiting. They still pass through authentication below.
     match authenticate_with_info(req, depot, res).await {
         Some(info) => {
+            let required = required_http_authorization(req.method().as_str(), path);
+            if !has_http_authorization(&info, required) {
+                res.status_code(StatusCode::FORBIDDEN);
+                res.render(Text::Json(
+                    json!({"error": "insufficient token scope"}).to_string(),
+                ));
+                ctrl.skip_rest();
+                return;
+            }
             depot.insert_typed(info);
         }
         None => {
@@ -386,91 +529,17 @@ pub(crate) fn build_router(
         .hoop(bearer_auth_hoop);
 
     let mut router = state_router
-        // Health check
         .push(Router::with_path("health").get(health_handler))
-        // API status
-        .push(Router::with_path("api/status").get(status_handler))
-        .push(Router::with_path("api/logs").get(logs_handler))
-        // API config
-        .push(Router::with_path("api/config").get(config_handler))
-        // Metrics (OpenTelemetry observability)
-        .push(Router::with_path("api/metrics").get(otel::metrics_handler))
-        // Token validation
-        .push(Router::with_path("api/token/validate").post(token_validate_handler))
-        // Message sending endpoint (used by the `message` tool)
-        .push(Router::with_path("api/message").post(message_handler))
-        // Session listing endpoint (used by the `sessions` tool)
-        .push(Router::with_path("api/sessions").get(sessions_handler))
-        .push(Router::with_path("api/channels").get(channels_handler))
-        .push(Router::with_path("api/nodes").get(nodes_handler))
-        .push(Router::with_path("api/devices").get(devices_list_handler))
-        .push(Router::with_path("api/devices/pair").post(devices_pair_handler))
-        .push(Router::with_path("api/devices/<device_id>/revoke").post(devices_revoke_handler))
-        // Gateway config management (Phase 2)
-        .push(Router::with_path("api/config/patch").post(config_patch_handler))
-        .push(Router::with_path("api/config/apply").post(config_apply_handler))
-        .push(Router::with_path("api/restart").post(restart_handler))
-        // Skills API endpoints
-        .push(Router::with_path("api/skills").get(skills_api::skills_list_handler))
-        .push(Router::with_path("api/skills/search").get(skills_api::skills_search_handler))
-        .push(Router::with_path("api/skills/installed").get(skills_api::skills_installed_handler))
-        .push(Router::with_path("api/skills/refresh").post(skills_api::skills_refresh_handler))
-        .push(Router::with_path("api/skills/install").post(skills_api::skills_install_handler))
-        .push(Router::with_path("api/skills/uninstall").post(skills_api::skills_uninstall_handler))
-        // OpenAI-compatible API
-        .push(Router::with_path("api/chat/completions").post(openai::chat_completions_handler))
-        .push(Router::with_path("api/models/openai").get(openai::models_list_handler))
-        // OpenResponses API (Phase 7)
-        .push(Router::with_path("api/responses").post(openresponses::responses_handler))
-        // Tools invoke endpoint (Phase 6)
-        .push(Router::with_path("tools/invoke").post(tools_invoke::tools_invoke_handler))
-        // Exec approval endpoints
-        .push(Router::with_path("api/exec/approval/request").post(exec_approval::approval_request_handler))
-        .push(Router::with_path("api/exec/approval/resolve").post(exec_approval::approval_resolve_handler))
-        .push(Router::with_path("api/exec/approvals").get(exec_approval::approvals_list_handler))
-        // Agent invocation endpoints (used by agent_step tool)
-        .push(Router::with_path("api/agent").post(agent_handler))
-        .push(Router::with_path("api/agent/wait").post(agent_wait_handler))
-        .push(Router::with_path("api/sessions/<session_id>/history").get(session_history_handler))
-        // WebSocket endpoint
-        .push(Router::with_path("ws").goal(ws_handler))
-        // Agents API
-        .push(Router::with_path("api/agents").get(routing::agents_list_handler))
-        .push(Router::with_path("api/agents").post(routing::agents_create_handler))
-        .push(Router::with_path("api/agents/<agent_id>").get(routing::agents_get_handler))
-        .push(Router::with_path("api/agents/<agent_id>").post(routing::agents_update_handler))
-        .push(Router::with_path("api/agents/<agent_id>").delete(routing::agents_delete_handler))
-        // Sessions management API
-        .push(Router::with_path("api/sessions/preview").get(routing::sessions_preview_handler))
-        .push(Router::with_path("api/sessions/<session_id>").post(routing::sessions_patch_handler))
-        .push(Router::with_path("api/sessions/<session_id>/reset").post(routing::sessions_reset_handler))
-        .push(Router::with_path("api/sessions/<session_id>").delete(routing::sessions_delete_handler))
-        .push(Router::with_path("api/sessions/<session_id>/compact").post(routing::sessions_compact_handler))
-        // Usage API
-        .push(Router::with_path("api/usage/stats").get(routing::usage_stats_handler))
-        .push(Router::with_path("api/usage/timeseries").get(routing::usage_timeseries_handler))
-        .push(Router::with_path("api/usage/cost").get(routing::usage_cost_handler))
-        // Cron API
-        .push(Router::with_path("api/cron").get(routing::cron_list_handler))
-        .push(Router::with_path("api/cron").post(routing::cron_add_handler))
-        .push(Router::with_path("api/cron/<job_id>").get(routing::cron_get_handler))
-        .push(Router::with_path("api/cron/<job_id>").post(routing::cron_update_handler))
-        .push(Router::with_path("api/cron/<job_id>").delete(routing::cron_delete_handler))
-        .push(Router::with_path("api/cron/<job_id>/run").post(routing::cron_run_handler))
-        // TTS API
-        .push(Router::with_path("api/tts/status").get(routing::tts_status_handler))
-        .push(Router::with_path("api/tts/enable").post(routing::tts_enable_handler))
-        .push(Router::with_path("api/tts/disable").post(routing::tts_disable_handler))
-        .push(Router::with_path("api/tts/providers").get(routing::tts_providers_handler))
-        // Voice Wake API
-        .push(Router::with_path("api/voicewake/status").get(routing::voicewake_status_handler))
-        .push(Router::with_path("api/voicewake/enable").post(routing::voicewake_enable_handler))
-        .push(Router::with_path("api/voicewake/disable").post(routing::voicewake_disable_handler))
-        // Chat abort API
-        .push(Router::with_path("api/chat/abort").post(chat_abort_handler))
-        // Plugin HTTP routes
-        .push(Router::with_path("plugins/<plugin_id>").post(plugin_route_handler))
-        .push(Router::with_path("plugins/<plugin_id>/<**plugin_route>").post(plugin_route_handler));
+        .push(Router::with_path("ws").goal(ws_handler));
+
+    macro_rules! register_protected_http_routes {
+        ($(($method:ident, $path:literal, $authorization:expr, $handler:path),)*) => {
+            $(
+                router = router.push(Router::with_path($path).$method($handler));
+            )*
+        };
+    }
+    protected_http_routes!(register_protected_http_routes);
 
     // Webhook endpoints for chat platform channels.
     let webhook_router = Router::with_path("webhooks")
@@ -509,14 +578,6 @@ pub(crate) fn build_router(
         router = router.push(channels::arkret_applet::arkret_appservices_router());
     }
 
-    // Hook mapping endpoints (Phase 8).
-    let hooks_router = Router::with_path("hooks")
-        .push(Router::with_path("wake").post(hooks::wake_handler))
-        .push(Router::with_path("agent").post(hooks::agent_hook_handler))
-        .push(Router::with_path("<mapping_id>").post(hooks::custom_hook_handler));
-
-    router = router.push(hooks_router);
-
     // WebChat embeddable widget endpoints.
     router = router.push(webchat::webchat_router());
 
@@ -550,6 +611,7 @@ pub(crate) async fn start_server(
     // Install the global HTTP body size cap before any handler runs.
     salvo::http::request::set_global_secure_max_size(MAX_HTTP_BODY_SIZE);
 
+    let claude_runtime = channel.claude_runtime.clone();
     let router = build_router(
         auth,
         session_mgr,
@@ -566,10 +628,26 @@ pub(crate) async fn start_server(
     let acceptor = TcpListener::new(bind_addr).bind().await;
     let server = Server::new(acceptor);
     let shutdown_handle = server.handle();
+    let shutdown_runtime = claude_runtime.clone();
     tokio::spawn(async move {
-        match tokio::signal::ctrl_c().await {
+        let signal = async {
+            #[cfg(unix)]
+            {
+                let mut terminate =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+                tokio::select! {
+                    result = tokio::signal::ctrl_c() => result,
+                    _ = terminate.recv() => Ok(()),
+                }
+            }
+            #[cfg(not(unix))]
+            tokio::signal::ctrl_c().await
+        }
+        .await;
+        match signal {
             Ok(()) => {
                 info!("gateway shutdown signal received");
+                shutdown_runtime.shutdown().await;
                 shutdown_handle.stop_graceful(std::time::Duration::from_secs(10));
             }
             Err(err) => {
@@ -578,6 +656,7 @@ pub(crate) async fn start_server(
         }
     });
     server.serve(router).await;
+    claude_runtime.shutdown().await;
 
     Ok(())
 }
@@ -1083,12 +1162,22 @@ fn expand_env_string(input: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use salvo::Service;
+    use salvo::conn::SocketAddr;
+    use salvo::http::Method;
+    use salvo::http::uri::{Scheme, Uri};
     #[cfg(windows)]
-    use salvo::prelude::{Listener, Router, Server};
+    use salvo::prelude::{Listener, Server};
+    use salvo::prelude::{Request, Response, Router, StatusCode};
     use serde_json::json;
 
     use super::{
-        expand_env_string, is_protected_api_path, is_public_anonymous_path, substitute_env_vars,
+        GatewayAuth, HttpAuthorization, TokenInfo, TokenScope, bearer_auth_hoop, expand_env_string,
+        has_http_authorization, is_protected_api_path, is_public_anonymous_path,
+        required_http_authorization, substitute_env_vars,
     };
 
     #[cfg(windows)]
@@ -1145,6 +1234,9 @@ mod tests {
             "/api/exec/approval/resolve",
             "/api/devices/pair",
             "/api/sessions/abc/history",
+            "/v1/chat/completions",
+            "/v1/models",
+            "/v1/responses",
             "/tools/invoke",
             "/hooks/wake",
             "/plugins/some-id",
@@ -1157,6 +1249,280 @@ mod tests {
                 !is_public_anonymous_path(path),
                 "path must not be anonymous: {path}"
             );
+        }
+    }
+
+    #[test]
+    fn protected_http_routes_have_least_privilege_scope_mappings() {
+        use HttpAuthorization::{AnyAuthenticated, Scope};
+
+        for (method, path, expected) in [
+            ("POST", "/api/token/validate", AnyAuthenticated),
+            ("GET", "/api/status", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/logs", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/config", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/metrics", Scope(TokenScope::OperatorRead)),
+            ("POST", "/api/message", Scope(TokenScope::Chat)),
+            ("GET", "/api/sessions", Scope(TokenScope::OperatorRead)),
+            (
+                "GET",
+                "/api/sessions/session-1/history",
+                Scope(TokenScope::OperatorRead),
+            ),
+            ("GET", "/api/channels", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/nodes", Scope(TokenScope::OperatorPairing)),
+            (
+                "POST",
+                "/api/devices/device-1/revoke",
+                Scope(TokenScope::OperatorPairing),
+            ),
+            (
+                "POST",
+                "/api/config/patch",
+                Scope(TokenScope::OperatorAdmin),
+            ),
+            ("GET", "/api/skills/search", Scope(TokenScope::OperatorRead)),
+            (
+                "POST",
+                "/api/skills/refresh",
+                Scope(TokenScope::OperatorWrite),
+            ),
+            (
+                "POST",
+                "/api/skills/install",
+                Scope(TokenScope::OperatorAdmin),
+            ),
+            ("GET", "/v1/models", Scope(TokenScope::OperatorRead)),
+            ("POST", "/v1/responses", Scope(TokenScope::Chat)),
+            ("POST", "/tools/invoke", Scope(TokenScope::OperatorAdmin)),
+            (
+                "POST",
+                "/api/exec/approval/request",
+                Scope(TokenScope::OperatorApprovalsRequest),
+            ),
+            (
+                "POST",
+                "/api/exec/approval/resolve",
+                Scope(TokenScope::OperatorApprovalsResolve),
+            ),
+            (
+                "GET",
+                "/api/exec/approvals",
+                Scope(TokenScope::OperatorApprovalsRead),
+            ),
+            ("POST", "/api/agent", Scope(TokenScope::OperatorWrite)),
+            ("POST", "/api/agent/wait", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/agents/a", Scope(TokenScope::OperatorRead)),
+            ("DELETE", "/api/agents/a", Scope(TokenScope::OperatorAdmin)),
+            ("GET", "/api/usage/cost", Scope(TokenScope::OperatorRead)),
+            ("GET", "/api/cron", Scope(TokenScope::OperatorRead)),
+            (
+                "POST",
+                "/api/cron/job-1/run",
+                Scope(TokenScope::OperatorWrite),
+            ),
+            ("GET", "/api/tts/status", Scope(TokenScope::OperatorRead)),
+            ("POST", "/api/tts/enable", Scope(TokenScope::OperatorWrite)),
+            ("POST", "/api/chat/abort", Scope(TokenScope::Chat)),
+            (
+                "POST",
+                "/hooks/custom-mapping",
+                Scope(TokenScope::OperatorAdmin),
+            ),
+            (
+                "POST",
+                "/plugins/example/route",
+                Scope(TokenScope::OperatorAdmin),
+            ),
+        ] {
+            assert_eq!(
+                required_http_authorization(method, path),
+                expected,
+                "{method} {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_protected_http_routes_fail_closed_to_admin() {
+        assert_eq!(
+            required_http_authorization("GET", "/api/future-capability"),
+            HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+        );
+        assert_eq!(
+            required_http_authorization("PUT", "/api/sessions/session-1"),
+            HttpAuthorization::Scope(TokenScope::OperatorAdmin)
+        );
+    }
+
+    #[test]
+    fn http_scope_check_preserves_role_separation() {
+        let info = |scope| TokenInfo {
+            label: "test".to_owned(),
+            scopes: vec![scope],
+        };
+
+        let viewer = info(TokenScope::Viewer);
+        assert!(has_http_authorization(
+            &viewer,
+            HttpAuthorization::Scope(TokenScope::OperatorRead)
+        ));
+        assert!(!has_http_authorization(
+            &viewer,
+            HttpAuthorization::Scope(TokenScope::OperatorWrite)
+        ));
+        assert!(!has_http_authorization(
+            &viewer,
+            HttpAuthorization::Scope(TokenScope::Chat)
+        ));
+
+        let chat = info(TokenScope::Chat);
+        assert!(has_http_authorization(
+            &chat,
+            HttpAuthorization::Scope(TokenScope::Chat)
+        ));
+        assert!(has_http_authorization(
+            &chat,
+            HttpAuthorization::AnyAuthenticated
+        ));
+        assert!(!has_http_authorization(
+            &chat,
+            HttpAuthorization::Scope(TokenScope::OperatorRead)
+        ));
+
+        let requester = info(TokenScope::OperatorApprovalsRequest);
+        assert!(has_http_authorization(
+            &requester,
+            HttpAuthorization::Scope(TokenScope::OperatorApprovalsRequest)
+        ));
+        assert!(!has_http_authorization(
+            &requester,
+            HttpAuthorization::Scope(TokenScope::OperatorApprovalsRead)
+        ));
+
+        let operator = info(TokenScope::Operator);
+        for scope in [
+            TokenScope::OperatorRead,
+            TokenScope::OperatorWrite,
+            TokenScope::OperatorAdmin,
+            TokenScope::OperatorPairing,
+            TokenScope::OperatorApprovalsRequest,
+            TokenScope::OperatorApprovalsRead,
+            TokenScope::OperatorApprovalsResolve,
+            TokenScope::Chat,
+        ] {
+            assert!(has_http_authorization(
+                &operator,
+                HttpAuthorization::Scope(scope)
+            ));
+        }
+    }
+
+    #[salvo::handler]
+    async fn authorization_probe(res: &mut Response) {
+        res.status_code(StatusCode::NO_CONTENT);
+    }
+
+    async fn call_authorization_probe(
+        auth: Arc<GatewayAuth>,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+    ) -> Response {
+        let router = Router::new()
+            .hoop(salvo::affix_state::inject(auth))
+            .hoop(bearer_auth_hoop)
+            .push(Router::with_path("api/status").get(authorization_probe))
+            .push(Router::with_path("api/sessions").get(authorization_probe))
+            .push(Router::with_path("api/message").post(authorization_probe))
+            .push(Router::with_path("api/config/patch").post(authorization_probe));
+        let service = Service::new(router);
+        let mut req = Request::new();
+        *req.method_mut() = method;
+        req.set_uri(path.parse::<Uri>().expect("valid test URI"));
+        if let Some(token) = token {
+            req.headers_mut().insert(
+                "authorization",
+                format!("Bearer {token}")
+                    .parse()
+                    .expect("valid auth header"),
+            );
+        }
+
+        service
+            .hyper_handler(
+                SocketAddr::Unknown,
+                SocketAddr::Unknown,
+                Scheme::HTTP,
+                None,
+                salvo::conn::ConnCtrl::default(),
+                None,
+            )
+            .handle(req)
+            .await
+    }
+
+    #[tokio::test]
+    async fn bearer_auth_hoop_enforces_http_scope_matrix() {
+        let auth = Arc::new(GatewayAuth::new(HashMap::from([
+            (
+                "viewer-token".to_owned(),
+                TokenInfo {
+                    label: "viewer".to_owned(),
+                    scopes: vec![TokenScope::Viewer],
+                },
+            ),
+            (
+                "chat-token".to_owned(),
+                TokenInfo {
+                    label: "chat".to_owned(),
+                    scopes: vec![TokenScope::Chat],
+                },
+            ),
+            (
+                "admin-token".to_owned(),
+                TokenInfo {
+                    label: "admin".to_owned(),
+                    scopes: vec![TokenScope::OperatorAdmin],
+                },
+            ),
+        ])));
+
+        for (method, path, token, expected) in [
+            (Method::GET, "/api/status", None, StatusCode::UNAUTHORIZED),
+            (
+                Method::GET,
+                "/api/status",
+                Some("viewer-token"),
+                StatusCode::NO_CONTENT,
+            ),
+            (
+                Method::POST,
+                "/api/config/patch",
+                Some("viewer-token"),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Method::POST,
+                "/api/message",
+                Some("chat-token"),
+                StatusCode::NO_CONTENT,
+            ),
+            (
+                Method::GET,
+                "/api/sessions",
+                Some("chat-token"),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Method::POST,
+                "/api/config/patch",
+                Some("admin-token"),
+                StatusCode::NO_CONTENT,
+            ),
+        ] {
+            let response = call_authorization_probe(auth.clone(), method, path, token).await;
+            assert_eq!(response.status_code, Some(expected), "{path}");
         }
     }
 
@@ -1679,7 +2045,31 @@ async fn session_history_handler(req: &mut Request, depot: &mut Depot, res: &mut
         return;
     };
 
-    let payload = build_history_payload(&session_id, limit, None, &session_store, &channel).await;
+    let principal = req
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .map(GatewayAuth::token_subject);
+    if let Err(error) = channel
+        .claude_runtime
+        .authorize_session(principal.as_deref(), &session_id)
+        .await
+    {
+        res.status_code(StatusCode::FORBIDDEN);
+        res.render(Text::Json(json!({"error":error.to_string()}).to_string()));
+        return;
+    }
+    let payload = build_history_payload(
+        &session_id,
+        limit,
+        None,
+        &session_store,
+        &channel,
+        principal.as_deref(),
+    )
+    .await;
     res.render(Text::Json(payload.to_string()));
 }
 
@@ -1720,6 +2110,39 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let candidates =
         resolve_abort_candidate_ids(session_store.as_ref(), Some(thread_id), Some(session_id))
             .await;
+    let principal = req
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .map(GatewayAuth::token_subject);
+    for target in [session_id, thread_id]
+        .into_iter()
+        .filter(|target| !target.is_empty())
+    {
+        if channel
+            .claude_runtime
+            .authorize_session(principal.as_deref(), target)
+            .await
+            .is_err()
+        {
+            res.status_code(StatusCode::FORBIDDEN);
+            res.render(Text::Json(
+                json!({"error":"chat is outside your execution scope"}).to_string(),
+            ));
+            return;
+        }
+        if let Some(owner) = principal.as_deref()
+            && channel.claude_runtime.cancel(owner, target).await
+        {
+            res.render(Text::Json(
+                json!({"status":"stop_requested","execution_target":"claude","target":target})
+                    .to_string(),
+            ));
+            return;
+        }
+    }
     if let Some(aborted_thread_id) =
         abort_first_active_candidate(channel.as_ref(), &candidates).await
     {
@@ -1735,13 +2158,11 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
         return;
     }
 
-    let aborted_count = abort_all_active_threads(channel.as_ref()).await;
-
     res.render(Text::Json(
         json!({
-            "status": "ok",
+            "status": "not_found",
             "session_id": session_id,
-            "aborted_count": aborted_count,
+            "aborted_count": 0,
             "message": "chat abort attempted",
         })
         .to_string(),

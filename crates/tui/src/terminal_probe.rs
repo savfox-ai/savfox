@@ -222,7 +222,7 @@ mod imp {
                         }
                         (Some(reader_err), None) => format!("reader: {reader_err}"),
                         (None, Some(writer_err)) => format!("writer: {writer_err}"),
-                        (None, None) => "unknown stdio duplicate error".to_string(),
+                        (None, None) => "unknown stdio duplicate error".to_owned(),
                     };
                     let reader =
                         OpenOptions::new()

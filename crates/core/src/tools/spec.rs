@@ -29,8 +29,7 @@ use self::execution::{
 use self::orchestration::{
     create_agent_step_tool, create_list_mcp_resource_templates_tool,
     create_list_mcp_resources_tool, create_read_mcp_resource_tool, create_session_status_tool,
-    create_sessions_history_tool, create_sessions_list_tool, create_sessions_send_a2a_tool,
-    create_sessions_send_tool, create_sessions_spawn_tool,
+    create_sessions_history_tool, create_sessions_list_tool,
 };
 use self::platform::{
     create_channel_tools_tool, create_discord_actions_tool, create_message_tool,
@@ -793,36 +792,6 @@ fn create_canvas_tool() -> ToolSpec {
     })
 }
 
-fn create_gateway_tool() -> ToolSpec {
-    let properties = BTreeMap::from([
-        (
-            "method".to_owned(),
-            JsonSchema::String {
-                description: Some(
-                    "Gateway JSON-RPC method to call (e.g., \"agents.list\", \"chat.send\", \
-                     \"sessions.list\", \"cron.add\", \"config.get\", \"tools.invoke\")."
-                        .to_owned(),
-                ),
-            },
-        ),
-        (
-            "params".to_owned(),
-            JsonSchema::Object {
-                properties: BTreeMap::new(),
-                required: None,
-                additional_properties: Some(true.into()),
-            },
-        ),
-    ]);
-
-    function_tool(FunctionToolDecl {
-        name: "gateway",
-        description: "Invoke any gateway server JSON-RPC method: agent management, session control, chat operations, cron scheduling, node control, channel management, TTS, and configuration. Requires SAVFOX_GATEWAY_URL and optionally SAVFOX_GATEWAY_TOKEN.",
-        properties,
-        required: &["method"],
-    })
-}
-
 fn create_llm_task_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
@@ -898,13 +867,13 @@ pub(crate) fn build_specs(
     use crate::tools::handlers::{
         AgentStepHandler, AgentsListHandler, ApplyPatchHandler, BrowserHandler, CanvasHandler,
         ChannelToolsHandler, CollabHandler, CronHandler, DiscordActionsHandler, DynamicToolHandler,
-        GatewayStatusHandler, GatewayToolHandler, GrepFilesHandler, ImageAnalyzeHandler,
-        ImageGenerateHandler, ListDirHandler, LlmTaskHandler, McpHandler, McpResourceHandler,
-        MdMemoryHandler, MemoryHandler, MessageHandler, NodesHandler, PlanHandler, ProcessHandler,
-        ReadFileHandler, RequestUserInputHandler, SessionsHandler, SessionsSendA2AHandler,
-        SessionsSpawnHandler, ShellCommandHandler, ShellHandler, SlackActionsHandler,
-        TelegramActionsHandler, TestSyncHandler, TtsHandler, UnifiedExecHandler, ViewImageHandler,
-        WebFetchHandler, WebSearchHandler, WhatsAppActionsHandler, WriteFileHandler,
+        GatewayStatusHandler, GrepFilesHandler, ImageAnalyzeHandler, ImageGenerateHandler,
+        ListDirHandler, LlmTaskHandler, McpHandler, McpResourceHandler, MdMemoryHandler,
+        MemoryHandler, MessageHandler, NodesHandler, PlanHandler, ProcessHandler, ReadFileHandler,
+        RequestUserInputHandler, SessionsHandler, ShellCommandHandler, ShellHandler,
+        SlackActionsHandler, TelegramActionsHandler, TestSyncHandler, TtsHandler,
+        UnifiedExecHandler, ViewImageHandler, WebFetchHandler, WebSearchHandler,
+        WhatsAppActionsHandler, WriteFileHandler,
     };
 
     let mut builder = ToolRegistryBuilder::new();
@@ -1038,11 +1007,9 @@ pub(crate) fn build_specs(
         let sessions_handler = Arc::new(SessionsHandler);
         builder.push_spec(create_sessions_list_tool());
         builder.push_spec(create_sessions_history_tool());
-        builder.push_spec(create_sessions_send_tool());
         builder.push_spec(create_session_status_tool());
         builder.register_handler("sessions_list", sessions_handler.clone());
         builder.register_handler("sessions_history", sessions_handler.clone());
-        builder.register_handler("sessions_send", sessions_handler.clone());
         builder.register_handler("session_status", sessions_handler);
     }
 
@@ -1070,11 +1037,6 @@ pub(crate) fn build_specs(
         create_telegram_actions_tool()
     );
     register_experimental!(
-        "sessions_spawn",
-        SessionsSpawnHandler,
-        create_sessions_spawn_tool()
-    );
-    register_experimental!(
         "gateway_status",
         GatewayStatusHandler,
         create_gateway_status_tool()
@@ -1095,7 +1057,6 @@ pub(crate) fn build_specs(
         create_whatsapp_actions_tool()
     );
     register_experimental!("canvas", CanvasHandler, create_canvas_tool());
-    register_experimental!("gateway", GatewayToolHandler, create_gateway_tool());
     register_experimental!(
         "channel_tools",
         ChannelToolsHandler,
@@ -1103,11 +1064,6 @@ pub(crate) fn build_specs(
     );
     register_experimental!("llm_task", LlmTaskHandler, create_llm_task_tool());
     register_experimental!("agent_step", AgentStepHandler, create_agent_step_tool());
-    register_experimental!(
-        "sessions_send_a2a",
-        SessionsSendA2AHandler,
-        create_sessions_send_a2a_tool()
-    );
 
     match config.web_search_mode {
         Some(WebSearchMode::Cached) => {
@@ -1410,16 +1366,29 @@ mod tests {
         assert_contains_tool_names(&tools, &["request_user_input"]);
     }
 
+    /// Tool routing keys off model *capabilities*, never off the slug — the
+    /// catalog is what says whether a model has `apply_patch` or a
+    /// `shell_command` shell. These fixtures therefore state the capabilities
+    /// directly instead of naming a model and relying on inference.
+    fn model_with_capabilities(
+        shell_type: ConfigShellToolType,
+        apply_patch_tool_type: Option<ApplyPatchToolType>,
+    ) -> ModelInfo {
+        let config = test_config();
+        let mut model_info = ModelsManager::construct_model_info_offline("test-model", &config);
+        model_info.shell_type = shell_type;
+        model_info.apply_patch_tool_type = apply_patch_tool_type;
+        model_info
+    }
+
     fn assert_model_tools(
-        model_slug: &str,
+        model_info: &ModelInfo,
         features: &Features,
         web_search_mode: Option<WebSearchMode>,
         expected_tools: &[&str],
     ) {
-        let config = test_config();
-        let model_info = ModelsManager::construct_model_info_offline(model_slug, &config);
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
-            model_info: &model_info,
+            model_info,
             features,
             web_search_mode,
         });
@@ -1473,11 +1442,11 @@ mod tests {
     }
 
     #[test]
-    fn test_build_specs_gpt5_savfox_default() {
+    fn default_shell_type_exposes_shell_tool() {
         let mut features = Features::with_defaults();
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5-savfox",
+            &model_with_capabilities(ConfigShellToolType::Default, None),
             &features,
             Some(WebSearchMode::Cached),
             &[
@@ -1494,11 +1463,14 @@ mod tests {
     }
 
     #[test]
-    fn test_build_specs_gpt51_savfox_default() {
+    fn shell_command_type_exposes_apply_patch() {
         let mut features = Features::with_defaults();
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5.1-savfox",
+            &model_with_capabilities(
+                ConfigShellToolType::ShellCommand,
+                Some(ApplyPatchToolType::Freeform),
+            ),
             &features,
             Some(WebSearchMode::Cached),
             &[
@@ -1516,12 +1488,12 @@ mod tests {
     }
 
     #[test]
-    fn test_build_specs_gpt5_savfox_unified_exec_web_search() {
+    fn unified_exec_feature_replaces_shell_tool() {
         let mut features = Features::with_defaults();
         features.enable(Feature::UnifiedExec);
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5-savfox",
+            &model_with_capabilities(ConfigShellToolType::Default, None),
             &features,
             Some(WebSearchMode::Live),
             &[
@@ -1539,12 +1511,15 @@ mod tests {
     }
 
     #[test]
-    fn test_build_specs_gpt51_savfox_unified_exec_web_search() {
+    fn unified_exec_feature_keeps_apply_patch() {
         let mut features = Features::with_defaults();
         features.enable(Feature::UnifiedExec);
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5.1-savfox",
+            &model_with_capabilities(
+                ConfigShellToolType::ShellCommand,
+                Some(ApplyPatchToolType::Freeform),
+            ),
             &features,
             Some(WebSearchMode::Live),
             &[
@@ -1567,7 +1542,7 @@ mod tests {
         let mut features = Features::with_defaults();
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "savfox-mini-latest",
+            &model_with_capabilities(ConfigShellToolType::Default, None),
             &features,
             Some(WebSearchMode::Cached),
             &[
@@ -1584,76 +1559,14 @@ mod tests {
     }
 
     #[test]
-    fn test_savfox_5_1_mini_defaults() {
+    fn unified_exec_shell_type_exposes_exec_command() {
         let mut features = Features::with_defaults();
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "gpt-5.1-savfox-mini",
-            &features,
-            Some(WebSearchMode::Cached),
-            &[
-                "shell_command",
-                "list_mcp_resources",
-                "list_mcp_resource_templates",
-                "read_mcp_resource",
-                "update_plan",
-                "request_user_input",
-                "apply_patch",
-                "web_search",
-                "view_image",
-            ],
-        );
-    }
-
-    #[test]
-    fn test_gpt_5_defaults() {
-        let mut features = Features::with_defaults();
-        features.enable(Feature::CollaborationModes);
-        assert_model_tools(
-            "gpt-5",
-            &features,
-            Some(WebSearchMode::Cached),
-            &[
-                "shell",
-                "list_mcp_resources",
-                "list_mcp_resource_templates",
-                "read_mcp_resource",
-                "update_plan",
-                "request_user_input",
-                "web_search",
-                "view_image",
-            ],
-        );
-    }
-
-    #[test]
-    fn test_gpt_5_1_defaults() {
-        let mut features = Features::with_defaults();
-        features.enable(Feature::CollaborationModes);
-        assert_model_tools(
-            "gpt-5.1",
-            &features,
-            Some(WebSearchMode::Cached),
-            &[
-                "shell_command",
-                "list_mcp_resources",
-                "list_mcp_resource_templates",
-                "read_mcp_resource",
-                "update_plan",
-                "request_user_input",
-                "apply_patch",
-                "web_search",
-                "view_image",
-            ],
-        );
-    }
-
-    #[test]
-    fn test_exp_5_1_defaults() {
-        let mut features = Features::with_defaults();
-        features.enable(Feature::CollaborationModes);
-        assert_model_tools(
-            "exp-5.1",
+            &model_with_capabilities(
+                ConfigShellToolType::UnifiedExec,
+                Some(ApplyPatchToolType::Freeform),
+            ),
             &features,
             Some(WebSearchMode::Cached),
             &[
@@ -1672,12 +1585,12 @@ mod tests {
     }
 
     #[test]
-    fn test_savfox_mini_unified_exec_web_search() {
+    fn unified_exec_feature_without_apply_patch() {
         let mut features = Features::with_defaults();
         features.enable(Feature::UnifiedExec);
         features.enable(Feature::CollaborationModes);
         assert_model_tools(
-            "savfox-mini-latest",
+            &model_with_capabilities(ConfigShellToolType::Default, None),
             &features,
             Some(WebSearchMode::Live),
             &[
@@ -1737,9 +1650,17 @@ mod tests {
     }
 
     #[test]
-    fn test_test_model_info_includes_sync_tool() {
+    fn experimental_supported_tools_are_exposed() {
         let config = test_config();
-        let model_info = ModelsManager::construct_model_info_offline("test-gpt-5-savfox", &config);
+        let mut model_info = ModelsManager::construct_model_info_offline("test-model", &config);
+        // Experimental tools are a catalog property, so the fixture states them
+        // rather than relying on a magic slug prefix to conjure them.
+        model_info.experimental_supported_tools = vec![
+            "test_sync_tool".to_owned(),
+            "read_file".to_owned(),
+            "grep_files".to_owned(),
+            "list_dir".to_owned(),
+        ];
         let features = Features::with_defaults();
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
             model_info: &model_info,
@@ -1764,6 +1685,44 @@ mod tests {
                 .any(|tool| tool_name(&tool.spec) == "grep_files")
         );
         assert!(tools.iter().any(|tool| tool_name(&tool.spec) == "list_dir"));
+    }
+
+    #[test]
+    fn incomplete_gateway_orchestration_tools_are_not_exposed() {
+        let config = test_config();
+        let mut model_info = ModelsManager::construct_model_info_offline("test-model", &config);
+        model_info.experimental_supported_tools = vec![
+            "sessions".to_owned(),
+            "sessions_spawn".to_owned(),
+            "sessions_send_a2a".to_owned(),
+            "gateway".to_owned(),
+        ];
+        let features = Features::with_defaults();
+        let tools_config = ToolsConfig::new(&ToolsConfigParams {
+            model_info: &model_info,
+            features: &features,
+            web_search_mode: Some(WebSearchMode::Cached),
+        });
+        let (tools, _) = build_specs(&tools_config, None, &[]).build();
+        let names = tools
+            .iter()
+            .map(|tool| tool_name(&tool.spec))
+            .collect::<Vec<_>>();
+
+        for incomplete in [
+            "gateway",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_send_a2a",
+        ] {
+            assert!(
+                !names.contains(&incomplete),
+                "{incomplete} must stay hidden"
+            );
+        }
+        for working in ["sessions_list", "sessions_history", "session_status"] {
+            assert!(names.contains(&working), "{working} should remain exposed");
+        }
     }
 
     #[test]

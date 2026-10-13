@@ -8,9 +8,9 @@ use wasm_bindgen::JsCast;
 
 use crate::api::client::stream_chat;
 use crate::api::types::{
-    AgentEntry, AgentsResponse, ChatAttachment, ChatMessage, ChatTerminalEvent,
-    SessionAmbientMessage, SessionAmbientResponse, SessionEntry, SessionIdleReplyResponse,
-    SessionsResponse,
+    AgentEntry, AgentsResponse, ArkretDeliveryPreview, ChatAttachment, ChatMessage,
+    ChatTerminalEvent, SessionAmbientMessage, SessionAmbientResponse, SessionEntry,
+    SessionIdleReplyResponse, SessionsResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::chat_input::ChatInput;
@@ -24,6 +24,67 @@ const THINKING_LEVELS: [&str; 6] = ["off", "minimal", "low", "medium", "high", "
 const REASONING_MODES: [&str; 3] = ["off", "on", "stream"];
 const VERBOSE_MODES: [&str; 3] = ["off", "on", "full"];
 const PENDING_MODEL_STORAGE_KEY: &str = "savfox_pending_session_model";
+
+async fn preview_and_publish_arkret(
+    ws: WsRpc,
+    session_id: String,
+    kind: &'static str,
+    title: &'static str,
+    summary: String,
+) -> Result<String, String> {
+    let params = json!({
+        "session_id": session_id,
+        "kind": kind,
+        "title": title,
+        "summary": summary,
+        "verification": [],
+        "next_actions": [],
+    });
+    let preview = ws
+        .call::<ArkretDeliveryPreview>("sessions.arkret.delivery.preview", Some(params.clone()))
+        .await?;
+    let comparison = preview
+        .previous_rendered
+        .as_deref()
+        .map(|previous| {
+            format!(
+                "Last public checkpoint:\n{previous}\n\nNew publish candidate:\n{}",
+                preview.rendered
+            )
+        })
+        .unwrap_or_else(|| format!("First public checkpoint:\n{}", preview.rendered));
+    let confirmation = format!(
+        "Publish through Arkret Agent {}?\n\n{}",
+        preview.sender_did, comparison
+    );
+    let confirmed = web_sys::window()
+        .and_then(|window| window.confirm_with_message(&confirmation).ok())
+        .unwrap_or(false);
+    if !confirmed {
+        return Ok(format!("## Publish preview\n\n{}", preview.rendered));
+    }
+    let published = ws
+        .call::<Value>("sessions.arkret.delivery.publish", Some(params))
+        .await?;
+    let event_id = published
+        .get("remoteEventId")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    Ok(format!(
+        "## Published to Arkret\n\nSender: `{}`\n\nEvent: `{event_id}`\n\n{}",
+        preview.sender_did, preview.rendered
+    ))
+}
+
+fn request_arkret_publish_candidate(kind: &str) -> Option<String> {
+    let message = format!(
+        "Write the minimal public {kind} summary for Arkret. Local chat, tool logs, and private paths are not copied automatically."
+    );
+    web_sys::window()
+        .and_then(|window| window.prompt_with_message(&message).ok().flatten())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
 
 fn normalize_reasoning_mode(value: &str) -> String {
     let normalized = value.trim().to_lowercase();
@@ -120,6 +181,21 @@ fn agent_has_terminal_delegate(agents: &[AgentEntry], selected: &str) -> bool {
         .and_then(|entry| entry.terminal.as_ref())
         .and_then(|terminal| terminal.delegate.enabled)
         .unwrap_or(false)
+}
+
+fn agent_has_managed_terminal(agents: &[AgentEntry], selected: &str) -> bool {
+    find_agent_entry(agents, selected)
+        .filter(|entry| entry.kind.as_str() == "terminal")
+        .and_then(|entry| entry.terminal.as_ref())
+        .and_then(|terminal| terminal.delegate.mode.as_ref())
+        .is_some_and(|mode| mode.as_str() == "managed_pty")
+}
+
+fn agent_has_claude_stream(agents: &[AgentEntry], selected: &str) -> bool {
+    find_agent_entry(agents, selected)
+        .and_then(|entry| entry.terminal.as_ref())
+        .and_then(|terminal| terminal.delegate.mode.as_ref())
+        .is_some_and(|mode| mode.as_str() == "claude_stream")
 }
 
 fn parse_terminal_events(value: Option<&Value>) -> Vec<ChatTerminalEvent> {
@@ -314,6 +390,9 @@ pub fn Sessions() -> Element {
     let mut ambient_loading = use_signal(|| false);
     let mut idle_loading = use_signal(|| false);
     let mut active_terminal_request_id = use_signal(|| Option::<String>::None);
+    let mut terminal_control_error = use_signal(|| Option::<String>::None);
+    let mut terminal_input = use_signal(String::new);
+    let mut terminal_snapshot = use_signal(|| Option::<(String, String, String)>::None);
 
     let mut sidebar_content = use_signal(|| Option::<String>::None);
     let mut session_search_query = use_signal(String::new);
@@ -759,7 +838,78 @@ pub fn Sessions() -> Element {
         });
     };
 
+    let ws_terminal_control = ws.clone();
+    let terminal_control = use_callback(move |kind: String| {
+        let Some(session_id) = current_session_id() else {
+            return;
+        };
+        let agent = selected_agent();
+        let ws = ws_terminal_control.clone();
+        let text = if kind == "line" {
+            terminal_input()
+        } else {
+            String::new()
+        };
+        spawn(async move {
+            terminal_control_error.set(None);
+            let method = match kind.as_str() {
+                "close" => "agent.terminal.pty.close",
+                "read" => "agent.terminal.pty.read",
+                _ => "agent.terminal.pty.write",
+            };
+            match ws
+                .call::<Value>(
+                    method,
+                    Some(json!({
+                        "agent": agent, "session_id": session_id, "kind": kind, "text": text
+                    })),
+                )
+                .await
+            {
+                Err(error) => terminal_control_error.set(Some(error)),
+                Ok(result) if kind == "read" => {
+                    let text = result["entries"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|entry| entry["text"].as_str())
+                        .collect::<String>();
+                    let ansi = regex_lite::Regex::new(
+                        r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))",
+                    )
+                    .expect("terminal ANSI pattern");
+                    terminal_snapshot.set(Some((
+                        agent,
+                        session_id,
+                        ansi.replace_all(&text, "").into_owned(),
+                    )));
+                }
+                Ok(_) if kind == "line" => terminal_input.set(String::new()),
+                Ok(_) => {}
+            }
+        });
+    });
+    let ws_abort = ws.clone();
     let on_abort = move |_: ()| {
+        let agents = agents_data.read().as_ref().cloned().unwrap_or_default();
+        if agent_has_claude_stream(&agents, &selected_agent()) {
+            if let Some(session_id) = current_session_id() {
+                let ws = ws_abort.clone();
+                spawn(async move {
+                    if let Err(error) = ws
+                        .call::<Value>("chat.abort", Some(json!({"session_id":session_id})))
+                        .await
+                    {
+                        terminal_control_error.set(Some(error));
+                    }
+                });
+            }
+            return;
+        }
+        if agent_has_managed_terminal(&agents, &selected_agent()) {
+            terminal_control.call("interrupt".to_owned());
+            return;
+        }
         if let Some(controller) = abort_ctl.write().take() {
             controller.abort();
         }
@@ -780,6 +930,15 @@ pub fn Sessions() -> Element {
                 .map(SessionEntry::display_label)
         })
         .unwrap_or_else(|| "Draft Session".to_string());
+    let active_session_entry = active_session_id.as_deref().and_then(|session_id| {
+        sessions
+            .iter()
+            .find(|entry| entry.display_id() == session_id)
+            .cloned()
+    });
+    let active_arkret_delivery = active_session_entry
+        .as_ref()
+        .and_then(|entry| entry.arkret_delivery.clone());
 
     let msgs: Vec<ChatMessage> = messages.read().clone();
     let message_count = msgs.len();
@@ -1144,6 +1303,83 @@ pub fn Sessions() -> Element {
                     if current_session_id().is_some() {
                         div { class: "session-control-row",
                             div { class: "session-control-actions",
+                                if let Some(delivery) = active_arkret_delivery.clone() {
+                                    span { class: "session-delivery-visibility", "Local private" }
+                                    span { class: "session-delivery-target",
+                                        title: "Config: {delivery.conversation.channel_config_id}\nAccount: {delivery.conversation.account_id}\nRealm: {delivery.conversation.realm_id}\nStrand: {delivery.conversation.strand_id}\nSource: {delivery.source_sender_did}\nAgent sender: {delivery.agent_sender_did}",
+                                        "Arkret · {delivery.state} · {delivery.conversation.account_id} · {delivery.conversation.strand_id} · pending {delivery.pending_outbox}"
+                                    }
+                                    if let Some(event_id) = delivery.last_published_event_id.clone() {
+                                        span { class: "session-delivery-target", "Published to Arkret · {event_id}" }
+                                    }
+                                    if delivery.mode == "task_delivery" {
+                                        {
+                                            let ws_milestone = ws.clone();
+                                            let ws_blocked = ws.clone();
+                                            let ws_completed = ws.clone();
+                                            let session_milestone = active_session_id.clone().unwrap_or_default();
+                                            let session_blocked = session_milestone.clone();
+                                            let session_completed = session_milestone.clone();
+                                            rsx! {
+                                                span { class: "session-delivery-visibility", "Publish candidate → preview required" }
+                                                button {
+                                                    class: "session-pill-btn session-pill-btn--publish",
+                                                    onclick: move |_| {
+                                                        let Some(summary) = request_arkret_publish_candidate("milestone") else {
+                                                            return;
+                                                        };
+                                                        let ws = ws_milestone.clone();
+                                                        let session_id = session_milestone.clone();
+                                                        spawn(async move {
+                                                            let content = preview_and_publish_arkret(ws, session_id, "milestone", "Milestone", summary)
+                                                                .await
+                                                                .unwrap_or_else(|error| format!("## Arkret publish failed\n\n`{error}`"));
+                                                            sidebar_content.set(Some(content));
+                                                            session_refresh_tick += 1;
+                                                        });
+                                                    },
+                                                    "Publish milestone"
+                                                }
+                                                button {
+                                                    class: "session-pill-btn session-pill-btn--publish",
+                                                    onclick: move |_| {
+                                                        let Some(summary) = request_arkret_publish_candidate("remote question or blocker") else {
+                                                            return;
+                                                        };
+                                                        let ws = ws_blocked.clone();
+                                                        let session_id = session_blocked.clone();
+                                                        spawn(async move {
+                                                            let content = preview_and_publish_arkret(ws, session_id, "blocked", "Remote input required", summary)
+                                                                .await
+                                                                .unwrap_or_else(|error| format!("## Arkret publish failed\n\n`{error}`"));
+                                                            sidebar_content.set(Some(content));
+                                                            session_refresh_tick += 1;
+                                                        });
+                                                    },
+                                                    "Ask remote"
+                                                }
+                                                button {
+                                                    class: "session-pill-btn session-pill-btn--publish",
+                                                    onclick: move |_| {
+                                                        let Some(summary) = request_arkret_publish_candidate("completion and verification") else {
+                                                            return;
+                                                        };
+                                                        let ws = ws_completed.clone();
+                                                        let session_id = session_completed.clone();
+                                                        spawn(async move {
+                                                            let content = preview_and_publish_arkret(ws, session_id, "completed", "Task completed", summary)
+                                                                .await
+                                                                .unwrap_or_else(|error| format!("## Arkret publish failed\n\n`{error}`"));
+                                                            sidebar_content.set(Some(content));
+                                                            session_refresh_tick += 1;
+                                                        });
+                                                    },
+                                                    "Complete and deliver"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 button {
                                     class: "session-pill-btn",
                                     disabled: ambient_loading(),
@@ -1283,6 +1519,44 @@ pub fn Sessions() -> Element {
                         }
                     }
 
+                    if agent_has_claude_stream(&agents_list, &selected_agent()) {
+                        div { style: "padding:8px 16px;font-size:13px;",
+                            Link { to: crate::route::Route::Approvals {}, "Review Claude approvals and questions" }
+                            if let Some(error) = terminal_control_error() { span { role: "alert", "{error}" } }
+                        }
+                    }
+                    if agent_has_managed_terminal(&agents_list, &selected_agent()) && current_session_id().is_some() {
+                        div { class: "terminal-session-controls", style: "display:flex;gap:8px;align-items:center;padding:8px 16px;flex-wrap:wrap;",
+                            input { aria_label: "Terminal input", placeholder: "Reply to a terminal prompt", value: "{terminal_input}",
+                                oninput: move |event| terminal_input.set(event.value()),
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("line".to_owned()), "Send to terminal"
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("interrupt".to_owned()), "Interrupt"
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("read".to_owned()), "Refresh terminal output"
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("manual_complete".to_owned()),
+                                "Complete turn"
+                            }
+                            button { class: "btn btn-secondary", disabled: !ws_connected(),
+                                onclick: move |_| terminal_control.call("close".to_owned()),
+                                "Close terminal"
+                            }
+                            span { style: "color:var(--text-secondary);font-size:12px;", "Complete the turn when the agent is ready for another prompt." }
+                            if let Some(error) = terminal_control_error() {
+                                span { role: "alert", "{error}" }
+                            }
+                        }
+                        if let Some((agent, session, text)) = terminal_snapshot()
+                            && agent == selected_agent() && current_session_id().as_deref() == Some(session.as_str()) {
+                            pre { aria_label: "Terminal output", style: "max-height:240px;overflow:auto;white-space:pre-wrap;margin:0 16px 8px;padding:12px;background:var(--bg-secondary);", "{text}" }
+                        }
+                    }
                     ChatInput {
                         on_send: on_send,
                         on_abort: on_abort,
@@ -1320,6 +1594,25 @@ const SESSION_STYLES: &str = r#"
         flex: 1 1 0;
         min-height: 0;
         overflow: hidden;
+    }
+
+    .session-delivery-visibility {
+        color: var(--warning, #d99b32);
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .session-delivery-target {
+        color: var(--text-secondary);
+        font-size: 12px;
+        max-width: 320px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .session-pill-btn--publish {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
     }
 
     .session-list-pane {

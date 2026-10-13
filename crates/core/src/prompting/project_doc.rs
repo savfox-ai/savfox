@@ -504,7 +504,10 @@ mod tests {
             "extract from pdfs",
         );
 
-        let skills = load_skills(&cfg);
+        let mut skills = load_skills(&cfg);
+        skills
+            .skills
+            .retain(|skill| skill.path.starts_with(&cfg.savfox_home));
         let res = get_user_instructions(
             &cfg,
             skills.errors.is_empty().then_some(skills.skills.as_slice()),
@@ -531,7 +534,10 @@ mod tests {
         let cfg = make_config(&tmp, 4096, None).await;
         create_skill(cfg.savfox_home.clone(), "linting", "run clippy");
 
-        let skills = load_skills(&cfg);
+        let mut skills = load_skills(&cfg);
+        skills
+            .skills
+            .retain(|skill| skill.path.starts_with(&cfg.savfox_home));
         let res = get_user_instructions(
             &cfg,
             skills.errors.is_empty().then_some(skills.skills.as_slice()),
