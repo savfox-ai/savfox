@@ -109,7 +109,13 @@ async fn run_savfox_cli(
         Ok(Err(err)) => return Err(err.into()),
         Err(_) => {
             spawned.session.terminate();
-            anyhow::bail!("timed out waiting for savfox CLI to exit");
+            let startup_log =
+                std::fs::read_to_string(savfox_home.as_ref().join("log/savfox-tui.log"))
+                    .unwrap_or_default();
+            anyhow::bail!(
+                "timed out waiting for savfox CLI to exit; output: {}\nstartup log: {startup_log}",
+                String::from_utf8_lossy(&output),
+            );
         }
     };
     // Drain any output that raced with the exit notification.

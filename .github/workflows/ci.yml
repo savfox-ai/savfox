@@ -134,6 +134,13 @@ jobs:
           name: failed-snapshots-linux
           path: crates/**/snapshots/*.snap.new
           if-no-files-found: ignore
+      - name: Upload startup diagnostic binary
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: startup-diagnostic-linux
+          path: target/debug/savfox
+          if-no-files-found: ignore
 
   # Full cross-platform tests are expensive; keep regular CI fast and run these
   # on demand or on the weekly scheduled sweep.
