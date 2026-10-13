@@ -173,7 +173,7 @@ lazy_static = "1"
 libc = "0.2.183"
 log = "0.4"
 lopdf = "0.40"
-lru = "0.16.3"
+lru = "0.18.5"
 maplit = "1.0.2"
 matrix-bot-sdk = { version = "0.2.4", default-features = false }
 mime = "0.3"

@@ -90,7 +90,9 @@ jobs:
         with:
           toolchain: ${{ env.RUSTFMT_NIGHTLY }}
           components: rustfmt
-      - run: cargo +${{ steps.rustfmt-toolchain.outputs.name }} fmt --all --check
+      # A virtual workspace formats all members by default. --all also walks
+      # sibling path dependencies, whose formatting belongs to their repos.
+      - run: cargo +${{ steps.rustfmt-toolchain.outputs.name }} fmt --check
 
   # ─── Clippy lints ──────────────────────────────────────────────────
   clippy:
