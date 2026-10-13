@@ -62,6 +62,8 @@ pub trait ChannelConfig: Send + Sync {
 /// Channels like Discord (gateway WebSocket), Slack (Socket Mode), or IRC keep
 /// long-lived connections open.  This trait provides lifecycle hooks for those
 /// connections.
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait StreamingChannel: Send + Sync {
     /// Open the persistent connection to the platform.

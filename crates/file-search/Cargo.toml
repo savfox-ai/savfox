@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "savfox-file-search"
 version.workspace = true
 edition.workspace = true

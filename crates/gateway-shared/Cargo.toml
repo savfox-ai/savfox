@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "savfox-gateway-shared"
 version.workspace = true
 edition.workspace = true

@@ -84,6 +84,8 @@ impl NetworkDecision {
 /// If `command` or `exec_policy_hint` is provided, callers can map exec-policy
 /// approvals to network access (e.g., allow all requests for commands matching
 /// approved prefixes like `curl *`).
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait NetworkPolicyDecider: Send + Sync + 'static {
     async fn decide(&self, req: NetworkPolicyRequest) -> NetworkDecision;

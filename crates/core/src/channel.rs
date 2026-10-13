@@ -47,6 +47,8 @@ impl RichMessage {
 }
 
 /// Trait for chat platform channel adapters.
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Channel: Send + Sync {
     /// Initialize the channel (connect to platform API, register commands, etc.).

@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "savfox-browser-automation"
 version.workspace = true
 edition.workspace = true

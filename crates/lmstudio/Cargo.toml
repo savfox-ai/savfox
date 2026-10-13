@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "savfox-lmstudio"
 version.workspace = true
 edition.workspace = true

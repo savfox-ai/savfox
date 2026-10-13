@@ -23,6 +23,7 @@ pub fn conpty_supported() -> bool {
 
 /// Returns true when ConPTY support is available (non-Windows always true).
 #[cfg(not(windows))]
+#[must_use]
 pub fn conpty_supported() -> bool {
     true
 }

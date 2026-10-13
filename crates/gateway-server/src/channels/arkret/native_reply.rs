@@ -43,6 +43,8 @@ impl FrozenNativeProviderRequest {
     }
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait NativePublicReplyHost: Send + Sync {
     /// Authentication/network refresh is completed BEFORE acquiring local cut.
@@ -58,6 +60,8 @@ pub trait NativePublicReplyHost: Send + Sync {
 /// response body. Methods must not perform network callbacks while holding it.
 /// Remote issuer current is an authenticated fresh observation before this cut,
 /// never advertised as a remote revocation lock or time lease.
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait NativePublicReplyGuard: Send {
     fn permits_model_handoff(&mut self, exact_digest: &Hash) -> anyhow::Result<()>;
