@@ -58,11 +58,14 @@ use crate::tui::FrameRequester;
 async fn test_config() -> Config {
     // Use base defaults to avoid depending on host state.
     let savfox_home = std::env::temp_dir();
-    ConfigBuilder::default()
+    let mut config = ConfigBuilder::default()
         .savfox_home(savfox_home.clone())
         .build()
         .await
-        .expect("config")
+        .expect("config");
+    // Rendering fixtures must not include the checkout path of the test runner.
+    config.cwd = PathBuf::from("/test/workspace");
+    config
 }
 
 fn invalid_value(candidate: impl Into<String>, allowed: impl Into<String>) -> ConstraintError {
@@ -3159,6 +3162,8 @@ async fn custom_prompt_enter_empty_does_not_send() {
 #[tokio::test]
 async fn view_image_tool_call_adds_history_cell() {
     let (mut chat, mut rx, _op_rx) = make_chat_screen_manual(None).await;
+    // Path shortening requires an absolute native path, including a drive on Windows.
+    chat.config.cwd = std::env::current_dir().expect("test working directory");
     let image_path = chat.config.cwd.join("example.png");
 
     chat.handle_savfox_event(Event {
@@ -3407,6 +3412,22 @@ async fn experimental_features_toggle_saves_on_exit() {
 async fn model_selection_popup_snapshot() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("gpt-5-savfox")).await;
     chat.session_id = Some(SessionId::new());
+    let models = ["gpt-5-savfox", "test-model-small"].map(|slug| {
+        let mut model = ModelsManager::construct_model_info_offline(slug, &chat.config);
+        model.name = slug.to_owned();
+        model.description = Some(format!("{slug} test description"));
+        model.visibility = ModelVisibility::List;
+        model.default_reasoning_level = Some(ReasoningEffortConfig::Medium);
+        model.supported_reasoning_levels = vec![ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Medium,
+            description: "Balanced reasoning".to_owned(),
+        }];
+        model.used_fallback_model_metadata = false;
+        model
+    });
+    chat.models_manager
+        .replace_catalog_for_test(models.to_vec())
+        .await;
     chat.open_model_popup();
 
     let popup = render_bottom_popup(&chat, 80);
@@ -3417,9 +3438,24 @@ async fn model_selection_popup_snapshot() {
 async fn personality_selection_popup_snapshot() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("test-model")).await;
     chat.session_id = Some(SessionId::new());
+    chat.config.features.enable(Feature::Personality);
+    let mut model = ModelsManager::construct_model_info_offline("test-model", &chat.config);
+    model.model_messages = Some(ModelMessages {
+        instructions_template: Some("{{ personality }}".to_owned()),
+        instructions_variables: Some(ModelInstructionsVariables {
+            personality_default: Some("default".to_owned()),
+            personality_friendly: Some("friendly".to_owned()),
+            personality_pragmatic: Some("pragmatic".to_owned()),
+        }),
+    });
+    model.used_fallback_model_metadata = false;
+    chat.models_manager
+        .replace_catalog_for_test(vec![model])
+        .await;
     chat.open_personality_popup();
 
     let popup = render_bottom_popup(&chat, 80);
+    assert!(popup.contains("Select Personality"));
     assert_snapshot!("personality_selection_popup", popup);
 }
 
@@ -3508,11 +3544,11 @@ async fn model_popup_prefers_provider_store_models() {
         "expected provider-b group in popup:\n{popup}"
     );
     assert!(
-        popup.contains("model-one"),
+        popup.contains("Model One (current)"),
         "expected model from provider-a:\n{popup}"
     );
     assert!(
-        popup.contains("model-two"),
+        popup.contains("Model Two"),
         "expected model from provider-b:\n{popup}"
     );
     assert!(

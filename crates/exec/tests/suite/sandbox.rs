@@ -67,7 +67,11 @@ async fn python_multiprocessing_lock_works_under_sandbox() {
     // > On Linux, named semaphores are created in a virtual filesystem,
     // > normally mounted under /dev/shm.
     #[cfg(target_os = "linux")]
-    let writable_roots: Vec<AbsolutePathBuf> = vec!["/dev/shm".try_into().unwrap()];
+    let writable_roots: Vec<AbsolutePathBuf> = vec![
+        "/dev/shm"
+            .try_into()
+            .expect("shared memory path is absolute"),
+    ];
 
     let policy = SandboxPolicy::WorkspaceWrite {
         writable_roots,
@@ -94,9 +98,9 @@ if __name__ == '__main__':
     let sandbox_cwd = command_cwd.clone();
     let mut child = spawn_command_under_sandbox(
         vec![
-            "python3".to_string(),
-            "-c".to_string(),
-            python_code.to_string(),
+            "python3".to_owned(),
+            "-c".to_owned(),
+            python_code.to_owned(),
         ],
         command_cwd,
         &policy,
@@ -130,9 +134,9 @@ async fn python_getpwuid_works_under_sandbox() {
 
     let mut child = spawn_command_under_sandbox(
         vec![
-            "python3".to_string(),
-            "-c".to_string(),
-            "import pwd, os; print(pwd.getpwuid(os.getuid()))".to_string(),
+            "python3".to_owned(),
+            "-c".to_owned(),
+            "import pwd, os; print(pwd.getpwuid(os.getuid()))".to_owned(),
         ],
         command_cwd,
         &policy,
@@ -178,9 +182,9 @@ async fn sandbox_distinguishes_command_and_policy_cwds() {
     // Attempt to write inside the command cwd, which is outside of the sandbox policy cwd.
     let mut child = spawn_command_under_sandbox(
         vec![
-            "bash".to_string(),
-            "-lc".to_string(),
-            "echo forbidden > forbidden.txt".to_string(),
+            "bash".to_owned(),
+            "-lc".to_owned(),
+            "echo forbidden > forbidden.txt".to_owned(),
         ],
         command_root.clone(),
         &policy,
@@ -210,7 +214,7 @@ async fn sandbox_distinguishes_command_and_policy_cwds() {
     // Writing to the sandbox policy cwd after changing directories into it should succeed.
     let mut child = spawn_command_under_sandbox(
         vec![
-            "/usr/bin/touch".to_string(),
+            "/usr/bin/touch".to_owned(),
             canonical_allowed_path.to_string_lossy().into_owned(),
         ],
         command_root,
