@@ -1078,7 +1078,7 @@ fn spawn_native_reader(
             }
             match tokio::time::timeout(wait, output.recv()).await {
                 Ok(Ok(bytes)) => session.append_output("stdout", decoder.push(&bytes)).await,
-                Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+                Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
                 _ => break,
             }
         }

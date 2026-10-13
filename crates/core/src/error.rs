@@ -252,7 +252,7 @@ impl SavfoxError {
             | Self::Json(_)
             | Self::TokioJoin(_) => true,
             #[cfg(target_os = "linux")]
-            SavfoxError::LandlockRuleset(_) | SavfoxError::LandlockPathFd(_) => false,
+            Self::LandlockRuleset(_) | Self::LandlockPathFd(_) => false,
         }
     }
 }
