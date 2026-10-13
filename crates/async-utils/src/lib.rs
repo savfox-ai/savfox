@@ -67,6 +67,8 @@ pub enum CancelErr {
 /// assert_eq!(result, Ok(42));
 /// # }
 /// ```
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait OrCancelExt: Sized {
     /// The output type of the future.

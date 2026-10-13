@@ -37,8 +37,10 @@ impl TestSavfoxExecBuilder {
 }
 
 pub fn test_savfox_exec() -> TestSavfoxExecBuilder {
+    let home = TempDir::new().expect("create temp home");
+    crate::models::write_cli_config(home.path()).expect("write CLI test config");
     TestSavfoxExecBuilder {
-        home: TempDir::new().expect("create temp home"),
+        home,
         cwd: TempDir::new().expect("create temp cwd"),
     }
 }

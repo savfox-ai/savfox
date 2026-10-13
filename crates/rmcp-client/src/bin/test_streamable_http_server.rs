@@ -288,7 +288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut router = Router::new()
         .push(Router::with_path("/.well-known/oauth-authorization-server/mcp").get(oauth_metadata))
-        .push(Router::with_path("mcp/<**rest>").goal(mcp_handler));
+        .push(Router::with_path("mcp").goal(mcp_handler));
 
     if let Ok(token) = std::env::var("MCP_EXPECT_BEARER") {
         let expected = Arc::new(format!("Bearer {token}"));

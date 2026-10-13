@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "savfox-app-server-test-client"
 version.workspace = true
 edition.workspace = true

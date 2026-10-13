@@ -178,11 +178,11 @@ async fn reasoning_item_is_emitted() -> anyhow::Result<()> {
     assert_eq!(started.id, completed.id);
     assert_eq!(
         completed.summary_text,
-        vec!["Consider inputs".to_string(), "Compute output".to_string()]
+        vec!["Consider inputs".to_owned(), "Compute output".to_owned()]
     );
     assert_eq!(
         completed.raw_content,
-        vec!["Detailed reasoning trace".to_string()]
+        vec!["Detailed reasoning trace".to_owned()]
     );
 
     Ok(())
@@ -236,7 +236,7 @@ async fn web_search_item_is_emitted() -> anyhow::Result<()> {
     assert_eq!(
         completed.action,
         WebSearchAction::Search {
-            query: Some("weather seattle".to_string()),
+            query: Some("weather seattle".to_owned()),
             queries: None,
         }
     );

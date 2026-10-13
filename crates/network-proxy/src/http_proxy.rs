@@ -83,6 +83,8 @@ pub async fn run_http_proxy(
     Ok(())
 }
 
+// Rama's UpgradeLayer requires the rejection response directly in this Result.
+#[allow(clippy::result_large_err)]
 async fn http_connect_accept(
     policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
     mut req: Request,

@@ -53,11 +53,11 @@ impl EscalateServer {
         let escalate_task = tokio::spawn(escalate_task(escalate_server, self.policy.clone()));
         let mut env = std::env::vars().collect::<HashMap<String, String>>();
         env.insert(
-            ESCALATE_SOCKET_ENV_VAR.to_string(),
+            ESCALATE_SOCKET_ENV_VAR.to_owned(),
             client_socket.as_raw_fd().to_string(),
         );
         env.insert(
-            BASH_EXEC_WRAPPER_ENV_VAR.to_string(),
+            BASH_EXEC_WRAPPER_ENV_VAR.to_owned(),
             self.execve_wrapper.to_string_lossy().to_string(),
         );
 
@@ -72,9 +72,9 @@ impl EscalateServer {
                 command: vec![
                     self.bash_path.to_string_lossy().to_string(),
                     if login == Some(false) {
-                        "-c".to_string()
+                        "-c".to_owned()
                     } else {
-                        "-lc".to_string()
+                        "-lc".to_owned()
                     },
                     command,
                 ],
@@ -265,7 +265,7 @@ mod tests {
         client
             .send(EscalateRequest {
                 file: PathBuf::from("/bin/echo"),
-                argv: vec!["echo".to_string()],
+                argv: vec!["echo".to_owned()],
                 workdir: PathBuf::from("/tmp"),
                 env,
             })
@@ -295,12 +295,12 @@ mod tests {
             .send(EscalateRequest {
                 file: PathBuf::from("/bin/sh"),
                 argv: vec![
-                    "sh".to_string(),
-                    "-c".to_string(),
-                    r#"if [ "$KEY" = VALUE ]; then exit 42; else exit 1; fi"#.to_string(),
+                    "sh".to_owned(),
+                    "-c".to_owned(),
+                    r#"if [ "$KEY" = VALUE ]; then exit 42; else exit 1; fi"#.to_owned(),
                 ],
                 workdir: std::env::current_dir()?,
-                env: HashMap::from([("KEY".to_string(), "VALUE".to_string())]),
+                env: HashMap::from([("KEY".to_owned(), "VALUE".to_owned())]),
             })
             .await?;
 

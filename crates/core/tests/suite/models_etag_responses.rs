@@ -37,6 +37,7 @@ async fn refresh_models_on_models_etag_mismatch_and_avoid_duplicate_models_fetch
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(auth)
         .with_model("gpt-5")
         .with_config(|config| {

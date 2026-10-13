@@ -16,6 +16,10 @@ cd savfox
 cargo install --path crates/savfox-cli
 ```
 
+Cargo 会自行获取固定提交的 Arkret SDK、Garth 和桥接 Git 依赖；
+从源码构建无需检出相邻仓库。Arkret 本地协同开发的覆盖配置见
+[CONTRIBUTING.md](../../CONTRIBUTING.md)。
+
 ### 验证安装
 
 ```bash

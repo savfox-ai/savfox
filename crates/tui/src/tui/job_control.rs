@@ -145,10 +145,10 @@ pub(crate) enum PreparedResumeAction {
 impl PreparedResumeAction {
     pub(crate) fn apply(self, terminal: &mut Terminal) -> Result<()> {
         match self {
-            PreparedResumeAction::RealignViewport(area) => {
+            Self::RealignViewport(area) => {
                 terminal.set_viewport_area(area);
             }
-            PreparedResumeAction::RestoreAltScreen => {
+            Self::RestoreAltScreen => {
                 execute!(terminal.backend_mut(), EnterAlternateScreen)?;
                 // Enable "alternate scroll" so terminals may translate wheel to arrows
                 execute!(terminal.backend_mut(), EnableAlternateScroll)?;

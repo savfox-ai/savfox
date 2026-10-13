@@ -84,7 +84,9 @@ jobs:
         with:
           toolchain: ${{ env.RUSTFMT_NIGHTLY }}
           components: rustfmt
-      - run: cargo +${{ steps.rustfmt-toolchain.outputs.name }} fmt --all --check
+      # A virtual workspace formats all members by default. --all also walks
+      # sibling path dependencies, whose formatting belongs to their repos.
+      - run: cargo +${{ steps.rustfmt-toolchain.outputs.name }} fmt --check
 
   # ─── Clippy lints ──────────────────────────────────────────────────
   clippy:
@@ -97,31 +99,48 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   # ─── Tests ─────────────────────────────────────────────────────────
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: [changes]
+    needs: [changes, web]
     if: needs.changes.outputs.workspace == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+        with:
+          cache-on-failure: true
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-nextest
+      - uses: facebook/install-dotslash@v2
+      - uses: actions/download-artifact@v8
+        with:
+          name: gateway-web
+          path: crates/gateway-server/static
       - name: Run tests (nextest)
-        run: cargo nextest run --workspace --profile ci
+        run: cargo nextest run --no-fail-fast --workspace --profile ci
       - name: Run doctests
         run: cargo test --workspace --doc
+      - name: Upload failed snapshots
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failed-snapshots-linux
+          path: crates/**/snapshots/*.snap.new
+          if-no-files-found: ignore
 
   # Full cross-platform tests are expensive; keep regular CI fast and run these
   # on demand or on the weekly scheduled sweep.
   test-cross-platform:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    needs: [web]
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     strategy:
       fail-fast: false
@@ -132,12 +151,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           key: ${{ matrix.os }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-nextest
+      - uses: facebook/install-dotslash@v2
+      - uses: actions/download-artifact@v8
+        with:
+          name: gateway-web
+          path: crates/gateway-server/static
       - name: Run tests (nextest)
-        run: cargo nextest run --workspace --profile ci
+        run: cargo nextest run --no-fail-fast --workspace --profile ci
       - name: Run doctests
         run: cargo test --workspace --doc
 
@@ -145,21 +170,28 @@ jobs:
   test-targeted:
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    needs: [changes]
-    if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    needs: [changes, web]
+    if: always() && (needs.web.result == 'success' || needs.web.result == 'skipped') && (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+        with:
+          cache-on-failure: true
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-nextest
+      - uses: actions/download-artifact@v8
+        if: needs.web.result == 'success'
+        with:
+          name: gateway-web
+          path: crates/gateway-server/static
       - name: Build spawned test binaries
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.tui == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: |
           bins=(--bin savfox)
           if [ "${{ needs.changes.outputs.workspace }}" = "true" ] || [ "${{ needs.changes.outputs.core }}" = "true" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
-            bins+=(--bin savfox-exec --bin savfox-linux-sandbox)
+            bins+=(--bin savfox-exec --bin savfox-linux-sandbox --bin test_stdio_server --bin test_streamable_http_server)
           fi
 
           cargo build "${bins[@]}"
@@ -171,11 +203,13 @@ jobs:
             {
               echo "CARGO_BIN_EXE_savfox_exec=$PWD/target/debug/savfox-exec"
               echo "CARGO_BIN_EXE_savfox_linux_sandbox=$PWD/target/debug/savfox-linux-sandbox"
+              echo "CARGO_BIN_EXE_test_stdio_server=$PWD/target/debug/test_stdio_server"
+              echo "CARGO_BIN_EXE_test_streamable_http_server=$PWD/target/debug/test_streamable_http_server"
             } >> "$GITHUB_ENV"
           fi
       - name: Core matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        run: cargo nextest run --profile ci -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
       - name: Check config schema freshness
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: |
@@ -183,13 +217,13 @@ jobs:
           git diff --exit-code -- crates/core/config.schema.json
       - name: Protocol matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.protocol == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        run: cargo nextest run --profile ci -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
       - name: TUI matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.tui == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        run: cargo nextest run --profile ci -p savfox-tui
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-tui
       - name: Gateway and channel matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        run: cargo nextest run --profile ci -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
 
   # ─── Code coverage ─────────────────────────────────────────────────
   coverage:
@@ -200,6 +234,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
       - name: Generate coverage report
@@ -244,10 +280,20 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: Run advisory audit
-        run: cargo audit
+        run: |
+          # The ignored libcrux-kem advisories apply only to hpke-rs's unused
+          # optional backend. Fail if any feature or target starts using it.
+          tree=$(cargo tree --workspace --all-features --target all --edges normal,build,dev -i libcrux-kem)
+          if [ -n "$tree" ]; then
+            echo "::error::libcrux-kem is active; remove its audit exceptions and upgrade the HPKE backend"
+            exit 1
+          fi
+          cargo audit
 
   # ─── License compliance report ────────────────────────────────────
   licenses:
@@ -258,6 +304,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Install cargo-license
         run: cargo install cargo-license --locked
       - name: Generate dependency license report
@@ -277,6 +325,7 @@ jobs:
           targets: x86_64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           key: release-x86_64-unknown-linux-gnu
       - run: cargo build --release --bin savfox --target x86_64-unknown-linux-gnu
       - uses: actions/upload-artifact@v7
@@ -288,7 +337,7 @@ jobs:
   web:
     runs-on: ubuntu-latest
     needs: [changes]
-    if: needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -296,13 +345,29 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/gateway-dioxus
+          cache-on-failure: true
+          workspaces: . -> target
           key: web-wasm
       - name: Install Dioxus CLI
-        run: cargo install dioxus-cli --locked
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cli_dir="$RUNNER_TEMP/dioxus-cli"
+          mkdir -p "$cli_dir/bin"
+          gh release download v0.7.10 --repo DioxusLabs/dioxus \
+            --pattern 'dx-x86_64-unknown-linux-gnu.tar.gz' \
+            --pattern 'dx-x86_64-unknown-linux-gnu.sha256' --dir "$cli_dir"
+          (cd "$cli_dir" && sha256sum --ignore-missing --check dx-x86_64-unknown-linux-gnu.sha256)
+          tar -xzf "$cli_dir/dx-x86_64-unknown-linux-gnu.tar.gz" -C "$cli_dir/bin"
+          echo "$cli_dir/bin" >> "$GITHUB_PATH"
       - name: Build Web UI
-        working-directory: crates/gateway-dioxus
-        run: dx build --release
+        shell: pwsh
+        run: ./scripts/build-web.ps1 -Release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gateway-web
+          path: crates/gateway-server/static
+          if-no-files-found: error
 
   # ─── Docker build (linux only) ─────────────────────────────────────
   docker:

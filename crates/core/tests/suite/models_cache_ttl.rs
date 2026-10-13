@@ -43,7 +43,9 @@ async fn renews_cache_ttl_on_matching_models_etag() -> Result<()> {
     )
     .await;
 
-    let mut builder = test_savfox().with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_savfox()
+        .without_model_catalog()
+        .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
     builder = builder.with_config(|config| {
         config.features.enable(Feature::RemoteModels);
         config.model = Some("gpt-5".to_owned());
@@ -136,7 +138,9 @@ async fn uses_cache_when_version_matches() -> Result<()> {
     )
     .await;
 
-    let mut builder = test_savfox().with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_savfox()
+        .without_model_catalog()
+        .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
     builder = builder
         .with_pre_build_hook(move |home| {
             let cache = ModelsCache {
@@ -184,7 +188,9 @@ async fn refreshes_when_cache_version_missing() -> Result<()> {
     )
     .await;
 
-    let mut builder = test_savfox().with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_savfox()
+        .without_model_catalog()
+        .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
     builder = builder
         .with_pre_build_hook(move |home| {
             let cache = ModelsCache {
@@ -232,7 +238,9 @@ async fn refreshes_when_cache_version_differs() -> Result<()> {
     )
     .await;
 
-    let mut builder = test_savfox().with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_savfox()
+        .without_model_catalog()
+        .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
     builder = builder
         .with_pre_build_hook(move |home| {
             let client_version = savfox_core::models_manager::client_version_to_whole();

@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "savfox-state"
 version.workspace = true
 edition.workspace = true

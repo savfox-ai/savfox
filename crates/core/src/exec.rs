@@ -1031,9 +1031,9 @@ mod tests {
         ];
         #[cfg(all(unix, not(any(target_os = "freebsd", target_os = "openbsd"))))]
         let command = vec![
-            "/bin/bash".to_string(),
-            "-c".to_string(),
-            "sleep 60 & echo $!; sleep 60".to_string(),
+            "/bin/bash".to_owned(),
+            "-c".to_owned(),
+            "sleep 60 & echo $!; sleep 60".to_owned(),
         ];
         let env: HashMap<String, String> = std::env::vars().collect();
         let params = ExecParams {
@@ -1138,11 +1138,7 @@ mod tests {
 
     #[cfg(unix)]
     fn long_running_command() -> Vec<String> {
-        vec![
-            "/bin/sh".to_string(),
-            "-c".to_string(),
-            "sleep 30".to_string(),
-        ]
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()]
     }
 
     #[cfg(windows)]

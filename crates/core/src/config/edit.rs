@@ -994,7 +994,7 @@ enabled = false
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                slug: Some("gpt-5.1-savfox".to_string()),
+                slug: Some("gpt-5.1-savfox".to_owned()),
                 provider: None,
                 effort: Some(ReasoningEffort::High),
             }],
@@ -1029,7 +1029,7 @@ reasoning_effort = "high"
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                slug: Some("gpt-5.1-savfox".to_string()),
+                slug: Some("gpt-5.1-savfox".to_owned()),
                 provider: None,
                 effort: None,
             }],

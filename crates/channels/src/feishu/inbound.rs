@@ -30,6 +30,8 @@ pub struct FeishuMessageMeta {
     pub parent_message_id: Option<String>,
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait FeishuActionSink: Send + Sync {
     async fn handle_action(

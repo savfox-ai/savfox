@@ -143,6 +143,8 @@ mod tests {
             "git",
             "/usr/bin/git",
             "git.exe",
+            "C:/tools/Git/bin/git.exe",
+            #[cfg(windows)]
             "C:\\tools\\Git\\bin\\git.exe",
         ] {
             let extra = git_safety_env(Path::new(prog), &empty);

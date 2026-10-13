@@ -20,6 +20,8 @@ pub(crate) enum StreamEvent {
 // ── StreamSink trait ─────────────────────────────────────────────────
 
 /// Platform-agnostic interface for sending, editing, and deleting messages.
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub(crate) trait StreamSink: Send + Sync + 'static {
     /// Send the initial message and return its ID (platform-specific string).

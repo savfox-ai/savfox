@@ -371,7 +371,7 @@ fn write_connectors_config(savfox_home: &std::path::Path, base_url: &str) -> std
 chatgpt_base_url = "{base_url}"
 
 [features]
-connectors = true
+apps = true
 "#
         ),
     )

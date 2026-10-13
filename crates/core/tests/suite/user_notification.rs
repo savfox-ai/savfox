@@ -38,7 +38,7 @@ echo -n "${@: -1}" > $(dirname "${0}")/notify.txt"#,
     std::fs::set_permissions(&notify_script, std::fs::Permissions::from_mode(0o755))?;
 
     let notify_file = notify_dir.path().join("notify.txt");
-    let notify_script_str = notify_script.to_str().unwrap().to_string();
+    let notify_script_str = notify_script.to_str().unwrap().to_owned();
 
     let TestSavfox { savfox, .. } = test_savfox()
         .with_config(move |cfg| cfg.notify = Some(vec![notify_script_str]))

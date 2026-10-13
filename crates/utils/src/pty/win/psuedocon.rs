@@ -266,8 +266,7 @@ fn build_cmdline(cmd: &CommandBuilder) -> anyhow::Result<(Vec<u16>, Vec<u16>)> {
         let script = Path::new(&exe_os).with_extension("ps1");
         ensure!(
             script.is_file(),
-            "batch-only PTY commands require an explicit cmd.exe command; no PowerShell shim found for {:?}",
-            exe_os
+            "batch-only PTY commands require an explicit cmd.exe command; no PowerShell shim found for {exe_os:?}"
         );
         exe_os = script.into_os_string();
     }

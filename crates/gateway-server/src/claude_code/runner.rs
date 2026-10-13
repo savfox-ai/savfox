@@ -138,8 +138,8 @@ async fn preflight(options: &mut RunOptions) -> anyhow::Result<String> {
             .to_string_lossy()
             .into_owned();
     }
-    #[cfg(not(unix))]
-    bail!(
+    ensure!(
+        cfg!(unix),
         "claude_stream is currently supported on Unix; Windows process-tree cleanup has not been validated"
     );
     ensure!(

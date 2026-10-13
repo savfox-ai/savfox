@@ -415,7 +415,7 @@ impl FileMode {
         match self {
             Self::Regular => "100644",
             #[cfg(unix)]
-            FileMode::Executable => "100755",
+            Self::Executable => "100755",
             Self::Symlink => "120000",
         }
     }

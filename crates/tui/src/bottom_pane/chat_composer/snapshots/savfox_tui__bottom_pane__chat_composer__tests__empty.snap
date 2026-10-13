@@ -1,13 +1,14 @@
 ---
-source: crates/tui/src/bottom_pane/chat_composer.rs
+source: crates/tui/src/bottom_pane/chat_composer/tests.rs
 expression: terminal.backend()
 ---
 "                                                                                                    "
 "────────────────────────────────────────────────────────────────────────────────────────────────────"
-"❯ [Image #1]                                                                                        "
+"❯ Type @ to mention files, / for commands, or ? for shortcuts                                       "
+"                                                                                                    "
 "                                                                                                    "
 "                                                                                                    "
 "                                                                                                    "
 "                                                                                                    "
 "────────────────────────────────────────────────────────────────────────────────────────────────────"
-"                                                                                 100% context left  "
+"  ? for shortcuts                                                                  [░░░░░░░░░░] 0%  "
