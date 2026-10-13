@@ -1,0 +1,8 @@
+name: Prepare Arkret dependencies
+description: Check out the pinned sibling workspaces required by Cargo path dependencies
+runs:
+  using: composite
+  steps:
+    - name: Check out Arkret workspaces
+      shell: pwsh
+      run: ./scripts/setup-arkret.ps1

@@ -13,10 +13,15 @@ Thank you for your interest in contributing to Savfox! This document provides gu
 ### Setup
 
 ```bash
-git clone https://github.com/chrislearn/savfox.git
+git clone https://github.com/savfox-ai/savfox.git
 cd savfox
+pwsh -File scripts/setup-arkret.ps1
 cargo build
 ```
+
+Install PowerShell 7 (`pwsh`) to prepare the pinned sibling Arkret workspaces.
+The setup script leaves existing checkouts unchanged and rejects unexpected
+revisions or local edits. CI uses the same script before invoking Cargo.
 
 ### Install Git Hooks
 

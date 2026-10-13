@@ -31,6 +31,7 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -38,10 +39,14 @@ jobs:
             rust:
               - 'crates/**'
               - '.config/nextest.toml'
+              - '.github/actions/setup-arkret/**'
+              - 'scripts/setup-arkret.ps1'
               - 'Cargo.toml'
               - 'Cargo.lock'
             workspace:
               - '.config/nextest.toml'
+              - '.github/actions/setup-arkret/**'
+              - 'scripts/setup-arkret.ps1'
               - 'Cargo.toml'
               - 'Cargo.lock'
             core:
@@ -79,6 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - id: rustfmt-toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -93,6 +99,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -107,6 +114,7 @@ jobs:
     if: needs.changes.outputs.workspace == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2.85.3
@@ -129,6 +137,7 @@ jobs:
         os: [windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -149,6 +158,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2.85.3
@@ -198,6 +208,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-llvm-cov
@@ -242,12 +253,21 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: Run advisory audit
-        run: cargo audit
+        run: |
+          # The ignored libcrux-kem advisories apply only to hpke-rs's unused
+          # optional backend. Fail if any feature or target starts using it.
+          tree=$(cargo tree --workspace --all-features --target all --edges normal,build,dev -i libcrux-kem)
+          if [ -n "$tree" ]; then
+            echo "::error::libcrux-kem is active; remove its audit exceptions and upgrade the HPKE backend"
+            exit 1
+          fi
+          cargo audit
 
   # ─── License compliance report ────────────────────────────────────
   licenses:
@@ -256,6 +276,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-license
@@ -272,6 +293,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu
@@ -291,6 +313,7 @@ jobs:
     if: needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -311,6 +334,7 @@ jobs:
     if: needs.changes.outputs.docker == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-arkret
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:

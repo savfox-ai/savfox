@@ -3,10 +3,9 @@ mod protocol;
 mod runner;
 mod runtime;
 
+use anyhow::{bail, ensure};
 pub(crate) use runner::{RunOptions, run};
 pub(crate) use runtime::{Execution, Runtime};
-
-use anyhow::{bail, ensure};
 use savfox_gateway_shared::ClaudeCodeConfig;
 
 pub(crate) fn validate(config: &ClaudeCodeConfig, args: &[String]) -> anyhow::Result<()> {

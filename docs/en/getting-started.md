@@ -13,8 +13,14 @@
 ```bash
 git clone https://github.com/savfox-ai/savfox.git
 cd savfox
+pwsh -File scripts/setup-arkret.ps1
 cargo install --path crates/savfox-cli
 ```
+
+Source builds also require PowerShell 7 (`pwsh`). The setup script checks out
+pinned Arkret SDK, Garth, and bridge dependencies in `../../arkret-org/` relative
+to Savfox. It preserves existing checkouts and reports a mismatched revision or
+local changes instead of overwriting them.
 
 ### Verify Installation
 
