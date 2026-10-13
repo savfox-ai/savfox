@@ -1434,8 +1434,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "linked-skill".to_string(),
-                description: "from link".to_string(),
+                name: "linked-skill".to_owned(),
+                description: "from link".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1493,8 +1493,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "cycle-skill".to_string(),
-                description: "still loads".to_string(),
+                name: "cycle-skill".to_owned(),
+                description: "still loads".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1528,8 +1528,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "admin-linked-skill".to_string(),
-                description: "from link".to_string(),
+                name: "admin-linked-skill".to_owned(),
+                description: "from link".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1567,8 +1567,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "repo-linked-skill".to_string(),
-                description: "from link".to_string(),
+                name: "repo-linked-skill".to_owned(),
+                description: "from link".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,

@@ -22,12 +22,12 @@ const SCHEMA: &str = r#"
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn savfox_returns_json_result_for_gpt5() -> anyhow::Result<()> {
-    savfox_returns_json_result("gpt-5.1".to_string()).await
+    savfox_returns_json_result("gpt-5.1".to_owned()).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn savfox_returns_json_result_for_gpt5_savfox() -> anyhow::Result<()> {
-    savfox_returns_json_result("gpt-5.1-savfox".to_string()).await
+    savfox_returns_json_result("gpt-5.1-savfox".to_owned()).await
 }
 
 async fn savfox_returns_json_result(model: String) -> anyhow::Result<()> {

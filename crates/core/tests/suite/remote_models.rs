@@ -43,9 +43,9 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         .await;
 
     let remote_model = ModelInfo {
-        slug: REMOTE_MODEL_SLUG.to_string(),
-        name: "Remote Test".to_string(),
-        description: Some("A remote model that requires the test shell".to_string()),
+        slug: REMOTE_MODEL_SLUG.to_owned(),
+        name: "Remote Test".to_owned(),
+        description: Some("A remote model that requires the test shell".to_owned()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
             effort: ReasoningEffort::Medium,
@@ -57,7 +57,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         input_modalities: default_input_modalities(),
         priority: 1,
         upgrade: None,
-        base_instructions: "base instructions".to_string(),
+        base_instructions: "base instructions".to_owned(),
         model_messages: None,
         supports_reasoning_summaries: false,
         support_verbosity: false,
@@ -86,7 +86,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
-            config.model = Some("gpt-5.1".to_string());
+            config.model = Some("gpt-5.1".to_owned());
         });
     let TestSavfox {
         savfox,
@@ -121,7 +121,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
             approval_policy: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
-            model: Some(REMOTE_MODEL_SLUG.to_string()),
+            model: Some(REMOTE_MODEL_SLUG.to_owned()),
             effort: None,
             summary: None,
             collaboration_mode: None,
@@ -159,7 +159,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
             cwd: cwd.path().to_path_buf(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::DangerFullAccess,
-            model: REMOTE_MODEL_SLUG.to_string(),
+            model: REMOTE_MODEL_SLUG.to_owned(),
             effort: None,
             summary: ReasoningSummary::Auto,
             collaboration_mode: None,
@@ -210,7 +210,7 @@ async fn remote_models_truncation_policy_without_override_preserves_remote() -> 
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
-            config.model = Some("gpt-5.1".to_string());
+            config.model = Some("gpt-5.1".to_owned());
         });
     let test = builder.build(&server).await?;
 
@@ -256,7 +256,7 @@ async fn remote_models_truncation_policy_with_tool_output_override() -> Result<(
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
-            config.model = Some("gpt-5.1".to_string());
+            config.model = Some("gpt-5.1".to_owned());
             config.tool_output_token_limit = Some(50);
         });
     let test = builder.build(&server).await?;
@@ -287,9 +287,9 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
 
     let remote_base = "Use the remote base instructions only.";
     let remote_model = ModelInfo {
-        slug: model.to_string(),
-        name: "Parallel Remote".to_string(),
-        description: Some("A remote model with custom instructions".to_string()),
+        slug: model.to_owned(),
+        name: "Parallel Remote".to_owned(),
+        description: Some("A remote model with custom instructions".to_owned()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
             effort: ReasoningEffort::Medium,
@@ -301,7 +301,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
         input_modalities: default_input_modalities(),
         priority: 1,
         upgrade: None,
-        base_instructions: remote_base.to_string(),
+        base_instructions: remote_base.to_owned(),
         model_messages: None,
         supports_reasoning_summaries: false,
         support_verbosity: false,
@@ -339,7 +339,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
-            config.model = Some("gpt-5.1".to_string());
+            config.model = Some("gpt-5.1".to_owned());
         });
     let TestSavfox {
         savfox,
@@ -358,7 +358,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
             approval_policy: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
-            model: Some(model.to_string()),
+            model: Some(model.to_owned()),
             effort: None,
             summary: None,
             collaboration_mode: None,
@@ -377,7 +377,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
             cwd: cwd.path().to_path_buf(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::DangerFullAccess,
-            model: model.to_string(),
+            model: model.to_owned(),
             effort: None,
             summary: ReasoningSummary::Auto,
             collaboration_mode: None,
@@ -509,8 +509,8 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
     let server = MockServer::start().await;
     let slug = default_model_slug();
     let mut remote_model = test_remote_model(&slug, ModelVisibility::List, 0);
-    remote_model.name = "Overridden".to_string();
-    remote_model.description = Some("Overridden description".to_string());
+    remote_model.name = "Overridden".to_owned();
+    remote_model.description = Some("Overridden description".to_owned());
     let models_mock = mount_models_once(
         &server,
         ModelsResponse {
@@ -737,7 +737,7 @@ async fn wait_for_model_available(
 }
 
 fn default_model_slug() -> String {
-    "gpt-5.3-codex".to_string()
+    "gpt-5.3-codex".to_owned()
 }
 
 fn test_remote_model(slug: &str, visibility: ModelVisibility, priority: i32) -> ModelInfo {
@@ -756,7 +756,7 @@ fn test_remote_model_with_policy(
     truncation_policy: TruncationPolicyConfig,
 ) -> ModelInfo {
     ModelInfo {
-        slug: slug.to_string(),
+        slug: slug.to_owned(),
         name: format!("{slug} display"),
         description: Some(format!("{slug} description")),
         default_reasoning_level: Some(ReasoningEffort::Medium),
@@ -770,7 +770,7 @@ fn test_remote_model_with_policy(
         input_modalities: default_input_modalities(),
         priority,
         upgrade: None,
-        base_instructions: "base instructions".to_string(),
+        base_instructions: "base instructions".to_owned(),
         model_messages: None,
         supports_reasoning_summaries: false,
         support_verbosity: false,

@@ -344,7 +344,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-          workspaces: crates/gateway-dioxus
+          workspaces: . -> target
           key: web-wasm
       - name: Install Dioxus CLI
         env:
