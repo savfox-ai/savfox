@@ -1,0 +1,13 @@
+---
+source: crates/tui/src/bottom_pane/chat_composer/tests.rs
+expression: terminal.backend()
+---
+"                          "
+"──────────────────────────"
+"❯ Type @ to mention files "
+"                          "
+"                          "
+"                          "
+"                          "
+"──────────────────────────"
+"         [░░░░░░░░░░] 0%  "

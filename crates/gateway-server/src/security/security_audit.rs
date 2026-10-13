@@ -31,7 +31,7 @@ pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigFil
         let value = match format {
             "json" => serde_json::from_str::<Value>(&content)
                 .map_err(|e| format!("invalid JSON in {}: {e}", path.display()))?,
-            "yaml" => serde_yaml::from_str::<Value>(&content)
+            "yaml" => serde_saphyr::from_str::<Value>(&content)
                 .map_err(|e| format!("invalid YAML in {}: {e}", path.display()))?,
             "toml" => {
                 let toml_value: toml::Value = toml::from_str(&content)
@@ -61,7 +61,7 @@ pub(crate) fn serialize_config_value(value: &Value, format: &str) -> Result<Stri
         "json" => serde_json::to_string_pretty(value)
             .map_err(|e| format!("JSON serialization failed: {e}")),
         "yaml" => {
-            serde_yaml::to_string(value).map_err(|e| format!("YAML serialization failed: {e}"))
+            serde_saphyr::to_string(value).map_err(|e| format!("YAML serialization failed: {e}"))
         }
         "toml" => {
             let toml_value = savfox_utils::json_to_toml::json_to_toml(value.clone());

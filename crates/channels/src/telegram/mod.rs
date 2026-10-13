@@ -6,7 +6,7 @@ mod parse;
 
 pub use client::{
     delete_message, edit_message, escape_html, resolve_bot_token, send_message,
-    truncate_log_preview, verify_webhook_secret,
+    send_message_with_inline_keyboard, truncate_log_preview, verify_webhook_secret,
 };
 pub use config::{TelegramChannelConfig, resolve_telegram_outbound_token};
 pub use inbound::{

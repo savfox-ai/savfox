@@ -1,15 +1,19 @@
-//! Arkret personal-agent channel runtime.
+//! Arkret Agent channel runtime.
 //!
 //! Owns one async task per (channel, account) pair. Each task:
 //!
 //! 1. Mints a short-lived `agent_key_proof` session grant bound to DPoP.
-//! 2. Opens `/_arkret/self/account/subscribe` for the owning user account.
+//! 2. Pulls its own Agent delivery queue and scans authorized Commit streams.
 //! 3. Extracts dispatchable `ak.message.create` events.
 //! 4. Dispatches each event to the agent pipeline.
 //!
 //! Outbound sends go through [`send_to_arkret_account`].
+//! Agent presence uses the v1 Agent sender branch: no device id is emitted and
+//! the current runtime key supplies both the proof and sequence endpoint.
+//! Shared Realm presence requires an explicit current Public interaction mode;
+//! the private exception is restricted to an accepted exact controller Direct pair.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
@@ -17,24 +21,28 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arkret::{
-    DeviceId, DeviceMessagesAckRequestBody, Did, KeyPackageUploadEntry,
-    KeyPackagesConsumeRequestBody, KeyPackagesUploadRequestBody, MlsKeyPackageRecord, RealmId,
-    StrandId,
+    DeviceId, DeviceMessagesAckRequestBody, DidCoreId, EventId, KeyPackagesConsumeOutcome,
+    KeyPackagesConsumeUnsignedRequest, KeyPackagesUploadRequestBody,
+    KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord, RealmId, ServiceOperationId,
 };
 use chrono::Utc;
 use garth::{
     ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, OutboundEngine,
-    OutboundEngineOutcome, OutboundSubmitOutcome, OutboundSubmitter, RunOptions, RunStopReason,
-    SyncLoopControl, TransportProvider,
+    OutboundEngineOutcome, TransportProvider,
 };
 use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
-    ArkretDecryptDetailedOutcome, ArkretEncryptOutcome, ArkretHttpClient, ArkretInboundEvent,
-    ArkretInboundParseResult, ArkretInboundSkipReason, ArkretInboundSkippedEvent,
-    ArkretMlsWelcomeConsumeBinding, FileArkretCryptoStore, MessageCreateRequest,
+    ArkretContentEncryptionFloor, ArkretDecryptDetailedOutcome, ArkretEncryptOutcome,
+    ArkretHttpClient, ArkretInboundEvent, ArkretInboundParseResult, ArkretInboundSkipReason,
+    ArkretInboundSkippedEvent, ArkretKeyRef, ArkretMlsWelcomeConsumeBinding,
+    ArkretRealmCryptoPolicy, FileArkretCryptoStore, MessageCreateRequest, SidecarExchangeAdmission,
+    SidecarExchangeContext, SidecarExchangeStore, SidecarRequestGate, SidecarTerminalAdmission,
     UnableToDecryptReason, account_allows_event_read, build_message_create_event,
-    device_messages_scope, open_account_store, parse_delta_frame_for_account,
-    resolve_arkret_outbound_account, sign_key_operation_value,
+    build_user_facing_response_metadata, encode_sidecar_reply_target,
+    gate_inbound_exchange_control, gate_inbound_request_binding, open_account_store,
+    parse_event_values_for_account, resolve_arkret_outbound_account_for_binding,
+    sidecar_binding_from_metadata_plaintext, sign_keypackages_consume_request,
+    sign_keypackages_upload_request, structured_mention_account_ids,
 };
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
@@ -43,11 +51,65 @@ use super::{ChannelRegistry, runtime};
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
+pub(crate) mod governance;
+pub mod native_reply;
+mod receive;
+
 /// Per-(channel, account) runtime handles. Indexed by `{channel_id}::{account_id}`.
 #[derive(Default)]
 struct ArkretRuntimeState {
     handles: HashMap<String, tokio::task::JoinHandle<()>>,
     diagnostics: HashMap<String, ArkretListenerDiagnostic>,
+}
+
+fn account_runtime_generations() -> &'static StdMutex<HashMap<String, u64>> {
+    static GENERATIONS: OnceLock<StdMutex<HashMap<String, u64>>> = OnceLock::new();
+    GENERATIONS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn advance_account_runtime_generation(key: &str) {
+    let mut generations = account_runtime_generations()
+        .lock()
+        .expect("Arkret runtime generations");
+    let generation = generations.entry(key.to_owned()).or_default();
+    *generation = generation
+        .checked_add(1)
+        .expect("Arkret runtime generation overflow");
+}
+
+fn account_runtime_fence(
+    channel_id: &str,
+    account_id: &str,
+) -> Arc<dyn Fn() -> bool + Send + Sync> {
+    let key = task_key(channel_id, account_id);
+    let expected = *account_runtime_generations()
+        .lock()
+        .expect("Arkret runtime generations")
+        .entry(key.clone())
+        .or_default();
+    Arc::new(move || {
+        account_runtime_generations()
+            .lock()
+            .ok()
+            .and_then(|generations| generations.get(&key).copied())
+            == Some(expected)
+    })
+}
+
+fn known_revoked_authorizations() -> &'static StdMutex<HashSet<(String, String, String)>> {
+    static REVOKED: OnceLock<StdMutex<HashSet<(String, String, String)>>> = OnceLock::new();
+    REVOKED.get_or_init(|| StdMutex::new(HashSet::new()))
+}
+
+fn authorization_fence_key(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> Option<(String, String, String)> {
+    Some((
+        channel.id.clone(),
+        account.id.clone(),
+        account.authorized_event_ref.clone()?,
+    ))
 }
 
 #[derive(Debug, Clone)]
@@ -58,11 +120,16 @@ struct ArkretListenerDiagnostic {
     phase: &'static str,
     attempt: u64,
     last_error: Option<String>,
+    last_reason_code: Option<String>,
     last_event_id: Option<String>,
     last_realm_id: Option<String>,
     last_local_agent_id: Option<String>,
+    last_presence_at: Option<chrono::DateTime<Utc>>,
+    last_presence_error: Option<String>,
+    presence_heartbeats: u64,
     received_events: u64,
     dispatched_events: u64,
+    baselined_events: u64,
     skipped_events: u64,
     updated_at: chrono::DateTime<Utc>,
 }
@@ -76,11 +143,16 @@ impl ArkretListenerDiagnostic {
             phase: "scheduled",
             attempt: 0,
             last_error: None,
+            last_reason_code: None,
             last_event_id: None,
             last_realm_id: None,
             last_local_agent_id: None,
+            last_presence_at: None,
+            last_presence_error: None,
+            presence_heartbeats: 0,
             received_events: 0,
             dispatched_events: 0,
+            baselined_events: 0,
             skipped_events: 0,
             updated_at: Utc::now(),
         }
@@ -95,11 +167,17 @@ impl ArkretListenerDiagnostic {
             "running": running,
             "attempt": self.attempt,
             "last_error": self.last_error,
+            "last_reason_code": self.last_reason_code,
             "last_event_id": self.last_event_id,
             "last_realm_id": self.last_realm_id,
             "last_local_agent_id": self.last_local_agent_id,
+            "last_presence_at": self.last_presence_at,
+            "last_presence_error": self.last_presence_error,
+            "presence_heartbeats": self.presence_heartbeats,
+            "scope_recovery": self.last_reason_code.as_deref().and_then(savfox_gateway_shared::arkret::agent_scope_recovery),
             "received_events": self.received_events,
             "dispatched_events": self.dispatched_events,
+            "baselined_events": self.baselined_events,
             "skipped_events": self.skipped_events,
             "updated_at": self.updated_at,
         })
@@ -107,15 +185,21 @@ impl ArkretListenerDiagnostic {
 }
 
 const ACCOUNT_EVENT_DEDUPE_MAX: usize = 4096;
-const ACCOUNT_SCAN_CATCHUP_LIMIT: u32 = 100;
+const ACCOUNT_SCAN_CATCHUP_LIMIT: u16 = 100;
 const ACCOUNT_SCAN_CATCHUP_MAX_PAGES: usize = 64;
+const ACCOUNT_AUTH_WARNING_INTERVAL: Duration = Duration::from_secs(30);
+/// v1 session Signals expire after 30 seconds. Twenty seconds leaves room for
+/// scheduling, network jitter and an in-band session refresh.
+const ACCOUNT_PRESENCE_REFRESH: Duration = Duration::from_secs(20);
 const DEVICE_MESSAGES_PULL_LIMIT: u32 = 100;
 const DEVICE_MESSAGES_PULL_MAX_PAGES: usize = 16;
 
-const KEYPACKAGES_UPLOAD_SCOPE: &str = "ak.self.keys.keypackages.upload.create";
-const KEYPACKAGES_CONSUME_SCOPE: &str = "ak.self.keys.keypackages.command.consume";
-const DEVICE_MESSAGES_LIST_SCOPE: &str = "ak.self.device_messages.query.list";
-const DEVICE_MESSAGES_ACK_SCOPE: &str = "ak.self.device_messages.command.ack";
+const KEYPACKAGES_UPLOAD_SCOPE: &str = ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1;
+const KEYPACKAGES_CONSUME_SCOPE: &str =
+    ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1;
+const KEYPACKAGE_MIN_AVAILABLE: usize = 8;
+const DEVICE_MESSAGES_LIST_SCOPE: &str = ServiceOperationId::SELF_DEVICE_MESSAGES_READ_LIST_V1;
+const DEVICE_MESSAGES_ACK_SCOPE: &str = ServiceOperationId::SELF_DEVICE_MESSAGES_COMMAND_ACK_V1;
 
 fn runtime_state() -> &'static StdMutex<ArkretRuntimeState> {
     static STATE: OnceLock<StdMutex<ArkretRuntimeState>> = OnceLock::new();
@@ -145,6 +229,43 @@ fn update_listener_diagnostic(
     }
 }
 
+/// Emit only bounded, non-identifying observations from the existing listener state.
+fn observe_inbound_boundary(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    stage: &'static str,
+) {
+    let counters = runtime_state().lock().ok().and_then(|state| {
+        state
+            .diagnostics
+            .get(&task_key(&channel.id, &account.id))
+            .map(|diagnostic| {
+                (
+                    diagnostic.received_events,
+                    diagnostic.dispatched_events,
+                    diagnostic.baselined_events,
+                    diagnostic.skipped_events,
+                )
+            })
+    });
+    if let Some((received, dispatched, baselined, skipped)) = counters {
+        info!(
+            stage,
+            received_events = received,
+            dispatched_events = dispatched,
+            baselined_events = baselined,
+            skipped_events = skipped,
+            "arkret: safe inbound boundary"
+        );
+    } else {
+        info!(
+            stage,
+            listener_present = false,
+            "arkret: safe inbound boundary"
+        );
+    }
+}
+
 fn record_listener_failure(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
@@ -154,8 +275,44 @@ fn record_listener_failure(
     let error = error.to_string();
     update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
         diagnostic.phase = phase;
+        diagnostic.last_reason_code = arkret_reason_code(&error);
         diagnostic.last_error = Some(error);
     });
+}
+
+fn record_listener_service_failure(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    phase: &'static str,
+    error: impl std::fmt::Display,
+    reason: Option<&str>,
+) {
+    update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+        diagnostic.phase = phase;
+        diagnostic.last_reason_code = reason.map(str::to_owned);
+        diagnostic.last_error = Some(error.to_string());
+    });
+}
+
+fn transport_service_reason(error: &garth::Error) -> Option<&str> {
+    match error {
+        garth::Error::Api { error, .. } => error
+            .extensions
+            .get("reason_code")
+            .and_then(Value::as_str)
+            .or_else(|| reason_code_from_message(&error.detail)),
+        _ => None,
+    }
+}
+
+fn listener_service_reason(error: &anyhow::Error) -> Option<&str> {
+    savfox_channels::arkret::agent_session_exchange_reason(error).or_else(|| {
+        error.chain().find_map(|source| {
+            source
+                .downcast_ref::<garth::Error>()
+                .and_then(transport_service_reason)
+        })
+    })
 }
 
 fn record_listener_phase(
@@ -166,7 +323,22 @@ fn record_listener_phase(
     update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
         diagnostic.phase = phase;
         diagnostic.last_error = None;
+        diagnostic.last_reason_code = None;
     });
+}
+
+fn arkret_reason_code(error: &str) -> Option<String> {
+    reason_code_from_message(error).map(str::to_owned)
+}
+
+fn reason_code_from_message(error: &str) -> Option<&str> {
+    let marker = "reason_code=";
+    let start = error.find(marker)? + marker.len();
+    let code = error[start..]
+        .split(|ch: char| !(ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_'))
+        .next()
+        .unwrap_or_default();
+    (!code.is_empty()).then_some(code)
 }
 
 pub(crate) fn arkret_account_runtime_diagnostics(channel_id: &str) -> Vec<Value> {
@@ -200,8 +372,7 @@ pub(crate) async fn start_arkret_channel(
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    let arkret_config = ArkretChannelConfig::from_channel_config(config)
-        .ok_or_else(|| anyhow::anyhow!("Arkret channel config must be an object"))?;
+    let arkret_config = ArkretChannelConfig::from_strict_agent_config(config)?;
     arkret_config
         .validate()
         .with_context(|| format!("Arkret channel '{}' config validation failed", config.id))?;
@@ -213,6 +384,16 @@ pub(crate) async fn start_arkret_channel(
         arkret_config.base_url,
     );
 
+    if let Some(owner_home) = std::env::var_os("SAVFOX_ARKRET_NATIVE_OWNER_HOME") {
+        let owner = std::path::PathBuf::from(owner_home).canonicalize()?;
+        anyhow::ensure!(
+            gateway_channel.config().savfox_home.canonicalize()? == owner,
+            "native Arkret owner home differs from the UI gateway home"
+        );
+        // Explicit native deployment leaves the ordinary process UI/onboarding
+        // only. It must NOT consume, decrypt or ACK any account listener input.
+        return Ok(());
+    }
     for account in &arkret_config.accounts {
         if account.listen {
             spawn_account_listener(
@@ -235,6 +416,16 @@ pub(crate) async fn start_arkret_channel(
 /// channel the operator already removed. Returns the number of tasks stopped.
 pub(crate) fn stop_arkret_account_listeners(channel_id: &str) -> usize {
     let prefix = format!("{channel_id}::");
+    let invalidated: Vec<String> = account_runtime_generations()
+        .lock()
+        .expect("Arkret runtime generations")
+        .keys()
+        .filter(|key| key.starts_with(&prefix))
+        .cloned()
+        .collect();
+    for key in invalidated {
+        advance_account_runtime_generation(&key);
+    }
     let Ok(mut state) = runtime_state().lock() else {
         warn!("arkret: runtime state mutex poisoned; cannot stop listeners for '{channel_id}'");
         return 0;
@@ -259,6 +450,26 @@ pub(crate) fn stop_arkret_account_listeners(channel_id: &str) -> usize {
     stopped
 }
 
+/// Remove the in-memory runtime record for an account whose binding was
+/// explicitly erased. A later replacement pairing uses a different account id;
+/// retaining the old terminal diagnostic would make channel-level health look
+/// failed even while the replacement listener is healthy.
+fn forget_arkret_account_runtime(channel_id: &str, account_id: &str) {
+    let key = task_key(channel_id, account_id);
+    advance_account_runtime_generation(&key);
+    let Ok(mut state) = runtime_state().lock() else {
+        warn!(
+            channel_id,
+            account_id, "arkret: runtime state mutex poisoned while forgetting unbound account"
+        );
+        return;
+    };
+    if let Some(handle) = state.handles.remove(&key) {
+        handle.abort();
+    }
+    state.diagnostics.remove(&key);
+}
+
 pub(crate) fn arkret_account_listener_count(channel_id: &str) -> usize {
     let prefix = format!("{channel_id}::");
     let Ok(state) = runtime_state().lock() else {
@@ -278,6 +489,19 @@ pub(crate) fn arkret_account_listener_count(channel_id: &str) -> usize {
         .count()
 }
 
+pub(crate) fn arkret_account_listener_task_count(channel_id: &str) -> usize {
+    let prefix = format!("{channel_id}::");
+    let Ok(state) = runtime_state().lock() else {
+        warn!("arkret: runtime state mutex poisoned; cannot inspect tasks for '{channel_id}'");
+        return 0;
+    };
+    state
+        .handles
+        .iter()
+        .filter(|(key, handle)| key.starts_with(&prefix) && !handle.is_finished())
+        .count()
+}
+
 fn spawn_account_listener(
     savfox_home: PathBuf,
     channel: ArkretChannelConfig,
@@ -286,6 +510,7 @@ fn spawn_account_listener(
     session_store: Arc<SessionStore>,
 ) {
     let key = task_key(&channel.id, &account.id);
+    advance_account_runtime_generation(&key);
     if let Ok(mut state) = runtime_state().lock() {
         state.diagnostics.insert(
             key.clone(),
@@ -295,17 +520,7 @@ fn spawn_account_listener(
     let diagnostic_channel_id = channel.id.clone();
     let diagnostic_account_id = account.id.clone();
     let handle = tokio::spawn(async move {
-        let mut attempt = 0_u64;
-        loop {
-            attempt = attempt.saturating_add(1);
-            update_listener_diagnostic(
-                &diagnostic_channel_id,
-                &diagnostic_account_id,
-                |diagnostic| {
-                    diagnostic.phase = "starting";
-                    diagnostic.attempt = attempt;
-                },
-            );
+        run_account_listener_retry_loop(diagnostic_channel_id, diagnostic_account_id, move || {
             run_account_listener(
                 savfox_home.clone(),
                 channel.clone(),
@@ -313,22 +528,8 @@ fn spawn_account_listener(
                 Arc::clone(&gateway_channel),
                 Arc::clone(&session_store),
             )
-            .await;
-            let retry_delay = Duration::from_secs(attempt.min(6).pow(2));
-            update_listener_diagnostic(
-                &diagnostic_channel_id,
-                &diagnostic_account_id,
-                |diagnostic| diagnostic.phase = "retry_wait",
-            );
-            warn!(
-                channel_id = %diagnostic_channel_id,
-                account_id = %diagnostic_account_id,
-                attempt,
-                retry_delay_ms = retry_delay.as_millis(),
-                "arkret: listener attempt ended; retrying instead of leaving a stale connected task"
-            );
-            tokio::time::sleep(retry_delay).await;
-        }
+        })
+        .await;
     });
     let Ok(mut state) = runtime_state().lock() else {
         warn!("arkret: runtime state mutex poisoned; aborting listener task '{key}'");
@@ -340,6 +541,72 @@ fn spawn_account_listener(
     }
 }
 
+async fn run_account_listener_retry_loop<F, Fut>(
+    diagnostic_channel_id: String,
+    diagnostic_account_id: String,
+    mut run: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let mut attempt = 0_u64;
+    loop {
+        attempt = attempt.saturating_add(1);
+        update_listener_diagnostic(
+            &diagnostic_channel_id,
+            &diagnostic_account_id,
+            |diagnostic| {
+                diagnostic.phase = "starting";
+                diagnostic.attempt = attempt;
+            },
+        );
+        run().await;
+        let migration_reason = runtime_state().lock().ok().and_then(|state| {
+            state
+                .diagnostics
+                .get(&task_key(&diagnostic_channel_id, &diagnostic_account_id))
+                .and_then(|diagnostic| diagnostic.last_reason_code.clone())
+        });
+        let recovery = migration_reason.as_deref().and_then(|reason| {
+            if reason == "agent_requested_scope_commitment_invalid" {
+                Some("provision_new_agent")
+            } else {
+                savfox_gateway_shared::arkret::agent_scope_recovery(reason)
+            }
+        });
+        if let Some(recovery) = recovery
+            .filter(|recovery| *recovery != "issue_session_within_provision_and_key_ceilings")
+        {
+            update_listener_diagnostic(
+                &diagnostic_channel_id,
+                &diagnostic_account_id,
+                |diagnostic| diagnostic.phase = "migration_required",
+            );
+            warn!(
+                channel_id = %diagnostic_channel_id,
+                account_id = %diagnostic_account_id,
+                recovery,
+                "arkret: Agent scope requires an explicit authorization recovery; listener stopped without expanding scope"
+            );
+            break;
+        }
+        let retry_delay = Duration::from_secs(attempt.min(6).pow(2));
+        update_listener_diagnostic(
+            &diagnostic_channel_id,
+            &diagnostic_account_id,
+            |diagnostic| diagnostic.phase = "retry_wait",
+        );
+        warn!(
+            channel_id = %diagnostic_channel_id,
+            account_id = %diagnostic_account_id,
+            attempt,
+            retry_delay_ms = retry_delay.as_millis(),
+            "arkret: listener attempt ended; retrying instead of leaving a stale connected task"
+        );
+        tokio::time::sleep(retry_delay).await;
+    }
+}
+
 async fn run_account_listener(
     savfox_home: PathBuf,
     channel: ArkretChannelConfig,
@@ -347,15 +614,15 @@ async fn run_account_listener(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
-    if !account.has_requested_scope("ak.self.events.stream.subscribe") {
+    if !account.has_requested_scope(ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1) {
         record_listener_failure(
             &channel,
             &account,
             "scope_rejected",
-            "missing ak.self.events.stream.subscribe",
+            "missing ak.self.committed_event.stream.subscribe.v1",
         );
         warn!(
-            "arkret: account '{}' listen=true but missing ak.self.events.stream.subscribe; refusing to open subscribe endpoint",
+            "arkret: account '{}' listen=true but missing ak.self.committed_event.stream.subscribe.v1; refusing to open subscribe endpoint",
             account.id
         );
         runtime::record_channel_probe("arkret", "error").await;
@@ -368,23 +635,7 @@ async fn run_account_listener(
         &account.id,
         ACCOUNT_EVENT_DEDUPE_MAX,
     ) {
-        Ok(store) => {
-            if let Err(err) = store.ensure_created().await {
-                let path = store
-                    .path()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|_| "<unavailable>".to_owned());
-                warn!(
-                    "arkret: account '{}' durable subscribe state unavailable at {path}: {err}",
-                    account.id
-                );
-                record_listener_failure(&channel, &account, "store_error", &err);
-                runtime::record_channel_probe("arkret", "error").await;
-                return;
-            } else {
-                store
-            }
-        }
+        Ok(store) => store,
         Err(err) => {
             warn!(
                 "arkret: account '{}' failed to open durable subscribe state: {err}",
@@ -396,9 +647,7 @@ async fn run_account_listener(
         }
     };
     let crypto_store = FileArkretCryptoStore::for_account(&savfox_home, &channel.id, &account.id);
-    if let Err(err) =
-        FileArkretCryptoStore::feature_report().and_then(|_| crypto_store.ensure_created())
-    {
+    if let Err(err) = crypto_store.ensure_created() {
         warn!(
             "arkret: account '{}' crypto state unavailable at {}: {err:#}",
             account.id,
@@ -406,7 +655,7 @@ async fn run_account_listener(
         );
     }
 
-    let provider = match construct_account_provider(&channel, &account).await {
+    let provider = match construct_account_provider(&savfox_home, &channel, &account).await {
         Ok(provider) => provider,
         Err(err) => {
             warn!(
@@ -419,25 +668,36 @@ async fn run_account_listener(
                 "session_provider_error",
                 format!("{err:#}"),
             );
+            if let Some(reason) = savfox_channels::arkret::agent_session_exchange_reason(&err) {
+                update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+                    diagnostic.last_reason_code = Some(reason.to_owned());
+                });
+            }
             runtime::record_channel_probe("arkret", "error").await;
             return;
         }
     };
-    let client = match provider.provide().await {
-        Ok(client) => ArkretHttpClient::from_inner(client),
+    let client = match ArkretHttpClient::from_provider(&provider, &crypto_store).await {
+        Ok(client) => client,
         Err(error) => {
             warn!(
                 "arkret: account '{}' failed to build authenticated HTTP client: {error}",
                 account.id
             );
-            record_listener_failure(&channel, &account, "authentication_error", &error);
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "authentication_error",
+                &error,
+                transport_service_reason(&error),
+            );
             runtime::record_channel_probe("arkret", "error").await;
             return;
         }
     };
     record_listener_phase(&channel, &account, "subscribing");
     runtime::record_channel_probe("arkret", "ok").await;
-    run_account_key_lifecycle_maintenance(
+    if let Err(err) = run_account_key_lifecycle_maintenance(
         &client,
         &channel,
         &account,
@@ -445,10 +705,42 @@ async fn run_account_listener(
         &crypto_store,
         "startup",
     )
-    .await;
+    .await
+    {
+        record_listener_failure(
+            &channel,
+            &account,
+            "key_lifecycle_error",
+            format!("{err:#}"),
+        );
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: refusing to subscribe while pairing-scoped key migration is incomplete: {err:#}"
+        );
+        runtime::record_channel_probe("arkret", "error").await;
+        return;
+    }
+
+    match crate::arkret_delivery::resume_pending_checkpoints(&savfox_home, &channel.id, &account.id)
+        .await
+    {
+        Ok(count) if count > 0 => info!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            published = count,
+            "arkret: resumed durable checkpoint deliveries before subscribing"
+        ),
+        Ok(_) => {}
+        Err(error) => warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: could not inspect pending checkpoint deliveries: {error:#}"
+        ),
+    }
 
     runtime::record_channel_probe("arkret", "ok").await;
-    match drive_account_subscription_engine(
+    match receive::drive(
         &provider,
         &channel,
         &account,
@@ -459,23 +751,14 @@ async fn run_account_listener(
     )
     .await
     {
-        AccountEngineOutcome::Unauthorized { reason } => {
-            let detail = reason.as_deref().unwrap_or("unspecified");
-            record_listener_failure(&channel, &account, "unauthorized", detail);
-            warn!(
-                account_id = %account.id,
-                reason = detail,
-                "arkret: shared session provider could not recover authorization"
-            );
-        }
-        AccountEngineOutcome::Cancelled => {
-            debug!(
-                "arkret: account '{}' subscription engine stopped",
-                account.id
-            );
-        }
         AccountEngineOutcome::Retry { error } => {
-            record_listener_failure(&channel, &account, "subscribe_error", format!("{error:#}"));
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "subscribe_error",
+                format!("{error:#}"),
+                listener_service_reason(&error),
+            );
             warn!(
                 "arkret: subscribe engine for '{}/{}' failed: {error:#}",
                 channel.id, account.id
@@ -487,92 +770,352 @@ async fn run_account_listener(
 
 #[derive(Debug)]
 enum AccountEngineOutcome {
-    Unauthorized { reason: Option<String> },
-    Cancelled,
     Retry { error: anyhow::Error },
 }
 
-async fn drive_account_subscription_engine(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AccountInboundMode {
+    Baseline,
+    Hydrate,
+    Trigger,
+}
+
+impl AccountInboundMode {
+    fn suppresses_agent_dispatch(self) -> bool {
+        self != Self::Trigger
+    }
+}
+
+fn account_inbound_mode(events: &[ClientEvent]) -> AccountInboundMode {
+    match events.first() {
+        Some(ClientEvent::AccountUpdates(updates)) if updates.initial_catchup => {
+            AccountInboundMode::Baseline
+        }
+        _ => AccountInboundMode::Trigger,
+    }
+}
+
+async fn refresh_account_presence(
     provider: &ArkretAgentSessionProvider,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    account_store: garth::FileStore,
-    crypto_store: FileArkretCryptoStore,
-    gateway_channel: Arc<GatewayChannel>,
-    session_store: Arc<SessionStore>,
-) -> AccountEngineOutcome {
-    let actor_id = match Did::new(account.principal_id.clone()) {
-        Ok(actor_id) => actor_id,
-        Err(err) => {
-            return AccountEngineOutcome::Retry {
-                error: anyhow::anyhow!("invalid Arkret account principal id: {err}"),
-            };
+    crypto_store: &FileArkretCryptoStore,
+) {
+    let ready_realms = match crypto_store.presence_ready_realm_ids() {
+        Ok(realms) => realms,
+        Err(error) => {
+            record_presence_failure(
+                channel,
+                account,
+                format!("load MLS presence scopes: {error:#}"),
+            );
+            return;
         }
     };
-    let device_id = match DeviceId::new(account.device_id.clone()) {
-        Ok(device_id) => device_id,
-        Err(err) => {
-            return AccountEngineOutcome::Retry {
-                error: anyhow::anyhow!("invalid Arkret account device id: {err}"),
-            };
+    if ready_realms.is_empty() {
+        return;
+    }
+    let Some(key_ref) = account.key_ref.as_ref() else {
+        record_presence_failure(channel, account, "missing runtime keyRef");
+        return;
+    };
+    let Some(verification_method) = account.verification_method.as_deref() else {
+        record_presence_failure(channel, account, "missing runtime verificationMethod");
+        return;
+    };
+    let client = match ArkretHttpClient::from_provider(&provider, &crypto_store).await {
+        Ok(client) => client,
+        Err(error) => {
+            record_presence_failure(
+                channel,
+                account,
+                format!("restore authenticated presence client: {error}"),
+            );
+            return;
         }
     };
-    let service_id = match account_subscription_service_id(channel, account) {
-        Ok(service_id) => service_id,
-        Err(error) => return AccountEngineOutcome::Retry { error },
-    };
-    let client_core = garth::ArkretClient::new(
-        garth::NativeExecutor,
-        account_store.clone(),
-        account_store.clone(),
-    );
-    let control = SyncLoopControl::new();
-    let run = client_core.run_account_to_inbox(
-        actor_id,
-        device_id,
-        service_id,
-        provider,
-        &control,
-        RunOptions {
-            beat: Duration::from_millis(250),
-            min_backoff: Duration::from_secs(1),
-            max_backoff: Duration::from_secs(60),
-            jitter_ratio: 0.2,
-        },
-    );
-    tokio::pin!(run);
-    let mut delivery_poll = tokio::time::interval(Duration::from_millis(50));
-    delivery_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    loop {
-        tokio::select! {
-            result = &mut run => {
-                process_durable_account_work(
-                    provider,
+    // Session observations can suppress work, but never grant scope authority.
+    // Presence has no participation behavior bit; Station admission still checks
+    // current membership, runtime lifecycle, key and Signal class authority.
+    let observation = match provider.session().current_state().and_then(|state| {
+        refreshed_grant_matches_account(
+            &state,
+            account,
+            ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1,
+        )
+        .then(|| state.agent_participation_observation(Utc::now()))
+    }) {
+        Some(Ok(observation)) if presence_observation_matches_runtime(&observation, account) => {
+            observation
+        }
+        _ => {
+            record_presence_failure(channel, account, "presence runtime session is unavailable");
+            return;
+        }
+    };
+
+    for realm in ready_realms {
+        let realm_id = match RealmId::new(realm.clone()) {
+            Ok(realm_id) => realm_id,
+            Err(error) => {
+                record_presence_failure(
                     channel,
                     account,
-                    &account_store,
-                    &crypto_store,
-                    &gateway_channel,
-                    &session_store,
-                )
-                .await;
-                return account_engine_outcome_from_result(result);
+                    format!("invalid presence Realm id '{realm}': {error}"),
+                );
+                continue;
             }
-            _ = delivery_poll.tick() => {
-                process_durable_account_work(
-                    provider,
+        };
+        let eligible_head =
+            match verified_realm_presence_head(&client, crypto_store, account, &realm_id).await {
+                Ok(Some(head)) => head,
+                Ok(None) => continue,
+                Err(error) => {
+                    record_presence_failure(
+                        channel,
+                        account,
+                        format!("verify presence interaction scope: {error}"),
+                    );
+                    continue;
+                }
+            };
+        let authority_head = match verified_presence_authority_head(&client, &realm_id).await {
+            Ok(head) => head,
+            Err(error) => {
+                record_presence_failure(
                     channel,
                     account,
-                    &account_store,
-                    &crypto_store,
-                    &gateway_channel,
-                    &session_store,
-                )
-                .await;
+                    format!("verify current Commit head for presence Realm '{realm}': {error}"),
+                );
+                continue;
             }
+        };
+        // A mode/pair from an earlier cut cannot authorize a newly observed head.
+        // Skip this heartbeat on a moving cut; the next scheduled refresh rereads.
+        if authority_head != eligible_head
+            || !presence_observation_matches_runtime(&observation, account)
+        {
+            continue;
+        }
+        let envelope = match crypto_store.seal_online_presence_signal(
+            realm_id.as_str(),
+            &account.actor_account_id,
+            verification_method,
+            key_ref,
+            &authority_head,
+            Utc::now(),
+        ) {
+            Ok(envelope) => envelope,
+            Err(error) => {
+                record_presence_failure(
+                    channel,
+                    account,
+                    format!("seal encrypted presence for Realm '{realm}': {error:#}"),
+                );
+                continue;
+            }
+        };
+        match client.inner().signal_send(&envelope).await {
+            Ok(outcome) if outcome.accepted && outcome.realm_id == realm_id => {
+                update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+                    diagnostic.last_presence_at = Some(Utc::now());
+                    diagnostic.last_presence_error = None;
+                    diagnostic.presence_heartbeats =
+                        diagnostic.presence_heartbeats.saturating_add(1);
+                });
+                debug!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    realm_id = %realm,
+                    "arkret: encrypted Agent presence heartbeat accepted"
+                );
+            }
+            Ok(outcome) => record_presence_failure(
+                channel,
+                account,
+                format!(
+                    "presence submit for Realm '{realm}' returned accepted={} realm_id={}",
+                    outcome.accepted, outcome.realm_id
+                ),
+            ),
+            Err(error) => record_presence_failure(
+                channel,
+                account,
+                format!("submit presence for Realm '{realm}': {error}"),
+            ),
         }
     }
+}
+
+fn presence_observation_matches_runtime(
+    observation: &arkret::AgentParticipationObservation,
+    account: &ArkretAccountConfig,
+) -> bool {
+    let now = Utc::now();
+    observation.agent_account == account.actor_account_id
+        && observation.controller_account == account.controller_account_id
+        && observation.observed_at <= now
+        && now < observation.expires_at
+        && account.verification_method.as_deref() == Some(observation.verification_method.as_str())
+        && account.authorized_event_ref.as_deref()
+            == Some(observation.agent_key_authorization_ref.as_str())
+}
+
+fn public_presence_mode_matches_account(
+    entry: &arkret::AgentInteractionExactCurrentRow,
+    account: &ArkretAccountConfig,
+) -> bool {
+    entry.selector.agent_account_id == account.actor_account_id
+        && entry.value.controller_account_id == account.controller_account_id
+        && entry.value.interaction_mode == arkret::AgentInteractionMode::Public
+}
+
+fn owner_direct_presence_binding(
+    entries: &[arkret::TypedCurrentRow],
+    realm_id: &RealmId,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<bool> {
+    let expected_stream = arkret::CommitStreamRef::Realm {
+        realm_id: realm_id.clone(),
+    };
+    let agent = arkret::ActorId::account(account.actor_account_id.clone());
+    let controller = arkret::ActorId::account(account.controller_account_id.clone());
+    let mut matched = false;
+    for entry in entries {
+        let arkret::TypedCurrentRow::Value {
+            selector: arkret::CurrentSelector::DirectConversationBinding { pair_key },
+            source_stream_ref,
+            value,
+            ..
+        } = entry
+        else {
+            continue;
+        };
+        anyhow::ensure!(
+            source_stream_ref == &expected_stream,
+            "Direct presence binding names another stream"
+        );
+        let binding: arkret::DirectConversationBindingCurrentValue =
+            serde_json::from_value(value.clone())?;
+        binding.binding_digest()?;
+        anyhow::ensure!(
+            binding.endorsements.iter().all(|endorsement| {
+                endorsement.value.realm_id == *realm_id && endorsement.value.pair_key == *pair_key
+            }),
+            "Direct presence binding differs from its selector or Realm"
+        );
+        let owner_pair = binding.endorsements.iter().all(|endorsement| {
+            endorsement.value.authorization_basis.kind
+                == arkret::DirectConversationAuthorizationKind::AgentController
+                && endorsement.value.unordered_participant_ids.contains(&agent)
+                && endorsement
+                    .value
+                    .unordered_participant_ids
+                    .contains(&controller)
+        });
+        anyhow::ensure!(
+            !matched || !owner_pair,
+            "Direct presence snapshot repeats the owner pair"
+        );
+        matched |= owner_pair;
+    }
+    Ok(matched)
+}
+
+async fn verified_realm_presence_head(
+    http: &ArkretHttpClient,
+    crypto_store: &FileArkretCryptoStore,
+    account: &ArkretAccountConfig,
+    realm_id: &RealmId,
+) -> anyhow::Result<Option<arkret::CommitStreamHead>> {
+    if crypto_store.realm_is_direct_conversation(realm_id.as_str())? {
+        let (snapshot, _) = governance::verified_scope_snapshot(http, realm_id).await?;
+        if owner_direct_presence_binding(&snapshot.current_state_entries, realm_id, account)? {
+            let stream = arkret::CommitStreamRef::Realm {
+                realm_id: realm_id.clone(),
+            };
+            let mut heads = snapshot
+                .visible_stream_heads
+                .iter()
+                .filter(|head| head.stream_ref == stream);
+            let head = heads
+                .next()
+                .context("Direct presence snapshot omits the Realm head")?;
+            anyhow::ensure!(
+                heads.next().is_none(),
+                "Direct presence snapshot repeats the Realm head"
+            );
+            return Ok(Some(head.clone()));
+        }
+    }
+    let outcome = garth::own_station_results::read_own_station_agent_interaction(
+        http.own_station()?,
+        realm_id,
+        &account.actor_account_id,
+    )
+    .await
+    .and_then(|response| response.into_value().map_err(garth::Error::from));
+    public_presence_head_from_verified_read(outcome, account)
+}
+
+fn public_presence_head_from_verified_read(
+    outcome: garth::Result<arkret::exact_current_results::ExactCurrentResultsReadOutcome>,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<Option<arkret::CommitStreamHead>> {
+    Ok(match outcome? {
+        arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present {
+            effective_stream_head,
+            entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry),
+            ..
+        } if public_presence_mode_matches_account(&entry, account) => Some(effective_stream_head),
+        // Both private and authoritative never-written suppress shared presence.
+        // Unknown reads propagate their diagnostic; they never imply Public.
+        _ => None,
+    })
+}
+
+async fn verified_presence_authority_head(
+    http: &ArkretHttpClient,
+    realm_id: &RealmId,
+) -> anyhow::Result<arkret::CommitStreamHead> {
+    let response = http.own_station()?.snapshot_head(realm_id).await?;
+    let mut replica = garth::own_station_results::OwnStationReplica::new(realm_id.clone());
+    replica.install_bound_snapshot(&response)?;
+    let stream = arkret::CommitStreamRef::Realm {
+        realm_id: realm_id.clone(),
+    };
+    let mut heads = response
+        .value()?
+        .visible_stream_heads
+        .iter()
+        .filter(|head| head.stream_ref == stream);
+    let head = heads
+        .next()
+        .context("presence current snapshot omits Realm head")?
+        .clone();
+    anyhow::ensure!(
+        heads.next().is_none(),
+        "presence snapshot duplicates Realm head"
+    );
+    http.own_station()?.check_session()?;
+    Ok(head)
+}
+
+fn record_presence_failure(
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    error: impl Into<String>,
+) {
+    let error = error.into();
+    update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+        diagnostic.last_presence_error = Some(error.clone());
+    });
+    warn!(
+        channel_id = %channel.id,
+        account_id = %account.id,
+        "arkret: presence heartbeat unavailable: {error}"
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -584,19 +1127,73 @@ async fn process_durable_account_work(
     crypto_store: &FileArkretCryptoStore,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
+    last_auth_warning: &mut Option<tokio::time::Instant>,
 ) {
-    let client = match provider.provide().await {
-        Ok(client) => ArkretHttpClient::from_inner(client),
+    let now_ms = Utc::now().timestamp_millis();
+    let inbox_due = match account_store.ready_inbox_heads(now_ms, &BTreeSet::new(), 1) {
+        Ok(deliveries) => !deliveries.is_empty(),
         Err(error) => {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "arkret: cannot drain durable inbox without an authenticated client: {error}"
+                "arkret: failed to preflight durable account inbox: {error}"
             );
             return;
         }
     };
+    let outbound_active = match account_store.has_active_outbound() {
+        Ok(active) => active,
+        Err(error) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: failed to preflight durable account outbound queue: {error}"
+            );
+            return;
+        }
+    };
+    if !inbox_due && !outbound_active {
+        return;
+    }
+
+    let client = match ArkretHttpClient::from_provider(provider, crypto_store).await {
+        Ok(client) => {
+            *last_auth_warning = None;
+            client
+        }
+        Err(error) => {
+            let now = tokio::time::Instant::now();
+            let warning_due = last_auth_warning
+                .is_none_or(|last| now.duration_since(last) >= ACCOUNT_AUTH_WARNING_INTERVAL);
+            if warning_due {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    inbox_due,
+                    outbound_active,
+                    "arkret: cannot drain durable account work without an authenticated client: {error}"
+                );
+                *last_auth_warning = Some(now);
+            }
+            return;
+        }
+    };
+    // Welcome recovery remains independent of a blocked account inbox head.
+    // The retrying Commit must not prevent installing its missing local base.
+    if let Err(error) = run_account_key_lifecycle_maintenance(
+        &client,
+        channel,
+        account,
+        account_store,
+        crypto_store,
+        "durable_retry",
+    )
+    .await
+    {
+        warn!("arkret: key lifecycle maintenance before inbox retry failed: {error:#}");
+    }
     process_durable_account_inbox(
+        provider,
         &client,
         channel,
         account,
@@ -606,48 +1203,174 @@ async fn process_durable_account_work(
         session_store,
     )
     .await;
-    drain_pending_account_outbound(&client, account_store, channel, account).await;
+    drain_pending_account_outbound(provider, account_store, channel, account, crypto_store).await;
+}
+
+/// Revalidate locally queued producer bytes against the configured runtime
+/// key and current encryption policy. Acceptance remains the Station's decision.
+fn queued_message_matches_runtime(
+    event: &arkret::Event,
+    account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
+) -> anyhow::Result<bool> {
+    if event.actor_id != arkret::ActorId::account(account.actor_account_id.clone()) {
+        return Ok(false);
+    }
+    let Some(proof) = event.producer_proof.as_ref() else {
+        return Ok(false);
+    };
+    if account.verification_method.as_deref() != Some(proof.verification_method.as_str()) {
+        return Ok(false);
+    }
+    let evidence = account
+        .current_signer_evidence
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("runtime signer evidence is unavailable"))?;
+    let reference = account
+        .signer_resolution_evidence_ref
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("runtime signer evidence reference is unavailable"))?;
+    evidence.validate_against(reference)?;
+    let root = &evidence.authenticated_signer_evidence;
+    root.validate()?;
+    if root.signer_kind != arkret::AuthenticatedSignerKind::Agent
+        || root.subject_id.as_str() != account.principal_id
+        || root.verification_method != proof.verification_method
+    {
+        return Ok(false);
+    }
+    let public_key = arkret::signatures::PublicKeyMaterial::Jwk {
+        value: serde_json::to_value(&evidence.authenticated_signer_evidence.public_key_jwk)?,
+    };
+    let bytes = arkret::canonical::canonical_json_bytes(&event.digest_payload()?)?;
+    if arkret::signatures::verify_ed25519_detached_jws_proof_with_digest_suite(
+        proof,
+        &bytes,
+        event.actual_signer(),
+        &public_key,
+        event.realm_id.digest_suite_code().digest_suite(),
+    )
+    .is_err()
+    {
+        return Ok(false);
+    }
+    if event.kind == "ak.message.create"
+        && (matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. })
+            || crypto_store.realm_requires_e2ee(event.realm_id.as_str())?)
+        && event.payload.get("encrypted_content").is_none()
+    {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+async fn cancel_unusable_account_submissions(
+    outbound: &OutboundEngine<garth::FileStore, garth::SystemClock>,
+    account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
+    observation: &arkret::AgentParticipationObservation,
+) -> anyhow::Result<()> {
+    for item in outbound.snapshot().await?.items {
+        if item.status == garth::SendQueueStatus::Queued
+            && (!queued_message_matches_runtime(
+                item.submission.primary_event(),
+                account,
+                crypto_store,
+            )? || !observed_reply_allowed(
+                item.submission.primary_event(),
+                account,
+                observation,
+            ))
+        {
+            // Cancellation cannot rewrite a producer Event or an in-flight
+            // Station outcome. The queue serializes this state transition.
+            outbound.cancel(item.event_id().clone()).await?;
+        }
+    }
+    Ok(())
+}
+
+fn observed_reply_allowed(
+    event: &arkret::Event,
+    account: &ArkretAccountConfig,
+    observation: &arkret::AgentParticipationObservation,
+) -> bool {
+    if observation.agent_account != account.actor_account_id
+        || observation.controller_account != account.controller_account_id
+        || observation.expires_at <= Utc::now()
+    {
+        return false;
+    }
+    use arkret::ParticipationScope;
+    let mut scopes = vec![ParticipationScope::Realm {
+        realm_id: event.realm_id.clone(),
+    }];
+    if let arkret::ScopeRef::Circle { circle_id, .. } = &event.scope_ref {
+        scopes.push(ParticipationScope::Circle {
+            realm_id: event.realm_id.clone(),
+            circle_id: circle_id.clone(),
+        });
+    }
+    let Some(strand) = event
+        .payload
+        .get("strand_id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|id| arkret::StrandId::new(id).ok())
+    else {
+        return false;
+    };
+    scopes.push(ParticipationScope::Strand {
+        realm_id: event.realm_id.clone(),
+        strand_id: strand,
+    });
+    observation
+        .observed_selection_for_scopes(&scopes)
+        .is_some_and(|bits| bits.reply_message)
 }
 
 async fn drain_pending_account_outbound(
-    client: &ArkretHttpClient,
+    provider: &ArkretAgentSessionProvider,
     account_store: &garth::FileStore,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
 ) {
-    let outbound = OutboundEngine::new(account_store.clone());
-    let submitter = AccountOutboundSubmitter {
-        client: client.clone(),
-    };
+    let outbound = OutboundEngine::new(account_store.clone(), garth::SystemClock);
+    let options = arkret::http_client::ClientRequestOptions::default();
     loop {
-        match outbound.submit_next(&submitter, Utc::now()).await {
-            Ok(OutboundEngineOutcome::Accepted(item) | OutboundEngineOutcome::Duplicate(item)) => {
-                debug!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    transaction_id = %item.transaction_id,
-                    "arkret: durable outbound worker completed queued event"
-                );
-            }
-            Ok(
-                OutboundEngineOutcome::Rejected { item, .. }
-                | OutboundEngineOutcome::Terminal { item, .. }
-                | OutboundEngineOutcome::Quarantined { item, .. },
-            ) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    transaction_id = %item.transaction_id,
-                    "arkret: durable outbound worker reached terminal event state"
-                );
-            }
-            Ok(OutboundEngineOutcome::Idle | OutboundEngineOutcome::RetryAt { .. }) => return,
+        let current = async {
+            let client = ArkretHttpClient::from_provider(provider, crypto_store).await?;
+            let observation = provider
+                .session()
+                .current_state()
+                .context("Agent session observation is unavailable")?
+                .agent_participation_observation(Utc::now())?;
+            cancel_unusable_account_submissions(&outbound, account, crypto_store, &observation)
+                .await?;
+            anyhow::Ok(garth::AuthorityClient::new(client.own_station()?.clone()))
+        }
+        .await;
+        let authority = match current {
+            Ok(authority) => authority,
             Err(error) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    "arkret: durable outbound worker deferred after error: {error}"
-                );
+                warn!(channel_id = %channel.id, account_id = %account.id,
+                "arkret: durable outbound observation unavailable: {error}");
+                return;
+            }
+        };
+        match outbound.submit_next(&authority, &options).await {
+            Ok(OutboundEngineOutcome::Committed { .. }) => {
+                debug!(channel_id = %channel.id, account_id = %account.id,
+                    "arkret: durable producer submission committed");
+            }
+            Ok(OutboundEngineOutcome::Rejected { .. } | OutboundEngineOutcome::Failed { .. }) => {
+                warn!(channel_id = %channel.id, account_id = %account.id,
+                    "arkret: durable producer submission reached a refusal");
+            }
+            Ok(OutboundEngineOutcome::Idle | OutboundEngineOutcome::Retry { .. }) => return,
+            Err(error) => {
+                warn!(channel_id = %channel.id, account_id = %account.id,
+                    "arkret: durable outbound worker deferred: {error}");
                 return;
             }
         }
@@ -658,6 +1381,7 @@ async fn drain_pending_account_outbound(
 /// A process exit before `ack` leaves the batch pending for the next listener.
 #[allow(clippy::too_many_arguments)]
 async fn process_durable_account_inbox(
+    provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
@@ -666,8 +1390,13 @@ async fn process_durable_account_inbox(
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) {
+    let mut blocked_scopes = BTreeSet::new();
     loop {
-        let deliveries = match account_store.pending(32).await {
+        let deliveries = match account_store.ready_inbox_heads(
+            Utc::now().timestamp_millis(),
+            &blocked_scopes,
+            32,
+        ) {
             Ok(deliveries) => deliveries,
             Err(error) => {
                 warn!(
@@ -682,19 +1411,23 @@ async fn process_durable_account_inbox(
             return;
         }
         for delivery in deliveries {
-            if delivery
-                .next_attempt_at_ms
-                .is_some_and(|next_at| next_at > Utc::now().timestamp_millis())
-            {
-                // Preserve delivery order; the poll timer will revisit this
-                // head item after its persisted retry deadline.
-                return;
+            let inbound_mode = account_inbound_mode(&delivery.payload);
+            if inbound_mode == AccountInboundMode::Baseline {
+                info!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    delivery_id = delivery.id.get(),
+                    events = delivery.payload.len(),
+                    "arkret: processing initial account catch-up as a history baseline"
+                );
             }
             let mut processing_error = None;
-            for event in delivery.events {
+            for event in delivery.payload {
                 if let Err(error) = handle_account_client_event(
+                    provider,
                     client,
                     event,
+                    inbound_mode,
                     channel,
                     account,
                     account_store,
@@ -708,63 +1441,61 @@ async fn process_durable_account_inbox(
                     break;
                 }
             }
-            if let Some(error) = processing_error {
-                let delay_secs = 1_u64
-                    .checked_shl(delivery.attempts.min(6))
-                    .unwrap_or(60)
-                    .min(60);
-                let next_at = Utc::now() + chrono::Duration::seconds(delay_secs as i64);
-                if let Err(store_error) = account_store
-                    .retry(
-                        delivery.id,
-                        Some(next_at.timestamp_millis()),
-                        garth::DeliveryErrorClass::Processing,
-                        format!("{error:#}"),
-                    )
-                    .await
-                {
-                    warn!(
-                        channel_id = %channel.id,
-                        account_id = %account.id,
-                        delivery_id = delivery.id.get(),
-                        "arkret: failed to persist delivery retry: {store_error}"
-                    );
+            let processing = processing_error.map_or(Ok(()), Err);
+            match settle_account_delivery(account_store, delivery.id, delivery.attempts, processing)
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    blocked_scopes.insert(delivery.scope.clone());
+                    continue;
                 }
-                return;
-            }
-            if let Err(error) = account_store.ack(delivery.id).await {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    delivery_id = delivery.id.get(),
-                    "arkret: failed to acknowledge durable account delivery: {error}"
-                );
-                return;
+                Err(error) => {
+                    warn!(channel_id = %channel.id, account_id = %account.id,
+                        "arkret: failed to persist durable account delivery outcome: {error:#}");
+                    return;
+                }
             }
         }
     }
 }
 
-fn account_engine_outcome_from_result(
-    result: garth::RunResult<RunStopReason>,
-) -> AccountEngineOutcome {
-    match result {
-        Ok(RunStopReason::Cancelled | RunStopReason::LifecycleEnded) => {
-            AccountEngineOutcome::Cancelled
-        }
-        Ok(RunStopReason::Unauthorized { reason }) => AccountEngineOutcome::Unauthorized { reason },
-        Ok(RunStopReason::Failed { class }) => AccountEngineOutcome::Retry {
-            error: anyhow::anyhow!("account subscription engine stopped: {class:?}"),
-        },
-        Err(err) => AccountEngineOutcome::Retry {
-            error: anyhow::anyhow!("account subscription engine: {err}"),
-        },
+/// A failed dependency retains original delivery bytes and cursor over restart.
+/// Only complete successful processing crosses the durable acknowledgement.
+async fn settle_account_delivery(
+    store: &garth::FileStore,
+    id: garth::DeliveryId,
+    attempts: u32,
+    processing: anyhow::Result<()>,
+) -> anyhow::Result<bool> {
+    if let Err(error) = processing {
+        let delay_secs = 1_u64.checked_shl(attempts.min(6)).unwrap_or(60).min(60);
+        let next_at = Utc::now() + chrono::Duration::seconds(delay_secs as i64);
+        anyhow::ensure!(
+            store
+                .retry(
+                    id,
+                    Some(next_at.timestamp_millis()),
+                    garth::DeliveryErrorClass::Processing,
+                    format!("{error:#}")
+                )
+                .await?,
+            "failed delivery disappeared before retry persistence"
+        );
+        return Ok(false);
     }
+    anyhow::ensure!(
+        store.ack(id).await?,
+        "successful delivery disappeared before acknowledgement"
+    );
+    Ok(true)
 }
 
 async fn handle_account_client_event(
+    provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     event: ClientEvent,
+    inbound_mode: AccountInboundMode,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
@@ -781,11 +1512,97 @@ async fn handle_account_client_event(
                 account,
                 account_store,
                 crypto_store,
+            )
+            .await?;
+        }
+        ClientEvent::RealmProjection {
+            realm_id, value, ..
+        } => {
+            if let Err(error) = crypto_store.record_station_mls_currents(&value) {
+                warn!(channel_id = %channel.id, realm_id = %realm_id,
+                    "arkret: Station MLS current result was not retained: {error:#}");
+            }
+        }
+        ClientEvent::Committed(delta) => {
+            let Some(event) = delta.event().cloned() else {
+                return Ok(());
+            };
+            if event_declares_direct_conversation_realm(&event) {
+                crypto_store.upsert_realm_policy(ArkretRealmCryptoPolicy {
+                    realm_id: delta.realm_id.to_string(),
+                    content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+                    encryption_profile: Some("mls_rfc9420".to_owned()),
+                    mls_group_id: None,
+                    source: "accepted_realm_create_direct_conversation".to_owned(),
+                    updated_at: Utc::now(),
+                })?;
+            }
+            if let Ok(value) = serde_json::to_value(&event) {
+                crypto_store.record_direct_conversation_binding_from_value(&value)?;
+            }
+            let accepted_ref = delta.committed_ref();
+            let accepted_view = arkret::CommittedEventFullView {
+                event: event.clone(),
+                commit: delta.commit().clone(),
+            };
+            // Keep the Garth-verified Event and signed RealmCommit together.
+            // A missing historical dependency must retry this durable delivery.
+            apply_account_accepted_mls_commit(client, crypto_store, &accepted_view, account)
+                .await?;
+            let native_sidecar = matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. });
+            let causal_after_event_ids = event
+                .semantic_refs
+                .iter()
+                .filter(|reference| reference.role == "after" && reference.critical)
+                .filter_map(|reference| arkret::EventId::new(reference.id.clone()).ok())
+                .collect::<Vec<_>>();
+            let mut parsed =
+                parse_backfill_events_for_account(&delta.realm_id, vec![event], account);
+            if native_sidecar {
+                // This port receives Garth's already verified continuous Commit
+                // delivery. Raw Event backfill never reaches this assignment.
+                for skipped in &mut parsed.skipped {
+                    anyhow::ensure!(
+                        skipped.event_id.as_deref() == Some(accepted_ref.event_id.as_str()),
+                        "Sidecar parser changed the accepted Event identity"
+                    );
+                    skipped.accepted_ref = Some(accepted_ref.clone());
+                    skipped.accepted_view = Some(accepted_view.clone());
+                    skipped.causal_after_event_ids = causal_after_event_ids.clone();
+                }
+            }
+            if crypto_store
+                .direct_conversation_binding_event_ref(delta.realm_id.as_str())?
+                .is_some()
+                || crypto_store
+                    .load()?
+                    .realm_policies
+                    .get(delta.realm_id.as_str())
+                    .is_some_and(|policy| {
+                        policy.source == "accepted_realm_create_direct_conversation"
+                    })
+            {
+                for event in &mut parsed.events {
+                    event.chat_type = Some("dm".to_owned());
+                }
+            }
+            observe_inbound_boundary(channel, account, "verified_receive");
+            handle_parsed_account_events(
+                provider,
+                client,
+                parsed,
+                inbound_mode,
+                channel,
+                account,
+                account_store,
+                crypto_store,
                 gateway_channel,
                 session_store,
             )
             .await?;
         }
+        ClientEvent::Message(_) => {}
+        ClientEvent::ToDevice(_) => {}
         other => {
             debug!(
                 "arkret: account '{}/{}' ignored non-account subscription event: {:?}",
@@ -800,25 +1617,21 @@ fn account_cursor_service_id(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
 ) -> Option<String> {
-    account
-        .arkret_server_did
-        .clone()
-        .or_else(|| channel.service_id.clone())
-        .or_else(|| {
-            account
-                .inkson_bootstrap
-                .as_ref()
-                .map(|bootstrap| bootstrap.service_id.to_string())
-        })
+    channel.service_id.clone().or_else(|| {
+        account
+            .inkson_bootstrap
+            .as_ref()
+            .map(|bootstrap| bootstrap.service_id.to_string())
+    })
 }
 
 fn account_subscription_service_id(
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-) -> anyhow::Result<Option<Did>> {
+) -> anyhow::Result<Option<DidCoreId>> {
     account_cursor_service_id(channel, account)
         .map(|value| {
-            Did::new(value.clone())
+            DidCoreId::new(value.clone())
                 .map_err(|err| anyhow::anyhow!("invalid Arkret service DID '{value}': {err}"))
         })
         .transpose()
@@ -831,7 +1644,7 @@ async fn run_account_key_lifecycle_maintenance(
     account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     reason: &'static str,
-) {
+) -> anyhow::Result<()> {
     publish_account_mls_key_packages(client, channel, account, crypto_store).await;
     drain_account_device_messages(
         client,
@@ -842,6 +1655,28 @@ async fn run_account_key_lifecycle_maintenance(
         reason,
     )
     .await;
+    consume_pending_mls_welcomes(client, channel, account, crypto_store).await;
+    Ok(())
+}
+
+async fn consume_pending_mls_welcomes(
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
+) {
+    let pending = match crypto_store.pending_mls_welcome_consume_bindings() {
+        Ok(pending) => pending,
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: failed to load pending MLS Welcome consume bindings: {err:#}"
+            );
+            return;
+        }
+    };
+    consume_account_mls_key_packages(client, channel, account, crypto_store, &pending).await;
 }
 
 async fn publish_account_mls_key_packages(
@@ -859,7 +1694,7 @@ async fn publish_account_mls_key_packages(
         );
         return;
     }
-    let principal = match Did::new(account.principal_id.clone()) {
+    let principal = match DidCoreId::new(account.principal_id.clone()) {
         Ok(principal) => principal,
         Err(err) => {
             warn!(
@@ -870,97 +1705,151 @@ async fn publish_account_mls_key_packages(
             return;
         }
     };
-    let device = match DeviceId::new(account.device_id.clone()) {
-        Ok(device) => device,
+    let mut records = Vec::with_capacity(1);
+    let Some(key_ref) = account.key_ref.as_ref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage upload requires the authorized runtime key"
+        );
+        return;
+    };
+    let Some(verification_method) = account.verification_method.as_deref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage upload requires the authorized verification method"
+        );
+        return;
+    };
+    let Some(authorized_event_ref) = account.authorized_event_ref.as_deref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage upload requires the current authorize Event"
+        );
+        return;
+    };
+    match crypto_store.ensure_agent_mls_key_package(
+        &account.actor_account_id,
+        key_ref,
+        verification_method,
+        authorized_event_ref,
+    ) {
+        Ok(record) => records.push(record),
         Err(err) => {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "arkret: invalid device id for MLS KeyPackage upload: {err}"
+                "arkret: failed to ensure local MLS KeyPackage: {err:#}"
             );
             return;
         }
-    };
-
-    let mut records = Vec::with_capacity(2);
-    for last_resort in [false, true] {
-        match crypto_store.ensure_mls_key_package(
-            &account.principal_id,
-            &account.device_id,
-            last_resort,
-        ) {
-            Ok(record) => records.push(record),
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    last_resort,
-                    "arkret: failed to ensure local MLS KeyPackage: {err:#}"
-                );
-                return;
-            }
-        }
     }
 
-    let mut entries = match records
-        .iter()
-        .map(|record| key_package_upload_entry(record, None))
-        .collect::<anyhow::Result<Vec<_>>>()
+    let deficit = match crypto_store
+        .mls_key_package_maintenance_deficit(&records[0].endpoint, KEYPACKAGE_MIN_AVAILABLE)
     {
-        Ok(entries) => entries,
+        Ok(deficit) => deficit,
         Err(err) => {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "arkret: failed to encode MLS KeyPackage upload entry: {err:#}"
+                "arkret: failed to inspect local MLS KeyPackage inventory: {err:#}"
             );
             return;
         }
     };
-    let signature_value = match key_package_upload_signature_value(&principal, &device, &entries) {
-        Ok(value) => value,
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                "arkret: failed to build MLS KeyPackage upload signature payload: {err:#}"
-            );
-            return;
-        }
-    };
-    let signature =
-        match sign_account_key_operation(account, KEYPACKAGES_UPLOAD_SCOPE, &signature_value) {
-            Ok(signature) => signature,
+    if deficit > 0 {
+        match crypto_store.create_fresh_agent_mls_key_packages(
+            &account.actor_account_id,
+            deficit,
+            key_ref,
+            verification_method,
+            authorized_event_ref,
+        ) {
+            Ok(fresh) => records.extend(fresh),
             Err(err) => {
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
-                    "arkret: failed to sign MLS KeyPackage upload request: {err:#}"
+                    deficit,
+                    "arkret: failed to replenish local MLS KeyPackage pool: {err:#}"
                 );
                 return;
             }
-        };
-    for entry in &mut entries {
-        entry.device_signature = Some(signature.clone());
+        }
     }
-    let request = KeyPackagesUploadRequestBody {
-        principal_id: principal,
-        device_id: device,
-        key_packages: entries,
-        device_signature: signature,
-        expires_at: None,
-        strand_id: None,
-        mls_group_id: None,
+    let records = match crypto_store.pending_key_package_uploads(&records[0].endpoint) {
+        Ok(records) if records.is_empty() => return,
+        Ok(records) => records,
+        Err(error) => {
+            warn!(channel_id = %channel.id, account_id = %account.id, "arkret: pending KeyPackage uploads unavailable: {error:#}");
+            return;
+        }
+    };
+    upload_account_mls_key_packages(
+        client,
+        channel,
+        account,
+        principal,
+        &records,
+        crypto_store,
+        key_ref,
+        verification_method,
+        authorized_event_ref,
+    )
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn upload_account_mls_key_packages(
+    client: &ArkretHttpClient,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    principal: DidCoreId,
+    records: &[MlsKeyPackageRecord],
+    crypto_store: &FileArkretCryptoStore,
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+    authorized_event_ref: &str,
+) {
+    let request = match build_signed_keypackage_upload_request(
+        arkret::ActorId::account(account.actor_account_id.clone()),
+        principal,
+        records,
+        key_ref,
+        verification_method,
+        authorized_event_ref,
+    ) {
+        Ok(request) => request,
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: failed to build canonical MLS KeyPackage upload request: {err:#}"
+            );
+            return;
+        }
     };
 
     match client.inner().keypackages_upload(&request).await {
         Ok(outcome) => {
-            if !outcome.rejected.is_empty() {
+            let accepted_refs = outcome
+                .key_package_refs
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            if let Err(error) = crypto_store.confirm_key_package_uploads(&accepted_refs) {
+                warn!(channel_id = %channel.id, account_id = %account.id, "arkret: upload receipt persistence failed: {error:#}");
+                return;
+            }
+            if !outcome.rejections.is_empty() {
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     accepted = outcome.accepted,
-                    rejected = ?outcome.rejected,
+                    rejected = ?outcome.rejections,
                     "arkret: MLS KeyPackage upload returned rejected entries"
                 );
             } else {
@@ -973,47 +1862,154 @@ async fn publish_account_mls_key_packages(
                 );
             }
         }
-        Err(err) => warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            "arkret: MLS KeyPackage upload failed: {err}"
-        ),
+        Err(err) => {
+            warn!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                "arkret: MLS KeyPackage upload failed: {err}"
+            );
+        }
     }
 }
 
-fn key_package_upload_entry(
-    record: &MlsKeyPackageRecord,
-    device_signature: Option<arkret::KeyOperationSignature>,
-) -> anyhow::Result<KeyPackageUploadEntry> {
-    Ok(KeyPackageUploadEntry {
-        keypackage_id: record.keypackage_id.clone(),
-        keypackage_ref: record.keypackage_ref.as_str().to_owned(),
-        keypackage_digest: record.keypackage_ref.clone(),
-        key_package: arkret::Base64UrlString::new(record.key_package.clone())
-            .map_err(anyhow::Error::msg)
-            .context("MLS KeyPackage must be unpadded base64url")?,
-        cipher_suites: record.cipher_suites.clone(),
-        capabilities: record.capabilities.clone(),
-        expires_at: record
-            .expires_at
-            .unwrap_or_else(|| record.created_at + chrono::Duration::days(7)),
-        created_at: record.created_at,
-        device_signature,
-        last_resort: Some(record.last_resort),
+fn consume_outcome_acknowledges_binding(
+    outcome: &KeyPackagesConsumeOutcome,
+    claim_id: &str,
+    keypackage_ref: &str,
+) -> bool {
+    outcome.consume_receipt.claim_id.as_str() == claim_id
+        && outcome
+            .consume_receipt
+            .recipient_durable_receipt
+            .key_package_ref
+            .as_str()
+            == keypackage_ref
+}
+
+/// Outcome of an explicit Agent runtime unbind, surfaced to the RPC caller.
+pub(crate) struct ArkretUnbindReport {
+    pub principal_id: String,
+    pub device_id: String,
+    pub listeners_stopped: usize,
+}
+
+/// Explicitly unbind the Agent currently bound to this channel/account.
+///
+/// Stop the listener and purge local Agent key, MLS and subscribe state. The
+/// controller's accepted key replacement fences the old remote KeyPackage
+/// pool; the revoke endpoint is device-only and cannot carry an Agent signer.
+/// The caller clears the persisted channel binding afterward.
+pub(crate) async fn unbind_arkret_account(
+    savfox_home: &std::path::Path,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<ArkretUnbindReport> {
+    let listeners_stopped = stop_arkret_account_listeners(&channel.id);
+
+    let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
+
+    let key_ref = account
+        .key_ref
+        .as_ref()
+        .context("Agent unbind requires the authorized runtime key reference")?;
+    savfox_channels::arkret::delete_ed25519_key_ref_from_keyring(key_ref)
+        .context("delete retired Agent runtime key from the platform credential vault")?;
+
+    if let Err(err) = crypto_store.delete_persisted() {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: unbind failed to delete Agent crypto state: {err}"
+        );
+    }
+    if let Err(err) =
+        savfox_channels::arkret::delete_account_store(savfox_home, &channel.id, &account.id)
+    {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: unbind failed to delete Agent account state: {err}"
+        );
+    }
+    if let Err(err) = savfox_channels::arkret::delete_verified_runtime_scope(
+        savfox_home,
+        &channel.id,
+        &account.id,
+    )
+    .await
+    {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: unbind failed to delete verified runtime scope: {err:#}"
+        );
+    }
+
+    forget_arkret_account_runtime(&channel.id, &account.id);
+
+    info!(
+        channel_id = %channel.id,
+        account_id = %account.id,
+        principal_id = %account.principal_id,
+        listeners_stopped,
+        "arkret: unbound Agent runtime; local state purged"
+    );
+
+    Ok(ArkretUnbindReport {
+        principal_id: account.principal_id.clone(),
+        device_id: account.device_id.clone(),
+        listeners_stopped,
     })
 }
 
-fn key_package_upload_signature_value(
-    principal: &Did,
-    device: &DeviceId,
-    entries: &[KeyPackageUploadEntry],
-) -> anyhow::Result<Value> {
-    let key_packages = serde_json::to_value(entries)?;
-    Ok(json!({
-        "principal_id": principal.as_str(),
-        "device_id": device.as_str(),
-        "key_packages": key_packages,
-    }))
+fn build_signed_keypackage_upload_request(
+    actor_id: arkret::ActorId,
+    principal_id: DidCoreId,
+    records: &[MlsKeyPackageRecord],
+    key_ref: &ArkretKeyRef,
+    verification_method: &str,
+    authorized_event_ref: &str,
+) -> anyhow::Result<KeyPackagesUploadRequestBody> {
+    let first = records
+        .first()
+        .context("KeyPackage upload batch is empty")?;
+    anyhow::ensure!(
+        first.actor_id == actor_id
+            && records
+                .iter()
+                .all(|record| { record.actor_id == actor_id && record.endpoint == first.endpoint }),
+        "KeyPackage upload batch mixes ActorIds or endpoints"
+    );
+    anyhow::ensure!(
+        matches!(&first.endpoint, arkret::MlsEndpointIdentity::AgentRuntime {
+            agent_id, verification_method: method, agent_key_authorize_event_id
+        } if agent_id == &principal_id
+            && method.as_str() == verification_method
+            && agent_key_authorize_event_id.as_str() == authorized_event_ref),
+        "KeyPackage upload batch differs from the authorized Agent endpoint"
+    );
+    let key_packages = records
+        .iter()
+        .map(arkret::mls_key_package_record_upload_entry)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(anyhow::Error::msg)
+        .context("project canonical MLS KeyPackage upload entries")?;
+    let unsigned = KeyPackagesUploadUnsignedRequest {
+        actor_id,
+        principal_id,
+        device_id: None,
+        agent_verification_method: Some(
+            arkret::DidUrl::new(verification_method.to_owned()).map_err(anyhow::Error::msg)?,
+        ),
+        agent_key_authorize_event_id: Some(EventId::new(authorized_event_ref.to_owned())?),
+        keypackages: key_packages,
+        expires_at: None,
+        strand_id: None,
+        mls_group_id: None,
+    };
+    let endpoint_signature =
+        sign_keypackages_upload_request(key_ref, verification_method, &unsigned)?;
+    Ok(unsigned.into_signed(endpoint_signature))
 }
 
 async fn drain_account_device_messages_from_cursor(
@@ -1035,15 +2031,10 @@ async fn drain_account_device_messages_from_cursor(
         );
         return;
     }
-    let service_id = account_cursor_service_id(channel, account);
     let mut cursor = if let Some(cursor) = initial_cursor {
         Some(cursor)
     } else {
-        let scope = device_messages_scope(
-            service_id.as_deref(),
-            &account.principal_id,
-            &account.device_id,
-        );
+        let scope = receive::delivery_scope(channel, account);
         match scope {
             Ok(scope) => match account_store.load(scope).await {
                 Ok(cursor) => cursor,
@@ -1069,6 +2060,9 @@ async fn drain_account_device_messages_from_cursor(
         }
     };
 
+    // The ACK is cumulative. Once a delivery is pending, later deliveries
+    // may be processed but neither their ACK nor scan cursor can cross it.
+    let mut contiguous_complete = true;
     for page in 0..DEVICE_MESSAGES_PULL_MAX_PAGES {
         let outcome = match client
             .inner()
@@ -1087,17 +2081,61 @@ async fn drain_account_device_messages_from_cursor(
             }
         };
 
-        for message in &outcome.messages {
-            let content = Value::Object(message.content.clone().into_iter().collect());
-            record_account_mls_welcome_from_value_tree(
-                crypto_store,
-                &content,
-                channel,
-                account,
-                "device_messages",
-            );
+        for delivery in &outcome.deliveries {
+            match delivery {
+                arkret::RecipientDelivery::DeviceMessage { .. } => {
+                    warn!(channel_id = %channel.id, account_id = %account.id,
+                        "arkret: Agent DeviceMessage handler is unavailable; retaining the recipient queue without ACK");
+                    contiguous_complete = false;
+                }
+                arkret::RecipientDelivery::MlsWelcome { mls_welcome } => {
+                    match governance::admit_owned_agent_welcome_delivery(
+                        client,
+                        crypto_store,
+                        mls_welcome,
+                        account,
+                    )
+                    .await
+                    {
+                        Ok((admitted, accepted)) => {
+                            if let Err(error) = receive::seed_welcome_checkpoint(
+                                client,
+                                channel,
+                                account,
+                                account_store,
+                                mls_welcome,
+                                &accepted,
+                            )
+                            .await
+                            {
+                                warn!(channel_id = %channel.id, account_id = %account.id,
+                                    "arkret: Welcome stream checkpoint pending; retaining queue: {error:#}");
+                                contiguous_complete = false;
+                                continue;
+                            }
+                            debug!(
+                            channel_id = %channel.id,
+                            account_id = %account.id,
+                            welcome_id = %mls_welcome.welcome_id,
+                            admitted,
+                            "arkret: accepted MLS Welcome delivery is durable"
+                            );
+                        }
+                        Err(error) => {
+                            warn!(
+                                channel_id = %channel.id,
+                                account_id = %account.id,
+                                reason,
+                                welcome_id = %mls_welcome.welcome_id,
+                                "arkret: MLS Welcome admission pending; preserving the queue: {error:#}"
+                            );
+                            contiguous_complete = false;
+                        }
+                    }
+                }
+            }
         }
-        if outcome.lost {
+        if outcome.lost == Some(true) {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
@@ -1105,14 +2143,13 @@ async fn drain_account_device_messages_from_cursor(
                 page,
                 "arkret: device_messages reported cursor loss; clearing local cursor without ack"
             );
-            let clear = device_messages_scope(
-                service_id.as_deref(),
-                &account.principal_id,
-                &account.device_id,
-            );
+            let clear = receive::delivery_scope(channel, account);
             if let Err(err) = match clear {
-                Ok(scope) => account_store.clear(scope).await,
-                Err(err) => Err(err),
+                Ok(scope) => account_store
+                    .clear(scope)
+                    .await
+                    .map_err(anyhow::Error::from),
+                Err(err) => Err(anyhow::Error::from(err)),
             } {
                 warn!(
                     channel_id = %channel.id,
@@ -1122,7 +2159,7 @@ async fn drain_account_device_messages_from_cursor(
             }
             return;
         }
-        if !outcome.messages.is_empty() && outcome.ack_token.is_none() {
+        if !outcome.deliveries.is_empty() && outcome.ack_token.is_none() {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
@@ -1131,32 +2168,34 @@ async fn drain_account_device_messages_from_cursor(
             );
             return;
         }
-        if let Some(ack_token) = outcome.ack_token.as_deref()
+        if contiguous_complete
+            && let Some(ack_token) = outcome.ack_token.as_deref()
             && !ack_account_device_messages(client, channel, account, ack_token, reason).await
         {
             return;
         }
         if let Some(next_cursor) = outcome.next_cursor {
-            let save = device_messages_scope(
-                service_id.as_deref(),
-                &account.principal_id,
-                &account.device_id,
-            );
-            if let Err(err) = match save {
-                Ok(scope) => account_store.save(scope, next_cursor.clone()).await,
-                Err(err) => Err(err),
-            } {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    reason,
-                    "arkret: failed to persist device-message cursor: {err}"
-                );
-                return;
+            if contiguous_complete {
+                let save = receive::delivery_scope(channel, account);
+                if let Err(err) = match save {
+                    Ok(scope) => account_store
+                        .save(scope, next_cursor.clone())
+                        .await
+                        .map_err(anyhow::Error::from),
+                    Err(err) => Err(anyhow::Error::from(err)),
+                } {
+                    warn!(
+                        channel_id = %channel.id,
+                        account_id = %account.id,
+                        reason,
+                        "arkret: failed to persist device-message cursor: {err}"
+                    );
+                    return;
+                }
             }
             cursor = Some(next_cursor);
         }
-        if outcome.limited {
+        if outcome.limited == Some(true) {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
@@ -1199,16 +2238,15 @@ async fn ack_account_device_messages(
         ack_token: ack_token.to_owned(),
     };
     match client.inner().ack_device_messages(&request).await {
-        Ok(outcome) if outcome.ok => true,
         Ok(outcome) => {
-            warn!(
+            debug!(
                 channel_id = %channel.id,
                 account_id = %account.id,
                 reason,
-                pruned_count = ?outcome.pruned_count,
-                "arkret: device_messages ack returned ok=false"
+                pruned_count = outcome.pruned_count,
+                "arkret: acknowledged standard device messages"
             );
-            false
+            true
         }
         Err(err) => {
             warn!(
@@ -1242,71 +2280,71 @@ async fn consume_account_mls_key_packages(
         );
         return;
     }
-    let consumer_device = match DeviceId::new(account.device_id.clone()) {
-        Ok(device) => device,
-        Err(err) => {
+    let Some(key_ref) = account.key_ref.as_ref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage consume requires the authorized runtime key"
+        );
+        return;
+    };
+    let Some(verification_method) = account.verification_method.as_deref() else {
+        warn!(
+            channel_id = %channel.id,
+            account_id = %account.id,
+            "arkret: Agent MLS KeyPackage consume requires the authorized verification method"
+        );
+        return;
+    };
+
+    let mut consumed_any = false;
+    for binding in bindings {
+        // The signed receipt follows durable Welcome processing. Consuming it
+        // completes the founding phase; waiting for a binding here deadlocks
+        // because the Station requires this consumption before accepting one.
+        let Some(recipient_durable_receipt) = binding.recipient_durable_receipt.clone() else {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
-                "arkret: invalid device id for MLS KeyPackage consume: {err}"
+                keypackage_ref = %binding.keypackage_ref,
+                "arkret: deferring MLS KeyPackage consume until recipient durable receipt is available"
             );
-            return;
-        }
-    };
-
-    for binding in bindings {
-        let realm_id = match optional_realm_id(binding.realm_id.as_deref()) {
-            Ok(realm_id) => realm_id,
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    keypackage_ref = %binding.keypackage_ref,
-                    "arkret: invalid Realm id in MLS Welcome consume binding: {err}"
-                );
+            continue;
+        };
+        let claim_id = match arkret::identifiers::KeypackageClaimId::new(binding.claim_id.clone()) {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(channel_id = %channel.id, account_id = %account.id, keypackage_ref = %binding.keypackage_ref, "arkret: invalid claim id: {error}");
                 continue;
             }
         };
-        let strand_id = match optional_strand_id(binding.strand_id.as_deref()) {
-            Ok(strand_id) => strand_id,
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    keypackage_ref = %binding.keypackage_ref,
-                    "arkret: invalid Strand id in MLS Welcome consume binding: {err}"
-                );
-                continue;
-            }
+        let unsigned = KeyPackagesConsumeUnsignedRequest {
+            claim_id,
+            recipient_durable_receipt,
         };
-        let unsigned_value =
-            key_package_consume_signature_value(binding, &consumer_device, &realm_id, &strand_id);
         let signature =
-            match sign_account_key_operation(account, KEYPACKAGES_CONSUME_SCOPE, &unsigned_value) {
+            match sign_keypackages_consume_request(key_ref, verification_method, &unsigned) {
                 Ok(signature) => signature,
                 Err(err) => {
                     warn!(
                         channel_id = %channel.id,
                         account_id = %account.id,
                         keypackage_ref = %binding.keypackage_ref,
-                        "arkret: failed to sign MLS KeyPackage consume request: {err:#}"
+                        "arkret: failed to sign canonical MLS KeyPackage consume request: {err:#}"
                     );
                     continue;
                 }
             };
-        let request = KeyPackagesConsumeRequestBody {
-            key_package_refs: vec![binding.keypackage_ref.clone()],
-            consumer_device_id: consumer_device.clone(),
-            signature,
-            claim_ids: vec![binding.claim_id.clone()],
-            welcome_ref: binding.welcome_ref.clone(),
-            realm_id,
-            strand_id,
-            mls_group_id: Some(binding.mls_group_id.clone()),
-            epoch: Some(binding.epoch),
-        };
+        let request = unsigned.into_signed(signature);
         match client.inner().keypackages_consume(&request).await {
-            Ok(outcome) if outcome.failures.is_empty() => {
+            Ok(outcome)
+                if consume_outcome_acknowledges_binding(
+                    &outcome,
+                    &binding.claim_id,
+                    &binding.keypackage_ref,
+                ) =>
+            {
+                consumed_any = true;
                 if let Err(err) =
                     crypto_store.mark_mls_key_package_consumed(&binding.keypackage_ref)
                 {
@@ -1317,19 +2355,12 @@ async fn consume_account_mls_key_packages(
                         "arkret: failed to mark local MLS KeyPackage consumed after server ack: {err:#}"
                     );
                 }
-                if let Err(err) = crypto_store.mark_mls_welcome_consume_binding_acked(binding) {
-                    warn!(
-                        channel_id = %channel.id,
-                        account_id = %account.id,
-                        keypackage_ref = %binding.keypackage_ref,
-                        "arkret: failed to clear MLS Welcome consume binding after server ack: {err:#}"
-                    );
-                }
+                // Keep the exact durable receipt for replay. The confirmed
+                // single-use consumed state removes it from pending work.
                 debug!(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     keypackage_ref = %binding.keypackage_ref,
-                    consumed = outcome.consumed.len(),
                     "arkret: consumed MLS KeyPackage after Welcome decrypt"
                 );
             }
@@ -1338,8 +2369,8 @@ async fn consume_account_mls_key_packages(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     keypackage_ref = %binding.keypackage_ref,
-                    failures = ?outcome.failures,
-                    "arkret: MLS KeyPackage consume returned failures"
+                    receipt = ?outcome.consume_receipt,
+                    "arkret: MLS KeyPackage consume receipt does not match the pending binding"
                 );
             }
             Err(err) => warn!(
@@ -1350,81 +2381,12 @@ async fn consume_account_mls_key_packages(
             ),
         }
     }
-}
-
-fn key_package_consume_signature_value(
-    binding: &ArkretMlsWelcomeConsumeBinding,
-    consumer_device: &DeviceId,
-    realm_id: &Option<RealmId>,
-    strand_id: &Option<StrandId>,
-) -> Value {
-    let mut object = serde_json::Map::new();
-    object.insert(
-        "key_package_refs".to_owned(),
-        Value::Array(vec![Value::String(binding.keypackage_ref.clone())]),
-    );
-    object.insert(
-        "consumer_device_id".to_owned(),
-        Value::String(consumer_device.as_str().to_owned()),
-    );
-    object.insert(
-        "claim_ids".to_owned(),
-        Value::Array(vec![Value::String(binding.claim_id.clone())]),
-    );
-    if let Some(welcome_ref) = &binding.welcome_ref {
-        object.insert("welcome_ref".to_owned(), Value::String(welcome_ref.clone()));
+    if consumed_any {
+        // A successful Welcome consume necessarily reduced the ordinary
+        // single-use pool. Replenish during this device-maintenance cycle;
+        // the endpoint's private inventory supplies the observed deficit.
+        publish_account_mls_key_packages(client, channel, account, crypto_store).await;
     }
-    if let Some(realm_id) = realm_id {
-        object.insert(
-            "realm_id".to_owned(),
-            Value::String(realm_id.as_str().to_owned()),
-        );
-    }
-    if let Some(strand_id) = strand_id {
-        object.insert(
-            "strand_id".to_owned(),
-            Value::String(strand_id.as_str().to_owned()),
-        );
-    }
-    object.insert(
-        "mls_group_id".to_owned(),
-        Value::String(binding.mls_group_id.clone()),
-    );
-    object.insert(
-        "epoch".to_owned(),
-        Value::Number(serde_json::Number::from(binding.epoch)),
-    );
-    Value::Object(object)
-}
-
-fn optional_realm_id(value: Option<&str>) -> anyhow::Result<Option<RealmId>> {
-    value
-        .map(|value| RealmId::new(value.to_owned()).map_err(anyhow::Error::from))
-        .transpose()
-}
-
-fn optional_strand_id(value: Option<&str>) -> anyhow::Result<Option<StrandId>> {
-    value
-        .map(|value| StrandId::new(value.to_owned()).map_err(anyhow::Error::from))
-        .transpose()
-}
-
-fn sign_account_key_operation(
-    account: &ArkretAccountConfig,
-    context: &str,
-    value: &Value,
-) -> anyhow::Result<arkret::KeyOperationSignature> {
-    let key_ref = account
-        .key_ref
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Arkret account '{}' missing keyRef", account.id))?;
-    let verification_method = account.verification_method.as_deref().ok_or_else(|| {
-        anyhow::anyhow!(
-            "Arkret account '{}' missing authorized verificationMethod",
-            account.id
-        )
-    })?;
-    sign_key_operation_value(key_ref, verification_method, context, value)
 }
 
 async fn account_event_seen(
@@ -1465,68 +2427,17 @@ async fn remember_account_event(
 
 async fn handle_sync_updates_for_account(
     client: &ArkretHttpClient,
-    updates: arkret::SyncUpdates,
+    updates: garth::AccountUpdateContext,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
-    gateway_channel: &Arc<GatewayChannel>,
-    session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
     let to_device_lost = updates.to_device_lost;
-    let saw_to_device_messages = !updates.to_device.is_empty();
+    let saw_to_device_messages = updates.to_device_ack_token.is_some();
     let to_device_ack_token = updates.to_device_ack_token.clone();
     let to_device_limited = updates.to_device_limited;
     let to_device_next_cursor = updates.to_device_next_cursor.clone();
-    for message in &updates.to_device {
-        let content = Value::Object(message.content.clone().into_iter().collect());
-        record_account_mls_welcome_from_value_tree(
-            crypto_store,
-            &content,
-            channel,
-            account,
-            "to_device",
-        );
-    }
-    for item in &updates.account_data {
-        let payload = Value::Object(item.payload.clone().into_iter().collect());
-        record_account_mls_welcome_from_value_tree(
-            crypto_store,
-            &payload,
-            channel,
-            account,
-            "account_data",
-        );
-    }
-    for update in updates.realm_updates {
-        let scan_request = account_scan_catchup_request_for_update(&update);
-        record_account_mls_welcomes_from_realm_update(&update, crypto_store, channel, account);
-        let parsed = parse_realm_update_for_account(update, account);
-        handle_parsed_account_events(
-            client,
-            parsed,
-            channel,
-            account,
-            account_store,
-            crypto_store,
-            gateway_channel,
-            session_store,
-        )
-        .await?;
-        if let Some(scan_request) = scan_request {
-            scan_limited_realm_timeline_for_account(
-                client,
-                scan_request,
-                channel,
-                account,
-                account_store,
-                crypto_store,
-                gateway_channel,
-                session_store,
-            )
-            .await?;
-        }
-    }
     // Typed account notifications carry Agent runtime-approval state. They are
     // not Realm events and must not wake the channel's chat agent.
     match account_to_device_ack_plan(
@@ -1673,7 +2584,7 @@ async fn drain_account_device_messages(
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AccountScanCatchupRequest {
     realm_id: arkret::RealmId,
-    before: Option<String>,
+    streams: Vec<arkret::CommitStreamRef>,
 }
 
 #[derive(Debug)]
@@ -1683,47 +2594,58 @@ struct AccountScanCatchupOutcome {
     pages: usize,
 }
 
-fn account_scan_catchup_request_for_update(
-    update: &arkret::RealmUpdate,
-) -> Option<AccountScanCatchupRequest> {
-    let timeline = update.entry.timeline.as_ref()?;
-    if !timeline.limited {
-        return None;
-    }
-    Some(AccountScanCatchupRequest {
-        realm_id: update.realm_id.clone(),
-        before: timeline.prev_cursor.clone(),
-    })
-}
-
 async fn collect_account_scan_catchup<F, Fut>(
     request: AccountScanCatchupRequest,
     mut fetch: F,
 ) -> anyhow::Result<AccountScanCatchupOutcome>
 where
-    F: FnMut(arkret::RealmId, Option<String>, u32) -> Fut,
-    Fut: Future<Output = anyhow::Result<arkret::EventsQueryOutcome>>,
+    F: FnMut(arkret::RealmId, arkret::CommitStreamRef, Option<u64>, u16) -> Fut,
+    Fut: Future<Output = anyhow::Result<arkret::StreamScanOutcome>>,
 {
-    let mut before = request.before;
     let mut events = Vec::new();
     let mut pages = 0;
     let mut limited = false;
 
-    for _ in 0..ACCOUNT_SCAN_CATCHUP_MAX_PAGES {
-        pages += 1;
-        let outcome = fetch(
-            request.realm_id.clone(),
-            before.clone(),
-            ACCOUNT_SCAN_CATCHUP_LIMIT,
-        )
-        .await?;
-        let next_before = outcome.prev_cursor.clone();
-        limited = outcome.has_more;
-        events.extend(outcome.events);
-        match (limited, next_before) {
-            (true, Some(cursor)) => before = Some(cursor),
-            _ => break,
+    if request.streams.is_empty() {
+        anyhow::bail!("account scan has no visible commit streams");
+    }
+
+    for stream_ref in request.streams {
+        if stream_ref.realm_id() != &request.realm_id {
+            anyhow::bail!("account scan stream belongs to another Realm");
         }
+        let mut after_position = None;
+        let mut stream_limited = false;
+        for _ in 0..ACCOUNT_SCAN_CATCHUP_MAX_PAGES {
+            pages += 1;
+            let outcome = fetch(
+                request.realm_id.clone(),
+                stream_ref.clone(),
+                after_position,
+                ACCOUNT_SCAN_CATCHUP_LIMIT,
+            )
+            .await?;
+            let last_position = outcome
+                .committed_events
+                .last()
+                .map(|item| item.commit().stream_position);
+            for item in outcome.committed_events {
+                item.validate_shape()?;
+                if item.commit().stream_ref != stream_ref {
+                    anyhow::bail!("account scan returned an event from another stream");
+                }
+                if let arkret::CommittedEventView::Full(full) = item {
+                    events.push(full.event);
+                }
+            }
+            stream_limited = outcome.truncated;
+            match (outcome.truncated, last_position) {
+                (true, Some(position)) => after_position = Some(position),
+                (true, None) => anyhow::bail!("truncated account scan did not advance"),
+                (false, _) => break,
+            }
+        }
+        limited |= stream_limited;
     }
 
     Ok(AccountScanCatchupOutcome {
@@ -1733,255 +2655,161 @@ where
     })
 }
 
-async fn scan_limited_realm_timeline_for_account(
-    client: &ArkretHttpClient,
-    request: AccountScanCatchupRequest,
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-    account_store: &garth::FileStore,
-    crypto_store: &FileArkretCryptoStore,
-    gateway_channel: &Arc<GatewayChannel>,
-    session_store: &Arc<SessionStore>,
-) -> anyhow::Result<()> {
-    if !account.has_requested_scope("ak.self.events.query.scan") {
-        warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            realm_id = %request.realm_id.as_str(),
-            "arkret: limited account timeline cannot be scan-backfilled without ak.self.events.query.scan"
-        );
-        return Ok(());
-    }
-
-    let realm_id = request.realm_id.clone();
-    let outcome =
-        match collect_account_scan_catchup(request, |realm_id, before, limit| async move {
-            client
-                .inner()
-                .events_query(
-                    realm_id.as_str(),
-                    before.as_deref(),
-                    None,
-                    None,
-                    Some(limit),
-                )
-                .await
-                .map_err(anyhow::Error::from)
-        })
-        .await
-        {
-            Ok(outcome) => outcome,
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    realm_id = %realm_id.as_str(),
-                    "arkret: scan catch-up failed for limited account timeline: {err:#}"
-                );
-                return Err(err);
-            }
-        };
-
-    for event in &outcome.events {
-        if let Ok(value) = serde_json::to_value(event) {
-            record_account_mls_welcome_from_value_tree(
-                crypto_store,
-                &value,
-                channel,
-                account,
-                "realm_scan_catchup",
-            );
-        }
-    }
-    let parsed = parse_backfill_events_for_account(&realm_id, outcome.events, account);
-    handle_parsed_account_events(
-        client,
-        parsed,
-        channel,
-        account,
-        account_store,
-        crypto_store,
-        gateway_channel,
-        session_store,
-    )
-    .await?;
-
-    if outcome.limited {
-        warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            realm_id = %realm_id.as_str(),
-            pages = outcome.pages,
-            "arkret: scan catch-up stopped before exhausting limited account timeline"
-        );
-    }
-    Ok(())
-}
-
-fn parse_realm_update_for_account(
-    update: arkret::RealmUpdate,
-    account: &ArkretAccountConfig,
-) -> ArkretInboundParseResult {
-    let realm_id = update.realm_id.as_str().to_owned();
-    let entry = match serde_json::to_value(update.entry) {
-        Ok(entry) => entry,
-        Err(_) => return ArkretInboundParseResult::default(),
-    };
-    let mut realms = serde_json::Map::new();
-    realms.insert(realm_id, entry);
-    parse_delta_frame_for_account(&Value::Object(realms), account)
-}
-
 fn parse_backfill_events_for_account(
     realm_id: &arkret::RealmId,
     events: Vec<arkret::Event>,
     account: &ArkretAccountConfig,
 ) -> ArkretInboundParseResult {
-    let update = arkret::RealmUpdate {
-        realm_id: realm_id.clone(),
-        entry: arkret::RealmSyncEntry {
-            timeline: Some(arkret::Timeline {
-                events,
-                limited: false,
-                prev_cursor: None,
-                preview_only: None,
-                extra: Default::default(),
-            }),
-            ..Default::default()
-        },
-    };
-    parse_realm_update_for_account(update, account)
+    let event_values = events
+        .into_iter()
+        .filter(|event| &event.realm_id == realm_id)
+        .filter_map(|event| serde_json::to_value(event).ok())
+        .collect::<Vec<_>>();
+    parse_event_values_for_account(&event_values, account)
 }
 
-fn record_account_mls_welcomes_from_realm_update(
-    update: &arkret::RealmUpdate,
-    crypto_store: &FileArkretCryptoStore,
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-) -> usize {
-    let mut recorded = 0;
-    if let Some(timeline) = &update.entry.timeline {
-        for event in &timeline.events {
-            if let Ok(event) = serde_json::to_value(event) {
-                recorded += record_account_mls_welcome_from_value_tree(
-                    crypto_store,
-                    &event,
-                    channel,
-                    account,
-                    "realm_timeline",
-                );
-            }
-        }
+fn event_declares_direct_conversation_realm(event: &arkret::Event) -> bool {
+    if event.kind.as_str() != "ak.realm.create" {
+        return false;
     }
-    for state in [
-        update.entry.state.as_ref(),
-        update.entry.state_after.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        for state_event in &state.events {
-            if let Ok(state_event) = serde_json::to_value(state_event) {
-                recorded += record_account_mls_welcome_from_value_tree(
-                    crypto_store,
-                    &state_event,
-                    channel,
-                    account,
-                    "realm_state",
-                );
-            }
-        }
-    }
-    recorded
+    let object = event.payload.get("object");
+    object
+        .and_then(|value| value.get("fields"))
+        .and_then(|value| value.get("collaboration_role"))
+        .and_then(Value::as_str)
+        .is_some_and(|role| role.eq_ignore_ascii_case("direct_conversation"))
+        || object
+            .and_then(|value| value.get("schema_refs"))
+            .and_then(Value::as_array)
+            .is_some_and(|refs| {
+                refs.iter()
+                    .any(|value| value.as_str() == Some("ak.profile.direct_conversation_realm.v1"))
+            })
 }
 
-fn record_account_mls_welcome_from_value_tree(
+async fn apply_account_accepted_mls_commit(
+    client: &ArkretHttpClient,
     crypto_store: &FileArkretCryptoStore,
-    value: &Value,
-    channel: &ArkretChannelConfig,
+    accepted: &arkret::CommittedEventFullView,
     account: &ArkretAccountConfig,
-    source: &'static str,
-) -> usize {
-    record_account_mls_welcome_from_value_tree_inner(
-        crypto_store,
-        value,
-        channel,
-        account,
-        source,
-        6,
+) -> anyhow::Result<()> {
+    if accepted.event.kind != arkret::EventKind::MlsCommit {
+        return Ok(());
+    }
+    let payload: arkret::MlsCommitPayload = serde_json::from_value(serde_json::Value::Object(
+        accepted.event.payload.clone().into_iter().collect(),
+    ))?;
+    payload.validate()?;
+    let scope = &accepted.event.scope_ref;
+    anyhow::ensure!(
+        payload.governance_binding().effective_scope() == scope,
+        "accepted MLS scope differs from Event"
+    );
+    let (epoch, base_ref) = crypto_store.installed_mls_base(scope)?;
+    if epoch == payload.next_epoch() {
+        anyhow::ensure!(
+            base_ref == accepted.event.event_id,
+            "same-epoch accepted MLS Event differs from durable checkpoint"
+        );
+        crypto_store.verify_installed_mls_base(accepted)?;
+        return Ok(());
+    }
+    // This input is a verified continuous Garth delivery. An already installed
+    // earlier row can occur after a durable inbox retry, without undoing state.
+    if epoch > payload.next_epoch() {
+        return Ok(());
+    }
+    let (mut predecessor, prefix, continuation) = governance::verified_mls_prefix(
+        client,
+        accepted,
+        &base_ref,
+        crypto_store.installed_mls_base_candidate(scope)?,
+        crypto_store.mls_replay_continuation(scope, accepted)?,
     )
+    .await?;
+    for transition in prefix {
+        client.own_station()?.check_session()?;
+        let roster = governance::accepted_commit_roster(client, &transition, account).await?;
+        client.own_station()?.check_session()?;
+        crypto_store.install_historical_mls_commit_with_roster(
+            &transition,
+            &predecessor,
+            &roster,
+        )?;
+        predecessor = transition;
+    }
+    let (installed_epoch, installed_ref) = crypto_store.installed_mls_base(scope)?;
+    client.own_station()?.check_session()?;
+    crypto_store.save_mls_replay_continuation(scope, accepted, &installed_ref, continuation)?;
+    anyhow::ensure!(
+        installed_epoch == payload.next_epoch() && installed_ref == accepted.event.event_id,
+        "accepted MLS prefix did not install target"
+    );
+    Ok(())
 }
 
-fn record_account_mls_welcome_from_value_tree_inner(
-    crypto_store: &FileArkretCryptoStore,
+fn collect_typed_mls_commit_events(
     value: &Value,
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-    source: &'static str,
     remaining_depth: usize,
-) -> usize {
-    match crypto_store.record_mls_welcome_from_value(value) {
-        Ok(Some(welcome)) => {
-            debug!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                source,
-                group_id = %welcome.group_id,
-                epoch = welcome.epoch,
-                recipient_principal_id = %welcome.recipient_principal_id.as_str(),
-                recipient_device_id = %welcome.recipient_device_id.as_str(),
-                "arkret: recorded MLS Welcome from account inbound event"
-            );
-            return 1;
+    commits: &mut Vec<(arkret::EventId, arkret::MlsCommitPayload)>,
+) {
+    let Value::Object(object) = value else {
+        if remaining_depth > 0
+            && let Value::Array(items) = value
+        {
+            for item in items {
+                collect_typed_mls_commit_events(item, remaining_depth - 1, commits);
+            }
         }
-        Ok(None) => {}
-        Err(err) => {
-            warn!(
-                channel_id = %channel.id,
-                account_id = %account.id,
-                source,
-                "arkret: failed to persist MLS Welcome from account inbound event: {err:#}"
-            );
-            return 1;
-        }
+        return;
+    };
+    let kind = object.get("kind").and_then(Value::as_str);
+    let event_ref = object
+        .get("event_id")
+        .or_else(|| object.get("eventId"))
+        .and_then(Value::as_str)
+        .and_then(|event_id| arkret::EventId::new(event_id.to_owned()).ok());
+    if kind == Some("ak.mls.commit")
+        && let Some(event_ref) = event_ref
+        && let Some(payload) = find_typed_mls_commit_payload(value, remaining_depth)
+    {
+        commits.push((event_ref, payload));
+        return;
     }
     if remaining_depth == 0 {
-        return 0;
+        return;
+    }
+    for item in object.values() {
+        collect_typed_mls_commit_events(item, remaining_depth - 1, commits);
+    }
+}
+
+fn find_typed_mls_commit_payload(
+    value: &Value,
+    remaining_depth: usize,
+) -> Option<arkret::MlsCommitPayload> {
+    if let Ok(payload) = serde_json::from_value::<arkret::MlsCommitPayload>(value.clone()) {
+        return Some(payload);
+    }
+    if remaining_depth == 0 {
+        return None;
     }
     match value {
         Value::Array(items) => items
             .iter()
-            .map(|item| {
-                record_account_mls_welcome_from_value_tree_inner(
-                    crypto_store,
-                    item,
-                    channel,
-                    account,
-                    source,
-                    remaining_depth - 1,
-                )
-            })
-            .sum(),
+            .find_map(|item| find_typed_mls_commit_payload(item, remaining_depth - 1)),
         Value::Object(object) => object
             .values()
-            .map(|item| {
-                record_account_mls_welcome_from_value_tree_inner(
-                    crypto_store,
-                    item,
-                    channel,
-                    account,
-                    source,
-                    remaining_depth - 1,
-                )
-            })
-            .sum(),
-        _ => 0,
+            .find_map(|item| find_typed_mls_commit_payload(item, remaining_depth - 1)),
+        _ => None,
     }
 }
 
 async fn handle_parsed_account_events(
+    provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     parsed: ArkretInboundParseResult,
+    inbound_mode: AccountInboundMode,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     account_store: &garth::FileStore,
@@ -1996,15 +2824,34 @@ async fn handle_parsed_account_events(
             diagnostic.last_realm_id = skipped.realm_id.clone();
         });
         match skipped.reason {
-            ArkretInboundSkipReason::EncryptedContent => {
+            ArkretInboundSkipReason::EncryptedContent
+            | ArkretInboundSkipReason::SidecarExchangeControl => {
+                if skipped
+                    .encrypted_payload
+                    .as_ref()
+                    .or(skipped.encrypted_metadata_payload.as_ref())
+                    .is_some_and(|payload| {
+                        matches!(
+                            payload.pre_encryption_header.effective_scope,
+                            arkret::ScopeRef::Sidecar { .. }
+                        )
+                    })
+                    && skipped.accepted_ref.is_none()
+                {
+                    // Raw backfill is neither ratchet input nor durable delivery ACK.
+                    continue;
+                }
                 if let Some(event_id) = skipped.event_id.as_deref()
                     && account_event_seen(account_store, channel, account, event_id).await?
                 {
+                    crypto_store.clear_unable_to_decrypt(event_id)?;
                     continue;
                 }
                 let decrypted = try_handle_encrypted_account_skip(
+                    provider,
                     client,
                     &skipped,
+                    inbound_mode,
                     crypto_store,
                     channel,
                     account,
@@ -2015,6 +2862,13 @@ async fn handle_parsed_account_events(
                 if decrypted {
                     if let Some(event_id) = skipped.event_id.as_deref() {
                         remember_account_event(account_store, event_id).await?;
+                        crypto_store.clear_unable_to_decrypt(event_id)?;
+                    }
+                    if inbound_mode.suppresses_agent_dispatch() {
+                        update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+                            diagnostic.baselined_events =
+                                diagnostic.baselined_events.saturating_add(1);
+                        });
                     }
                     continue;
                 }
@@ -2022,7 +2876,11 @@ async fn handle_parsed_account_events(
                     account_id = %skipped.account_id,
                     event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
                     realm_id = skipped.realm_id.as_deref().unwrap_or("<unknown>"),
-                    "arkret: encrypted account message skipped; crypto session decrypt is not wired"
+                    "arkret: encrypted account message remains pending; local MLS decryption is not ready"
+                );
+                anyhow::bail!(
+                    "Arkret encrypted Event {} is waiting for verified MLS decryption",
+                    skipped.event_id.as_deref().unwrap_or("<unknown>")
                 );
             }
             reason => {
@@ -2048,7 +2906,7 @@ async fn handle_parsed_account_events(
             event_id = %event.event_id,
             realm_id = %event.realm_id,
             sender_did = %event.sender_did,
-            mentioned_actor_ids = ?event.mentioned_actor_ids,
+            mentioned_account_ids = ?event.mentioned_account_ids,
             "arkret: parsed dispatchable account event"
         );
         if account_event_seen(account_store, channel, account, &event.event_id).await? {
@@ -2060,8 +2918,84 @@ async fn handle_parsed_account_events(
             );
             continue;
         }
+        if inbound_mode == AccountInboundMode::Trigger {
+            hydrate_conversation_before_trigger(
+                provider,
+                client,
+                &event,
+                channel,
+                account,
+                account_store,
+                crypto_store,
+                gateway_channel,
+                session_store,
+            )
+            .await?;
+        }
         let event_id = event.event_id.clone();
+        let conversation = event.strand_id.as_ref().map(|strand_id| {
+            crate::arkret_delivery::RemoteConversationKey {
+                channel_config_id: channel.id.clone(),
+                account_id: account.id.clone(),
+                realm_id: event.realm_id.clone(),
+                strand_id: strand_id.clone(),
+                stream_ref: arkret::CommitStreamRef::from_scope(&event.scope_ref, None)
+                    .expect("inbound message has an existing scope"),
+            }
+        });
+        if inbound_mode == AccountInboundMode::Hydrate {
+            if let Some(conversation) = conversation {
+                crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                    &gateway_channel.config().savfox_home,
+                )
+                .hydrate_event(
+                    conversation,
+                    crate::arkret_delivery::RemoteContextEvent {
+                        event_id: event.event_id.clone(),
+                        sender_did: event.sender_did.clone(),
+                        sender_kind: if event.sender_did.eq_ignore_ascii_case(&account.principal_id)
+                        {
+                            "agent".to_owned()
+                        } else {
+                            "human".to_owned()
+                        },
+                        body: event.body.clone(),
+                        received_at: Utc::now(),
+                    },
+                )
+                .await?;
+            }
+        }
+        if event
+            .sender_did
+            .eq_ignore_ascii_case(account.principal_id.trim())
+        {
+            if inbound_mode == AccountInboundMode::Trigger {
+                let _ = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                    &gateway_channel.config().savfox_home,
+                )
+                .acknowledge_echo(&event_id)
+                .await?;
+            }
+            remember_account_event(account_store, &event_id).await?;
+            continue;
+        }
+        if inbound_mode.suppresses_agent_dispatch() {
+            remember_account_event(account_store, &event_id).await?;
+            update_listener_diagnostic(&channel.id, &account.id, |diagnostic| {
+                diagnostic.baselined_events = diagnostic.baselined_events.saturating_add(1);
+            });
+            debug!(
+                channel_id = %channel.id,
+                account_id = %account.id,
+                event_id = %event_id,
+                "arkret: recorded non-triggering history event without agent dispatch"
+            );
+            continue;
+        }
         dispatch_to_agent(
+            provider,
+            crypto_store,
             event,
             channel,
             account,
@@ -2074,7 +3008,190 @@ async fn handle_parsed_account_events(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn hydrate_conversation_before_trigger(
+    provider: &ArkretAgentSessionProvider,
+    client: &ArkretHttpClient,
+    trigger: &ArkretInboundEvent,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    account_store: &garth::FileStore,
+    crypto_store: &FileArkretCryptoStore,
+    gateway_channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
+) -> anyhow::Result<()> {
+    let Some(strand_id) = trigger.strand_id.as_ref() else {
+        return Ok(());
+    };
+    let conversation = crate::arkret_delivery::RemoteConversationKey {
+        channel_config_id: channel.id.clone(),
+        account_id: account.id.clone(),
+        realm_id: trigger.realm_id.clone(),
+        strand_id: strand_id.clone(),
+        stream_ref: arkret::CommitStreamRef::from_scope(&trigger.scope_ref, None)?,
+    };
+    let delivery_store = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+        &gateway_channel.config().savfox_home,
+    );
+    let snapshot = delivery_store.remote_snapshot(&conversation).await?;
+    if !snapshot.events.is_empty() || snapshot.history_unavailable.is_some() {
+        return Ok(());
+    }
+    if !account.has_requested_scope(ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1) {
+        delivery_store
+            .mark_history_unavailable(
+                conversation,
+                "history_unavailable: account lacks ak.self.committed_event.read.scan.v1",
+            )
+            .await?;
+        return Ok(());
+    }
+    let realm_id = RealmId::new(trigger.realm_id.clone())?;
+    let outcome = async {
+        let snapshot = client.inner().realm_state_snapshot_head(&realm_id).await?;
+        let request = AccountScanCatchupRequest {
+            realm_id: realm_id.clone(),
+            streams: snapshot
+                .visible_stream_heads
+                .into_iter()
+                .map(|head| head.stream_ref)
+                .filter(|stream| stream == &conversation.stream_ref)
+                .collect(),
+        };
+        collect_account_scan_catchup(request, |realm_id, stream_ref, after, limit| async move {
+            client
+                .inner()
+                .scan_commit_stream_tail(realm_id, stream_ref, after, limit)
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .await
+    }
+    .await;
+    let outcome = match outcome {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            delivery_store
+                .mark_history_unavailable(
+                    conversation,
+                    &format!("history_unavailable: committed stream scan failed: {error}"),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+    let parsed = parse_backfill_events_for_account(&realm_id, outcome.events, account);
+    // Boxing is intentional: hydration reuses the exact signature/decryption
+    // pipeline while the `Hydrate` mode prevents this recursive pass from
+    // triggering an agent turn or another history query.
+    Box::pin(handle_parsed_account_events(
+        provider,
+        client,
+        parsed,
+        AccountInboundMode::Hydrate,
+        channel,
+        account,
+        account_store,
+        crypto_store,
+        gateway_channel,
+        session_store,
+    ))
+    .await
+}
+
+async fn agent_interaction_trigger_allowed(
+    provider: &ArkretAgentSessionProvider,
+    crypto: &FileArkretCryptoStore,
+    account: &ArkretAccountConfig,
+    scope: &arkret::ScopeRef,
+    realm_id: &str,
+    sender_actor_id: Option<&arkret::ActorId>,
+    has_exchange: bool,
+) -> anyhow::Result<bool> {
+    let owner = sender_actor_id.and_then(arkret::ActorId::as_account_id)
+        == Some(&account.controller_account_id);
+    if matches!(scope, arkret::ScopeRef::Sidecar { .. }) {
+        // Only a verified owner request or a verified exchange may dispatch;
+        // sibling Agent content remains context unless the exchange authorizes it.
+        return Ok(owner || has_exchange);
+    }
+    if crypto.realm_is_direct_conversation(realm_id)? {
+        return Ok(owner);
+    }
+    let http = ArkretHttpClient::from_provider(provider, crypto).await?;
+    let realm = RealmId::new(realm_id.to_owned())?;
+    let mode = match garth::own_station_results::read_own_station_agent_interaction(
+        http.own_station()?,
+        &realm,
+        &account.actor_account_id,
+    )
+    .await
+    .and_then(|response| response.into_value().map_err(garth::Error::from))
+    {
+        Ok(arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present {
+            entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry),
+            ..
+        }) => entry.value,
+        Err(error) => return Err(error.into()),
+        _ => return Ok(false),
+    };
+    if mode.controller_account_id != account.controller_account_id
+        || mode.interaction_mode != arkret::AgentInteractionMode::Public
+    {
+        return Ok(false);
+    }
+    if owner {
+        return Ok(true);
+    }
+    // The Agent session cannot substitute for the owner-only selection read.
+    // Until the runtime has an authorized current selection and complete ceiling
+    // observation, a third-party request must not enter the model or local tools.
+    Ok(false)
+}
+
+fn inbound_agent_is_mentioned(event: &ArkretInboundEvent, account: &ArkretAccountConfig) -> bool {
+    event.sidecar_exchange.is_some()
+        || event
+            .mentioned_account_ids
+            .contains(&account.actor_account_id)
+}
+
 async fn dispatch_to_agent(
+    provider: &ArkretAgentSessionProvider,
+    crypto_store: &FileArkretCryptoStore,
+    event: ArkretInboundEvent,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    gateway_channel: Arc<GatewayChannel>,
+    session_store: Arc<SessionStore>,
+) -> anyhow::Result<()> {
+    observe_inbound_boundary(channel, account, "dispatch_interaction_entered");
+    match agent_interaction_trigger_allowed(
+        provider,
+        crypto_store,
+        account,
+        &event.scope_ref,
+        &event.realm_id,
+        event.sender_actor_id.as_ref(),
+        event.sidecar_exchange.is_some(),
+    )
+    .await
+    {
+        Ok(true) => observe_inbound_boundary(channel, account, "dispatch_interaction_allowed"),
+        Ok(false) => {
+            observe_inbound_boundary(channel, account, "dispatch_interaction_suppressed");
+            return Ok(());
+        }
+        Err(error) => {
+            observe_inbound_boundary(channel, account, "dispatch_interaction_unavailable");
+            warn!(account_id = %account.id, "arkret: current interaction gate unavailable; request remains pending: {error:#}");
+            return Err(error);
+        }
+    }
+    dispatch_authorized_agent_event(event, channel, account, gateway_channel, session_store).await
+}
+
+async fn dispatch_authorized_agent_event(
     event: ArkretInboundEvent,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
@@ -2087,7 +3204,11 @@ async fn dispatch_to_agent(
     let strand_id = event.strand_id.clone();
     let thread_id = event.thread_root_id.clone();
     let event_id = event.event_id.clone();
-    let mentioned_actor_ids = event.mentioned_actor_ids.clone();
+    let is_mentioned = inbound_agent_is_mentioned(&event, &account);
+    let mentioned_account_ids = event.mentioned_account_ids.clone();
+    let sidecar_exchange = event.sidecar_exchange.clone();
+    let chat_type = event.chat_type;
+    let participant_count = event.participant_count;
     let body = event.body;
     // DIDs carry no external-bot localpart convention, but we can at least mark
     // the account's own DID as SelfBot so the runtime never replies to its own
@@ -2098,14 +3219,45 @@ async fn dispatch_to_agent(
         runtime::SenderKind::Human
     };
 
+    // A verified Sidecar exchange request addressed to this principal is an
+    // explicit call: mark the runtime as mentioned and thread the exchange
+    // identity through `reply_target` so the user-visible reply can carry the
+    // `role=user_facing_response` binding (zh/models/sidecar.md §8).
+    let reply_target = match (&sidecar_exchange, &strand_id) {
+        (Some(context), Some(strand)) => Some(encode_sidecar_reply_target(strand, context)),
+        _ => strand_id.clone(),
+    };
     let mut start_meta = runtime::StartThreadMeta {
         peer_id: Some(sender.clone()),
-        group_id: Some(realm_id.clone()),
+        routing_channel_id: Some(serde_json::to_string(&(
+            config_id.clone(),
+            account.actor_account_id.clone(),
+            account.controller_account_id.clone(),
+            event.scope_ref.clone(),
+        ))?),
+        routing_group_id: Some(realm_id.clone()),
+        routing_thread_id: strand_id.clone(),
+        group_id: (!matches!(chat_type.as_deref(), Some("dm"))).then(|| realm_id.clone()),
         thread_id,
-        reply_target: strand_id,
-        chat_type: Some("group".to_owned()),
+        reply_target,
+        account_id: Some(account.id.clone()),
+        chat_type,
         saved_channel_config_id: Some(config_id.clone()),
+        remote_realm_id: Some(realm_id.clone()),
+        remote_strand_id: strand_id.clone(),
+        remote_stream_ref: Some(arkret::CommitStreamRef::from_scope(&event.scope_ref, None)?),
+        remote_event_id: Some(event_id.clone()),
+        remote_agent_did: Some(account.principal_id.clone()),
+        // Native exchanges deliver their authenticated request/response pair;
+        // public task checkpoints are a separate Realm publication flow.
+        delivery_mode: Some(if sidecar_exchange.is_some() {
+            "interactive_chat".to_owned()
+        } else {
+            channel.delivery_mode.clone()
+        }),
         sender_kind,
+        is_mentioned,
+        participant_count,
         ..runtime::StartThreadMeta::default()
     };
     let local_agent_id = runtime::resolve_start_thread_agent(
@@ -2131,10 +3283,11 @@ async fn dispatch_to_agent(
         event_id = %event_id,
         realm_id = %realm_id,
         local_agent_id = %local_agent_id,
-        mentioned_actor_ids = ?mentioned_actor_ids,
+        mentioned_account_ids = ?mentioned_account_ids,
         "arkret: dispatching inbound event to resolved Savfox agent"
     );
 
+    observe_inbound_boundary(channel, account, "dispatch_entered");
     let accepted = runtime::spawn_start_thread_pipeline_with_meta_coordinated(
         gateway_channel,
         session_store,
@@ -2145,6 +3298,15 @@ async fn dispatch_to_agent(
         Some(start_meta),
     )
     .await;
+    observe_inbound_boundary(
+        channel,
+        account,
+        if accepted {
+            "dispatch_accepted"
+        } else {
+            "dispatch_not_accepted"
+        },
+    );
     anyhow::ensure!(
         accepted,
         "Arkret inbound task was not accepted by the coordinator"
@@ -2157,14 +3319,77 @@ async fn dispatch_to_agent(
 }
 
 async fn try_handle_encrypted_account_skip(
+    provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
     skipped: &ArkretInboundSkippedEvent,
+    inbound_mode: AccountInboundMode,
     crypto_store: &FileArkretCryptoStore,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<bool> {
+    let native_sidecar = skipped
+        .encrypted_payload
+        .as_ref()
+        .or(skipped.encrypted_metadata_payload.as_ref())
+        .is_some_and(|payload| {
+            matches!(
+                payload.pre_encryption_header.effective_scope,
+                arkret::ScopeRef::Sidecar { .. }
+            )
+        });
+    if native_sidecar && skipped.accepted_ref.is_none() {
+        // A shape-only query cannot execute a request or consume its MLS ratchet
+        // ahead of the verified stream delivery.
+        return Ok(false);
+    }
+    if native_sidecar {
+        let reference = skipped
+            .accepted_ref
+            .as_ref()
+            .expect("native accepted reference checked");
+        let payload = skipped
+            .encrypted_payload
+            .as_ref()
+            .or(skipped.encrypted_metadata_payload.as_ref())
+            .expect("native payload checked");
+        anyhow::ensure!(
+            skipped.event_id.as_deref() == Some(reference.event_id.as_str())
+                && reference.stream_ref
+                    == arkret::CommitStreamRef::from_scope(
+                        &payload.pre_encryption_header.effective_scope,
+                        None
+                    )?,
+            "Sidecar content differs from its verified accepted stream identity"
+        );
+    }
+    if arkret_sender_is_account_principal(skipped.sender_did.as_deref(), account)
+        && inbound_mode != AccountInboundMode::Hydrate
+    {
+        if inbound_mode == AccountInboundMode::Trigger
+            && let Some(event_id) = skipped.event_id.as_deref()
+        {
+            let _ = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                &gateway_channel.config().savfox_home,
+            )
+            .acknowledge_echo(event_id)
+            .await?;
+        }
+        debug!(
+            account_id = %account.id,
+            event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
+            "arkret: ignored the Agent's own encrypted event echo before MLS decrypt"
+        );
+        return Ok(true);
+    }
+    if skipped.reason == ArkretInboundSkipReason::SidecarExchangeControl {
+        // Controller-authored exchange control never reaches the agent; it only
+        // folds durable terminal state (§8).
+        fold_sidecar_exchange_control(skipped, crypto_store, channel, account, gateway_channel)
+            .await?;
+        return Ok(true);
+    }
     let Some(payload) = skipped.encrypted_payload.as_ref() else {
         return Ok(false);
     };
@@ -2176,6 +3401,48 @@ async fn try_handle_encrypted_account_skip(
         );
         return Ok(false);
     }
+    if inbound_mode == AccountInboundMode::Trigger
+        && !native_sidecar
+        && let Some(realm_id) = skipped.realm_id.as_deref()
+        && crypto_store.realm_is_direct_conversation(realm_id)?
+        && crypto_store
+            .direct_conversation_binding_event_ref(realm_id)?
+            .is_none()
+    {
+        anyhow::bail!(
+            "Arkret Direct Conversation is waiting for its accepted participant binding before replying"
+        );
+    }
+    // Ordinary MLS decrypt consumes the sender secret. Read transient current
+    // authority first so a failed mode read leaves ciphertext retryable.
+    observe_inbound_boundary(channel, account, "decrypt_interaction_entered");
+    let ordinary_interaction_allowed =
+        if inbound_mode == AccountInboundMode::Trigger && !native_sidecar {
+            let Some(realm_id) = skipped.realm_id.as_deref() else {
+                return Ok(false);
+            };
+            agent_interaction_trigger_allowed(
+                provider,
+                crypto_store,
+                account,
+                &payload.pre_encryption_header.effective_scope,
+                realm_id,
+                skipped.sender_actor_id.as_ref(),
+                false,
+            )
+            .await?
+        } else {
+            true
+        };
+    observe_inbound_boundary(
+        channel,
+        account,
+        if ordinary_interaction_allowed {
+            "decrypt_interaction_allowed"
+        } else {
+            "decrypt_interaction_suppressed"
+        },
+    );
     match crypto_store.plan_bootstrap_for_payload(
         &account.principal_id,
         &account.device_id,
@@ -2195,11 +3462,19 @@ async fn try_handle_encrypted_account_skip(
         ),
     }
 
-    match crypto_store.try_decrypt_content_block_detailed(payload) {
+    observe_inbound_boundary(channel, account, "mls_decrypt_entered");
+    let decrypted = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
+        Some(reference) => {
+            crypto_store.try_decrypt_accepted_content_block_detailed(reference, payload)
+        }
+        None => crypto_store.try_decrypt_content_block_detailed(payload),
+    };
+    match decrypted {
         Ok(ArkretDecryptDetailedOutcome::Decrypted {
             content,
             consume_bindings,
         }) => {
+            observe_inbound_boundary(channel, account, "mls_decrypted");
             consume_account_mls_key_packages(
                 client,
                 channel,
@@ -2208,6 +3483,16 @@ async fn try_handle_encrypted_account_skip(
                 &consume_bindings,
             )
             .await;
+            if inbound_mode == AccountInboundMode::Baseline || !ordinary_interaction_allowed {
+                observe_inbound_boundary(channel, account, "decrypted_non_triggering");
+                debug!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
+                    "arkret: decrypted initial catch-up event for MLS progression without agent dispatch"
+                );
+                return Ok(true);
+            }
             let Some(body) = decrypted_text_body(&content) else {
                 warn!(
                     account_id = %account.id,
@@ -2225,23 +3510,97 @@ async fn try_handle_encrypted_account_skip(
             let Some(sender_did) = skipped.sender_did.clone() else {
                 return Ok(false);
             };
-            dispatch_to_agent(
-                ArkretInboundEvent {
-                    account_id: skipped.account_id.clone(),
-                    event_id,
-                    realm_id,
-                    strand_id: skipped.strand_id.clone(),
-                    sender_did,
-                    body,
-                    thread_root_id: skipped.reply_to.clone(),
-                    mentioned_actor_ids: Vec::new(),
-                },
+            if inbound_mode == AccountInboundMode::Hydrate {
+                if let Some(strand_id) = skipped.strand_id.as_ref() {
+                    crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                        &gateway_channel.config().savfox_home,
+                    )
+                    .hydrate_event(
+                        crate::arkret_delivery::RemoteConversationKey {
+                            channel_config_id: channel.id.clone(),
+                            account_id: account.id.clone(),
+                            realm_id: realm_id.clone(),
+                            strand_id: strand_id.clone(),
+                            stream_ref: arkret::CommitStreamRef::from_scope(
+                                &payload.pre_encryption_header.effective_scope,
+                                None,
+                            )?,
+                        },
+                        crate::arkret_delivery::RemoteContextEvent {
+                            event_id: event_id.clone(),
+                            sender_did: sender_did.clone(),
+                            sender_kind: if sender_did.eq_ignore_ascii_case(&account.principal_id) {
+                                "agent".to_owned()
+                            } else {
+                                "human".to_owned()
+                            },
+                            body,
+                            received_at: Utc::now(),
+                        },
+                    )
+                    .await?;
+                }
+                return Ok(true);
+            }
+            let sidecar_exchange = match consume_sidecar_exchange_binding(
+                provider,
+                skipped,
+                crypto_store,
                 channel,
                 account,
-                Arc::clone(gateway_channel),
-                Arc::clone(session_store),
+                gateway_channel,
+                &event_id,
             )
-            .await?;
+            .await?
+            {
+                SidecarConsumeOutcome::NoBinding => None,
+                SidecarConsumeOutcome::DropSilently => return Ok(true),
+                SidecarConsumeOutcome::Execute(context) => Some(context),
+            };
+            let event = ArkretInboundEvent {
+                account_id: skipped.account_id.clone(),
+                event_id,
+                realm_id: realm_id.clone(),
+                scope_ref: payload.pre_encryption_header.effective_scope.clone(),
+                chat_type: if crypto_store
+                    .direct_conversation_binding_event_ref(&realm_id)?
+                    .is_some()
+                    || crypto_store.realm_is_direct_conversation(&realm_id)?
+                {
+                    Some("dm".to_owned())
+                } else {
+                    skipped.chat_type.clone()
+                },
+                participant_count: skipped.participant_count,
+                strand_id: skipped.strand_id.clone(),
+                sender_did,
+                sender_actor_id: skipped.sender_actor_id.clone(),
+                body,
+                thread_root_id: skipped.reply_to.clone(),
+                mentioned_account_ids: structured_mention_account_ids(&content),
+                sidecar_exchange,
+            };
+            if native_sidecar {
+                dispatch_to_agent(
+                    provider,
+                    crypto_store,
+                    event,
+                    channel,
+                    account,
+                    Arc::clone(gateway_channel),
+                    Arc::clone(session_store),
+                )
+                .await?;
+            } else {
+                dispatch_authorized_agent_event(
+                    event,
+                    channel,
+                    account,
+                    Arc::clone(gateway_channel),
+                    Arc::clone(session_store),
+                )
+                .await?;
+            }
             Ok(true)
         }
         Ok(ArkretDecryptDetailedOutcome::MissingGroupState) => {
@@ -2280,9 +3639,445 @@ async fn try_handle_encrypted_account_skip(
                 payload.clone(),
                 UnableToDecryptReason::BadCiphertext,
             );
-            Ok(false)
+            Err(err)
         }
     }
+}
+
+/// Disposition of one decrypted inbound Event with respect to the Agent
+/// Sidecar exchange consumption gate (`zh/models/sidecar.md` §8–§5/§8).
+enum SidecarConsumeOutcome {
+    /// No (valid) exchange binding: handle as an ordinary private message.
+    NoBinding,
+    /// The request must be treated as nonexistent or already observed: do not
+    /// execute, do not surface an error (the Event stays acknowledged).
+    DropSilently,
+    /// Every §5/§8 gate passed: dispatch the request with this verified
+    /// exchange identity so the reply can carry the `user_facing_response`
+    /// binding.
+    Execute(SidecarExchangeContext),
+}
+
+fn refreshed_grant_matches_account(
+    state: &garth::SessionGrantState,
+    account: &ArkretAccountConfig,
+    required_operation: &str,
+) -> bool {
+    state.account_id == account.actor_account_id
+        && state.expires_at > Utc::now()
+        && savfox_gateway_shared::arkret::session_scope_matches_request(
+            &account.requested_scope,
+            &state.granted_scope,
+        )
+        && savfox_channels::arkret::missing_required_service_operations(
+            &state.granted_scope,
+            account.listen,
+            account.send,
+        )
+        .is_empty()
+        && state.device_id.is_none()
+        && state.audience_id == account.actor_account_id.station_id
+        && ServiceOperationId::from_wire(required_operation).is_some()
+        && state
+            .granted_scope
+            .iter()
+            .any(|scope| scope == required_operation)
+}
+
+/// Re-prove this runtime's authorization immediately before a sensitive
+/// action. This is an **agent-level** gate and has nothing to do with Sidecar.
+///
+/// A successful grant refresh is the registered protocol proof of the whole
+/// authorization chain, not a convenience: the Auth Server re-fetches the
+/// authoritative Agent view and refuses to issue for a `paused` or
+/// `deactivated` agent (`zh/models/actor.md` "Lifecycle", which also binds
+/// already-issued sessions inside a ≤60 s freshness window), and it revalidates
+/// the proof against the current non-revoked runtime key
+/// (`zh/identity/key-management.md` §3.6.1, where a replaced key's sessions
+/// fail closed inside the revocation freshness window rather than living out
+/// their TTL).
+///
+/// The identity/scope comparison afterwards is what makes the refreshed grant
+/// evidence about *this* runtime: a grant that came back bound to another
+/// principal, another device, or without the required service operation proves
+/// nothing. Resource content authorization remains separate from this ceiling.
+async fn ensure_fresh_runtime_authorization(
+    provider: &ArkretAgentSessionProvider,
+    account: &ArkretAccountConfig,
+    required_operation: &str,
+) -> anyhow::Result<()> {
+    provider
+        .refresh_for_sensitive_action()
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!("Arkret runtime authorization could not be revalidated: {error}")
+        })?;
+    let Some(state) = provider.session().current_state() else {
+        anyhow::bail!("Arkret runtime authorization refresh produced no session grant");
+    };
+    anyhow::ensure!(
+        refreshed_grant_matches_account(&state, account, required_operation),
+        "refreshed Arkret runtime grant lost its identity binding or {required_operation} operation"
+    );
+    Ok(())
+}
+
+/// Decrypt and fold one `ak.agent.sidecar.exchange.control` Event.
+///
+/// The plaintext is readable here because this runtime is an MLS member of the
+/// native Sidecar, which is exactly the population §8 addresses.
+/// The Event is never dispatched to the agent: its only effect is durable
+/// terminal state, which is what stops a later request or a cached reply
+/// context from executing.
+async fn fold_sidecar_exchange_control(
+    skipped: &ArkretInboundSkippedEvent,
+    crypto_store: &FileArkretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    gateway_channel: &Arc<GatewayChannel>,
+) -> anyhow::Result<()> {
+    if !account_allows_event_read(account) {
+        return Ok(());
+    }
+    let (Some(actor_id), Some(strand_id), Some(payload), Some(event_id), Some(accepted_ref)) = (
+        skipped.sender_actor_id.as_ref(),
+        skipped.strand_id.as_deref(),
+        skipped.encrypted_payload.as_ref(),
+        skipped.event_id.as_deref(),
+        skipped.accepted_ref.as_ref(),
+    ) else {
+        return Ok(());
+    };
+    let ArkretDecryptDetailedOutcome::Decrypted {
+        content: plaintext, ..
+    } = crypto_store.try_decrypt_accepted_content_block_detailed(accepted_ref, payload)?
+    else {
+        debug!(
+            account_id = %account.id,
+            event_id,
+            "arkret: Sidecar exchange control could not be decrypted; leaving exchange state unchanged"
+        );
+        anyhow::bail!("Sidecar exchange control is waiting for verified MLS decryption");
+    };
+    // The outer payload strand and the delivery strand are the same value here
+    // because the delivery strand is read from that payload; passing both keeps
+    // the §8 check owned by the gate instead of implied by the caller.
+    let Some(control) = gate_inbound_exchange_control(
+        &plaintext,
+        strand_id,
+        strand_id,
+        actor_id,
+        &account.controller_account_id,
+    ) else {
+        debug!(
+            account_id = %account.id,
+            event_id,
+            "arkret: Sidecar exchange control failed closed consumer validation; not folded"
+        );
+        return Ok(());
+    };
+    let store = SidecarExchangeStore::for_account(
+        &gateway_channel.config().savfox_home,
+        &channel.id,
+        &account.id,
+    );
+    match store.record_terminal_control(
+        &account.controller_account_id,
+        strand_id,
+        &control,
+        accepted_ref,
+        &skipped.causal_after_event_ids,
+    )? {
+        SidecarTerminalAdmission::Recorded => {
+            info!(
+                account_id = %account.id,
+                event_id,
+                exchange_id = %control.exchange_id.as_str(),
+                "arkret: Sidecar exchange closed by controller control Event"
+            );
+        }
+        SidecarTerminalAdmission::AlreadyTerminal { control_event_id } => {
+            debug!(
+                account_id = %account.id,
+                event_id,
+                terminal_control_event_id = %control_event_id,
+                "arkret: Sidecar exchange already terminal; later control ignored"
+            );
+        }
+        SidecarTerminalAdmission::NotCanonicalRequest => {
+            debug!(
+                account_id = %account.id,
+                event_id,
+                "arkret: Sidecar exchange control does not name the canonical request; not folded"
+            );
+        }
+        SidecarTerminalAdmission::Reassigned => {
+            debug!(
+                account_id = %account.id,
+                event_id,
+                "arkret: Sidecar coordinator reassignment retained from accepted causal control"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Decrypt the `encrypted_metadata` carrier (same MLS group as the content
+/// carrier), extract the exchange binding fail-closed, and apply the §5/§8
+/// consumption gate. The runtime obtains exchange identity only from this
+/// binding — never from `reply_to`, message bodies or arrival order.
+///
+/// The gate is the conjunction of five locally decidable facts. No
+/// Agent-runtime-facing Sidecar read exists (§3.2 scopes get/list to the
+/// controller) and none is needed, because §5/§8 asks the runtime to
+/// *re-verify*, not to fetch a single combined proof:
+///
+/// 1. **Controller authorship** — the Event actor is this runtime's controller. §8: a request
+///    binding carried by a non-controller actor is wholly invalid, so a sibling Agent in the same
+///    native Sidecar cannot drive this runtime even though it can decrypt the Event.
+/// 2. **Addressed** — this principal is in `addressed_agent_ids`.
+/// 3. **Canonical request identity and local idempotency** — the scoped `(controller, native
+///    stream, exchange)` audit admits exactly one request Event and fails closed on any other,
+///    retaining the exact verified native Commit reference.
+/// 4. **Non-terminal exchange** — no valid terminal control Event has closed it.
+/// 5. **Runtime authorization freshness** — see [`ensure_fresh_runtime_authorization`].
+///
+/// Effective access and target-device MLS readiness are not separate fetches:
+/// the request was decrypted with the group's current epoch key, and §7.3
+/// requires the server to stop addressing, delivery and new write admission for
+/// an Agent the moment revoke/pause/deactivate becomes accepted state. An old
+/// key cannot open a newly delivered request, and a reply from a runtime that
+/// lost access cannot pass write admission.
+async fn consume_sidecar_exchange_binding(
+    provider: &ArkretAgentSessionProvider,
+    skipped: &ArkretInboundSkippedEvent,
+    crypto_store: &FileArkretCryptoStore,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    gateway_channel: &Arc<GatewayChannel>,
+    event_id: &str,
+) -> anyhow::Result<SidecarConsumeOutcome> {
+    let native_sidecar = skipped.encrypted_payload.as_ref().is_some_and(|payload| {
+        matches!(
+            payload.pre_encryption_header.effective_scope,
+            arkret::ScopeRef::Sidecar { .. }
+        )
+    });
+    let non_request = || {
+        if native_sidecar {
+            SidecarConsumeOutcome::DropSilently
+        } else {
+            SidecarConsumeOutcome::NoBinding
+        }
+    };
+    let Some(metadata_payload) = skipped.encrypted_metadata_payload.as_ref() else {
+        return Ok(non_request());
+    };
+    let decrypted_metadata = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
+        Some(reference) => {
+            crypto_store.try_decrypt_accepted_content_block_detailed(reference, metadata_payload)
+        }
+        None => crypto_store.try_decrypt_content_block_detailed(metadata_payload),
+    };
+    let Ok(ArkretDecryptDetailedOutcome::Decrypted {
+        content: metadata_plaintext,
+        ..
+    }) = (match decrypted_metadata {
+        Err(error) if native_sidecar => {
+            return Err(error.context("decrypt verified Sidecar metadata"));
+        }
+        other => other,
+    })
+    else {
+        if native_sidecar {
+            anyhow::bail!("verified Sidecar metadata is waiting for MLS decryption");
+        }
+        // Fail closed to "no binding": the message is handled as an
+        // ordinary private message and never as an exchange participant.
+        debug!(
+            account_id = %account.id,
+            event_id,
+            "arkret: encrypted_metadata carrier could not be decrypted; treating event as non-exchange"
+        );
+        return Ok(non_request());
+    };
+    let Some(binding) = sidecar_binding_from_metadata_plaintext(&metadata_plaintext) else {
+        return Ok(non_request());
+    };
+    let Some(actor_id) = skipped.sender_actor_id.as_ref() else {
+        return Ok(SidecarConsumeOutcome::DropSilently);
+    };
+    if native_sidecar && binding.role == arkret::AgentSidecarExchangeRole::UserFacingResponse {
+        let Some(accepted) = skipped.accepted_view.as_ref() else {
+            return Ok(SidecarConsumeOutcome::DropSilently);
+        };
+        anyhow::ensure!(
+            skipped
+                .encrypted_payload
+                .as_ref()
+                .is_some_and(|payload| payload.pre_encryption_header.effective_scope
+                    == metadata_payload.pre_encryption_header.effective_scope),
+            "Sidecar response content and metadata use different scopes"
+        );
+        let context = SidecarExchangeContext {
+            exchange_id: binding.exchange_id.clone(),
+            request_event_id: binding
+                .request_event_id
+                .as_ref()
+                .context("Sidecar response has no request identity")?
+                .to_string(),
+            coordinator_assignment_event_id: binding
+                .coordinator_assignment_event_id
+                .as_ref()
+                .map(ToString::to_string),
+        };
+        let store = SidecarExchangeStore::for_account(
+            &gateway_channel.config().savfox_home,
+            &channel.id,
+            &account.id,
+        );
+        if store
+            .response_context(
+                &account.controller_account_id,
+                skipped.strand_id.as_deref().unwrap_or_default(),
+                &context.exchange_id,
+                &context.request_event_id,
+                &account.principal_id,
+            )?
+            .is_none()
+        {
+            return Ok(SidecarConsumeOutcome::DropSilently);
+        }
+        store.record_response_commit(
+            &account.controller_account_id,
+            &context,
+            &accepted.event,
+            &accepted.commit,
+        )?;
+        return Ok(SidecarConsumeOutcome::DropSilently);
+    }
+    match gate_inbound_request_binding(
+        &binding,
+        event_id,
+        actor_id,
+        &account.controller_account_id,
+        &account.principal_id,
+    ) {
+        SidecarRequestGate::NotARequest => Ok(non_request()),
+        SidecarRequestGate::NotController => {
+            // §8: a request binding carried by a non-controller actor is
+            // wholly invalid. Another Agent of the same native Sidecar can
+            // decrypt it, and must still treat it as nonexistent.
+            debug!(
+                account_id = %account.id,
+                event_id,
+                "arkret: Sidecar request binding was not authored by this runtime's controller; treating request as nonexistent"
+            );
+            Ok(SidecarConsumeOutcome::DropSilently)
+        }
+        SidecarRequestGate::NotAddressed => {
+            // §5/§8: a non-addressed member treats the request as
+            // nonexistent even though it can decrypt it.
+            debug!(
+                account_id = %account.id,
+                event_id,
+                reason = ?ArkretInboundSkipReason::SidecarNotAddressed,
+                "arkret: Sidecar request not addressed to this principal; treating request as nonexistent"
+            );
+            Ok(SidecarConsumeOutcome::DropSilently)
+        }
+        SidecarRequestGate::Addressed(context) => {
+            let Some(private_strand_id) = skipped.strand_id.as_deref() else {
+                return Ok(SidecarConsumeOutcome::DropSilently);
+            };
+            let Some(accepted_ref) = skipped.accepted_ref.as_ref() else {
+                warn!(
+                    account_id = %account.id,
+                    event_id,
+                    "arkret: Sidecar request has no verified accepted Commit; failing closed"
+                );
+                return Ok(SidecarConsumeOutcome::DropSilently);
+            };
+            let request_context = binding
+                .request_context
+                .as_ref()
+                .expect("shape-checked request");
+            anyhow::ensure!(
+                native_sidecar
+                    && skipped.source_track_name.as_deref()
+                        == Some(request_context.source_track_ref.track_name.as_str())
+                    && metadata_payload.pre_encryption_header.effective_scope
+                        == skipped
+                            .encrypted_payload
+                            .as_ref()
+                            .expect("native content checked")
+                            .pre_encryption_header
+                            .effective_scope,
+                "Sidecar request metadata differs from its native content or source Track"
+            );
+            ensure_fresh_runtime_authorization(
+                provider,
+                account,
+                ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+            )
+            .await?;
+            let store = SidecarExchangeStore::for_account(
+                &gateway_channel.config().savfox_home,
+                &channel.id,
+                &account.id,
+            );
+            match store.record_request_identity(
+                &account.controller_account_id,
+                private_strand_id,
+                &context.exchange_id,
+                &context.request_event_id,
+                accepted_ref,
+                request_context,
+            )? {
+                SidecarExchangeAdmission::Recorded => {}
+                SidecarExchangeAdmission::AlreadyObserved => {
+                    debug!(
+                        account_id = %account.id,
+                        event_id,
+                        exchange_id = %context.exchange_id,
+                        "arkret: Sidecar request identity already observed; skipping exact replay"
+                    );
+                    return Ok(SidecarConsumeOutcome::DropSilently);
+                }
+                SidecarExchangeAdmission::Conflict {
+                    canonical_request_event_id,
+                } => {
+                    warn!(
+                        account_id = %account.id,
+                        event_id,
+                        exchange_id = %context.exchange_id,
+                        canonical_request_event_id = %canonical_request_event_id,
+                        "arkret: scoped Sidecar exchange id maps to a different request event; failing closed"
+                    );
+                    return Ok(SidecarConsumeOutcome::DropSilently);
+                }
+                SidecarExchangeAdmission::Terminal { control_event_id } => {
+                    debug!(
+                        account_id = %account.id,
+                        event_id,
+                        exchange_id = %context.exchange_id,
+                        terminal_control_event_id = %control_event_id,
+                        "arkret: Sidecar exchange is already terminal; refusing to execute a new request"
+                    );
+                    return Ok(SidecarConsumeOutcome::DropSilently);
+                }
+            }
+
+            Ok(SidecarConsumeOutcome::Execute(context))
+        }
+    }
+}
+
+fn arkret_sender_is_account_principal(
+    sender_did: Option<&str>,
+    account: &ArkretAccountConfig,
+) -> bool {
+    sender_did.is_some_and(|sender| sender.eq_ignore_ascii_case(account.principal_id.trim()))
 }
 
 fn record_account_unable_to_decrypt(
@@ -2327,9 +4122,46 @@ fn decrypted_text_body(content: &Value) -> Option<String> {
 
 /// Build a shared session-backed transport provider for one agent runtime.
 async fn construct_account_provider(
+    home: &std::path::Path,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<ArkretAgentSessionProvider> {
+    let (provider, _) = construct_native_account_provider(home, channel, account).await?;
+    Ok(provider)
+}
+
+async fn construct_native_account_provider(
+    savfox_home: &std::path::Path,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<(
+    ArkretAgentSessionProvider,
+    savfox_channels::arkret::ArkretNativeCredentialSource,
+)> {
+    construct_native_account_provider_inner(savfox_home, channel, account, true).await
+}
+
+async fn construct_account_provider_for_onboarding(
+    savfox_home: &std::path::Path,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<ArkretAgentSessionProvider> {
+    Ok(
+        construct_native_account_provider_inner(savfox_home, channel, account, false)
+            .await?
+            .0,
+    )
+}
+
+async fn construct_native_account_provider_inner(
+    savfox_home: &std::path::Path,
+    channel: &ArkretChannelConfig,
+    account: &ArkretAccountConfig,
+    persist_runtime_binding: bool,
+) -> anyhow::Result<(
+    ArkretAgentSessionProvider,
+    savfox_channels::arkret::ArkretNativeCredentialSource,
+)> {
     let key_ref = account
         .key_ref
         .as_ref()
@@ -2344,24 +4176,41 @@ async fn construct_account_provider(
         anyhow::anyhow!("Arkret agent '{}' missing authorizedEventRef", account.id)
     })?;
     let audience = account
-        .arkret_server_did
-        .clone()
+        .inkson_bootstrap
+        .as_ref()
+        .map(|bootstrap| bootstrap.service_id.to_string())
         .or_else(|| channel.service_id.clone())
-        .or_else(|| {
-            account
-                .inkson_bootstrap
-                .as_ref()
-                .map(|bootstrap| bootstrap.service_id.to_string())
-        })
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Arkret agent '{}' missing serviceId/arkretServerDid for agent_key_proof audience",
+                "Arkret agent '{}' missing serviceId for agent_key_proof audience",
                 account.id
             )
         })?;
-    let principal = Did::new(account.principal_id.clone())
-        .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
-    let device_id = DeviceId::new(account.device_id.clone())
+    anyhow::ensure!(
+        account.actor_account_id.principal_id.as_str() == account.principal_id,
+        "Agent config principal differs from its full Account"
+    );
+    let selected = url::Url::parse(&channel.base_url)?;
+    let description =
+        arkret::http_client::station_connection::fetch_station_description(&selected, true).await?;
+    let candidate =
+        arkret::StationConnectionBinding::from_description(&selected, &description, true)?;
+    anyhow::ensure!(
+        candidate.service_id == account.actor_account_id.station_id
+            && candidate.service_id.as_str() == audience,
+        "configured Agent Station differs from selected Station"
+    );
+    let crypto = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
+    let accepted_binding = if persist_runtime_binding {
+        crypto.accept_station_binding(&candidate)?
+    } else if crypto.path().exists() {
+        let accepted = crypto.accepted_station_binding()?;
+        accepted.require_same(&candidate)?;
+        accepted
+    } else {
+        candidate
+    };
+    let _device_id = DeviceId::new(account.device_id.clone())
         .map_err(|err| anyhow::anyhow!("invalid Arkret device_id: {err}"))?;
     let runtime_public_key_digest =
         savfox_channels::arkret::ed25519_runtime_public_key_digest(key_ref, verification_method)?;
@@ -2372,109 +4221,46 @@ async fn construct_account_provider(
         runtime_public_key_digest,
         "arkret: constructing agent session provider"
     );
-    let (provider, session) = ArkretHttpClient::login_agent_provider(
-        &channel.base_url,
-        key_ref,
-        principal,
-        verification_method,
-        authorization_ref,
-        account.requested_scope.clone(),
-        &audience,
-        Some(device_id),
-        None,
-    )
-    .await?;
+    let (provider, session, credentials) =
+        ArkretHttpClient::login_agent_provider_with_native_credentials(
+            &channel.base_url,
+            key_ref,
+            account.actor_account_id.clone(),
+            &accepted_binding,
+            account_runtime_fence(&channel.id, &account.id),
+            verification_method,
+            authorization_ref,
+            account.requested_scope.clone(),
+            &audience,
+            None,
+        )
+        .await?;
+    let granted = provider
+        .session()
+        .current_state()
+        .context("Agent session provider returned no accepted grant")?;
+    anyhow::ensure!(
+        savfox_gateway_shared::arkret::session_scope_matches_request(
+            &account.requested_scope,
+            &granted.granted_scope
+        ),
+        "Agent session grant differs from the exact requested runtime scope"
+    );
+    if persist_runtime_binding {
+        savfox_channels::arkret::save_verified_runtime_scope(
+            savfox_home,
+            &channel.id,
+            account,
+            runtime_public_key_digest.clone(),
+            &granted.granted_scope,
+        )
+        .await?;
+    }
     info!(
         "arkret: agent '{}' obtained DPoP-bound session; audience='{}' expires_at='{}'",
         account.id, audience, session.expires_at
     );
-    Ok(provider)
-}
-
-/// Obtain a current authenticated client for one-shot outbound operations.
-async fn construct_account_client(
-    channel: &ArkretChannelConfig,
-    account: &ArkretAccountConfig,
-) -> anyhow::Result<ArkretHttpClient> {
-    let provider = construct_account_provider(channel, account).await?;
-    let inner = provider
-        .provide()
-        .await
-        .map_err(|error| anyhow::anyhow!("build authenticated Arkret client: {error}"))?;
-    Ok(ArkretHttpClient::from_inner(inner))
-}
-
-/// Build the restart-safe monotonic `actor_seq` allocator for an outbound
-/// account, mirroring the applet allocator. The backing file store lives under
-/// `{savfox_home}/gateway/arkret-account-seq/{account_id}.seq`, keyed
-/// `account:{account_id}:actor_seq`, so each account has an independent
-/// monotonic counter that survives restarts (the previous `timestamp_millis()`
-/// source was neither monotonic across rapid sends nor restart-safe).
-fn build_account_seq_allocator(
-    savfox_home: &std::path::Path,
-    account_id: &str,
-) -> anyhow::Result<arkret_bridge_runtime::SeqAllocator> {
-    let dir = savfox_home
-        .join(savfox_utils::home_dir::GATEWAY_SUBDIR)
-        .join("arkret-account-seq");
-    let safe_id: String = account_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let path = dir.join(format!("{safe_id}.seq"));
-    let store = arkret_bridge_runtime::FileSeqStore::shared(path)
-        .map_err(|e| anyhow::anyhow!("arkret account seq store: {e}"))?;
-    Ok(arkret_bridge_runtime::SeqAllocator::new(
-        store,
-        format!("account:{account_id}:actor_seq"),
-    ))
-}
-
-/// Maps one durable Garth queue item onto the Arkret submit endpoint.
-struct AccountOutboundSubmitter {
-    client: ArkretHttpClient,
-}
-
-impl OutboundSubmitter for AccountOutboundSubmitter {
-    fn submit<'a>(
-        &'a self,
-        item: arkret::sync_client::SendQueueItem,
-    ) -> garth::outbound::BoxOutboundFuture<'a, OutboundSubmitOutcome> {
-        Box::pin(async move {
-            let event: arkret::Event = serde_json::from_value(item.content).map_err(|error| {
-                arkret::Error::Protocol(format!("decode queued Arkret event: {error}"))
-            })?;
-            let response = match self.client.submit_event(&event).await {
-                Ok(response) => response,
-                Err(error) => {
-                    return Ok(OutboundSubmitOutcome::RetryAfter {
-                        delay: Duration::from_secs(1),
-                        reason: error.to_string(),
-                    });
-                }
-            };
-            if let Some(event_id) = response.accepted.into_iter().next() {
-                return Ok(OutboundSubmitOutcome::Accepted { event_id });
-            }
-            if let Some(event_id) = response.duplicate.into_iter().next() {
-                return Ok(OutboundSubmitOutcome::Duplicate { event_id });
-            }
-            if !response.rejected.is_empty() {
-                return Ok(OutboundSubmitOutcome::Rejected {
-                    reason: format!("{:?}", response.rejected),
-                });
-            }
-            Ok(OutboundSubmitOutcome::Terminal {
-                reason: format!("server accepted no events (status={:?})", response.status),
-            })
-        })
-    }
+    Ok((provider, credentials))
 }
 
 /// Send a `ak.message.create` event as one of the channel's configured
@@ -2488,161 +4274,402 @@ pub(crate) async fn send_to_arkret_account(
     realm_id: &str,
     strand_id: Option<&str>,
     body: &str,
-) -> anyhow::Result<()> {
-    let Some((channel, account)) = resolve_arkret_outbound_account(savfox_home, realm_id).await?
+    sidecar_exchange: Option<&SidecarExchangeContext>,
+    saved_channel_config_id: Option<&str>,
+    expected_account_id: Option<&str>,
+    delivery: Option<&crate::arkret_delivery::DeliveryCorrelation>,
+) -> anyhow::Result<String> {
+    let Some((channel, account)) = resolve_arkret_outbound_account_for_binding(
+        savfox_home,
+        realm_id,
+        saved_channel_config_id,
+        expected_account_id,
+    )
+    .await?
     else {
-        anyhow::bail!("no Arkret channel configured for realm {realm_id}");
-    };
-    if !account.has_requested_scope("ak.self.events.command.submit") {
         anyhow::bail!(
-            "Arkret account '{}' send=true but missing service scope ak.self.events.command.submit; refusing to call submit endpoint",
-            account.id
+            "no Arkret channel configured for realm {realm_id} and routed config {saved_channel_config_id:?}"
         );
-    }
+    };
+    let realm_id_typed = RealmId::new(realm_id.to_owned())?;
     let strand_id = strand_id.map(str::to_owned).ok_or_else(|| {
         anyhow::anyhow!(
             "Arkret account '{}' cannot send without an inbound Arkret strand id",
             account.id
         )
     })?;
+    if authorization_fence_key(&channel, &account).is_some_and(|key| {
+        known_revoked_authorizations()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .contains(&key)
+    }) {
+        anyhow::bail!("Arkret runtime authorization is known revoked");
+    }
 
     // One-shot send restores the same keyring-backed session grant as the
     // listener and participates in the shared refresh/client rebuild path.
-    let client = construct_account_client(&channel, &account).await?;
+    let private_route = if let Some(context) = sidecar_exchange {
+        let store = SidecarExchangeStore::for_account(savfox_home, &channel.id, &account.id);
+        Some(
+            store
+                .response_context(
+                    &account.controller_account_id,
+                    &strand_id,
+                    &context.exchange_id,
+                    &context.request_event_id,
+                    &account.principal_id,
+                )?
+                .context(
+                    "Arkret Sidecar exchange no longer accepts a response from this runtime",
+                )?,
+        )
+    } else {
+        None
+    };
+    let scope_ref = private_route
+        .as_ref()
+        .map(|(scope, ..)| scope.clone())
+        .unwrap_or_else(|| arkret::ScopeRef::Realm {
+            realm_id: realm_id_typed.clone(),
+        });
+    anyhow::ensure!(
+        scope_ref.realm_id_opt() == Some(&realm_id_typed),
+        "Sidecar reply was routed to another Realm"
+    );
+    let mut reply_exchange = sidecar_exchange.cloned();
+    if let (Some(context), Some((_, _, assignment))) = (&mut reply_exchange, &private_route) {
+        context.coordinator_assignment_event_id = assignment.clone();
+    }
+    let sidecar_exchange = reply_exchange.as_ref();
+    anyhow::ensure!(
+        account.authorized_event_ref.is_some(),
+        "Arkret runtime has no locally verified active key authorization"
+    );
+    let provider = construct_account_provider(savfox_home, &channel, &account).await?;
+    let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
+    let client = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
+    // The authenticated observation only suppresses local work; the Station
+    // independently evaluates owner-current and governance at acceptance.
+    let observation = provider
+        .session()
+        .current_state()
+        .context("Agent session observation is unavailable")?
+        .agent_participation_observation(Utc::now())?;
+    anyhow::ensure!(
+        observation.agent_account == account.actor_account_id
+            && observation.controller_account == account.controller_account_id,
+        "Agent observation belongs to another controller Account"
+    );
+    use arkret::ParticipationScope;
+    let mut observed_scopes = vec![ParticipationScope::Realm {
+        realm_id: realm_id_typed.clone(),
+    }];
+    if let arkret::ScopeRef::Circle { circle_id, .. } = &scope_ref {
+        observed_scopes.push(ParticipationScope::Circle {
+            realm_id: realm_id_typed.clone(),
+            circle_id: circle_id.clone(),
+        });
+    }
+    observed_scopes.push(ParticipationScope::Strand {
+        realm_id: realm_id_typed.clone(),
+        strand_id: arkret::StrandId::new(strand_id.clone())?,
+    });
+    anyhow::ensure!(
+        observation
+            .observed_selection_for_scopes(&observed_scopes)
+            .is_some_and(|bits| bits.reply_message),
+        "Agent session observation suppresses replies in this scope"
+    );
     let outbound_store = open_account_store(
         savfox_home,
         &channel.id,
         &account.id,
         ACCOUNT_EVENT_DEDUPE_MAX,
     )?;
-    outbound_store.ensure_created().await?;
-    // Monotonic, restart-safe actor sequence (parity with the applet path).
-    let actor_seq = build_account_seq_allocator(savfox_home, &account.id)?
-        .alloc()
-        .map_err(|e| anyhow::anyhow!("arkret account seq alloc: {e}"))?;
-    let request = MessageCreateRequest {
-        realm_id: realm_id.to_owned(),
-        strand_id,
-        body: body.to_owned(),
-        principal_id: account.principal_id.clone(),
-        actor_seq,
-        thread_root_id: None,
-    };
-    let mut event = build_message_create_event(&request)?;
-    let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
-    apply_account_outbound_encryption(&crypto_store, realm_id, &mut event)?;
-
-    // Phase 8 (T8.E): attach capability grant event_id when configured.
-    if let Some(grant_path) = &account.grant_event_path {
-        let grant =
-            savfox_channels::arkret::load_and_verify_grant(grant_path, &account.principal_id, None)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Arkret account '{}' failed to load capability grant {}",
-                        account.id,
-                        grant_path.display()
-                    )
-                })?;
-        if !grant.covers_action("ak.message.create") {
-            anyhow::bail!(
-                "Arkret account '{}' capability grant {} does not cover ak.message.create",
-                account.id,
-                grant_path.display()
-            );
-        }
-        event.authorization_ref = Some(grant.event_id);
-    }
-
-    // Phase 8 (T8.C): sign with the account's ed25519 key when key_ref is set.
-    if let Some(key_ref) = &account.key_ref {
-        let vm = account
-            .verification_method
-            .clone()
-            .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
-        let signer =
-            savfox_channels::arkret::load_ed25519_signer(key_ref, &account.principal_id, &vm)?;
-        savfox_channels::arkret::sign_outbound_event(&mut event, &signer, &vm)?;
-    }
-
-    let transaction_id = event.event_id.to_string();
-    let realm_id_typed = RealmId::new(realm_id.to_owned())?;
-    let outbound = OutboundEngine::new(outbound_store);
-    outbound
-        .enqueue(
-            Some(transaction_id.clone()),
-            realm_id_typed,
-            arkret::sync_client::SendQueueItemKind::Message,
-            serde_json::to_value(event)?,
-            Vec::new(),
+    if !matches!(scope_ref, arkret::ScopeRef::Sidecar { .. })
+        && !crypto_store.realm_is_direct_conversation(realm_id)?
+    {
+        let current = garth::own_station_results::read_own_station_agent_interaction(
+            client.own_station()?,
+            &realm_id_typed,
+            &account.actor_account_id,
         )
-        .await?;
-    let submitter = AccountOutboundSubmitter { client };
+        .await?
+        .into_value()?;
+        if !matches!(current, arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present { entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry), .. } if entry.value.controller_account_id == account.controller_account_id && entry.value.interaction_mode == arkret::AgentInteractionMode::Public)
+        {
+            anyhow::bail!("shared Agent execution authority is unavailable");
+        }
+    }
+    let conversation = crate::arkret_delivery::RemoteConversationKey {
+        channel_config_id: channel.id.clone(),
+        account_id: account.id.clone(),
+        realm_id: realm_id.to_owned(),
+        strand_id: strand_id.clone(),
+        stream_ref: arkret::CommitStreamRef::from_scope(&scope_ref, None)?,
+    };
+    let delivery_store = crate::arkret_delivery::ArkretExecutionBindingStore::new(savfox_home);
+    let retained = match delivery {
+        Some(delivery) => {
+            delivery_store
+                .checkpoint_submission(delivery.checkpoint_id, &conversation, body)
+                .await?
+        }
+        None => None,
+    };
+    let frozen = if let Some(retained) = retained {
+        retained
+    } else {
+        let request = MessageCreateRequest {
+            scope_ref,
+            strand_id,
+            track_name: private_route
+                .as_ref()
+                .map(|(_, source, _)| source.track_name.clone())
+                .unwrap_or_else(|| "discussion".to_owned()),
+            body: body.to_owned(),
+            actor_account_id: account.actor_account_id.clone(),
+            thread_root_id: None,
+            sidecar_exchange: sidecar_exchange.cloned(),
+        };
+        let mut event = build_message_create_event(&request)?;
+        apply_direct_reply_authority(&crypto_store, realm_id, &mut event)?;
+        apply_account_outbound_encryption(
+            &crypto_store,
+            realm_id,
+            &mut event,
+            sidecar_exchange,
+            delivery,
+        )?;
+        let authored = savfox_channels::arkret::finalize_outbound_event(event)?;
+        let key_ref = account
+            .key_ref
+            .as_ref()
+            .context("runtime key is unavailable")?;
+        let verification_method = account
+            .verification_method
+            .as_deref()
+            .context("runtime verification method is unavailable")?;
+        let frozen =
+            garth::MessageAuthoringSession::from_authored_event(authored)?.sign_with(|event| {
+                savfox_channels::arkret::sign_outbound_event_with_key(
+                    event,
+                    key_ref,
+                    verification_method,
+                )
+                .map_err(|error| garth::Error::Protocol(error.to_string()))
+            })?;
+        match delivery {
+            Some(delivery) => {
+                delivery_store
+                    .retain_checkpoint_submission(
+                        delivery.checkpoint_id,
+                        &conversation,
+                        body,
+                        frozen,
+                    )
+                    .await?
+            }
+            None => frozen,
+        }
+    };
+    anyhow::ensure!(
+        queued_message_matches_runtime(
+            &frozen.request().submission.event,
+            &account,
+            &crypto_store,
+        )?,
+        "frozen producer submission no longer matches the configured runtime or encryption policy"
+    );
+    let queued = frozen.into_queued_submission();
+    let event_id = queued.event_id.clone();
+    let outbound = OutboundEngine::new(outbound_store, garth::SystemClock);
+    outbound.enqueue(queued).await?;
+    cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation).await?;
+    let options = arkret::http_client::ClientRequestOptions::default();
     loop {
-        match outbound.submit_next(&submitter, Utc::now()).await? {
-            OutboundEngineOutcome::Accepted(item) | OutboundEngineOutcome::Duplicate(item)
-                if item.transaction_id == transaction_id =>
-            {
-                debug!(
-                    realm_id,
-                    transaction_id, "arkret: durable outbound event accepted"
-                );
-                return Ok(());
+        let client = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
+        let observation = provider
+            .session()
+            .current_state()
+            .context("Agent session observation is unavailable")?
+            .agent_participation_observation(Utc::now())?;
+        cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation)
+            .await?;
+        let authority = garth::AuthorityClient::new(client.own_station()?.clone());
+        match outbound.submit_next(&authority, &options).await? {
+            OutboundEngineOutcome::Committed { item, .. } if item.event_id() == &event_id => {
+                if let Some(context) = sidecar_exchange {
+                    SidecarExchangeStore::for_account(savfox_home, &channel.id, &account.id)
+                        .record_response_commit(
+                            &account.controller_account_id,
+                            context,
+                            item.submission.primary_event(),
+                            item.commit().context("committed response has no Commit")?,
+                        )?;
+                }
+                return Ok(event_id.to_string());
             }
-            OutboundEngineOutcome::Accepted(_) | OutboundEngineOutcome::Duplicate(_) => continue,
-            OutboundEngineOutcome::RetryAt { item, at }
-                if item.transaction_id == transaction_id =>
+            OutboundEngineOutcome::Rejected { item, reason_code }
+                if item.event_id() == &event_id =>
             {
+                anyhow::bail!("producer submission rejected: {reason_code}");
+            }
+            OutboundEngineOutcome::Failed { item, error, .. } if item.event_id() == &event_id => {
+                anyhow::bail!("producer submission failed: {error}");
+            }
+            OutboundEngineOutcome::Retry { item, delay } if item.event_id() == &event_id => {
                 anyhow::bail!(
-                    "arkret: outbound event queued for retry at {at} (transaction={transaction_id})"
+                    "producer submission remains durably queued for retry in {} ms",
+                    delay.as_millis()
                 );
             }
-            OutboundEngineOutcome::RetryAt { .. } => continue,
-            OutboundEngineOutcome::Rejected { item, .. }
-            | OutboundEngineOutcome::Terminal { item, .. }
-            | OutboundEngineOutcome::Quarantined { item, .. }
-                if item.transaction_id == transaction_id =>
-            {
-                anyhow::bail!("arkret: outbound event rejected (transaction={transaction_id})");
-            }
-            OutboundEngineOutcome::Rejected { .. }
-            | OutboundEngineOutcome::Terminal { .. }
-            | OutboundEngineOutcome::Quarantined { .. } => continue,
             OutboundEngineOutcome::Idle => {
                 let snapshot = outbound.snapshot().await?;
-                if snapshot.items.iter().any(|item| {
-                    item.transaction_id == transaction_id && item.remote_event_id.is_some()
-                }) {
-                    return Ok(());
+                let item = snapshot
+                    .items
+                    .iter()
+                    .find(|item| item.event_id() == &event_id)
+                    .context("durable queue lost the producer submission")?;
+                if item.status == garth::SendQueueStatus::Committed && item.commit().is_some() {
+                    if let Some(context) = sidecar_exchange {
+                        SidecarExchangeStore::for_account(savfox_home, &channel.id, &account.id)
+                            .record_response_commit(
+                                &account.controller_account_id,
+                                context,
+                                item.submission.primary_event(),
+                                item.commit().expect("Commit checked"),
+                            )?;
+                    }
+                    return Ok(event_id.to_string());
                 }
                 anyhow::bail!(
-                    "arkret: outbound queue became idle before transaction {transaction_id} completed"
+                    "producer submission is not committed; durable state is {:?}",
+                    item.status
                 );
             }
+            _ => {}
         }
     }
+}
+
+fn apply_direct_reply_authority(
+    crypto_store: &FileArkretCryptoStore,
+    realm_id: &str,
+    event: &mut arkret::Event,
+) -> anyhow::Result<()> {
+    if matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. })
+        || !crypto_store.realm_is_direct_conversation(realm_id)?
+    {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        event.kind == arkret::EventKind::MessageCreate
+            && event.realm_id.as_str() == realm_id
+            && matches!(&event.scope_ref, arkret::ScopeRef::Realm { realm_id: scope } if scope.as_str() == realm_id),
+        "Arkret direct reply must target its exact Realm message scope"
+    );
+    let binding = crypto_store
+        .direct_conversation_binding_event_ref(realm_id)?
+        .context("Arkret Direct Conversation is waiting for its accepted participant binding")?;
+    anyhow::ensure!(
+        event.authorization_ref.is_none()
+            && !event
+                .semantic_refs
+                .iter()
+                .any(|reference| reference.role == "direct_conversation_binding"),
+        "Arkret reply already carries a participant authority"
+    );
+    event.authorization_ref = Some(
+        arkret::AuthorizationRef::new(
+            arkret_wire::AuthoritySourceId::DIRECT_CONVERSATION_PARTICIPANT_V1,
+        )
+        .map_err(anyhow::Error::msg)?,
+    );
+    event.semantic_refs.push(arkret::SemanticRef::new(
+        binding.to_string(),
+        "direct_conversation_binding",
+    ));
+    Ok(())
 }
 
 fn apply_account_outbound_encryption(
     crypto_store: &FileArkretCryptoStore,
     realm_id: &str,
     event: &mut arkret::Event,
+    sidecar_exchange: Option<&SidecarExchangeContext>,
+    delivery: Option<&crate::arkret_delivery::DeliveryCorrelation>,
 ) -> anyhow::Result<()> {
-    let Some(content_block) = event.payload.get("content").cloned() else {
+    if let Some(content_block) = event.payload.get("content").cloned() {
+        match crypto_store.encrypt_content_block_for_scope(&event.scope_ref, &content_block)? {
+            ArkretEncryptOutcome::PlaintextAllowed => {}
+            ArkretEncryptOutcome::Encrypted(encrypted_content) => {
+                event.payload.remove("content");
+                event.payload.insert(
+                    "encrypted_content".to_owned(),
+                    serde_json::to_value(encrypted_content.into_envelope())?,
+                );
+            }
+            ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
+                anyhow::bail!(
+                    "Arkret realm '{realm_id}' requires E2EE but no local MLS group state exists for group '{group_id}'"
+                );
+            }
+        }
+    }
+    let mut metadata_plaintext = arkret::MessageMetadata::default();
+    if let Some(delivery) = delivery {
+        metadata_plaintext.extra.insert(
+            "delivery".to_owned(),
+            json!({
+                "checkpoint_id": delivery.checkpoint_id,
+                "sequence": delivery.sequence,
+                "source_event_id": delivery.source_event_id,
+                "initiated_by": delivery.initiated_by.as_str(),
+            }),
+        );
+    }
+    if let Some(context) = sidecar_exchange {
+        let sidecar = build_user_facing_response_metadata(context)?;
+        metadata_plaintext.fields.extend(sidecar.fields);
+        metadata_plaintext.extra.extend(sidecar.extra);
+    }
+    if metadata_plaintext.fields.is_empty() && metadata_plaintext.extra.is_empty() {
         return Ok(());
-    };
-    match crypto_store.encrypt_content_block_for_realm(realm_id, &content_block)? {
-        ArkretEncryptOutcome::PlaintextAllowed => Ok(()),
-        ArkretEncryptOutcome::Encrypted(encrypted_content) => {
-            event.payload.remove("content");
-            event
-                .payload
-                .insert("encrypted_content".to_owned(), encrypted_content);
+    }
+    // The `role=user_facing_response` exchange binding lives only in
+    // `encrypted_metadata` plaintext, encrypted with the same MLS group as
+    // `encrypted_content`; carrying it in plaintext `metadata` is a
+    // `schema_violation` (zh/models/sidecar.md §8, forbidden-wire-fields
+    // `sidecar_exchange_binding`). Native Sidecar encryption is independent
+    // of the parent Realm policy.
+    match crypto_store.encrypt_message_metadata_for_scope(&event.scope_ref, &metadata_plaintext)? {
+        ArkretEncryptOutcome::Encrypted(encrypted_metadata) => {
+            // Defense in depth: the binding must never surface in plaintext
+            // metadata alongside the encrypted carrier.
+            event.payload.remove("metadata");
+            event.payload.insert(
+                "encrypted_metadata".to_owned(),
+                serde_json::to_value(encrypted_metadata.into_envelope())?,
+            );
+            Ok(())
+        }
+        ArkretEncryptOutcome::PlaintextAllowed if sidecar_exchange.is_some() => {
+            anyhow::bail!(
+                "Arkret realm '{realm_id}' does not require E2EE; refusing to send a Sidecar exchange binding outside encrypted_metadata"
+            );
+        }
+        ArkretEncryptOutcome::PlaintextAllowed => {
+            event.payload.insert(
+                "metadata".to_owned(),
+                serde_json::to_value(metadata_plaintext)?,
+            );
             Ok(())
         }
         ArkretEncryptOutcome::MissingRequiredGroupState { realm_id, group_id } => {
             anyhow::bail!(
-                "Arkret realm '{realm_id}' requires E2EE but no local MLS group state exists for group '{group_id}'"
+                "Arkret realm '{realm_id}' requires E2EE but no local MLS group state exists for group '{group_id}' (Sidecar exchange reply)"
             );
         }
     }
@@ -2650,26 +4677,92 @@ fn apply_account_outbound_encryption(
 
 #[cfg(test)]
 mod tests {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 
     use super::*;
+
+    #[test]
+    fn public_group_mention_triggers_only_the_complete_agent_account() {
+        let account = make_account();
+        let (_, source) = queued_message_fixture();
+        let other_station = arkret::AccountId::new(
+            account.actor_account_id.principal_id.clone(),
+            arkret::DidCoreId::new("ak:did_core:web:other-station.example").unwrap(),
+        );
+        for (target, expected) in [
+            (Some(account.actor_account_id.clone()), true),
+            (Some(other_station), false),
+            (Some(account.controller_account_id.clone()), false),
+            (None, false),
+        ] {
+            let content = arkret::ContentBlock::text("@me/aa hello")
+                .with_mentions(target.into_iter().map(arkret::Mention::new).collect())
+                .unwrap();
+            let event = ArkretInboundEvent {
+                account_id: account.id.clone(),
+                event_id: "mention-test".into(),
+                realm_id: source.realm_id.to_string(),
+                scope_ref: source.scope_ref.clone(),
+                chat_type: Some("group".into()),
+                participant_count: Some(3),
+                strand_id: None,
+                sender_did: account.controller_account_id.principal_id.to_string(),
+                sender_actor_id: None,
+                body: content.body.clone(),
+                thread_root_id: None,
+                mentioned_account_ids: structured_mention_account_ids(&content),
+                sidecar_exchange: None,
+            };
+            let mentioned = inbound_agent_is_mentioned(&event, &account);
+            assert_eq!(mentioned, expected);
+        }
+    }
+
+    #[test]
+    fn own_station_host_runtime_generation_rejects_late_response_across_replace_and_stop() {
+        let channel = "native-own-station-runtime-fence";
+        let account = "agent-no-listener";
+        let first = account_runtime_fence(channel, account);
+        assert!(first());
+        advance_account_runtime_generation(&task_key(channel, account));
+        let replacement = account_runtime_fence(channel, account);
+        assert!(!first());
+        assert!(replacement());
+        assert_eq!(stop_arkret_account_listeners(channel), 0);
+        assert!(!replacement());
+        let third = account_runtime_fence(channel, account);
+        assert!(third());
+        forget_arkret_account_runtime(channel, account);
+        assert!(!first());
+        assert!(!replacement());
+        assert!(!third());
+    }
 
     fn make_account() -> ArkretAccountConfig {
         ArkretAccountConfig {
             mode: savfox_channels::arkret::ArkretAccountMode::Agent,
             id: "support".into(),
-            principal_id: "did:webvh:z6mkfixture:agent.example".into(),
+            principal_id: "ak:did_core:webvh:z6mkfixture:agent.example".into(),
+            actor_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:agent.example").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:station.example").unwrap(),
+            ),
             device_id: "ak:device:01904100-0000-7000-8000-000000000001".into(),
-            access_token: String::new(),
             key_ref: None,
             verification_method: None,
-            arkret_server_did: None,
-            login_challenge: None,
-            grant_event_path: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
+            signer_resolution_evidence_ref: None,
+            current_signer_evidence: None,
+            controller_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:controller.example").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:controller-station.example")
+                    .unwrap(),
+            ),
             requested_scope: vec![
-                "ak.self.events.stream.subscribe".into(),
-                "ak.self.events.query.scan".into(),
+                ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1.into(),
+                ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1.into(),
                 "ak.event.read".into(),
             ],
             listen: true,
@@ -2677,94 +4770,1242 @@ mod tests {
         }
     }
 
-    fn realm_id() -> arkret::RealmId {
-        arkret::RealmId::new("ak:realm:01904100-0000-7000-8000-000000000001").unwrap()
-    }
-
-    fn actor_id() -> Did {
-        Did::new("did:webvh:z6mkfixture:alice.example".to_owned()).unwrap()
-    }
-
-    fn message_event(body: &str) -> arkret::Event {
-        message_event_with_seq(body, 1)
-    }
-
-    fn message_event_with_seq(body: &str, actor_seq: u64) -> arkret::Event {
-        arkret::Event::new(
-            "ak.message.create",
-            realm_id(),
-            actor_id(),
-            actor_seq,
-            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
-            json!({
-                "strand_id": "ak:strand:01904100-0000-7000-8000-000000000002",
-                "track_name": "discussion",
-                "reply_to": "ak:message:01904100-0000-7000-8000-000000000003",
-                "content": {
-                    "kind": "ak.content.text",
-                    "body": body
-                }
-            }),
+    fn queued_message_fixture() -> (ArkretAccountConfig, arkret::Event) {
+        let mut account = make_account();
+        account.principal_id = "ak:did_core:web:agent.example".to_owned();
+        account.actor_account_id = arkret::AccountId::new(
+            DidCoreId::new(account.principal_id.clone()).unwrap(),
+            DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+        );
+        let method = "did:web:agent.example#runtime-1";
+        account.verification_method = Some(method.to_owned());
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[73; 32]);
+        let jwk = arkret::signatures::JsonWebKey::from_ed25519_verifying_key(
+            &signing_key.verifying_key(),
+        );
+        let root = arkret::build_agent_signer_evidence(
+            DidCoreId::new(account.principal_id.clone()).unwrap(),
+            arkret::DidUrl::new(method).unwrap(),
+            serde_json::from_value(serde_json::to_value(jwk).unwrap()).unwrap(),
+            arkret::RealmCommitId::from_digest([74; 32]),
+            "2026-09-16T00:00:00.000Z".parse().unwrap(),
         )
-        .unwrap()
+        .unwrap();
+        let reference = root.signer_evidence_ref().unwrap();
+        account.signer_resolution_evidence_ref = Some(reference.clone());
+        account.current_signer_evidence = Some(arkret::KeyStateCurrentSignerEvidence {
+            signer_resolution_evidence_ref: reference,
+            authenticated_signer_evidence: root,
+        });
+        let request = MessageCreateRequest {
+            scope_ref: arkret::ScopeRef::Realm {
+                realm_id: realm_id(),
+            },
+            strand_id: arkret::StrandId::from_event_id(&EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [75; 32],
+            ))
+            .to_string(),
+            track_name: "discussion".to_owned(),
+            body: "frozen producer bytes".to_owned(),
+            actor_account_id: account.actor_account_id.clone(),
+            thread_root_id: None,
+            sidecar_exchange: None,
+        };
+        let event = build_message_create_event(&request).unwrap();
+        let mut authored = savfox_channels::arkret::finalize_outbound_event(event).unwrap();
+        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(signing_key, method);
+        savfox_channels::arkret::sign_outbound_event(&mut authored, &signer).unwrap();
+        (account, authored.into_event())
     }
 
-    fn mls_welcome_value(group_id: &str) -> Value {
-        serde_json::to_value(arkret::MlsWelcomeEnvelope {
-            group_id: group_id.to_owned(),
-            epoch: 7,
-            recipient_principal_id: Did::new("did:webvh:z6mkfixture:bob.example".to_owned())
-                .unwrap(),
-            recipient_device_id: arkret::DeviceId::new(
-                "ak:device:01904100-0000-7000-8000-00000000000e".to_owned(),
-            )
-            .unwrap(),
-            welcome: "AA".to_owned(),
-            welcome_hash: arkret::Hash::new(format!("sha256:{}", "ab".repeat(32))).unwrap(),
-            ratchet_tree: None,
-        })
-        .unwrap()
+    fn presence_head_fixture() -> arkret::CommitStreamHead {
+        arkret::CommitStreamHead {
+            stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: realm_id(),
+            },
+            commit_id: arkret::RealmCommitId::from_digest([92; 32]),
+            stream_position: 1,
+        }
     }
 
     #[test]
-    fn sync_realm_delta_parses_dispatchable_messages() {
-        let account = make_account();
-        let realm_id = realm_id();
-        let update = arkret::RealmUpdate {
-            realm_id: realm_id.clone(),
-            entry: arkret::RealmSyncEntry {
-                timeline: Some(arkret::Timeline {
-                    events: vec![message_event("hello from engine")],
-                    limited: false,
-                    prev_cursor: None,
-                    preview_only: None,
-                    extra: Default::default(),
-                }),
-                ..Default::default()
+    fn presence_shared_scope_requires_explicit_public_for_exact_accounts() {
+        use arkret::exact_current_results::{
+            ExactCurrentResultEntry, ExactCurrentResultsReadOutcome,
+            NeverWrittenExactCurrentSelector,
+        };
+        let (account, _) = queued_message_fixture();
+        let head = presence_head_fixture();
+        let selector =
+            arkret::AgentInteractionExactCurrentSelector::new(account.actor_account_id.clone());
+        let mut entry = arkret::AgentInteractionExactCurrentRow {
+            selector: selector.clone(),
+            source_stream_ref: head.stream_ref.clone(),
+            revision: arkret::CurrentRevision {
+                commit_id: head.commit_id.clone(),
+                stream_position: head.stream_position,
+            },
+            value: arkret::AgentInteractionCurrentValue {
+                controller_account_id: account.controller_account_id.clone(),
+                interaction_mode: arkret::AgentInteractionMode::Public,
             },
         };
-
-        let parsed = parse_realm_update_for_account(update, &account);
-
-        assert_eq!(parsed.skipped, Vec::new());
-        assert_eq!(parsed.events.len(), 1);
-        assert_eq!(parsed.events[0].account_id, account.id);
-        assert_eq!(parsed.events[0].body, "hello from engine");
-        assert_eq!(parsed.events[0].sender_did, actor_id().as_str());
+        let outcome = |entry| ExactCurrentResultsReadOutcome::Present {
+            realm_id: realm_id(),
+            governance_generation: 1,
+            effective_stream_head: head.clone(),
+            entry: ExactCurrentResultEntry::AgentInteraction(entry),
+        };
         assert_eq!(
-            parsed.events[0].strand_id.as_deref(),
-            Some("ak:strand:01904100-0000-7000-8000-000000000002")
+            public_presence_head_from_verified_read(Ok(outcome(entry.clone())), &account).unwrap(),
+            Some(head.clone())
+        );
+        entry.value.interaction_mode = arkret::AgentInteractionMode::Private;
+        assert!(
+            public_presence_head_from_verified_read(Ok(outcome(entry.clone())), &account)
+                .unwrap()
+                .is_none()
+        );
+        entry.value.interaction_mode = arkret::AgentInteractionMode::Public;
+        entry.selector.agent_account_id.station_id =
+            DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
+        assert!(
+            public_presence_head_from_verified_read(Ok(outcome(entry.clone())), &account)
+                .unwrap()
+                .is_none()
+        );
+        entry.selector = selector.clone();
+        entry.value.controller_account_id.station_id =
+            DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
+        assert!(
+            public_presence_head_from_verified_read(Ok(outcome(entry)), &account)
+                .unwrap()
+                .is_none()
+        );
+        let absent = ExactCurrentResultsReadOutcome::NeverWritten {
+            realm_id: realm_id(),
+            governance_generation: 1,
+            effective_stream_head: head,
+            selector: NeverWrittenExactCurrentSelector::AgentInteraction(selector),
+        };
+        assert!(
+            public_presence_head_from_verified_read(Ok(absent), &account)
+                .unwrap()
+                .is_none()
+        );
+        let unknown = Err(garth::Error::Protocol(
+            "current cut is unavailable".to_owned(),
+        ));
+        assert!(public_presence_head_from_verified_read(unknown, &account).is_err());
+    }
+
+    #[test]
+    fn presence_direct_scope_requires_accepted_exact_controller_pair() {
+        let (account, _) = queued_message_fixture();
+        let head = presence_head_fixture();
+        let pair_key = arkret::Hash::new(format!("sha256:{}", "12".repeat(32))).unwrap();
+        let event = |byte| EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [byte; 32]);
+        let payload = arkret::DirectConversationBoundPayload {
+            pair_key: pair_key.clone(),
+            unordered_participant_ids: vec![
+                arkret::ActorId::account(account.actor_account_id.clone()),
+                arkret::ActorId::account(account.controller_account_id.clone()),
+            ],
+            realm_id: realm_id(),
+            main_strand_id: arkret::StrandId::from_event_id(&event(90)),
+            founding_unit_digest: pair_key.clone(),
+            authorization_basis: arkret::DirectConversationAuthorizationBasis {
+                kind: arkret::DirectConversationAuthorizationKind::AgentController,
+                event_refs: vec![event(91), event(92)],
+            },
+            initial_exact_pair_group_state_ref: event(93),
+            created_at: Utc::now(),
+        };
+        let mut value = arkret::DirectConversationBindingCurrentValue {
+            endorsements: vec![arkret::DirectConversationBindingEndorsementEntry {
+                tag_id: arkret::exact_current_results::CanonicalEventDot::new(event(94), 0)
+                    .unwrap(),
+                value: payload,
+            }],
+        };
+        let row = |value| arkret::TypedCurrentRow::Value {
+            selector: arkret::CurrentSelector::DirectConversationBinding {
+                pair_key: pair_key.clone(),
+            },
+            source_stream_ref: head.stream_ref.clone(),
+            revision: arkret::CurrentRevision {
+                commit_id: head.commit_id.clone(),
+                stream_position: head.stream_position,
+            },
+            value,
+        };
+        assert!(
+            owner_direct_presence_binding(
+                &[row(serde_json::to_value(&value).unwrap())],
+                &realm_id(),
+                &account
+            )
+            .unwrap()
+        );
+        assert!(!owner_direct_presence_binding(&[], &realm_id(), &account).unwrap());
+        let mut foreign = account.controller_account_id.clone();
+        foreign.station_id = DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
+        value.endorsements[0].value.unordered_participant_ids[1] =
+            arkret::ActorId::account(foreign);
+        assert!(
+            !owner_direct_presence_binding(
+                &[row(serde_json::to_value(&value).unwrap())],
+                &realm_id(),
+                &account
+            )
+            .unwrap()
+        );
+        value.endorsements[0].value.unordered_participant_ids[1] =
+            arkret::ActorId::account(account.controller_account_id.clone());
+        value.endorsements[0].value.authorization_basis.kind =
+            arkret::DirectConversationAuthorizationKind::AcceptedContact;
+        assert!(
+            !owner_direct_presence_binding(
+                &[row(serde_json::to_value(&value).unwrap())],
+                &realm_id(),
+                &account
+            )
+            .unwrap()
+        );
+        value.endorsements.clear();
+        assert!(
+            owner_direct_presence_binding(
+                &[row(serde_json::to_value(&value).unwrap())],
+                &realm_id(),
+                &account
+            )
+            .is_err()
         );
     }
 
     #[test]
-    fn account_to_device_ack_plan_acks_direct_subscribe_batch() {
+    fn presence_runtime_observation_rejects_expiry_other_account_and_replaced_key() {
+        let (mut account, _) = queued_message_fixture();
+        let authorization = EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [95; 32]);
+        account.authorized_event_ref = Some(authorization.to_string());
+        let mut observation = arkret::AgentParticipationObservation {
+            agent_account: account.actor_account_id.clone(),
+            controller_account: account.controller_account_id.clone(),
+            grant_id: arkret_wire::SessionGrantId::from_issuance_digest([1; 32]),
+            agent_key_authorization_ref: authorization,
+            verification_method: arkret::DidUrl::new(account.verification_method.clone().unwrap())
+                .unwrap(),
+            session_id: "presence-observation".to_owned(),
+            observed_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::minutes(5),
+            entries: vec![],
+        };
+        assert!(presence_observation_matches_runtime(&observation, &account));
+        observation.expires_at = Utc::now();
+        assert!(!presence_observation_matches_runtime(
+            &observation,
+            &account
+        ));
+        observation.expires_at = Utc::now() + chrono::Duration::minutes(5);
+        observation.observed_at = Utc::now() + chrono::Duration::minutes(1);
+        assert!(!presence_observation_matches_runtime(
+            &observation,
+            &account
+        ));
+        observation.observed_at = Utc::now();
+        observation.controller_account.station_id =
+            DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
+        assert!(!presence_observation_matches_runtime(
+            &observation,
+            &account
+        ));
+        observation.controller_account = account.controller_account_id.clone();
+        observation.agent_key_authorization_ref =
+            EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [96; 32]);
+        assert!(!presence_observation_matches_runtime(
+            &observation,
+            &account
+        ));
+    }
+
+    #[test]
+    fn durable_reply_observation_suppresses_tightened_missing_expired_and_wrong_owner() {
+        let (account, event) = queued_message_fixture();
+        let mut observation = arkret::AgentParticipationObservation {
+            agent_account: account.actor_account_id.clone(),
+            controller_account: account.controller_account_id.clone(),
+            grant_id: arkret_wire::SessionGrantId::from_issuance_digest([1; 32]),
+            agent_key_authorization_ref: EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [2; 32],
+            ),
+            verification_method: arkret::DidUrl::new(account.verification_method.clone().unwrap())
+                .unwrap(),
+            session_id: "runtime-observation".to_owned(),
+            observed_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::minutes(5),
+            entries: vec![arkret::AgentParticipationEntry {
+                scope: arkret::ParticipationScope::Realm {
+                    realm_id: event.realm_id.clone(),
+                },
+                selection: arkret::ParticipationBits::ALL,
+                version: 1,
+                next_replace_input: arkret::ParticipationNextReplaceInput {
+                    expected_version: 1,
+                },
+            }],
+        };
+        assert!(observed_reply_allowed(&event, &account, &observation));
+        let mut tightened = observation.clone();
+        tightened.entries[0].selection = arkret::ParticipationBits::NONE;
+        tightened.entries[0].version = 2;
+        tightened.entries[0].next_replace_input.expected_version = 2;
+        assert!(!observed_reply_allowed(&event, &account, &tightened));
+        let mut missing = observation.clone();
+        missing.entries.clear();
+        assert!(!observed_reply_allowed(&event, &account, &missing));
+        let mut expired = observation.clone();
+        expired.expires_at = Utc::now();
+        assert!(!observed_reply_allowed(&event, &account, &expired));
+        observation.controller_account.station_id =
+            DidCoreId::new("ak:did_core:web:other.example").unwrap();
+        assert!(!observed_reply_allowed(&event, &account, &observation));
+    }
+
+    #[tokio::test]
+    async fn accepted_mls_dependency_error_keeps_original_durable_delivery_until_replay_success() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("account-inbox.json");
+        let store = garth::FileStore::open(&path).unwrap();
+        let (account, event) = queued_message_fixture();
+        let scope = garth::CursorScope::Account {
+            service_id: Some(account.actor_account_id.station_id.clone()),
+            actor_id: event.actor_id.clone(),
+            device_id: arkret::DeviceId::new("ak:device:01964139-0000-7000-8000-000000000001")
+                .unwrap(),
+        };
+        // This fixture tests the actual inbox settlement barrier, not Station
+        // authority. The separate RFC fixture supplies historical MLS proof.
+        let payload = vec![ClientEvent::Event(Box::new(event))];
+        let bytes = serde_json::to_value(&payload).unwrap();
+        let id = store
+            .commit(
+                scope.clone(),
+                Some("original-account-cursor".to_owned()),
+                payload,
+            )
+            .await
+            .unwrap();
+        assert!(
+            !settle_account_delivery(
+                &store,
+                id,
+                0,
+                Err(anyhow::anyhow!(
+                    "accepted MLS predecessor dependency unavailable"
+                ))
+            )
+            .await
+            .unwrap()
+        );
+        drop(store);
+        let reopened = garth::FileStore::open(&path).unwrap();
+        let pending = reopened.pending(1).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, id);
+        assert_eq!(pending[0].scope, scope);
         assert_eq!(
-            account_to_device_ack_plan(true, false, Some("ack-1"), false, None),
-            AccountToDeviceAckPlan::Ack {
-                ack_token: "ack-1".to_owned(),
-                followup: None,
+            pending[0].cursor.as_deref(),
+            Some("original-account-cursor")
+        );
+        assert_eq!(pending[0].attempts, 1);
+        assert_eq!(
+            pending[0].error_class,
+            Some(garth::DeliveryErrorClass::Processing)
+        );
+        assert_eq!(serde_json::to_value(&pending[0].payload).unwrap(), bytes);
+        assert!(
+            settle_account_delivery(&reopened, id, pending[0].attempts, Ok(()))
+                .await
+                .unwrap()
+        );
+        assert!(reopened.pending(1).await.unwrap().is_empty());
+        drop(reopened);
+        assert!(
+            garth::FileStore::open(path)
+                .unwrap()
+                .pending(1)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn queued_submission_verifies_current_key_even_when_method_is_unchanged() {
+        let home = tempfile::tempdir().unwrap();
+        let crypto = FileArkretCryptoStore::for_account(home.path(), "support", "agent-account")
+            .with_keyring_store(Arc::new(
+                savfox_keyring_store::tests::MockKeyringStore::default(),
+            ));
+        let (mut account, event) = queued_message_fixture();
+        assert!(queued_message_matches_runtime(&event, &account, &crypto).unwrap());
+        let other_key = ed25519_dalek::SigningKey::from_bytes(&[76; 32]);
+        let jwk =
+            arkret::signatures::JsonWebKey::from_ed25519_verifying_key(&other_key.verifying_key());
+        let evidence = account.current_signer_evidence.as_mut().unwrap();
+        evidence.authenticated_signer_evidence.public_key_jwk =
+            serde_json::from_value(serde_json::to_value(jwk).unwrap()).unwrap();
+        evidence.signer_resolution_evidence_ref = evidence
+            .authenticated_signer_evidence
+            .signer_evidence_ref()
+            .unwrap();
+        account.signer_resolution_evidence_ref =
+            Some(evidence.signer_resolution_evidence_ref.clone());
+        assert!(!queued_message_matches_runtime(&event, &account, &crypto).unwrap());
+    }
+
+    #[test]
+    fn queued_submission_rejects_another_station_and_an_unsigned_event() {
+        let home = tempfile::tempdir().unwrap();
+        let crypto = FileArkretCryptoStore::for_account(home.path(), "support", "agent-account")
+            .with_keyring_store(Arc::new(
+                savfox_keyring_store::tests::MockKeyringStore::default(),
+            ));
+        let (account, mut event) = queued_message_fixture();
+        let mut other_account = account.clone();
+        other_account.actor_account_id.station_id =
+            DidCoreId::new("ak:did_core:web:other-station.example").unwrap();
+        assert!(!queued_message_matches_runtime(&event, &other_account, &crypto).unwrap());
+        event.producer_proof = None;
+        assert!(!queued_message_matches_runtime(&event, &account, &crypto).unwrap());
+    }
+
+    /// Signed consume receipt every `KeyPackagesConsumeOutcome` now carries.
+    fn consume_receipt_fixture(
+        claim_id: &str,
+        keypackage_ref: &str,
+    ) -> arkret::KeyPackageConsumeReceipt {
+        let device_verification_method = "did:webvh:example.org:service#key-1";
+        arkret::KeyPackageConsumeReceipt {
+            domain: arkret::NonEmptyString::new("ak.keypackage-consume-receipt.v1").unwrap(),
+            request_digest: arkret::Hash::new(format!("sha256:{}", "22".repeat(32))).unwrap(),
+            claim_id: arkret::identifiers::KeypackageClaimId::new(claim_id.to_owned()).unwrap(),
+            recipient_durable_receipt: arkret::RecipientMlsDurableReceipt {
+                domain: arkret::NonEmptyString::new("ak.recipient-mls-durable-receipt.v1").unwrap(),
+                claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
+                key_package_ref: arkret::NonEmptyString::new(keypackage_ref).unwrap(),
+                recipient: arkret::RecipientMlsDurableSigner::Device {
+                    recipient_account_id: arkret::AccountId::new(
+                        actor_id(),
+                        arkret::DidCoreId::new("ak:did_core:webvh:example.org:service".to_owned())
+                            .unwrap(),
+                    ),
+                    recipient_device_id: arkret::DeviceId::new(
+                        "ak:device:01904100-0000-7000-8000-000000000006".to_owned(),
+                    )
+                    .unwrap(),
+                    device_verification_method: arkret::DidUrl::new(
+                        device_verification_method.to_owned(),
+                    )
+                    .unwrap(),
+                },
+                recipient_id: arkret::DidCoreId::new(
+                    "ak:did_core:webvh:example.org:service".to_owned(),
+                )
+                .unwrap(),
+                realm_id: realm_id(),
+                mls_group_id: arkret::ScopeRef::Realm {
+                    realm_id: realm_id(),
+                }
+                .canonical_mls_group_id()
+                .unwrap(),
+                mls_epoch: 1,
+                welcome_ref: arkret::identifiers::MlsWelcomeDeliveryId::new(
+                    "ak:mls_welcome_delivery:01904100-0000-7000-8000-000000000007",
+                )
+                .unwrap(),
+                welcome_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
+                durable_at: chrono::Utc::now(),
+                signature: arkret::KeyOperationSignature {
+                    kid: arkret::NonEmptyString::new(device_verification_method).unwrap(),
+                    signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
+                    sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+                },
+            },
+            consumed_at: chrono::Utc::now(),
+            signature: arkret::KeyOperationSignature {
+                kid: arkret::NonEmptyString::new(device_verification_method).unwrap(),
+                signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
+                sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+            },
+        }
+    }
+
+    #[test]
+    fn pending_welcome_consume_accepts_only_its_own_receipt_binding() {
+        let claim_id = "ak:keypackage_claim:01904100-0000-7000-8000-000000000008";
+        let keypackage_ref = "sha256:direct-welcome-keypackage";
+        let outcome = KeyPackagesConsumeOutcome {
+            consume_receipt: consume_receipt_fixture(claim_id, keypackage_ref),
+        };
+        assert!(consume_outcome_acknowledges_binding(
+            &outcome,
+            claim_id,
+            keypackage_ref
+        ));
+        assert!(!consume_outcome_acknowledges_binding(
+            &outcome,
+            claim_id,
+            "sha256:another-keypackage"
+        ));
+        assert!(!consume_outcome_acknowledges_binding(
+            &outcome,
+            "ak:keypackage_claim:01904100-0000-7000-8000-000000000009",
+            keypackage_ref
+        ));
+    }
+
+    #[test]
+    fn account_sync_extracts_strongly_typed_mls_commit_event() {
+        let realm_id = realm_id();
+        let identity = arkret::mls::ArkretMlsIdentity::new_human_device(
+            arkret::ActorId::account(arkret::AccountId::new(actor_id(), principal_server_id())),
+            arkret::DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned())
+                .unwrap(),
+            arkret::mls::ArkretMlsSigner::from_ed25519_signing_key(
+                ed25519_dalek::SigningKey::from_bytes(&[7_u8; 32]),
+            ),
+        )
+        .unwrap();
+        let mut group = identity
+            .create_group(&arkret::ScopeRef::Realm {
+                realm_id: realm_id.clone(),
+            })
+            .unwrap();
+        let commit = group.self_update_commit().unwrap();
+        let base_ref =
+            arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x01; 32]);
+        let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
+            realm_id,
+            Some(base_ref.clone()),
+            0,
+            commit.epoch,
+            0,
+        )
+        .unwrap();
+        let payload =
+            arkret::MlsCommitPayload::new(base_ref, 0, &commit, governance_binding).unwrap();
+        let event_ref =
+            arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x11; 32]);
+        let value = json!({
+            "kind": "ak.mls.commit",
+            "event_id": event_ref.to_string(),
+            "payload": payload,
+        });
+        let mut commits = Vec::new();
+        collect_typed_mls_commit_events(&value, 8, &mut commits);
+
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].0, event_ref);
+        assert_eq!(commits[0].1.next_epoch(), 1);
+        assert_eq!(commits[0].1.commit_bytes_b64(), commit.commit);
+    }
+
+    #[test]
+    fn forgetting_unbound_account_keeps_replacement_diagnostic() {
+        let channel = ArkretChannelConfig {
+            id: "diagnostic-replacement-channel".to_owned(),
+            base_url: "http://127.0.0.1:1".to_owned(),
+            service_id: None,
+            delivery_mode: "interactive_chat".to_owned(),
+            accounts: Vec::new(),
+        };
+        let old = make_account();
+        let mut replacement = make_account();
+        replacement.id = "replacement".to_owned();
+        {
+            let mut state = runtime_state().lock().expect("runtime state lock");
+            state.diagnostics.insert(
+                task_key(&channel.id, &old.id),
+                ArkretListenerDiagnostic::new(&channel, &old),
+            );
+            state.diagnostics.insert(
+                task_key(&channel.id, &replacement.id),
+                ArkretListenerDiagnostic::new(&channel, &replacement),
+            );
+        }
+
+        forget_arkret_account_runtime(&channel.id, &old.id);
+
+        let diagnostics = arkret_account_runtime_diagnostics(&channel.id);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].get("account_id").and_then(Value::as_str),
+            Some("replacement")
+        );
+        forget_arkret_account_runtime(&channel.id, &replacement.id);
+    }
+
+    #[tokio::test]
+    async fn controlled_listener_auth_failure_retries_and_recovers() {
+        let channel = ArkretChannelConfig {
+            id: "fake-recovery-channel".to_owned(),
+            base_url: "http://127.0.0.1:1".to_owned(),
+            service_id: None,
+            delivery_mode: "interactive_chat".to_owned(),
+            accounts: Vec::new(),
+        };
+        let account = make_account();
+        let key = task_key(&channel.id, &account.id);
+        runtime_state()
+            .lock()
+            .expect("runtime state lock")
+            .diagnostics
+            .insert(
+                key.clone(),
+                ArkretListenerDiagnostic::new(&channel, &account),
+            );
+        let attempts = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let attempts_for_run = Arc::clone(&attempts);
+        let channel_for_run = channel.clone();
+        let account_for_run = account.clone();
+        let task = tokio::spawn(run_account_listener_retry_loop(
+            channel.id.clone(),
+            account.id.clone(),
+            move || {
+                let attempt =
+                    attempts_for_run.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let channel = channel_for_run.clone();
+                let account = account_for_run.clone();
+                async move {
+                    if attempt == 1 {
+                        record_listener_failure(
+                            &channel,
+                            &account,
+                            "authentication_error",
+                            "fake service rejected credentials",
+                        );
+                    } else {
+                        record_listener_phase(&channel, &account, "subscribing");
+                        std::future::pending::<()>().await;
+                    }
+                }
+            },
+        ));
+
+        let retry_observed = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            loop {
+                if arkret_account_runtime_diagnostics(&channel.id)
+                    .iter()
+                    .any(|diagnostic| {
+                        diagnostic.get("phase").and_then(Value::as_str) == Some("retry_wait")
+                            && diagnostic
+                                .get("last_error")
+                                .and_then(Value::as_str)
+                                .is_some_and(|error| error.contains("fake service"))
+                    })
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
             }
+        })
+        .await;
+        assert!(
+            retry_observed.is_ok(),
+            "authentication retry was not reported"
+        );
+
+        let recovered = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if arkret_account_runtime_diagnostics(&channel.id)
+                    .iter()
+                    .any(|diagnostic| {
+                        diagnostic.get("phase").and_then(Value::as_str) == Some("subscribing")
+                            && diagnostic.get("attempt").and_then(Value::as_u64) == Some(2)
+                            && diagnostic.get("last_error").is_some_and(Value::is_null)
+                    })
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        task.abort();
+        runtime_state()
+            .lock()
+            .expect("runtime state lock")
+            .diagnostics
+            .remove(&key);
+
+        assert!(
+            recovered.is_ok(),
+            "listener did not recover on the next attempt"
+        );
+    }
+
+    #[test]
+    fn encrypted_account_self_echo_is_identified_before_mls_decrypt() {
+        let account = make_account();
+
+        assert!(arkret_sender_is_account_principal(
+            Some("ak:did_core:webvh:z6mkfixture:agent.example"),
+            &account,
+        ));
+        assert!(arkret_sender_is_account_principal(
+            Some("AK:DID_CORE:WEBVH:Z6MKFIXTURE:AGENT.EXAMPLE"),
+            &account,
+        ));
+        assert!(!arkret_sender_is_account_principal(
+            Some("ak:did_core:webvh:z6mkfixture:controller.example"),
+            &account,
+        ));
+        assert!(!arkret_sender_is_account_principal(None, &account));
+    }
+
+    #[test]
+    fn initial_account_catchup_selects_history_baseline_mode() {
+        let initial = ClientEvent::AccountUpdates(garth::AccountUpdateContext {
+            initial_catchup: true,
+            ..Default::default()
+        });
+        let ClientEvent::AccountUpdates(mut live_context) = initial.clone() else {
+            unreachable!();
+        };
+        live_context.initial_catchup = false;
+        let live = ClientEvent::AccountUpdates(live_context);
+
+        let initial_mode = account_inbound_mode(&[initial]);
+        assert_eq!(initial_mode, AccountInboundMode::Baseline);
+        assert!(initial_mode.suppresses_agent_dispatch());
+        assert_eq!(account_inbound_mode(&[live]), AccountInboundMode::Trigger);
+    }
+
+    #[test]
+    fn agent_scope_typed_refresh_and_bare_stream_reasons_reach_diagnostics() {
+        let account = make_account();
+        let channel = ArkretChannelConfig {
+            id: format!("scope-reasons-{}", uuid::Uuid::now_v7()),
+            base_url: "https://arkret.example.org".to_owned(),
+            service_id: None,
+            delivery_mode: "interactive_chat".to_owned(),
+            accounts: vec![account.clone()],
+        };
+        let key = task_key(&channel.id, &account.id);
+        runtime_state().lock().unwrap().diagnostics.insert(
+            key.clone(),
+            ArkretListenerDiagnostic::new(&channel, &account),
+        );
+        for reason in [
+            "agent_provision_scope_migration_required",
+            "agent_key_scope_reauthorization_required",
+            "agent_session_scope_refresh_required",
+        ] {
+            let api_error = garth::Error::Api {
+                status: 412,
+                error: Box::new(
+                    arkret::Problem::from_code("failed_precondition", "rejected")
+                        .with_extension("reason_code", json!(reason)),
+                ),
+            };
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "authentication_error",
+                &api_error,
+                transport_service_reason(&api_error),
+            );
+            assert_eq!(
+                runtime_state().lock().unwrap().diagnostics[&key]
+                    .last_reason_code
+                    .as_deref(),
+                Some(reason)
+            );
+            let message_encoded_error = garth::Error::Api {
+                status: 412,
+                error: Box::new(arkret::Problem::from_code(
+                    "failed_precondition",
+                    format!("reason_code={reason}; rejected"),
+                )),
+            };
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "authentication_error",
+                &message_encoded_error,
+                transport_service_reason(&message_encoded_error),
+            );
+            assert_eq!(
+                runtime_state().lock().unwrap().diagnostics[&key]
+                    .last_reason_code
+                    .as_deref(),
+                Some(reason)
+            );
+            let error = anyhow::Error::new(api_error);
+            assert_eq!(listener_service_reason(&error), Some(reason));
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "subscribe_error",
+                &error,
+                listener_service_reason(&error),
+            );
+            assert_eq!(
+                runtime_state().lock().unwrap().diagnostics[&key]
+                    .last_reason_code
+                    .as_deref(),
+                Some(reason)
+            );
+            let wire_reason: Option<String> = None;
+            record_listener_service_failure(
+                &channel,
+                &account,
+                "unauthorized",
+                "rejected",
+                wire_reason.as_deref(),
+            );
+            assert_eq!(
+                runtime_state().lock().unwrap().diagnostics[&key]
+                    .last_reason_code
+                    .as_deref(),
+                None
+            );
+        }
+        let details_win = garth::Error::Api {
+            status: 412,
+            error: Box::new(
+                arkret::Problem::from_code(
+                    "failed_precondition",
+                    "reason_code=agent_session_scope_refresh_required; rejected",
+                )
+                .with_extension(
+                    "reason_code",
+                    json!("agent_key_scope_reauthorization_required"),
+                ),
+            ),
+        };
+        assert_eq!(
+            transport_service_reason(&details_win),
+            Some("agent_key_scope_reauthorization_required")
+        );
+        let generic = garth::Error::Protocol(
+            "reason_code=agent_provision_scope_migration_required; rejected".to_owned(),
+        );
+        assert_eq!(transport_service_reason(&generic), None);
+        runtime_state().lock().unwrap().diagnostics.remove(&key);
+    }
+
+    #[test]
+    fn agent_scope_refreshed_grant_preserves_exact_runtime_identity_and_scope() {
+        let mut account = make_account();
+        account.principal_id = "ak:did_core:webvh:z6mkfixture:agent.example".to_owned();
+        account.requested_scope = savfox_channels::arkret::default_agent_runtime_scope().unwrap();
+        account.actor_account_id = arkret::AccountId::new(
+            DidCoreId::new(account.principal_id.clone()).unwrap(),
+            DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
+        );
+        let mut state = garth::SessionGrantState {
+            account_id: arkret::AccountId::new(
+                DidCoreId::new(account.principal_id.clone()).unwrap(),
+                DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
+            ),
+            device_id: None,
+            grant_id: arkret::identifiers::SessionGrantId::from_issuance_digest([0x11; 32]),
+            grant_jwt: "redacted-test-grant".to_owned(),
+            expires_at: Utc::now() + chrono::Duration::minutes(5),
+            audience_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
+            granted_scope: account
+                .requested_scope
+                .iter()
+                .filter(|action| ServiceOperationId::from_wire(action).is_some())
+                .cloned()
+                .collect(),
+            session_public_key: None,
+            dpop_jkt: Some("test-jkt".to_owned()),
+        };
+        let granted_operations = state.granted_scope.clone();
+        let read = ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1;
+        assert!(
+            !state
+                .granted_scope
+                .iter()
+                .any(|action| action == "ak.event.read")
+        );
+        assert!(
+            !state
+                .granted_scope
+                .iter()
+                .any(|action| action == "ak.message.create")
+        );
+        assert!(refreshed_grant_matches_account(&state, &account, read));
+        // A grant that came back without the scope the action needs proves
+        // nothing about that action.
+        assert!(!refreshed_grant_matches_account(
+            &state,
+            &account,
+            ServiceOperationId::SELF_REALM_READ_EXPORT_V1
+        ));
+
+        state
+            .granted_scope
+            .push(ServiceOperationId::SELF_REALM_READ_EXPORT_V1.to_owned());
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.granted_scope = granted_operations.clone();
+        state
+            .granted_scope
+            .retain(|action| action != ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1);
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.granted_scope = granted_operations.clone();
+        state.expires_at = Utc::now() - chrono::Duration::seconds(1);
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.expires_at = Utc::now() + chrono::Duration::minutes(5);
+
+        state.granted_scope.clear();
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.granted_scope = granted_operations.clone();
+        state.device_id =
+            Some(DeviceId::new("ak:device:01904100-0000-7000-8000-000000000099").unwrap());
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.device_id = None;
+        state.audience_id = DidCoreId::new("ak:did_core:webvh:z6mkfixture:other.example").unwrap();
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.audience_id = account.actor_account_id.station_id.clone();
+        state.account_id.station_id =
+            DidCoreId::new("ak:did_core:webvh:z6mkfixture:other.example").unwrap();
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+        state.account_id.station_id = account.actor_account_id.station_id.clone();
+        state.account_id.principal_id =
+            DidCoreId::new("ak:did_core:webvh:z6mkfixture:other.example").unwrap();
+        assert!(!refreshed_grant_matches_account(&state, &account, read));
+    }
+
+    #[tokio::test]
+    async fn sidecar_reply_fails_closed_before_any_outbound_side_effect() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-arkret-sidecar-runtime-gate-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let context = SidecarExchangeContext {
+            exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
+            request_event_id: "ak:event:01904100-0000-8000-8000-000000000031".to_owned(),
+            coordinator_assignment_event_id: None,
+        };
+        let error = send_to_arkret_account(
+            &home,
+            realm_id().as_str(),
+            Some("ak:strand:01904100-0000-8000-8000-000000000011"),
+            "must not be sent",
+            Some(&context),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("Sidecar reply must fail closed for an unresolvable runtime");
+
+        assert!(
+            error.to_string().contains("saved_channel_config_id"),
+            "unexpected error: {error:#}"
+        );
+        assert!(
+            !home.exists(),
+            "the outbound path must resolve and gate before any store side effect"
+        );
+    }
+
+    fn realm_id() -> arkret::RealmId {
+        arkret::RealmId::from_event_id(&arkret::EventId::from_digest(
+            arkret::canonical::DigestSuite::Sha256,
+            [1; 32],
+        ))
+    }
+
+    #[test]
+    fn direct_reply_freezes_exact_participant_binding_before_authoring() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "c1", "agent")
+            .with_keyring_store(Arc::new(
+                savfox_keyring_store::tests::MockKeyringStore::default(),
+            ));
+        let realm = realm_id();
+        store
+            .upsert_realm_policy(ArkretRealmCryptoPolicy {
+                realm_id: realm.to_string(),
+                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+                encryption_profile: Some("mls_rfc9420".to_owned()),
+                mls_group_id: None,
+                source: "accepted_realm_create_direct_conversation".to_owned(),
+                updated_at: Utc::now(),
+            })
+            .unwrap();
+        let (_, mut event) = queued_message_fixture();
+        event.producer_proof = None;
+        let before = event.clone();
+        let mut private = event.clone();
+        private.scope_ref = arkret::ScopeRef::Sidecar {
+            realm_id: realm.clone(),
+            sidecar_id: arkret::SidecarId::from_event_id(&EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [55; 32],
+            )),
+        };
+        let private_before = private.clone();
+        apply_direct_reply_authority(&store, realm.as_str(), &mut private).unwrap();
+        assert_eq!(private, private_before);
+        assert!(apply_direct_reply_authority(&store, realm.as_str(), &mut event).is_err());
+        assert_eq!(event, before);
+        let reference = EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [19; 32]);
+        let mut state = store.load().unwrap();
+        state.direct_conversation_welcome_bindings.insert(realm.to_string(), serde_json::from_value(json!({
+            "realm_id": realm, "strand_id": "unused-by-this-test", "binding_event_ref": reference,
+        })).unwrap());
+        store.save(&mut state).unwrap();
+        // Welcome admission updates the encryption policy's source, but the
+        // accepted binding still identifies this Realm as Direct Conversation.
+        store
+            .upsert_realm_policy(ArkretRealmCryptoPolicy {
+                realm_id: realm.to_string(),
+                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+                encryption_profile: Some("mls_rfc9420".to_owned()),
+                mls_group_id: None,
+                source: "accepted_mls_welcome".to_owned(),
+                updated_at: Utc::now(),
+            })
+            .unwrap();
+        apply_direct_reply_authority(&store, realm.as_str(), &mut event).unwrap();
+        assert_eq!(
+            event.authorization_ref.as_ref().unwrap().as_str(),
+            arkret_wire::AuthoritySourceId::DIRECT_CONVERSATION_PARTICIPANT_V1
+        );
+        assert_eq!(
+            event.semantic_refs,
+            vec![arkret::SemanticRef::new(
+                reference.to_string(),
+                "direct_conversation_binding"
+            )]
+        );
+        assert!(event.semantic_refs[0].critical);
+        assert!(apply_direct_reply_authority(&store, realm.as_str(), &mut event).is_err());
+    }
+
+    /// A Sidecar exchange reply must never mount the binding outside
+    /// `encrypted_metadata`: without its exact native MLS group the send
+    /// fails closed instead of emitting the binding in plaintext
+    /// (zh/models/sidecar.md §8, forbidden-wire-fields).
+    #[test]
+    fn sidecar_reply_fails_closed_without_exact_native_group() {
+        let home = std::env::temp_dir().join(format!(
+            "savfox-arkret-sidecar-plaintext-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        let crypto_store = FileArkretCryptoStore::for_account(&home, "c1", "support")
+            .with_keyring_store(Arc::new(
+                savfox_keyring_store::tests::MockKeyringStore::default(),
+            ));
+        let context = SidecarExchangeContext {
+            exchange_id: "01904100-0000-7000-8000-0000000000aa".to_owned(),
+            request_event_id: arkret::EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [0x31; 32],
+            )
+            .to_string(),
+            coordinator_assignment_event_id: None,
+        };
+        let request = MessageCreateRequest {
+            scope_ref: arkret::ScopeRef::Sidecar {
+                realm_id: realm_id(),
+                sidecar_id: arkret::SidecarId::from_event_id(&arkret::EventId::from_digest(
+                    arkret::canonical::DigestSuite::Sha256,
+                    [0x51; 32],
+                )),
+            },
+            strand_id: arkret::StrandId::from_event_id(&arkret::EventId::from_digest(
+                arkret::canonical::DigestSuite::Sha256,
+                [0x11; 32],
+            ))
+            .to_string(),
+            track_name: "discussion".to_owned(),
+            body: "final user-visible reply".to_owned(),
+            actor_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:agent.example").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixture:station.example").unwrap(),
+            ),
+            thread_root_id: None,
+            sidecar_exchange: Some(context.clone()),
+        };
+        let mut event = build_message_create_event(&request).expect("build");
+
+        // The parent Realm policy cannot downgrade an independent private scope.
+        let err = apply_account_outbound_encryption(
+            &crypto_store,
+            realm_id().as_str(),
+            &mut event,
+            Some(&context),
+            None,
+        )
+        .expect_err("missing native group must reject Sidecar exchange replies");
+        assert!(
+            err.to_string().contains("no local MLS group state"),
+            "unexpected error: {err:#}"
+        );
+        assert!(event.payload.get("encrypted_metadata").is_none());
+        assert!(
+            !serde_json::to_string(&event.payload)
+                .unwrap()
+                .contains("sidecar_exchange_binding"),
+            "binding must never appear in plaintext payload"
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    fn actor_id() -> DidCoreId {
+        DidCoreId::new("ak:did_core:webvh:z6mkfixture:alice.example".to_owned()).unwrap()
+    }
+
+    fn principal_server_id() -> DidCoreId {
+        DidCoreId::new("ak:did_core:webvh:z6mkfixture:principal-server.example".to_owned()).unwrap()
+    }
+
+    fn keypackage_record(
+        principal_id: &DidCoreId,
+        device_id: &DeviceId,
+        marker: u8,
+        last_resort: bool,
+    ) -> MlsKeyPackageRecord {
+        let key_package_bytes = vec![marker; 16];
+        MlsKeyPackageRecord {
+            keypackage_id: format!("ak:mls:kp:01904100-0000-7000-8000-0000000000{marker:02x}"),
+            actor_id: arkret::ActorId::account(arkret::AccountId::new(
+                principal_id.clone(),
+                principal_server_id(),
+            )),
+            endpoint: arkret::MlsEndpointIdentity::human_device(
+                principal_id.clone(),
+                device_id.clone(),
+            ),
+            keypackage: URL_SAFE_NO_PAD.encode(&key_package_bytes),
+            keypackage_ref: arkret::Hash::new(arkret::canonical::sha256_digest(&key_package_bytes))
+                .unwrap(),
+            cipher_suites: vec!["MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519".to_owned()],
+            capabilities: vec!["ak.mls.rfc9420".to_owned()],
+            state: arkret::MlsKeyPackageState::Published,
+            claim_id: None,
+            created_at: Utc::now(),
+            expires_at: None,
+            last_resort,
+        }
+    }
+
+    #[test]
+    fn keypackage_upload_uses_sdk_batch_transcript_without_entry_signatures() {
+        let principal_id = DidCoreId::new("ak:did_core:web:agent.example".to_owned()).unwrap();
+        let verification_method = "did:web:agent.example#runtime-1".to_owned();
+        let authorize_event_id = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
+        let seed = [7_u8; 32];
+        let key_ref = ArkretKeyRef::InlineSeedBase64 {
+            value: STANDARD_NO_PAD.encode(seed),
+        };
+        let actor = arkret::ActorId::account(arkret::AccountId::new(
+            principal_id.clone(),
+            principal_server_id(),
+        ));
+        let identity = arkret::ArkretMlsIdentity::new_agent(
+            actor.clone(),
+            arkret::DidUrl::new(verification_method.clone()).unwrap(),
+            EventId::new(authorize_event_id).unwrap(),
+            arkret::ArkretMlsSigner::from_ed25519_signing_key(
+                ed25519_dalek::SigningKey::from_bytes(&seed),
+            ),
+        )
+        .unwrap();
+        let records = [
+            identity.key_package_record().unwrap(),
+            identity.key_package_record().unwrap(),
+        ];
+
+        let request = build_signed_keypackage_upload_request(
+            actor.clone(),
+            principal_id.clone(),
+            &records,
+            &key_ref,
+            &verification_method,
+            authorize_event_id,
+        )
+        .unwrap();
+
+        assert_eq!(request.device_id, None);
+        assert_eq!(
+            request
+                .agent_verification_method
+                .as_ref()
+                .map(arkret::DidUrl::as_str),
+            Some(verification_method.as_str())
+        );
+        assert_eq!(
+            request
+                .agent_key_authorize_event_id
+                .as_ref()
+                .map(arkret::EventId::as_str),
+            Some(authorize_event_id)
+        );
+        assert_eq!(request.keypackages[0].last_resort, None);
+        assert_eq!(request.keypackages[1].last_resort, None);
+        let unsigned = request.unsigned();
+        let batch_input = arkret::keypackages_upload_signing_input(&unsigned).unwrap();
+        let public_key = ed25519_dalek::SigningKey::from_bytes(&seed)
+            .verifying_key()
+            .to_bytes();
+        arkret::verify_keypackage_signing_input(
+            &public_key,
+            &verification_method,
+            &batch_input,
+            &request.endpoint_signature,
+        )
+        .unwrap();
+
+        let wrong_station = arkret::ActorId::account(arkret::AccountId::new(
+            principal_id.clone(),
+            DidCoreId::new("ak:did_core:web:other-station.example").unwrap(),
+        ));
+        assert!(
+            build_signed_keypackage_upload_request(
+                wrong_station.clone(),
+                principal_id.clone(),
+                &records,
+                &key_ref,
+                &verification_method,
+                authorize_event_id,
+            )
+            .is_err()
+        );
+        let mut mixed = records.clone();
+        mixed[1].actor_id = wrong_station;
+        assert!(
+            build_signed_keypackage_upload_request(
+                actor.clone(),
+                principal_id.clone(),
+                &mixed,
+                &key_ref,
+                &verification_method,
+                authorize_event_id,
+            )
+            .is_err()
+        );
+        assert!(
+            build_signed_keypackage_upload_request(
+                actor,
+                principal_id,
+                &records,
+                &key_ref,
+                "did:web:agent.example#runtime-2",
+                authorize_event_id,
+            )
+            .is_err()
         );
     }
 
@@ -2808,150 +6049,5 @@ mod tests {
                 reason: "to_device_lost",
             })
         );
-    }
-
-    #[test]
-    fn limited_account_timeline_builds_scan_catchup_request() {
-        let update = arkret::RealmUpdate {
-            realm_id: realm_id(),
-            entry: arkret::RealmSyncEntry {
-                timeline: Some(arkret::Timeline {
-                    events: vec![message_event("window head")],
-                    limited: true,
-                    prev_cursor: Some("ak:cursor:older-1".to_owned()),
-                    preview_only: None,
-                    extra: Default::default(),
-                }),
-                ..Default::default()
-            },
-        };
-
-        let request = account_scan_catchup_request_for_update(&update).unwrap();
-
-        assert_eq!(request.realm_id, realm_id());
-        assert_eq!(request.before.as_deref(), Some("ak:cursor:older-1"));
-    }
-
-    #[tokio::test]
-    async fn scan_catchup_pages_older_history_and_reuses_account_parser() {
-        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let responses =
-            std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from([
-                arkret::EventsQueryOutcome {
-                    events: vec![message_event_with_seq("older one", 2)],
-                    snapshot_bootstrap: None,
-                    prev_cursor: Some("ak:cursor:older-2".to_owned()),
-                    next_cursor: None,
-                    has_more: true,
-                    range_completeness: None,
-                },
-                arkret::EventsQueryOutcome {
-                    events: vec![message_event_with_seq("older two", 3)],
-                    snapshot_bootstrap: None,
-                    prev_cursor: None,
-                    next_cursor: None,
-                    has_more: false,
-                    range_completeness: None,
-                },
-            ])));
-        let requests_for_fetch = std::sync::Arc::clone(&requests);
-        let responses_for_fetch = std::sync::Arc::clone(&responses);
-        let request = AccountScanCatchupRequest {
-            realm_id: realm_id(),
-            before: Some("ak:cursor:older-1".to_owned()),
-        };
-
-        let outcome = collect_account_scan_catchup(request, move |realm_id, before, limit| {
-            requests_for_fetch
-                .lock()
-                .unwrap()
-                .push((realm_id.as_str().to_owned(), before, limit));
-            let responses_for_fetch = std::sync::Arc::clone(&responses_for_fetch);
-            async move {
-                Ok::<_, anyhow::Error>(responses_for_fetch.lock().unwrap().pop_front().unwrap())
-            }
-        })
-        .await
-        .unwrap();
-
-        assert!(!outcome.limited);
-        assert_eq!(outcome.pages, 2);
-        assert_eq!(
-            requests.lock().unwrap().as_slice(),
-            &[
-                (
-                    realm_id().as_str().to_owned(),
-                    Some("ak:cursor:older-1".to_owned()),
-                    ACCOUNT_SCAN_CATCHUP_LIMIT
-                ),
-                (
-                    realm_id().as_str().to_owned(),
-                    Some("ak:cursor:older-2".to_owned()),
-                    ACCOUNT_SCAN_CATCHUP_LIMIT
-                )
-            ]
-        );
-
-        let parsed =
-            parse_backfill_events_for_account(&realm_id(), outcome.events, &make_account());
-        assert_eq!(
-            parsed
-                .events
-                .iter()
-                .map(|event| event.body.as_str())
-                .collect::<Vec<_>>(),
-            vec!["older one", "older two"]
-        );
-        assert_eq!(parsed.skipped, Vec::new());
-    }
-
-    #[test]
-    fn account_realm_update_records_nested_mls_welcome() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let channel = ArkretChannelConfig {
-            id: "c1".to_owned(),
-            base_url: "https://arkret.example".to_owned(),
-            service_id: None,
-            accounts: Vec::new(),
-        };
-        let account = make_account();
-        let crypto_store = FileArkretCryptoStore::for_account(tmp.path(), &channel.id, &account.id);
-        let group_id = "group-account-welcome";
-        let welcome_event = arkret::Event::new(
-            "ak.mls.welcome",
-            realm_id(),
-            actor_id(),
-            7,
-            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
-            json!({
-                "kind": "ak.mls.welcome",
-                "content": mls_welcome_value(group_id)
-            }),
-        )
-        .unwrap();
-        let update = arkret::RealmUpdate {
-            realm_id: realm_id(),
-            entry: arkret::RealmSyncEntry {
-                timeline: Some(arkret::Timeline {
-                    events: vec![welcome_event],
-                    limited: false,
-                    prev_cursor: None,
-                    preview_only: None,
-                    extra: Default::default(),
-                }),
-                ..Default::default()
-            },
-        };
-
-        let recorded = record_account_mls_welcomes_from_realm_update(
-            &update,
-            &crypto_store,
-            &channel,
-            &account,
-        );
-
-        assert_eq!(recorded, 1);
-        let state = crypto_store.load().expect("crypto state should load");
-        assert!(state.bootstrap.contains_key(group_id));
     }
 }

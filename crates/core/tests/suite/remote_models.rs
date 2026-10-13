@@ -10,7 +10,7 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{
-    load_default_config_for_test, skip_if_no_network, skip_if_sandbox, wait_for_event,
+    load_config_without_catalog_for_test, skip_if_no_network, skip_if_sandbox, wait_for_event,
     wait_for_event_match,
 };
 use pretty_assertions::assert_eq;
@@ -43,9 +43,9 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         .await;
 
     let remote_model = ModelInfo {
-        slug: REMOTE_MODEL_SLUG.to_string(),
-        name: "Remote Test".to_string(),
-        description: Some("A remote model that requires the test shell".to_string()),
+        slug: REMOTE_MODEL_SLUG.to_owned(),
+        name: "Remote Test".to_owned(),
+        description: Some("A remote model that requires the test shell".to_owned()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
             effort: ReasoningEffort::Medium,
@@ -57,7 +57,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         input_modalities: default_input_modalities(),
         priority: 1,
         upgrade: None,
-        base_instructions: "base instructions".to_string(),
+        base_instructions: "base instructions".to_owned(),
         model_messages: None,
         supports_reasoning_summaries: false,
         support_verbosity: false,
@@ -70,6 +70,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         auto_compact_token_limit: None,
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
+        used_fallback_model_metadata: false,
     };
 
     let models_mock = mount_models_once(
@@ -81,10 +82,11 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
     .await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
-            config.model = Some("gpt-5.1".to_string());
+            config.model = Some("gpt-5.1".to_owned());
         });
     let TestSavfox {
         savfox,
@@ -119,7 +121,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
             approval_policy: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
-            model: Some(REMOTE_MODEL_SLUG.to_string()),
+            model: Some(REMOTE_MODEL_SLUG.to_owned()),
             effort: None,
             summary: None,
             collaboration_mode: None,
@@ -157,7 +159,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
             cwd: cwd.path().to_path_buf(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::DangerFullAccess,
-            model: REMOTE_MODEL_SLUG.to_string(),
+            model: REMOTE_MODEL_SLUG.to_owned(),
             effort: None,
             summary: ReasoningSummary::Auto,
             collaboration_mode: None,
@@ -204,10 +206,11 @@ async fn remote_models_truncation_policy_without_override_preserves_remote() -> 
     .await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
-            config.model = Some("gpt-5.1".to_string());
+            config.model = Some("gpt-5.1".to_owned());
         });
     let test = builder.build(&server).await?;
 
@@ -249,10 +252,11 @@ async fn remote_models_truncation_policy_with_tool_output_override() -> Result<(
     .await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
-            config.model = Some("gpt-5.1".to_string());
+            config.model = Some("gpt-5.1".to_owned());
             config.tool_output_token_limit = Some(50);
         });
     let test = builder.build(&server).await?;
@@ -283,9 +287,9 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
 
     let remote_base = "Use the remote base instructions only.";
     let remote_model = ModelInfo {
-        slug: model.to_string(),
-        name: "Parallel Remote".to_string(),
-        description: Some("A remote model with custom instructions".to_string()),
+        slug: model.to_owned(),
+        name: "Parallel Remote".to_owned(),
+        description: Some("A remote model with custom instructions".to_owned()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
             effort: ReasoningEffort::Medium,
@@ -297,7 +301,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
         input_modalities: default_input_modalities(),
         priority: 1,
         upgrade: None,
-        base_instructions: remote_base.to_string(),
+        base_instructions: remote_base.to_owned(),
         model_messages: None,
         supports_reasoning_summaries: false,
         support_verbosity: false,
@@ -310,6 +314,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
         auto_compact_token_limit: None,
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
+        used_fallback_model_metadata: false,
     };
     mount_models_once(
         &server,
@@ -330,10 +335,11 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
     .await;
 
     let mut builder = test_savfox()
+        .without_model_catalog()
         .with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
-            config.model = Some("gpt-5.1".to_string());
+            config.model = Some("gpt-5.1".to_owned());
         });
     let TestSavfox {
         savfox,
@@ -352,7 +358,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
             approval_policy: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
-            model: Some(model.to_string()),
+            model: Some(model.to_owned()),
             effort: None,
             summary: None,
             collaboration_mode: None,
@@ -371,7 +377,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
             cwd: cwd.path().to_path_buf(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::DangerFullAccess,
-            model: model.to_string(),
+            model: model.to_owned(),
             effort: None,
             summary: ReasoningSummary::Auto,
             collaboration_mode: None,
@@ -390,7 +396,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn remote_models_preserve_builtin_presets() -> Result<()> {
+async fn remote_models_catalog_contains_only_discovered_models() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
@@ -405,7 +411,7 @@ async fn remote_models_preserve_builtin_presets() -> Result<()> {
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -439,12 +445,7 @@ async fn remote_models_preserve_builtin_presets() -> Result<()> {
         1,
         "expected a single default model"
     );
-    assert!(
-        available
-            .iter()
-            .any(|model| model.slug == "gpt-5.1-savfox-max"),
-        "builtin presets should remain available after refresh"
-    );
+    assert_eq!(available, vec![expected_remote]);
     assert_eq!(
         models_mock.requests().len(),
         1,
@@ -470,7 +471,7 @@ async fn remote_models_merge_adds_new_high_priority_first() -> Result<()> {
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -508,8 +509,8 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
     let server = MockServer::start().await;
     let slug = default_model_slug();
     let mut remote_model = test_remote_model(&slug, ModelVisibility::List, 0);
-    remote_model.name = "Overridden".to_string();
-    remote_model.description = Some("Overridden description".to_string());
+    remote_model.name = "Overridden".to_owned();
+    remote_model.description = Some("Overridden description".to_owned());
     let models_mock = mount_models_once(
         &server,
         ModelsResponse {
@@ -519,7 +520,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -557,7 +558,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn local_presets_available_on_empty_remote_response() -> Result<()> {
+async fn empty_remote_response_does_not_fabricate_local_presets() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
@@ -565,7 +566,7 @@ async fn local_presets_available_on_empty_remote_response() -> Result<()> {
     let models_mock = mount_models_once(&server, ModelsResponse { models: Vec::new() }).await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -583,8 +584,8 @@ async fn local_presets_available_on_empty_remote_response() -> Result<()> {
         .list_models(&config, RefreshStrategy::OnlineIfUncached)
         .await;
     assert!(
-        !available.is_empty(),
-        "local presets should remain available after empty remote response"
+        available.is_empty(),
+        "an empty catalog must not gain bundled vendor models"
     );
     assert_eq!(
         models_mock.requests().len(),
@@ -612,7 +613,7 @@ async fn remote_models_request_times_out_after_5s() -> Result<()> {
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -633,11 +634,13 @@ async fn remote_models_request_times_out_after_5s() -> Result<()> {
     )
     .await;
     let elapsed = start.elapsed();
-    // get_model should return a default model even when refresh times out
-    let default_model = model.expect("get_model should finish and return default model");
+    // An empty catalog must fail without sending an invented model to the provider.
+    let error = model
+        .expect("get_model should finish before the outer timeout")
+        .expect_err("timed-out discovery has no default model");
     assert!(
-        default_model == "gpt-5.2-savfox",
-        "get_model should return default model when refresh times out, got: {default_model}"
+        error.to_string().contains("no models are available"),
+        "expected an empty-catalog error after discovery timed out, got: {error}"
     );
     let _ = server
         .received_requests()
@@ -670,16 +673,17 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
 
     let server = MockServer::start().await;
     let remote_model = test_remote_model("savfox-auto-balanced", ModelVisibility::Hide, 0);
+    let visible_model = test_remote_model("remote-visible", ModelVisibility::List, 1);
     mount_models_once(
         &server,
         ModelsResponse {
-            models: vec![remote_model],
+            models: vec![remote_model, visible_model],
         },
     )
     .await;
 
     let savfox_home = TempDir::new()?;
-    let mut config = load_default_config_for_test(&savfox_home).await;
+    let mut config = load_config_without_catalog_for_test(&savfox_home).await;
     config.features.enable(Feature::RemoteModels);
 
     let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
@@ -695,8 +699,8 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
 
     let selected = manager
         .get_default_model(&None, &config, RefreshStrategy::OnlineIfUncached)
-        .await;
-    assert_eq!(selected, "gpt-5.2-savfox");
+        .await?;
+    assert_eq!(selected, "remote-visible");
 
     let available = manager
         .list_models(&config, RefreshStrategy::OnlineIfUncached)
@@ -733,7 +737,7 @@ async fn wait_for_model_available(
 }
 
 fn default_model_slug() -> String {
-    "gpt-5.3-codex".to_string()
+    "gpt-5.3-codex".to_owned()
 }
 
 fn test_remote_model(slug: &str, visibility: ModelVisibility, priority: i32) -> ModelInfo {
@@ -752,7 +756,7 @@ fn test_remote_model_with_policy(
     truncation_policy: TruncationPolicyConfig,
 ) -> ModelInfo {
     ModelInfo {
-        slug: slug.to_string(),
+        slug: slug.to_owned(),
         name: format!("{slug} display"),
         description: Some(format!("{slug} description")),
         default_reasoning_level: Some(ReasoningEffort::Medium),
@@ -766,7 +770,7 @@ fn test_remote_model_with_policy(
         input_modalities: default_input_modalities(),
         priority,
         upgrade: None,
-        base_instructions: "base instructions".to_string(),
+        base_instructions: "base instructions".to_owned(),
         model_messages: None,
         supports_reasoning_summaries: false,
         support_verbosity: false,
@@ -779,5 +783,6 @@ fn test_remote_model_with_policy(
         auto_compact_token_limit: None,
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
+        used_fallback_model_metadata: false,
     }
 }

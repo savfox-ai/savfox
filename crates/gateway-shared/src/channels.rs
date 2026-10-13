@@ -2,6 +2,47 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
+/// Wire value used in place of a configured channel credential.
+///
+/// This constant is shared by the gateway and web editor so a redacted value
+/// can never be mistaken for a real credential during save/export flows.
+pub const CHANNEL_SECRET_REDACTION_PLACEHOLDER: &str = "__SAVFOX_CHANNEL_SECRET_REDACTED__";
+
+/// Return whether a Channel config field carries secret or credential-bearing
+/// data and therefore must be write-only on ordinary RPC responses.
+///
+/// Keys are normalized across snake_case, camelCase, kebab-case and dotted
+/// forms. Explicit entries cover current fields whose names do not contain a
+/// conventional credential marker.
+#[must_use]
+pub fn channel_config_key_is_sensitive(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+
+    normalized.contains("token")
+        || normalized.contains("secret")
+        || normalized.contains("password")
+        || normalized.contains("passwd")
+        || normalized.contains("credential")
+        || normalized.contains("privatekey")
+        || normalized.contains("signingkey")
+        || normalized.contains("keyencryptionkey")
+        || matches!(
+            normalized.as_str(),
+            "authorization"
+                | "accesscode"
+                | "keypair"
+                | "keyref"
+                | "managedactorauthoring"
+                | "loginchallenge"
+                | "pairingcode"
+                | "webhookurl"
+        )
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct ChannelEntry {
     pub platform: String,
@@ -19,6 +60,7 @@ pub struct ChannelsResponse {
 pub struct ChannelsStatusSnapshot {
     pub ts: Option<i64>,
     pub channels: Option<HashMap<String, ChannelStatusSnapshot>>,
+    pub instances: Option<HashMap<String, ChannelInstanceStatusSnapshot>>,
 }
 
 /// Common status fields returned for each platform by `channels.status`.
@@ -40,6 +82,33 @@ pub struct ChannelStatusSnapshot {
     #[serde(alias = "lastError")]
     pub last_error: Option<String>,
     pub accounts: Option<Vec<ChannelAccountSnapshot>>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ChannelInstanceStatusSnapshot {
+    pub platform: String,
+    pub configured: Option<bool>,
+    pub running: Option<bool>,
+    pub connected: Option<bool>,
+    pub enabled: Option<bool>,
+    pub id: Option<String>,
+    pub channel_name: Option<String>,
+    pub slug: Option<String>,
+    pub runtime_capability: Option<String>,
+    pub recovery_phase: Option<String>,
+    pub health_state: Option<String>,
+    pub startup_attempts: Option<u32>,
+    pub startup_updated_at: Option<String>,
+    pub runtime_phase: Option<String>,
+    pub runtime_attempts: Option<u32>,
+    pub runtime_ready: Option<bool>,
+    pub last_reason_code: Option<String>,
+    pub authority_status: Option<String>,
+    pub local_requested_scope: Option<Vec<String>>,
+    pub verified_authorization_scope: Option<Vec<String>>,
+    pub missing_required_actions: Option<Vec<String>>,
+    #[serde(alias = "lastError")]
+    pub last_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -186,9 +255,16 @@ pub struct ArkretStatus {
     pub account_id: Option<String>,
     pub principal_id: Option<String>,
     pub applet_id: Option<String>,
-    pub bot_actor_id: Option<String>,
+    #[cfg(feature = "arkret")]
+    pub bot_account_id: Option<arkret_wire::AccountId>,
     pub protocol_count: Option<u32>,
     pub namespace_count: Option<u32>,
+    pub instance_count: Option<u32>,
+    pub ready_count: Option<u32>,
+    pub retrying_count: Option<u32>,
+    pub migration_required_count: Option<u32>,
+    pub failed_count: Option<u32>,
+    pub health_state: Option<String>,
     pub last_activity: Option<i64>,
     pub last_error: Option<String>,
 }
@@ -253,7 +329,29 @@ pub struct MsTeamsStatus {
 mod tests {
     use serde_json::json;
 
-    use super::ChannelsStatusSnapshot;
+    use super::{ChannelsStatusSnapshot, channel_config_key_is_sensitive};
+
+    #[test]
+    fn channel_secret_schema_covers_conventional_and_explicit_keys() {
+        for key in [
+            "bot_token",
+            "accessToken",
+            "signing-secret",
+            "app.password",
+            "private_key",
+            "signing_key_seed_hex",
+            "webhook_url",
+            "keyRef",
+            "access_code",
+            "managed_actor_authoring",
+            "key_encryption_key_hex",
+        ] {
+            assert!(channel_config_key_is_sensitive(key), "{key}");
+        }
+        for key in ["public_key", "app_id", "homeserver", "channel_name"] {
+            assert!(!channel_config_key_is_sensitive(key), "{key}");
+        }
+    }
 
     #[test]
     fn aggregate_channel_status_deserializes_common_fields() {
@@ -272,11 +370,26 @@ mod tests {
                     "configured": true,
                     "lastError": "legacy error"
                 }
+            },
+            "instances": {
+                "discord-main": {
+                    "platform": "discord",
+                    "configured": true,
+                    "running": true,
+                    "connected": false,
+                    "runtime_capability": "persistent",
+                    "recovery_phase": "ready",
+                    "health_state": "listening",
+                    "startup_attempts": 1
+                }
             }
         }))
         .expect("channel status should deserialize");
 
-        let channels = snapshot.channels.expect("channels should be present");
+        let channels = snapshot
+            .channels
+            .as_ref()
+            .expect("channels should be present");
         let discord = channels.get("discord").expect("discord should be present");
         assert_eq!(discord.connected, Some(false));
         assert_eq!(discord.id.as_deref(), Some("discord-main"));
@@ -287,5 +400,12 @@ mod tests {
                 .and_then(|status| status.last_error.as_deref()),
             Some("legacy error")
         );
+        let instance = snapshot
+            .instances
+            .as_ref()
+            .and_then(|instances| instances.get("discord-main"))
+            .expect("instance status should be present");
+        assert_eq!(instance.recovery_phase.as_deref(), Some("ready"));
+        assert_eq!(instance.health_state.as_deref(), Some("listening"));
     }
 }

@@ -31,6 +31,8 @@ pub(crate) struct IdleReplyPendingStatus {
     pub session_id: String,
     pub agent_id: String,
     pub outbound_channel: String,
+    #[serde(default)]
+    pub saved_channel_config_id: String,
     pub delay_secs: u64,
     pub scheduled_at_ms: u64,
     pub deadline_at_ms: u64,
@@ -62,6 +64,7 @@ pub(super) struct IdleReplySchedule {
     pub session_id: String,
     pub outbound_channel: String,
     pub platform: String,
+    pub saved_channel_config_id: Option<String>,
     pub agent_id: String,
     pub thread_id: Option<String>,
     pub reply_target: Option<String>,
@@ -273,6 +276,7 @@ pub(super) async fn schedule_idle_reply(
             session_id: schedule.session_id.clone(),
             agent_id: schedule.agent_id.clone(),
             outbound_channel: schedule.outbound_channel.clone(),
+            saved_channel_config_id: schedule.saved_channel_config_id.clone().unwrap_or_default(),
             delay_secs: schedule.delay_secs,
             scheduled_at_ms: now_ms,
             deadline_at_ms: now_ms.saturating_add(schedule.delay_secs.saturating_mul(1000)),
@@ -364,7 +368,8 @@ pub(crate) async fn resume_pending_idle_replies(
             ChannelReplyRouteContext {
                 platform,
                 channel_id,
-                saved_channel_config_id: None,
+                saved_channel_config_id: (!pending.saved_channel_config_id.is_empty())
+                    .then_some(pending.saved_channel_config_id.as_str()),
             },
         )
         .await;
@@ -382,8 +387,10 @@ pub(crate) async fn resume_pending_idle_replies(
                 .next()
                 .unwrap_or("unknown")
                 .to_owned(),
+            saved_channel_config_id: (!pending.saved_channel_config_id.is_empty())
+                .then_some(pending.saved_channel_config_id.clone()),
             agent_id: pending.agent_id.clone(),
-            thread_id: entry.thread_id.clone(),
+            thread_id: entry.remote_thread_id.clone(),
             reply_target: entry.reply_target.clone(),
             prompt_override: config.idle_reply.prompt.clone(),
             delay_secs: remaining_delay_secs(now_ms, pending.deadline_at_ms),
@@ -506,7 +513,7 @@ async fn fire_idle_reply(
             .update(&session_id, move |session| {
                 session.session_file = Some(session_file.clone());
                 if session.thread_id.is_none() {
-                    session.thread_id = Some(thread_id);
+                    session.remote_thread_id = Some(thread_id);
                 }
             })
             .await;
@@ -517,7 +524,10 @@ async fn fire_idle_reply(
         return Ok(());
     }
 
-    let send_thread_id = entry.thread_id.as_deref().or(schedule.thread_id.as_deref());
+    let send_thread_id = entry
+        .remote_thread_id
+        .as_deref()
+        .or(schedule.thread_id.as_deref());
     let send_reply_target = entry
         .reply_target
         .as_deref()
@@ -529,6 +539,7 @@ async fn fire_idle_reply(
         None,
         send_thread_id,
         send_reply_target,
+        schedule.saved_channel_config_id.as_deref(),
     )
     .await?;
 
@@ -606,8 +617,8 @@ pub(crate) async fn remove_idle_reply_session(savfox_home: &Path, session_id: &s
 #[cfg(test)]
 mod tests {
     use super::{
-        IdleReplyScheduleOutcome, IdleReplyState, ONE_HOUR_MS, idle_reply_prompt,
-        prune_recent_sent, remaining_delay_secs, should_schedule_idle_reply,
+        IdleReplyPendingStatus, IdleReplyScheduleOutcome, IdleReplyState, ONE_HOUR_MS,
+        idle_reply_prompt, prune_recent_sent, remaining_delay_secs, should_schedule_idle_reply,
     };
     use crate::auto_reply::GroupActivation;
     use crate::channels::runtime::trigger::{
@@ -687,5 +698,21 @@ mod tests {
             IdleReplyScheduleOutcome::RateLimited,
             IdleReplyScheduleOutcome::RateLimited
         );
+    }
+
+    #[test]
+    fn persisted_pending_reply_without_instance_id_remains_readable() {
+        let pending = serde_json::from_value::<IdleReplyPendingStatus>(serde_json::json!({
+            "session_id": "session-1",
+            "agent_id": "default",
+            "outbound_channel": "arkret:ak:realm:01904100-0000-8000-8000-000000000001",
+            "delay_secs": 60,
+            "scheduled_at_ms": 1,
+            "deadline_at_ms": 61_000,
+            "message_preview": "hello"
+        }))
+        .expect("deserialize legacy pending reply");
+
+        assert!(pending.saved_channel_config_id.is_empty());
     }
 }

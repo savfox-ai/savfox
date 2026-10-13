@@ -132,15 +132,15 @@ impl EscalationPolicy for McpEscalationPolicy {
                         }
                     }
                     ElicitationAction::Decline => EscalateAction::Deny {
-                        reason: Some("User declined execution".to_string()),
+                        reason: Some("User declined execution".to_owned()),
                     },
                     ElicitationAction::Cancel => EscalateAction::Deny {
-                        reason: Some("User cancelled execution".to_string()),
+                        reason: Some("User cancelled execution".to_owned()),
                     },
                 }
             }
             ExecPolicyOutcome::Forbidden => EscalateAction::Deny {
-                reason: Some("Execution forbidden by policy".to_string()),
+                reason: Some("Execution forbidden by policy".to_owned()),
             },
         };
         Ok(action)

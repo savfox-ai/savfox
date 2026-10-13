@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::parse_arguments;
+use super::{gateway_endpoint, gateway_http_client, parse_arguments};
 use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::registry::{ToolHandler, ToolKind};
@@ -70,10 +70,7 @@ impl ToolHandler for AgentStepHandler {
         let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
 
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(args.timeout_secs.max(5)))
-            .build()
-            .or_else(|err| model_err(format!("failed to build HTTP client: {err}")))?;
+        let client = gateway_http_client(Duration::from_secs(args.timeout_secs.max(5)))?;
 
         // Step 1: Send prompt to the agent via gateway.
         let idempotency_key = uuid::Uuid::new_v4().to_string();
@@ -93,9 +90,9 @@ impl ToolHandler for AgentStepHandler {
             agent_body["lane"] = serde_json::Value::String(lane.clone());
         }
 
-        let agent_url = format!("{gateway_url}/api/agent");
+        let agent_url = gateway_endpoint(&gateway_url, &["api", "agent"])?;
         let response = client
-            .post(&agent_url)
+            .post(agent_url.as_str())
             .header("Content-Type", "application/json")
             .body(agent_body.to_string())
             .send()
@@ -123,14 +120,14 @@ impl ToolHandler for AgentStepHandler {
 
         // Step 2: Wait for the agent run to complete.
         if !run_id.is_empty() {
-            let wait_url = format!("{gateway_url}/api/agent/wait");
+            let wait_url = gateway_endpoint(&gateway_url, &["api", "agent", "wait"])?;
             let wait_body = serde_json::json!({
                 "run_id": run_id,
                 "timeout_secs": args.timeout_secs,
             });
 
             let _ = client
-                .post(&wait_url)
+                .post(wait_url.as_str())
                 .header("Content-Type", "application/json")
                 .body(wait_body.to_string())
                 .send()
@@ -165,10 +162,17 @@ async fn read_latest_assistant_reply(
     session_id: &str,
     limit: usize,
 ) -> String {
-    let history_url = format!("{gateway_url}/api/sessions/{session_id}/history?limit={limit}");
+    let mut history_url =
+        match gateway_endpoint(gateway_url, &["api", "sessions", session_id, "history"]) {
+            Ok(url) => url,
+            Err(_) => return String::new(),
+        };
+    history_url
+        .query_pairs_mut()
+        .append_pair("limit", &limit.to_string());
 
     let response = match client
-        .get(&history_url)
+        .get(history_url.as_str())
         .timeout(REQUEST_TIMEOUT)
         .send()
         .await

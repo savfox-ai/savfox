@@ -164,7 +164,24 @@ pub(super) async fn maybe_auto_memory_flush(
             "content": reply,
         }),
     ];
-    let compacted = service.compact(session_id, &messages, 1);
+    let compacted = match service.compact(session_id, &messages, 1) {
+        Ok(compacted) => compacted,
+        Err(err) => {
+            warn!(
+                session_id = %session_id,
+                "memory flush skipped because semantic compaction is unavailable: {err}"
+            );
+            log_store::append_log(
+                "warn",
+                "channel/runtime",
+                format!(
+                    "memory flush skipped: session_id={session_id}, semantic compaction unavailable: {err}"
+                ),
+            )
+            .await;
+            return;
+        }
+    };
     let Some(flush_entry) = service.generate_memory_flush(session_id, &compacted) else {
         return;
     };

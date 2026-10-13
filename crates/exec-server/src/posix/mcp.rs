@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CustomRequest, CustomResult, *};
 use rmcp::service::{RequestContext, RunningService};
@@ -68,7 +67,6 @@ impl From<escalate_server::ExecResult> for ExecResult {
 
 #[derive(Clone)]
 pub struct ExecTool {
-    tool_router: ToolRouter<ExecTool>,
     bash_path: PathBuf,
     execve_wrapper: PathBuf,
     policy: Arc<RwLock<Policy>>,
@@ -85,7 +83,6 @@ impl ExecTool {
         preserve_program_paths: bool,
     ) -> Self {
         Self {
-            tool_router: Self::tool_router(),
             bash_path,
             execve_wrapper,
             policy,
@@ -153,11 +150,11 @@ impl ServerHandler for ExecTool {
         let mut experimental_capabilities = ExperimentalCapabilities::new();
         let mut sandbox_state_capability = JsonObject::new();
         sandbox_state_capability.insert(
-            "version".to_string(),
-            serde_json::Value::String(SANDBOX_STATE_CAPABILITY_VERSION.to_string()),
+            "version".to_owned(),
+            serde_json::Value::String(SANDBOX_STATE_CAPABILITY_VERSION.to_owned()),
         );
         experimental_capabilities.insert(
-            MCP_SANDBOX_STATE_CAPABILITY.to_string(),
+            MCP_SANDBOX_STATE_CAPABILITY.to_owned(),
             sandbox_state_capability,
         );
         ServerInfo::new(
@@ -174,7 +171,7 @@ impl ServerHandler for ExecTool {
 
     async fn initialize(
         &self,
-        _request: InitializeRequestParam,
+        _request: InitializeRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, McpError> {
         Ok(self.get_info())
@@ -192,14 +189,14 @@ impl ServerHandler for ExecTool {
 
         let Some(params) = params else {
             return Err(McpError::invalid_params(
-                "missing params for sandbox state request".to_string(),
+                "missing params for sandbox state request".to_owned(),
                 None,
             ));
         };
 
         let Ok(sandbox_state) = serde_json::from_value::<SandboxState>(params.clone()) else {
             return Err(McpError::invalid_params(
-                "failed to deserialize sandbox state".to_string(),
+                "failed to deserialize sandbox state".to_owned(),
                 Some(params),
             ));
         };
@@ -215,9 +212,9 @@ pub(crate) async fn serve(
     execve_wrapper: PathBuf,
     policy: Arc<RwLock<Policy>>,
     preserve_program_paths: bool,
-) -> Result<RunningService<RoleServer, ExecTool>, rmcp::service::ServerInitializeError> {
+) -> Result<RunningService<RoleServer, ExecTool>, Box<rmcp::service::ServerInitializeError>> {
     let tool = ExecTool::new(bash_path, execve_wrapper, policy, preserve_program_paths);
-    tool.serve(stdio()).await
+    tool.serve(stdio()).await.map_err(Box::new)
 }
 
 #[cfg(test)]

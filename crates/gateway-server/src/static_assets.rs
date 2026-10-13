@@ -63,3 +63,52 @@ pub(crate) async fn spa_handler(req: &mut Request, res: &mut Response) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires canonical scripts/build-web.ps1 artifacts"]
+    async fn built_frontend_assets_are_served_with_spa_fallback() {
+        let static_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
+        let index = std::fs::read(static_dir.join("index.html"))
+            .expect("run scripts/build-web.ps1 before this verification");
+        assert!(!index.is_empty());
+        let script = StaticAssets::iter()
+            .find(|path| path.ends_with(".js"))
+            .expect("canonical frontend has JavaScript");
+        let wasm = StaticAssets::iter()
+            .find(|path| path.ends_with(".wasm"))
+            .expect("canonical frontend has WebAssembly");
+        for path in ["/", "/channels", script.as_ref(), wasm.as_ref()] {
+            let mut request = Request::new();
+            *request.uri_mut() = format!("/{}", path.trim_start_matches('/'))
+                .parse()
+                .unwrap();
+            let mut response = Response::new();
+            spa_handler
+                .handle(
+                    &mut request,
+                    &mut Depot::new(),
+                    &mut response,
+                    &mut FlowCtrl::new(Vec::new()),
+                )
+                .await;
+            assert_eq!(
+                response.status_code.unwrap_or(StatusCode::OK),
+                StatusCode::OK
+            );
+            let expected = if path == "/" || path == "/channels" {
+                index.clone()
+            } else {
+                std::fs::read(static_dir.join(path)).unwrap()
+            };
+            let salvo::http::ResBody::Once(body) = response.take_body() else {
+                panic!("the static response must contain the exact generated artifact");
+            };
+            assert_eq!(body.as_ref(), expected.as_slice());
+            assert!(response.headers().contains_key("content-type"));
+        }
+    }
+}

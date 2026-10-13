@@ -80,6 +80,28 @@ pub async fn send_message(
     parse_mode: Option<&str>,
     reply_to_message_id: Option<&str>,
 ) -> anyhow::Result<Option<i64>> {
+    send_message_with_inline_keyboard(
+        client,
+        bot_token,
+        chat_id,
+        text,
+        parse_mode,
+        reply_to_message_id,
+        &[],
+    )
+    .await
+}
+
+/// Send a Telegram message with server-defined inline callback actions.
+pub async fn send_message_with_inline_keyboard(
+    client: &reqwest::Client,
+    bot_token: &str,
+    chat_id: &str,
+    text: &str,
+    parse_mode: Option<&str>,
+    reply_to_message_id: Option<&str>,
+    actions: &[(String, String)],
+) -> anyhow::Result<Option<i64>> {
     debug!(
         target: "savfox::channels::telegram",
         chat_id,
@@ -107,6 +129,22 @@ pub async fn send_message(
     }
     if let Some(message_id) = reply_to_message_id.and_then(|v| v.trim().parse::<i64>().ok()) {
         body["reply_to_message_id"] = serde_json::json!(message_id);
+    }
+    if !actions.is_empty() {
+        let rows = actions
+            .chunks(2)
+            .map(|row| {
+                row.iter()
+                    .map(|(label, callback_data)| {
+                        serde_json::json!({
+                            "text": label,
+                            "callback_data": callback_data,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        body["reply_markup"] = serde_json::json!({ "inline_keyboard": rows });
     }
 
     let response = client

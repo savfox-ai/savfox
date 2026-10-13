@@ -476,7 +476,7 @@ pub(crate) async fn poll_handler(req: &mut Request, res: &mut Response) {
             let mut store = webchat_store().lock().await;
             if let Some(session) = store.get_mut(&session_id) {
                 if !session.pending_messages.is_empty() {
-                    let messages: Vec<_> = session.pending_messages.drain(..).collect();
+                    let messages = std::mem::take(&mut session.pending_messages);
                     session.last_active_ms = crate::json_store::now_ms();
 
                     drop(store);

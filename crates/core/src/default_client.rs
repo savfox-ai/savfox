@@ -193,6 +193,63 @@ pub fn build_reqwest_client() -> reqwest::Client {
 }
 
 pub fn try_build_reqwest_client() -> Result<reqwest::Client, BuildCustomCaTransportError> {
+    try_build_reqwest_client_for_native(false)
+}
+
+/// Snapshot original default request headers once, before freezing a native
+/// provider request. The factory must give the SAME snapshot to the client
+/// builder and transport; reqwest adds absent defaults only during execute.
+pub fn native_reply_default_headers() -> anyhow::Result<HeaderMap> {
+    let mut headers = HeaderMap::new();
+    headers.insert("originator", originator().header_value);
+    headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("*/*"));
+    if let Ok(guard) = REQUIREMENTS_RESIDENCY.read()
+        && let Some(requirement) = guard.as_ref()
+    {
+        let value = match requirement {
+            ResidencyRequirement::Us => HeaderValue::from_static("us"),
+        };
+        headers.insert(RESIDENCY_HEADER_NAME, value);
+    }
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        HeaderValue::from_str(&get_savfox_user_agent())
+            .map_err(|_| anyhow::anyhow!("invalid native default user agent"))?,
+    );
+    Ok(headers)
+}
+
+/// Keeps original CA/proxy/default-header policy with no fallback, redirect
+/// or protocol-NACK retry. A mounted factory that needs the exact defaults
+/// uses the explicit snapshot builder below rather than collecting twice.
+pub fn try_build_native_reply_reqwest_client() -> anyhow::Result<reqwest::Client> {
+    try_build_native_reply_reqwest_client_with_headers(native_reply_default_headers()?)
+}
+
+/// Build from the factory's frozen original header snapshot. The transport
+/// explicitly fills absent request headers from this same map before hashing;
+/// existing request headers retain priority, matching reqwest's merge rule.
+pub fn try_build_native_reply_reqwest_client_with_headers(
+    headers: HeaderMap,
+) -> anyhow::Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .default_headers(headers)
+        .no_gzip()
+        .no_brotli()
+        .no_zstd()
+        .no_deflate()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .retry(reqwest::retry::never())
+        .redirect(reqwest::redirect::Policy::none());
+    if is_sandboxed() {
+        builder = builder.no_proxy();
+    }
+    Ok(build_reqwest_client_with_custom_ca(builder)?)
+}
+
+fn try_build_reqwest_client_for_native(
+    native: bool,
+) -> Result<reqwest::Client, BuildCustomCaTransportError> {
     let mut headers = HeaderMap::new();
     headers.insert("originator", originator().header_value);
     if let Ok(guard) = REQUIREMENTS_RESIDENCY.read()
@@ -217,6 +274,11 @@ pub fn try_build_reqwest_client() -> Result<reqwest::Client, BuildCustomCaTransp
         // each streaming caller already enforces its own per-event idle
         // timeout via `stream_idle_timeout`.
         .connect_timeout(std::time::Duration::from_secs(15));
+    if native {
+        builder = builder
+            .retry(reqwest::retry::never())
+            .redirect(reqwest::redirect::Policy::none());
+    }
     if is_sandboxed() {
         builder = builder.no_proxy();
     }

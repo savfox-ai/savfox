@@ -287,12 +287,12 @@ mod tests {
 
         #[cfg(unix)]
         let expected = vec![
-            "entry.txt".to_string(),
-            "link@".to_string(),
-            "nested/".to_string(),
-            "  child.txt".to_string(),
-            "  deeper/".to_string(),
-            "    grandchild.txt".to_string(),
+            "entry.txt".to_owned(),
+            "link@".to_owned(),
+            "nested/".to_owned(),
+            "  child.txt".to_owned(),
+            "  deeper/".to_owned(),
+            "    grandchild.txt".to_owned(),
         ];
 
         #[cfg(not(unix))]

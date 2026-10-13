@@ -47,9 +47,14 @@ pub struct TestSavfoxBuilder {
     auth: SavfoxAuth,
     pre_build_hooks: Vec<Box<PreBuildHook>>,
     home: Option<Arc<TempDir>>,
+    use_test_catalog: bool,
 }
 
 impl TestSavfoxBuilder {
+    pub fn without_model_catalog(mut self) -> Self {
+        self.use_test_catalog = false;
+        self
+    }
     pub fn with_config<T>(mut self, mutator: T) -> Self
     where
         T: FnOnce(&mut Config) + Send + 'static,
@@ -197,7 +202,11 @@ impl TestSavfoxBuilder {
             ..built_in_model_providers()["openai"].clone()
         };
         let cwd = Arc::new(TempDir::new()?);
-        let mut config = load_default_config_for_test(home).await;
+        let mut config = if self.use_test_catalog {
+            load_default_config_for_test(home).await
+        } else {
+            crate::load_config_without_catalog_for_test(home).await
+        };
         config.cwd = cwd.path().to_path_buf();
         config.model_provider = model_provider;
         for hook in self.pre_build_hooks.drain(..) {
@@ -437,5 +446,6 @@ pub fn test_savfox() -> TestSavfoxBuilder {
         auth: SavfoxAuth::from_api_key("dummy"),
         pre_build_hooks: vec![],
         home: None,
+        use_test_catalog: true,
     }
 }

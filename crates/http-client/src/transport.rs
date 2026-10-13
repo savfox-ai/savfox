@@ -17,6 +17,8 @@ pub struct StreamResponse {
     pub bytes: ByteStream,
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait HttpTransport: Send + Sync {
     async fn execute(&self, req: Request) -> Result<Response, TransportError>;

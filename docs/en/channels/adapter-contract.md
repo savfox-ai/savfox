@@ -39,6 +39,24 @@ Each adapter should document:
 
 Adapters should make duplicate delivery and partial failure behavior explicit. If the platform can redeliver messages, the adapter must either dedupe or document exactly where dedupe happens.
 
+## Acknowledgment and execution ownership
+
+Define platform receipt, local durable inbox completion, coordinator admission,
+and reply submission separately. "Dispatched" cannot describe all four outcomes,
+and an in-memory queue cannot establish durable execution ownership. Validate the
+trusted route before completing the source item. If retry ownership transfers to
+another queue, persist the complete work and idempotency key there first. Temporary
+failure retains source retry; terminal failure retains a named diagnostic. Do not
+clear dedupe to automatically replay an executed instruction. Document crash
+recovery limits where only an in-memory coordinator exists; do not promise
+exactly-once model side effects.
+
+Arkret routes retain the SDK independent `stream_ref`, full account, Realm, Strand,
+and original request Event ID. Ordinary Realm/Topic and native Sidecar cannot share
+inferred routes even when they have the same name or source Strand. Regressions
+cover missing coordinates, unreadable durable files, source retry after rejected
+admission, and real replies to the original conversation.
+
 ## Stability levels
 
 Use one of these labels in docs and reviews:

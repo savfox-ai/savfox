@@ -1,5 +1,5 @@
 use std::io::IoSlice;
-use std::mem::MaybeUninit;
+use std::mem::{ManuallyDrop, MaybeUninit};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 
 use libc::c_uint;
@@ -23,12 +23,12 @@ fn assume_init_slice<T, const N: usize>(buf: &[MaybeUninit<T>; N]) -> &[T; N] {
     unsafe { &*(buf as *const [MaybeUninit<T>; N] as *const [T; N]) }
 }
 
-fn assume_init_vec<T>(mut buf: Vec<MaybeUninit<T>>) -> Vec<T> {
+fn assume_init_vec<T>(buf: Vec<MaybeUninit<T>>) -> Vec<T> {
+    let mut buf = ManuallyDrop::new(buf);
     unsafe {
         let ptr = buf.as_mut_ptr() as *mut T;
         let len = buf.len();
         let cap = buf.capacity();
-        std::mem::forget(buf);
         Vec::from_raw_parts(ptr, len, cap)
     }
 }
@@ -240,24 +240,24 @@ pub(crate) struct AsyncSocket {
 }
 
 impl AsyncSocket {
-    fn new(socket: Socket) -> std::io::Result<AsyncSocket> {
+    fn new(socket: Socket) -> std::io::Result<Self> {
         socket.set_nonblocking(true)?;
         let async_socket = AsyncFd::new(socket)?;
-        Ok(AsyncSocket {
+        Ok(Self {
             inner: async_socket,
         })
     }
 
-    pub fn from_fd(fd: OwnedFd) -> std::io::Result<AsyncSocket> {
-        AsyncSocket::new(Socket::from(fd))
+    pub fn from_fd(fd: OwnedFd) -> std::io::Result<Self> {
+        Self::new(Socket::from(fd))
     }
 
-    pub fn pair() -> std::io::Result<(AsyncSocket, AsyncSocket)> {
+    pub fn pair() -> std::io::Result<(Self, Self)> {
         let (server, client) = Socket::pair(Domain::UNIX, Type::STREAM, None)?;
-        Ok((AsyncSocket::new(server)?, AsyncSocket::new(client)?))
+        Ok((Self::new(server)?, Self::new(client)?))
     }
 
-    pub async fn send_with_fds<T: Serialize>(
+    pub async fn send_with_fds<T: Serialize + Send>(
         &self,
         msg: T,
         fds: &[OwnedFd],
@@ -279,7 +279,7 @@ impl AsyncSocket {
 
     pub async fn send<T>(&self, msg: T) -> std::io::Result<()>
     where
-        T: Serialize,
+        T: Serialize + Send + Sync,
     {
         self.send_with_fds(&msg, &[]).await
     }
@@ -415,7 +415,7 @@ mod tests {
         let (server, client) = AsyncSocket::pair()?;
         let payload = TestPayload {
             id: 7,
-            label: "round-trip".to_string(),
+            label: "round-trip".to_owned(),
         };
         let send_fds = fd_list(1)?;
 
@@ -424,7 +424,8 @@ mod tests {
         client.send_with_fds(payload.clone(), &send_fds).await?;
         drop(send_fds);
 
-        let (received_payload, received_fds) = receive_task.await.unwrap()?;
+        let (received_payload, received_fds) =
+            receive_task.await.expect("receiver task completes")?;
         assert_eq!(payload, received_payload);
         assert_eq!(1, received_fds.len());
         let fd_status = unsafe { libc::fcntl(received_fds[0].as_raw_fd(), libc::F_GETFD) };
@@ -441,7 +442,7 @@ mod tests {
         let payload = vec![b'A'; 10_000];
         let receive_task = tokio::spawn(async move { server.receive::<Vec<u8>>().await });
         client.send(payload.clone()).await?;
-        let received_payload = receive_task.await.unwrap()?;
+        let received_payload = receive_task.await.expect("receiver task completes")?;
         assert_eq!(payload, received_payload);
         Ok(())
     }
@@ -456,7 +457,8 @@ mod tests {
         client.send_with_fds(&data, &send_fds).await?;
         drop(send_fds);
 
-        let (received_bytes, received_fds) = receive_task.await.unwrap()?;
+        let (received_bytes, received_fds) =
+            receive_task.await.expect("receiver task completes")?;
         assert_eq!(data, received_bytes);
         assert_eq!(1, received_fds.len());
         Ok(())
@@ -466,7 +468,8 @@ mod tests {
     fn send_datagram_bytes_rejects_excessive_fd_counts() -> std::io::Result<()> {
         let (socket, _peer) = Socket::pair(Domain::UNIX, Type::DGRAM, None)?;
         let fds = fd_list(MAX_FDS_PER_MESSAGE + 1)?;
-        let err = send_datagram_bytes(&socket, b"hi", &fds).unwrap_err();
+        let err = send_datagram_bytes(&socket, b"hi", &fds)
+            .expect_err("operation must reject invalid input");
         assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
         Ok(())
     }
@@ -475,14 +478,15 @@ mod tests {
     fn send_stream_chunk_rejects_excessive_fd_counts() -> std::io::Result<()> {
         let (socket, _peer) = Socket::pair(Domain::UNIX, Type::STREAM, None)?;
         let fds = fd_list(MAX_FDS_PER_MESSAGE + 1)?;
-        let err = send_stream_chunk(&socket, b"hello", &fds, true).unwrap_err();
+        let err = send_stream_chunk(&socket, b"hello", &fds, true)
+            .expect_err("operation must reject invalid input");
         assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
         Ok(())
     }
 
     #[test]
     fn encode_length_errors_for_oversized_messages() {
-        let err = encode_length(usize::MAX).unwrap_err();
+        let err = encode_length(usize::MAX).expect_err("operation must reject invalid input");
         assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
     }
 

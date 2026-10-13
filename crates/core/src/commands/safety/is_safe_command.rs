@@ -137,37 +137,7 @@ fn is_safe_to_call_with_exec(command: &[String]) -> bool {
         }
 
         // Git
-        Some("git") => {
-            // Global options that redirect config, repository, or helper
-            // lookup can make otherwise read-only git commands execute
-            // attacker-controlled code, so they must never be auto-approved.
-            if git_has_unsafe_global_option(command) {
-                return false;
-            }
-
-            let Some((subcommand_idx, subcommand)) = find_git_subcommand(
-                command,
-                &["status", "log", "diff", "show", "branch", "rev-parse"],
-            ) else {
-                return false;
-            };
-
-            let subcommand_args = &command[subcommand_idx + 1..];
-
-            match subcommand {
-                "status" | "log" | "diff" | "show" | "rev-parse" => {
-                    git_subcommand_args_are_read_only(subcommand_args)
-                }
-                "branch" => {
-                    git_subcommand_args_are_read_only(subcommand_args)
-                        && git_branch_is_read_only(subcommand_args)
-                }
-                other => {
-                    debug_assert!(false, "unexpected git subcommand from matcher: {other}");
-                    false
-                }
-            }
-        }
+        Some("git") => is_safe_git_command(command),
 
         // Special-case `sed -n {N|M,N}p`
         Some("sed")
@@ -182,6 +152,57 @@ fn is_safe_to_call_with_exec(command: &[String]) -> bool {
 
         // ── anything else ─────────────────────────────────────────────────
         _ => false,
+    }
+}
+
+/// Validate a Git command against the shared read-only policy used by native
+/// argv execution and PowerShell AST-lowered commands.
+pub(crate) fn is_safe_git_command(command: &[String]) -> bool {
+    let Some(program) = command.first() else {
+        return false;
+    };
+    let program = program.trim_matches(['(', ')']);
+    let is_git = std::path::Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("git"));
+    if !is_git {
+        return false;
+    }
+
+    // Global options that redirect config, repository, or helper lookup can
+    // make otherwise read-only commands execute attacker-controlled code.
+    if git_has_unsafe_global_option(command) {
+        return false;
+    }
+
+    let Some((subcommand_idx, subcommand)) = find_git_subcommand(
+        command,
+        &[
+            "status",
+            "log",
+            "diff",
+            "show",
+            "branch",
+            "rev-parse",
+            "cat-file",
+        ],
+    ) else {
+        return false;
+    };
+    let subcommand_args = &command[subcommand_idx + 1..];
+    match subcommand {
+        "status" | "log" | "diff" | "show" | "rev-parse" | "cat-file" => {
+            git_subcommand_args_are_read_only(subcommand_args)
+        }
+        "branch" => {
+            git_subcommand_args_are_read_only(subcommand_args)
+                && git_branch_is_read_only(subcommand_args)
+        }
+        other => {
+            debug_assert!(false, "unexpected git subcommand from matcher: {other}");
+            false
+        }
     }
 }
 
@@ -232,6 +253,9 @@ fn git_subcommand_args_are_read_only(args: &[String]) -> bool {
         "--paginate",
         // Launches the pager on matched files — executes core.pager.
         "--open-files-in-pager",
+        // `git cat-file --filters` applies configured working-tree filters,
+        // which may execute external processes.
+        "--filters",
     ];
 
     !args.iter().map(String::as_str).any(|arg| {
@@ -300,6 +324,12 @@ mod tests {
             "branch",
             "--show-current"
         ])));
+        assert!(is_safe_to_call_with_exec(&vec_str(&[
+            "git",
+            "cat-file",
+            "-p",
+            "HEAD:Cargo.toml"
+        ])));
         assert!(is_safe_to_call_with_exec(&vec_str(&["base64"])));
         assert!(is_safe_to_call_with_exec(&vec_str(&[
             "sed", "-n", "1,5p", "file.txt"
@@ -361,6 +391,12 @@ mod tests {
         assert!(!is_known_safe_command(&vec_str(&[
             "git", "checkout", "status",
         ])));
+        assert!(!is_safe_git_command(&vec_str(&[
+            "-git",
+            "cat-file",
+            "-p",
+            "HEAD:Cargo.toml",
+        ])));
     }
 
     #[test]
@@ -383,6 +419,12 @@ mod tests {
             "show",
             "--output=/tmp/git-show-out-test",
             "HEAD",
+        ])));
+        assert!(!is_known_safe_command(&vec_str(&[
+            "git",
+            "cat-file",
+            "--filters",
+            "HEAD:Cargo.toml",
         ])));
     }
 

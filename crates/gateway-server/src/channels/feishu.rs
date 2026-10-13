@@ -20,6 +20,7 @@ use crate::session::SessionStore;
 struct FeishuRuntimeSink {
     channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
+    config_id: Option<String>,
 }
 
 #[async_trait]
@@ -52,6 +53,7 @@ impl FeishuActionSink for FeishuRuntimeSink {
                 thread_id: meta.thread_id.clone(),
                 parent_thread_id: meta.thread_id,
                 reply_target: message_id.map(str::to_owned),
+                saved_channel_config_id: self.config_id.clone(),
                 ..runtime::StartThreadMeta::default()
             };
             let gateway_channel = Arc::clone(&self.channel);
@@ -75,10 +77,12 @@ impl FeishuActionSink for FeishuRuntimeSink {
 pub(crate) fn feishu_sink(
     channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
+    config_id: Option<String>,
 ) -> Arc<dyn FeishuActionSink> {
     Arc::new(FeishuRuntimeSink {
         channel,
         session_store,
+        config_id,
     })
 }
 
@@ -189,7 +193,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let sink = feishu_sink(Arc::clone(&channel), Arc::clone(&session_store));
+    let sink = feishu_sink(Arc::clone(&channel), Arc::clone(&session_store), None);
     let dispatcher = build_feishu_event_dispatcher(&config, sink).await;
     match dispatcher.dispatch(event_req).await {
         Ok(event_resp) => {

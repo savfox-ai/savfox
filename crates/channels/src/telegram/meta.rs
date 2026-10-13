@@ -14,20 +14,25 @@ fn inbound_message(payload: &Value) -> Option<&Value> {
     payload
         .get("message")
         .or_else(|| payload.get("channel_post"))
+        .or_else(|| payload.pointer("/callback_query/message"))
 }
 
 pub fn parse_start_meta(payload: &Value) -> TelegramStartMeta {
     let message = inbound_message(payload);
-    let peer_id = message
-        .and_then(|msg| {
-            msg.get("from")
-                .and_then(|from| from.get("id"))
-                .and_then(Value::as_i64)
-                .or_else(|| {
-                    msg.get("sender_chat")
-                        .and_then(|sender| sender.get("id"))
-                        .and_then(Value::as_i64)
-                })
+    let peer_id = payload
+        .pointer("/callback_query/from/id")
+        .and_then(Value::as_i64)
+        .or_else(|| {
+            message.and_then(|msg| {
+                msg.get("from")
+                    .and_then(|from| from.get("id"))
+                    .and_then(Value::as_i64)
+                    .or_else(|| {
+                        msg.get("sender_chat")
+                            .and_then(|sender| sender.get("id"))
+                            .and_then(Value::as_i64)
+                    })
+            })
         })
         .map(|v| v.to_string());
     let chat_id = message
@@ -91,6 +96,34 @@ mod tests {
                 thread_id: Some("77".to_owned()),
                 reply_target: Some("12".to_owned()),
                 topic: Some("Release Feed".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn callback_uses_clicking_user_as_the_authenticated_peer() {
+        let payload = json!({
+            "callback_query": {
+                "from": { "id": 777, "first_name": "Alice" },
+                "message": {
+                    "message_id": 99,
+                    "from": { "id": 123, "is_bot": true },
+                    "chat": { "id": -100123, "type": "supergroup", "title": "Ops" },
+                    "message_thread_id": 42
+                },
+                "data": "approval|approve-once|request-123"
+            }
+        });
+
+        assert_eq!(
+            parse_start_meta(&payload),
+            TelegramStartMeta {
+                peer_id: Some("777".to_owned()),
+                chat_id: Some("-100123".to_owned()),
+                chat_type: Some("supergroup".to_owned()),
+                thread_id: Some("42".to_owned()),
+                reply_target: None,
+                topic: Some("Ops".to_owned()),
             }
         );
     }

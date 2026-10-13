@@ -20,7 +20,7 @@ pub use mock_model_server::{
     create_mock_responses_server_repeating_assistant, create_mock_responses_server_sequence,
     create_mock_responses_server_sequence_unchecked,
 };
-pub use models_cache::{write_models_cache, write_models_cache_with_models};
+pub use models_cache::{test_catalog, write_models_cache, write_models_cache_with_models};
 pub use responses::{
     create_apply_patch_sse_response, create_exec_command_sse_response,
     create_final_assistant_message_sse_response, create_request_user_input_sse_response,

@@ -1647,5 +1647,5 @@ pub(crate) async fn handle_approvals_policy(
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     // Re-use existing exec approvals get handler logic.
-    super::skill::handle_exec_approvals_get(channel).await
+    super::skill::handle_exec_approvals_get(channel, None).await
 }

@@ -35,3 +35,7 @@ crates/app-server-protocol/schema
 *.tmp
 .gitnexus
 .e2e-savfox-home-*
+.codex*
+target*
+# insta pending snapshots — accept with `cargo insta review`, never commit
+*.snap.new

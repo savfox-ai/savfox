@@ -36,6 +36,7 @@ pub fn sandbox_setup_is_complete(savfox_home: &Path) -> bool {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[must_use]
 pub fn sandbox_setup_is_complete(_savfox_home: &Path) -> bool {
     false
 }
@@ -50,6 +51,7 @@ pub fn elevated_setup_failure_details(err: &anyhow::Error) -> Option<(String, St
 }
 
 #[cfg(not(target_os = "windows"))]
+#[must_use]
 pub fn elevated_setup_failure_details(_err: &anyhow::Error) -> Option<(String, String)> {
     None
 }
@@ -70,6 +72,7 @@ pub fn elevated_setup_failure_metric_name(err: &anyhow::Error) -> &'static str {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[must_use]
 pub fn elevated_setup_failure_metric_name(_err: &anyhow::Error) -> &'static str {
     panic!("elevated_setup_failure_metric_name is only supported on Windows")
 }
@@ -134,8 +137,19 @@ mod tests {
     }
 
     #[test]
-    fn no_flags_means_no_sandbox() {
+    fn restricted_token_is_the_default() {
         let features = Features::with_defaults();
+
+        assert_eq!(
+            WindowsSandboxLevel::from_features(&features),
+            WindowsSandboxLevel::RestrictedToken
+        );
+    }
+
+    #[test]
+    fn restricted_token_can_be_explicitly_disabled() {
+        let mut features = Features::with_defaults();
+        features.disable(Feature::WindowsSandbox);
 
         assert_eq!(
             WindowsSandboxLevel::from_features(&features),

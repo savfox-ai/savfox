@@ -92,6 +92,8 @@ impl TerminalAgentRuntime {
 }
 
 string_enum!(TerminalMode {
+    AppServer => "app_server",
+    ClaudeStream => "claude_stream",
     OneShot => "one_shot",
     ManagedPty => "managed_pty",
     InteractiveLaunch => "interactive_launch",
@@ -169,7 +171,7 @@ pub struct AgentIdleReplyConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-pub struct NativeAgentConfig {
+pub struct AgentConfig {
     pub provider: String,
     pub model: String,
     pub fallback_models: Option<Vec<String>>,
@@ -189,8 +191,10 @@ pub struct TerminalAgentConfig {
 /// (e.g. `codex`, `claude`, a custom script) instead of the in-process
 /// model client.
 ///
-/// Two execution modes are supported:
+/// Execution modes include:
 ///
+/// * **Codex app-server** — the gateway drives `codex app-server` over stdio JSON-RPC and resumes a
+///   durable Codex thread for subsequent turns.
 /// * **One-shot delegate** — the gateway spawns `command` with `args`, pipes the prompt to stdin,
 ///   captures stdout/stderr, and returns the captured output as the agent's reply. Use `enabled =
 ///   true` plus the `command` / `args` / `stdin` / `cwd` / `env` / `timeout_secs` fields.
@@ -203,8 +207,8 @@ pub struct AgentTerminalDelegateConfig {
     pub enabled: Option<bool>,
     /// Terminal agent profile. Expected values are `codex` and `claude`.
     pub profile: Option<TerminalProfile>,
-    /// Runtime mode. Expected values include `one_shot`, `managed_pty`,
-    /// `interactive_launch`, and `jsonl_adapter`.
+    /// Runtime mode. Expected values include `app_server`, `one_shot`, `managed_pty`,
+    /// `interactive_launch`, `jsonl_adapter`, and `claude_stream`.
     pub mode: Option<TerminalMode>,
     /// Session scoping strategy. Expected values include `per_turn`,
     /// `per_session`, `per_agent`, and `manual`.
@@ -224,6 +228,9 @@ pub struct AgentTerminalDelegateConfig {
     /// Whether Savfox should bridge vendor CLI approvals. Expected values
     /// include `disabled`, `prompt`, and `required`.
     pub savfox_approval_bridge: Option<SavfoxApprovalBridge>,
+    /// Configuration for the Rust Claude Code stdio adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude: Option<ClaudeCodeConfig>,
     /// Declarative workspace policy for the terminal runtime.
     pub workspace: Option<AgentTerminalWorkspaceConfig>,
     pub command: Option<String>,
@@ -243,6 +250,37 @@ pub struct AgentTerminalDelegateConfig {
     pub interactive_args: Option<Vec<String>>,
 }
 
+/// Claude owns authentication and tool execution. Controlled settings are not
+/// an operating-system sandbox. Version opt-in is explicit until live CLI
+/// compatibility has been established on the deployment machine.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ClaudeCodeConfig {
+    pub model: Option<String>,
+    pub settings_policy: String,
+    pub allowed_tools: Vec<String>,
+    pub mcp_config: Option<String>,
+    pub expected_version: Option<String>,
+    pub initialize_timeout_secs: u64,
+    pub approval_timeout_secs: u64,
+    pub shutdown_timeout_secs: u64,
+}
+
+impl Default for ClaudeCodeConfig {
+    fn default() -> Self {
+        Self {
+            model: None,
+            settings_policy: "controlled".to_owned(),
+            allowed_tools: Vec::new(),
+            mcp_config: None,
+            expected_version: None,
+            initialize_timeout_secs: 20,
+            approval_timeout_secs: 120,
+            shutdown_timeout_secs: 5,
+        }
+    }
+}
+
 /// Summary view of an agent as returned by `agents.list` and the agent
 /// picker in the UI. Concrete on-disk shape (under
 /// `<savfox_home>/agents/<id>.json`) carries strictly more fields; the
@@ -257,7 +295,7 @@ pub struct AgentEntry {
     /// Canonical agent shape. `native` agents run through Savfox model
     /// providers; `terminal` agents delegate to a supported local CLI runtime.
     pub kind: AgentKind,
-    pub native: Option<NativeAgentConfig>,
+    pub native: Option<AgentConfig>,
     pub terminal: Option<TerminalAgentConfig>,
     pub system_prompt: Option<String>,
     /// Operator-set status string (e.g. `"online"` / `"draft"` /
@@ -306,8 +344,68 @@ string_enum!(AgentApprovalMode {
     Untrusted => "untrusted",
     OnFailure => "on-failure",
     OnRequest => "on-request",
+    Granular => "granular",
     Never => "never",
 });
+
+// How an agent entry point handles a request that crosses its permission
+// boundary. This is deliberately separate from the sandbox policy: an
+// unattended entry point does not imply full host access.
+string_enum!(AgentExecutionMode {
+    Interactive => "interactive",
+    Unattended => "unattended",
+    AutoReview => "auto-review",
+});
+
+/// Runtime behavior for permission-boundary requests.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AgentExecutionPolicy {
+    pub mode: AgentExecutionMode,
+}
+
+/// Read-only runtime view of the policy that will actually be enforced.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AgentEffectiveSecurity {
+    pub execution_mode: String,
+    pub sandbox_policy: String,
+    pub sandbox_enforcement: String,
+    pub policy_fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+}
+
+/// Canonical capability and boundary behavior for a built-in agent preset.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentPresetBoundary {
+    pub sandbox: AgentSandboxMode,
+    /// Legacy compatibility value. New runtimes use `execution_mode`.
+    pub approval: AgentApprovalMode,
+    pub execution_mode: AgentExecutionMode,
+}
+
+/// Return the canonical security boundary for a built-in Gateway agent
+/// preset. Frontends must use this mapping rather than reimplementing it.
+#[must_use]
+pub fn agent_preset_boundary(id: &str) -> Option<AgentPresetBoundary> {
+    match id {
+        "minimal" | "messaging" => Some(AgentPresetBoundary {
+            sandbox: AgentSandboxMode::ReadOnly,
+            approval: AgentApprovalMode::OnRequest,
+            execution_mode: AgentExecutionMode::Interactive,
+        }),
+        "coding" | "full" => Some(AgentPresetBoundary {
+            sandbox: AgentSandboxMode::WorkspaceWrite,
+            approval: AgentApprovalMode::OnRequest,
+            execution_mode: AgentExecutionMode::Interactive,
+        }),
+        "unrestricted" => Some(AgentPresetBoundary {
+            sandbox: AgentSandboxMode::DangerFullAccess,
+            approval: AgentApprovalMode::Never,
+            execution_mode: AgentExecutionMode::Unattended,
+        }),
+        _ => None,
+    }
+}
 
 /// Fine-grained tool settings stored in an agent permission policy.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -320,12 +418,28 @@ pub struct AgentToolAccessPolicy {
     pub tool_approval_overrides: BTreeMap<String, bool>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AgentGranularApprovalPolicy {
+    pub sandbox_approval: bool,
+    pub rules: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AgentNetworkPermissionPolicy {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+    #[serde(default)]
+    pub denied_domains: Vec<String>,
+}
+
 /// Gateway representation of an agent's unified permission policy.
 ///
 /// The sandbox representation intentionally remains the compact string form
 /// persisted by the gateway rather than the richer core `SandboxPolicy` wire
 /// shape.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AgentPermissionPolicy {
     #[serde(
         default,
@@ -333,10 +447,18 @@ pub struct AgentPermissionPolicy {
         skip_serializing_if = "Option::is_none"
     )]
     pub preset_id: Option<String>,
+    /// Named permission profile. Built-ins are `:read-only`, `:workspace`,
+    /// and `:danger-full-access`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<AgentSandboxMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval: Option<AgentApprovalMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub granular_approval: Option<AgentGranularApprovalPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<AgentNetworkPermissionPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_access: Option<AgentToolAccessPolicy>,
 }
@@ -345,7 +467,7 @@ pub struct AgentPermissionPolicy {
 pub struct AgentDetail {
     pub name: String,
     pub kind: AgentKind,
-    pub native: Option<NativeAgentConfig>,
+    pub native: Option<AgentConfig>,
     pub terminal: Option<TerminalAgentConfig>,
     pub system_prompt: Option<String>,
     pub status: Option<String>,
@@ -360,8 +482,14 @@ pub struct AgentDetail {
     pub ingest_policy: Option<String>,
     pub external_bot_policy: Option<String>,
     pub idle_reply: Option<AgentIdleReplyConfig>,
-    /// Unified permission policy (sandbox + approval + tool access).
+    /// Unified permission policy. `approval` remains accepted for legacy
+    /// configurations; new writers should persist `execution_policy`.
     pub permission_policy: Option<AgentPermissionPolicy>,
+    /// Permission-boundary behavior, kept separate from sandbox/tool access.
+    pub execution_policy: Option<AgentExecutionPolicy>,
+    /// Effective runtime enforcement, computed by the Gateway and never
+    /// persisted back into the Agent configuration.
+    pub effective_security: Option<AgentEffectiveSecurity>,
     /// List of Matrix appservice channel config IDs for which to auto-create
     /// a virtual user for this agent.
     pub matrix_auto_user_channels: Option<Vec<String>>,
@@ -379,10 +507,10 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        AgentApprovalMode, AgentPermissionPolicy, AgentSandboxMode, AgentTerminalDelegateConfig,
-        SavfoxApprovalBridge, TerminalAgentConfig, TerminalAgentRuntime, TerminalExecution,
-        TerminalIoProtocol, TerminalMode, TerminalProfile, TerminalSessionScope,
-        TerminalWorkspaceCleanupPolicy, TerminalWorkspaceMode,
+        AgentApprovalMode, AgentExecutionMode, AgentExecutionPolicy, AgentPermissionPolicy,
+        AgentSandboxMode, AgentTerminalDelegateConfig, SavfoxApprovalBridge, TerminalAgentConfig,
+        TerminalAgentRuntime, TerminalExecution, TerminalIoProtocol, TerminalMode, TerminalProfile,
+        TerminalSessionScope, TerminalWorkspaceCleanupPolicy, TerminalWorkspaceMode,
     };
 
     #[test]
@@ -554,5 +682,35 @@ mod tests {
         let serialized = serde_json::to_value(parsed).expect("permission policy should serialize");
         assert_eq!(serialized["sandbox"], "future-sandbox");
         assert_eq!(serialized["tool_access"]["denied"], json!(["browser"]));
+    }
+
+    #[test]
+    fn execution_policy_is_typed_and_preserves_future_modes() {
+        let interactive: AgentExecutionPolicy = serde_json::from_value(json!({
+            "mode": "interactive"
+        }))
+        .expect("interactive execution policy should deserialize");
+        assert_eq!(interactive.mode, AgentExecutionMode::Interactive);
+
+        let future: AgentExecutionPolicy = serde_json::from_value(json!({
+            "mode": "brokered-review"
+        }))
+        .expect("future execution policy should deserialize");
+        assert_eq!(
+            future.mode,
+            AgentExecutionMode::Other("brokered-review".to_owned())
+        );
+        assert_eq!(
+            serde_json::to_value(future).expect("execution policy should serialize")["mode"],
+            "brokered-review"
+        );
+    }
+
+    #[test]
+    fn unrestricted_preset_is_full_access_and_unattended() {
+        let boundary = super::agent_preset_boundary("unrestricted").expect("preset");
+        assert_eq!(boundary.sandbox, AgentSandboxMode::DangerFullAccess);
+        assert_eq!(boundary.approval, AgentApprovalMode::Never);
+        assert_eq!(boundary.execution_mode, AgentExecutionMode::Unattended);
     }
 }

@@ -487,9 +487,7 @@ where
     }
 
     fn start_codeblock(&mut self, _lang: Option<String>, indent: Option<Span<'static>>) {
-        for item_contains_code_block in &mut self.list_item_contains_code_block {
-            *item_contains_code_block = true;
-        }
+        self.list_item_contains_code_block.fill(true);
         self.flush_current_line();
         if !self.text.lines.is_empty() {
             self.push_blank_line();

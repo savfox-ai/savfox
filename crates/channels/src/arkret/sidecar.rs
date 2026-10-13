@@ -1,0 +1,1667 @@
+//! Agent Sidecar exchange typed-binding consumption & production.
+//!
+//! Normative sources: `zh/models/sidecar.md` and `zh/sync/authority-commit-log.md`.
+//! The runtime obtains exchange identity **only** from the decrypted
+//! `role=request` Event binding; it must never be inferred from `reply_to`,
+//! message bodies or arrival order. Every parse/validation failure fails
+//! closed: native private Events never dispatch without an addressed request.
+
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use anyhow::Context;
+use arkret::{
+    AccountId, ActorId, AgentSidecarEventExchangeBinding, AgentSidecarExchangeAction,
+    AgentSidecarExchangeControl, AgentSidecarExchangeRequestContext, AgentSidecarExchangeRole,
+    CommitStreamRef, CommittedEventRef, DidCoreId, EventId, EventPayloadExt as _, MessageMetadata,
+    ScopeRef, SidecarSourceTrackRef,
+};
+use serde_json::Value;
+
+use super::account_store::safe_file_stem;
+use super::crypto_state::account_scope_id;
+
+/// Verified exchange identity carried from the inbound request Event to the
+/// reply pipeline. Exchange/request identity originates from the accepted
+/// request Event; the optional assignment id is present only when the same
+/// verified Event establishes this runtime as coordinator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidecarExchangeContext {
+    pub exchange_id: String,
+    pub request_event_id: String,
+    /// Initial or reassigned coordinator assignment Event id when this
+    /// runtime is the verified coordinator. `None` keeps the reply visible
+    /// without requesting terminal close.
+    pub coordinator_assignment_event_id: Option<String>,
+}
+
+/// Fail-closed extraction of the exchange binding from decrypted
+/// `encrypted_metadata` plaintext. Any non-object plaintext, missing key,
+/// schema mismatch, unknown role or field-validation failure yields `None`
+/// and the message is treated as an ordinary private message.
+#[must_use]
+pub fn sidecar_binding_from_metadata_plaintext(
+    plaintext: &Value,
+) -> Option<AgentSidecarEventExchangeBinding> {
+    let metadata: MessageMetadata = serde_json::from_value(plaintext.clone()).ok()?;
+    let binding: AgentSidecarEventExchangeBinding =
+        serde_json::from_value(metadata.extra.get("sidecar_exchange_binding")?.clone()).ok()?;
+    binding.validate_shape().ok()?;
+    if !valid_exchange_identity(&binding.exchange_id) {
+        return None;
+    }
+    Some(binding)
+}
+
+// The SDK binding uses a String for this private opaque identifier. Enforce
+// the registered schema constraint at the consumer boundary as well.
+fn valid_exchange_identity(value: &str) -> bool {
+    (22..=128).contains(&value.len())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'~' | b'=' | b'-')
+        })
+}
+
+/// Outcome of the runtime-side consumption gate for one decrypted binding
+/// (`zh/models/sidecar.md` §5/§8). Idempotency (`exchange_id` already
+/// consumed / mapped to a different Event id) is checked separately via
+/// [`SidecarExchangeStore::admit`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidecarRequestGate {
+    /// Not a `role=request` binding (or the binding fails closed validation):
+    /// the Event is not an executable Sidecar request. Response/internal
+    /// bindings produced by other Agents also land here.
+    NotARequest,
+    /// The Event carrying the request binding was not authored by this
+    /// runtime's controller. §8: "非 controller actor 携带的 request
+    /// binding 整体无效" — a sibling Agent of the same native Sidecar can
+    /// decrypt the Event but can never drive this runtime with it.
+    NotController,
+    /// A valid request binding whose `addressed_agent_ids` does not contain
+    /// this runtime's principal. The request must be treated as nonexistent:
+    /// no execution, no shared error (§5/§8).
+    NotAddressed,
+    /// A valid request binding addressed to this runtime principal.
+    Addressed(SidecarExchangeContext),
+}
+
+/// Apply the §8/§5/§8 pre-execution checks that are decidable from the
+/// binding and the Event envelope alone: `role == request` with a valid closed
+/// `request_context`, the Event actor being this runtime's controller, and
+/// this runtime's principal being a member of `addressed_agent_ids`.
+///
+/// Identity matching is bit-identical throughout; DIDs are never case-folded.
+#[must_use]
+pub fn gate_inbound_request_binding(
+    binding: &AgentSidecarEventExchangeBinding,
+    request_event_id: &str,
+    request_event_actor_id: &ActorId,
+    controller_account_id: &AccountId,
+    principal_id: &str,
+) -> SidecarRequestGate {
+    if binding.role != AgentSidecarExchangeRole::Request {
+        return SidecarRequestGate::NotARequest;
+    }
+    if request_event_actor_id.as_account_id() != Some(controller_account_id) {
+        return SidecarRequestGate::NotController;
+    }
+    // `MessageMetadata::sidecar_exchange_binding` already validated, but the
+    // gate re-validates so it stays fail-closed for any caller.
+    if binding.validate_shape().is_err() || !valid_exchange_identity(&binding.exchange_id) {
+        return SidecarRequestGate::NotARequest;
+    }
+    let Some(request_context) = binding.request_context.as_ref() else {
+        return SidecarRequestGate::NotARequest;
+    };
+    let principal = principal_id.trim();
+    let addressed = request_context
+        .addressed_agent_ids
+        .iter()
+        .any(|did| did.as_str() == principal);
+    if !addressed {
+        return SidecarRequestGate::NotAddressed;
+    }
+    let coordinator = request_context.coordinator_agent_id.as_ref().or_else(|| {
+        (request_context.addressed_agent_ids.len() == 1)
+            .then(|| &request_context.addressed_agent_ids[0])
+    });
+    let Some(coordinator) =
+        coordinator.filter(|coordinator| request_context.addressed_agent_ids.contains(coordinator))
+    else {
+        return SidecarRequestGate::NotARequest;
+    };
+    let coordinator_assignment_event_id =
+        (coordinator.as_str() == principal).then(|| request_event_id.to_owned());
+    SidecarRequestGate::Addressed(SidecarExchangeContext {
+        exchange_id: binding.exchange_id.as_str().to_owned(),
+        request_event_id: request_event_id.to_owned(),
+        coordinator_assignment_event_id,
+    })
+}
+
+/// Fail-closed §8 consumer validation of one decrypted
+/// `ak.agent.sidecar.exchange.control` plaintext.
+///
+/// Checks the parts that are decidable from the plaintext and the Event
+/// envelope: closed `ak.schema.agent_sidecar_exchange_control.v1` validation,
+/// the Event actor being the Sidecar controller (Agent-authored control is
+/// always invalid), and the outer payload `strand_id` matching the private
+/// Strand the control was delivered on. The remaining consumer duty —
+/// `request_event_id` being the canonical request of the same `exchange_id` —
+/// belongs to [`SidecarExchangeStore::record_terminal_control`], which owns
+/// that mapping.
+///
+/// Any failure yields `None`; the Event is then retained as ordinary private
+/// history and never folded.
+#[must_use]
+pub fn gate_inbound_exchange_control(
+    plaintext: &Value,
+    payload_strand_id: &str,
+    delivered_strand_id: &str,
+    control_event_actor_id: &ActorId,
+    controller_account_id: &AccountId,
+) -> Option<AgentSidecarExchangeControl> {
+    if control_event_actor_id.as_account_id() != Some(controller_account_id) {
+        return None;
+    }
+    if payload_strand_id.is_empty() || payload_strand_id != delivered_strand_id {
+        return None;
+    }
+    let control: AgentSidecarExchangeControl = serde_json::from_value(plaintext.clone()).ok()?;
+    control.validate_shape().ok()?;
+    if !valid_exchange_identity(&control.exchange_id) {
+        return None;
+    }
+    Some(control)
+}
+
+/// Result of durably observing one scoped Sidecar request identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidecarExchangeAdmission {
+    /// First observation of this scoped exchange id; it is by definition the
+    /// canonical request so far and the identity audit is now durable. This
+    /// does not by itself authorize execution — the remaining §5/§8 gates
+    /// still apply.
+    Recorded,
+    /// The identical mapping already exists (for example after a runtime
+    /// restart). It is an exact replay and must not execute again.
+    AlreadyObserved,
+    /// The scoped exchange id is already mapped to a **different** request
+    /// Event id. §8: fail closed — never execute a second time for the
+    /// same exchange id, even when body or `request_context` differ. The
+    /// original accepted identity stays fixed; conflicts block future replies.
+    Conflict { canonical_request_event_id: String },
+    /// A valid terminal control Event has already closed this exchange
+    /// (§8). No new request may execute, and the exchange is not
+    /// implicitly reopened.
+    Terminal { control_event_id: String },
+}
+
+/// Result of durably folding one valid terminal control Event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidecarTerminalAdmission {
+    /// First valid terminal control for this exchange; it absorbs the terminal
+    /// state (§8: the first valid terminal control wins).
+    Recorded,
+    /// A terminal control was already folded. Later controls are ignored and
+    /// MUST NOT change the projection.
+    AlreadyTerminal { control_event_id: String },
+    /// The control references a request Event id that is not the canonical
+    /// request of this scoped exchange, or the exchange was never observed.
+    /// Fail closed: the control is not folded.
+    NotCanonicalRequest,
+    /// A valid causal reassignment updated the durable coordinator without
+    /// closing the exchange.
+    Reassigned,
+}
+
+/// Durable request-identity audit, one local file per account scope (sibling
+/// of the garth account store).
+///
+/// The normative idempotency domain is
+/// `(controller_account_id, native_sidecar_stream, exchange_id)`. Callers verify
+/// the accepted stream, authenticated binding and current runtime authorization
+/// before recording admission. Writes are serialized per path and use the workspace atomic writer,
+/// so concurrent deliveries cannot both observe an empty exchange slot.
+#[derive(Debug, Clone)]
+pub struct SidecarExchangeStore {
+    path: PathBuf,
+}
+
+const SIDECAR_EXCHANGE_AUDIT_SCHEMA: &str = "savfox.arkret.sidecar_exchange_audit.v1";
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SidecarExchangeFile {
+    schema: String,
+    #[serde(default)]
+    controllers: SidecarExchangeControllers,
+}
+
+type SidecarExchangeControllers =
+    BTreeMap<String, BTreeMap<String, BTreeMap<String, SidecarExchangeRecord>>>;
+
+impl Default for SidecarExchangeFile {
+    fn default() -> Self {
+        Self {
+            schema: SIDECAR_EXCHANGE_AUDIT_SCHEMA.to_owned(),
+            controllers: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SidecarExchangeRecord {
+    /// The host verified this reference against the independent native stream.
+    request_ref: CommittedEventRef,
+    request_context: AgentSidecarExchangeRequestContext,
+    coordinator_agent_id: DidCoreId,
+    coordinator_assignment_event_id: EventId,
+    facts: BTreeMap<EventId, SidecarExchangeFact>,
+    /// Conflicting accepted reuse never selects a new winner or executes twice.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    conflicting_request_event_ids: BTreeSet<EventId>,
+    /// First valid terminal control Event (§8). Once present the exchange
+    /// is closed for new execution and is never implicitly reopened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    terminal: Option<SidecarExchangeTerminalRecord>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SidecarExchangeFact {
+    accepted_ref: CommittedEventRef,
+    parents: BTreeSet<EventId>,
+    user_facing_response: bool,
+}
+
+fn native_scope(reference: &CommittedEventRef) -> anyhow::Result<ScopeRef> {
+    EventId::new(reference.event_id.to_string())?;
+    arkret::RealmCommitId::new(reference.commit_id.to_string())?;
+    let CommitStreamRef::Sidecar {
+        realm_id,
+        sidecar_id,
+    } = &reference.stream_ref
+    else {
+        anyhow::bail!("Sidecar exchange requires an accepted native Sidecar stream");
+    };
+    arkret::RealmId::new(realm_id.to_string())?;
+    arkret::SidecarId::new(sidecar_id.to_string())?;
+    Ok(ScopeRef::Sidecar {
+        realm_id: realm_id.clone(),
+        sidecar_id: sidecar_id.clone(),
+    })
+}
+
+fn stream_key(reference: &CommittedEventRef) -> anyhow::Result<String> {
+    native_scope(reference)?;
+    arkret::canonical::canonical_json_string(&reference.stream_ref).map_err(Into::into)
+}
+
+fn closure(record: &SidecarExchangeRecord, heads: &BTreeSet<EventId>) -> BTreeSet<EventId> {
+    let mut result = BTreeSet::new();
+    let mut pending = heads.iter().cloned().collect::<Vec<_>>();
+    while let Some(id) = pending.pop() {
+        if result.insert(id.clone())
+            && let Some(fact) = record.facts.get(&id)
+        {
+            pending.extend(fact.parents.iter().cloned());
+        }
+    }
+    result
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SidecarExchangeTerminalRecord {
+    control_event_id: String,
+    /// The SDK enum is persisted directly so the terminal action vocabulary
+    /// stays owned by `arkret-rust-sdk` instead of being restated here.
+    action: AgentSidecarExchangeAction,
+}
+
+fn sidecar_exchange_lock(path: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut locks = locks.lock().expect("Sidecar exchange lock registry");
+    Arc::clone(
+        locks
+            .entry(path.to_path_buf())
+            .or_insert_with(|| Arc::new(Mutex::new(()))),
+    )
+}
+
+impl SidecarExchangeStore {
+    #[must_use]
+    pub fn for_account(savfox_home: &Path, channel_id: &str, account_id: &str) -> Self {
+        let scope_id = account_scope_id(channel_id, account_id);
+        let path = savfox_home
+            .join("gateway")
+            .join("arkret-account-state")
+            .join(format!(
+                "{}-sidecar-exchange-audit-v1.json",
+                safe_file_stem(&scope_id)
+            ));
+        Self { path }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The caller supplies a reference from its verified, continuous Commit
+    /// delivery, never from a raw Event query or an unverified receipt.
+    pub fn record_request_identity(
+        &self,
+        controller_account_id: &AccountId,
+        source_strand_id: &str,
+        exchange_id: &str,
+        request_event_id: &str,
+        accepted_ref: &CommittedEventRef,
+        request_context: &AgentSidecarExchangeRequestContext,
+    ) -> anyhow::Result<SidecarExchangeAdmission> {
+        controller_account_id.validate()?;
+        let scope = native_scope(accepted_ref)?;
+        anyhow::ensure!(
+            accepted_ref.event_id.as_str() == request_event_id,
+            "Sidecar request does not match its accepted Event reference"
+        );
+        anyhow::ensure!(
+            request_context.source_track_ref.realm_id == *scope.realm_id_opt().unwrap()
+                && request_context.source_track_ref.strand_id.as_str() == source_strand_id,
+            "Sidecar request source differs from its accepted native scope"
+        );
+        let binding = AgentSidecarEventExchangeBinding {
+            schema: arkret::SchemaId::AGENT_SIDECAR_EVENT_EXCHANGE_BINDING_V1.to_owned(),
+            exchange_id: exchange_id.to_owned(),
+            role: AgentSidecarExchangeRole::Request,
+            request_event_id: None,
+            completes_exchange: None,
+            coordinator_assignment_event_id: None,
+            request_context: Some(request_context.clone()),
+        };
+        binding.validate_shape()?;
+        anyhow::ensure!(
+            valid_exchange_identity(exchange_id),
+            "invalid Sidecar exchange identity"
+        );
+        let coordinator = request_context
+            .coordinator_agent_id
+            .as_ref()
+            .or_else(|| {
+                (request_context.addressed_agent_ids.len() == 1)
+                    .then(|| &request_context.addressed_agent_ids[0])
+            })
+            .context("Sidecar request has no coordinator")?
+            .clone();
+        let lock = sidecar_exchange_lock(&self.path);
+        let _guard = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sidecar exchange audit lock poisoned"))?;
+        let mut state = self.load()?;
+        let exchanges = state
+            .controllers
+            .entry(controller_account_id.canonical_key()?)
+            .or_default()
+            .entry(stream_key(accepted_ref)?)
+            .or_default();
+        if let Some(existing) = exchanges.get_mut(exchange_id) {
+            if let Some(terminal) = &existing.terminal {
+                return Ok(SidecarExchangeAdmission::Terminal {
+                    control_event_id: terminal.control_event_id.clone(),
+                });
+            }
+            if existing.request_ref.event_id == accepted_ref.event_id {
+                anyhow::ensure!(
+                    existing.request_ref == *accepted_ref
+                        && existing.request_context == *request_context,
+                    "Sidecar request replay changed its accepted reference or context"
+                );
+                return Ok(SidecarExchangeAdmission::AlreadyObserved);
+            }
+            existing
+                .conflicting_request_event_ids
+                .insert(accepted_ref.event_id.clone());
+            let canonical_request_event_id = existing.request_ref.event_id.to_string();
+            self.save(&state)?;
+            return Ok(SidecarExchangeAdmission::Conflict {
+                canonical_request_event_id,
+            });
+        }
+        exchanges.insert(
+            exchange_id.to_owned(),
+            SidecarExchangeRecord {
+                request_ref: accepted_ref.clone(),
+                request_context: request_context.clone(),
+                coordinator_agent_id: coordinator,
+                coordinator_assignment_event_id: accepted_ref.event_id.clone(),
+                facts: BTreeMap::from([(
+                    accepted_ref.event_id.clone(),
+                    SidecarExchangeFact {
+                        accepted_ref: accepted_ref.clone(),
+                        parents: BTreeSet::new(),
+                        user_facing_response: false,
+                    },
+                )]),
+                conflicting_request_event_ids: BTreeSet::new(),
+                terminal: None,
+            },
+        );
+        self.save(&state)?;
+        Ok(SidecarExchangeAdmission::Recorded)
+    }
+
+    /// Recover the exact private routing from durable accepted request evidence.
+    /// The host reply target carries only the request identity, not authority.
+    pub fn response_context(
+        &self,
+        controller_account_id: &AccountId,
+        source_strand_id: &str,
+        exchange_id: &str,
+        request_event_id: &str,
+        principal_id: &str,
+    ) -> anyhow::Result<Option<(ScopeRef, SidecarSourceTrackRef, Option<String>)>> {
+        controller_account_id.validate()?;
+        let state = self.load()?;
+        let Some(scopes) = state
+            .controllers
+            .get(&controller_account_id.canonical_key()?)
+        else {
+            return Ok(None);
+        };
+        let mut found = None;
+        for exchanges in scopes.values() {
+            let Some(record) = exchanges.get(exchange_id) else {
+                continue;
+            };
+            if record.request_ref.event_id.as_str() != request_event_id
+                || record.request_context.source_track_ref.strand_id.as_str() != source_strand_id
+            {
+                continue;
+            }
+            if !principal_id.is_empty()
+                && !record
+                    .request_context
+                    .addressed_agent_ids
+                    .iter()
+                    .any(|agent| agent.as_str() == principal_id)
+            {
+                return Ok(None);
+            }
+            if record.terminal.is_some() || !record.conflicting_request_event_ids.is_empty() {
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                found.is_none(),
+                "Sidecar response has ambiguous accepted request evidence"
+            );
+            let assignment = (record.coordinator_agent_id.as_str() == principal_id)
+                .then(|| record.coordinator_assignment_event_id.to_string());
+            found = Some((
+                native_scope(&record.request_ref)?,
+                record.request_context.source_track_ref.clone(),
+                assignment,
+            ));
+        }
+        Ok(found)
+    }
+
+    /// Retain a response only after its verified Commit and authenticated binding.
+    /// The host already bound its encrypted metadata to this exact context.
+    pub fn record_response_commit(
+        &self,
+        controller_account_id: &AccountId,
+        context: &SidecarExchangeContext,
+        event: &arkret::Event,
+        commit: &arkret::RealmCommit,
+    ) -> anyhow::Result<()> {
+        let accepted = arkret::CommittedEventFullView {
+            event: event.clone(),
+            commit: commit.clone(),
+        };
+        accepted.validate_shape()?;
+        let reference = CommittedEventRef {
+            event_id: commit.event_ref.clone(),
+            commit_id: commit.commit_id.clone(),
+            stream_ref: commit.stream_ref.clone(),
+            stream_position: commit.stream_position,
+        };
+        let lock = sidecar_exchange_lock(&self.path);
+        let _guard = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sidecar exchange audit lock poisoned"))?;
+        let mut state = self.load()?;
+        let record = state
+            .controllers
+            .get_mut(&controller_account_id.canonical_key()?)
+            .and_then(|scopes| scopes.get_mut(&stream_key(&reference).ok()?))
+            .and_then(|exchanges| exchanges.get_mut(&context.exchange_id))
+            .context("Sidecar response has no accepted request")?;
+        let message = event.as_message_create()?;
+        let actor = event
+            .actor_id
+            .as_account_id()
+            .context("Sidecar response is not Account authored")?;
+        anyhow::ensure!(
+            record.request_ref.event_id.as_str() == context.request_event_id
+                && message.strand_id == record.request_context.source_track_ref.strand_id
+                && message.track_name == record.request_context.source_track_ref.track_name
+                && actor.station_id == controller_account_id.station_id
+                && record
+                    .request_context
+                    .addressed_agent_ids
+                    .contains(&actor.principal_id)
+                && reference.stream_position > record.request_ref.stream_position,
+            "Sidecar response differs from its accepted request or addressed author"
+        );
+        let parents = event
+            .semantic_refs
+            .iter()
+            .filter(|r| r.role == "after" && r.critical)
+            .filter_map(|r| EventId::new(r.id.clone()).ok())
+            .collect::<BTreeSet<_>>();
+        anyhow::ensure!(
+            parents.iter().all(|id| record.facts.contains_key(id))
+                && closure(record, &parents).contains(&record.request_ref.event_id),
+            "Sidecar response does not extend its accepted request facts"
+        );
+        if let Some(existing) = record.facts.get(&reference.event_id) {
+            anyhow::ensure!(
+                existing.accepted_ref == reference && existing.parents == parents,
+                "Sidecar response replay changed accepted provenance"
+            );
+            return Ok(());
+        }
+        record.facts.insert(
+            reference.event_id.clone(),
+            SidecarExchangeFact {
+                accepted_ref: reference,
+                parents,
+                user_facing_response: true,
+            },
+        );
+        self.save(&state)
+    }
+
+    /// Fold only authenticated controller controls on the same accepted stream.
+    /// Basis references must cover the known request, assignment and response set.
+    pub fn record_terminal_control(
+        &self,
+        controller_account_id: &AccountId,
+        source_strand_id: &str,
+        control: &AgentSidecarExchangeControl,
+        accepted_ref: &CommittedEventRef,
+        causal_after_event_ids: &[EventId],
+    ) -> anyhow::Result<SidecarTerminalAdmission> {
+        controller_account_id.validate()?;
+        control.validate_shape()?;
+        let scope_key = stream_key(accepted_ref)?;
+        let lock = sidecar_exchange_lock(&self.path);
+        let _guard = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sidecar exchange audit lock poisoned"))?;
+        let mut state = self.load()?;
+        let Some(record) = state
+            .controllers
+            .get_mut(&controller_account_id.canonical_key()?)
+            .and_then(|scopes| scopes.get_mut(&scope_key))
+            .and_then(|exchanges| exchanges.get_mut(&control.exchange_id))
+        else {
+            return Ok(SidecarTerminalAdmission::NotCanonicalRequest);
+        };
+        if record.request_ref.event_id != control.request_event_id
+            || record.request_context.source_track_ref.strand_id.as_str() != source_strand_id
+            || !record.conflicting_request_event_ids.is_empty()
+        {
+            return Ok(SidecarTerminalAdmission::NotCanonicalRequest);
+        }
+        if let Some(terminal) = &record.terminal {
+            return Ok(SidecarTerminalAdmission::AlreadyTerminal {
+                control_event_id: terminal.control_event_id.clone(),
+            });
+        }
+        let basis = control
+            .basis_event_ids
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        anyhow::ensure!(
+            !basis.is_empty()
+                && basis.len() == control.basis_event_ids.len()
+                && control
+                    .basis_event_ids
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1])
+                && basis.iter().all(|id| causal_after_event_ids.contains(id)
+                    && record.facts.get(id).is_some_and(
+                        |fact| fact.accepted_ref.stream_position < accepted_ref.stream_position
+                    )),
+            "Sidecar control basis is not covered by accepted causal facts"
+        );
+        let covered = closure(record, &basis);
+        anyhow::ensure!(
+            covered.contains(&record.request_ref.event_id)
+                && covered.contains(&record.coordinator_assignment_event_id)
+                && basis.iter().all(|id| !basis
+                    .iter()
+                    .filter(|other| *other != id)
+                    .any(|other| closure(record, &BTreeSet::from([other.clone()])).contains(id))),
+            "Sidecar control does not cover its request and assignment with maximal heads"
+        );
+        if control.action == AgentSidecarExchangeAction::ReassignCoordinator {
+            let coordinator = control
+                .coordinator_agent_id
+                .as_ref()
+                .context("Sidecar reassignment has no coordinator")?;
+            anyhow::ensure!(
+                control.expected_coordinator_agent_id.as_ref()
+                    == Some(&record.coordinator_agent_id)
+                    && record
+                        .request_context
+                        .addressed_agent_ids
+                        .contains(coordinator),
+                "Sidecar reassignment differs from its accepted assignment"
+            );
+            record.coordinator_agent_id = coordinator.clone();
+            record.coordinator_assignment_event_id = accepted_ref.event_id.clone();
+        } else {
+            let responses = record
+                .facts
+                .iter()
+                .filter(|(id, fact)| covered.contains(*id) && fact.user_facing_response)
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>();
+            anyhow::ensure!(
+                control.response_event_ids.as_ref() == Some(&responses)
+                    && (control.action == AgentSidecarExchangeAction::Close
+                        || responses.is_empty()),
+                "Sidecar terminal control differs from its causal response set"
+            );
+            record.terminal = Some(SidecarExchangeTerminalRecord {
+                control_event_id: accepted_ref.event_id.to_string(),
+                action: control.action,
+            });
+        }
+        record.facts.insert(
+            accepted_ref.event_id.clone(),
+            SidecarExchangeFact {
+                accepted_ref: accepted_ref.clone(),
+                parents: basis,
+                user_facing_response: false,
+            },
+        );
+        self.save(&state)?;
+        Ok(
+            if control.action == AgentSidecarExchangeAction::ReassignCoordinator {
+                SidecarTerminalAdmission::Reassigned
+            } else {
+                SidecarTerminalAdmission::Recorded
+            },
+        )
+    }
+
+    pub fn exchange_accepts_new_response(
+        &self,
+        controller_account_id: &AccountId,
+        source_strand_id: &str,
+        exchange_id: &str,
+        request_event_id: &str,
+    ) -> anyhow::Result<bool> {
+        Ok(self
+            .response_context(
+                controller_account_id,
+                source_strand_id,
+                exchange_id,
+                request_event_id,
+                "",
+            )?
+            .is_some())
+    }
+
+    fn load(&self) -> anyhow::Result<SidecarExchangeFile> {
+        match std::fs::read(&self.path) {
+            Ok(bytes) if bytes.is_empty() => Ok(SidecarExchangeFile::default()),
+            Ok(bytes) => {
+                let state: SidecarExchangeFile = serde_json::from_slice(&bytes)
+                    .with_context(|| format!("parse {}", self.path.display()))?;
+                anyhow::ensure!(
+                    state.schema == SIDECAR_EXCHANGE_AUDIT_SCHEMA,
+                    "unsupported Sidecar exchange audit schema '{}'",
+                    state.schema
+                );
+                Ok(state)
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                Ok(SidecarExchangeFile::default())
+            }
+            Err(err) => Err(err).with_context(|| format!("read {}", self.path.display())),
+        }
+    }
+
+    fn save(&self, state: &SidecarExchangeFile) -> anyhow::Result<()> {
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
+        }
+        let bytes = serde_json::to_vec_pretty(state)?;
+        savfox_utils::fs::write_atomically(&self.path, &bytes, Some(0o600))
+            .with_context(|| format!("write {}", self.path.display()))
+    }
+}
+
+const REPLY_TARGET_EXCHANGE_KEY: &str = "|sidecar_exchange=";
+const REPLY_TARGET_REQUEST_KEY: &str = "|request_event=";
+const REPLY_TARGET_COORDINATOR_ASSIGNMENT_KEY: &str = "|coordinator_assignment=";
+
+/// Encode the verified exchange context into the channel-runtime
+/// `reply_target` string so it travels with the message that started the
+/// pipeline. The strand id stays the prefix so existing
+/// `starts_with("ak:strand:")` routing keeps working. `|` cannot appear in a
+/// strand id, an exchange id (`[A-Za-z0-9._~=-]`) or an Event id.
+#[must_use]
+pub fn encode_sidecar_reply_target(strand_id: &str, context: &SidecarExchangeContext) -> String {
+    let mut encoded = format!(
+        "{strand_id}{REPLY_TARGET_EXCHANGE_KEY}{}{REPLY_TARGET_REQUEST_KEY}{}",
+        context.exchange_id, context.request_event_id
+    );
+    if let Some(assignment) = context.coordinator_assignment_event_id.as_deref() {
+        encoded.push_str(REPLY_TARGET_COORDINATOR_ASSIGNMENT_KEY);
+        encoded.push_str(assignment);
+    }
+    encoded
+}
+
+/// Split a `reply_target` produced by [`encode_sidecar_reply_target`] back
+/// into `(strand_id, Option<context>)`. Plain strand ids and malformed
+/// suffixes fail closed to `(strand_id, None)`.
+#[must_use]
+pub fn split_sidecar_reply_target(value: &str) -> (String, Option<SidecarExchangeContext>) {
+    let Some((strand_id, rest)) = value.split_once(REPLY_TARGET_EXCHANGE_KEY) else {
+        return (value.to_owned(), None);
+    };
+    let Some((exchange_id, request_and_assignment)) = rest.split_once(REPLY_TARGET_REQUEST_KEY)
+    else {
+        return (strand_id.to_owned(), None);
+    };
+    let (request_event_id, coordinator_assignment_event_id) =
+        match request_and_assignment.split_once(REPLY_TARGET_COORDINATOR_ASSIGNMENT_KEY) {
+            Some((request_event_id, assignment_event_id))
+                if !request_event_id.is_empty() && !assignment_event_id.is_empty() =>
+            {
+                (request_event_id, Some(assignment_event_id.to_owned()))
+            }
+            Some(_) => return (strand_id.to_owned(), None),
+            None => (request_and_assignment, None),
+        };
+    if exchange_id.is_empty() || request_event_id.is_empty() {
+        return (strand_id.to_owned(), None);
+    }
+    (
+        strand_id.to_owned(),
+        Some(SidecarExchangeContext {
+            exchange_id: exchange_id.to_owned(),
+            request_event_id: request_event_id.to_owned(),
+            coordinator_assignment_event_id,
+        }),
+    )
+}
+
+/// Build the `MessageMetadata` plaintext (JSON) carrying the
+/// `role=user_facing_response` binding for the Agent's user-visible reply
+/// (`zh/models/sidecar.md` §8 item 2).
+///
+/// This runtime only delivers the final user-visible reply to Arkret;
+/// intermediate/tool output never reaches the Arkret channel, so
+/// `role=internal` bindings are intentionally not produced here. If such
+/// messages are ever sent to Arkret they MUST carry `role=internal` with the
+/// same `exchange_id`/`request_event_id` (§8 item 3).
+///
+/// Callers MUST encrypt the returned value into `encrypted_metadata` with the
+/// same MLS group as `encrypted_content`; the binding must never appear in
+/// plaintext `metadata` (forbidden-wire-fields `sidecar_exchange_binding`).
+pub fn build_user_facing_response_metadata(
+    context: &SidecarExchangeContext,
+) -> anyhow::Result<MessageMetadata> {
+    anyhow::ensure!(
+        valid_exchange_identity(&context.exchange_id),
+        "invalid Sidecar exchange identity"
+    );
+    let request_event_id = EventId::new(context.request_event_id.clone())
+        .map_err(|err| anyhow::anyhow!("invalid Sidecar request Event id: {err}"))?;
+    let assignment = context
+        .coordinator_assignment_event_id
+        .as_deref()
+        .map(|value| EventId::new(value.to_owned()))
+        .transpose()?;
+    let binding = AgentSidecarEventExchangeBinding {
+        schema: arkret::SchemaId::AGENT_SIDECAR_EVENT_EXCHANGE_BINDING_V1.to_owned(),
+        exchange_id: context.exchange_id.clone(),
+        role: AgentSidecarExchangeRole::UserFacingResponse,
+        request_event_id: Some(request_event_id),
+        completes_exchange: assignment.as_ref().map(|_| true),
+        coordinator_assignment_event_id: assignment,
+        request_context: None,
+    };
+    binding.validate_shape()?;
+    let mut metadata = MessageMetadata::default();
+    metadata.extra.insert(
+        "sidecar_exchange_binding".to_owned(),
+        serde_json::to_value(binding)?,
+    );
+    Ok(metadata)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use arkret::{
+        AgentSidecarExchangeRequestContext, DidCoreId, Hlc, RealmId, SidecarSourceTrackRef,
+        StrandId,
+    };
+    use serde_json::json;
+
+    use super::*;
+
+    const AGENT_DID: &str = "ak:did_core:web:example.org:agents:support";
+    const OTHER_DID: &str = "ak:did_core:web:example.org:agents:other";
+    const CONTROLLER_DID: &str = "ak:did_core:web:example.org:users:alice";
+    const CONTROLLER_STATION_DID: &str = "ak:did_core:web:example.org:stations:alice-phone";
+    const OTHER_STATION_DID: &str = "ak:did_core:web:example.org:stations:alice-tablet";
+    const EXCHANGE_ID: &str = "01904100-0000-7000-8000-0000000000aa";
+
+    fn fixture_event_id(seed: u8) -> arkret::EventId {
+        arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [seed; 32])
+    }
+
+    static REQUEST_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x31));
+    static OTHER_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x32));
+    static SIBLING_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x33));
+    static CONTROL_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x41));
+    static OTHER_CONTROL_EVENT_ID: LazyLock<arkret::EventId> =
+        LazyLock::new(|| fixture_event_id(0x42));
+    static REALM_ID: LazyLock<RealmId> =
+        LazyLock::new(|| RealmId::from_event_id(&fixture_event_id(0x01)));
+    static STRAND_ID: LazyLock<StrandId> =
+        LazyLock::new(|| StrandId::from_event_id(&fixture_event_id(0x11)));
+    static OTHER_STRAND_ID: LazyLock<StrandId> =
+        LazyLock::new(|| StrandId::from_event_id(&fixture_event_id(0x12)));
+
+    fn account(principal_id: &str, station_id: &str) -> AccountId {
+        AccountId::new(
+            DidCoreId::new(principal_id.to_owned()).unwrap(),
+            DidCoreId::new(station_id.to_owned()).unwrap(),
+        )
+    }
+
+    fn controller_account() -> AccountId {
+        account(CONTROLLER_DID, CONTROLLER_STATION_DID)
+    }
+
+    fn account_actor(principal_id: &str, station_id: &str) -> ActorId {
+        ActorId::account(account(principal_id, station_id))
+    }
+
+    fn request_context(addressed: &[&str]) -> AgentSidecarExchangeRequestContext {
+        AgentSidecarExchangeRequestContext {
+            source_track_ref: SidecarSourceTrackRef {
+                realm_id: RealmId::new(REALM_ID.as_str()).unwrap(),
+                strand_id: StrandId::new(STRAND_ID.as_str()).unwrap(),
+                track_name: "discussion".to_owned(),
+            },
+            source_hlc: Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
+            client_order_key: "device-1-1".to_owned(),
+            addressed_agent_ids: addressed
+                .iter()
+                .map(|did| DidCoreId::new((*did).to_owned()).unwrap())
+                .collect(),
+            coordinator_agent_id: (addressed.len() > 1)
+                .then(|| DidCoreId::new(addressed[0].to_owned()).unwrap()),
+            source_checkpoint_anchor_id: None,
+        }
+    }
+
+    fn request_binding(addressed: &[&str]) -> AgentSidecarEventExchangeBinding {
+        AgentSidecarEventExchangeBinding {
+            schema: arkret::SchemaId::AGENT_SIDECAR_EVENT_EXCHANGE_BINDING_V1.to_owned(),
+            exchange_id: EXCHANGE_ID.to_owned(),
+            role: AgentSidecarExchangeRole::Request,
+            request_event_id: None,
+            completes_exchange: None,
+            coordinator_assignment_event_id: None,
+            request_context: Some(request_context(addressed)),
+        }
+    }
+
+    /// A closed `action=close` control with no delivered response, which
+    /// §8 folds to `failed/controller_closed_empty`.
+    fn terminal_control(request_event_id: &str) -> AgentSidecarExchangeControl {
+        AgentSidecarExchangeControl {
+            schema: arkret::SchemaId::AGENT_SIDECAR_EXCHANGE_CONTROL_V1.to_owned(),
+            exchange_id: EXCHANGE_ID.to_owned(),
+            request_event_id: EventId::new(request_event_id.to_owned()).unwrap(),
+            basis_event_ids: vec![EventId::new(request_event_id.to_owned()).unwrap()],
+            action: AgentSidecarExchangeAction::Close,
+            response_event_ids: Some(Vec::new()),
+            failure_reason_code: None,
+            expected_coordinator_agent_id: None,
+            coordinator_agent_id: None,
+        }
+    }
+
+    fn metadata_plaintext_with_binding(binding: &AgentSidecarEventExchangeBinding) -> Value {
+        let mut metadata = MessageMetadata::default();
+        metadata.extra.insert(
+            "sidecar_exchange_binding".to_owned(),
+            serde_json::to_value(binding).unwrap(),
+        );
+        serde_json::to_value(&metadata).unwrap()
+    }
+
+    #[test]
+    fn binding_parse_fails_closed_without_key() {
+        assert_eq!(sidecar_binding_from_metadata_plaintext(&json!({})), None);
+        assert_eq!(
+            sidecar_binding_from_metadata_plaintext(&json!({"fields": {}})),
+            None
+        );
+        assert_eq!(
+            sidecar_binding_from_metadata_plaintext(&json!("not an object")),
+            None
+        );
+    }
+
+    #[test]
+    fn binding_parse_fails_closed_on_bad_schema_or_unknown_role() {
+        let bad_schema = json!({
+            "sidecar_exchange_binding": {
+                "schema": "ak.schema.agent_sidecar_event_exchange_binding.v99",
+                "exchange_id": EXCHANGE_ID,
+                "role": "request"
+            }
+        });
+        assert_eq!(sidecar_binding_from_metadata_plaintext(&bad_schema), None);
+
+        let unknown_role = json!({
+            "sidecar_exchange_binding": {
+                "schema": "ak.schema.agent_sidecar_event_exchange_binding.v1",
+                "exchange_id": EXCHANGE_ID,
+                "role": "supervisor",
+                "request_event_id": REQUEST_EVENT_ID.as_str()
+            }
+        });
+        assert_eq!(sidecar_binding_from_metadata_plaintext(&unknown_role), None);
+
+        // role=request without request_context fails closed validation.
+        let missing_context = json!({
+            "sidecar_exchange_binding": {
+                "schema": "ak.schema.agent_sidecar_event_exchange_binding.v1",
+                "exchange_id": EXCHANGE_ID,
+                "role": "request"
+            }
+        });
+        assert_eq!(
+            sidecar_binding_from_metadata_plaintext(&missing_context),
+            None
+        );
+    }
+
+    #[test]
+    fn binding_parse_accepts_valid_request_binding() {
+        let plaintext = metadata_plaintext_with_binding(&request_binding(&[AGENT_DID]));
+        let binding = sidecar_binding_from_metadata_plaintext(&plaintext).expect("binding");
+        assert_eq!(binding.role, AgentSidecarExchangeRole::Request);
+        assert_eq!(binding.exchange_id.as_str(), EXCHANGE_ID);
+    }
+
+    #[test]
+    fn gate_rejects_non_addressed_principal() {
+        let binding = request_binding(&[OTHER_DID]);
+        assert_eq!(
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID.as_str(),
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account(),
+                AGENT_DID
+            ),
+            SidecarRequestGate::NotAddressed
+        );
+    }
+
+    #[test]
+    fn gate_rejects_request_binding_from_a_non_controller_actor() {
+        let binding = request_binding(&[AGENT_DID]);
+        assert_eq!(
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID.as_str(),
+                &account_actor(OTHER_DID, CONTROLLER_STATION_DID),
+                &controller_account(),
+                AGENT_DID
+            ),
+            SidecarRequestGate::NotController,
+            "a sibling Sidecar Agent can decrypt the Event but never drives this runtime"
+        );
+        assert_eq!(
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID.as_str(),
+                &account_actor(CONTROLLER_DID, OTHER_STATION_DID),
+                &controller_account(),
+                AGENT_DID
+            ),
+            SidecarRequestGate::NotController,
+            "the same principal at a different Station is not the controller account"
+        );
+        assert_eq!(
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID.as_str(),
+                &ActorId::service(DidCoreId::new(CONTROLLER_DID.to_owned()).unwrap()),
+                &controller_account(),
+                AGENT_DID
+            ),
+            SidecarRequestGate::NotController,
+            "a service actor cannot impersonate the controller account"
+        );
+    }
+
+    #[test]
+    fn gate_admits_addressed_principal_with_request_event_identity() {
+        let binding = request_binding(&[OTHER_DID, AGENT_DID]);
+        let SidecarRequestGate::Addressed(context) = gate_inbound_request_binding(
+            &binding,
+            REQUEST_EVENT_ID.as_str(),
+            &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+            &controller_account(),
+            AGENT_DID,
+        ) else {
+            panic!("expected addressed gate");
+        };
+        assert_eq!(context.exchange_id, EXCHANGE_ID);
+        assert_eq!(context.request_event_id, REQUEST_EVENT_ID.as_str());
+        assert_eq!(context.coordinator_assignment_event_id, None);
+        let SidecarRequestGate::Addressed(coordinator_context) = gate_inbound_request_binding(
+            &request_binding(&[AGENT_DID]),
+            REQUEST_EVENT_ID.as_str(),
+            &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+            &controller_account(),
+            AGENT_DID,
+        ) else {
+            panic!("expected coordinator gate");
+        };
+        assert_eq!(
+            coordinator_context
+                .coordinator_assignment_event_id
+                .as_deref(),
+            Some(REQUEST_EVENT_ID.as_str())
+        );
+        assert_eq!(
+            gate_inbound_request_binding(
+                &request_binding(&[AGENT_DID]),
+                REQUEST_EVENT_ID.as_str(),
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account(),
+                &AGENT_DID.to_ascii_uppercase(),
+            ),
+            SidecarRequestGate::NotAddressed,
+            "principal identity matching is bit-identical, never case-folded"
+        );
+    }
+
+    #[test]
+    fn gate_treats_response_bindings_as_non_requests() {
+        let binding = AgentSidecarEventExchangeBinding {
+            schema: arkret::SchemaId::AGENT_SIDECAR_EVENT_EXCHANGE_BINDING_V1.to_owned(),
+            exchange_id: EXCHANGE_ID.to_owned(),
+            role: AgentSidecarExchangeRole::UserFacingResponse,
+            request_event_id: Some(REQUEST_EVENT_ID.clone()),
+            completes_exchange: None,
+            coordinator_assignment_event_id: None,
+            request_context: None,
+        };
+        assert_eq!(
+            gate_inbound_request_binding(
+                &binding,
+                REQUEST_EVENT_ID.as_str(),
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account(),
+                AGENT_DID
+            ),
+            SidecarRequestGate::NotARequest
+        );
+    }
+
+    fn request_ref(id: &EventId, position: u64) -> CommittedEventRef {
+        CommittedEventRef {
+            event_id: id.clone(),
+            commit_id: arkret::RealmCommitId::from_digest([position as u8 + 80; 32]),
+            stream_ref: CommitStreamRef::Sidecar {
+                realm_id: RealmId::new(REALM_ID.as_str()).unwrap(),
+                sidecar_id: arkret::SidecarId::from_event_id(&fixture_event_id(33)),
+            },
+            stream_position: position,
+        }
+    }
+
+    fn admit_request(
+        store: &SidecarExchangeStore,
+        id: &EventId,
+        position: u64,
+    ) -> anyhow::Result<SidecarExchangeAdmission> {
+        store.record_request_identity(
+            &controller_account(),
+            STRAND_ID.as_str(),
+            EXCHANGE_ID,
+            id.as_str(),
+            &request_ref(id, position),
+            &request_context(&[AGENT_DID]),
+        )
+    }
+
+    #[test]
+    fn accepted_native_request_is_durable_and_conflicting_reuse_never_executes_twice() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        assert_eq!(
+            admit_request(&store, &REQUEST_EVENT_ID, 7).unwrap(),
+            SidecarExchangeAdmission::Recorded
+        );
+        let reopened = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        assert_eq!(
+            admit_request(&reopened, &REQUEST_EVENT_ID, 7).unwrap(),
+            SidecarExchangeAdmission::AlreadyObserved
+        );
+        let bytes = std::fs::read(store.path()).unwrap();
+        assert!(admit_request(&reopened, &REQUEST_EVENT_ID, 8).is_err());
+        assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
+        let route = reopened
+            .response_context(
+                &controller_account(),
+                STRAND_ID.as_str(),
+                EXCHANGE_ID,
+                REQUEST_EVENT_ID.as_str(),
+                AGENT_DID,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            route.0,
+            native_scope(&request_ref(&REQUEST_EVENT_ID, 7)).unwrap()
+        );
+        assert_eq!(route.1, request_context(&[AGENT_DID]).source_track_ref);
+        assert_eq!(route.2.as_deref(), Some(REQUEST_EVENT_ID.as_str()));
+        assert_eq!(
+            admit_request(&reopened, &OTHER_EVENT_ID, 9).unwrap(),
+            SidecarExchangeAdmission::Conflict {
+                canonical_request_event_id: REQUEST_EVENT_ID.to_string()
+            }
+        );
+        assert!(
+            !reopened
+                .exchange_accepts_new_response(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str()
+                )
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn cached_reply_context_cannot_authorize_a_replacement_unaddressed_runtime() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "agent");
+        admit_request(&store, &REQUEST_EVENT_ID, 7).unwrap();
+        assert!(
+            store
+                .response_context(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    OTHER_DID,
+                )
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .response_context(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    AGENT_DID,
+                )
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn accepted_request_requires_exact_native_scope_source_and_full_controller_account() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        let mut reference = request_ref(&REQUEST_EVENT_ID, 7);
+        reference.stream_ref = CommitStreamRef::Realm {
+            realm_id: RealmId::new(REALM_ID.as_str()).unwrap(),
+        };
+        assert!(
+            store
+                .record_request_identity(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    &reference,
+                    &request_context(&[AGENT_DID])
+                )
+                .is_err()
+        );
+        assert!(!store.path().exists());
+        let mut context = request_context(&[AGENT_DID]);
+        context.source_track_ref.strand_id = StrandId::new(OTHER_STRAND_ID.as_str()).unwrap();
+        assert!(
+            store
+                .record_request_identity(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    &request_ref(&REQUEST_EVENT_ID, 7),
+                    &context
+                )
+                .is_err()
+        );
+        assert!(!store.path().exists());
+        assert_eq!(
+            admit_request(&store, &REQUEST_EVENT_ID, 7).unwrap(),
+            SidecarExchangeAdmission::Recorded
+        );
+        let other = account(CONTROLLER_DID, OTHER_STATION_DID);
+        assert!(
+            !store
+                .exchange_accepts_new_response(
+                    &other,
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str()
+                )
+                .unwrap()
+        );
+        let mut independent = request_ref(&OTHER_EVENT_ID, 2);
+        if let CommitStreamRef::Sidecar { sidecar_id, .. } = &mut independent.stream_ref {
+            *sidecar_id = arkret::SidecarId::from_event_id(&fixture_event_id(34));
+        }
+        assert_eq!(
+            store
+                .record_request_identity(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    OTHER_EVENT_ID.as_str(),
+                    &independent,
+                    &request_context(&[AGENT_DID])
+                )
+                .unwrap(),
+            SidecarExchangeAdmission::Recorded
+        );
+        assert!(
+            store
+                .exchange_accepts_new_response(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str()
+                )
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn terminal_control_requires_accepted_causal_basis_and_absorbs_after_reopen() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        admit_request(&store, &REQUEST_EVENT_ID, 3).unwrap();
+        let bytes = std::fs::read(store.path()).unwrap();
+        let control = terminal_control(REQUEST_EVENT_ID.as_str());
+        let accepted = request_ref(&CONTROL_EVENT_ID, 4);
+        assert!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &control,
+                    &accepted,
+                    &[]
+                )
+                .is_err()
+        );
+        assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
+        let mut unknown = control.clone();
+        unknown.basis_event_ids = vec![OTHER_EVENT_ID.clone()];
+        assert!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &unknown,
+                    &accepted,
+                    &unknown.basis_event_ids
+                )
+                .is_err()
+        );
+        assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
+        assert_eq!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &control,
+                    &accepted,
+                    &control.basis_event_ids
+                )
+                .unwrap(),
+            SidecarTerminalAdmission::Recorded
+        );
+        let reopened = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        assert!(
+            !reopened
+                .exchange_accepts_new_response(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str()
+                )
+                .unwrap()
+        );
+        assert_eq!(
+            admit_request(&reopened, &REQUEST_EVENT_ID, 3).unwrap(),
+            SidecarExchangeAdmission::Terminal {
+                control_event_id: CONTROL_EVENT_ID.to_string()
+            }
+        );
+        assert_eq!(
+            reopened
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &control,
+                    &request_ref(&OTHER_CONTROL_EVENT_ID, 5),
+                    &control.basis_event_ids
+                )
+                .unwrap(),
+            SidecarTerminalAdmission::AlreadyTerminal {
+                control_event_id: CONTROL_EVENT_ID.to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn coordinator_reassignment_uses_accepted_basis_and_exact_previous_assignment() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        store
+            .record_request_identity(
+                &controller_account(),
+                STRAND_ID.as_str(),
+                EXCHANGE_ID,
+                REQUEST_EVENT_ID.as_str(),
+                &request_ref(&REQUEST_EVENT_ID, 3),
+                &request_context(&[AGENT_DID, OTHER_DID]),
+            )
+            .unwrap();
+        let mut control = terminal_control(REQUEST_EVENT_ID.as_str());
+        control.action = AgentSidecarExchangeAction::ReassignCoordinator;
+        control.response_event_ids = None;
+        control.expected_coordinator_agent_id = Some(DidCoreId::new(OTHER_DID).unwrap());
+        control.coordinator_agent_id = Some(DidCoreId::new(OTHER_DID).unwrap());
+        let accepted = request_ref(&CONTROL_EVENT_ID, 4);
+        let bytes = std::fs::read(store.path()).unwrap();
+        assert!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &control,
+                    &accepted,
+                    &control.basis_event_ids
+                )
+                .is_err()
+        );
+        assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
+        control.expected_coordinator_agent_id = Some(DidCoreId::new(AGENT_DID).unwrap());
+        assert_eq!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &control,
+                    &accepted,
+                    &control.basis_event_ids
+                )
+                .unwrap(),
+            SidecarTerminalAdmission::Reassigned
+        );
+        assert_eq!(
+            store
+                .response_context(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    AGENT_DID
+                )
+                .unwrap()
+                .unwrap()
+                .2,
+            None
+        );
+        assert_eq!(
+            store
+                .response_context(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    EXCHANGE_ID,
+                    REQUEST_EVENT_ID.as_str(),
+                    OTHER_DID
+                )
+                .unwrap()
+                .unwrap()
+                .2
+                .as_deref(),
+            Some(CONTROL_EVENT_ID.as_str())
+        );
+        let mut close = terminal_control(REQUEST_EVENT_ID.as_str());
+        close.basis_event_ids = vec![CONTROL_EVENT_ID.clone()];
+        assert_eq!(
+            store
+                .record_terminal_control(
+                    &controller_account(),
+                    STRAND_ID.as_str(),
+                    &close,
+                    &request_ref(&OTHER_CONTROL_EVENT_ID, 5),
+                    &close.basis_event_ids
+                )
+                .unwrap(),
+            SidecarTerminalAdmission::Recorded
+        );
+    }
+
+    #[test]
+    fn exchange_store_serializes_concurrent_first_observation() {
+        let home = tempfile::tempdir().unwrap();
+        let store = SidecarExchangeStore::for_account(home.path(), "c1", "a1");
+        let handles = (0..8)
+            .map(|_| {
+                let store = store.clone();
+                std::thread::spawn(move || admit_request(&store, &REQUEST_EVENT_ID, 3).unwrap())
+            })
+            .collect::<Vec<_>>();
+        let outcomes = handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|o| **o == SidecarExchangeAdmission::Recorded)
+                .count(),
+            1
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|o| **o == SidecarExchangeAdmission::AlreadyObserved)
+                .count(),
+            7
+        );
+    }
+
+    #[test]
+    fn exchange_control_gate_requires_controller_actor_and_matching_strand() {
+        let plaintext = serde_json::to_value(terminal_control(REQUEST_EVENT_ID.as_str())).unwrap();
+        assert!(
+            gate_inbound_exchange_control(
+                &plaintext,
+                STRAND_ID.as_str(),
+                STRAND_ID.as_str(),
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account()
+            )
+            .is_some()
+        );
+        assert!(
+            gate_inbound_exchange_control(
+                &plaintext,
+                STRAND_ID.as_str(),
+                STRAND_ID.as_str(),
+                &account_actor(AGENT_DID, CONTROLLER_STATION_DID),
+                &controller_account()
+            )
+            .is_none(),
+            "Agent-authored exchange control is always invalid (§8)"
+        );
+        assert!(
+            gate_inbound_exchange_control(
+                &plaintext,
+                STRAND_ID.as_str(),
+                OTHER_STRAND_ID.as_str(),
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account()
+            )
+            .is_none(),
+            "the payload strand must match the private Strand it was delivered on"
+        );
+        assert!(
+            gate_inbound_exchange_control(
+                &json!({"schema": "ak.schema.agent_sidecar_exchange_control.v1"}),
+                STRAND_ID.as_str(),
+                STRAND_ID.as_str(),
+                &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                &controller_account()
+            )
+            .is_none(),
+            "non-closed control plaintext fails closed"
+        );
+    }
+
+    #[test]
+    fn reply_target_round_trips_and_fails_closed() {
+        let context = SidecarExchangeContext {
+            exchange_id: EXCHANGE_ID.to_owned(),
+            request_event_id: REQUEST_EVENT_ID.as_str().to_owned(),
+            coordinator_assignment_event_id: Some(REQUEST_EVENT_ID.as_str().to_owned()),
+        };
+        let encoded = encode_sidecar_reply_target(STRAND_ID.as_str(), &context);
+        assert!(encoded.starts_with("ak:strand:"));
+        let (strand, parsed) = split_sidecar_reply_target(&encoded);
+        assert_eq!(strand, STRAND_ID.as_str());
+        assert_eq!(parsed, Some(context));
+
+        assert_eq!(
+            split_sidecar_reply_target(STRAND_ID.as_str()),
+            (STRAND_ID.as_str().to_owned(), None)
+        );
+        let strand_id = STRAND_ID.as_str();
+        let truncated = format!("{strand_id}{REPLY_TARGET_EXCHANGE_KEY}{EXCHANGE_ID}");
+        assert_eq!(
+            split_sidecar_reply_target(&truncated),
+            (STRAND_ID.as_str().to_owned(), None)
+        );
+    }
+
+    #[test]
+    fn user_facing_response_metadata_carries_binding_and_validates() {
+        let context = SidecarExchangeContext {
+            exchange_id: EXCHANGE_ID.to_owned(),
+            request_event_id: REQUEST_EVENT_ID.as_str().to_owned(),
+            coordinator_assignment_event_id: Some(REQUEST_EVENT_ID.as_str().to_owned()),
+        };
+        let plaintext = build_user_facing_response_metadata(&context).expect("metadata");
+        let plaintext = serde_json::to_value(plaintext).expect("serialize metadata");
+        let binding = sidecar_binding_from_metadata_plaintext(&plaintext).expect("binding");
+        assert_eq!(binding.role, AgentSidecarExchangeRole::UserFacingResponse);
+        assert_eq!(binding.exchange_id.as_str(), EXCHANGE_ID);
+        assert_eq!(
+            binding.request_event_id.as_ref().map(|id| id.as_str()),
+            Some(REQUEST_EVENT_ID.as_str())
+        );
+        assert_eq!(binding.completes_exchange, Some(true));
+        assert_eq!(
+            binding
+                .coordinator_assignment_event_id
+                .as_ref()
+                .map(EventId::as_str),
+            Some(REQUEST_EVENT_ID.as_str())
+        );
+    }
+
+    #[test]
+    fn user_facing_response_metadata_rejects_invalid_identity() {
+        let bad = SidecarExchangeContext {
+            exchange_id: "short".to_owned(),
+            request_event_id: REQUEST_EVENT_ID.as_str().to_owned(),
+            coordinator_assignment_event_id: None,
+        };
+        assert!(build_user_facing_response_metadata(&bad).is_err());
+    }
+
+    #[test]
+    fn exchange_binding_accepts_opaque_identity_without_uuid_shape() {
+        let mut binding = request_binding(&[AGENT_DID]);
+        binding.exchange_id = "controller.private_exchange~001==".to_owned();
+        assert_eq!(
+            sidecar_binding_from_metadata_plaintext(&metadata_plaintext_with_binding(&binding)),
+            Some(binding)
+        );
+    }
+
+    #[test]
+    fn exchange_binding_rejects_invalid_opaque_identity_at_consumer_boundary() {
+        for identity in ["short".to_owned(), "x".repeat(129), "x".repeat(22) + ":"] {
+            let mut binding = request_binding(&[AGENT_DID]);
+            binding.exchange_id = identity;
+            assert!(
+                sidecar_binding_from_metadata_plaintext(&metadata_plaintext_with_binding(&binding))
+                    .is_none()
+            );
+            assert_eq!(
+                gate_inbound_request_binding(
+                    &binding,
+                    REQUEST_EVENT_ID.as_str(),
+                    &account_actor(CONTROLLER_DID, CONTROLLER_STATION_DID),
+                    &controller_account(),
+                    AGENT_DID,
+                ),
+                SidecarRequestGate::NotARequest
+            );
+        }
+    }
+}

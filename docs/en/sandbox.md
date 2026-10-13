@@ -101,7 +101,7 @@ savfox --sandbox workspace-write --add-dir /tmp/output exec "Generate reports to
 
 2. **Use `read-only` for analysis** — When you only need the agent to read and explain code, use read-only mode for maximum safety.
 
-3. **Combine `never` approval with sandbox** — If you want hands-free execution, pair `--ask-for-approval never` with a restrictive sandbox mode rather than using `--yolo`.
+3. **Combine `never` approval with a sandbox** — In unattended mode, in-boundary operations run inside the restrictive sandbox and boundary requests are denied without waiting.
 
 4. **Use platform sandbox for untrusted tasks** — The `sandbox` subcommand provides OS-level isolation that is stronger than the built-in policy checks.
 

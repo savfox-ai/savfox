@@ -7,6 +7,7 @@
 //! query) and falls back to environment-variable heuristics when the query
 //! fails (e.g. because the event stream is already running).
 
+use std::io::IsTerminal;
 use std::sync::Mutex;
 
 use ratatui::buffer::Buffer;
@@ -76,7 +77,12 @@ fn create_picker() -> Picker {
     }
 
     // Slow path – query the terminal directly (may fail in raw-mode).
-    if let Ok(picker) = Picker::from_query_stdio() {
+    // A redirected test runner or pipe cannot answer terminal queries. On
+    // Windows probing it can also wait indefinitely for a console response.
+    if std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+        && let Ok(picker) = Picker::from_query_stdio()
+    {
         return picker;
     }
 

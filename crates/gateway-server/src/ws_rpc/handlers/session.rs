@@ -8,18 +8,13 @@ use savfox_protocol::SessionId;
 use serde_json::{Value, json};
 use tracing::debug;
 
-use super::super::types::{
-    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, RpcResult,
-};
-use super::agent::apply_agent_permission_policy_to_config;
+use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
 use crate::agent_terminal_delegate::TerminalEventSink;
 use crate::channel::GatewayChannel;
 use crate::channels::policy::{
     DmScopePolicyConfig, load_dm_scope_policy, parse_dm_scope, write_dm_scope_policy,
 };
-use crate::channels::runtime::{
-    cleanup_session_runtime_state, get_idle_reply_status, remove_idle_reply_session,
-};
+use crate::channels::runtime::{get_idle_reply_status, remove_idle_reply_session};
 use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
     provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
@@ -28,6 +23,7 @@ use crate::identity_links::{
     canonical_for_peer, load_identity_links, save_identity_links, upsert_link,
 };
 use crate::media_store::MediaStore;
+use crate::security::execution_policy::{ApprovalClientCapabilities, resolve_execution_security};
 use crate::session::{
     GatewaySessionManager, SessionEntry, SessionOverrides, SessionStore, build_history_payload,
     build_routing_id, derive_session_label_from_history, peek_ambient_messages,
@@ -280,6 +276,7 @@ pub(crate) async fn handle_chat_send(
     channel: &Arc<GatewayChannel>,
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
+    principal: Option<&str>,
 ) -> RpcResult {
     use savfox_core::models_manager::manager::RefreshStrategy;
     use savfox_protocol::protocol::{EventMsg, Op};
@@ -475,7 +472,26 @@ pub(crate) async fn handle_chat_send(
         native_provider.unwrap_or_else(|| provider_from_model(&effective_model))
     };
 
-    if channel.resolve_terminal_delegate(agent).await.is_some() {
+    if let Some(delegate) = channel
+        .resolve_terminal_delegate(agent)
+        .await
+        .map_err(|error| (INVALID_REQUEST, error.to_string()))?
+    {
+        if delegate.is_claude_stream() {
+            return handle_claude_send(
+                channel,
+                session_mgr,
+                session_store,
+                principal,
+                &request_id,
+                requested_session_id.as_deref(),
+                &prompt,
+                agent,
+                &effective_model,
+                &attachments,
+            )
+            .await;
+        }
         let logical_session_id = requested_session_id
             .clone()
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
@@ -726,8 +742,27 @@ pub(crate) async fn handle_chat_send(
         config.model = Some(effective_model.clone());
     }
 
-    // Apply the agent's permission policy to the session config.
-    apply_agent_permission_policy_to_config(&mut config, channel, agent).await;
+    // Resolve the agent capability policy and interactive entry-point behavior
+    // through the same transport-independent policy path used by Channels.
+    let execution_security = resolve_execution_security(
+        &config,
+        &channel.config().savfox_home,
+        agent,
+        ApprovalClientCapabilities::interactive(),
+    )
+    .await;
+    config = execution_security.config.clone();
+
+    if let Some(logical_session_id) = requested_session_id.as_deref()
+        && let Some(existing) = session_store.get(logical_session_id).await
+        && existing.security_policy_fingerprint.as_deref()
+            != Some(execution_security.context.policy_fingerprint.as_str())
+        && existing.security_policy_fingerprint.is_some()
+    {
+        channel
+            .invalidate_logical_session_security(logical_session_id)
+            .await;
+    }
 
     let resolved_session = channel
         .resolve_agent_session(config, requested_session_id.as_deref())
@@ -743,9 +778,22 @@ pub(crate) async fn handle_chat_send(
     {
         entry.model = Some(effective_model.clone());
         entry.provider = Some(provider.clone());
+        entry.security_policy_fingerprint =
+            Some(execution_security.context.policy_fingerprint.clone());
+        entry.execution_mode = Some(execution_security.context.mode.as_str().to_owned());
         entry.touch();
         session_store.upsert(entry).await;
     }
+    let execution_mode = execution_security.context.mode.as_str().to_owned();
+    let policy_fingerprint = execution_security.context.policy_fingerprint.clone();
+    let sandbox_enforcement = execution_security.context.sandbox_enforcement.to_owned();
+    let _ = session_store
+        .update(&logical_session_id, move |entry| {
+            entry.execution_mode = Some(execution_mode);
+            entry.security_policy_fingerprint = Some(policy_fingerprint);
+            entry.sandbox_enforcement = Some(sandbox_enforcement);
+        })
+        .await;
 
     let session_id_obj = thread_session_id;
     let thread_id = session_id_obj.to_string();
@@ -1278,10 +1326,145 @@ pub(crate) async fn handle_chat_send(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn handle_claude_send(
+    channel: &Arc<GatewayChannel>,
+    sessions: &Arc<GatewaySessionManager>,
+    store: &Arc<SessionStore>,
+    principal: Option<&str>,
+    request_id: &str,
+    session_id: Option<&str>,
+    prompt: &str,
+    agent: &str,
+    model: &str,
+    attachments: &[ChatAttachment],
+) -> RpcResult {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use crate::auth::TokenScope;
+    let owner = principal
+        .ok_or((
+            INVALID_REQUEST,
+            "claude_stream requires an authenticated connection".to_owned(),
+        ))?
+        .to_owned();
+    if !sessions
+        .has_owner_client(&owner, TokenScope::OperatorWrite)
+        .await
+    {
+        return Err((
+            INVALID_REQUEST,
+            "Claude native execution requires operator.write".to_owned(),
+        ));
+    }
+    let session_id = session_id
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+    let execution = crate::claude_code::Execution {
+        owner: owner.clone(),
+        request_id: request_id.to_owned(),
+        session_id: session_id.clone(),
+        agent_id: agent.to_owned(),
+        approval_client: sessions
+            .has_owner_client(&owner, TokenScope::OperatorApprovals)
+            .await,
+        trusted_context: None,
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<TerminalAgentEvent>(64);
+    let dropped = Arc::new(AtomicBool::new(false));
+    let stream_dropped = dropped.clone();
+    let sink: TerminalEventSink = Arc::new(move |event| {
+        if tx.try_send(event).is_err() {
+            stream_dropped.store(true, Ordering::Relaxed);
+        }
+    });
+    let event_sessions = sessions.clone();
+    let event_owner = owner.clone();
+    let event_request = request_id.to_owned();
+    let event_session = session_id.clone();
+    let consumer = tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            if let Some((topic, payload)) = terminal_event_stream_payload(
+                &event_request,
+                &event_session,
+                &event_session,
+                &event,
+                false,
+                false,
+                "",
+            ) {
+                event_sessions
+                    .send_to_owner(&event_owner, TokenScope::OperatorWrite, topic, payload)
+                    .await;
+            }
+        }
+    });
+    sessions.send_to_owner(&owner, TokenScope::OperatorWrite, "agent.stream", json!({"request_id":request_id,"session_id":session_id,"thread_id":session_id,"phase":"start","terminal_event":"started","provider":"terminal"})).await;
+    let task_channel = channel.clone();
+    let task_prompt = prompt.to_owned();
+    let task_agent = agent.to_owned();
+    let task_model = model.to_owned();
+    let task_session = session_id.clone();
+    let task_attachments = attachments.to_vec();
+    // The gateway-owned task outlives the request and browser connection.
+    let invocation = tokio::spawn(async move {
+        task_channel
+            .invoke_terminal_delegate_with_execution(
+                &task_prompt,
+                &task_agent,
+                &task_model,
+                Some(&task_session),
+                &task_attachments,
+                Some(sink),
+                Some(execution),
+            )
+            .await
+    })
+    .await
+    .map_err(|error| (INTERNAL_ERROR, format!("Claude owner task failed: {error}")))?;
+    let _ = consumer.await;
+    let invocation = match invocation {
+        Ok(Some(invocation)) => invocation,
+        outcome => {
+            let error = match outcome {
+                Err(error) => error.to_string(),
+                _ => "Claude terminal delegate unavailable".to_owned(),
+            };
+            sessions.send_to_owner(&owner, TokenScope::OperatorWrite, "agent.error", json!({"request_id":request_id,"session_id":session_id,"error":error,"execution_target":"claude"})).await;
+            return Err((INTERNAL_ERROR, error));
+        }
+    };
+    let result = invocation.result;
+    if !invocation.terminal.replayed {
+        persist_chat_session_metadata(
+            store.as_ref(),
+            &channel.config().savfox_home,
+            &session_id,
+            &session_id,
+            &invocation.model,
+            &invocation.provider,
+            result.rollout_path.as_deref(),
+            result.last_token_usage.as_ref(),
+        )
+        .await;
+    }
+    let payload = json!({"request_id":request_id,"session_id":session_id,"thread_id":session_id,"response":result.reply,"raw_response":result.reply,"model":invocation.model,"provider":invocation.provider,"terminal_event":"completed","terminal":{"mode":"claude_stream","profile":"claude","run_id":invocation.terminal.run_id,"exit_code":invocation.terminal.exit_code,"vendor_usage":invocation.terminal.vendor_usage},"usage":result.last_token_usage,"stream_dropped":dropped.load(Ordering::Relaxed),"aborted":false});
+    sessions
+        .send_to_owner(
+            &owner,
+            TokenScope::OperatorWrite,
+            "agent.complete",
+            payload.clone(),
+        )
+        .await;
+    Ok(payload)
+}
+
 pub(crate) async fn handle_chat_history(
     params: &Value,
     session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
+    principal: Option<&str>,
 ) -> RpcResult {
     let session_id = params
         .get("session_id")
@@ -1305,14 +1488,40 @@ pub(crate) async fn handle_chat_history(
         return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
 
-    Ok(build_history_payload(session_id, limit, source_channel, session_store, channel).await)
+    Ok(build_history_payload(
+        session_id,
+        limit,
+        source_channel,
+        session_store,
+        channel,
+        principal,
+    )
+    .await)
 }
 
 pub(crate) async fn handle_chat_abort(
     params: &Value,
     channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
+    principal: Option<&str>,
 ) -> RpcResult {
+    let target = params
+        .get("run_id")
+        .or_else(|| params.get("session_id"))
+        .or_else(|| params.get("thread_id"))
+        .and_then(Value::as_str);
+    if let Some(target) = target
+        && let Some(owner) = principal
+        && channel.claude_runtime.cancel(owner, target).await
+    {
+        return Ok(json!({"status":"stop_requested","target":target,"execution_target":"claude"}));
+    }
+    if params.get("run_id").is_some() {
+        return Err((
+            INVALID_REQUEST,
+            "Claude run not found in your execution scope".to_owned(),
+        ));
+    }
     let thread_id_param = params
         .get("thread_id")
         .and_then(|v| v.as_str())
@@ -1336,47 +1545,17 @@ pub(crate) async fn handle_chat_abort(
         return Ok(json!({ "status": "aborted", "thread_id": thread_id }));
     }
 
-    let aborted = abort_all_active_threads(channel.as_ref()).await;
-    Ok(json!({ "status": "aborted", "aborted_count": aborted }))
-}
-
-/// Inject a message into a session's history without triggering the agent.
-pub(crate) async fn handle_chat_inject(
-    params: &Value,
-    session_store: &Arc<crate::session::SessionStore>,
-) -> RpcResult {
-    let session_id = params["session_id"]
-        .as_str()
-        .ok_or((INVALID_PARAMS, "missing session_id".to_owned()))?;
-    let content = params["content"]
-        .as_str()
-        .ok_or((INVALID_PARAMS, "missing content".to_owned()))?;
-    let role = params["role"].as_str().unwrap_or("system");
-
-    // Validate role
-    if !matches!(role, "system" | "user" | "assistant") {
+    if thread_id_param.is_some() || session_id_param.is_some() {
+        return Ok(json!({"status":"not_found"}));
+    }
+    if params.get("all").and_then(Value::as_bool) != Some(true) {
         return Err((
-            INVALID_PARAMS,
-            format!("invalid role: {role} (expected system, user, or assistant)"),
+            INVALID_REQUEST,
+            "specify a session_id, run_id or explicit all=true".to_owned(),
         ));
     }
-
-    // Validate the session exists so the caller gets a meaningful error.
-    let _entry = session_store
-        .get(session_id)
-        .await
-        .or(session_store.get_by_session_id(session_id).await)
-        .ok_or((INVALID_PARAMS, format!("session not found: {session_id}")))?;
-
-    // Injecting into a live session's message history is not yet implemented:
-    // the conversation transcript is owned by the running agent/channel runtime,
-    // not the SessionStore. Return an explicit error instead of reporting a
-    // success that silently does nothing.
-    let _ = content;
-    Err((
-        METHOD_NOT_FOUND,
-        "chat.inject is not implemented: message injection into session history is not supported yet".to_owned(),
-    ))
+    let aborted = abort_all_active_threads(channel.as_ref()).await;
+    Ok(json!({ "status": "aborted", "aborted_count": aborted }))
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────
@@ -1385,18 +1564,35 @@ pub(crate) async fn handle_sessions_list(
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
+    principal: Option<&str>,
 ) -> RpcResult {
     let ws_ids = session_mgr.session_ids().await;
     let persistent = session_store.list().await;
     let mut sorted_sessions = persistent.clone();
     sorted_sessions.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
 
-    let persistent_keys: Vec<String> = sorted_sessions
-        .iter()
-        .map(|e| e.session_id.clone())
-        .collect();
+    let mut persistent_keys = Vec::with_capacity(sorted_sessions.len());
+    let mut total_tokens = 0_u64;
     let mut entries: Vec<Value> = Vec::with_capacity(sorted_sessions.len());
     for entry in sorted_sessions {
+        if channel
+            .claude_runtime
+            .authorize_session(principal, &entry.session_id)
+            .await
+            .is_err()
+        {
+            continue;
+        }
+        persistent_keys.push(entry.session_id.clone());
+        total_tokens = total_tokens.saturating_add(entry.total_tokens);
+        #[cfg(feature = "arkret")]
+        let arkret_delivery =
+            crate::arkret_delivery::ArkretExecutionBindingStore::new(&channel.config().savfox_home)
+                .diagnostics_for_session(&entry.session_id)
+                .await
+                .unwrap_or(None);
+        #[cfg(not(feature = "arkret"))]
+        let arkret_delivery: Option<Value> = None;
         let mut label = entry
             .label
             .clone()
@@ -1434,18 +1630,21 @@ pub(crate) async fn handle_sessions_list(
             "messages": Value::Null,
             "model": entry.model,
             "provider": entry.provider,
-            "thread_id": entry.thread_id,
+            "thread_id": entry.core_thread_id.clone(),
+            "core_thread_id": entry.core_thread_id,
+            "remote_thread_id": entry.remote_thread_id,
+            "reply_to_event_id": entry.reply_to_event_id,
+            "arkret_delivery": arkret_delivery,
             "group_activation": entry.group_activation,
             "agent_id": agent_id,
         }));
     }
-    let stats = session_store.stats().await;
     Ok(json!({
         "active_connections": ws_ids,
         "persistent_sessions": persistent_keys,
         "entries": entries,
-        "total_persistent": stats.total_sessions,
-        "total_tokens": stats.total_tokens,
+        "total_persistent": persistent_keys.len(),
+        "total_tokens": total_tokens,
     }))
 }
 
@@ -1546,6 +1745,191 @@ pub(crate) async fn handle_sessions_preview(
     }
 }
 
+#[cfg(feature = "arkret")]
+fn arkret_publish_params(
+    params: &Value,
+) -> Result<
+    (
+        crate::arkret_delivery::DeliveryCheckpointKind,
+        String,
+        String,
+        Vec<String>,
+        Vec<String>,
+        Vec<String>,
+    ),
+    (i64, String),
+> {
+    let kind_raw = params
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("milestone");
+    let kind = crate::arkret_delivery::DeliveryCheckpointKind::parse(kind_raw)
+        .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
+    let summary = params
+        .get("summary")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    if summary.is_empty() {
+        return Err((INVALID_REQUEST, "missing publish summary".to_owned()));
+    }
+    let title = params
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| kind.label().to_owned());
+    let list = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let verification = list("verification");
+    let mut blockers = list("blockers");
+    let next_actions = list("next_actions");
+    let delivery_summary = if kind == crate::arkret_delivery::DeliveryCheckpointKind::Blocked {
+        blockers.push(summary);
+        "Execution is blocked pending remote input.".to_owned()
+    } else {
+        summary
+    };
+    Ok((
+        kind,
+        title,
+        delivery_summary,
+        verification,
+        blockers,
+        next_actions,
+    ))
+}
+
+#[cfg(feature = "arkret")]
+pub(crate) async fn handle_sessions_arkret_delivery_preview(
+    params: &Value,
+    session_store: &Arc<SessionStore>,
+    channel: &GatewayChannel,
+) -> RpcResult {
+    let session_id = params
+        .get("session_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if session_id.is_empty() || session_store.get(session_id).await.is_none() {
+        return Err((INVALID_REQUEST, "Arkret-bound session not found".to_owned()));
+    }
+    let store =
+        crate::arkret_delivery::ArkretExecutionBindingStore::new(&channel.config().savfox_home);
+    let binding = store
+        .binding_for_session(session_id)
+        .await
+        .map_err(|error| (INTERNAL_ERROR, error.to_string()))?
+        .ok_or((
+            INVALID_REQUEST,
+            "session has no Arkret execution binding".to_owned(),
+        ))?;
+    if binding.mode != crate::arkret_delivery::ArkretDeliveryMode::TaskDelivery {
+        return Err((
+            INVALID_REQUEST,
+            "session uses interactive_chat; checkpoint publishing is disabled".to_owned(),
+        ));
+    }
+    let (kind, title, summary, verification, blockers, next_actions) =
+        arkret_publish_params(params)?;
+    let checkpoint = crate::arkret_delivery::DeliveryCheckpoint {
+        checkpoint_id: uuid::Uuid::nil(),
+        binding_id: binding.binding_id,
+        sequence: binding.public_summary_revision.saturating_add(1),
+        kind,
+        title: crate::arkret_delivery::sanitize_public_text(&title)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        summary: crate::arkret_delivery::sanitize_public_text(&summary)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        artifacts: Vec::new(),
+        verification: crate::arkret_delivery::sanitize_public_list(verification)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        blockers: crate::arkret_delivery::sanitize_public_list(blockers)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        next_actions: crate::arkret_delivery::sanitize_public_list(next_actions)
+            .map_err(|error| (INVALID_REQUEST, error.to_string()))?,
+        source_revision: binding.public_summary_revision.saturating_add(1),
+        visibility: crate::arkret_delivery::DeliveryVisibility::RemotePublic,
+        created_at: chrono::Utc::now(),
+    };
+    let previous_rendered = store
+        .last_published_rendered(binding.binding_id)
+        .await
+        .map_err(|error| (INTERNAL_ERROR, error.to_string()))?;
+    Ok(json!({
+        "bindingId": binding.binding_id,
+        "senderDid": binding.agent_sender_did,
+        "mode": binding.mode,
+        "kind": kind,
+        "previousRendered": previous_rendered,
+        "rendered": crate::arkret_delivery::render_checkpoint(&checkpoint),
+    }))
+}
+
+#[cfg(feature = "arkret")]
+pub(crate) async fn handle_sessions_arkret_delivery_publish(
+    params: &Value,
+    session_store: &Arc<SessionStore>,
+    channel: &GatewayChannel,
+) -> RpcResult {
+    let session_id = params
+        .get("session_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if session_id.is_empty() || session_store.get(session_id).await.is_none() {
+        return Err((INVALID_REQUEST, "Arkret-bound session not found".to_owned()));
+    }
+    let binding =
+        crate::arkret_delivery::ArkretExecutionBindingStore::new(&channel.config().savfox_home)
+            .binding_for_session(session_id)
+            .await
+            .map_err(|error| (INTERNAL_ERROR, error.to_string()))?
+            .ok_or((
+                INVALID_REQUEST,
+                "session has no Arkret execution binding".to_owned(),
+            ))?;
+    let (kind, title, summary, verification, blockers, next_actions) =
+        arkret_publish_params(params)?;
+    let request = crate::arkret_delivery::PublishCheckpointRequest {
+        kind,
+        title,
+        summary,
+        verification,
+        blockers,
+        next_actions,
+        initiated_by: "operator_via_agent",
+    };
+    let (checkpoint, rendered, remote_event_id) = crate::arkret_delivery::publish_checkpoint(
+        &channel.config().savfox_home,
+        &binding,
+        request,
+    )
+    .await
+    .map_err(|error| (INTERNAL_ERROR, error.to_string()))?;
+    Ok(json!({
+        "status": "published",
+        "checkpointId": checkpoint.checkpoint_id,
+        "sequence": checkpoint.sequence,
+        "remoteEventId": remote_event_id,
+        "senderDid": binding.agent_sender_did,
+        "rendered": rendered,
+    }))
+}
+
 pub(crate) async fn handle_sessions_patch(
     params: &Value,
     session_store: &Arc<SessionStore>,
@@ -1600,7 +1984,7 @@ pub(crate) async fn handle_sessions_patch(
     }
     // Threading support: thread_id and parent_message_id
     if let Some(thread_id) = patch_str(params, &patch, "thread_id") {
-        updated.thread_id = Some(thread_id.to_owned());
+        updated.core_thread_id = Some(thread_id.to_owned());
     }
     if let Some(parent_id) = patch_str(params, &patch, "parent_message_id") {
         updated.parent_message_id = Some(parent_id.to_owned());
@@ -1689,41 +2073,6 @@ pub(crate) async fn handle_sessions_delete(
         .cleanup_staging_for_session(session_id)
         .await;
     Ok(json!({ "status": "deleted", "staging_cleaned": staging_cleaned }))
-}
-
-pub(crate) async fn handle_sessions_compact(
-    params: &Value,
-    session_store: &Arc<SessionStore>,
-    channel: &GatewayChannel,
-) -> RpcResult {
-    let session_id = params
-        .get("session_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if session_id.is_empty() {
-        // Global compaction  - prune stale entries.
-        let report = session_store.prune_report().await;
-        cleanup_session_runtime_state(&channel.config().savfox_home, &report.session_ids).await;
-        let pruned = report.pruned;
-        return Ok(json!({ "status": "compacted", "pruned": pruned }));
-    }
-    // Per-session compaction: increment counter.
-    match session_store
-        .update(session_id, |entry| {
-            entry.compaction_count += 1;
-        })
-        .await
-    {
-        Some(entry) => Ok(json!({
-            "session_id": session_id,
-            "status": "compacted",
-            "compaction_count": entry.compaction_count,
-            "memory_flush_count": entry.memory_flush_count,
-            "memory_flush_bytes": entry.memory_flush_bytes,
-            "memory_flush_tokens_saved": entry.memory_flush_tokens_saved,
-        })),
-        None => Err((INVALID_REQUEST, format!("session '{session_id}' not found"))),
-    }
 }
 
 // ── Session Overrides ────────────────────────────────────────────────────────
@@ -1907,6 +2256,9 @@ fn merge_session_entries(mut left: SessionEntry, right: SessionEntry) -> Session
         left.last_channel = right.last_channel.clone().or(left.last_channel);
         left.to = right.to.clone().or(left.to);
         left.last_to = right.last_to.clone().or(left.last_to);
+        left.core_thread_id = right.core_thread_id.clone().or(left.core_thread_id);
+        left.remote_thread_id = right.remote_thread_id.clone().or(left.remote_thread_id);
+        left.reply_to_event_id = right.reply_to_event_id.clone().or(left.reply_to_event_id);
         left.thread_id = right.thread_id.clone().or(left.thread_id);
         left.reply_target = right.reply_target.clone().or(left.reply_target);
         left.parent_thread_id = right.parent_thread_id.clone().or(left.parent_thread_id);
@@ -2008,7 +2360,7 @@ pub(crate) async fn handle_dm_scope_migrate(
             &agent,
             entry.channel.as_deref(),
             entry.group_id.as_deref(),
-            entry.thread_id.as_deref(),
+            entry.remote_thread_id.as_deref(),
             Some(peer.as_str()),
             entry.account_id.as_deref(),
             target_scope,

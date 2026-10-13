@@ -449,8 +449,11 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::WindowsSandbox,
         key: "experimental_windows_sandbox",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
+        stage: Stage::Stable,
+        // Restricted-token sandboxing is the safe Windows baseline. Operators
+        // can still explicitly disable it, while the elevated backend remains
+        // opt-in.
+        default_enabled: true,
     },
     FeatureSpec {
         id: Feature::WindowsSandboxElevated,

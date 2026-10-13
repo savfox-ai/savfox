@@ -238,10 +238,15 @@ fn merge_provider_store_model_providers(
 #[cfg(test)]
 pub(crate) fn test_config() -> Config {
     let savfox_home = tempdir().expect("create temp dir");
+    test_config_with_home(savfox_home.path().to_path_buf())
+}
+
+#[cfg(test)]
+pub(crate) fn test_config_with_home(savfox_home: PathBuf) -> Config {
     Config::load_from_base_config_with_overrides(
         ConfigToml::default(),
         ConfigOverrides::default(),
-        savfox_home.path().to_path_buf(),
+        savfox_home,
     )
     .expect("load default test config")
 }
@@ -1405,7 +1410,7 @@ impl Config {
         Self::load_config_with_layer_stack(cfg, overrides, savfox_home, config_layer_stack)
     }
 
-    fn load_config_with_layer_stack(
+    pub(crate) fn load_config_with_layer_stack(
         cfg: ConfigToml,
         overrides: ConfigOverrides,
         savfox_home: PathBuf,
@@ -1645,7 +1650,9 @@ impl Config {
         let model_instructions_path = cfg.model_instructions_file.as_ref();
         let file_base_instructions =
             Self::try_read_non_empty_file(model_instructions_path, "model instructions file")?;
-        let base_instructions = base_instructions.or(file_base_instructions);
+        let base_instructions = base_instructions
+            .or(cfg.instructions)
+            .or(file_base_instructions);
         let developer_instructions = developer_instructions.or(cfg.developer_instructions);
         let personality = personality.or(cfg.personality).or_else(|| {
             features
@@ -2356,30 +2363,19 @@ trust_level = "trusted"
         )?;
 
         let expected_backend = AbsolutePathBuf::try_from(backend).unwrap();
-        if cfg!(target_os = "windows") {
-            assert!(
-                config.forced_auto_mode_downgraded_on_windows,
-                "expected workspace-write request to be downgraded on Windows"
-            );
-            match config.sandbox_policy.get() {
-                &SandboxPolicy::ReadOnly => {}
-                other => panic!("expected read-only policy on Windows, got {other:?}"),
+        match config.sandbox_policy.get() {
+            SandboxPolicy::WorkspaceWrite { writable_roots, .. } => {
+                assert_eq!(
+                    writable_roots
+                        .iter()
+                        .filter(|root| **root == expected_backend)
+                        .count(),
+                    1,
+                    "expected single writable root entry for {}",
+                    expected_backend.display()
+                );
             }
-        } else {
-            match config.sandbox_policy.get() {
-                SandboxPolicy::WorkspaceWrite { writable_roots, .. } => {
-                    assert_eq!(
-                        writable_roots
-                            .iter()
-                            .filter(|root| **root == expected_backend)
-                            .count(),
-                        1,
-                        "expected single writable root entry for {}",
-                        expected_backend.display()
-                    );
-                }
-                other => panic!("expected workspace-write policy, got {other:?}"),
-            }
+            other => panic!("expected workspace-write policy, got {other:?}"),
         }
 
         Ok(())
@@ -4471,21 +4467,15 @@ mcp_oauth_callback_port = 5678
             "Expected UnlessTrusted approval policy for untrusted project"
         );
 
-        // Verify that untrusted projects still get WorkspaceWrite sandbox (or ReadOnly on Windows)
-        if cfg!(target_os = "windows") {
-            assert!(
-                matches!(config.sandbox_policy.get(), SandboxPolicy::ReadOnly),
-                "Expected ReadOnly on Windows"
-            );
-        } else {
-            assert!(
-                matches!(
-                    config.sandbox_policy.get(),
-                    SandboxPolicy::WorkspaceWrite { .. }
-                ),
-                "Expected WorkspaceWrite sandbox for untrusted project"
-            );
-        }
+        // The restricted-token Windows sandbox is enabled by default, so
+        // WorkspaceWrite is preserved on every supported platform.
+        assert!(
+            matches!(
+                config.sandbox_policy.get(),
+                SandboxPolicy::WorkspaceWrite { .. }
+            ),
+            "Expected WorkspaceWrite sandbox for untrusted project"
+        );
 
         Ok(())
     }

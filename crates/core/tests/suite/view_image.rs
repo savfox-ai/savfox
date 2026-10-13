@@ -439,7 +439,7 @@ async fn view_image_tool_placeholder_for_non_image_files() -> anyhow::Result<()>
                     if text.contains("Savfox could not read the local image at")
                         && text.contains("unsupported MIME type `application/json`")
                     {
-                        return Some(text.to_string());
+                        return Some(text.to_owned());
                     }
                 }
                 None

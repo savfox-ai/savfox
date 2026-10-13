@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use anyhow::Context;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use savfox_core::config::Config;
@@ -25,6 +26,10 @@ use crate::terminal_agent::{
     TerminalWorkspaceManager, TerminalWorkspaceRequest, TerminalWorkspaceState,
     parse_terminal_output, record_terminal_runtime_metrics, render_terminal_template, resolve_cwd,
 };
+use crate::terminal_pty::{
+    TerminalPtyCompletion, TerminalPtySessionKey, TerminalPtySize, TerminalPtySpawnSpec,
+    TerminalPtyWrite, TerminalPtyWriteKind, terminal_pty_manager,
+};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
 const MIN_TIMEOUT_SECS: u64 = 5;
@@ -34,7 +39,7 @@ const MAX_TERMINAL_ATTACHMENT_BYTES: usize = 5 * 1024 * 1024;
 
 pub(crate) type TerminalEventSink = Arc<dyn Fn(TerminalAgentEvent) + Send + Sync>;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct AgentTerminalDelegateConfig {
     #[serde(default)]
     pub(crate) enabled: bool,
@@ -70,9 +75,15 @@ pub(crate) struct AgentTerminalDelegateConfig {
     pub(crate) interactive_args: Option<Vec<String>>,
     #[serde(default)]
     pub(crate) workspace: AgentTerminalWorkspaceConfig,
+    #[serde(default)]
+    pub(crate) savfox_approval_bridge: Option<String>,
+    #[serde(default)]
+    pub(crate) terminal_execution: Option<String>,
+    #[serde(default)]
+    pub(crate) claude: savfox_gateway_shared::ClaudeCodeConfig,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub(crate) struct AgentTerminalWorkspaceConfig {
     #[serde(default)]
     pub(crate) mode: Option<String>,
@@ -88,6 +99,12 @@ pub(crate) struct ResolvedTerminalDelegate {
     agent_id: String,
     agent_name: String,
     system_prompt: String,
+}
+
+impl ResolvedTerminalDelegate {
+    pub(crate) fn is_claude_stream(&self) -> bool {
+        configured_mode(self) == "claude_stream"
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -193,6 +210,11 @@ struct TerminalRunResult {
     metadata_state: TerminalSessionMetadataState,
     events: Vec<TerminalAgentEvent>,
     attachments: Vec<TerminalAttachmentMetadata>,
+    usage: Option<savfox_protocol::protocol::TokenUsage>,
+    vendor_usage: Option<serde_json::Value>,
+    run_id: Option<String>,
+    replayed: bool,
+    _session_guard: Option<Arc<tokio::sync::OwnedMutexGuard<()>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +235,12 @@ pub(crate) struct TerminalInvocationMetadata {
     pub(crate) exit_code: Option<i32>,
     pub(crate) events: Vec<TerminalAgentEvent>,
     pub(crate) attachments: Vec<TerminalAttachmentMetadata>,
+    pub(crate) vendor_usage: Option<serde_json::Value>,
+    pub(crate) run_id: Option<String>,
+    pub(crate) replayed: bool,
+    // Keep the session serialized through rollout and caller-side metadata
+    // persistence, not just until the CLI exits.
+    _session_guard: Option<Arc<tokio::sync::OwnedMutexGuard<()>>>,
 }
 
 fn default_include_system_prompt() -> bool {
@@ -783,12 +811,14 @@ async fn build_terminal_session_context(
         metadata_path,
         created_at: rollout_timestamp(),
     };
-    write_terminal_session_metadata(
-        delegate,
-        &context,
-        &TerminalSessionMetadataState::new("created"),
-    )
-    .await?;
+    if !delegate.is_claude_stream() {
+        write_terminal_session_metadata(
+            delegate,
+            &context,
+            &TerminalSessionMetadataState::new("created"),
+        )
+        .await?;
+    }
 
     Ok(context)
 }
@@ -1040,6 +1070,265 @@ fn insert_workspace_events(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn run_claude_command(
+    channel: &GatewayChannel,
+    delegate: &ResolvedTerminalDelegate,
+    context: &TerminalSessionContext,
+    prompt: &str,
+    model: &str,
+    attachments: &[ChatAttachment],
+    sink: Option<TerminalEventSink>,
+    mut execution: crate::claude_code::Execution,
+) -> anyhow::Result<TerminalRunResult> {
+    use crate::claude_code::RunOptions;
+    anyhow::ensure!(
+        configured_profile(delegate) == "claude",
+        "claude_stream requires the claude runtime"
+    );
+    anyhow::ensure!(
+        matches!(
+            configured_session_scope(delegate),
+            "per_turn" | "per_session"
+        ),
+        "claude_stream supports only per_turn and per_session"
+    );
+    anyhow::ensure!(
+        delegate.config.stdin.is_none()
+            && delegate
+                .config
+                .io_protocol
+                .as_deref()
+                .is_none_or(|protocol| protocol == "jsonl"),
+        "claude_stream owns stdin and JSONL framing"
+    );
+    anyhow::ensure!(
+        delegate
+            .config
+            .terminal_execution
+            .as_deref()
+            .is_none_or(
+                |execution| execution == "native_terminal" || execution == "managed_workspace"
+            ),
+        "claude_stream requires native_terminal or managed_workspace execution"
+    );
+    if configured_session_scope(delegate) == "per_session" {
+        anyhow::ensure!(
+            !matches!(
+                configured_cleanup_policy(delegate),
+                "per_turn" | "delete_always" | "delete_on_success"
+            ) && !matches!(
+                configured_workspace_cleanup_policy(delegate).as_str(),
+                "per_turn" | "delete_always" | "delete_on_success"
+            ),
+            "Claude session resume requires retained workspace and session directories"
+        );
+    }
+    crate::claude_code::validate(&delegate.config.claude, &delegate.config.args)?;
+    crate::claude_code::validate_workspace(delegate.config.workspace.mode.as_deref())?;
+    let bridge = delegate
+        .config
+        .savfox_approval_bridge
+        .as_deref()
+        .unwrap_or("required");
+    anyhow::ensure!(
+        matches!(bridge, "required" | "prompt"),
+        "claude_stream cannot disable the approval bridge"
+    );
+    if bridge == "required" {
+        anyhow::ensure!(
+            channel.claude_runtime.can_approve(&execution).await,
+            "required Claude approval bridge has no authorized client"
+        );
+    }
+    execution.agent_id = delegate.agent_id.clone();
+    execution.session_id = context.session_id.clone();
+    let input_digest = crate::claude_code::digest(&serde_json::to_vec(
+        &serde_json::json!({"prompt": prompt, "attachments": attachments, "config": delegate.config, "system": delegate.system_prompt}),
+    )?);
+    let (run_id, mut cancel, existing) = channel
+        .claude_runtime
+        .begin(execution.clone(), input_digest)
+        .await?;
+    let replayed = existing.is_some();
+    let mut workspace_events = Vec::new();
+    let mut metadata = TerminalSessionMetadataState::new("starting");
+    let mut session_guard = None;
+    let task = async {
+        let mut output = if let Some(mut existing) = existing {
+            loop {
+                if let Some(output) = existing.borrow().clone() {
+                    break output;
+                }
+                existing
+                    .changed()
+                    .await
+                    .context("Claude execution owner unavailable")?;
+            }
+        } else {
+            // Register before taking the session lock: queued requests can stop.
+            session_guard = Some(Arc::new(tokio::select! {
+                _ = cancel.changed() => anyhow::bail!("Claude execution cancelled while queued"),
+                guard = crate::codex_app_server::session_lock(&context.metadata_path) => guard,
+            }));
+            anyhow::ensure!(!*cancel.borrow(), "Claude execution cancelled while queued");
+            let persisted = persist_terminal_attachments(&context.log_dir, attachments).await?;
+            let history = load_terminal_context_history(
+                channel.config(),
+                &context.session_id,
+                TERMINAL_HISTORY_LIMIT,
+            )
+            .await;
+            let initial_values =
+                build_prompt_values(delegate, prompt, model, context, &history, &persisted);
+            let mut workspace = TerminalWorkspaceManager::prepare(TerminalWorkspaceRequest {
+                mode: configured_workspace_mode(delegate).to_owned(),
+                base_cwd: resolve_rendered_cwd(
+                    channel.config(),
+                    delegate
+                        .config
+                        .workspace
+                        .base
+                        .as_deref()
+                        .or(delegate.config.cwd.as_deref()),
+                    &initial_values,
+                ),
+                requested_cwd: resolve_rendered_cwd(
+                    channel.config(),
+                    delegate.config.cwd.as_deref(),
+                    &initial_values,
+                ),
+                session_workspace_dir: context.workspace_dir.clone(),
+                log_dir: context.log_dir.clone(),
+                session_id: context.session_id.clone(),
+                cleanup_policy: configured_workspace_cleanup_policy(delegate),
+            })
+            .await?;
+            let mut values = build_prompt_values_with_workspace(
+                delegate,
+                prompt,
+                model,
+                context,
+                &workspace.workspace_path,
+                &history,
+                &persisted,
+            );
+            if !delegate.config.include_system_prompt {
+                values.system_prompt.clear();
+            }
+            let command = TerminalCommandResolver::new(channel.config().cwd.clone()).resolve(
+                TerminalCommandTemplate {
+                    command: delegate
+                        .config
+                        .command
+                        .clone()
+                        .context("missing Claude command")?,
+                    args: Vec::new(),
+                    stdin: None,
+                    cwd: delegate.config.cwd.clone(),
+                    env: delegate.config.env.clone(),
+                    timeout_secs: delegate.config.timeout_secs,
+                    default_args_to_prompt: false,
+                    default_timeout_secs: DEFAULT_TIMEOUT_SECS,
+                    min_timeout_secs: MIN_TIMEOUT_SECS,
+                    max_output_bytes: MAX_OUTPUT_BYTES,
+                },
+                &values,
+            )?;
+            let mut spec = command.spec;
+            spec.cwd = workspace.command_cwd.clone();
+            metadata.record_workspace(&workspace);
+            metadata.started_at = Some(rollout_timestamp());
+            write_terminal_session_metadata(delegate, context, &metadata).await?;
+            let output = crate::claude_code::run(RunOptions {
+                spec,
+                config: delegate.config.claude.clone(),
+                values,
+                binding_path: context.root_dir.join("claude-session.json"),
+                resume: configured_session_scope(delegate) == "per_session",
+                bridge: bridge.to_owned(),
+                sink,
+                runtime: channel.claude_runtime.clone(),
+                execution: execution.clone(),
+                run_id: run_id.clone(),
+                cancel: cancel.clone(),
+            })
+            .await;
+            // Retain workspace on uncertain cleanup. Successful runs may finalize
+            // patch-only output; no deletion follows protocol/cancel errors.
+            if output.supervised.exit_reason.is_success() {
+                workspace_events = TerminalWorkspaceManager::finalize(&mut workspace, true)
+                    .await
+                    .events;
+            }
+            metadata.record_workspace(&workspace);
+            output
+        };
+        metadata.pid = output.supervised.pid;
+        metadata.exit_code = output.supervised.exit_code;
+        metadata.completed_at = Some(rollout_timestamp());
+        metadata.status = if *cancel.borrow() {
+            "cancelled"
+        } else {
+            output.supervised.exit_reason.metadata_status()
+        }
+        .to_owned();
+        metadata.error = output.supervised.error.clone();
+        if !replayed {
+            write_terminal_session_metadata(delegate, context, &metadata).await?;
+            append_terminal_log(&context.log_dir, "stdout.log", &output.supervised.stdout).await;
+            append_terminal_log(&context.log_dir, "stderr.log", &output.supervised.stderr).await;
+        }
+        if !output.supervised.exit_reason.is_success() {
+            anyhow::bail!(
+                "{} (run_id: {})",
+                output
+                    .supervised
+                    .error
+                    .as_deref()
+                    .unwrap_or("Claude execution failed"),
+                run_id
+            );
+        }
+        Ok(TerminalRunResult {
+            reply: output.supervised.stdout.clone(),
+            stdout: std::mem::take(&mut output.supervised.stdout),
+            stderr: output.supervised.stderr,
+            stdout_truncated: output.supervised.stdout_truncated,
+            stderr_truncated: output.supervised.stderr_truncated,
+            pid: output.supervised.pid,
+            exit_code: output.supervised.exit_code,
+            metadata_state: metadata.clone(),
+            events: {
+                workspace_events.push(TerminalAgentEvent::Completed {
+                    exit_code: output.supervised.exit_code,
+                });
+                workspace_events
+            },
+            attachments: if replayed {
+                Vec::new()
+            } else {
+                persist_terminal_attachments(&context.log_dir, attachments).await?
+            },
+            usage: output.usage,
+            vendor_usage: output.vendor_usage,
+            run_id: Some(run_id.clone()),
+            replayed,
+            _session_guard: session_guard.clone(),
+        })
+    }
+    .await;
+    if let Err(error) = &task {
+        // Includes cancellation while queued and workspace/setup failures.
+        // finish is idempotent for an already published adapter result.
+        channel
+            .claude_runtime
+            .finish_setup_error(&execution, &run_id, error.to_string())
+            .await;
+    }
+    task
+}
+
 async fn run_command(
     config: &Config,
     delegate: &ResolvedTerminalDelegate,
@@ -1049,6 +1338,36 @@ async fn run_command(
     attachments: &[ChatAttachment],
     stream_sink: Option<TerminalEventSink>,
 ) -> anyhow::Result<TerminalRunResult> {
+    let app_server = configured_mode(delegate) == "app_server";
+    if app_server && configured_profile(delegate) != "codex" {
+        anyhow::bail!("app_server mode requires the codex runtime");
+    }
+    if app_server {
+        if !delegate.config.args.is_empty()
+            && !delegate.config.args.iter().any(|arg| arg == "app-server")
+        {
+            anyhow::bail!(
+                "app_server mode requires app-server arguments; replace legacy exec arguments"
+            );
+        }
+        if delegate.config.stdin.is_some() {
+            anyhow::bail!("app_server mode owns stdin; remove the stdin template");
+        }
+    }
+    let _app_server_guard = if app_server {
+        Some(crate::codex_app_server::session_lock(&terminal_context.metadata_path).await)
+    } else {
+        None
+    };
+    let managed = configured_mode(delegate) == "managed_pty";
+    if managed
+        && (configured_session_scope(delegate) == "per_turn"
+            || configured_cleanup_policy(delegate) == "per_turn")
+    {
+        anyhow::bail!(
+            "managed_pty requires per_session or manual retention; per_turn cleanup would remove a live process workspace"
+        );
+    }
     let persisted_attachments =
         persist_terminal_attachments(&terminal_context.log_dir, attachments).await?;
     let history =
@@ -1081,7 +1400,11 @@ async fn run_command(
         session_workspace_dir: terminal_context.workspace_dir.clone(),
         log_dir: terminal_context.log_dir.clone(),
         session_id: terminal_context.session_id.clone(),
-        cleanup_policy: configured_workspace_cleanup_policy(delegate),
+        cleanup_policy: if managed {
+            "manual".to_owned()
+        } else {
+            configured_workspace_cleanup_policy(delegate)
+        },
     })
     .await?;
     let values = build_prompt_values_with_workspace(
@@ -1108,7 +1431,7 @@ async fn run_command(
             cwd: delegate.config.cwd.clone(),
             env: delegate.config.env.clone(),
             timeout_secs: delegate.config.timeout_secs,
-            default_args_to_prompt: true,
+            default_args_to_prompt: !app_server,
             default_timeout_secs: DEFAULT_TIMEOUT_SECS,
             min_timeout_secs: MIN_TIMEOUT_SECS,
             max_output_bytes: MAX_OUTPUT_BYTES,
@@ -1116,6 +1439,13 @@ async fn run_command(
         &values,
     )?;
     resolved_command.spec.cwd = workspace_state.command_cwd.clone();
+    if app_server && resolved_command.spec.args.is_empty() {
+        resolved_command.spec.args = vec![
+            "app-server".to_owned(),
+            "--listen".to_owned(),
+            "stdio://".to_owned(),
+        ];
+    }
     let mut metadata_state = TerminalSessionMetadataState::new("starting");
     metadata_state.command = Some(resolved_command.command_display.clone());
     metadata_state.started_at = Some(rollout_timestamp());
@@ -1131,7 +1461,7 @@ async fn run_command(
     let mut running_state = metadata_state.clone();
     running_state.status = "running".to_owned();
     let supervisor_started = Instant::now();
-    let output_callback = stream_sink.map(|sink| {
+    let output_callback = stream_sink.clone().map(|sink| {
         Arc::new(move |stream: &'static str, text: String| {
             sink(TerminalAgentEvent::OutputDelta {
                 stream: stream.to_owned(),
@@ -1139,28 +1469,49 @@ async fn run_command(
             });
         }) as TerminalOutputCallback
     });
-    let supervised = TerminalSupervisor::run_with_spawn_and_output_callback(
-        resolved_command.spec,
-        move |pid| {
-            let delegate_for_spawn = delegate_for_spawn.clone();
-            let context_for_spawn = context_for_spawn.clone();
-            let mut running_state = running_state;
-            running_state.pid = pid;
-            async move {
-                if let Err(err) = write_terminal_session_metadata(
-                    &delegate_for_spawn,
-                    &context_for_spawn,
-                    &running_state,
-                )
-                .await
-                {
-                    warn!("failed to write terminal delegate metadata: {err}");
+    let supervised = if app_server {
+        crate::codex_app_server::run(
+            resolved_command.spec,
+            &terminal_context.root_dir.join("codex-thread-id"),
+            &values,
+            configured_session_scope(delegate) != "per_turn",
+            stream_sink,
+        )
+        .await
+    } else if managed {
+        run_managed_command(
+            delegate,
+            terminal_context,
+            &values,
+            &resolved_command.spec,
+            &mut running_state,
+            stream_sink,
+        )
+        .await
+    } else {
+        TerminalSupervisor::run_with_spawn_and_output_callback(
+            resolved_command.spec,
+            move |pid| {
+                let delegate_for_spawn = delegate_for_spawn.clone();
+                let context_for_spawn = context_for_spawn.clone();
+                let mut running_state = running_state;
+                running_state.pid = pid;
+                async move {
+                    if let Err(err) = write_terminal_session_metadata(
+                        &delegate_for_spawn,
+                        &context_for_spawn,
+                        &running_state,
+                    )
+                    .await
+                    {
+                        warn!("failed to write terminal delegate metadata: {err}");
+                    }
                 }
-            }
-        },
-        output_callback,
-    )
-    .await;
+            },
+            output_callback,
+        )
+        .await
+    };
     record_terminal_runtime_metrics(&supervised.exit_reason, supervisor_started.elapsed());
 
     append_terminal_log(&terminal_context.log_dir, "stdout.log", &supervised.stdout).await;
@@ -1187,7 +1538,11 @@ async fn run_command(
     }
 
     let parsed_output = parse_terminal_output(
-        configured_io_protocol(delegate),
+        if app_server {
+            "plain_text"
+        } else {
+            configured_io_protocol(delegate)
+        },
         &supervised.stdout,
         &supervised.stderr,
         supervised.exit_code,
@@ -1214,7 +1569,126 @@ async fn run_command(
         metadata_state,
         events,
         attachments: persisted_attachments,
+        usage: None,
+        vendor_usage: None,
+        run_id: None,
+        replayed: false,
+        _session_guard: None,
     })
+}
+
+async fn run_managed_command(
+    delegate: &ResolvedTerminalDelegate,
+    context: &TerminalSessionContext,
+    values: &TerminalTemplateValues,
+    command: &crate::terminal_agent::TerminalCommandSpec,
+    state: &mut TerminalSessionMetadataState,
+    stream_sink: Option<TerminalEventSink>,
+) -> TerminalSupervisorResult {
+    let key = TerminalPtySessionKey::new(&delegate.agent_id, &context.session_id);
+    let spec = TerminalPtySpawnSpec {
+        program: render_terminal_template(
+            delegate
+                .config
+                .interactive_command
+                .as_deref()
+                .unwrap_or(&command.program),
+            values,
+        ),
+        // One-shot args (e.g. `exec <prompt>` / `-p <prompt>`) must never be
+        // reused as the interactive startup command.
+        args: delegate
+            .config
+            .interactive_args
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .map(|arg| render_terminal_template(arg, values))
+            .collect(),
+        cwd: command.cwd.clone(),
+        env: command.env.clone(),
+        size: TerminalPtySize::default(),
+    };
+    let result = async {
+        let session = terminal_pty_manager()
+            .get_or_spawn(key.clone(), spec)
+            .await?;
+        state.pid = session.metadata().await.pid;
+        write_terminal_session_metadata(delegate, context, state).await?;
+        let text = if let Some(template) = delegate.config.stdin.as_deref() {
+            // Explicit stdin templates are for line-oriented managed programs.
+            format!(
+                "{}\r",
+                render_terminal_template(template, values).trim_end_matches(['\r', '\n'])
+            )
+        } else {
+            // Bracketed paste keeps a multiline context package in one TUI
+            // prompt. Submit only after the end-of-paste sequence.
+            format!(
+                "\u{1b}[200~{}\u{1b}[201~\r",
+                values.full_prompt.replace('\u{1b}', "")
+            )
+        };
+        terminal_pty_manager()
+            .run_turn(
+                &key,
+                TerminalPtyWrite {
+                    kind: TerminalPtyWriteKind::ControlSequence,
+                    text,
+                },
+                command.timeout,
+                |entry| {
+                    if let Some(sink) = &stream_sink {
+                        sink(TerminalAgentEvent::OutputDelta {
+                            stream: entry.stream.clone(),
+                            text: entry.text.clone(),
+                        });
+                    }
+                },
+            )
+            .await
+    }
+    .await;
+    let (stdout, exit_code, exit_reason, error) = match result {
+        Ok((output, metadata)) => {
+            let success = matches!(
+                metadata.completion,
+                TerminalPtyCompletion::Manual | TerminalPtyCompletion::Sentinel
+            ) || (metadata.completion == TerminalPtyCompletion::Exited
+                && metadata.exit_code == Some(0));
+            let reason = if success {
+                TerminalExitReason::Completed
+            } else if metadata.exit_code.is_some() {
+                TerminalExitReason::NonZero
+            } else {
+                TerminalExitReason::IoError
+            };
+            (
+                output,
+                metadata.exit_code,
+                reason,
+                (!success).then(|| format!("managed terminal stopped: {:?}", metadata.completion)),
+            )
+        }
+        Err(error) => {
+            let reason = if error.kind() == std::io::ErrorKind::TimedOut {
+                TerminalExitReason::Timeout
+            } else {
+                TerminalExitReason::IoError
+            };
+            (String::new(), None, reason, Some(error.to_string()))
+        }
+    };
+    TerminalSupervisorResult {
+        stdout,
+        stderr: String::new(),
+        stdout_truncated: false,
+        stderr_truncated: false,
+        pid: state.pid,
+        exit_code,
+        exit_reason,
+        error,
+    }
 }
 
 fn terminal_supervisor_error_message(
@@ -1349,9 +1823,35 @@ impl GatewayChannel {
     pub(crate) async fn resolve_terminal_delegate(
         &self,
         agent_ref: &str,
-    ) -> Option<ResolvedTerminalDelegate> {
-        let (file_stem, config) = resolve_agent_config(self.config(), agent_ref).await?;
-        terminal_delegate_from_agent_config(file_stem, config)
+    ) -> anyhow::Result<Option<ResolvedTerminalDelegate>> {
+        let Some((file_stem, config)) = resolve_agent_config(self.config(), agent_ref).await else {
+            return Ok(None);
+        };
+        if config["kind"] == "terminal" && config["terminal"]["enabled"] == true {
+            let parsed: AgentTerminalDelegateConfig =
+                serde_json::from_value(config["terminal"].clone())
+                    .context("invalid terminal configuration; refusing another runtime")?;
+            anyhow::ensure!(
+                parsed
+                    .command
+                    .as_deref()
+                    .is_some_and(|command| !command.trim().is_empty()),
+                "enabled terminal agent has no command"
+            );
+            anyhow::ensure!(
+                parsed.mode.as_deref().is_none_or(|mode| matches!(
+                    mode,
+                    "one_shot"
+                        | "app_server"
+                        | "managed_pty"
+                        | "interactive_launch"
+                        | "jsonl_adapter"
+                        | "claude_stream"
+                )),
+                "unsupported terminal mode"
+            );
+        }
+        Ok(terminal_delegate_from_agent_config(file_stem, config))
     }
 
     pub(crate) async fn invoke_terminal_delegate_agent(
@@ -1363,40 +1863,78 @@ impl GatewayChannel {
         attachments: &[ChatAttachment],
         stream_sink: Option<TerminalEventSink>,
     ) -> anyhow::Result<Option<TerminalDelegateInvocation>> {
-        let Some(delegate) = self.resolve_terminal_delegate(agent_ref).await else {
+        self.invoke_terminal_delegate_with_execution(
+            prompt,
+            agent_ref,
+            model,
+            session_id,
+            attachments,
+            stream_sink,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn invoke_terminal_delegate_with_execution(
+        &self,
+        prompt: &str,
+        agent_ref: &str,
+        model: &str,
+        session_id: Option<&str>,
+        attachments: &[ChatAttachment],
+        stream_sink: Option<TerminalEventSink>,
+        execution: Option<crate::claude_code::Execution>,
+    ) -> anyhow::Result<Option<TerminalDelegateInvocation>> {
+        let Some(delegate) = self.resolve_terminal_delegate(agent_ref).await? else {
             return Ok(None);
         };
 
         let session_id = normalize_terminal_session_id(session_id)?;
+        if delegate.is_claude_stream() {
+            let execution = execution
+                .as_ref()
+                .context("claude_stream requires an authenticated execution context")?;
+            self.claude_runtime
+                .authorize_session(Some(&execution.owner), &session_id)
+                .await?;
+        }
         let terminal_context =
             build_terminal_session_context(self.config(), &delegate, &session_id).await?;
-        let run = run_command(
-            self.config(),
-            &delegate,
-            &terminal_context,
-            prompt,
-            model,
-            attachments,
-            stream_sink,
-        )
-        .await?;
+        let run = if configured_mode(&delegate) == "claude_stream" {
+            run_claude_command(self, &delegate, &terminal_context, prompt, model, attachments, stream_sink, execution.context("claude_stream requires an authenticated WebSocket execution context; Channel approval delivery is not configured")?).await?
+        } else {
+            run_command(
+                self.config(),
+                &delegate,
+                &terminal_context,
+                prompt,
+                model,
+                attachments,
+                stream_sink,
+            )
+            .await?
+        };
         let model = format!("terminal/{}", delegate.agent_id);
         let provider = "terminal".to_owned();
-        let rollout_path = match persist_terminal_delegate_rollout(
-            self.config(),
-            prompt,
-            &run.reply,
-            &session_id,
-            &model,
-            &provider,
-            &run.attachments,
-        )
-        .await
-        {
-            Ok(path) => Some(path),
-            Err(err) => {
-                warn!("failed to persist terminal delegate rollout: {err}");
-                None
+        let rollout_path = if run.replayed {
+            None
+        } else {
+            match persist_terminal_delegate_rollout(
+                self.config(),
+                prompt,
+                &run.reply,
+                &session_id,
+                &model,
+                &provider,
+                &run.attachments,
+            )
+            .await
+            {
+                Ok(path) => Some(path),
+                Err(err) => {
+                    warn!("failed to persist terminal delegate rollout: {err}");
+                    None
+                }
             }
         };
         if let Some(path) = rollout_path.as_deref() {
@@ -1413,7 +1951,7 @@ impl GatewayChannel {
             session_id: session_id.clone(),
             thread_id: session_id,
             rollout_path,
-            last_token_usage: None,
+            last_token_usage: run.usage,
         };
         let terminal = TerminalInvocationMetadata {
             agent_id: delegate.agent_id.clone(),
@@ -1432,6 +1970,10 @@ impl GatewayChannel {
             exit_code: run.exit_code,
             events: run.events,
             attachments: run.attachments,
+            vendor_usage: run.vendor_usage,
+            run_id: run.run_id,
+            replayed: run.replayed,
+            _session_guard: run._session_guard,
         };
 
         Ok(Some(TerminalDelegateInvocation {
@@ -1446,22 +1988,26 @@ impl GatewayChannel {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use savfox_core::config::ConfigBuilder;
     use savfox_gateway_shared::ChatAttachment;
     use savfox_protocol::protocol::{AgentMessageEvent, EventMsg, RolloutItem};
     use serde_json::json;
+    use uuid::Uuid;
 
     use super::{
-        ResolvedTerminalDelegate, TerminalSessionMetadataState, build_terminal_session_context,
-        configured_mode, configured_profile, persist_terminal_delegate_rollout,
-        resolve_agent_config, run_command, terminal_delegate_from_agent_config,
-        validate_terminal_session_id, write_rollout_line, write_terminal_session_metadata,
+        ResolvedTerminalDelegate, TerminalEventSink, TerminalSessionMetadataState,
+        build_terminal_session_context, configured_mode, configured_profile,
+        persist_terminal_delegate_rollout, resolve_agent_config, run_command,
+        terminal_delegate_from_agent_config, validate_terminal_session_id, write_rollout_line,
+        write_terminal_session_metadata,
     };
     use crate::agent_terminal_delegate::{
         AgentTerminalDelegateConfig, render_template, rendered_args,
     };
-    use crate::terminal_agent::TerminalTemplateValues;
+    use crate::terminal_agent::{TerminalAgentEvent, TerminalTemplateValues};
+    use crate::terminal_pty::{TerminalPtySessionKey, terminal_pty_manager};
 
     #[cfg(windows)]
     fn fake_terminal_echo_command() -> (String, Vec<String>, Option<String>) {
@@ -1587,6 +2133,9 @@ mod tests {
                 interactive_command: None,
                 interactive_args: None,
                 workspace: Default::default(),
+                savfox_approval_bridge: None,
+                terminal_execution: None,
+                claude: Default::default(),
             },
             agent_id: "cli".to_owned(),
             agent_name: "CLI".to_owned(),
@@ -1641,6 +2190,9 @@ mod tests {
                 interactive_command: None,
                 interactive_args: None,
                 workspace: Default::default(),
+                savfox_approval_bridge: None,
+                terminal_execution: None,
+                claude: Default::default(),
             },
             agent_id: "Claude:Worker".to_owned(),
             agent_name: "Claude Worker".to_owned(),
@@ -1710,6 +2262,9 @@ mod tests {
                 interactive_command: None,
                 interactive_args: None,
                 workspace: Default::default(),
+                savfox_approval_bridge: None,
+                terminal_execution: None,
+                claude: Default::default(),
             },
             agent_id: "worker".to_owned(),
             agent_name: "Worker".to_owned(),
@@ -1769,6 +2324,9 @@ mod tests {
                 interactive_command: None,
                 interactive_args: None,
                 workspace: Default::default(),
+                savfox_approval_bridge: None,
+                terminal_execution: None,
+                claude: Default::default(),
             },
             agent_id: "worker".to_owned(),
             agent_name: "Worker".to_owned(),
@@ -2039,6 +2597,87 @@ mod tests {
             metadata["rollout_path"].as_str(),
             Some(rollout_path.as_ref())
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn managed_pty_chat_reuses_native_process_and_streams_before_completion() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let mut config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .expect("config");
+        config.cwd = home.path().to_path_buf();
+        let (program, args) = if cfg!(windows) {
+            (
+                "powershell.exe",
+                vec![
+                    "-NoProfile",
+                    "-Command",
+                    r#"
+while (($line = [Console]::ReadLine()) -ne $null) {
+  [Console]::WriteLine("turn:$line")
+  Start-Sleep -Milliseconds 100
+  [Console]::WriteLine('::savfox-complete')
+}
+"#,
+                ],
+            )
+        } else {
+            (
+                "sh",
+                vec![
+                    "-c",
+                    "while IFS= read -r line; do printf 'turn:%s\n' \"$line\"; sleep 0.1; printf '::savfox-complete\n'; done",
+                ],
+            )
+        };
+        let delegate = terminal_delegate_from_agent_config(
+            "managed-test".to_owned(),
+            json!({
+                "id":"managed-test", "kind":"terminal", "terminal": {
+                    "enabled":true, "mode":"managed_pty", "command":"must-not-run-one-shot",
+                    "interactive_command":program, "interactive_args":args,
+                    "stdin":"{{user_prompt}}", "io_protocol":"sentinel", "timeout_secs":10
+                }
+            }),
+        )
+        .expect("delegate");
+        let session_id = Uuid::now_v7().to_string();
+        let context = build_terminal_session_context(&config, &delegate, &session_id)
+            .await
+            .expect("context");
+        let chunks = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink_chunks = Arc::clone(&chunks);
+        let sink: TerminalEventSink = Arc::new(move |event| {
+            sink_chunks.lock().expect("chunks").push(event);
+        });
+        let first = run_command(
+            &config,
+            &delegate,
+            &context,
+            "first",
+            "default",
+            &[],
+            Some(sink),
+        )
+        .await
+        .expect("first managed turn");
+        let second = run_command(&config, &delegate, &context, "second", "default", &[], None)
+            .await
+            .expect("second managed turn");
+        assert!(first.reply.contains("turn:first"), "{:?}", first.reply);
+        assert!(second.reply.contains("turn:second"), "{:?}", second.reply);
+        assert_eq!(first.pid, second.pid);
+        assert!(first.pid.is_some());
+        assert!(chunks.lock().expect("chunks").iter().any(|event| matches!(event, TerminalAgentEvent::OutputDelta { text, .. } if text.contains("turn:first"))));
+        terminal_pty_manager()
+            .close(
+                &TerminalPtySessionKey::new("managed-test", session_id),
+                crate::terminal_pty::TerminalPtyCloseReason::ExplicitClose,
+            )
+            .await
+            .expect("close");
     }
 
     #[tokio::test]

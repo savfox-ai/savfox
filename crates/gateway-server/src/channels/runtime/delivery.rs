@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 use crate::channel::GatewayChannel;
 use crate::response_chunker::chunk_message_for_channel;
+use crate::security::approval_coordinator::ApprovalNotification;
 use crate::send_policy::{SendMetrics, SendPolicyConfig, ThreadingPolicy};
 
 const DEDUPE_TTL_MS: u64 = 10 * 60 * 1000;
@@ -162,7 +163,9 @@ async fn write_dead_letter(
     error: &str,
     thread_id: Option<&str>,
     reply_target: Option<&str>,
+    saved_channel_config_id: Option<&str>,
     attempts: usize,
+    delivery_operation_id: &str,
 ) {
     let dir = policy_cfg.dead_letter_path(&gateway_channel.config().savfox_home);
     if tokio::fs::create_dir_all(&dir).await.is_err() {
@@ -178,13 +181,94 @@ async fn write_dead_letter(
         "channel": channel_id,
         "thread_id": thread_id,
         "reply_target": reply_target,
+        "saved_channel_config_id": saved_channel_config_id,
         "attempts": attempts,
+        "operation_id": delivery_operation_id,
         "error": error,
         "text": text,
     });
     if let Ok(serialized) = serde_json::to_vec_pretty(&payload) {
         let _ = tokio::fs::write(dir.join(file_name), serialized).await;
     }
+}
+
+pub(super) async fn send_approval_with_retry(
+    gateway_channel: &GatewayChannel,
+    channel_id: &str,
+    notification: &ApprovalNotification,
+    attempt_override: Option<usize>,
+    thread_id: Option<&str>,
+    reply_target: Option<&str>,
+    saved_channel_config_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let policy_cfg = SendPolicyConfig::load(&gateway_channel.config().savfox_home).await;
+    let policy = policy_cfg.resolve(channel_id);
+    let max_attempts = attempt_override.unwrap_or(policy.retry_count).max(1);
+    let timeout = Duration::from_millis(policy.timeout_ms.max(1));
+    let base_backoff = policy.backoff_ms.max(1);
+    for attempt in 1..=max_attempts {
+        let started = Instant::now();
+        match tokio::time::timeout(
+            timeout,
+            gateway_channel.send_approval_message_with_context(
+                channel_id,
+                notification,
+                thread_id,
+                reply_target,
+                saved_channel_config_id,
+            ),
+        )
+        .await
+        {
+            Ok(Ok(())) => {
+                record_send_metrics(channel_id, true, started.elapsed().as_millis() as u64).await;
+                return Ok(());
+            }
+            Ok(Err(error)) if attempt >= max_attempts => {
+                record_send_metrics(channel_id, false, started.elapsed().as_millis() as u64).await;
+                write_dead_letter(
+                    gateway_channel,
+                    &policy_cfg,
+                    channel_id,
+                    &notification.text,
+                    &error.to_string(),
+                    thread_id,
+                    reply_target,
+                    saved_channel_config_id,
+                    attempt,
+                    &notification.request_id,
+                )
+                .await;
+                return Err(error);
+            }
+            Err(_) if attempt >= max_attempts => {
+                record_send_metrics(channel_id, false, started.elapsed().as_millis() as u64).await;
+                let error = anyhow::anyhow!("approval send timeout after {}ms", policy.timeout_ms);
+                write_dead_letter(
+                    gateway_channel,
+                    &policy_cfg,
+                    channel_id,
+                    &notification.text,
+                    &error.to_string(),
+                    thread_id,
+                    reply_target,
+                    saved_channel_config_id,
+                    attempt,
+                    &notification.request_id,
+                )
+                .await;
+                return Err(error);
+            }
+            Ok(Err(_)) | Err(_) => {
+                record_send_metrics(channel_id, false, started.elapsed().as_millis() as u64).await;
+                tokio::time::sleep(Duration::from_millis(
+                    base_backoff.saturating_mul(attempt as u64),
+                ))
+                .await;
+            }
+        }
+    }
+    Err(anyhow::anyhow!("approval send exhausted without result"))
 }
 
 pub(super) async fn send_with_retry(
@@ -194,6 +278,7 @@ pub(super) async fn send_with_retry(
     attempt_override: Option<usize>,
     thread_id: Option<&str>,
     reply_target: Option<&str>,
+    saved_channel_config_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let policy_cfg = SendPolicyConfig::load(&gateway_channel.config().savfox_home).await;
     let policy = policy_cfg.resolve(channel_id);
@@ -240,6 +325,9 @@ pub(super) async fn send_with_retry(
             None
         };
 
+        // This identifies the delivery, not its content. The Arkret Applet freezes
+        // it durably before its first HTTP request and retains it across retries.
+        let delivery_operation_id = uuid::Uuid::now_v7().to_string();
         for attempt in 1..=max_attempts {
             let started = Instant::now();
             let send_result = tokio::time::timeout(
@@ -252,6 +340,8 @@ pub(super) async fn send_with_retry(
                     None,
                     scoped_thread_id,
                     scoped_reply_target,
+                    saved_channel_config_id,
+                    Some(&delivery_operation_id),
                 ),
             )
             .await;
@@ -289,7 +379,9 @@ pub(super) async fn send_with_retry(
                             &chunk_error,
                             scoped_thread_id,
                             scoped_reply_target,
+                            saved_channel_config_id,
                             attempt,
+                            &delivery_operation_id,
                         )
                         .await;
                         return Err(err);
@@ -317,7 +409,9 @@ pub(super) async fn send_with_retry(
                             &chunk_error,
                             scoped_thread_id,
                             scoped_reply_target,
+                            saved_channel_config_id,
                             attempt,
+                            &delivery_operation_id,
                         )
                         .await;
                         return Err(err);

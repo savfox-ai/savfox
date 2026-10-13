@@ -5,9 +5,9 @@ expression: sanitized
 /status
 
 ╭───────────────────────────────────────────────────────────────────────────╮
-│  >_ Savfox  (v0.3.0)                                                      │
+│  >_ Savfox  (v0.3.1)                                                      │
 │                                                                           │
-│ Visit https://savfox.ai/savfox/settings/usage for up-to-date             │
+│ Visit https://savfox.ai/savfox/settings/usage for up-to-date              │
 │ information on rate limits and credits                                    │
 │                                                                           │
 │  Model:            gpt-5.1-codex-max (reasoning high, summaries detailed) │

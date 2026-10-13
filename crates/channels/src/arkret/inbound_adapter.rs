@@ -7,46 +7,75 @@
 //! This module owns the host-dispatch boundary: given an SDK Event or a
 //! Notification projection, decide whether Savfox should dispatch and how.
 
-use arkret::{DecodedInbound, InboundDecoder};
+use arkret::EventPayloadExt as _;
+use garth::{DecodedInbound, InboundDecoder};
 use serde_json::Value;
 
 use super::config::ArkretAccountConfig;
 use super::crypto_state::{
+    extract_encrypted_metadata_payload_from_message_content,
     extract_encrypted_payload_from_message_content, message_content_has_encrypted_carrier,
 };
+use super::sidecar::SidecarExchangeContext;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArkretInboundEvent {
     pub account_id: String,
     pub event_id: String,
     pub realm_id: String,
+    pub scope_ref: arkret::ScopeRef,
+    /// Host-facing conversation type derived from the containing Realm sync
+    /// projection. Event envelopes do not carry the Realm role themselves.
+    pub chat_type: Option<String>,
+    /// Joined participant count from the containing Realm sync projection.
+    pub participant_count: Option<u32>,
     pub strand_id: Option<String>,
     pub sender_did: String,
+    pub sender_actor_id: Option<arkret::ActorId>,
     pub body: String,
     pub thread_root_id: Option<String>,
-    /// Actor DIDs carried by structured `content.mentions` nodes.
-    ///
-    /// The gateway keeps this data through the host-dispatch boundary so a
-    /// personal-agent runtime can explain whether the event explicitly
-    /// addressed its Arkret principal instead of routing on body text alone.
-    pub mentioned_actor_ids: Vec<String>,
+    /// Complete accounts addressed by validated SDK mention nodes. Both the
+    /// principal and Station components participate in trigger matching.
+    pub mentioned_account_ids: Vec<arkret::AccountId>,
+    /// Verified Agent Sidecar exchange identity (`zh/models/sidecar.md`
+    /// §7.2.1–§7.2.2), present only when this event carried a valid
+    /// `role=request` binding addressed to this runtime's principal and the
+    /// exchange passed the durable idempotency gate. `None` means the event is
+    /// an ordinary (non-exchange) message.
+    pub sidecar_exchange: Option<SidecarExchangeContext>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ArkretInboundParseResult {
     pub events: Vec<ArkretInboundEvent>,
     pub skipped: Vec<ArkretInboundSkippedEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ArkretInboundSkippedEvent {
     pub account_id: String,
     pub event_id: Option<String>,
     pub realm_id: Option<String>,
+    pub chat_type: Option<String>,
+    pub participant_count: Option<u32>,
     pub sender_did: Option<String>,
+    /// Full Event-author identity retained for authority-sensitive consumers.
+    /// `sender_did` is presentation/routing data and must never substitute for
+    /// this Account-vs-Service plus Station-qualified identity.
+    pub sender_actor_id: Option<arkret::ActorId>,
     pub strand_id: Option<String>,
     pub reply_to: Option<String>,
     pub encrypted_payload: Option<arkret::EncryptedPayload>,
+    /// Parallel `encrypted_metadata` carrier (same envelope shape as
+    /// `encrypted_content`); its plaintext may hold the Sidecar exchange
+    /// binding (`message_metadata.sidecar_exchange_binding`).
+    pub encrypted_metadata_payload: Option<arkret::EncryptedPayload>,
+    /// Filled only by the host's verified Commit delivery path. Raw backfill
+    /// Events cannot authorize private exchange execution or control folding.
+    pub accepted_ref: Option<arkret::CommittedEventRef>,
+    pub accepted_view: Option<arkret::CommittedEventFullView>,
+    pub source_track_name: Option<String>,
+    pub causal_after_event_ids: Vec<arkret::EventId>,
     pub reason: ArkretInboundSkipReason,
 }
 
@@ -56,16 +85,26 @@ pub enum ArkretInboundSkipReason {
     MissingRequiredField(&'static str),
     EncryptedContent,
     UnsupportedContentKind(String),
-    UnsupportedNotificationType(String),
+    UnsupportedNotificationKind(String),
     LoopbackFromAccount,
     ContentReadNotGranted,
     EmptyBody,
+    /// A valid Sidecar `role=request` binding whose `addressed_agent_ids`
+    /// does not contain this account's principal: the request is treated as
+    /// nonexistent — no execution, no error (`zh/models/sidecar.md` §7.2.2).
+    SidecarNotAddressed,
+    /// `ak.agent.sidecar.exchange.control` delivered on a private Strand this
+    /// runtime is an MLS member of. It is never dispatched to the agent, but
+    /// it is the only source of terminal exchange state (§7.2.3), so the
+    /// gateway decrypts and folds it instead of discarding it as a non-message
+    /// kind.
+    SidecarExchangeControl,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ArkretInboundEventOutcome {
-    Dispatchable(ArkretInboundEvent),
-    Skip(ArkretInboundSkippedEvent),
+    Dispatchable(Box<ArkretInboundEvent>),
+    Skip(Box<ArkretInboundSkippedEvent>),
 }
 
 /// Extract a `ak.message.create` Event payload into a savfox inbound command.
@@ -75,7 +114,7 @@ pub enum ArkretInboundEventOutcome {
 #[must_use]
 pub fn extract_message_event(event: &Value, account_id: &str) -> Option<ArkretInboundEvent> {
     match classify_message_event(event, account_id) {
-        ArkretInboundEventOutcome::Dispatchable(event) => Some(event),
+        ArkretInboundEventOutcome::Dispatchable(event) => Some(*event),
         ArkretInboundEventOutcome::Skip(_) => None,
     }
 }
@@ -83,9 +122,8 @@ pub fn extract_message_event(event: &Value, account_id: &str) -> Option<ArkretIn
 /// Classify one Arkret event for the account-mode inbound path.
 ///
 /// Encrypted payload carriers are detected explicitly and reported as
-/// [`ArkretInboundSkipReason::EncryptedContent`]. Savfox does not yet keep the
-/// Arkret MLS/session state required to decrypt these payloads, so callers must
-/// fail closed instead of treating them as generic unsupported content.
+/// [`ArkretInboundSkipReason::EncryptedContent`]. The gateway must decrypt them
+/// with its authenticated MLS state before extracting content triggers.
 #[must_use]
 pub fn classify_message_event(event: &Value, account_id: &str) -> ArkretInboundEventOutcome {
     let Ok(event_envelope) = sdk_event_from_value(event) else {
@@ -106,11 +144,16 @@ pub fn classify_message_event(event: &Value, account_id: &str) -> ArkretInboundE
                 ArkretInboundSkipReason::KindNotMessageCreate,
             ),
         },
-        Ok(DecodedInbound::Event(event_envelope)) => skip_sdk_event(
-            &event_envelope,
-            account_id,
-            ArkretInboundSkipReason::KindNotMessageCreate,
-        ),
+        Ok(DecodedInbound::Event(event_envelope)) => {
+            if event_envelope.kind == arkret::EventKind::AgentSidecarExchangeControl {
+                return classify_sidecar_exchange_control(&event_envelope, account_id);
+            }
+            skip_sdk_event(
+                &event_envelope,
+                account_id,
+                ArkretInboundSkipReason::KindNotMessageCreate,
+            )
+        }
         Err(_) if message_content_has_encrypted_carrier(&event_envelope.payload) => {
             skip_encrypted_sdk_event(&event_envelope, account_id)
         }
@@ -135,6 +178,13 @@ fn classify_sdk_message_create(
     {
         return skip_encrypted_sdk_event(event, account_id);
     }
+    if matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. }) {
+        return skip_sdk_event(
+            event,
+            account_id,
+            ArkretInboundSkipReason::MissingRequiredField("encrypted_content"),
+        );
+    }
     let Some(content) = payload.content.as_ref() else {
         return skip_sdk_event(
             event,
@@ -143,9 +193,6 @@ fn classify_sdk_message_create(
         );
     };
     let content_kind = content.kind.as_str();
-    if content_kind == "ak.content.encrypted" {
-        return skip_encrypted_sdk_event(event, account_id);
-    }
     if content_kind != "ak.content.text" {
         return skip_sdk_event(
             event,
@@ -155,42 +202,35 @@ fn classify_sdk_message_create(
     }
     let body = content.body.as_str();
     let strand_id = Some(payload.strand_id.as_str().to_owned());
-    let thread_root_id = payload.reply_to.clone();
-    let mentioned_actor_ids = structured_mention_actor_ids(content);
+    let thread_root_id = payload.reply_to_id.clone();
+    let mentioned_account_ids = structured_mention_account_ids(content);
 
-    ArkretInboundEventOutcome::Dispatchable(ArkretInboundEvent {
+    ArkretInboundEventOutcome::Dispatchable(Box::new(ArkretInboundEvent {
         account_id: account_id.to_owned(),
         event_id: event.event_id.as_str().to_owned(),
         realm_id: event.realm_id.as_str().to_owned(),
+        scope_ref: event.scope_ref.clone(),
+        chat_type: None,
+        participant_count: None,
         strand_id,
-        sender_did: event.actor_id.as_str().to_owned(),
+        sender_did: event.actor_id.signing_principal_id().as_str().to_owned(),
+        sender_actor_id: Some(event.actor_id.clone()),
         body: body.to_owned(),
         thread_root_id,
-        mentioned_actor_ids,
-    })
+        mentioned_account_ids,
+        sidecar_exchange: None,
+    }))
 }
 
-fn structured_mention_actor_ids(content: &arkret::ContentBlock) -> Vec<String> {
-    let mut actor_ids = content
-        .extra
-        .get("mentions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|mention| {
-            mention
-                .get("subject_id")
-                .or_else(|| mention.get("actor_id"))
-                .or_else(|| mention.get("did"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|actor_id| !actor_id.is_empty())
-                .map(str::to_owned)
-        })
-        .collect::<Vec<_>>();
-    actor_ids.sort_unstable();
-    actor_ids.dedup();
-    actor_ids
+#[must_use]
+pub fn structured_mention_account_ids(content: &impl serde::Serialize) -> Vec<arkret::AccountId> {
+    let Ok(value) = serde_json::to_value(content) else {
+        return Vec::new();
+    };
+    let mut accounts = arkret::collect_mention_subject_account_ids(&value).unwrap_or_default();
+    accounts.sort_unstable();
+    accounts.dedup();
+    accounts
 }
 
 fn classify_malformed_event(event: &Value, account_id: &str) -> ArkretInboundEventOutcome {
@@ -248,48 +288,71 @@ fn dispatch_skip_reason(
     None
 }
 
-/// Walk a `Delta` frame body's `realms` object and extract every dispatchable
-/// `ak.message.create` event for the given account.
-///
-/// The shape expected is the v1 account subscribe `delta` shape:
-/// `realms.<realm_id>.timeline.events[] : Event`. Tolerates missing nested
-/// fields by returning an empty list rather than failing.
+/// Read only full, shape-valid accepted Events from a v1 account delta.
 #[must_use]
 pub fn parse_delta_frame_for_account(
     realms_value: &Value,
     account: &ArkretAccountConfig,
 ) -> ArkretInboundParseResult {
+    let mut accepted_events = Vec::new();
+    if let Some(realms) = realms_value.as_object() {
+        for realm_body in realms.values() {
+            let Some(committed) = realm_body.get("committed_events").and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for raw in committed {
+                let Ok(arkret::CommittedEventView::Full(full)) =
+                    serde_json::from_value::<arkret::CommittedEventView>(raw.clone())
+                else {
+                    continue;
+                };
+                if full.validate_shape().is_ok()
+                    && let Ok(value) = serde_json::to_value(&full.event)
+                {
+                    accepted_events.push(value);
+                }
+            }
+        }
+    }
+    parse_event_values_for_account(&accepted_events, account)
+}
+
+/// Classify Events returned by the authenticated account history read.
+#[must_use]
+pub fn parse_event_values_for_account(
+    raw_events: &[Value],
+    account: &ArkretAccountConfig,
+) -> ArkretInboundParseResult {
     let mut events = Vec::new();
     let mut skipped = Vec::new();
-    let Some(realms) = realms_value.as_object() else {
-        return ArkretInboundParseResult { events, skipped };
-    };
-    for (_realm_id, realm_body) in realms {
-        let timeline = realm_body
-            .get("timeline")
-            .and_then(|t| t.get("events"))
-            .and_then(Value::as_array);
-        let Some(timeline) = timeline else { continue };
-        for raw_event in timeline {
-            match classify_message_event(raw_event, &account.id) {
-                ArkretInboundEventOutcome::Dispatchable(parsed) => {
-                    if let Some(reason) = dispatch_skip_reason(&parsed, account) {
-                        skipped.push(ArkretInboundSkippedEvent {
-                            account_id: parsed.account_id.clone(),
-                            event_id: Some(parsed.event_id.clone()),
-                            realm_id: Some(parsed.realm_id.clone()),
-                            sender_did: Some(parsed.sender_did.clone()),
-                            strand_id: parsed.strand_id.clone(),
-                            reply_to: parsed.thread_root_id.clone(),
-                            encrypted_payload: None,
-                            reason,
-                        });
-                    } else {
-                        events.push(parsed);
-                    }
+    for raw_event in raw_events {
+        match classify_message_event(raw_event, &account.id) {
+            ArkretInboundEventOutcome::Dispatchable(parsed) => {
+                if let Some(reason) = dispatch_skip_reason(&parsed, account) {
+                    skipped.push(ArkretInboundSkippedEvent {
+                        account_id: parsed.account_id.clone(),
+                        event_id: Some(parsed.event_id.clone()),
+                        realm_id: Some(parsed.realm_id.clone()),
+                        chat_type: parsed.chat_type.clone(),
+                        participant_count: parsed.participant_count,
+                        sender_did: Some(parsed.sender_did.clone()),
+                        sender_actor_id: None,
+                        strand_id: parsed.strand_id.clone(),
+                        reply_to: parsed.thread_root_id.clone(),
+                        encrypted_payload: None,
+                        encrypted_metadata_payload: None,
+                        accepted_ref: None,
+                        accepted_view: None,
+                        source_track_name: None,
+                        causal_after_event_ids: Vec::new(),
+                        reason,
+                    });
+                } else {
+                    events.push(*parsed);
                 }
-                ArkretInboundEventOutcome::Skip(event) => skipped.push(event),
             }
+            ArkretInboundEventOutcome::Skip(event) => skipped.push(*event),
         }
     }
     ArkretInboundParseResult { events, skipped }
@@ -302,7 +365,7 @@ pub fn parse_delta_frame_for_account(
 /// top level as either `{ "events": [...] }`, `{ "items": [...] }`, or a raw
 /// array. Savfox only dispatches `assignment` and `schedule` notifications here:
 /// message/mention notifications are already represented by visible
-/// `ak.message.create` timeline events, and dispatching both would double-wake
+/// accepted `ak.message.create` events, and dispatching both would double-wake
 /// the agent.
 #[must_use]
 pub fn parse_notification_delta_for_account(
@@ -322,17 +385,25 @@ pub fn parse_notification_delta_for_account(
                         account_id: parsed.account_id.clone(),
                         event_id: Some(parsed.event_id.clone()),
                         realm_id: Some(parsed.realm_id.clone()),
+                        chat_type: parsed.chat_type.clone(),
+                        participant_count: parsed.participant_count,
                         sender_did: Some(parsed.sender_did.clone()),
+                        sender_actor_id: None,
                         strand_id: parsed.strand_id.clone(),
                         reply_to: parsed.thread_root_id.clone(),
                         encrypted_payload: None,
+                        encrypted_metadata_payload: None,
+                        accepted_ref: None,
+                        accepted_view: None,
+                        source_track_name: None,
+                        causal_after_event_ids: Vec::new(),
                         reason,
                     });
                 } else {
-                    events.push(parsed);
+                    events.push(*parsed);
                 }
             }
-            ArkretInboundEventOutcome::Skip(event) => skipped.push(event),
+            ArkretInboundEventOutcome::Skip(event) => skipped.push(*event),
         }
     }
     ArkretInboundParseResult { events, skipped }
@@ -354,18 +425,18 @@ fn classify_notification_event(
     account_id: &str,
     principal_id: &str,
 ) -> ArkretInboundEventOutcome {
-    let Some(notification_type) = notification_kind(notification) else {
+    let Some(notification_kind) = notification_kind(notification) else {
         return skip_notification(
             notification,
             account_id,
-            ArkretInboundSkipReason::MissingRequiredField("notification_type"),
+            ArkretInboundSkipReason::MissingRequiredField("notification_kind"),
         );
     };
-    if !matches!(notification_type, "assignment" | "schedule") {
+    if !matches!(notification_kind, "assignment" | "schedule") {
         return skip_notification(
             notification,
             account_id,
-            ArkretInboundSkipReason::UnsupportedNotificationType(notification_type.to_owned()),
+            ArkretInboundSkipReason::UnsupportedNotificationKind(notification_kind.to_owned()),
         );
     }
     let Some(event_id) = notification_identity(notification) else {
@@ -382,25 +453,36 @@ fn classify_notification_event(
             ArkretInboundSkipReason::MissingRequiredField("realm_id"),
         );
     };
-    let body = notification_body(notification_type, notification);
+    let Ok(typed_realm_id) = arkret::RealmId::new(realm_id.clone()) else {
+        return skip_notification(
+            notification,
+            account_id,
+            ArkretInboundSkipReason::MissingRequiredField("valid realm_id"),
+        );
+    };
+    let body = notification_body(notification_kind, notification);
     let sender_did = notification_sender(notification, principal_id);
-    ArkretInboundEventOutcome::Dispatchable(ArkretInboundEvent {
+    ArkretInboundEventOutcome::Dispatchable(Box::new(ArkretInboundEvent {
         account_id: account_id.to_owned(),
         event_id,
         realm_id,
+        scope_ref: arkret::ScopeRef::Realm {
+            realm_id: typed_realm_id,
+        },
+        chat_type: None,
+        participant_count: None,
         strand_id: notification_strand_id(notification),
         sender_did,
+        sender_actor_id: None,
         body,
         thread_root_id: None,
-        mentioned_actor_ids: Vec::new(),
-    })
+        mentioned_account_ids: Vec::new(),
+        sidecar_exchange: None,
+    }))
 }
 
 fn notification_kind(notification: &Value) -> Option<&str> {
-    notification_string_ref(
-        notification,
-        &["notification_type", "notification_kind", "kind", "type"],
-    )
+    notification_string_ref(notification, &["notification_kind", "kind"])
 }
 
 fn notification_identity(notification: &Value) -> Option<String> {
@@ -427,18 +509,18 @@ fn notification_strand_id(notification: &Value) -> Option<String> {
     })
 }
 
-fn notification_body(notification_type: &str, notification: &Value) -> String {
+fn notification_body(notification_kind: &str, notification: &Value) -> String {
     let mut parts = Vec::new();
     let summary = notification_string(notification, &["body", "preview", "title"])
         .filter(|value| !value.trim().is_empty());
-    match notification_type {
+    match notification_kind {
         "assignment" => {
             parts.push("Arkret assignment notification: you were assigned to a Strand.".to_owned())
         }
         "schedule" => parts.push(
             "Arkret schedule notification: a due date or calendar schedule changed.".to_owned(),
         ),
-        _ => parts.push(format!("Arkret {notification_type} notification.")),
+        _ => parts.push(format!("Arkret {notification_kind} notification.")),
     }
     if let Some(summary) = summary {
         parts.push(format!("Summary: {summary}"));
@@ -479,7 +561,7 @@ fn skip_event(
     account_id: &str,
     reason: ArkretInboundSkipReason,
 ) -> ArkretInboundEventOutcome {
-    ArkretInboundEventOutcome::Skip(ArkretInboundSkippedEvent {
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
         account_id: account_id.to_owned(),
         event_id: event
             .get("event_id")
@@ -489,15 +571,68 @@ fn skip_event(
             .get("realm_id")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        chat_type: None,
+        participant_count: None,
         sender_did: event
             .get("actor_id")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        sender_actor_id: None,
         strand_id: None,
         reply_to: None,
         encrypted_payload: None,
+        encrypted_metadata_payload: None,
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: None,
+        causal_after_event_ids: Vec::new(),
         reason,
-    })
+    }))
+}
+
+/// `ak.agent.sidecar.exchange.control` carries only private-Strand routing and
+/// ciphertext on the wire (§7.2.3). Surface both so the gateway can decrypt and
+/// fold it; the plaintext never reaches the agent pipeline.
+fn classify_sidecar_exchange_control(
+    event: &arkret::Event,
+    account_id: &str,
+) -> ArkretInboundEventOutcome {
+    let payload: Option<arkret::AgentSidecarExchangeControlPayload> =
+        serde_json::to_value(&event.payload)
+            .ok()
+            .and_then(|value| serde_json::from_value(value).ok());
+    let (strand_id, encrypted_payload) = match payload {
+        Some(payload) => (
+            match payload.source_context_ref {
+                arkret_models_collaboration::sidecar_operations::SidecarContextRef::Strand {
+                    strand_id,
+                } => Some(strand_id.as_str().to_owned()),
+                arkret_models_collaboration::sidecar_operations::SidecarContextRef::Relation {
+                    ..
+                } => None,
+            },
+            super::crypto_state::encrypted_payload_for_event(event, &payload.encrypted_payload),
+        ),
+        None => (None, None),
+    };
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
+        account_id: account_id.to_owned(),
+        event_id: Some(event.event_id.as_str().to_owned()),
+        realm_id: Some(event.realm_id.as_str().to_owned()),
+        chat_type: None,
+        participant_count: None,
+        sender_did: Some(event.actor_id.signing_principal_id().as_str().to_owned()),
+        sender_actor_id: Some(event.actor_id.clone()),
+        strand_id,
+        reply_to: None,
+        encrypted_payload,
+        encrypted_metadata_payload: None,
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: None,
+        causal_after_event_ids: Vec::new(),
+        reason: ArkretInboundSkipReason::SidecarExchangeControl,
+    }))
 }
 
 fn skip_sdk_event(
@@ -505,16 +640,24 @@ fn skip_sdk_event(
     account_id: &str,
     reason: ArkretInboundSkipReason,
 ) -> ArkretInboundEventOutcome {
-    ArkretInboundEventOutcome::Skip(ArkretInboundSkippedEvent {
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
         account_id: account_id.to_owned(),
         event_id: Some(event.event_id.as_str().to_owned()),
         realm_id: Some(event.realm_id.as_str().to_owned()),
-        sender_did: Some(event.actor_id.as_str().to_owned()),
+        chat_type: None,
+        participant_count: None,
+        sender_did: Some(event.actor_id.signing_principal_id().as_str().to_owned()),
+        sender_actor_id: Some(event.actor_id.clone()),
         strand_id: None,
         reply_to: None,
         encrypted_payload: None,
+        encrypted_metadata_payload: None,
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: None,
+        causal_after_event_ids: Vec::new(),
         reason,
-    })
+    }))
 }
 
 fn skip_notification(
@@ -522,39 +665,59 @@ fn skip_notification(
     account_id: &str,
     reason: ArkretInboundSkipReason,
 ) -> ArkretInboundEventOutcome {
-    ArkretInboundEventOutcome::Skip(ArkretInboundSkippedEvent {
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
         account_id: account_id.to_owned(),
         event_id: notification_identity(notification),
         realm_id: notification_string(notification, &["realm_id"]),
+        chat_type: None,
+        participant_count: None,
         sender_did: notification_string(
             notification,
             &["source_actor_id", "sender_actor_id", "sender", "actor_id"],
         ),
+        sender_actor_id: None,
         strand_id: notification_strand_id(notification),
         reply_to: None,
         encrypted_payload: None,
+        encrypted_metadata_payload: None,
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: None,
+        causal_after_event_ids: Vec::new(),
         reason,
-    })
+    }))
 }
 
 fn skip_encrypted_sdk_event(event: &arkret::Event, account_id: &str) -> ArkretInboundEventOutcome {
     let message = event.as_message_create().ok();
-    ArkretInboundEventOutcome::Skip(ArkretInboundSkippedEvent {
+    ArkretInboundEventOutcome::Skip(Box::new(ArkretInboundSkippedEvent {
         account_id: account_id.to_owned(),
         event_id: Some(event.event_id.as_str().to_owned()),
         realm_id: Some(event.realm_id.as_str().to_owned()),
-        sender_did: Some(event.actor_id.as_str().to_owned()),
+        chat_type: None,
+        participant_count: None,
+        sender_did: Some(event.actor_id.signing_principal_id().as_str().to_owned()),
+        sender_actor_id: Some(event.actor_id.clone()),
         strand_id: message
             .as_ref()
             .map(|payload| payload.strand_id.as_str().to_owned()),
-        reply_to: message.and_then(|payload| payload.reply_to),
-        encrypted_payload: extract_encrypted_payload_from_message_content(&event.payload),
+        reply_to: message
+            .as_ref()
+            .and_then(|payload| payload.reply_to_id.clone()),
+        encrypted_payload: extract_encrypted_payload_from_message_content(event),
+        encrypted_metadata_payload: extract_encrypted_metadata_payload_from_message_content(event),
+        accepted_ref: None,
+        accepted_view: None,
+        source_track_name: message.as_ref().map(|payload| payload.track_name.clone()),
+        causal_after_event_ids: Vec::new(),
         reason: ArkretInboundSkipReason::EncryptedContent,
-    })
+    }))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use serde_json::json;
 
     use super::*;
@@ -563,29 +726,70 @@ mod tests {
         ArkretAccountConfig {
             mode: crate::arkret::ArkretAccountMode::Agent,
             id: "support".into(),
-            principal_id: "did:webvh:example.org:agents:support".into(),
+            principal_id: "ak:did_core:web:example.org:agents:support".into(),
+            actor_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:web:example.org:agents:support").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:web:example.org:stations:agent").unwrap(),
+            ),
             device_id: "ak:device:01".into(),
-            access_token: String::new(),
             key_ref: None,
             verification_method: None,
-            arkret_server_did: None,
-            login_challenge: None,
-            grant_event_path: None,
             inkson_bootstrap: None,
             authorized_event_ref: None,
+            signer_resolution_evidence_ref: None,
+            current_signer_evidence: None,
+            controller_account_id: arkret::AccountId::new(
+                arkret::DidCoreId::new("ak:did_core:web:example.org:users:alice").unwrap(),
+                arkret::DidCoreId::new("ak:did_core:web:example.org:stations:alice-phone").unwrap(),
+            ),
             requested_scope: vec!["ak.event.read".into()],
             listen: true,
             send: true,
         }
     }
 
-    const REALM_1: &str = "ak:realm:01904100-0000-7000-8000-000000000001";
-    const REALM_2: &str = "ak:realm:01904100-0000-7000-8000-000000000002";
-    const STRAND_1: &str = "ak:strand:01904100-0000-7000-8000-000000000011";
-    const STRAND_2: &str = "ak:strand:01904100-0000-7000-8000-000000000012";
+    fn fixture_event_id(seed: u8) -> arkret::EventId {
+        arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [seed; 32])
+    }
+
+    static REALM_1: LazyLock<arkret::RealmId> =
+        LazyLock::new(|| arkret::RealmId::from_event_id(&fixture_event_id(0x11)));
+    static REALM_2: LazyLock<arkret::RealmId> =
+        LazyLock::new(|| arkret::RealmId::from_event_id(&fixture_event_id(0x12)));
+    static STRAND_1: LazyLock<arkret::StrandId> =
+        LazyLock::new(|| arkret::StrandId::from_event_id(&fixture_event_id(0x21)));
+    static STRAND_2: LazyLock<arkret::StrandId> =
+        LazyLock::new(|| arkret::StrandId::from_event_id(&fixture_event_id(0x22)));
 
     fn message_event(actor: &str, body: &str) -> Value {
-        message_event_in_realm(REALM_1, actor, STRAND_1, body)
+        message_event_in_realm(REALM_1.as_str(), actor, STRAND_1.as_str(), body)
+    }
+
+    fn committed_event_value(raw_event: Value) -> Value {
+        let event: arkret::Event = serde_json::from_value(raw_event).unwrap();
+        let commit = arkret::RealmCommit {
+            commit_id: arkret::RealmCommitId::from_digest([0x41; 32]),
+            realm_id: event.realm_id.clone(),
+            stream_ref: arkret::CommitStreamRef::from_scope(&event.scope_ref, None).unwrap(),
+            stream_position: 0,
+            previous_commit_ref: None,
+            event_ref: event.event_id.clone(),
+            governance_generation: 0,
+            authority_ref: arkret::RealmCommitAuthorityRef::GenesisOrChangeEvent(fixture_event_id(
+                0x42,
+            )),
+            committed_at: chrono::Utc::now(),
+            producer_signer_fact_digest: None,
+            signature: arkret::DetachedObjectSignature {
+                context: arkret::DetachedSignatureContext::RealmCommit,
+                signature_algorithm: arkret::DetachedSignatureAlgorithm::Ed25519,
+                verification_method: arkret::DidUrl::new("did:web:station.example#key-1").unwrap(),
+                signed_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
+                created_at: chrono::Utc::now(),
+                sig: arkret::Base64UrlString::new("AQ").unwrap(),
+            },
+        };
+        serde_json::to_value(arkret::CommittedEventFullView { commit, event }).unwrap()
     }
 
     fn message_event_in_realm(realm: &str, actor: &str, strand: &str, body: &str) -> Value {
@@ -605,16 +809,17 @@ mod tests {
     }
 
     fn sdk_message_event(actor: &str, body: &str) -> Value {
-        message_event_in_realm(REALM_1, actor, STRAND_1, body)
+        message_event_in_realm(REALM_1.as_str(), actor, STRAND_1.as_str(), body)
     }
 
     fn event_value(kind: &str, realm: &str, actor: &str, payload: Value) -> Value {
-        let event = arkret::Event::new(
+        let event = arkret_wire::test_support::raw_event(
             kind,
-            arkret::RealmId::new(realm).unwrap(),
-            arkret::Did::new(actor.to_owned()).unwrap(),
-            1,
-            arkret::Hlc::new("01970e589d21-0004-a13f9c2e").unwrap(),
+            arkret::ScopeRef::Realm {
+                realm_id: arkret::RealmId::new(realm).unwrap(),
+            },
+            arkret::DidCoreId::new(actor.to_owned()).unwrap(),
+            arkret::DidCoreId::new("ak:did_core:webvh:z6mkfixtureserver".to_owned()).unwrap(),
             payload,
         )
         .unwrap();
@@ -623,39 +828,42 @@ mod tests {
 
     #[test]
     fn extracts_text_message() {
-        let event = message_event("did:webvh:example.org:user-alice", "hello");
+        let event = message_event("ak:did_core:web:example.org:user-alice", "hello");
         let parsed = extract_message_event(&event, "support").expect("parse");
         assert_eq!(parsed.body, "hello");
-        assert_eq!(parsed.realm_id, REALM_1);
-        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1));
-        assert_eq!(parsed.sender_did, "did:webvh:example.org:user-alice");
+        assert_eq!(parsed.realm_id, REALM_1.as_str());
+        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1.as_str()));
+        assert_eq!(parsed.sender_did, "ak:did_core:web:example.org:user-alice");
     }
 
     #[test]
     fn extracts_sdk_standard_text_message() {
-        let event = sdk_message_event("did:webvh:z6mkfixture:alice.example", "hello sdk");
+        let event = sdk_message_event("ak:did_core:webvh:z6mkfixturealice", "hello sdk");
         let parsed = extract_message_event(&event, "support").expect("parse");
         assert_eq!(parsed.body, "hello sdk");
-        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1));
-        assert_eq!(parsed.sender_did, "did:webvh:z6mkfixture:alice.example");
+        assert_eq!(parsed.strand_id.as_deref(), Some(STRAND_1.as_str()));
+        assert_eq!(parsed.sender_did, "ak:did_core:webvh:z6mkfixturealice");
     }
 
     #[test]
     fn preserves_structured_agent_mention_targets_for_gateway_routing() {
-        let agent_id = "did:webvh:example.org:agents:support";
+        let agent_id = arkret::AccountId::new(
+            arkret::DidCoreId::new("ak:did_core:web:example.org:agents:support").unwrap(),
+            arkret::DidCoreId::new("ak:did_core:web:station.example.org").unwrap(),
+        );
         let event = event_value(
             "ak.message.create",
-            REALM_1,
-            "did:webvh:z6mkfixture:alice.example",
+            REALM_1.as_str(),
+            "ak:did_core:webvh:z6mkfixturealice",
             json!({
-                "strand_id": STRAND_1,
+                "strand_id": STRAND_1.as_str(),
                 "track_name": "discussion",
                 "content": {
                     "kind": "ak.content.text",
                     "body": "hello support",
                     "mentions": [
-                        {"kind": "mention", "subject_id": agent_id},
-                        {"kind": "mention", "subject_id": agent_id}
+                        {"kind": "mention", "subject_account_id": agent_id},
+                        {"kind": "mention", "subject_account_id": agent_id}
                     ]
                 }
             }),
@@ -663,15 +871,31 @@ mod tests {
 
         let parsed = extract_message_event(&event, "support").expect("parse");
 
-        assert_eq!(parsed.mentioned_actor_ids, vec![agent_id]);
+        assert_eq!(parsed.mentioned_account_ids, vec![agent_id]);
+    }
+
+    #[test]
+    fn mention_extraction_rejects_legacy_alias_and_malformed_targets() {
+        for node in [
+            json!({"kind": "mention", "subject_id": "ak:did_core:web:agent.example"}),
+            json!({"kind": "mention", "subject_account_id": {"principal_id": "ak:did_core:web:agent.example"}}),
+        ] {
+            let content: arkret::ContentBlock = serde_json::from_value(json!({
+                "kind": "ak.content.text", "body": "@me/aa hello", "mentions": [node]
+            }))
+            .unwrap();
+            assert!(structured_mention_account_ids(&content).is_empty());
+        }
+        let content = arkret::ContentBlock::text("@me/aa hello");
+        assert!(structured_mention_account_ids(&content).is_empty());
     }
 
     #[test]
     fn ignores_non_message_kind() {
         let event = event_value(
             "ak.strand.update",
-            REALM_1,
-            "did:webvh:z6mkfixture:alice.example",
+            REALM_1.as_str(),
+            "ak:did_core:webvh:z6mkfixturealice",
             json!({}),
         );
         assert!(extract_message_event(&event, "x").is_none());
@@ -679,13 +903,13 @@ mod tests {
 
     #[test]
     fn ignores_non_text_content() {
-        let actor = "did:webvh:z6mkfixture:alice.example";
+        let actor = "ak:did_core:webvh:z6mkfixturealice";
         let event = event_value(
             "ak.message.create",
-            REALM_1,
+            REALM_1.as_str(),
             actor,
             json!({
-                "strand_id": STRAND_1,
+                "strand_id": STRAND_1.as_str(),
                 "track_name": "discussion",
                 "content": {"kind":"ak.content.image","body":""}
             }),
@@ -695,7 +919,7 @@ mod tests {
             panic!("expected skip");
         };
         assert_eq!(skipped.account_id, "x");
-        assert_eq!(skipped.realm_id.as_deref(), Some(REALM_1));
+        assert_eq!(skipped.realm_id.as_deref(), Some(REALM_1.as_str()));
         assert_eq!(skipped.sender_did.as_deref(), Some(actor));
         assert_eq!(
             skipped.reason,
@@ -704,34 +928,16 @@ mod tests {
     }
 
     #[test]
-    fn classifies_encrypted_content_block() {
-        let event = event_value(
-            "ak.message.create",
-            REALM_1,
-            "did:webvh:z6mkfixture:alice.example",
-            json!({
-                "strand_id": STRAND_1,
-                "track_name": "discussion",
-                "content": {"kind":"ak.content.encrypted","body":""}
-            }),
-        );
-        let ArkretInboundEventOutcome::Skip(skipped) = classify_message_event(&event, "x") else {
-            panic!("expected skip");
-        };
-        assert_eq!(skipped.reason, ArkretInboundSkipReason::EncryptedContent);
-    }
-
-    #[test]
     fn classifies_spec_encrypted_content_carrier() {
         let event = event_value(
             "ak.message.create",
-            REALM_1,
-            "did:webvh:z6mkfixture:alice.example",
+            REALM_1.as_str(),
+            "ak:did_core:webvh:z6mkfixturealice",
             json!({
-                "strand_id": STRAND_1,
+                "strand_id": STRAND_1.as_str(),
                 "track_name": "discussion",
                 "encrypted_content":{
-                    "scheme":"mls-rfc9420",
+                    "scheme":"mls_rfc9420",
                     "ciphertext":"..."
                 }
             }),
@@ -744,7 +950,7 @@ mod tests {
 
     #[test]
     fn should_dispatch_filters_self_messages() {
-        let account = make_account(Some(REALM_1));
+        let account = make_account(Some(REALM_1.as_str()));
         let event = message_event(&account.principal_id, "echo");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
@@ -753,8 +959,8 @@ mod tests {
 
     #[test]
     fn should_dispatch_accepts_any_realm_for_user_agent() {
-        let account = make_account(Some(REALM_2));
-        let event = message_event("did:webvh:z6mkfixture:bob.example", "hi");
+        let account = make_account(Some(REALM_2.as_str()));
+        let event = message_event("ak:did_core:webvh:z6mkfixturebob", "hi");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
         assert!(should_dispatch_event(&parsed, &account));
@@ -763,7 +969,7 @@ mod tests {
     #[test]
     fn should_dispatch_filters_empty_body() {
         let account = make_account(None);
-        let event = message_event("did:webvh:z6mkfixture:bob.example", "   ");
+        let event = message_event("ak:did_core:webvh:z6mkfixturebob", "   ");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
         assert!(!should_dispatch_event(&parsed, &account));
@@ -771,9 +977,10 @@ mod tests {
 
     #[test]
     fn should_dispatch_filters_missing_event_read_scope() {
-        let mut account = make_account(Some(REALM_1));
-        account.requested_scope = vec!["ak.self.events.stream.subscribe".into()];
-        let event = message_event("did:webvh:z6mkfixture:bob.example", "secret");
+        let mut account = make_account(Some(REALM_1.as_str()));
+        account.requested_scope =
+            vec![arkret::ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1.into()];
+        let event = message_event("ak:did_core:webvh:z6mkfixturebob", "secret");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
 
@@ -781,36 +988,26 @@ mod tests {
     }
 
     #[test]
-    fn parse_delta_frame_walks_realms() {
-        let account = make_account(Some(REALM_1));
-        let realms = json!({
-            REALM_1: {
-                "timeline": {
-                    "events": [
-                        message_event("did:webvh:z6mkfixture:bob.example", "hello bob"),
-                        message_event(&account.principal_id, "self echo"),
-                        message_event("did:webvh:z6mkfixture:carol.example", "")
-                    ]
-                }
-            },
-            REALM_2: {
-                "timeline": {
-                    "events": [message_event_in_realm(
-                        REALM_2,
-                        "did:webvh:z6mkfixture:dan.example",
-                        STRAND_2,
-                        "from other realm"
-                    )]
-                }
-            }
-        });
-        let result = parse_delta_frame_for_account(&realms, &account);
+    fn account_event_values_classify_multiple_realms() {
+        let account = make_account(Some(REALM_1.as_str()));
+        let values = vec![
+            message_event("ak:did_core:webvh:z6mkfixturebob", "hello bob"),
+            message_event(&account.principal_id, "self echo"),
+            message_event("ak:did_core:webvh:z6mkfixturecarol", ""),
+            message_event_in_realm(
+                REALM_2.as_str(),
+                "ak:did_core:webvh:z6mkfixturedan",
+                STRAND_2.as_str(),
+                "from other realm",
+            ),
+        ];
+        let result = parse_event_values_for_account(&values, &account);
         assert_eq!(result.events.len(), 2);
         assert!(result.events.iter().any(|event| {
-            event.sender_did == "did:webvh:z6mkfixture:bob.example" && event.body == "hello bob"
+            event.sender_did == "ak:did_core:webvh:z6mkfixturebob" && event.body == "hello bob"
         }));
         assert!(result.events.iter().any(|event| {
-            event.sender_did == "did:webvh:z6mkfixture:dan.example"
+            event.sender_did == "ak:did_core:webvh:z6mkfixturedan"
                 && event.body == "from other realm"
         }));
         assert_eq!(result.skipped.len(), 2);
@@ -829,18 +1026,37 @@ mod tests {
     }
 
     #[test]
-    fn parse_delta_without_event_read_does_not_dispatch_plaintext() {
-        let mut account = make_account(Some(REALM_1));
-        account.requested_scope = vec!["ak.self.events.stream.subscribe".into()];
+    fn account_delta_dispatches_only_shape_valid_full_committed_events() {
+        let account = make_account(Some(REALM_1.as_str()));
+        let accepted = committed_event_value(message_event(
+            "ak:did_core:webvh:z6mkfixturebob",
+            "accepted",
+        ));
+        let mut misbound = accepted.clone();
+        misbound["commit"]["event_ref"] = serde_json::to_value(fixture_event_id(0x43)).unwrap();
         let realms = json!({
-            REALM_1: {
-                "timeline": {
-                    "events": [message_event("did:webvh:z6mkfixture:bob.example", "plain text")]
-                }
+            REALM_1.as_str(): {
+                "committed_events": [accepted, misbound],
+                "timeline": {"events": [message_event(
+                    "ak:did_core:webvh:z6mkfixturecarol", "uncommitted"
+                )]}
             }
         });
+        let parsed = parse_delta_frame_for_account(&realms, &account);
+        assert_eq!(parsed.events.len(), 1);
+        assert_eq!(parsed.events[0].body, "accepted");
+    }
 
-        let result = parse_delta_frame_for_account(&realms, &account);
+    #[test]
+    fn account_event_values_without_event_read_do_not_dispatch_plaintext() {
+        let mut account = make_account(Some(REALM_1.as_str()));
+        account.requested_scope =
+            vec![arkret::ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1.into()];
+        let values = vec![message_event(
+            "ak:did_core:webvh:z6mkfixturebob",
+            "plain text",
+        )];
+        let result = parse_event_values_for_account(&values, &account);
 
         assert!(result.events.is_empty());
         assert_eq!(result.skipped.len(), 1);
@@ -851,26 +1067,19 @@ mod tests {
     }
 
     #[test]
-    fn parse_delta_records_encrypted_skips() {
+    fn account_event_values_record_encrypted_skips() {
         let account = make_account(None);
         let encrypted_event = event_value(
             "ak.message.create",
-            REALM_1,
-            "did:webvh:z6mkfixture:bob.example",
+            REALM_1.as_str(),
+            "ak:did_core:webvh:z6mkfixturebob",
             json!({
-                "strand_id": STRAND_1,
+                "strand_id": STRAND_1.as_str(),
                 "track_name": "discussion",
-                "encrypted_content":{"scheme":"mls-rfc9420","ciphertext":"..."}
+                "encrypted_content":{"scheme":"mls_rfc9420","ciphertext":"..."}
             }),
         );
-        let realms = json!({
-            REALM_1: {
-                "timeline": {
-                    "events": [encrypted_event]
-                }
-            }
-        });
-        let result = parse_delta_frame_for_account(&realms, &account);
+        let result = parse_event_values_for_account(&[encrypted_event], &account);
         assert!(result.events.is_empty());
         assert_eq!(result.skipped.len(), 1);
         assert_eq!(
@@ -881,15 +1090,15 @@ mod tests {
 
     #[test]
     fn parse_notification_delta_dispatches_assignment() {
-        let account = make_account(Some("ak:realm:r1"));
+        let account = make_account(Some(REALM_1.as_str()));
         let notifications = json!({
             "events": [{
                 "notification_id": "ak:notification:n1",
-                "notification_type": "assignment",
-                "realm_id": "ak:realm:r1",
+                "notification_kind": "assignment",
+                "realm_id": REALM_1.as_str(),
                 "strand_id": "ak:strand:s1",
                 "source_event_id": "ak:event:rel1",
-                "source_actor_id": "did:webvh:example.org:user-alice",
+                "source_actor_id": "ak:did_core:web:example.org:user-alice",
                 "body": "You were assigned to a Strand."
             }]
         });
@@ -900,10 +1109,10 @@ mod tests {
         assert_eq!(result.events.len(), 1);
         let event = &result.events[0];
         assert_eq!(event.event_id, "ak:notification:n1");
-        assert_eq!(event.realm_id, "ak:realm:r1");
+        assert_eq!(event.realm_id, REALM_1.as_str());
         assert_eq!(
             event.sender_did,
-            "did:webvh:example.org:user-alice".to_owned()
+            "ak:did_core:web:example.org:user-alice".to_owned()
         );
         assert_eq!(event.strand_id.as_deref(), Some("ak:strand:s1"));
         assert_eq!(event.thread_root_id, None);
@@ -917,10 +1126,10 @@ mod tests {
         let notifications = json!([{
             "id": "ak:notification:n2",
             "kind": "schedule",
-            "realm_id": "ak:realm:r1",
+            "realm_id": REALM_1.as_str(),
             "source_ref": "ak:strand:s2",
             "source_event_id": "ak:event:update1",
-            "sender": "did:webvh:example.org:user-bob"
+            "sender": "ak:did_core:web:example.org:user-bob"
         }]);
 
         let result = parse_notification_delta_for_account(&notifications, &account);
@@ -938,8 +1147,8 @@ mod tests {
         let notifications = json!({
             "events": [{
                 "notification_id": "ak:notification:n3",
-                "notification_type": "mention",
-                "realm_id": "ak:realm:r1",
+                "notification_kind": "mention",
+                "realm_id": REALM_1.as_str(),
                 "source_event_id": "ak:event:msg1"
             }]
         });
@@ -950,7 +1159,7 @@ mod tests {
         assert_eq!(result.skipped.len(), 1);
         assert_eq!(
             result.skipped[0].reason,
-            ArkretInboundSkipReason::UnsupportedNotificationType("mention".to_owned())
+            ArkretInboundSkipReason::UnsupportedNotificationKind("mention".to_owned())
         );
     }
 
@@ -960,8 +1169,8 @@ mod tests {
         let notifications = json!({
             "events": [{
                 "notification_id": "ak:notification:n4",
-                "notification_type": "assignment",
-                "realm_id": "ak:realm:other",
+                "notification_kind": "assignment",
+                "realm_id": REALM_1.as_str(),
                 "strand_id": "ak:strand:s4",
                 "source_event_id": "ak:event:rel4"
             }]
@@ -971,6 +1180,6 @@ mod tests {
 
         assert_eq!(result.events.len(), 1);
         assert!(result.skipped.is_empty());
-        assert_eq!(result.events[0].realm_id, "ak:realm:other");
+        assert_eq!(result.events[0].realm_id, REALM_1.as_str());
     }
 }

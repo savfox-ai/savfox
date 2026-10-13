@@ -36,7 +36,7 @@ async fn emits_deprecation_notice_for_legacy_feature_flag() -> anyhow::Result<()
     assert_eq!(
         summary,
         "`use_experimental_unified_exec_tool` is deprecated. Use `[features].unified_exec` instead."
-            .to_string(),
+            .to_owned(),
     );
     assert_eq!(
         details.as_deref(),
@@ -56,7 +56,7 @@ async fn emits_deprecation_notice_for_web_search_feature_flags() -> anyhow::Resu
 
     let mut builder = test_savfox().with_config(|config| {
         let mut entries = BTreeMap::new();
-        entries.insert("web_search_request".to_string(), true);
+        entries.insert("web_search_request".to_owned(), true);
         config.features.apply_map(&entries);
     });
 
@@ -73,7 +73,7 @@ async fn emits_deprecation_notice_for_web_search_feature_flags() -> anyhow::Resu
     let DeprecationNoticeEvent { summary, details } = notice;
     assert_eq!(
         summary,
-        "`[features].web_search_request` is deprecated. Use `web_search` instead.".to_string(),
+        "`[features].web_search_request` is deprecated. Use `web_search` instead.".to_owned(),
     );
     assert_eq!(
         details.as_deref(),
@@ -93,7 +93,7 @@ async fn emits_deprecation_notice_for_disabled_web_search_feature_flag() -> anyh
 
     let mut builder = test_savfox().with_config(|config| {
         let mut entries = BTreeMap::new();
-        entries.insert("web_search_request".to_string(), false);
+        entries.insert("web_search_request".to_owned(), false);
         config.features.apply_map(&entries);
     });
 
@@ -110,7 +110,7 @@ async fn emits_deprecation_notice_for_disabled_web_search_feature_flag() -> anyh
     let DeprecationNoticeEvent { summary, details } = notice;
     assert_eq!(
         summary,
-        "`[features].web_search_request` is deprecated. Use `web_search` instead.".to_string(),
+        "`[features].web_search_request` is deprecated. Use `web_search` instead.".to_owned(),
     );
     assert_eq!(
         details.as_deref(),

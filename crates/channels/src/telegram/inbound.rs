@@ -50,6 +50,8 @@ fn describe_update(payload: &serde_json::Value) -> (String, String, usize) {
     (kind.to_owned(), chat_id, text.len())
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait TelegramUpdateSink: Send + Sync {
     async fn handle_update(&self, payload: serde_json::Value);
@@ -228,5 +230,13 @@ pub async fn stop_telegram_polling(channel_id: &str) -> bool {
 }
 
 pub async fn is_telegram_polling_running(channel_id: &str) -> bool {
-    polling_handles().lock().await.contains_key(channel_id)
+    let mut handles = polling_handles().lock().await;
+    if handles
+        .get(channel_id)
+        .is_some_and(|entry| entry.handle.is_finished())
+    {
+        handles.remove(channel_id);
+        return false;
+    }
+    handles.contains_key(channel_id)
 }

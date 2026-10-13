@@ -17,6 +17,8 @@ pub enum ToolKind {
     Mcp,
 }
 
+// async-trait adds must_use to futures already covered by that lint.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait ToolHandler: Send + Sync {
     fn kind(&self) -> ToolKind;

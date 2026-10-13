@@ -162,11 +162,13 @@ impl ClientHandler for InteractiveClient {
                 Ok(CreateElicitationResult {
                     action: ElicitationAction::Accept,
                     content: Some(json!({ "approve": true })),
+                    meta: None,
                 })
             } else {
                 Ok(CreateElicitationResult {
                     action: ElicitationAction::Decline,
                     content: None,
+                    meta: None,
                 })
             }
         }

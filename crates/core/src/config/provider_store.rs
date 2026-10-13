@@ -406,6 +406,7 @@ pub fn persist_provider_connection(
     // slug = normalized(name), always derived from the effective name
     file.slug = normalize_slug(&file.name).unwrap_or_default();
     file.models = models.to_vec();
+    file.models_fetched_at = (!models.is_empty()).then(Utc::now);
 
     if let Some(api_key) = api_key.and_then(trim_nonempty) {
         file.auth = Some(ProviderStoreAuth {
@@ -516,6 +517,8 @@ fn apply_provider_fallback(savfox_home: &Path, new_provider_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -559,6 +562,33 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("create dir");
         std::fs::write(dir.join("openai-work.json"), "{}").expect("write file");
         assert!(account_id_exists(savfox_home, "openai-work"));
+    }
+
+    #[test]
+    fn persist_provider_connection_marks_imported_models_fresh() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let models = vec![json!({
+            "id": "anthropic/claude-test",
+            "name": "Claude Test",
+        })];
+
+        persist_provider_connection(
+            tmp.path(),
+            "anthropic",
+            "anthropic",
+            "Anthropic",
+            &models,
+            Some("ANTHROPIC_API_KEY"),
+            Some("test-key"),
+        )
+        .expect("persist provider connection");
+
+        let stored = load_provider_store_file(tmp.path(), "anthropic");
+        assert_eq!(stored.models, models);
+        assert!(
+            stored.models_fetched_at.is_some(),
+            "a successful connection import should be a fresh catalog source"
+        );
     }
 
     #[test]

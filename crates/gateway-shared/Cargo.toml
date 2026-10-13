@@ -1,7 +1,8 @@
-﻿[package]
+[package]
 name = "savfox-gateway-shared"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [lib]
@@ -11,6 +12,11 @@ path = "src/lib.rs"
 [lints]
 workspace = true
 
+[features]
+arkret = ["dep:arkret-schema", "dep:arkret-wire"]
+
 [dependencies]
+arkret-schema = { workspace = true, optional = true }
+arkret-wire = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

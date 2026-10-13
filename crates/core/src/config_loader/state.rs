@@ -206,6 +206,27 @@ impl ConfigLayerStack {
         }
     }
 
+    /// Returns a new stack with `layer` inserted after existing layers at the
+    /// same precedence. This lets a runtime role layer override session flags
+    /// without bypassing higher-precedence managed configuration.
+    pub fn with_layer(&self, layer: ConfigLayerEntry) -> std::io::Result<Self> {
+        let mut layers: Vec<ConfigLayerEntry> = self
+            .get_layers(ConfigLayerStackOrdering::LowestPrecedenceFirst, true)
+            .into_iter()
+            .cloned()
+            .collect();
+        let insertion_index = layers
+            .partition_point(|existing| existing.name.precedence() <= layer.name.precedence());
+        layers.insert(insertion_index, layer);
+
+        Self::new(
+            layers,
+            self.requirements.clone(),
+            self.requirements_toml.clone(),
+        )
+        .map(|stack| stack.with_startup_warnings(self.startup_warnings.clone()))
+    }
+
     #[must_use]
     pub fn effective_config(&self) -> TomlValue {
         let mut merged = TomlValue::Table(toml::map::Map::new());

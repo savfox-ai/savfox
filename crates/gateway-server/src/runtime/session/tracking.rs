@@ -8,7 +8,8 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::session::{
-    DmScope, SessionEntry, SessionMessageProvenance, SessionSender, SessionStore, build_routing_id,
+    DmScope, SessionEntry, SessionMessageOrigin, SessionMessageProvenance,
+    SessionMessageVisibility, SessionSender, SessionStore, build_routing_id,
 };
 
 const AUTO_LABEL_MAX_CHARS: usize = 48;
@@ -17,6 +18,7 @@ pub struct InboundSessionMeta<'a> {
     pub agent_id: &'a str,
     pub platform: &'a str,
     pub channel_id: &'a str,
+    pub routing_channel_id: Option<&'a str>,
     pub routing_group_id: Option<&'a str>,
     pub routing_thread_id: Option<&'a str>,
     pub peer_id: Option<&'a str>,
@@ -26,6 +28,13 @@ pub struct InboundSessionMeta<'a> {
     pub parent_thread_id: Option<&'a str>,
     pub reply_target: Option<&'a str>,
     pub account_id: Option<&'a str>,
+    pub channel_config_id: Option<&'a str>,
+    pub realm_id: Option<&'a str>,
+    pub strand_id: Option<&'a str>,
+    pub event_id: Option<&'a str>,
+    pub sender_kind: Option<&'a str>,
+    pub origin: SessionMessageOrigin,
+    pub visibility: SessionMessageVisibility,
     pub name: Option<&'a str>,
     pub topic: Option<&'a str>,
     pub first_message: Option<&'a str>,
@@ -54,7 +63,11 @@ pub async fn track_inbound_message(
 
     let routing_id = build_routing_id(
         meta.agent_id,
-        Some(&format!("{}:{}", meta.platform, meta.channel_id)),
+        Some(&format!(
+            "{}:{}",
+            meta.platform,
+            meta.routing_channel_id.unwrap_or(meta.channel_id)
+        )),
         meta.routing_group_id.or(meta.group_id),
         meta.routing_thread_id.or(meta.thread_id),
         effective_peer_id.as_deref(),
@@ -81,7 +94,7 @@ pub async fn track_inbound_message(
     }
 
     if let Some(tid) = meta.thread_id {
-        entry.thread_id = Some(tid.to_owned());
+        entry.remote_thread_id = Some(tid.to_owned());
     }
 
     if let Some(parent_tid) = meta.parent_thread_id {
@@ -91,6 +104,9 @@ pub async fn track_inbound_message(
     if let Some(reply_target) = meta.reply_target {
         entry.reply_target = Some(reply_target.to_owned());
         entry.parent_message_id = Some(reply_target.to_owned());
+    }
+    if let Some(event_id) = meta.event_id {
+        entry.reply_to_event_id = Some(event_id.to_owned());
     }
 
     if let Some(account_id) = meta.account_id {
@@ -119,6 +135,15 @@ pub async fn track_inbound_message(
             user_id: user_id.to_owned(),
             name: display.to_owned(),
             timestamp: crate::json_store::now_ms(),
+            origin: meta.origin,
+            visibility: meta.visibility,
+            channel_config_id: meta.channel_config_id.map(str::to_owned),
+            account_id: meta.account_id.map(str::to_owned),
+            realm_id: meta.realm_id.map(str::to_owned),
+            strand_id: meta.strand_id.map(str::to_owned),
+            event_id: meta.event_id.map(str::to_owned),
+            sender_did: meta.peer_id.map(str::to_owned),
+            sender_kind: meta.sender_kind.map(str::to_owned),
         });
     }
 
@@ -240,6 +265,7 @@ mod tests {
                 agent_id: "default",
                 platform: "feishu",
                 channel_id: "oc_group_1",
+                routing_channel_id: None,
                 routing_group_id: Some("oc_group_1"),
                 routing_thread_id: None,
                 peer_id: Some("user-a"),
@@ -249,6 +275,13 @@ mod tests {
                 parent_thread_id: None,
                 reply_target: None,
                 account_id: None,
+                channel_config_id: None,
+                realm_id: None,
+                strand_id: None,
+                event_id: None,
+                sender_kind: Some("human"),
+                origin: crate::session::SessionMessageOrigin::LocalOperator,
+                visibility: crate::session::SessionMessageVisibility::LocalPrivate,
                 name: Some("Alice"),
                 topic: None,
                 first_message: Some("hello"),
@@ -264,6 +297,7 @@ mod tests {
                 agent_id: "default",
                 platform: "feishu",
                 channel_id: "oc_group_2",
+                routing_channel_id: None,
                 routing_group_id: Some("oc_group_2"),
                 routing_thread_id: None,
                 peer_id: Some("user-a"),
@@ -273,6 +307,13 @@ mod tests {
                 parent_thread_id: None,
                 reply_target: None,
                 account_id: None,
+                channel_config_id: None,
+                realm_id: None,
+                strand_id: None,
+                event_id: None,
+                sender_kind: Some("human"),
+                origin: crate::session::SessionMessageOrigin::LocalOperator,
+                visibility: crate::session::SessionMessageVisibility::LocalPrivate,
                 name: Some("Alice"),
                 topic: None,
                 first_message: Some("hello"),
@@ -283,5 +324,48 @@ mod tests {
         .await;
 
         assert_ne!(first.session_id, second.session_id);
+    }
+
+    #[tokio::test]
+    async fn arkret_actual_strand_isolates_context_and_survives_topic_changes() {
+        let home = tempdir().expect("tempdir");
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let realm = "ak:realm:ASOv-EoZPg5yuM1Pv__u1K8vD3Q9342GxwoWmkKwjqOn";
+        let chat_a = "ak:strand:ASOv-EoZPg5yuM1Pv__u1K8vD3Q9342GxwoWmkKwjqOn";
+        let chat_b = "ak:strand:AWgGCEbMHnelRQfzqg1C_onV9Ej_FdpdAZyM_JoFgAd3";
+        let meta = |chat, topic| InboundSessionMeta {
+            agent_id: "default",
+            platform: "arkret",
+            channel_id: realm,
+            routing_channel_id: Some("account:realm"),
+            routing_group_id: Some(realm),
+            routing_thread_id: Some(chat),
+            peer_id: Some("controller"),
+            identity: None,
+            group_id: None,
+            thread_id: None,
+            parent_thread_id: None,
+            reply_target: Some(chat),
+            account_id: Some("agent-account"),
+            channel_config_id: Some("arkret-config"),
+            realm_id: Some(realm),
+            strand_id: Some(chat),
+            event_id: None,
+            sender_kind: Some("human"),
+            origin: crate::session::SessionMessageOrigin::ArkretRemote,
+            visibility: crate::session::SessionMessageVisibility::RemotePublic,
+            name: Some("Controller"),
+            topic,
+            first_message: Some("isolated context"),
+            chat_type: Some("dm"),
+            dm_scope: DmScope::Main,
+        };
+        let a = track_inbound_message(&store, meta(chat_a, Some("shared topic"))).await;
+        let b = track_inbound_message(&store, meta(chat_b, Some("shared topic"))).await;
+        let moved = track_inbound_message(&store, meta(chat_a, Some("renamed topic"))).await;
+        assert_ne!(a.session_id, b.session_id);
+        assert_eq!(a.session_id, moved.session_id);
+        assert_eq!(a.reply_target.as_deref(), Some(chat_a));
+        assert_eq!(b.reply_target.as_deref(), Some(chat_b));
     }
 }

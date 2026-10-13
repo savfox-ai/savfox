@@ -1,20 +1,18 @@
-//! Applet DID-proof login + session grant tracking.
-//!
-//! CKP-0008 personal agent runtime must use agent_key_proof plus DPoP and
-//! must not call this path.
+//! Session grant state shared by Arkret client integrations.
 
-use anyhow::Context as _;
-use arkret::http_client::Client;
-use arkret::{AuthManager, DeviceId, Did, Ed25519MoveSigner};
+use arkret::{DeviceId, DidCoreId};
 use chrono::{DateTime, Utc};
 
-/// One-shot session state produced by [`login_with_signer`].
+/// One-shot view of an active Arkret session grant.
 #[derive(Debug, Clone)]
 pub struct ArkretSession {
     pub session_grant: String,
     pub expires_at: DateTime<Utc>,
-    pub principal_did: Did,
+    pub principal_did: DidCoreId,
     pub device_id: Option<DeviceId>,
+    pub participation_observation: Option<
+        arkret_models_collaboration::governance::agent_participation::AgentParticipationObservation,
+    >,
 }
 
 impl ArkretSession {
@@ -28,46 +26,6 @@ impl ArkretSession {
     }
 }
 
-/// Run applet `AuthManager::login_did_proof` against the given HTTP client.
-///
-/// `audience` is the Arkret server's service DID.
-pub async fn login_with_signer(
-    http: &Client,
-    signer: &Ed25519MoveSigner,
-    principal_did: Did,
-    device_id: DeviceId,
-    challenge: &str,
-    audience: &str,
-) -> anyhow::Result<ArkretSession> {
-    let audience = Did::new(audience.to_owned())
-        .with_context(|| format!("invalid Arkret service audience DID '{audience}'"))?;
-    let mut auth = AuthManager::default();
-    let session = auth
-        .login_did_proof(
-            http,
-            principal_did.clone(),
-            device_id.clone(),
-            signer,
-            challenge,
-            audience.clone(),
-        )
-        .await
-        .map_err(|err| anyhow::anyhow!("login_did_proof failed: {err}"))
-        .with_context(|| {
-            format!(
-                "arkret login_did_proof: principal={} audience={}",
-                principal_did.as_str(),
-                audience
-            )
-        })?;
-    Ok(ArkretSession {
-        session_grant: session.session_grant,
-        expires_at: session.expires_at,
-        principal_did: session.principal_id,
-        device_id: session.device_id,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,12 +35,13 @@ mod tests {
         let s = ArkretSession {
             session_grant: "g".into(),
             expires_at: Utc::now() + chrono::Duration::seconds(10),
-            principal_did: Did::new("did:web:alice.example".to_owned())
+            principal_did: DidCoreId::new("ak:did_core:web:alice.example".to_owned())
                 .expect("test DID should parse"),
             device_id: Some(
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
                     .expect("test device id should parse"),
             ),
+            participation_observation: None,
         };
         // 10s until expiry; with 60s skew, "near expiry" is true.
         assert!(s.is_near_expiry(60));
@@ -95,12 +54,13 @@ mod tests {
         let s = ArkretSession {
             session_grant: "g".into(),
             expires_at: Utc::now() - chrono::Duration::seconds(10),
-            principal_did: Did::new("did:web:alice.example".to_owned())
+            principal_did: DidCoreId::new("ak:did_core:web:alice.example".to_owned())
                 .expect("test DID should parse"),
             device_id: Some(
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
                     .expect("test device id should parse"),
             ),
+            participation_observation: None,
         };
         assert!(s.is_near_expiry(0));
         assert!(s.is_near_expiry(60));

@@ -1,0 +1,10 @@
+---
+source: crates/tui/src/app/mod.rs
+expression: model_migration_copy_to_plain_text(&copy)
+---
+
+**Savfox just got an upgrade. Introducing current-model.**
+
+Savfox is now powered by current-model, a newer and more capable agentic coding model than legacy-model.
+
+You can continue using legacy-model if you prefer.

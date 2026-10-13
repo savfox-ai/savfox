@@ -165,6 +165,6 @@ mod tests {
 
         let cmd = vec![script_path.to_string_lossy().to_string()];
         let result = run_editor("seed", &cmd).await.unwrap();
-        assert_eq!(result, "edited".to_string());
+        assert_eq!(result, "edited".to_owned());
     }
 }

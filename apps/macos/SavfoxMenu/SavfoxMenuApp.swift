@@ -10,13 +10,12 @@ struct SavfoxMenuApp: App {
             MenuBarView()
                 .environmentObject(appState)
         } label: {
-            Image(systemName: appState.isConnected ? "antenna.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash")
+            Image(systemName: "antenna.radiowaves.left.and.right.slash")
         }
 
         // Settings window
         Settings {
             SettingsView()
-                .environmentObject(appState)
         }
     }
 }
@@ -30,9 +29,9 @@ struct MenuBarView: View {
             // Status
             HStack {
                 Circle()
-                    .fill(appState.isConnected ? Color.green : Color.red)
+                    .fill(Color.orange)
                     .frame(width: 8, height: 8)
-                Text(appState.isConnected ? "Connected" : "Disconnected")
+                Text("Native client unavailable")
                     .font(.headline)
             }
             .padding(.horizontal, 16)
@@ -40,72 +39,19 @@ struct MenuBarView: View {
 
             Divider()
 
-            if appState.isConnected {
-                // Quick chat
-                Button("Quick Chat...") {
-                    appState.showQuickChat = true
-                }
-                .keyboardShortcut("n", modifiers: [.command])
+            Text("Session opening, model switching, and quick chat are not wired to Gateway RPC in this build.")
+                .font(.caption)
+                .foregroundColor(.secondary)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 4)
-
-                // Recent sessions
-                Menu("Recent Sessions") {
-                    ForEach(appState.recentSessions, id: \.self) { session in
-                        Button(session) {
-                            appState.openSession(session)
-                        }
-                    }
-                    if appState.recentSessions.isEmpty {
-                        Text("No recent sessions")
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
-
-                // Models
-                Menu("Active Model") {
-                    ForEach(appState.availableModels, id: \.self) { model in
-                        Button(model) {
-                            appState.setModel(model)
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
-
-                Divider()
-
-                // Gateway info
-                Text("Gateway: \(appState.gatewayURL)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
-            }
+                .padding(.vertical, 8)
 
             Divider()
 
-            // Actions
-            if appState.isConnected {
-                Button("Open Web UI") {
-                    appState.openWebUI()
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
-
-                Button("Disconnect") {
-                    appState.disconnect()
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
-            } else {
-                Button("Connect...") {
-                    appState.showConnectionSheet = true
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
+            Button("Open Web UI") {
+                appState.openWebUI()
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
 
             Divider()
 
@@ -128,8 +74,6 @@ struct MenuBarView: View {
 
 /// Settings window.
 struct SettingsView: View {
-    @EnvironmentObject var appState: MenuBarState
-
     var body: some View {
         TabView {
             GeneralSettingsView()
@@ -171,27 +115,14 @@ struct ConnectionSettingsView: View {
 // MARK: - State
 
 class MenuBarState: ObservableObject {
-    @Published var isConnected = false
-    @Published var gatewayURL = "localhost:18881"
-    @Published var showQuickChat = false
-    @Published var showConnectionSheet = false
-    @Published var recentSessions: [String] = []
-    @Published var availableModels: [String] = []
-
-    func disconnect() {
-        isConnected = false
-    }
-
-    func openSession(_ id: String) {
-        // TODO: Open session in web UI or chat window
-    }
-
-    func setModel(_ model: String) {
-        // TODO: Set active model via RPC
-    }
-
     func openWebUI() {
-        if let url = URL(string: "http://\(gatewayURL)") {
+        let configured = UserDefaults.standard.string(forKey: "gatewayURL") ?? "ws://localhost:18881/ws"
+        guard var components = URLComponents(string: configured) else { return }
+        components.scheme = components.scheme == "wss" ? "https" : "http"
+        components.path = ""
+        components.query = nil
+        components.fragment = nil
+        if let url = components.url {
             NSWorkspace.shared.open(url)
         }
     }

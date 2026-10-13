@@ -1,7 +1,7 @@
-﻿#!/usr/bin/env dotslash
+#!/usr/bin/env dotslash
 
 // This is an instance of the fork of Bash that we bundle with
-// https://www.npmjs.com/package/@openai/savfox-shell-tool-mcp.
+// https://www.npmjs.com/package/@openai/codex-shell-tool-mcp.
 // Fetching the prebuilt version via DotSlash makes it easier to write
 // integration tests for the MCP server.
 //
@@ -12,7 +12,7 @@
   "name": "savfox-bash",
   "platforms": {
     // macOS 13 builds (and therefore x86_64) were dropped in
-    // https://github.com/openai/savfox/pull/7295, so we only provide an
+    // https://github.com/openai/codex/pull/7295, so we only provide an
     // Apple Silicon build for now.
     "macos-aarch64": {
       "size": 37003612,
@@ -22,13 +22,13 @@
       "path": "package/vendor/aarch64-apple-darwin/bash/macos-15/bash",
       "providers": [
         {
-          "url": "https://github.com/openai/savfox/releases/download/rust-v0.65.0/savfox-shell-tool-mcp-npm-0.65.0.tgz"
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.65.0/codex-shell-tool-mcp-npm-0.65.0.tgz"
         },
         {
           "type": "github-release",
-          "repo": "openai/savfox",
+          "repo": "openai/codex",
           "tag": "rust-v0.65.0",
-          "name": "savfox-shell-tool-mcp-npm-0.65.0.tgz"
+          "name": "codex-shell-tool-mcp-npm-0.65.0.tgz"
         }
       ]
     },
@@ -43,13 +43,13 @@
       "path": "package/vendor/x86_64-unknown-linux-musl/bash/ubuntu-24.04/bash",
       "providers": [
         {
-          "url": "https://github.com/openai/savfox/releases/download/rust-v0.65.0/savfox-shell-tool-mcp-npm-0.65.0.tgz"
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.65.0/codex-shell-tool-mcp-npm-0.65.0.tgz"
         },
         {
           "type": "github-release",
-          "repo": "openai/savfox",
+          "repo": "openai/codex",
           "tag": "rust-v0.65.0",
-          "name": "savfox-shell-tool-mcp-npm-0.65.0.tgz"
+          "name": "codex-shell-tool-mcp-npm-0.65.0.tgz"
         }
       ]
     },
@@ -61,13 +61,13 @@
       "path": "package/vendor/aarch64-unknown-linux-musl/bash/ubuntu-24.04/bash",
       "providers": [
         {
-          "url": "https://github.com/openai/savfox/releases/download/rust-v0.65.0/savfox-shell-tool-mcp-npm-0.65.0.tgz"
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.65.0/codex-shell-tool-mcp-npm-0.65.0.tgz"
         },
         {
           "type": "github-release",
-          "repo": "openai/savfox",
+          "repo": "openai/codex",
           "tag": "rust-v0.65.0",
-          "name": "savfox-shell-tool-mcp-npm-0.65.0.tgz"
+          "name": "codex-shell-tool-mcp-npm-0.65.0.tgz"
         }
       ]
     },

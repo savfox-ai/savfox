@@ -2,6 +2,7 @@
 name = "savfox-cli"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [[bin]]
@@ -40,7 +41,7 @@ owo-colors = { workspace = true }
 regex-lite = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
+serde-saphyr = { workspace = true }
 supports-color = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = [
