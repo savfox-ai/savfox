@@ -76,7 +76,11 @@ pub fn test_tmp_path_buf() -> PathBuf {
 /// avoids clobbering a developer’s real `~/.savfox`.
 pub async fn load_default_config_for_test(savfox_home: &TempDir) -> Config {
     models::write_test_catalog(savfox_home.path()).expect("write test model catalog");
-    load_config_without_catalog_for_test(savfox_home).await
+    let mut config = load_config_without_catalog_for_test(savfox_home).await;
+    if config.model.is_none() {
+        config.model = Some(models::DEFAULT_TEST_MODEL.to_owned());
+    }
+    config
 }
 
 /// Use an empty catalog when the test exercises model discovery itself.
@@ -96,7 +100,6 @@ fn default_test_overrides() -> ConfigOverrides {
         .or_else(|| find_executable_on_path("savfox-linux-sandbox"));
 
     ConfigOverrides {
-        model: Some(models::DEFAULT_TEST_MODEL.to_owned()),
         savfox_linux_sandbox_exe,
         ..ConfigOverrides::default()
     }
@@ -116,10 +119,7 @@ fn find_executable_on_path(name: &str) -> Option<PathBuf> {
 
 #[cfg(not(target_os = "linux"))]
 fn default_test_overrides() -> ConfigOverrides {
-    ConfigOverrides {
-        model: Some(models::DEFAULT_TEST_MODEL.to_owned()),
-        ..ConfigOverrides::default()
-    }
+    ConfigOverrides::default()
 }
 
 /// Builds an SSE stream body from a JSON fixture.
