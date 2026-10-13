@@ -720,23 +720,48 @@ fn native_handoff_entry<'a>(
     Ok(entry)
 }
 
-fn native_create_parent(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
+fn native_create_parent(path: &Path, home: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("native delivery path has no parent"))?;
-    std::fs::create_dir_all(parent)?;
-    // Flush the original parent chain bottom-up as well: prior private binding
-    // initialization may have created these same directories without fsync.
-    Ok(parent
-        .ancestors()
-        .map(|directory| {
-            if directory.as_os_str().is_empty() {
-                PathBuf::from(".")
-            } else {
-                directory.to_owned()
+    // Include the home entry and any missing ancestors, but stop at the
+    // existing directory that contains them. Unchanged system ancestors do
+    // not need a durability barrier and may forbid writable handles.
+    let directory_path = |directory: &Path| {
+        if directory.as_os_str().is_empty() {
+            PathBuf::from(".")
+        } else {
+            directory.to_owned()
+        }
+    };
+    let mut boundary = directory_path(home.parent().unwrap_or(home));
+    loop {
+        match std::fs::metadata(&boundary) {
+            Ok(metadata) => {
+                anyhow::ensure!(metadata.is_dir(), "native home parent is not a directory");
+                break;
             }
-        })
-        .collect())
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                boundary = directory_path(boundary.parent().ok_or_else(|| {
+                    anyhow::anyhow!("native home has no existing parent directory")
+                })?);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    std::fs::create_dir_all(parent)?;
+    // Private binding initialization may already have created the home and
+    // ledger directories without syncing them; include those entries too.
+    let mut directories = Vec::new();
+    for directory in parent.ancestors() {
+        let directory = directory_path(directory);
+        let reached_boundary = directory == boundary;
+        directories.push(directory);
+        if reached_boundary {
+            return Ok(directories);
+        }
+    }
+    anyhow::bail!("native delivery directory is outside its home boundary")
 }
 
 fn native_sync_directory(path: &Path) -> anyhow::Result<()> {
@@ -745,6 +770,8 @@ fn native_sync_directory(path: &Path) -> anyhow::Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt as _;
+        // FlushFileBuffers requires GENERIC_WRITE even for a directory handle.
+        options.write(true);
         options.custom_flags(0x02000000); // FILE_FLAG_BACKUP_SEMANTICS
     }
     options.open(path)?.sync_all()?;
@@ -754,12 +781,14 @@ fn native_sync_directory(path: &Path) -> anyhow::Result<()> {
 #[derive(Debug, Clone)]
 pub(crate) struct ArkretExecutionBindingStore {
     path: PathBuf,
+    home: PathBuf,
 }
 
 impl ArkretExecutionBindingStore {
     #[must_use]
     pub(crate) fn new(savfox_home: &Path) -> Self {
         Self {
+            home: savfox_home.to_owned(),
             path: savfox_home
                 .join("gateway")
                 .join("arkret-delivery")
@@ -1302,11 +1331,12 @@ impl ArkretExecutionBindingStore {
     ) -> anyhow::Result<R> {
         let _process_guard = store_lock().lock().await;
         let path = self.path.clone();
+        let home = self.home.clone();
         // This closure owns the separate-inode FileLock through read, CAS,
         // atomic replacement AND directory fsync. Cancelling the async waiter
         // cannot release that lock while a background write is still pending.
         tokio::task::spawn_blocking(move || -> anyhow::Result<R> {
-            let directories = native_create_parent(&path)?;
+            let directories = native_create_parent(&path, &home)?;
             let mut options = std::fs::OpenOptions::new();
             options.create(true).read(true).write(true).truncate(false);
             #[cfg(unix)]
