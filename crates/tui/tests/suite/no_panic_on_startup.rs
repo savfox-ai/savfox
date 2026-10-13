@@ -69,7 +69,9 @@ async fn run_savfox_cli(
         savfox_home.as_ref().display().to_string(),
     );
 
-    let args: Vec<String> = Vec::new();
+    // New sessions bootstrap on their first operation. Supply a prompt so the
+    // test reaches rule loading instead of waiting at the empty composer.
+    let args = vec!["Check startup rules".to_owned()];
     let spawned = savfox_utils::pty::spawn_pty_process(
         savfox_cli.to_string_lossy().as_ref(),
         &args,
