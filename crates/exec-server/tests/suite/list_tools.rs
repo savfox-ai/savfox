@@ -27,7 +27,7 @@ async fn list_tools() -> Result<()> {
     assert_eq!(
         vec![Tool::new(
             "shell",
-            "Runs a shell command and returns its output. You MUST provide the workdir as an absolute path.",
+            "Runs a shell command and returns its output. You MUST provide the workdir as an absolute\npath.",
             object(json!({
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "properties": {
@@ -37,15 +37,13 @@ async fn list_tools() -> Result<()> {
                     },
                     "login": {
                         "description": "Launch Bash with -lc instead of -c: defaults to true.",
-                        "nullable": true,
-                        "type": "boolean",
+                        "type": ["boolean", "null"],
                     },
                     "timeout_ms": {
                         "description": "The timeout for the command in milliseconds.",
                         "format": "uint64",
                         "minimum": 0,
-                        "nullable": true,
-                        "type": "integer",
+                        "type": ["integer", "null"],
                     },
                     "workdir": {
                         "description": "The working directory to execute the command in. Must be an absolute path.",
@@ -56,7 +54,6 @@ async fn list_tools() -> Result<()> {
                     "command",
                     "workdir",
                 ],
-                "title": "ExecParams",
                 "type": "object",
             })),
         )],

@@ -28,6 +28,10 @@ async fn malformed_rules_should_not_panic() -> anyhow::Result<()> {
 # Pick a local provider so the CLI doesn't prompt for OpenAI auth in this test.
 model_provider = "ollama"
 model = {{ slug = "test-startup-model", provider = "ollama" }}
+check_for_update_on_startup = false
+
+[features]
+remote_models = false
 
 [projects]
 "{cwd}" = {{ trust_level = "trusted" }}

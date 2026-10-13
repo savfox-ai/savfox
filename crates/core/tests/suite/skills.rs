@@ -203,13 +203,17 @@ async fn list_skills_includes_system_cache_entries() -> Result<()> {
         .await;
 
     let cwd = test.cwd_path();
-    let (skills, _errors) = response
+    let (skills, errors) = response
         .skills
         .iter()
         .find(|entry| entry.cwd.as_path() == cwd)
         .map(|entry| (entry.skills.clone(), entry.errors.clone()))
         .unwrap_or_default();
 
+    assert!(
+        errors.is_empty(),
+        "unexpected system skill errors: {errors:?}"
+    );
     let skill = skills
         .iter()
         .find(|skill| skill.name == SYSTEM_SKILL_NAME)

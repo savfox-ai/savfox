@@ -1,11 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::fs::{FileTimes, OpenOptions};
-use std::string::ToString;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
 use core_test_support::test_savfox_exec::test_savfox_exec;
 use pretty_assertions::assert_eq;
+use savfox_protocol::models::{ContentItem, ResponseItem};
+use savfox_protocol::protocol::{RolloutItem, RolloutLine};
 use savfox_utils::cargo_bin::find_resource;
 use serde_json::Value;
 use tempfile::TempDir;
@@ -39,16 +40,15 @@ fn find_session_file_containing_marker(
             if line.trim().is_empty() {
                 continue;
             }
-            let Ok(item): Result<Value, _> = serde_json::from_str(line) else {
+            let Ok(item): Result<RolloutLine, _> = serde_json::from_str(line) else {
                 continue;
             };
-            if item.get("type").and_then(|t| t.as_str()) == Some("message")
-                && let Some(message) = item.get("message")
-                && message
-                    .get("content")
-                    .map(ToString::to_string)
-                    .unwrap_or_default()
-                    .contains(marker)
+            if let RolloutItem::ResponseItem(ResponseItem::Message { content, .. }) = item.item
+                && content.iter().any(|content| {
+                    matches!(content,
+                    ContentItem::InputText { text } | ContentItem::OutputText { text }
+                        if text.contains(marker))
+                })
             {
                 return Some(path.to_path_buf());
             }
@@ -331,8 +331,6 @@ fn exec_resume_accepts_global_flags_after_subcommand() -> anyhow::Result<()> {
         .arg("--json")
         .arg("--model")
         .arg("gpt-5.2-savfox")
-        .arg("--config")
-        .arg("reasoning_level=xhigh")
         .arg("--dangerously-bypass-approvals-and-sandbox")
         .arg("--skip-git-repo-check")
         .arg("echo resume-with-global-flags-after-subcommand")
