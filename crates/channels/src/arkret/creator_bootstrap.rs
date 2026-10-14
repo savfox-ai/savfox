@@ -115,6 +115,17 @@ impl FileArkretCryptoStore {
         client: &OwnStationResultClient,
         install: Option<CurrentMlsGroupStateRecord>,
     ) -> anyhow::Result<bool> {
+        self.commit_creator_step_at_cut(expected, next, client, install, None)
+    }
+
+    fn commit_creator_step_at_cut(
+        &self,
+        expected: &MlsCreatorBootstrapRecord,
+        next: &MlsCreatorBootstrapRecord,
+        client: &OwnStationResultClient,
+        install: Option<CurrentMlsGroupStateRecord>,
+        snapshot: Option<&arkret::RealmStateSnapshot>,
+    ) -> anyhow::Result<bool> {
         next.validate()?;
         anyhow::ensure!(
             expected.intent() == next.intent(),
@@ -131,6 +142,9 @@ impl FileArkretCryptoStore {
         let key = scope_key(expected.intent().effective_scope())?;
         if state.creator_bootstrap_records.get(&key) != Some(&serde_json::to_value(expected)?) {
             return Ok(false);
+        }
+        if let Some(snapshot) = snapshot {
+            retain_creator_current(&mut state, next, snapshot)?;
         }
         if let Some(queued) = next.queued_genesis() {
             let id = queued.signed_genesis().event_id();
@@ -602,7 +616,7 @@ mod tests {
         };
         let first = read();
         let mut next = first.clone();
-        next.accept_realm(create.clone(), absence).unwrap();
+        next.accept_realm(create.clone(), absence.clone()).unwrap();
         assert!(
             store
                 .commit_creator_step(&first, &next, &client, None)
@@ -726,10 +740,62 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        let current = arkret::MlsGroupCurrent {
+            effective_scope: intent.effective_scope().clone(),
+            genesis_event_ref: signed.event_id().clone(),
+            cipher_suite: arkret::NonEmptyString::new(
+                group.group_ciphersuite_canonical_id().unwrap(),
+            )
+            .unwrap(),
+            current_mls_commit_event_ref: signed.event_id().clone(),
+            epoch: 0,
+            current_key_access_revision: 0,
+            covered_key_access_revision: 0,
+            public_tree_ref: arkret::BlobRef::new(format!(
+                "ak:blob:{}",
+                arkret::canonical::sha256_digest(
+                    &queued.epoch_zero().unwrap().ratchet_tree_bytes()
+                )
+            ))
+            .unwrap(),
+        };
+        let mut accepted_cut = absence;
+        accepted_cut
+            .current_state_entries
+            .push(TypedCurrentRow::Value {
+                selector: arkret::CurrentSelector::MlsGroup {
+                    scope_ref: intent.effective_scope().clone(),
+                },
+                source_stream_ref: arkret::CommitStreamRef::from_scope(
+                    intent.effective_scope(),
+                    None,
+                )
+                .unwrap(),
+                revision: arkret::CurrentRevision {
+                    commit_id: next
+                        .accepted_genesis()
+                        .unwrap()
+                        .accepted()
+                        .commit
+                        .commit_id
+                        .clone(),
+                    stream_position: next
+                        .accepted_genesis()
+                        .unwrap()
+                        .accepted()
+                        .commit
+                        .stream_position,
+                },
+                value: serde_json::to_value(&current).unwrap(),
+            });
         assert!(
             store
-                .commit_creator_step(&queued, &next, &client, None)
+                .commit_creator_step_at_cut(&queued, &next, &client, None, Some(&accepted_cut))
                 .unwrap()
+        );
+        assert_eq!(
+            store.load().unwrap().mls_station_currents[intent.mls_group_id().as_str()][&0],
+            current
         );
         let accepted = read();
         let (private, checks) = store.restore_creator_group(&accepted).unwrap();
@@ -771,6 +837,51 @@ mod tests {
             .require_creator_ready(intent.effective_scope())
             .unwrap();
         assert_eq!(read(), ready);
+        let healthy = store.load().unwrap();
+        for failure in 0..4 {
+            let mut state = healthy.clone();
+            let mut invalid = current.clone();
+            match failure {
+                0 => invalid.current_key_access_revision = 1,
+                1 => invalid.epoch = 1,
+                2 => {
+                    invalid.public_tree_ref = arkret::BlobRef::new(format!(
+                        "ak:blob:{}",
+                        arkret::canonical::sha256_digest(b"another tree")
+                    ))
+                    .unwrap()
+                }
+                _ => {
+                    invalid.current_mls_commit_event_ref = create.accepted_event().event_id.clone()
+                }
+            }
+            state
+                .mls_station_currents
+                .get_mut(intent.mls_group_id().as_str())
+                .unwrap()
+                .insert(invalid.epoch, invalid);
+            // Represents a later accepted current arriving through the native reader.
+            // Ready receipt alone cannot authorize the now stale private state.
+            let mut live = store.load().unwrap();
+            live.mls_station_currents = state.mls_station_currents;
+            store.save(&mut live).unwrap();
+            let before = std::fs::read(store.path()).unwrap();
+            assert!(
+                store
+                    .require_creator_ready(intent.effective_scope())
+                    .is_err(),
+                "failure {failure}"
+            );
+            assert!(
+                store
+                    .encrypt_content_block_for_scope(
+                        intent.effective_scope(),
+                        &serde_json::to_value(ContentBlock::text("must stay closed")).unwrap()
+                    )
+                    .is_err()
+            );
+            assert_eq!(std::fs::read(store.path()).unwrap(), before);
+        }
     }
 
     #[test]
@@ -907,6 +1018,112 @@ mod tests {
     }
 }
 
+// The accepted Genesis and the latest current at that same verified cut are
+// one local commit. A later native current must never be rolled back by a retry.
+fn retain_creator_current(
+    state: &mut ArkretCryptoStateFile,
+    record: &MlsCreatorBootstrapRecord,
+    snapshot: &arkret::RealmStateSnapshot,
+) -> anyhow::Result<()> {
+    let scope = record.intent().effective_scope();
+    let genesis = record
+        .accepted_genesis()
+        .map(|accepted| &accepted.accepted().event.event_id)
+        .or_else(|| {
+            record
+                .superseded_winner()
+                .map(|winner| &winner.accepted().event.event_id)
+        })
+        .context("creator accepted cut has no authenticated Genesis")?;
+    let mut matching = snapshot
+        .current_state_entries
+        .iter()
+        .filter_map(|row| match row {
+            TypedCurrentRow::Value {
+                selector: arkret::CurrentSelector::MlsGroup { scope_ref },
+                source_stream_ref,
+                value,
+                ..
+            } if scope_ref == scope => Some((source_stream_ref, value)),
+            _ => None,
+        });
+    let (stream, value) = matching
+        .next()
+        .context("creator accepted cut omits MLS current")?;
+    anyhow::ensure!(matching.next().is_none(), "creator cut repeats MLS current");
+    anyhow::ensure!(
+        stream == &arkret::CommitStreamRef::from_scope(scope, None)?,
+        "creator current has another source stream"
+    );
+    let current: arkret::MlsGroupCurrent = serde_json::from_value(value.clone())?;
+    anyhow::ensure!(
+        current.effective_scope == *scope && current.genesis_event_ref == *genesis,
+        "creator current differs from its accepted scope or Genesis"
+    );
+    let epochs = state
+        .mls_station_currents
+        .entry(record.intent().mls_group_id().to_string())
+        .or_default();
+    for previous in epochs.values() {
+        anyhow::ensure!(
+            previous.genesis_event_ref == *genesis,
+            "creator accepted cut conflicts with retained Genesis"
+        );
+    }
+    if let Some(previous) = epochs.get(&current.epoch) {
+        anyhow::ensure!(
+            previous.current_mls_commit_event_ref == current.current_mls_commit_event_ref
+                && previous.public_tree_ref == current.public_tree_ref,
+            "creator cut conflicts with retained epoch Commit or tree"
+        );
+        if previous.current_key_access_revision > current.current_key_access_revision
+            || (previous.current_key_access_revision == current.current_key_access_revision
+                && previous.covered_key_access_revision > current.covered_key_access_revision)
+        {
+            return Ok(());
+        }
+    }
+    epochs.insert(current.epoch, current);
+    Ok(())
+}
+
+fn require_creator_current_private(
+    state: &ArkretCryptoStateFile,
+    record: &MlsCreatorBootstrapRecord,
+    group: &ArkretMlsGroup,
+    current: &arkret::MlsGroupCurrent,
+    genesis: &arkret::EventId,
+) -> anyhow::Result<()> {
+    let (_, tree) = group.public_group_state_bytes()?;
+    let digest = arkret_models_collaboration::mls_group_state_material::material_digest_from_ref(
+        &current.public_tree_ref,
+    )?;
+    let expected_tree = format!(
+        "ak:blob:{}",
+        arkret::canonical::digest(digest.digest_suite()?, &tree)
+    );
+    anyhow::ensure!(
+        current.genesis_event_ref == *genesis
+            && current.effective_scope == *record.intent().effective_scope()
+            && group.scope() == record.intent().effective_scope()
+            && group.group_id() == *record.intent().mls_group_id()
+            && group.epoch() == current.epoch
+            && group.local_actor_id() == record.intent().owner_actor_id()
+            && group.group_ciphersuite_canonical_id()? == current.cipher_suite.as_str()
+            && current.current_key_access_revision == current.covered_key_access_revision
+            && current.public_tree_ref.as_str() == expected_tree
+            && group_state_ref_for_epoch(
+                state,
+                record.intent().mls_group_id().as_str(),
+                group.epoch()
+            )
+            .as_deref()
+                == Some(current.current_mls_commit_event_ref.as_str()),
+        "creator private state does not match the latest accepted current; native recovery required"
+    );
+    Ok(())
+}
+
 fn require_installed_creator_private(
     state: &ArkretCryptoStateFile,
     record: &MlsCreatorBootstrapRecord,
@@ -927,6 +1144,14 @@ fn require_installed_creator_private(
         .accepted_genesis()
         .context("creator private install has no acceptance")?
         .accepted();
+    if let Some(current) = state
+        .mls_station_currents
+        .get(original.group_id.as_str())
+        .and_then(|epochs| epochs.last_key_value())
+        .map(|(_, current)| current)
+    {
+        require_creator_current_private(state, record, &group, current, &accepted.event.event_id)?;
+    }
     if installed.epoch == 0 {
         let checks = creator_checks(&group, record.intent())?;
         let unit = record
@@ -1091,6 +1316,7 @@ impl ArkretHttpClient {
                 return Ok(record);
             }
             let mut next = record.clone();
+            let mut accepted_cut = None;
             if matches!(
                 record.state(),
                 State::GovernanceResultPinned | State::Epoch0StatePersisted
@@ -1102,7 +1328,13 @@ impl ArkretHttpClient {
                         winner,
                         read.authority,
                     )?)?;
-                    store.commit_creator_step(&record, &next, client, None)?;
+                    store.commit_creator_step_at_cut(
+                        &record,
+                        &next,
+                        client,
+                        None,
+                        Some(&read.snapshot),
+                    )?;
                     continue;
                 }
             }
@@ -1118,6 +1350,7 @@ impl ArkretHttpClient {
                     let read =
                         garth::mls::creator::read_creator_scope(client, record.intent()).await?;
                     if let Some(winner) = read.genesis {
+                        accepted_cut = Some(read.snapshot);
                         next.supersede(MlsCreatorBootstrapWinner::from_accepted(
                             record.intent(),
                             read.accepted_create,
@@ -1166,6 +1399,7 @@ impl ArkretHttpClient {
                     let read =
                         garth::mls::creator::read_creator_scope(client, record.intent()).await?;
                     if let Some(winner) = read.genesis {
+                        accepted_cut = Some(read.snapshot);
                         next.supersede(MlsCreatorBootstrapWinner::new(
                             &record,
                             winner,
@@ -1291,6 +1525,7 @@ impl ArkretHttpClient {
                     let read =
                         garth::mls::creator::read_creator_scope(client, record.intent()).await?;
                     if let Some(accepted) = read.genesis {
+                        accepted_cut = Some(read.snapshot);
                         let queued = record
                             .queued_genesis()
                             .context("creator queue lost original")?;
@@ -1388,7 +1623,13 @@ impl ArkretHttpClient {
                 }
                 _ => anyhow::bail!("creator is at a terminal state"),
             }
-            store.commit_creator_step(&record, &next, client, None)?;
+            store.commit_creator_step_at_cut(
+                &record,
+                &next,
+                client,
+                None,
+                accepted_cut.as_ref(),
+            )?;
         }
         anyhow::bail!("creator cut changed repeatedly; retry the same durable transaction")
     }
@@ -1413,7 +1654,9 @@ impl ArkretHttpClient {
         let client = self.own_station()?;
         let read = garth::mls::creator::read_creator_scope(client, record.intent()).await?;
         let mut next = record.clone();
+        let mut accepted_cut = None;
         if let Some(winner) = read.genesis {
+            accepted_cut = Some(read.snapshot);
             if record
                 .rejection()
                 .is_some_and(|rejection| rejection.event_id() == &winner.event.event_id)
@@ -1450,7 +1693,7 @@ impl ArkretHttpClient {
                 read.snapshot,
             )?)?;
         }
-        store.commit_creator_step(&record, &next, client, None)?;
+        store.commit_creator_step_at_cut(&record, &next, client, None, accepted_cut.as_ref())?;
         self.resume_creator_bootstrap(store, scope, key_ref).await
     }
 }
@@ -1477,24 +1720,13 @@ impl FileArkretCryptoStore {
                 .get(group_id)
                 .context("superseded creator has no winning private state")?;
             let group = ArkretMlsGroup::restore_from_state_record(private)?;
-            let (_, tree) = group.public_group_state_bytes()?;
-            let digest =
-                arkret_models_collaboration::mls_group_state_material::material_digest_from_ref(
-                    &current.public_tree_ref,
-                )?;
-            let expected_tree = format!(
-                "ak:blob:{}",
-                arkret::canonical::digest(digest.digest_suite()?, &tree)
-            );
-            anyhow::ensure!(
-                winner.accepted().event.event_id == current.genesis_event_ref
-                    && group.scope() == scope
-                    && group.group_id() == *record.intent().mls_group_id()
-                    && group.epoch() == current.epoch
-                    && group.local_actor_id() == record.intent().owner_actor_id()
-                    && current.public_tree_ref.as_str() == expected_tree,
-                "losing creator private state cannot be used for the accepted winner"
-            );
+            require_creator_current_private(
+                &state,
+                &record,
+                &group,
+                current,
+                &winner.accepted().event.event_id,
+            )?;
             return Ok(());
         }
         let receipt = record
