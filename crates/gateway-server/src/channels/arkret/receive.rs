@@ -2620,6 +2620,13 @@ pub(super) async fn drive_native(
                 receiver.process_inbox(provider,credentials,&client,channel,account,&account_store,&crypto_store).await?;
                 run_account_key_lifecycle_maintenance(&client,channel,account,&account_store,&crypto_store,"native_receive").await?;
                 if tokio::time::Instant::now() >= recovery_due {
+                    if let Some(key_ref) = account.key_ref.as_ref() {
+                        for scope in crypto_store.pending_creator_bootstrap_scopes()? {
+                            if let Err(error) = client.resume_creator_bootstrap(&crypto_store, &scope, key_ref).await {
+                                warn!("arkret: durable creator bootstrap deferred: {error}");
+                            }
+                        }
+                    }
                     recover_pending_content(&client,channel,account,&account_store,&crypto_store,&mut progress,&mut recovery_retries,&mut budget).await?;
                     recovery_due=tokio::time::Instant::now()+Duration::from_secs(20);
                 }

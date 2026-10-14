@@ -41,7 +41,7 @@ const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
 pub struct ArkretHttpClient {
-    inner: Client,
+    pub(super) inner: Client,
     own_station: Option<arkret::http_client::own_station_results::OwnStationResultClient>,
 }
 

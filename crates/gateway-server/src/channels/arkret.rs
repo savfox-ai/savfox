@@ -1213,6 +1213,7 @@ fn queued_message_matches_runtime(
     account: &ArkretAccountConfig,
     crypto_store: &FileArkretCryptoStore,
 ) -> anyhow::Result<bool> {
+    crypto_store.require_creator_ready(&event.scope_ref)?;
     if event.actor_id != arkret::ActorId::account(account.actor_account_id.clone()) {
         return Ok(false);
     }

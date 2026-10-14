@@ -32,6 +32,9 @@ use serde_json::Value;
 
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
+#[path = "creator_bootstrap.rs"]
+mod creator_bootstrap;
+
 /// A local encrypted-state read or write failed.
 /// The original cause is retained in the anyhow error chain.
 #[derive(Debug)]
@@ -278,6 +281,16 @@ pub struct ArkretCryptoStateFile {
     pub scope_id: String,
     #[serde(default)]
     pub generation: u64,
+    /// Authenticated raw records permit lossless quarantine of damaged units.
+    #[serde(default)]
+    pub creator_bootstrap_records: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub creator_bootstrap_queue: BTreeMap<EventId, Vec<u8>>,
+    #[serde(default)]
+    pub creator_bootstrap_ready: BTreeMap<
+        String,
+        arkret_models_collaboration::mls_creator_bootstrap::MlsCreatorBootstrapReadyReceipt,
+    >,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accepted_station: Option<arkret::StationConnectionBinding>,
     pub unable_to_decrypt: BTreeMap<EventId, UnableToDecryptRecord>,
@@ -332,6 +345,9 @@ impl ArkretCryptoStateFile {
             version: STATE_VERSION.to_owned(),
             scope_id,
             generation: 0,
+            creator_bootstrap_records: BTreeMap::new(),
+            creator_bootstrap_queue: BTreeMap::new(),
+            creator_bootstrap_ready: BTreeMap::new(),
             accepted_station: None,
             unable_to_decrypt: BTreeMap::new(),
             accepted_decryptions: BTreeMap::new(),
@@ -586,7 +602,9 @@ impl FileArkretCryptoStore {
 
     fn load_unlocked(&self) -> anyhow::Result<ArkretCryptoStateFile> {
         match std::fs::read(&self.path) {
-            Ok(bytes) if bytes.is_empty() => ArkretCryptoStateFile::new(self.scope_id.clone()),
+            Ok(bytes) if bytes.is_empty() => {
+                anyhow::bail!("refusing to replace an empty existing Arkret crypto state")
+            }
             Ok(bytes) => {
                 let value: Value = serde_json::from_slice(&bytes)
                     .with_context(|| format!("parse {}", self.path.display()))?;
@@ -667,6 +685,10 @@ impl FileArkretCryptoStore {
         let bytes = serde_json::to_vec_pretty(&wrapped)?;
         savfox_utils::fs::write_atomically(&self.path, &bytes, Some(0o600))
             .with_context(|| format!("persist {}", self.path.display()))?;
+        #[cfg(unix)]
+        if let Some(parent) = self.path.parent() {
+            std::fs::File::open(parent)?.sync_all()?;
+        }
         state.generation = next_generation;
         Ok(())
     }
@@ -2636,6 +2658,7 @@ impl FileArkretCryptoStore {
             .realm_id_opt()
             .context("Arkret encryption requires an existing scope")?
             .as_str();
+        self.require_creator_ready(scope)?;
         match scope {
             ScopeRef::Realm { .. } => {
                 let Some(policy) = state.realm_policies.get(realm_id) else {
@@ -2646,7 +2669,7 @@ impl FileArkretCryptoStore {
                 }
                 policy.group_id_for_realm()?;
             }
-            ScopeRef::Sidecar { .. } => {}
+            ScopeRef::Circle { .. } | ScopeRef::Sidecar { .. } => {}
             _ => {
                 anyhow::bail!("Arkret reply encryption requires its native Realm or Sidecar scope")
             }
