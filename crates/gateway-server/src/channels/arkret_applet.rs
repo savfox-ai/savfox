@@ -3,7 +3,7 @@
 //! HTTPS discovery and Station-signed authoring completion are independent of
 //! group content delivery. Group Events and Signals require a native managed
 //! Device; management transactions never dispatch them to a model.
-//! Fresh managed identity custody is currently unavailable in this host.
+//! Managed Principal custody and authoring use the shared bridge runtime.
 //!
 //! Direct routes use `/_arkret/edge/applet/...`; per-configuration routes use
 //! `/appservices/arkret/{config_id}/_arkret/edge/applet/...`.
@@ -269,16 +269,81 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
 }
 
 #[handler]
-async fn applet_managed_actor_author_unavailable(req: &mut Request, res: &mut Response) {
-    if resolve_public_applet(req, res).is_none() {
+async fn applet_managed_actor_author(req: &mut Request, res: &mut Response) {
+    let Some(state) = resolve_public_applet(req, res) else {
         return;
+    };
+    let edge = match applet_edge(&state).await {
+        Ok(edge) => edge,
+        Err(error) => {
+            warn!(%error, "Applet authoring transport initialization failed");
+            render_error(
+                res,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "temporarily_unavailable",
+                "Managed identity authoring is unavailable",
+            );
+            return;
+        }
+    };
+    let author = arkret_bridge_runtime::run_blocking(move || {
+        arkret_bridge_runtime::managed_actor_authoring::ManagedActorAuthoringService::new(edge)
+    })
+    .await;
+    match author {
+        Ok(author) => {
+            let body = match req
+                .parse_json::<arkret::AppletManagedActorAuthorRequestBody>()
+                .await
+            {
+                Ok(body) => body,
+                Err(_) => {
+                    render_error(
+                        res,
+                        StatusCode::BAD_REQUEST,
+                        "schema_violation",
+                        "Invalid managed actor author request",
+                    );
+                    return;
+                }
+            };
+            match author.author(&body.authoring_request).await {
+                Ok(managed_actor_bundle) => {
+                    res.render(Json(arkret::AppletManagedActorAuthorOutcome {
+                        managed_actor_bundle,
+                    }))
+                }
+                Err(error) => {
+                    let status = match &error {
+                        arkret_bridge_runtime::BridgeError::App(message)
+                            if message.contains("expired") =>
+                        {
+                            StatusCode::GONE
+                        }
+                        arkret_bridge_runtime::BridgeError::App(_)
+                        | arkret_bridge_runtime::BridgeError::Arkret(_) => StatusCode::BAD_REQUEST,
+                        _ => StatusCode::INTERNAL_SERVER_ERROR,
+                    };
+                    warn!(%error, "Managed actor authoring failed");
+                    render_error(
+                        res,
+                        status,
+                        "managed_actor_authoring_failed",
+                        "Managed identity authoring failed",
+                    );
+                }
+            }
+        }
+        Err(error) => {
+            warn!(%error, "Applet authoring custody initialization failed");
+            render_error(
+                res,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "temporarily_unavailable",
+                "Managed identity custody is unavailable",
+            );
+        }
     }
-    render_error(
-        res,
-        StatusCode::SERVICE_UNAVAILABLE,
-        "capability_denied",
-        "Managed identity authoring custody is not connected in this runtime",
-    );
 }
 
 #[handler]
@@ -1127,6 +1192,10 @@ async fn build_applet_edge(
             "managed_actor_authoring": cfg.managed_actor_authoring,
             "signer_resolution_evidence_ref": signer_resolution_evidence_ref,
             "trusted_server_did": trusted_server_did,
+            "trusted_verification_methods": cfg.trusted_verification_methods.iter().map(|method| json!({
+                "verification_method": method.verification_method,
+                "public_key": method.public_key,
+            })).collect::<Vec<_>>(),
         },
         "app": Value::Null,
     }))
@@ -1143,10 +1212,7 @@ pub(crate) fn arkret_applet_router() -> Router {
         .push(Router::with_path("ping").get(applet_ping))
         .push(Router::with_path("describe").get(applet_describe))
         .push(Router::with_path("transactions").post(applet_transactions))
-        .push(
-            Router::with_path("managed-actors/author")
-                .post(applet_managed_actor_author_unavailable),
-        )
+        .push(Router::with_path("managed-actors/author").post(applet_managed_actor_author))
         .push(Router::with_path("actors/{actor_id}").get(applet_actor))
         .push(Router::with_path("realms/{realm_id_or_alias}").get(applet_realm))
         .push(Router::with_path("protocols/{protocol}").get(applet_protocol))

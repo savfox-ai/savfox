@@ -248,6 +248,6 @@ Legacy management transaction group dispatch is closed. Account-mode Agent nativ
 MLS handling is unchanged; these management updates do not establish a working
 Applet group execution runtime.
 
-Fresh managed identity authoring custody is not connected in Savfox Applet mode; the standard author endpoint returns unavailable. Completion requires exact locally frozen creation material, so it cannot bootstrap a new Account by accepting foreign bundles. Bridges supplies the production authoring implementation.
+The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, bundle and completion preparation across retries and restart. Completion still requires those exact locally frozen bytes. This management path does not start a native Device or MLS listener.
 
 Personal Agent replies always retain their accepted Account and native delivery binding. Applet namespace ownership never redirects those replies through another Bot.

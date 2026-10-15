@@ -43,6 +43,7 @@ arkret-models-collaboration = { path = "../../arkret-org/arkret-rust-sdk/crates/
 arkret-models-crypto = { path = "../../arkret-org/arkret-rust-sdk/crates/models-crypto" }
 arkret-models-discovery = { path = "../../arkret-org/arkret-rust-sdk/crates/models-discovery" }
 arkret-models-identity = { path = "../../arkret-org/arkret-rust-sdk/crates/models-identity" }
+arkret-models-integration = { path = "../../arkret-org/arkret-rust-sdk/crates/models-integration" }
 arkret-policy = { path = "../../arkret-org/arkret-rust-sdk/crates/policy" }
 arkret-retry = { path = "../../arkret-org/arkret-rust-sdk/crates/retry" }
 arkret-signatures = { path = "../../arkret-org/arkret-rust-sdk/crates/signatures" }

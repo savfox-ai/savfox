@@ -171,6 +171,6 @@ Genesis 消除 pending。仅在 controller 明确授权解绑且远端确认后�
 
 Applet 模式的首 Device 私态与 possession、原生 queue／Welcome／ACK／MLS／Blob reader、native resolution rotation installer 和持续 scope refresh 尚未接线。旧管理 transaction 群 dispatch 已关闭；Account 模式 Agent 原生 MLS 路径保持独立，本轮不能证明 Applet 群业务 runtime 已打通。
 
-Savfox Applet 模式尚未接入 fresh managed identity authoring 私钥托管执行器；正式 author 地址明确返回 unavailable。completion 要求本地冻结的精确创建材料，不能接收外来 bundle 代替主体创建。Bridges 已提供生产 authoring 实现。
+正式 Applet author 地址复用共享 bridge runtime 的 Bot／Ghost Principal 托管。每个配置通过 publication journal 的原子耐久存储保管加密的历史 root、next-root 与独立 controller 私钥。配置 `managed_actor_authoring` 及精确可信 Station 验签公钥；加密密钥缺失或错误时拒绝。原请求、bundle 与 completion preparation 跨重试和重启保留；completion 仍要求本地冻结的逐字材料。这条管理路径不会启动原生 Device 或 MLS listener。
 
 个人 Agent 回复始终使用其接纳的 Account 与原生 delivery binding；Applet namespace 声明不会把回复转给另一个 Bot 发送。
