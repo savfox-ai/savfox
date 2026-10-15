@@ -574,6 +574,7 @@ pub(crate) fn build_router(
 
     #[cfg(feature = "arkret")]
     {
+        router = router.push(channels::arkret_applet::arkret_principal_router());
         router = router.push(channels::arkret_applet::arkret_applet_router());
         router = router.push(channels::arkret_applet::arkret_appservices_router());
     }

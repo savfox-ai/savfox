@@ -251,3 +251,9 @@ Applet group execution runtime.
 The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, bundle and completion preparation across retries and restart. Completion still requires those exact locally frozen bytes. This management path does not start a native Device or MLS listener.
 
 Personal Agent replies always retain their accepted Account and native delivery binding. Applet namespace ownership never redirects those replies through another Bot.
+
+The Applet host also serves its managed Principals' native `/webvh/<local_id>/did.json`
+and `did.jsonl` resources. Route the configured Principal HTTPS origin to this
+host. The resources contain the verified public inception and controller method;
+private seeds and the authoring ledger remain local. Native resolution rotation
+is still a separate runtime obligation.

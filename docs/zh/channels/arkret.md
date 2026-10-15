@@ -174,3 +174,8 @@ Applet 模式的首 Device 私态与 possession、原生 queue／Welcome／ACK�
 正式 Applet author 地址复用共享 bridge runtime 的 Bot／Ghost Principal 托管。每个配置通过 publication journal 的原子耐久存储保管加密的历史 root、next-root 与独立 controller 私钥。配置 `managed_actor_authoring` 及精确可信 Station 验签公钥；加密密钥缺失或错误时拒绝。原请求、bundle 与 completion preparation 跨重试和重启保留；completion 仍要求本地冻结的逐字材料。这条管理路径不会启动原生 Device 或 MLS listener。
 
 个人 Agent 回复始终使用其接纳的 Account 与原生 delivery binding；Applet namespace 声明不会把回复转给另一个 Bot 发送。
+
+Applet host 同时提供受管 Principal 的原生 `/webvh/<local_id>/did.json` 与 `did.jsonl`。
+配置的 Principal HTTPS origin 须路由到该 host；资源只包含已验证的公开 inception 与
+controller method，私钥和 authoring ledger 不进入响应。native resolution rotation
+仍是独立的 runtime 实施义务。

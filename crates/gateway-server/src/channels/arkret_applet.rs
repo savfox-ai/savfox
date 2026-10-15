@@ -1204,6 +1204,109 @@ async fn build_applet_edge(
         .map_err(|err| anyhow::anyhow!("build arkret outbound edge: {err}"))
 }
 
+/// Publish native Principal resources from the configured hosts' durable custody.
+/// No management transaction, private key, or group content is returned here.
+async fn applet_principal_resource(req: &Request, res: &mut Response, history: bool) {
+    let local_id = req.param::<String>("local_id").unwrap_or_default();
+    let states = match applet_registry().lock() {
+        Ok(registry) => registry.values().cloned().collect::<Vec<_>>(),
+        Err(_) => {
+            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+            return;
+        }
+    };
+    let mut found = None;
+    let mut unavailable = false;
+    for state in states {
+        let edge = match applet_edge(&state).await {
+            Ok(edge) => edge,
+            Err(error) => {
+                warn!(%error,"Principal publication transport unavailable");
+                unavailable = true;
+                continue;
+            }
+        };
+        let author =
+            match arkret_bridge_runtime::managed_actor_authoring::ManagedActorAuthoringService::new(
+                edge,
+            ) {
+                Ok(author) => author,
+                Err(error) => {
+                    warn!(%error,"Principal publication custody unavailable");
+                    unavailable = true;
+                    continue;
+                }
+            };
+        match author.published_principal(&local_id).await {
+            Ok(Some(material)) => {
+                if found.is_some() {
+                    res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+                    return;
+                }
+                found = Some(material);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                warn!(%error,"Principal publication evidence unavailable");
+                unavailable = true;
+            }
+        }
+    }
+    let Some((document, entries)) = found else {
+        res.status_code(if unavailable {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            StatusCode::NOT_FOUND
+        });
+        return;
+    };
+    res.headers_mut().insert(
+        "cache-control",
+        "no-store".parse().expect("static cache policy"),
+    );
+    if history {
+        let mut body = Vec::new();
+        for entry in entries {
+            match canonical::canonical_json_bytes(&entry) {
+                Ok(bytes) => {
+                    body.extend(bytes);
+                    body.push(b'\n');
+                }
+                Err(_) => {
+                    res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+                    return;
+                }
+            }
+        }
+        res.headers_mut().insert(
+            "content-type",
+            "application/jsonl".parse().expect("static content type"),
+        );
+        if let Err(error) = res.write_body(body) {
+            warn!(%error,"Principal native history response write failed");
+            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    } else {
+        res.render(Json(document));
+    }
+}
+
+#[handler]
+async fn applet_principal_document(req: &mut Request, res: &mut Response) {
+    applet_principal_resource(req, res, false).await;
+}
+#[handler]
+async fn applet_principal_history(req: &mut Request, res: &mut Response) {
+    applet_principal_resource(req, res, true).await;
+}
+
+/// Native DID-method resources use their canonical paths, outside the management tree.
+pub(crate) fn arkret_principal_router() -> Router {
+    Router::with_path("webvh/{local_id}")
+        .push(Router::with_path("did.json").get(applet_principal_document))
+        .push(Router::with_path("did.jsonl").get(applet_principal_history))
+}
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 /// Routes mounted at `/_arkret/edge/applet/...` (direct).
