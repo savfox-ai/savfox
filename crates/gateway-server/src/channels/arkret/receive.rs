@@ -2354,7 +2354,7 @@ mod recovery_tests {
                     .unwrap()
         );
         let original_fact =
-            arkret_models_collaboration::authority_commit::HumanHistoricalSignerFact {
+            arkret_models_collaboration::authority_commit::AccountDeviceHistoricalSignerFact {
                 event_id: event.event_id.clone(),
                 actor: event.actual_signer().clone(),
                 device_id: human.device_id,
