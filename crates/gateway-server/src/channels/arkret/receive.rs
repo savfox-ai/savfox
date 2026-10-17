@@ -1582,12 +1582,12 @@ mod installed_scope_tests {
     }
 }
 
-async fn restore_visible_checkpoint<Q>(
+async fn restore_visible_checkpoint(
     own: &arkret::http_client::own_station_results::OwnStationResultClient,
     replica: &mut garth::own_station_results::OwnStationReplica,
     previous: &arkret::CommitStreamHead,
     snapshot: &arkret::http_client::own_station_results::BoundOwnStationResponse<
-        Q,
+        arkret::RealmId,
         arkret::RealmStateSnapshot,
     >,
     service: &Option<arkret::DidCoreId>,
