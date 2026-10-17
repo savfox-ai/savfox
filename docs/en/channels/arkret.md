@@ -242,13 +242,13 @@ managed-Account children, independent native membership and accepted Devices. A 
 whose subject is a Bot or Ghost must be consumed by that actual managed Account;
 a Service proof cannot act as the Account through `executed_by`.
 
-Applet-mode Device custody/possession, native queue/Welcome/ACK/MLS/Blob readers,
+Applet-mode native queue/Welcome/ACK/MLS/Blob readers,
 resolution rotation installation and continuous scope refresh remain unwired.
 Legacy management transaction group dispatch is closed. Account-mode Agent native
 MLS handling is unchanged; these management updates do not establish a working
 Applet group execution runtime.
 
-The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, bundle and completion preparation across retries and restart. Completion still requires those exact locally frozen bytes. This management path does not start a native Device or MLS listener.
+The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, bundle and completion preparation across retries and restart. Completion still requires those exact locally frozen bytes. The management path starts Device bootstrap only when explicitly configured; it does not start an MLS listener.
 
 Personal Agent replies always retain their accepted Account and native delivery binding. Applet namespace ownership never redirects those replies through another Bot.
 
@@ -257,3 +257,19 @@ and `did.jsonl` resources. Route the configured Principal HTTPS origin to this
 host. The resources contain the verified public inception and controller method;
 private seeds and the authoring ledger remain local. Native resolution rotation
 is still a separate runtime obligation.
+
+The Applet host can bootstrap an independent initial Device for each locally
+created Bot/Ghost after verified authoring completion. Explicitly configure
+`managed_actor_authoring.device.actions` (a nonempty capability list) and
+`managed_actor_authoring.device.lifetime_seconds` (a positive finite duration).
+Omitting `device` disables automatic bootstrap. The permission pair covers only
+the exact creation scope; a Realm does not imply its Circles. Installation and
+Device acceptance do not supply business permission or membership.
+
+The existing encrypted authoring store saves the independent Device signing
+key, HPKE private key, exact Principal-signed authorization and original creation
+roots before submission. Restart retries that original Event and stored scope
+and expiry, including after an accepted response could not be saved locally.
+A wrong wrapping key, missing original roots or changed plan fails closed.
+This initial-generation bootstrap does not renew expired authorization, rotate
+the Principal, or start the separate MLS/queue/content execution loop.

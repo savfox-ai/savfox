@@ -169,9 +169,9 @@ Genesis 消除 pending。仅在 controller 明确授权解绑且远端确认后�
 
 配置可解析的 `service_did`、对应 `serviceId`、`trust_domain`、`verification_method` 与真实私钥 `keyRef`。身份托管继续使用 `managed_actor_authoring` 的 `principal_endpoint`／`key_encryption_key_hex`。创建是 provenance，不授业务权限；群业务必须具有当前 Service parent／terminal child、独立 membership 与 accepted Device。 Bot／Ghost subject 的子授权必须由实际 Bot／Ghost 消费；Service proof 不能通过 `executed_by` 代替该 Account。
 
-Applet 模式的首 Device 私态与 possession、原生 queue／Welcome／ACK／MLS／Blob reader、native resolution rotation installer 和持续 scope refresh 尚未接线。旧管理 transaction 群 dispatch 已关闭；Account 模式 Agent 原生 MLS 路径保持独立，本轮不能证明 Applet 群业务 runtime 已打通。
+Applet 模式的原生 queue／Welcome／ACK／MLS／Blob reader、native resolution rotation installer 和持续 scope refresh 尚未接线。旧管理 transaction 群 dispatch 已关闭；Account 模式 Agent 原生 MLS 路径保持独立，本轮不能证明 Applet 群业务 runtime 已打通。
 
-正式 Applet author 地址复用共享 bridge runtime 的 Bot／Ghost Principal 托管。每个配置通过 publication journal 的原子耐久存储保管加密的历史 root、next-root 与独立 controller 私钥。配置 `managed_actor_authoring` 及精确可信 Station 验签公钥；加密密钥缺失或错误时拒绝。原请求、bundle 与 completion preparation 跨重试和重启保留；completion 仍要求本地冻结的逐字材料。这条管理路径不会启动原生 Device 或 MLS listener。
+正式 Applet author 地址复用共享 bridge runtime 的 Bot／Ghost Principal 托管。每个配置通过 publication journal 的原子耐久存储保管加密的历史 root、next-root 与独立 controller 私钥。配置 `managed_actor_authoring` 及精确可信 Station 验签公钥；加密密钥缺失或错误时拒绝。原请求、bundle 与 completion preparation 跨重试和重启保留；completion 仍要求本地冻结的逐字材料。这条管理路径仅在显式配置后启动 Device 引导，仍不启动 MLS listener。
 
 个人 Agent 回复始终使用其接纳的 Account 与原生 delivery binding；Applet namespace 声明不会把回复转给另一个 Bot 发送。
 
@@ -179,3 +179,15 @@ Applet host 同时提供受管 Principal 的原生 `/webvh/<local_id>/did.json` 
 配置的 Principal HTTPS origin 须路由到该 host；资源只包含已验证的公开 inception 与
 controller method，私钥和 authoring ledger 不进入响应。native resolution rotation
 仍是独立的 runtime 实施义务。
+
+Applet host 可在验证 authoring completion 后，为本地创建的每个 Bot／Ghost
+引导独立首 Device。显式配置 `managed_actor_authoring.device.actions`（非空 capability 列表）
+与 `managed_actor_authoring.device.lifetime_seconds`（正数有限时长）；省略 `device`
+则不自动引导。授权配对仅覆盖创建的 exact scope，Realm 不包含其 Circle。
+安装及 Device 接纳本身不提供业务权或 membership。
+
+首次提交前，既有加密 authoring store 耐久保存独立 Device 签名私钥、HPKE 私钥、
+Principal 原签授权和原创建 roots。重启复用原 Event、原 scope 和期限；
+Station 已接纳但本地保存响应失败时也按原件恢复。错误 wrapping key、缺原 roots
+或变更原计划均拒绝。本首代引导不续期过期授权、不轮换 Principal，也不启动独立
+MLS／queue／内容执行循环。

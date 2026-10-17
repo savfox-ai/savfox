@@ -1401,6 +1401,9 @@ pub(crate) async fn start_arkret_applet_channel(
                     if let Err(error) = edge.retry_pending_publications().await {
                         warn!(%error, "Applet publication recovery failed");
                     }
+                    if let Err(error) = arkret_bridge_runtime::managed_device::ManagedDeviceRuntime::bootstrap_if_configured(edge.clone()).await {
+                        warn!(%error, "Applet native Device recovery failed");
+                    }
                 }
                 Err(error) => warn!(%error, "Applet publication transport unavailable"),
             }
