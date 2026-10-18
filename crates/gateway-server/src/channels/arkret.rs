@@ -1265,6 +1265,48 @@ fn queued_message_matches_runtime(
     Ok(true)
 }
 
+fn verify_runtime_publication(
+    request: arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<
+    arkret::VerifiedSubmission<
+        arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest,
+    >,
+> {
+    let evidence = account
+        .current_signer_evidence
+        .as_ref()
+        .context("runtime signer evidence is unavailable")?;
+    let reference = account
+        .signer_resolution_evidence_ref
+        .as_ref()
+        .context("runtime signer evidence reference is unavailable")?;
+    evidence.validate_against(reference)?;
+    let root = &evidence.authenticated_signer_evidence;
+    root.validate()?;
+    let method = account
+        .verification_method
+        .as_ref()
+        .context("runtime method is unavailable")?;
+    anyhow::ensure!(
+        root.signer_kind == arkret::AuthenticatedSignerKind::Agent
+            && root.subject_id.as_str() == account.principal_id
+            && root.verification_method.as_str() == method,
+        "outbound runtime evidence differs from its configured identity"
+    );
+    let context = arkret::ProducerVerificationContext {
+        actor: arkret::ActorId::account(account.actor_account_id.clone()),
+        verification_method: root.verification_method.clone(),
+        public_key: arkret::signatures::PublicKeyMaterial::Jwk {
+            value: serde_json::to_value(&root.public_key_jwk)?,
+        },
+        digest_suite: arkret::DigestSuite::Sha256,
+    };
+    Ok(arkret::VerifiedSubmission::verify(request, |_| {
+        Ok(context.clone())
+    })?)
+}
+
 async fn cancel_unusable_account_submissions(
     outbound: &OutboundEngine<garth::FileStore, garth::SystemClock>,
     account: &ArkretAccountConfig,
@@ -1359,7 +1401,12 @@ async fn drain_pending_account_outbound(
                 return;
             }
         };
-        match outbound.submit_next(&authority, &options).await {
+        match outbound
+            .submit_next(&authority, &options, |request| async move {
+                verify_runtime_publication(request, account).map_err(|error| error.to_string())
+            })
+            .await
+        {
             Ok(OutboundEngineOutcome::Committed { .. }) => {
                 debug!(channel_id = %channel.id, account_id = %account.id,
                     "arkret: durable producer submission committed");
@@ -4499,7 +4546,14 @@ pub(crate) async fn send_to_arkret_account(
         cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation)
             .await?;
         let authority = garth::AuthorityClient::new(client.own_station()?.clone());
-        match outbound.submit_next(&authority, &options).await? {
+        let submission_account = &account;
+        match outbound
+            .submit_next(&authority, &options, |request| async move {
+                verify_runtime_publication(request, submission_account)
+                    .map_err(|error| error.to_string())
+            })
+            .await?
+        {
             OutboundEngineOutcome::Committed { item, .. } if item.event_id() == &event_id => {
                 if let Some(context) = sidecar_exchange {
                     SidecarExchangeStore::for_account(savfox_home, &channel.id, &account.id)

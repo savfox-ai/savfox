@@ -1303,6 +1303,14 @@ impl ArkretHttpClient {
                 )?;
                 return Err(error);
             }
+            let producer_context = arkret::ProducerVerificationContext {
+                actor: record.intent().owner_actor_id().clone(),
+                verification_method: record.intent().creator_signer_method().clone(),
+                public_key: arkret::signatures::PublicKeyMaterial::Ed25519Raw {
+                    bytes: key.verifying_key().as_bytes().to_vec(),
+                },
+                digest_suite: arkret::DigestSuite::Sha256,
+            };
             if record.epoch_zero().is_some() {
                 if let Err(error) = store.restore_creator_group(&record) {
                     store.quarantine_creator(&record, client, error.to_string())?;
@@ -1342,7 +1350,10 @@ impl ArkretHttpClient {
                 State::GenesisIntentPersisted => {
                     client
                         .submit_to_realm_authority(
-                            record.intent().signed_scope_create_unit(),
+                            &arkret::VerifiedSubmission::verify(
+                                record.intent().signed_scope_create_unit().clone(),
+                                |_| Ok(producer_context.clone()),
+                            )?,
                             &Default::default(),
                         )
                         .await?
@@ -1577,6 +1588,9 @@ impl ArkretHttpClient {
                         }
                         let request = arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest::Event(
                             arkret::EventAdmissionSubmission::new(queued.signed_genesis().event().clone()));
+                        let request = arkret::VerifiedSubmission::verify(request, |_| {
+                            Ok(producer_context.clone())
+                        })?;
                         if let Err(error) = client
                             .submit_to_realm_authority(&request, &Default::default())
                             .await

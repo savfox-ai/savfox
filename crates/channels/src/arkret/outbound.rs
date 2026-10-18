@@ -274,13 +274,25 @@ mod tests {
         let client = super::super::client::ArkretHttpClient::from_inner(inner);
         let event = build_message_create_event(&valid_request()).unwrap();
         let mut authored = finalize_outbound_event(event).unwrap();
-        assert!(client.prepare_submission(&authored).is_err());
+        let context = arkret::ProducerVerificationContext {
+            actor: arkret::ActorId::account(valid_request().actor_account_id),
+            verification_method: arkret::DidUrl::new("did:web:agent.example#runtime-1".to_owned())
+                .unwrap(),
+            public_key: arkret::signatures::PublicKeyMaterial::Ed25519Raw {
+                bytes: SigningKey::from_bytes(&[43; 32])
+                    .verifying_key()
+                    .to_bytes()
+                    .to_vec(),
+            },
+            digest_suite: arkret::DigestSuite::Sha256,
+        };
+        assert!(client.prepare_submission(&authored, &context).is_err());
         let signer = Ed25519DetachedJwsSigner::new(
             SigningKey::from_bytes(&[43; 32]),
             "did:web:agent.example#runtime-1",
         );
         sign_outbound_event(&mut authored, &signer).unwrap();
-        let submission = client.prepare_submission(&authored).unwrap();
+        let submission = client.prepare_submission(&authored, &context).unwrap();
         assert_eq!(&submission.event, authored.event());
         assert!(submission.approval_signatures.is_none());
         let wire = serde_json::to_value(submission).unwrap();

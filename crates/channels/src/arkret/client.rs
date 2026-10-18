@@ -664,19 +664,21 @@ impl ArkretHttpClient {
     pub fn prepare_submission(
         &self,
         event: &AuthoredEvent,
-    ) -> anyhow::Result<EventAdmissionSubmission> {
-        event.verify_identity()?;
-        event.verify_producer_proof_self_consistency(event.digest_suite())?;
+        context: &arkret::ProducerVerificationContext,
+    ) -> anyhow::Result<arkret::VerifiedSubmission<EventAdmissionSubmission>> {
+        let verified = arkret::VerifiedProducerEvent::verify(event.event().clone(), context)?;
         let submission = EventAdmissionSubmission::new(event.event().clone());
-        submission.validate()?;
-        Ok(submission)
+        Ok(arkret::VerifiedSubmission::from_verified_events(
+            submission,
+            &[verified],
+        )?)
     }
 
     /// Submit over the authenticated self surface and require exact Commit
     /// coverage of this Event and its security-scope stream.
     pub async fn submit_submission(
         &self,
-        submission: &EventAdmissionSubmission,
+        submission: &arkret::VerifiedSubmission<EventAdmissionSubmission>,
     ) -> anyhow::Result<AuthoritySubmitOutcome> {
         submission.validate()?;
         let outcome = self
@@ -684,15 +686,16 @@ impl ArkretHttpClient {
             .submit_event(submission)
             .await
             .map_err(anyhow::Error::from)?;
-        outcome.validate_for_request(&AuthoritySubmitRequest::Event(submission.clone()))?;
+        outcome.validate_for_request(&AuthoritySubmitRequest::Event(submission.wire().clone()))?;
         Ok(outcome)
     }
 
     pub async fn submit_event(
         &self,
         event: &AuthoredEvent,
+        context: &arkret::ProducerVerificationContext,
     ) -> anyhow::Result<AuthoritySubmitOutcome> {
-        let submission = self.prepare_submission(event)?;
+        let submission = self.prepare_submission(event, context)?;
         self.submit_submission(&submission).await
     }
 
