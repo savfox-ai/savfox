@@ -19,6 +19,24 @@ it must not wait for the first chat message to join. Validate fresh pairing and
 the first send on isolated empty databases, without changing the delivery mode
 in the test or repairing the conversation manually.
 
+New encrypted-listener candidates explicitly request `ak.object.read` as well as
+`ak.event.read`: current conversation snapshots need metadata permission. This
+is a global ceiling, not a resource grant. An older immutable provision or key
+without that action needs explicit migration; the runtime never adds it to an
+accepted scope or recovers it through refresh.
+
+The service session does not authorize every content resource. The runtime uses
+authenticated participation observations and exact controller Direct resolution
+only to locate candidate Realms, then requests an independent session for one
+Realm with a new signed intent. The issuer and resource server still check its
+current authority. Refresh cannot add resources or restore removed content
+actions. An uncertain issue retries the original request. Recipient queue reads
+use one delivery at a time so a scoped session cannot skip a blocked queue head
+or acknowledge an unprocessed delivery.
+A narrowed or invalidated cached content session needs a new issue intent; the
+old grant is never expanded.
+
+
 On Windows, Arkret runtime seeds and crypto-state wrapping keys use the shared
 SDK's CurrentUser DPAPI-protected encrypted vault. They do not consume Windows
 Credential Manager entries. The `keyring` key reference remains an opaque
