@@ -204,7 +204,7 @@ dependencies = [
  "ratatui-core",
  "simdutf8",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -243,7 +243,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -254,7 +254,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -349,7 +349,7 @@ dependencies = [
 [[package]]
 name = "arkret"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-auth",
  "arkret-bootstrap",
@@ -380,27 +380,27 @@ dependencies = [
  "ed25519-dalek 3.0.0",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
 ]
 
 [[package]]
 name = "arkret-auth"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
  "arkret-wire",
  "chrono",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "arkret-bootstrap"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-event-draft",
@@ -414,7 +414,7 @@ dependencies = [
 [[package]]
 name = "arkret-bridge-runtime"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/bridges.git?rev=cefe906a53310b17533e026edf351320a74099f9#cefe906a53310b17533e026edf351320a74099f9"
+source = "git+https://github.com/arkret-org/bridges.git?rev=410f04937c9be55758156e718e0893250e76b181#410f04937c9be55758156e718e0893250e76b181"
 dependencies = [
  "anyhow",
  "arkret",
@@ -435,12 +435,12 @@ dependencies = [
  "hex",
  "parking_lot",
  "redb",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rustls",
  "serde",
  "serde-saphyr",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -450,7 +450,7 @@ dependencies = [
 [[package]]
 name = "arkret-canonical"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "base64 0.23.1",
  "blake3",
@@ -459,15 +459,15 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.20",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
  "unicode-normalization",
 ]
 
 [[package]]
 name = "arkret-crypto"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-models-crypto",
@@ -483,29 +483,29 @@ dependencies = [
  "hpke",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "subtle",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "zeroize",
 ]
 
 [[package]]
 name = "arkret-egress-policy"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
 ]
 
 [[package]]
 name = "arkret-egress-reqwest"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-egress-policy",
- "reqwest 0.13.4",
- "thiserror 2.0.20",
+ "reqwest 0.13.5",
+ "thiserror 2.0.21",
  "tokio",
  "url",
 ]
@@ -513,7 +513,7 @@ dependencies = [
 [[package]]
 name = "arkret-event-draft"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
@@ -525,25 +525,25 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "arkret-hlc"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
  "arkret-wire",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "web-time",
 ]
 
 [[package]]
 name = "arkret-http-client"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-egress-policy",
@@ -563,10 +563,10 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "js-sys",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
  "wasm-bindgen",
@@ -578,14 +578,14 @@ dependencies = [
 [[package]]
 name = "arkret-identifiers"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "base64 0.23.1",
  "getrandom 0.2.17",
  "getrandom 0.4.3",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
  "uuid",
  "web-time",
@@ -594,7 +594,7 @@ dependencies = [
 [[package]]
 name = "arkret-identity"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-egress-policy",
@@ -608,20 +608,20 @@ dependencies = [
  "serde",
  "serde_json",
  "subtle",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "arkret-keystore"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "atomic-write-file",
  "chacha20poly1305 0.11.0",
  "getrandom 0.4.3",
  "hkdf 0.13.0",
- "sha2 0.11.0",
- "thiserror 2.0.20",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
  "windows 0.62.2",
  "zeroize",
 ]
@@ -629,7 +629,7 @@ dependencies = [
 [[package]]
 name = "arkret-locale"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "serde",
 ]
@@ -637,7 +637,7 @@ dependencies = [
 [[package]]
 name = "arkret-mls"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "aes-gcm 0.11.1",
  "arkret-canonical",
@@ -658,8 +658,8 @@ dependencies = [
  "openmls_traits",
  "serde",
  "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.20",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
  "tls_codec",
  "unicode-normalization",
  "uuid",
@@ -669,7 +669,7 @@ dependencies = [
 [[package]]
 name = "arkret-models-collaboration"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
@@ -684,8 +684,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
- "sha2 0.11.0",
- "thiserror 2.0.20",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
  "unicode-normalization",
  "uuid",
 ]
@@ -693,7 +693,7 @@ dependencies = [
 [[package]]
 name = "arkret-models-crypto"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-wire",
@@ -702,13 +702,13 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "arkret-models-discovery"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-models-identity",
@@ -716,14 +716,14 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
 ]
 
 [[package]]
 name = "arkret-models-identity"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-locale",
@@ -732,14 +732,14 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "url",
 ]
 
 [[package]]
 name = "arkret-models-integration"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
@@ -753,7 +753,7 @@ dependencies = [
 [[package]]
 name = "arkret-policy"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-event-draft",
@@ -766,34 +766,34 @@ dependencies = [
  "chrono-tz",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "arkret-push-policy"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-models-integration",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "arkret-rate-limit"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 
 [[package]]
 name = "arkret-retry"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 
 [[package]]
 name = "arkret-schema"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
@@ -802,7 +802,7 @@ dependencies = [
  "jsonschema",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "web-time",
 ]
@@ -810,7 +810,7 @@ dependencies = [
 [[package]]
 name = "arkret-server"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
@@ -827,7 +827,7 @@ dependencies = [
 [[package]]
 name = "arkret-signatures"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
@@ -843,9 +843,9 @@ dependencies = [
  "rand_core 0.10.1",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "subtle",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
  "uuid",
  "zeroize",
@@ -854,17 +854,17 @@ dependencies = [
 [[package]]
 name = "arkret-state"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-identifiers",
  "arkret-wire",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "arkret-wire"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c#4c5de4cb2b3c15f7235da5cde025a7ba5f65f47c"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=3760b4b9671c5411432df9e19b967497919b6ec5#3760b4b9671c5411432df9e19b967497919b6ec5"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
@@ -876,7 +876,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "unicode-normalization",
  "unicode-security",
  "url",
@@ -926,7 +926,7 @@ dependencies = [
  "nom 7.1.3",
  "num-traits",
  "rusticata-macros",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
 ]
 
@@ -1151,9 +1151,9 @@ checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
 
 [[package]]
 name = "async-trait"
-version = "0.1.91"
+version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae36dc4177970ef04fde5178d3e2429882def40e57a451f919c098f72baa6cec"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2062,7 +2062,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2364,7 +2364,7 @@ dependencies = [
  "notify",
  "pretty_assertions",
  "regex-lite",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "savfox-core",
  "savfox-model",
  "savfox-protocol",
@@ -3098,13 +3098,13 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "rand 0.10.2",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "serde",
  "serde_json",
  "serde_repr",
  "sha1 0.10.7",
  "sha2 0.10.9",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.28.0",
  "tracing",
@@ -3154,7 +3154,7 @@ dependencies = [
  "ndk-context",
  "ndk-sys",
  "percent-encoding",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "wasm-bindgen-futures",
  "web-sys",
@@ -3239,7 +3239,7 @@ dependencies = [
  "serde",
  "serde_json",
  "subsecond",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "tungstenite 0.28.0",
 ]
@@ -3319,7 +3319,7 @@ dependencies = [
  "serde_json",
  "serde_qs",
  "serde_urlencoded",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio-util",
  "tracing",
  "tungstenite 0.27.0",
@@ -3354,7 +3354,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -3612,7 +3612,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3817,7 +3817,7 @@ dependencies = [
  "ed25519 3.0.0",
  "rand_core 0.10.1",
  "serde",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "signature 3.0.0",
  "subtle",
  "zeroize",
@@ -4046,7 +4046,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4213,13 +4213,13 @@ dependencies = [
  "chrono",
  "futures-util",
  "prost",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rustls",
  "serde",
  "serde_json",
  "sha1 0.10.7",
  "sha2 0.10.9",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.28.0",
  "urlencoding",
@@ -4469,9 +4469,9 @@ checksum = "e6d5a32815ae3f33302d95fdcb2ce17862f8c65363dcfd29360480ba1001fc9c"
 
 [[package]]
 name = "futures"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a88cf1f829d945f548cf8fec32c61b1f202b6d93b45848602fc02af4b12ad218"
+checksum = "9a31d2a3fbaaeb2af2368bbdd904aa8e812d3c04a1ee10d3171f52d556e5d0a3"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -4484,9 +4484,9 @@ dependencies = [
 
 [[package]]
 name = "futures-channel"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "262590f4fe6afeb0bc83be1daa64e52657fe185690a958af7f3ad0e92085c5ae"
+checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -4494,15 +4494,15 @@ dependencies = [
 
 [[package]]
 name = "futures-core"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cd50c473c80f6d7c3670a752354b8e569b1a7cbfdc0419ec88e5edad85e0dc7"
+checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
 
 [[package]]
 name = "futures-executor"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6754879cc9f2c66f88c6e5c35344bb0bdb0708b0352b1201815667c7eabc7458"
+checksum = "031b47cf1a3c6cc8bc2fc76cd437f521619387907d469316e7c0bc278f1f5432"
 dependencies = [
  "futures-core",
  "futures-task",
@@ -4522,9 +4522,9 @@ dependencies = [
 
 [[package]]
 name = "futures-io"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4577ecaa3c4f96589d473f679a71b596316f6641bc350038b962a5daf0085d7a"
+checksum = "53c0fa8157de1303bfffdaa1cc2a673bfffb60102f76b0ef4441659124373fed"
 
 [[package]]
 name = "futures-lite"
@@ -4541,32 +4541,32 @@ dependencies = [
 
 [[package]]
 name = "futures-macro"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d6d3cde68c518367be28956066ddfef33813991b77a55005a69dae04bf3b10b"
+checksum = "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
 name = "futures-sink"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e34418ac499d6305c2fb5ad0ed2f6ac998c5f8ca209b4510f7f94242c647e307"
+checksum = "1944426bf7d03f1d14f708785e4b33efd750b36d48a157b836b3efc15ede8e1d"
 
 [[package]]
 name = "futures-task"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b231ed28831efb4a61a08580c4bc233ec56bc009f4cd8f52da2c3cb97df0c109"
+checksum = "cd417de3d1d015fc3bfd2b1ea46dfc7bab72ef86f1cc7cc9c78e728b34a6d1fd"
 
 [[package]]
 name = "futures-util"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a77a90a256fce34da66415271e30f94ee91c57b04b8a2c042d9cf3220179deaa"
+checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -4591,7 +4591,7 @@ dependencies = [
 [[package]]
 name = "garth"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/garth.git?rev=f567788ccc4f15d9e764434032eb2f6b9ebc00d9#f567788ccc4f15d9e764434032eb2f6b9ebc00d9"
+source = "git+https://github.com/arkret-org/garth.git?rev=f9ddccc235cbbc1c315fe88417871bfc6200f0e5#f9ddccc235cbbc1c315fe88417871bfc6200f0e5"
 dependencies = [
  "arkret-auth",
  "arkret-canonical",
@@ -4619,8 +4619,8 @@ dependencies = [
  "im",
  "serde",
  "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.20",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
  "tokio",
  "url",
  "zeroize",
@@ -5089,7 +5089,7 @@ dependencies = [
  "once_cell",
  "rand 0.9.5",
  "ring",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tinyvec",
  "tokio",
  "tracing",
@@ -5112,7 +5112,7 @@ dependencies = [
  "rand 0.9.5",
  "resolv-conf",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -5164,9 +5164,9 @@ dependencies = [
 
 [[package]]
 name = "hpke"
-version = "0.14.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd5130e119706b4d8c2180da6126f7e60b6c38c2d340d539219f57051f0a7af7"
+checksum = "a5324110b02044183df000f0bd7d2d7e61f1000631508627e77f63983b6fdffb"
 dependencies = [
  "aead 0.6.1",
  "chacha20poly1305 0.11.0",
@@ -5174,7 +5174,7 @@ dependencies = [
  "hkdf 0.13.0",
  "hybrid-array",
  "rand_core 0.10.1",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "subtle",
  "x25519-dalek 3.0.0",
  "zeroize",
@@ -5242,7 +5242,7 @@ dependencies = [
  "rand 0.10.2",
  "rand_chacha 0.10.0",
  "rand_core 0.10.1",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "subtle",
  "x-wing",
  "x25519-dalek 2.0.1",
@@ -5257,7 +5257,7 @@ checksum = "12d23156ea4dbe6b37ad48fab2da56ff27b0f6192fb5db210c44eb07bfe6e787"
 dependencies = [
  "html5ever",
  "tendril",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "unicode-width 0.2.2",
 ]
 
@@ -5607,7 +5607,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85518b9086bf01117761b90e7691c0ef3236fa8adfb1fb44dd248fe5f87215d5"
 dependencies = [
  "quantette",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5872,7 +5872,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5948,7 +5948,7 @@ dependencies = [
  "jni-sys 0.4.1",
  "log",
  "simd_cesu8",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "walkdir",
  "windows-link",
 ]
@@ -6006,9 +6006,9 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
-version = "0.3.103"
+version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53b44bfcdb3f8d5837a46dae1ca9660a837176eee74a28b229bc626816589102"
+checksum = "7883d941dae510fb2d978fc3fe018c71c9e2892fd38854de3e8b92c2e5ad9cc5"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -6017,9 +6017,9 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
-version = "0.58.6"
+version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f622c574a29fb3034a0a90645afee194dfedc75fc124228801b6e77041075bd1"
+checksum = "1b320ad34c177093d21622edc9215bb608294c2333ff296672c0c8265a5ee60c"
 dependencies = [
  "ahash",
  "bytecount",
@@ -6045,18 +6045,18 @@ dependencies = [
 
 [[package]]
 name = "jsonschema-regex"
-version = "0.58.6"
+version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a968fffd387b2ab005bf00c1851f5d26e90df05b6f7ad609ed0d620033cca5e7"
+checksum = "1472f7be79026f79e01a9b172263311e829d7c210d57b39cb57037abc0ce0500"
 dependencies = [
  "regex-syntax 0.8.11",
 ]
 
 [[package]]
 name = "jsonschema-value"
-version = "0.58.6"
+version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39b7670345e5ce87371339d13705dbb9276b7e3e934bbe1efa2c6734a1f65a96"
+checksum = "e5a7550a7a84787e715ead0b47e01fa8c6bb7c3413630f91a8f2094c06c2078a"
 dependencies = [
  "ahash",
  "bytecount",
@@ -6086,7 +6086,7 @@ checksum = "bde5057d6143cc94e861d90f591b9303d6716c6b9602309150bd068853c10899"
 dependencies = [
  "hashbrown 0.16.1",
  "portable-atomic",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -6216,7 +6216,7 @@ checksum = "4cca98e95f35b29d469dade6724c6f96cec9236640f745a0e99b0334ec320ab1"
 dependencies = [
  "enumflags2",
  "libc",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -6644,9 +6644,9 @@ dependencies = [
  "rand 0.10.2",
  "rangemap",
  "rayon",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "stringprep",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "weezl 0.2.1",
 ]
 
@@ -6721,7 +6721,7 @@ dependencies = [
  "manganis-macro",
  "ndk-context",
  "objc2",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -6810,12 +6810,12 @@ dependencies = [
  "pin-project-lite",
  "rand 0.10.2",
  "regex",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "salvo 0.89.3",
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -7278,7 +7278,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7703,7 +7703,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_bytes",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tls_codec",
  "web-time",
  "zeroize",
@@ -7736,7 +7736,7 @@ dependencies = [
  "openmls_traits",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -7761,8 +7761,8 @@ dependencies = [
  "rand_chacha 0.3.1",
  "rand_core 0.10.1",
  "rand_core 0.6.4",
- "sha2 0.11.0",
- "thiserror 2.0.20",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
  "tls_codec",
 ]
 
@@ -7775,7 +7775,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -7850,7 +7850,7 @@ dependencies = [
  "futures-sink",
  "js-sys",
  "pin-project-lite",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
 ]
 
@@ -7874,7 +7874,7 @@ dependencies = [
  "bytes",
  "http",
  "opentelemetry",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
 ]
 
 [[package]]
@@ -7888,9 +7888,9 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tonic",
  "tonic-types",
@@ -7928,7 +7928,7 @@ dependencies = [
  "percent-encoding",
  "portable-atomic",
  "rand 0.9.5",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
 ]
@@ -8027,7 +8027,7 @@ dependencies = [
  "elliptic-curve 0.14.1",
  "primefield",
  "primeorder 0.14.0",
- "sha2 0.11.0",
+ "sha2 0.11.1",
 ]
 
 [[package]]
@@ -8904,7 +8904,7 @@ dependencies = [
  "rustc-hash 2.1.3",
  "rustls",
  "socket2",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "web-time",
@@ -8927,7 +8927,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tinyvec",
  "tracing",
  "web-time",
@@ -8944,7 +8944,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9502,7 +9502,7 @@ dependencies = [
  "palette",
  "serde",
  "strum",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "unicode-segmentation",
  "unicode-truncate",
  "unicode-width 0.2.2",
@@ -9693,7 +9693,7 @@ checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
  "getrandom 0.2.17",
  "libredox",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -9718,9 +9718,9 @@ dependencies = [
 
 [[package]]
 name = "referencing"
-version = "0.58.6"
+version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "558f3855529c0a7e78a48e409fa653456e55f1b167eab4109c16a255b7727e3f"
+checksum = "473f4dcca28ead7ee0f8e5b5d0bbae2549f4fc4c958fb20af328961b6c174be3"
 dependencies = [
  "ahash",
  "fluent-uri",
@@ -9791,10 +9791,12 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-rustls",
+ "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
  "mime_guess",
+ "native-tls",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -9805,6 +9807,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
+ "tokio-native-tls",
  "tokio-rustls",
  "tokio-util",
  "tower",
@@ -9820,11 +9823,11 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
+checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "encoding_rs",
  "futures-channel",
@@ -9836,13 +9839,11 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-rustls",
- "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
  "mime",
  "mime_guess",
- "native-tls",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -9854,7 +9855,6 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls",
  "tokio-util",
  "tower",
@@ -9935,13 +9935,13 @@ dependencies = [
  "pin-project-lite",
  "process-wrap",
  "rand 0.10.2",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rmcp-macros",
  "schemars 1.2.2",
  "serde",
  "serde_json",
  "sse-stream",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -10020,7 +10020,7 @@ version = "8.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42ffa149f6aa81b58a5b3011d01a857c4ed12c7a732d2c51947a4c7c692185f0"
 dependencies = [
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "walkdir",
 ]
 
@@ -10083,7 +10083,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10142,7 +10142,7 @@ dependencies = [
  "security-framework 3.7.0",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10296,7 +10296,7 @@ dependencies = [
  "hyper-util",
  "local-ip-address",
  "percent-encoding",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "salvo_core 0.89.3",
  "tokio",
  "tracing",
@@ -10368,7 +10368,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
  "tokio-util",
@@ -10413,7 +10413,7 @@ dependencies = [
  "serde_json",
  "sync_wrapper",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tracing",
@@ -10503,12 +10503,12 @@ dependencies = [
  "http",
  "pretty_assertions",
  "regex-lite",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "savfox-http-client",
  "savfox-protocol",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-test",
  "tokio-tungstenite 0.29.0",
@@ -10574,7 +10574,7 @@ dependencies = [
  "similar",
  "strum_macros",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "ts-rs",
  "uuid",
 ]
@@ -10603,7 +10603,7 @@ dependencies = [
  "savfox-utils",
  "similar",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tree-sitter",
  "tree-sitter-bash",
 ]
@@ -10639,7 +10639,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "futures-util",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "serde",
  "serde_json",
  "tokio",
@@ -10679,7 +10679,7 @@ dependencies = [
  "keyring",
  "parking_lot",
  "rand 0.10.2",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "savfox-core",
  "savfox-gateway-shared",
  "savfox-http-client",
@@ -10688,7 +10688,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serenity",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "subtle",
  "teloxide",
  "tempfile",
@@ -10717,7 +10717,7 @@ dependencies = [
  "predicates",
  "pretty_assertions",
  "regex-lite",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "savfox-app-server",
  "savfox-app-server-protocol",
  "savfox-arg0",
@@ -10739,7 +10739,7 @@ dependencies = [
  "serde",
  "serde-saphyr",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "supports-color",
  "tempfile",
  "tokio",
@@ -10785,8 +10785,8 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.20",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
  "tokio",
  "toml 1.1.4+spec-1.1.0",
  "tracing",
@@ -10839,7 +10839,7 @@ dependencies = [
  "rand 0.10.2",
  "regex",
  "regex-lite",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rmcp",
  "rustls",
  "savfox-api-client",
@@ -10870,13 +10870,13 @@ dependencies = [
  "serde_path_to_error",
  "serial_test",
  "sha1 0.11.0",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "shlex 1.3.0",
  "similar",
  "tempfile",
  "test-case",
  "test-log",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tokio-tungstenite 0.29.0",
@@ -10956,7 +10956,7 @@ dependencies = [
  "shlex 1.3.0",
  "starlark",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -11044,7 +11044,7 @@ dependencies = [
  "savfox-utils",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "toml 1.1.4+spec-1.1.0",
  "uuid",
  "wasm-bindgen",
@@ -11083,7 +11083,7 @@ dependencies = [
  "nix 0.31.3",
  "rand 0.10.2",
  "regex",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rust-embed",
  "rustls",
  "salvo 0.96.0",
@@ -11107,12 +11107,12 @@ dependencies = [
  "serde",
  "serde-saphyr",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "shlex 1.3.0",
  "sqlx",
  "subtle",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tokio-tungstenite 0.29.0",
@@ -11147,12 +11147,12 @@ dependencies = [
  "opentelemetry_sdk",
  "pretty_assertions",
  "rand 0.10.2",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rustls-pki-types",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-opentelemetry",
@@ -11188,7 +11188,7 @@ name = "savfox-lmstudio"
 version = "0.3.1"
 dependencies = [
  "core_test_support",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "savfox-core",
  "serde_json",
  "tokio",
@@ -11206,12 +11206,12 @@ dependencies = [
  "chrono",
  "core_test_support",
  "rand 0.10.2",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "savfox-app-server-protocol",
  "savfox-core",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
  "tiny_http",
  "tokio",
@@ -11257,15 +11257,15 @@ dependencies = [
  "futures",
  "once_cell",
  "regex",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "schemars 1.2.2",
  "serde",
  "serde-saphyr",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "sqlx",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "uuid",
@@ -11320,7 +11320,7 @@ dependencies = [
  "core_test_support",
  "futures",
  "pretty_assertions",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "savfox-core",
  "semver",
  "serde_json",
@@ -11342,7 +11342,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "pretty_assertions",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "savfox-api-client",
  "savfox-app-server-protocol",
  "savfox-protocol",
@@ -11350,7 +11350,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum_macros",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.29.0",
  "tracing",
@@ -11392,7 +11392,7 @@ dependencies = [
  "keyring",
  "oauth2",
  "pretty_assertions",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rmcp",
  "salvo 0.96.0",
  "savfox-keyring-store",
@@ -11402,7 +11402,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
  "tiny_http",
  "tokio",
@@ -11422,15 +11422,15 @@ dependencies = [
  "dirs",
  "fs_extra",
  "futures-util",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "savfox-http-client",
  "semver",
  "serde",
  "serde-saphyr",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "url",
@@ -11503,7 +11503,7 @@ dependencies = [
  "ratatui-image",
  "ratatui-macros",
  "regex-lite",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rmcp",
  "savfox-ansi-escape",
  "savfox-app-server-protocol",
@@ -11529,7 +11529,7 @@ dependencies = [
  "supports-color",
  "tempfile",
  "textwrap 0.16.2",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -11578,7 +11578,7 @@ dependencies = [
  "sha1 0.11.0",
  "shared_library",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "toml 1.1.4+spec-1.1.0",
@@ -11864,7 +11864,7 @@ dependencies = [
  "rand 0.9.5",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
  "uuid",
@@ -11916,7 +11916,7 @@ checksum = "cc2215ce3e6a77550b80a1c37251b7d294febaf42e36e21b7b411e0bf54d540d"
 dependencies = [
  "log",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "xml",
 ]
 
@@ -11985,10 +11985,11 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.151"
+version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
+ "foldhash 0.2.0",
  "indexmap 2.14.0",
  "itoa",
  "memchr",
@@ -12016,7 +12017,7 @@ checksum = "f3faaf9e727533a19351a43cc5a8de957372163c7d35cc48c90b75cdda13c352"
 dependencies = [
  "percent-encoding",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -12100,7 +12101,7 @@ dependencies = [
  "mime_guess",
  "parking_lot",
  "percent-encoding",
- "reqwest 0.13.4",
+ "reqwest 0.12.28",
  "rustc-hash 2.1.3",
  "secrecy",
  "serde",
@@ -12191,9 +12192,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
+checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
@@ -12441,7 +12442,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -12520,7 +12521,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -12600,7 +12601,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "whoami",
 ]
@@ -12637,7 +12638,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "whoami",
 ]
@@ -12661,7 +12662,7 @@ dependencies = [
  "serde",
  "serde_urlencoded",
  "sqlx-core",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
  "url",
 ]
@@ -12695,7 +12696,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -12899,7 +12900,7 @@ dependencies = [
  "memmap2",
  "serde",
  "subsecond-types",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -13060,7 +13061,7 @@ dependencies = [
  "serde",
  "serde_json",
  "teloxide-core",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -13092,7 +13093,7 @@ dependencies = [
  "stacker",
  "take_mut",
  "takecell",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "url",
@@ -13106,10 +13107,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13151,7 +13152,7 @@ dependencies = [
  "parking_lot",
  "rustix 1.1.4",
  "signal-hook",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13161,7 +13162,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13339,11 +13340,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.20",
+ "thiserror-impl 2.0.21",
 ]
 
 [[package]]
@@ -13359,9 +13360,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -13495,9 +13496,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.53.1"
+version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
  "bytes",
  "libc",
@@ -13834,7 +13835,7 @@ checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
 dependencies = [
  "crossbeam-channel",
  "symlink",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tracing-subscriber",
 ]
@@ -13992,7 +13993,7 @@ checksum = "cd7a0c48d503cf4e0a57a2453424eaef2fce4b4269f13e3579e52f0d0c9e5cc8"
 dependencies = [
  "regex",
  "streaming-iterator",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tree-sitter",
 ]
 
@@ -14026,7 +14027,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756050066659291d47a554a9f558125db17428b073c5ffce1daf5dcb0f7231d8"
 dependencies = [
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "ts-rs-macros",
  "uuid",
 ]
@@ -14076,7 +14077,7 @@ dependencies = [
  "log",
  "rand 0.9.5",
  "sha1 0.10.7",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "utf-8",
 ]
 
@@ -14095,7 +14096,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "sha1 0.10.7",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "utf-8",
 ]
 
@@ -14112,7 +14113,7 @@ dependencies = [
  "log",
  "rand 0.9.5",
  "sha1 0.10.7",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -14124,7 +14125,7 @@ dependencies = [
  "bytes",
  "log",
  "rand 0.10.2",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -14168,7 +14169,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset 0.9.1",
  "tempfile",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -14219,9 +14220,9 @@ checksum = "3b09c83c3c29d37506a3e260c08c03743a6bb66a9cd432c6934ab501a190571f"
 
 [[package]]
 name = "unicode-normalization"
-version = "0.1.25"
+version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+checksum = "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d"
 dependencies = [
  "tinyvec",
 ]
@@ -14354,9 +14355,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.26.0"
+version = "1.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5772d71c9be8a8a6ac2117d949c5b224c1b72241bb611d9a3012edcf8af7812"
+checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
 dependencies = [
  "atomic",
  "getrandom 0.4.3",
@@ -14503,9 +14504,9 @@ checksum = "b8dad83b4f25e74f184f64c43b150b91efe7647395b42289f38e50566d82855b"
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.126"
+version = "0.2.129"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b067c0c11094aef6b7a801c1e34a26affafdf3d051dba08456b868789aaf9a4"
+checksum = "9bb54f33acc68fd454578d9820b0bde1a1a3d17aa17bb7b6595806d02886d409"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -14516,19 +14517,20 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.76"
+version = "0.4.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c62df1340f32221cb9c54d6a27b030e3dba64361d4a95bed55f9aacb44da291d"
+checksum = "3cbab34de2d982e9b48e18d216d04c4a6f641066ff19ffb699980f591ee3610e"
 dependencies = [
  "js-sys",
+ "tokio",
  "wasm-bindgen",
 ]
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.126"
+version = "0.2.129"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "167ce5e579f6bcf889c4f7175a8a5a585de84e8ff93976ce393efa5f2837aab1"
+checksum = "2e29d0c35b16e224a7eeb5cd2d25e3e1968fbd65604117b44d3b789d00ee8535"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -14536,22 +14538,22 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.126"
+version = "0.2.129"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3997c7839262f4ef12cf90b818d6340c18e80f263f1a94bf157d0ec4420380e"
+checksum = "6f501a8bc3719dba86ef8ae4728879c08001bea749eb1333ac5b91e040e2a6b7"
 dependencies = [
  "bumpalo",
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
  "wasm-bindgen-shared",
 ]
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.126"
+version = "0.2.129"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc1b4cb0cc549fcf58d7dfc081778139b3d283a081644e833e84682ad71cea24"
+checksum = "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
 dependencies = [
  "unicode-ident",
 ]
@@ -14654,9 +14656,9 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.103"
+version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8622dcb61c0bcc9fffa6938bed81210af2da9a7e4a1a834b2e37a59b6dfb6141"
+checksum = "88261b9deccee56594c11a3460c462c41f58d148598fe70ad77070126a68aba4"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -14853,7 +14855,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9b0540e91e49de3817c314da0dd3bc518093ceacc6ea5327cb0e1eb073e5189"
 dependencies = [
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -14884,7 +14886,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -15456,7 +15458,7 @@ dependencies = [
  "log",
  "os_pipe",
  "rustix 1.1.4",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tree_magic_mini",
  "wayland-backend",
  "wayland-client",
@@ -15540,6 +15542,7 @@ checksum = "e7e8131a03190127fb2263afc72b322ecadae46b6ff8c6f399ff5d02f5559af6"
 dependencies = [
  "curve25519-dalek 5.0.0",
  "rand_core 0.10.1",
+ "zeroize",
 ]
 
 [[package]]
@@ -15556,7 +15559,7 @@ dependencies = [
  "oid-registry",
  "ring",
  "rusticata-macros",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
 ]
 
@@ -15726,9 +15729,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.9.0"
+version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 dependencies = [
  "zeroize_derive",
 ]

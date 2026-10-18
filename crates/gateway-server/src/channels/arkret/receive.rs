@@ -2342,7 +2342,7 @@ mod recovery_tests {
             },
             governance_generation: authorization.governance_generation,
         };
-        let human = event.human_device_producer().unwrap().unwrap();
+        let human = event.account_device_producer().unwrap().unwrap();
         assert_eq!(
             human.account_id.station_id,
             DidCoreId::new("ak:did_core:web:station.example").unwrap()
