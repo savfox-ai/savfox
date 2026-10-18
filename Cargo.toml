@@ -346,7 +346,7 @@ arkret-models-crypto = { version = "0.3.0", git = "https://github.com/arkret-org
 arkret-signatures = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "3760b4b9671c5411432df9e19b967497919b6ec5", default-features = false, features = ["collaboration"] }
 arkret-wire = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "3760b4b9671c5411432df9e19b967497919b6ec5", default-features = false }
 garth = { version = "0.3.0", git = "https://github.com/arkret-org/garth.git", rev = "f9ddccc235cbbc1c315fe88417871bfc6200f0e5", default-features = false, features = ["native"] }
-arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "410f04937c9be55758156e718e0893250e76b181", default-features = false, features = ["edge", "managed-authoring"] }
+arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "b4103a5eff3d99d4d0143c009eeec77afb466a9c", default-features = false, features = ["edge", "managed-authoring"] }
 
 # WASM dependencies for gateway-dioxus
 dioxus = { version = "=0.7.10", default-features = false, features = [
