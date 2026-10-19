@@ -4596,7 +4596,7 @@ dependencies = [
 [[package]]
 name = "garth"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/garth.git?rev=24acc07bb0754bde74874388c44ec3a42fdfa7b7#24acc07bb0754bde74874388c44ec3a42fdfa7b7"
+source = "git+https://github.com/arkret-org/garth.git?rev=f8f8fef46c38ccf534cfc88dee12f0f0d2a9abcb#f8f8fef46c38ccf534cfc88dee12f0f0d2a9abcb"
 dependencies = [
  "arkret-auth",
  "arkret-canonical",

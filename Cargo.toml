@@ -345,7 +345,7 @@ arkret-models-collaboration = { version = "0.3.0", git = "https://github.com/ark
 arkret-models-crypto = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "a79890b8a84888fb6b005aca081c70968b745590", default-features = false }
 arkret-signatures = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "a79890b8a84888fb6b005aca081c70968b745590", default-features = false, features = ["collaboration"] }
 arkret-wire = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "a79890b8a84888fb6b005aca081c70968b745590", default-features = false }
-garth = { version = "0.3.0", git = "https://github.com/arkret-org/garth.git", rev = "24acc07bb0754bde74874388c44ec3a42fdfa7b7", default-features = false, features = ["native"] }
+garth = { version = "0.3.0", git = "https://github.com/arkret-org/garth.git", rev = "f8f8fef46c38ccf534cfc88dee12f0f0d2a9abcb", default-features = false, features = ["native"] }
 arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "0168ae5e83062c6fa4b0234c2336f90a37eafa99", default-features = false, features = ["edge", "managed-authoring"] }
 
 # WASM dependencies for gateway-dioxus
@@ -465,7 +465,7 @@ arkret-wire={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "
 # ── Build profiles ──────────────────────────────────────────────────────────
 
 # Speed up debug builds: optimize dependencies but not workspace crates
-garth = { git = "https://github.com/arkret-org/garth.git", rev = "24acc07bb0754bde74874388c44ec3a42fdfa7b7" }
+garth = { git = "https://github.com/arkret-org/garth.git", rev = "f8f8fef46c38ccf534cfc88dee12f0f0d2a9abcb" }
 
 [profile.dev.package."*"]
 opt-level = 1
