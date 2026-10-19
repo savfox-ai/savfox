@@ -26,6 +26,7 @@ telegram = ["dep:teloxide"]
 dingtalk = ["dep:dingtalk-sdk"]
 feishu = ["dep:feishu-sdk"]
 arkret = [
+    "dep:arkret-bridge-runtime",
     "dep:arkret",
     "dep:arkret-schema",
     "dep:arkret-crypto",
@@ -76,6 +77,7 @@ chacha20poly1305 = { workspace = true, optional = true }
 tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
+arkret-bridge-runtime = { workspace = true, optional = true }
 arkret = { workspace = true, optional = true }
 arkret-schema = { workspace = true, optional = true }
 arkret-crypto = { workspace = true, optional = true }

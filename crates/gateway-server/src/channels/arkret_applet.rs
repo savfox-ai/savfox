@@ -1390,6 +1390,7 @@ pub(crate) async fn start_arkret_applet_channel(
         .ok_or_else(|| anyhow::anyhow!("registered Applet disappeared"))?;
     let weak = Arc::downgrade(&registered);
     tokio::spawn(async move {
+        let mut device_workers = None;
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
         loop {
             interval.tick().await;
@@ -1401,8 +1402,20 @@ pub(crate) async fn start_arkret_applet_channel(
                     if let Err(error) = edge.retry_pending_publications().await {
                         warn!(%error, "Applet publication recovery failed");
                     }
-                    if let Err(error) = arkret_bridge_runtime::managed_device::ManagedDeviceRuntime::bootstrap_if_configured(edge.clone()).await {
-                        warn!(%error, "Applet native Device recovery failed");
+                    if device_workers.is_none()
+                        && state.config.managed_actor_authoring.device.is_some()
+                    {
+                        match arkret_bridge_runtime::managed_device::ManagedDeviceWorkers::new(
+                            edge.clone(),
+                        ) {
+                            Ok(workers) => device_workers = Some(workers),
+                            Err(error) => warn!(%error, "Applet native Device workers unavailable"),
+                        }
+                    }
+                    if let Some(workers) = device_workers.as_mut() {
+                        if let Err(error) = workers.tick().await {
+                            warn!(%error, "Applet native Device recovery failed");
+                        }
                     }
                 }
                 Err(error) => warn!(%error, "Applet publication transport unavailable"),
