@@ -1095,7 +1095,7 @@ mod tests {
             "not_before":arkret::canonical::format_timestamp_canonical(at),"expires_at":arkret::canonical::format_timestamp_canonical(state.expires_at),
             "session_id":"runtime-session","credential_class":"standard","holder_binding":{"kind":"agent_runtime","agent_id":state.account_id.principal_id,
              "agent_key_authorization_ref":authorization_event(),"verification_method":"did:web:agent.example#runtime-1"},
-            "proof_kind":"agent_key_proof","scope_details":{"controller_principal_id":"ak:did_core:web:controller.example","participation":[]}});
+            "proof_kind":"agent_key_proof","scope_details":{"controller_principal_id":"ak:did_core:web:controller.example","participations":[]}});
         let input = format!(
             "{}.{}",
             arkret::base64url_encode(br#"{"alg":"EdDSA"}"#),
