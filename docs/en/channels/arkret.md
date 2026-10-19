@@ -266,7 +266,7 @@ Legacy management transaction group dispatch is closed. Account-mode Agent nativ
 MLS handling is unchanged; these management updates do not establish a working
 Applet group execution runtime.
 
-The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, bundle and completion preparation across retries and restart. Completion still requires those exact locally frozen bytes. The management path starts Device bootstrap only when explicitly configured; it does not start an MLS listener.
+The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, bundle and completion preparation across retries and restart. Completion still requires those exact locally frozen bytes. The management path starts Device bootstrap only when explicitly configured; device.mls separately enables the independent Welcome workers.
 
 Personal Agent replies always retain their accepted Account and native delivery binding. Applet namespace ownership never redirects those replies through another Bot.
 
@@ -289,5 +289,15 @@ key, HPKE private key, exact Principal-signed authorization and original creatio
 roots before submission. Restart retries that original Event and stored scope
 and expiry, including after an accepted response could not be saved locally.
 A wrong wrapping key, missing original roots or changed plan fails closed.
-This initial-generation bootstrap does not renew expired authorization, rotate
-the Principal, or start the separate MLS/queue/content execution loop.
+This initial-generation bootstrap does not renew expired authorization or rotate
+the Principal.
+
+Set `managed_actor_authoring.device.mls = true` to enable native KeyPackage
+inventory and one independent Welcome worker per Device. Its original scope
+must include `ak.event.read`, with the current Service read ceiling, membership
+and E2EE consent. It signs as the actual Device and creates no Session. The
+original page, group, private identity, signed consume and cursor share the
+existing encrypted custody; consume and ACK follow durability, and cold retry
+keeps the exact signed command. Message streams, attachments, original replies
+and existing-group recovery still need their consumers. Group content never
+goes to the management base_url.

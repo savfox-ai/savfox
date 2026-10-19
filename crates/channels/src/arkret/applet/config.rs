@@ -3,7 +3,7 @@
 //! An Arkret channel saved with `mode = "applet"` declares an Applet Service.
 //! Its HTTPS management origin supplies discovery and signed completion.
 //! Independent managed Accounts require the formal authoring contract; this
-//! runtime does not yet connect its authoring custody or managed Device reader.
+//! runtime uses the shared authoring custody and exact native Device settings.
 
 use std::path::PathBuf;
 
@@ -21,21 +21,8 @@ pub struct ArkretAppletTrustedVerificationMethod {
     pub public_key: PublicKeyMaterial,
 }
 
-/// Local bridge identity-key custody configuration, not a protocol carrier.
-#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ManagedActorAuthoringSettings {
-    pub principal_endpoint: String,
-    pub key_encryption_key_hex: String,
-}
-impl std::fmt::Debug for ManagedActorAuthoringSettings {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ManagedActorAuthoringSettings")
-            .field("principal_endpoint", &self.principal_endpoint)
-            .field("key_encryption_key_hex", &"<redacted>")
-            .finish()
-    }
-}
+/// The shared local host custody settings, not a protocol carrier.
+pub use arkret_bridge_runtime::ManagedActorAuthoringConfig as ManagedActorAuthoringSettings;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArkretAppletConfig {
@@ -277,6 +264,9 @@ impl ArkretAppletConfig {
             self.device_id.is_none() || self.bot_account_id.is_some(),
             "Device runtime requires its exact accepted Account"
         );
+        if let Some(device) = &self.managed_actor_authoring.device {
+            device.validate()?;
+        }
         let custody_endpoint = url::Url::parse(&self.managed_actor_authoring.principal_endpoint)?;
         anyhow::ensure!(
             custody_endpoint.scheme() == "https"
@@ -628,6 +618,39 @@ mod tests {
         let parsed = ArkretAppletConfig::from_channel_config(&make_channel_config(body)).unwrap();
         assert!(parsed.bot_account_id.is_none());
         parsed.validate().unwrap();
+    }
+
+    #[test]
+    fn native_device_settings_survive_channel_parsing_and_shared_host_decode() {
+        let mut body = valid_body();
+        body["bot_account_id"] = Value::Null;
+        body["managed_actor_authoring"]["device"] = json!({
+            "actions":["ak.event.read"],"lifetime_seconds":3600,"mls":true,"key_package_inventory_target":2
+        });
+        let parsed =
+            ArkretAppletConfig::from_channel_config(&make_channel_config(body.clone())).unwrap();
+        parsed.validate().unwrap();
+        assert!(parsed.bot_account_id.is_none());
+        let host: arkret_bridge_runtime::ManagedActorAuthoringConfig =
+            serde_json::from_value(serde_json::to_value(&parsed.managed_actor_authoring).unwrap())
+                .unwrap();
+        let device = host.device.unwrap();
+        device.validate().unwrap();
+        assert_eq!(device, parsed.managed_actor_authoring.device.unwrap());
+        for invalid in [
+            json!({"actions":[],"lifetime_seconds":3600}),
+            json!({"actions":["ak.event.read"],"lifetime_seconds":0}),
+            json!({"actions":["ak.event.read"],"lifetime_seconds":3600,"mls":true,"key_package_inventory_target":0}),
+        ] {
+            let mut candidate = body.clone();
+            candidate["managed_actor_authoring"]["device"] = invalid;
+            assert!(
+                ArkretAppletConfig::from_channel_config(&make_channel_config(candidate))
+                    .unwrap()
+                    .validate()
+                    .is_err()
+            );
+        }
     }
 
     #[test]
