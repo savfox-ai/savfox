@@ -360,6 +360,8 @@ impl NativeReceiver {
             event: event.clone(),
             commit: delta.commit().clone(),
         };
+        let content = client.for_realm(&event.realm_id).await?;
+        let client = &content;
         apply_account_accepted_mls_commit(client, crypto, &accepted, account).await?;
         if event.kind != "ak.message.create" {
             return Ok(());
@@ -462,7 +464,11 @@ impl NativeReceiver {
                 inbound.strand_id.context("native source has no Strand")?,
             )?,
             text: inbound.body,
-            credentials: credentials.source_request(&event.event_id).await?,
+            credentials: credentials
+                .for_realm(&event.realm_id)
+                .await?
+                .source_request(&event.event_id)
+                .await?,
             accepted,
         });
         self.reply(source, channel, account, store, crypto).await?;

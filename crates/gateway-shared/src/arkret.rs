@@ -51,6 +51,7 @@ pub fn agent_scope_recovery(reason: &str) -> Option<&'static str> {
 /// Build the interactive Agent candidate with encrypted presence.
 pub fn default_agent_runtime_scope() -> Result<Vec<String>, String> {
     arkret_schema::agent_runtime_scope::complete_agent_runtime_scope([
+        ServiceOperationId::SELF_DIRECT_CONVERSATION_READ_RESOLVE_V1,
         ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
         ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
         ServiceOperationId::SELF_SIGNER_KEYS_READ_RESOLVE_V1,
@@ -65,6 +66,7 @@ pub fn default_agent_runtime_scope() -> Result<Vec<String>, String> {
         ServiceOperationId::SELF_DEVICE_MESSAGES_COMMAND_ACK_V1,
         ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1,
         "ak.event.read",
+        "ak.object.read",
         "ak.message.create",
     ])
     .map_err(|error| error.to_string())

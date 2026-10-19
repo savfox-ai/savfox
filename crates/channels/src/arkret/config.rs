@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use super::signer::{ArkretKeyRef, ed25519_runtime_public_key, load_ed25519_signing_key};
 
 const REQUIRED_LISTEN_SCOPE: &[&str] = &[
+    ServiceOperationId::SELF_DIRECT_CONVERSATION_READ_RESOLVE_V1,
     ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
     ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
     ServiceOperationId::SELF_SIGNER_KEYS_READ_RESOLVE_V1,
@@ -25,6 +26,7 @@ const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     ServiceOperationId::SELF_DEVICE_MESSAGES_COMMAND_ACK_V1,
     ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1,
     "ak.event.read",
+    "ak.object.read",
 ];
 
 const REQUIRED_SEND_SCOPE: &[&str] = &[
@@ -1422,7 +1424,11 @@ mod strict_tests {
         actions.retain(|action| ServiceOperationId::from_wire(action).is_some());
         assert_eq!(
             missing_required_scope_actions(&actions, true, true),
-            vec!["ak.event.read".to_owned(), "ak.message.create".to_owned()]
+            vec![
+                "ak.event.read".to_owned(),
+                "ak.object.read".to_owned(),
+                "ak.message.create".to_owned(),
+            ]
         );
         assert!(missing_required_service_operations(&actions, true, true).is_empty());
         actions.retain(|action| {
@@ -1431,6 +1437,26 @@ mod strict_tests {
         assert_eq!(
             missing_required_service_operations(&actions, true, true),
             vec![ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1.to_owned()]
+        );
+    }
+
+    #[test]
+    fn listener_requires_explicit_metadata_ceiling_without_rewriting_old_scope() {
+        let mut old_scope = default_agent_runtime_scope().unwrap();
+        assert!(old_scope.iter().any(|action| action == "ak.object.read"));
+        old_scope.retain(|action| action != "ak.object.read");
+        let original = old_scope.clone();
+        assert_eq!(
+            missing_required_scope_actions(&old_scope, true, true),
+            vec!["ak.object.read".to_owned()]
+        );
+        assert!(missing_required_service_operations(&old_scope, true, true).is_empty());
+        assert_eq!(old_scope, original);
+        assert!(
+            ArkretChannelConfig::from_strict_agent_config(&approved_config(serde_json::json!(
+                old_scope
+            )))
+            .is_err()
         );
     }
 

@@ -13,6 +13,18 @@ binding，不能继续发送 provisional 应用消息（v1 contact-and-direct-co
 运行时仍须在 binding 前消费 Welcome，不能反过来等待首条聊天才入群。回归验收应使用
 隔离的空数据库验证新配对及首次发送，测试不能手动更改默认回复模式或修补会话状态。
 
+新建加密监听候选会明确申请 `ak.object.read` 和 `ak.event.read`，以读取当前会话快照所需的元数据。
+这是全局上界，不是资源 grant。旧 immutable provision 或 key 缺项时须明确迁移；
+运行时不会改写已接受范围，也不会通过 refresh 补回权限。
+
+服务会话不授权所有内容资源。运行时只用经认证的参与观察和精确的 controller Direct
+解析定位候选 Realm，再用新的签名意图申请独立的单 Realm 会话；签发方和资源服务端
+仍检查当前授权。refresh 不能增加资源或恢复已移除的内容 action。签发结果不确定时
+重试原请求。领取队列每次读取一项，受限会话不能跳过被阻断的队首，也不能确认尚未
+处理的投递。
+缓存的内容会话被收窄或失效后，运行时重新申请独立会话，不扩充旧 grant。
+
+
 Windows 上的 Arkret runtime 私钥与加密状态 wrapping key 使用 SDK 已有的当前用户
 DPAPI 保护加密仓库，不再占用 Windows Credential Manager 条目。`keyring` key reference
 继续表示平台保护的存储位置，私钥不进入 channel JSON。旧 Windows 凭据库条目不导入，

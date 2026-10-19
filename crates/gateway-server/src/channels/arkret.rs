@@ -28,7 +28,7 @@ use arkret::{
 use chrono::Utc;
 use garth::{
     ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, OutboundEngine,
-    OutboundEngineOutcome, TransportProvider,
+    OutboundEngineOutcome,
 };
 use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
@@ -191,7 +191,6 @@ const ACCOUNT_AUTH_WARNING_INTERVAL: Duration = Duration::from_secs(30);
 /// v1 session Signals expire after 30 seconds. Twenty seconds leaves room for
 /// scheduling, network jitter and an in-band session refresh.
 const ACCOUNT_PRESENCE_REFRESH: Duration = Duration::from_secs(20);
-const DEVICE_MESSAGES_PULL_LIMIT: u32 = 100;
 const DEVICE_MESSAGES_PULL_MAX_PAGES: usize = 16;
 
 const KEYPACKAGES_UPLOAD_SCOPE: &str = ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1;
@@ -867,6 +866,18 @@ async fn refresh_account_presence(
                 continue;
             }
         };
+        let content = match client.for_realm(&realm_id).await {
+            Ok(content) => content,
+            Err(error) => {
+                record_presence_failure(
+                    channel,
+                    account,
+                    format!("restore presence resource session: {error}"),
+                );
+                continue;
+            }
+        };
+        let client = &content;
         let eligible_head =
             match verified_realm_presence_head(&client, crypto_store, account, &realm_id).await {
                 Ok(Some(head)) => head,
@@ -1390,7 +1401,7 @@ async fn drain_pending_account_outbound(
                 .agent_participation_observation(Utc::now())?;
             cancel_unusable_account_submissions(&outbound, account, crypto_store, &observation)
                 .await?;
-            anyhow::Ok(garth::AuthorityClient::new(client.own_station()?.clone()))
+            anyhow::Ok(garth::AuthorityClient::new(client))
         }
         .await;
         let authority = match current {
@@ -1575,6 +1586,8 @@ async fn handle_account_client_event(
             let Some(event) = delta.event().cloned() else {
                 return Ok(());
             };
+            let content = client.for_realm(&delta.realm_id).await?;
+            let client = &content;
             if event_declares_direct_conversation_realm(&event) {
                 crypto_store.upsert_realm_policy(ArkretRealmCryptoPolicy {
                     realm_id: delta.realm_id.to_string(),
@@ -2060,6 +2073,59 @@ fn build_signed_keypackage_upload_request(
     Ok(unsigned.into_signed(endpoint_signature))
 }
 
+async fn recipient_page_with_content_session(
+    service: &ArkretHttpClient,
+    cursor: Option<&str>,
+) -> anyhow::Result<(ArkretHttpClient, arkret::DeviceMessagesGetOutcome)> {
+    let current = service.current().await?;
+    let service = &current;
+    // The queue and ACK are cumulative, while a content grant names one
+    // resource. Never read a mixed-resource page or skip a blocked queue head.
+    let refusal = match service
+        .inner()
+        .receive_device_messages(cursor, Some(1))
+        .await
+    {
+        Ok(page) => return Ok((service.clone(), page)),
+        Err(error) => error,
+    };
+    if !matches!(&refusal, arkret::http_client::Error::Api { status: 403, error } if error.code() == "capability_denied")
+    {
+        return Err(refusal.into());
+    }
+    let cached = service.cached_content_realms()?;
+    for realm in &cached {
+        let Ok(content) = service.for_realm(realm).await else {
+            continue;
+        };
+        if let Ok(page) = content
+            .inner()
+            .receive_device_messages(cursor, Some(1))
+            .await
+        {
+            return Ok((content, page));
+        }
+    }
+    for realm in service
+        .content_realm_candidates()
+        .await?
+        .into_iter()
+        .filter(|realm| !cached.contains(realm))
+    {
+        let Ok(content) = service.for_realm(&realm).await else {
+            continue;
+        };
+        if let Ok(page) = content
+            .inner()
+            .receive_device_messages(cursor, Some(1))
+            .await
+        {
+            return Ok((content, page));
+        }
+    }
+    Err(refusal.into())
+}
+
 async fn drain_account_device_messages_from_cursor(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
@@ -2112,22 +2178,20 @@ async fn drain_account_device_messages_from_cursor(
     // may be processed but neither their ACK nor scan cursor can cross it.
     let mut contiguous_complete = true;
     for page in 0..DEVICE_MESSAGES_PULL_MAX_PAGES {
-        let outcome = match client
-            .inner()
-            .receive_device_messages(cursor.as_deref(), Some(DEVICE_MESSAGES_PULL_LIMIT))
-            .await
-        {
-            Ok(outcome) => outcome,
-            Err(err) => {
-                warn!(
-                    channel_id = %channel.id,
-                    account_id = %account.id,
-                    reason,
-                    "arkret: standard device_messages pull failed: {err}"
-                );
-                return;
-            }
-        };
+        let (page_client, outcome) =
+            match recipient_page_with_content_session(client, cursor.as_deref()).await {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    warn!(
+                        channel_id = %channel.id,
+                        account_id = %account.id,
+                        reason,
+                        "arkret: standard device_messages pull failed: {err}"
+                    );
+                    return;
+                }
+            };
+        let client = &page_client;
 
         for delivery in &outcome.deliveries {
             match delivery {
@@ -3096,6 +3160,8 @@ async fn hydrate_conversation_before_trigger(
     }
     let realm_id = RealmId::new(trigger.realm_id.clone())?;
     let outcome = async {
+        let content = client.for_realm(&realm_id).await?;
+        let client = &content;
         let snapshot = client.inner().realm_state_snapshot_head(&realm_id).await?;
         let request = AccountScanCatchupRequest {
             realm_id: realm_id.clone(),

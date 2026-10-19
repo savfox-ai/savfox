@@ -1,8 +1,8 @@
 //! Agent endpoint delivery and independently authorized Commit stream tails.
 //!
-//! Agents never subscribe to the human-device account aggregate. Queue pulls
-//! discover accepted Welcomes; bounded position scans follow only the scopes
-//! installed from those deliveries (`client-sync.md` sections 5 and 10).
+//! Exact Direct coordinates and authenticated participation hints identify
+//! candidate sessions without human-device payloads. Queue pulls verify Welcomes;
+//! bounded scans follow only durably installed scopes (`client-sync.md` 5/10).
 
 use super::*;
 
@@ -571,6 +571,8 @@ async fn recover_pending_content(
                     checkpoint.head.stream_ref == stream_ref,
                     "recovery checkpoint belongs to another stream"
                 );
+                let content = client.for_realm(stream_ref.realm_id()).await?;
+                let client = &content;
                 let own = client.own_station()?;
                 let session = own.session()?.clone();
                 // Removal before any fallible work also discards a failed or stale pass.
@@ -1657,6 +1659,8 @@ async fn scan_installed_scopes(
                     .map(|bytes| serde_json::from_str(&bytes))
                     .transpose()
                     .map_err(receive_storage_error)?;
+                let content = client.for_realm(&realm_id).await?;
+                let client = &content;
                 let own = client.own_station()?;
                 let mut replica =
                     garth::own_station_results::OwnStationReplica::new(realm_id.clone());

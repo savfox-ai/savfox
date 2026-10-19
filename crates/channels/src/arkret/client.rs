@@ -9,7 +9,7 @@
 //! every protected self-surface call.
 
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
@@ -43,6 +43,8 @@ const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 pub struct ArkretHttpClient {
     pub(super) inner: Client,
     own_station: Option<arkret::http_client::own_station_results::OwnStationResultClient>,
+    session_provider: Option<ArkretAgentSessionProvider>,
+    station_binding: Option<arkret::StationConnectionBinding>,
 }
 
 /// Stream of account-level subscribe frames yielded by
@@ -105,6 +107,21 @@ pub struct AgentAuthenticatedTransportFactory {
     dpop_jkt: String,
     verification_method: DidUrl,
     requested_scope: Vec<String>,
+    session_transport: AgentSessionGrantTransport,
+    content_realm: Option<RealmId>,
+    content_sessions: Option<Arc<AgentContentSessions>>,
+}
+
+#[derive(Default)]
+struct PendingContentSession {
+    request: Option<arkret::SessionGrantRequestBody>,
+    engine: Option<SessionEngine<AgentSessionGrantTransport>>,
+}
+
+#[derive(Default)]
+struct AgentContentSessions {
+    realms:
+        Mutex<std::collections::BTreeMap<RealmId, Arc<tokio::sync::Mutex<PendingContentSession>>>>,
 }
 
 fn mint_agent_session_refresh_proof(
@@ -169,6 +186,120 @@ fn sign_agent_session_request(
     Ok(request.attach_signature(signature)?)
 }
 
+impl AgentAuthenticatedTransportFactory {
+    fn fresh_content_request(
+        &self,
+        realm: &RealmId,
+    ) -> anyhow::Result<arkret::SessionGrantRequestBody> {
+        anyhow::ensure!((self.runtime_fence)(), "Agent runtime was replaced");
+        let proof = arkret::dpop::build_dpop_proof(
+            &arkret::dpop::DpopProofRequest::new(
+                "POST",
+                joined_htu(&self.session_transport.grant_base_url, SESSION_GRANT_PATH)?,
+            ),
+            &self.dpop_signing_key,
+        )?;
+        anyhow::ensure!(proof.jkt == self.dpop_jkt, "Agent content holder changed");
+        let issued_at = Utc::now();
+        let unsigned = UnsignedAgentSessionGrantRequest::new(
+            self.account_id.principal_id.clone(),
+            self.requested_scope.clone(),
+            self.agent_key_authorization_ref.clone(),
+            arkret::SessionGrantAgentScopeRequest {
+                realm_ids: vec![realm.clone()],
+                strand_ids: Vec::new(),
+                track_names: Vec::new(),
+            },
+            None,
+            SessionGrantDpopBindingProof {
+                proof_jwt: proof.header_value,
+            },
+            arkret::UnsignedAgentSessionGrantProof {
+                challenge: arkret::base64url_encode(rand::random::<[u8; 32]>()),
+                audience_id: self.account_id.station_id.clone(),
+                issued_at,
+                expires_at: issued_at + chrono::Duration::minutes(5),
+                verification_method: self.verification_method.clone(),
+            },
+        )?;
+        sign_agent_session_request(unsigned, &self.runtime_signing_key)
+    }
+
+    async fn content_provider(
+        &self,
+        realm: &RealmId,
+    ) -> anyhow::Result<ArkretAgentSessionProvider> {
+        anyhow::ensure!((self.runtime_fence)(), "Agent runtime was replaced");
+        let sessions = self
+            .content_sessions
+            .as_ref()
+            .context("Agent content issuer is unavailable")?;
+        let entry = {
+            let mut realms = sessions
+                .realms
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Agent content session lock poisoned"))?;
+            Arc::clone(realms.entry(realm.clone()).or_default())
+        };
+        // Independent resources never hold a common lock during issuer IO.
+        let mut entry = entry.lock().await;
+        let factory = Self {
+            content_realm: Some(realm.clone()),
+            content_sessions: None,
+            ..self.clone()
+        };
+        let refresh = SessionRefreshOptions {
+            request: None,
+            expected_dpop_jkt: Some(self.dpop_jkt.clone()),
+        };
+        if let Some(engine) = &entry.engine {
+            if engine.current_state().is_some_and(|state| {
+                state
+                    .granted_scope
+                    .iter()
+                    .any(|action| action == "ak.event.read")
+            }) {
+                return Ok(SessionTransportProvider::new(
+                    engine.clone(),
+                    factory,
+                    refresh,
+                ));
+            }
+            // Refresh cannot restore a narrowed ceiling. Keep the old grant
+            // unchanged and use a new issue intent under current authority.
+            entry.engine = None;
+            entry.request = None;
+        }
+        if entry.request.is_none() {
+            entry.request = Some(self.fresh_content_request(realm)?);
+        }
+        let request = entry
+            .request
+            .as_ref()
+            .expect("content intent installed")
+            .clone();
+        let engine = SessionEngine::new(self.session_transport.clone());
+        if let Err(error) = engine.login_request(request, garth::SystemClock).await {
+            // Explicit non-acceptance permits a new issue intent after authority
+            // changes. Unknown transport/503 outcomes retain the original proof.
+            if matches!(&error, garth::Error::Api { status: 403, .. }) {
+                entry.request = None;
+            }
+            return Err(agent_session_exchange_error(error));
+        }
+        // A completed, narrowed grant stays immutable. A later authority
+        // change requires a new issue intent, never refresh of this response.
+        entry.request = None;
+        let state = engine
+            .current_state()
+            .context("Agent content issue returned no grant")?;
+        factory.build(&state)?;
+        let provider = SessionTransportProvider::new(engine.clone(), factory, refresh);
+        entry.engine = Some(engine);
+        Ok(provider)
+    }
+}
+
 impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
     type Transport = Client;
 
@@ -195,6 +326,30 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
                 "Agent session grant expired, widened scope, or omitted the runtime floor"
                     .to_owned(),
             ));
+        }
+        if let Some(realm) = &self.content_realm {
+            let claims: arkret::SignedSessionGrantClaims = serde_json::from_slice(
+                &arkret::base64url_decode(state.grant_jwt.split('.').nth(1).unwrap_or_default())
+                    .map_err(|error| garth::Error::Protocol(error.to_string()))?,
+            )?;
+            let details = claims.scope_details.as_ref().ok_or_else(|| {
+                garth::Error::Protocol("Agent content session omits scope details".into())
+            })?;
+            let realms: Vec<RealmId> =
+                serde_json::from_value(details.get("realm_ids").cloned().unwrap_or_default())?;
+            let strands: Vec<StrandId> =
+                serde_json::from_value(details.get("strand_ids").cloned().unwrap_or_default())?;
+            if realms != [realm.clone()]
+                || !strands.is_empty()
+                || !state
+                    .granted_scope
+                    .iter()
+                    .any(|action| action == "ak.event.read")
+            {
+                return Err(garth::Error::Protocol(
+                    "Agent content grant differs from its exact resource".into(),
+                ));
+            }
         }
         build_dpop_client(
             self.base_url.clone(),
@@ -352,6 +507,8 @@ impl ArkretHttpClient {
         Self {
             inner,
             own_station: None,
+            session_provider: None,
+            station_binding: None,
         }
     }
 
@@ -371,11 +528,105 @@ impl ArkretHttpClient {
             .accepted_station_binding()
             .map_err(|error| garth::Error::Protocol(error.to_string()))?;
         let inner = garth::TransportProvider::provide(provider).await?;
-        let own_station = provider.own_station_result_client(inner.clone(), binding)?;
+        let own_station = provider.own_station_result_client(inner.clone(), binding.clone())?;
         Ok(Self {
             inner,
             own_station: Some(own_station),
+            session_provider: Some(provider.clone()),
+            station_binding: Some(binding),
         })
+    }
+
+    /// Issue an independent single-resource grant; never expand the service chain.
+    pub async fn for_realm(&self, realm: &RealmId) -> anyhow::Result<Self> {
+        let provider = self
+            .session_provider
+            .as_ref()
+            .context("Agent content provider is unavailable")?;
+        let factory = provider.factory();
+        let provider = if factory.content_realm.as_ref() == Some(realm) {
+            provider.clone()
+        } else {
+            factory.content_provider(realm).await?
+        };
+        let inner = garth::TransportProvider::provide(&provider).await?;
+        let binding = self
+            .station_binding
+            .clone()
+            .context("Agent Station binding is unavailable")?;
+        let own_station = provider.own_station_result_client(inner.clone(), binding.clone())?;
+        Ok(Self {
+            inner,
+            own_station: Some(own_station),
+            session_provider: Some(provider),
+            station_binding: Some(binding),
+        })
+    }
+
+    pub async fn current(&self) -> anyhow::Result<Self> {
+        let Some(provider) = &self.session_provider else {
+            return Ok(self.clone());
+        };
+        let inner = garth::TransportProvider::provide(provider).await?;
+        let binding = self
+            .station_binding
+            .clone()
+            .context("Agent Station binding is unavailable")?;
+        let own_station = provider.own_station_result_client(inner.clone(), binding.clone())?;
+        Ok(Self {
+            inner,
+            own_station: Some(own_station),
+            session_provider: Some(provider.clone()),
+            station_binding: Some(binding),
+        })
+    }
+
+    /// Previously requested targets are only locators, never an authority cache.
+    pub fn cached_content_realms(&self) -> anyhow::Result<Vec<RealmId>> {
+        let provider = self
+            .session_provider
+            .as_ref()
+            .context("Agent provider is unavailable")?;
+        let Some(sessions) = &provider.factory().content_sessions else {
+            return Ok(Vec::new());
+        };
+        let realms = sessions
+            .realms
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Agent content session lock poisoned"))?;
+        Ok(realms.keys().cloned().collect())
+    }
+
+    /// Discover targets from authenticated owner observations and exact Direct
+    /// resolution. Neither a participation hint nor a coordinate grants content.
+    pub async fn content_realm_candidates(&self) -> anyhow::Result<Vec<RealmId>> {
+        let provider = self
+            .session_provider
+            .as_ref()
+            .context("Agent provider is unavailable")?;
+        provider.refresh_for_sensitive_action().await?;
+        let current = garth::TransportProvider::provide(provider).await?;
+        let state = provider
+            .session()
+            .current_state()
+            .context("Agent discovery session is unavailable")?;
+        let observation = state.agent_participation_observation(Utc::now())?;
+        let mut realms = observation
+            .entries
+            .iter()
+            .map(|entry| entry.scope.realm_id().clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        let request = arkret::DirectConversationResolveRequestBody {
+            peer: arkret::ContactPeer::Human {
+                account_id: observation.controller_account,
+            },
+        };
+        if let Ok(outcome) = current.direct_conversation_resolve(&request).await
+            && let Some(coordinates) = outcome.coordinates()
+        {
+            realms.insert(coordinates.realm_id.clone());
+        }
+        Ok(realms.into_iter().collect())
     }
 
     /// Construct an Agent HTTP client by exchanging a runtime-key
@@ -554,6 +805,11 @@ impl ArkretHttpClient {
             dpop_jkt: dpop_jkt.clone(),
             verification_method: verification_method.clone(),
             requested_scope: expected_scope,
+            session_transport: session_transport.clone(),
+            content_realm: realm_id
+                .map(|value| RealmId::new(value.to_owned()))
+                .transpose()?,
+            content_sessions: Some(Arc::new(AgentContentSessions::default())),
         };
         let refresh_options = SessionRefreshOptions {
             request: None,
@@ -681,7 +937,8 @@ impl ArkretHttpClient {
         submission: &arkret::VerifiedSubmission<EventAdmissionSubmission>,
     ) -> anyhow::Result<AuthoritySubmitOutcome> {
         submission.validate()?;
-        let outcome = self
+        let content = self.for_realm(&submission.event.realm_id).await?;
+        let outcome = content
             .inner
             .submit_event(submission)
             .await
@@ -707,6 +964,122 @@ impl ArkretHttpClient {
             .keypackages_claim(request)
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))
+    }
+}
+
+fn resource_session_error(error: anyhow::Error) -> garth::Error {
+    match error.downcast::<AgentSessionExchangeError>() {
+        Ok(error) => error.source,
+        Err(error) => match error.downcast::<garth::Error>() {
+            Ok(error) => error,
+            Err(error) => garth::Error::Protocol(error.to_string()),
+        },
+    }
+}
+
+impl garth::AuthorityTransport for ArkretHttpClient {
+    async fn submit(
+        &self,
+        request: &arkret::VerifiedSubmission<AuthoritySubmitRequest>,
+        options: &arkret::http_client::ClientRequestOptions,
+    ) -> garth::Result<AuthoritySubmitOutcome> {
+        let realm = match request.wire() {
+            AuthoritySubmitRequest::Event(value) => &value.event.realm_id,
+            AuthoritySubmitRequest::MlsCommit(value) => &value.commit_event.realm_id,
+        };
+        let scoped = self
+            .for_realm(realm)
+            .await
+            .map_err(resource_session_error)?;
+        let own = scoped.own_station().map_err(resource_session_error)?;
+        garth::AuthorityTransport::submit(own, request, options).await
+    }
+
+    async fn submit_self(
+        &self,
+        request: &arkret::VerifiedSubmission<
+            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest,
+        >,
+        options: &arkret::http_client::ClientRequestOptions,
+    ) -> garth::Result<arkret_models_collaboration::authority_commit::SelfAuthoritySubmitOutcome>
+    {
+        let realm = match request.wire() {
+            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest::Event(value) => Some(&value.event.realm_id),
+            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest::MlsCommit(value) => {
+                Some(&value.commit_event.realm_id)
+            }
+            _ => None,
+        };
+        if let Some(realm) = realm {
+            let scoped = self
+                .for_realm(realm)
+                .await
+                .map_err(resource_session_error)?;
+            return garth::AuthorityTransport::submit_self(
+                scoped.own_station().map_err(resource_session_error)?,
+                request,
+                options,
+            )
+            .await;
+        }
+        // Pre-resource atomic bootstrap retains its existing admission contract.
+        garth::AuthorityTransport::submit_self(
+            self.own_station().map_err(resource_session_error)?,
+            request,
+            options,
+        )
+        .await
+    }
+
+    async fn scan(
+        &self,
+        request: &arkret::StreamScanRequest,
+    ) -> garth::Result<arkret::StreamScanOutcome> {
+        let scoped = self
+            .for_realm(&request.realm_id)
+            .await
+            .map_err(resource_session_error)?;
+        garth::AuthorityTransport::scan(
+            scoped.own_station().map_err(resource_session_error)?,
+            request,
+        )
+        .await
+    }
+
+    async fn authority_bundle(
+        &self,
+        _request: &arkret::AuthorityBundleRequest,
+    ) -> garth::Result<arkret::RealmAuthorityBundle> {
+        Err(garth::Error::Protocol(
+            "ordinary own-Station consumption does not perform governance discovery".into(),
+        ))
+    }
+
+    async fn install_handoff(
+        &self,
+        _request: &arkret::AuthorityHandoffRequest,
+        _options: &arkret::http_client::ClientRequestOptions,
+    ) -> garth::Result<arkret::RealmAuthorityHandoff> {
+        Err(garth::Error::Protocol(
+            "ordinary own-Station consumption cannot install Station handoffs".into(),
+        ))
+    }
+
+    async fn exact_snapshot(
+        &self,
+        realm: &RealmId,
+        snapshot: &arkret::RealmSnapshotId,
+    ) -> garth::Result<arkret::RealmStateSnapshot> {
+        let scoped = self
+            .for_realm(realm)
+            .await
+            .map_err(resource_session_error)?;
+        garth::AuthorityTransport::exact_snapshot(
+            scoped.own_station().map_err(resource_session_error)?,
+            realm,
+            snapshot,
+        )
+        .await
     }
 }
 
@@ -857,6 +1230,16 @@ pub struct ArkretNativeCredentialSource {
     factory: AgentAuthenticatedTransportFactory,
 }
 impl ArkretNativeCredentialSource {
+    pub async fn for_realm(&self, realm: &RealmId) -> anyhow::Result<Self> {
+        let provider = if self.factory.content_realm.as_ref() == Some(realm) {
+            self.provider.clone()
+        } else {
+            self.factory.content_provider(realm).await?
+        };
+        let factory = provider.factory().clone();
+        Ok(Self { provider, factory })
+    }
+
     pub async fn source_request(
         &self,
         event_id: &EventId,
@@ -1115,6 +1498,35 @@ mod tests {
         .unwrap()
     }
 
+    fn test_session_transport() -> AgentSessionGrantTransport {
+        let grant_base_url = Url::parse("https://arkret.example.org").unwrap();
+        AgentSessionGrantTransport {
+            bootstrap: agent_client_builder(grant_base_url.clone())
+                .unwrap()
+                .build()
+                .unwrap(),
+            grant_base_url,
+            dpop_signing_key: Arc::new(SigningKey::from_bytes(&[44; 32])),
+        }
+    }
+
+    fn content_test_factory() -> AgentAuthenticatedTransportFactory {
+        AgentAuthenticatedTransportFactory {
+            base_url: Url::parse("https://arkret.example.org").unwrap(),
+            account_id: agent_session_state().account_id.clone(),
+            runtime_fence: Arc::new(|| true),
+            agent_key_authorization_ref: authorization_event(),
+            runtime_signing_key: Arc::new(signing_key()),
+            dpop_signing_key: Arc::new(SigningKey::from_bytes(&[44; 32])),
+            dpop_jkt: agent_session_state().dpop_jkt.clone().unwrap(),
+            verification_method: DidUrl::new("did:web:agent.example#runtime-1").unwrap(),
+            requested_scope: agent_session_state().granted_scope.clone(),
+            session_transport: test_session_transport(),
+            content_realm: None,
+            content_sessions: None,
+        }
+    }
+
     #[test]
     fn agent_scope_transport_factory_checks_every_initial_or_refreshed_grant() {
         let mut requested_scope =
@@ -1130,6 +1542,9 @@ mod tests {
             dpop_jkt: agent_session_state().dpop_jkt.clone().unwrap(),
             verification_method: DidUrl::new("did:web:agent.example#runtime-1").unwrap(),
             requested_scope: requested_scope.clone(),
+            session_transport: test_session_transport(),
+            content_realm: None,
+            content_sessions: None,
         };
         let mut state = agent_session_state();
         state.granted_scope = requested_scope.clone();
@@ -1296,8 +1711,11 @@ mod tests {
             runtime_signing_key: Arc::new(signing_key()),
             dpop_signing_key: Arc::new(SigningKey::from_bytes(&[44; 32])),
             dpop_jkt: agent_session_state().dpop_jkt.clone().unwrap(),
-            verification_method: DidUrl::new("did:webvh:z6mkfixture#runtime-key-1").unwrap(),
+            verification_method: DidUrl::new("did:web:agent.example#runtime-1").unwrap(),
             requested_scope: savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap(),
+            session_transport: test_session_transport(),
+            content_realm: None,
+            content_sessions: None,
         };
         let fallback = SessionRefreshOptions {
             request: None,
@@ -1333,6 +1751,238 @@ mod tests {
         other.account_id.principal_id = DidCoreId::new("ak:did_core:web:other.example").unwrap();
         assert!(factory.refresh_options(&other, &fallback).is_err());
         assert!(factory.build(&other).is_err());
+    }
+
+    #[test]
+    fn fresh_content_issue_binds_one_resource_and_a_new_signed_intent() {
+        let factory = content_test_factory();
+        let realm = RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI").unwrap();
+        let before = factory.requested_scope.clone();
+        let first = factory.fresh_content_request(&realm).unwrap();
+        let second = factory.fresh_content_request(&realm).unwrap();
+        assert_ne!(
+            serde_json::to_value(&first).unwrap(),
+            serde_json::to_value(&second).unwrap()
+        );
+        for request in [first, second] {
+            let arkret::SessionGrantRequestBody::Agent(request) = request else {
+                panic!("Agent issue required")
+            };
+            request.validate().unwrap();
+            assert_eq!(request.agent_scope_request.realm_ids, [realm.clone()]);
+            assert!(request.agent_scope_request.strand_ids.is_empty());
+            assert_eq!(request.requested_scope, before);
+            assert_eq!(
+                request.agent_key_authorization_ref,
+                factory.agent_key_authorization_ref
+            );
+            assert_eq!(
+                request.proof.verification_method,
+                factory.verification_method
+            );
+            let signature =
+                Signature::from_slice(&arkret::base64url_decode(&request.proof.signature).unwrap())
+                    .unwrap();
+            factory
+                .runtime_signing_key
+                .verifying_key()
+                .verify_strict(
+                    &request.proof.canonical_signing_bytes().unwrap(),
+                    &signature,
+                )
+                .unwrap();
+        }
+        assert_eq!(factory.requested_scope, before);
+        let stopped = AgentAuthenticatedTransportFactory {
+            runtime_fence: Arc::new(|| false),
+            ..factory
+        };
+        assert!(stopped.fresh_content_request(&realm).is_err());
+    }
+
+    #[tokio::test]
+    async fn narrowed_or_invalidated_content_session_reissues_and_preserves_unknown_intent() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for narrowed in [true, false] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let mut chunk = [0_u8; 4096];
+                let header_end = loop {
+                    let read = socket.read(&mut chunk).await.unwrap();
+                    assert!(read > 0 && bytes.len() < 65_536);
+                    bytes.extend_from_slice(&chunk[..read]);
+                    if let Some(end) = bytes.windows(4).position(|value| value == b"\r\n\r\n") {
+                        break end + 4;
+                    }
+                };
+                let headers = std::str::from_utf8(&bytes[..header_end]).unwrap();
+                assert!(headers.starts_with("POST /_arkret/gate/account/session-grants HTTP/1.1"));
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap();
+                while bytes.len() < header_end + length {
+                    let read = socket.read(&mut chunk).await.unwrap();
+                    assert!(read > 0 && bytes.len() < 65_536);
+                    bytes.extend_from_slice(&chunk[..read]);
+                }
+                let request: arkret::SessionGrantRequestBody =
+                    serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap();
+                // An unusable transient response establishes no issuance outcome.
+                socket.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+                socket.shutdown().await.unwrap();
+                request
+            });
+            let mut factory = content_test_factory();
+            factory.session_transport = AgentSessionGrantTransport {
+                grant_base_url: base.clone(),
+                bootstrap: agent_client_builder(base)
+                    .unwrap()
+                    .retry(arkret::http_client::RetryConfig::disabled())
+                    .build()
+                    .unwrap(),
+                dpop_signing_key: Arc::clone(&factory.dpop_signing_key),
+            };
+            let sessions = Arc::new(AgentContentSessions::default());
+            factory.content_sessions = Some(Arc::clone(&sessions));
+            let realm =
+                RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI").unwrap();
+            let mut state = agent_session_state();
+            state
+                .granted_scope
+                .retain(|action| action != "ak.event.read");
+            let mut parts = state.grant_jwt.split('.');
+            let header = parts.next().unwrap().to_owned();
+            let mut claims: serde_json::Value =
+                serde_json::from_slice(&arkret::base64url_decode(parts.next().unwrap()).unwrap())
+                    .unwrap();
+            claims["scopes"] = serde_json::to_value(&state.granted_scope).unwrap();
+            claims["scope_details"]["realm_ids"] = serde_json::json!([realm.clone()]);
+            claims["scope_details"]["strand_ids"] = serde_json::json!([]);
+            let input = format!(
+                "{header}.{}",
+                arkret::base64url_encode(serde_json::to_vec(&claims).unwrap())
+            );
+            state.grant_jwt = format!(
+                "{input}.{}",
+                arkret::base64url_encode(signing_key().sign(input.as_bytes()).to_bytes())
+            );
+            assert!(
+                factory.build(&state).is_ok(),
+                "a valid narrowed service ceiling"
+            );
+            let engine = if narrowed {
+                SessionEngine::with_state(factory.session_transport.clone(), state)
+            } else {
+                SessionEngine::new(factory.session_transport.clone())
+            };
+            let entry = Arc::new(tokio::sync::Mutex::new(PendingContentSession {
+                request: None,
+                engine: Some(engine),
+            }));
+            sessions
+                .realms
+                .lock()
+                .unwrap()
+                .insert(realm.clone(), Arc::clone(&entry));
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                factory.content_provider(&realm),
+            )
+            .await
+            .expect("actual fresh issue has a bounded transport");
+            assert!(
+                result.is_err(),
+                "the old cached ceiling cannot serve content"
+            );
+            let observed = tokio::time::timeout(std::time::Duration::from_secs(5), server)
+                .await
+                .expect("a new issue must actually reach the issuer")
+                .unwrap();
+            let entry = entry.lock().await;
+            assert!(entry.engine.is_none());
+            assert_eq!(
+                serde_json::to_value(entry.request.as_ref().unwrap()).unwrap(),
+                serde_json::to_value(&observed).unwrap()
+            );
+            let arkret::SessionGrantRequestBody::Agent(request) = observed else {
+                panic!("Agent issue required")
+            };
+            request.validate().unwrap();
+            assert_eq!(request.agent_scope_request.realm_ids, [realm]);
+            assert!(request.agent_scope_request.strand_ids.is_empty());
+            assert_eq!(
+                request.agent_key_authorization_ref,
+                factory.agent_key_authorization_ref
+            );
+            assert_eq!(request.requested_scope, factory.requested_scope);
+        }
+    }
+
+    #[test]
+    fn content_factory_rejects_missing_cross_resource_and_widened_refresh_ceilings() {
+        let realm = RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI").unwrap();
+        let other = RealmId::new("ak:realm:ASOv-EoZPg5yuM1Pv__u1K8vD3Q9342GxwoWmkKwjqOn").unwrap();
+        let factory = AgentAuthenticatedTransportFactory {
+            content_realm: Some(realm.clone()),
+            ..content_test_factory()
+        };
+        let state = agent_session_state();
+        assert!(factory.build(&state).is_err());
+        let with_resources = |realms: Vec<RealmId>, strands: Vec<StrandId>| {
+            let mut value = state.clone();
+            let mut parts = value.grant_jwt.split('.');
+            let header = parts.next().unwrap().to_owned();
+            let mut claims: serde_json::Value =
+                serde_json::from_slice(&arkret::base64url_decode(parts.next().unwrap()).unwrap())
+                    .unwrap();
+            claims["scope_details"]["realm_ids"] = serde_json::to_value(realms).unwrap();
+            claims["scope_details"]["strand_ids"] = serde_json::to_value(strands).unwrap();
+            let input = format!(
+                "{header}.{}",
+                arkret::base64url_encode(serde_json::to_vec(&claims).unwrap())
+            );
+            value.grant_jwt = format!(
+                "{input}.{}",
+                arkret::base64url_encode(signing_key().sign(input.as_bytes()).to_bytes())
+            );
+            value
+        };
+        let exact = with_resources(vec![realm.clone()], Vec::new());
+        assert!(factory.build(&exact).is_ok());
+        let options = factory
+            .refresh_options(&exact, &SessionRefreshOptions::default())
+            .unwrap();
+        let wire = serde_json::to_value(options.request.unwrap()).unwrap();
+        assert!(wire.get("agent_scope_request").is_none());
+        assert!(
+            factory
+                .build(&with_resources(vec![other.clone()], Vec::new()))
+                .is_err()
+        );
+        assert!(
+            factory
+                .build(&with_resources(vec![realm.clone(), other], Vec::new()))
+                .is_err()
+        );
+        assert!(
+            factory
+                .build(&with_resources(
+                    vec![realm],
+                    vec![
+                        StrandId::new("ak:strand:AT_TSQZlyY7Fu85J33nzo3fSau9RjJOeu21RspghP1gC")
+                            .unwrap()
+                    ]
+                ))
+                .is_err()
+        );
     }
 
     #[test]
