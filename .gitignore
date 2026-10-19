@@ -39,3 +39,6 @@ crates/app-server-protocol/schema
 target*
 # insta pending snapshots — accept with `cargo insta review`, never commit
 *.snap.new
+
+# Local verification evidence and metadata.
+/artifacts/
