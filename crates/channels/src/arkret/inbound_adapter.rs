@@ -813,7 +813,7 @@ mod tests {
     }
 
     fn event_value(kind: &str, realm: &str, actor: &str, payload: Value) -> Value {
-        let event = arkret_wire::test_support::raw_event(
+        let mut event = arkret_wire::test_support::raw_event(
             kind,
             arkret::ScopeRef::Realm {
                 realm_id: arkret::RealmId::new(realm).unwrap(),
@@ -823,6 +823,27 @@ mod tests {
             payload,
         )
         .unwrap();
+        // Inbound shape tests require the complete producer-proof grammar.
+        // The shared structural JWS does not claim native signer authentication.
+        let did = if let Some(scid) = actor.strip_prefix("ak:did_core:webvh:") {
+            format!("did:webvh:{scid}:fixture.example")
+        } else {
+            format!("did:{}", actor.strip_prefix("ak:did_core:").unwrap())
+        };
+        let digest = arkret::Hash::new(format!("sha256:{}", "00".repeat(32))).unwrap();
+        event.producer_proof = Some(arkret_wire::ProducerEventProof {
+            kind: "detached_jws".to_owned(),
+            verification_method: arkret::DidUrl::new(format!(
+                "{did}#ak:device:01904100-0000-7000-8000-000000000001"
+            ))
+            .unwrap(),
+            event_digest: digest.clone(),
+            created_at: event.created_at,
+            domain: Some("arkret-event-v1".to_owned()),
+            audience: None,
+            proof_purpose: None,
+            jws: arkret_wire::test_support::structural_only_detached_jws(&digest),
+        });
         serde_json::to_value(event).unwrap()
     }
 
