@@ -980,10 +980,10 @@ fn resource_session_error(error: anyhow::Error) -> garth::Error {
 impl garth::AuthorityTransport for ArkretHttpClient {
     async fn submit(
         &self,
-        request: &AuthoritySubmitRequest,
+        request: &arkret::VerifiedSubmission<AuthoritySubmitRequest>,
         options: &arkret::http_client::ClientRequestOptions,
     ) -> garth::Result<AuthoritySubmitOutcome> {
-        let realm = match request {
+        let realm = match request.wire() {
             AuthoritySubmitRequest::Event(value) => &value.event.realm_id,
             AuthoritySubmitRequest::MlsCommit(value) => &value.commit_event.realm_id,
         };
@@ -997,11 +997,13 @@ impl garth::AuthorityTransport for ArkretHttpClient {
 
     async fn submit_self(
         &self,
-        request: &arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest,
+        request: &arkret::VerifiedSubmission<
+            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest,
+        >,
         options: &arkret::http_client::ClientRequestOptions,
     ) -> garth::Result<arkret_models_collaboration::authority_commit::SelfAuthoritySubmitOutcome>
     {
-        let realm = match request {
+        let realm = match request.wire() {
             arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest::Event(value) => Some(&value.event.realm_id),
             arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest::MlsCommit(value) => {
                 Some(&value.commit_event.realm_id)
