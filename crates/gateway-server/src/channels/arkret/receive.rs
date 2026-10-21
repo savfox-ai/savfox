@@ -2057,6 +2057,8 @@ mod recovery_tests {
         )
         .unwrap();
         let mut snapshot = arkret::RealmStateSnapshot {
+            purpose: arkret::RealmSnapshotPurpose::FullRecovery,
+            history_basis: None,
             snapshot_id: arkret::RealmSnapshotId::from_digest([1; 32]),
             realm_id: realm.clone(),
             governance_generation: 0,
