@@ -9,6 +9,7 @@
 //! The signed destination Service header selects the configured Applet.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::Context as _;
@@ -22,6 +23,50 @@ use super::render_error;
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
+pub(crate) mod bot;
+
+struct AppletLifetime {
+    active: Arc<AtomicBool>,
+    tasks: Mutex<Vec<tokio::task::AbortHandle>>,
+}
+impl Default for AppletLifetime {
+    fn default() -> Self {
+        Self {
+            active: Arc::new(AtomicBool::new(true)),
+            tasks: Mutex::new(Vec::new()),
+        }
+    }
+}
+impl AppletLifetime {
+    fn retire(&self) {
+        self.active.store(false, Ordering::Release);
+        for task in self
+            .tasks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .drain(..)
+        {
+            task.abort();
+        }
+    }
+    fn own(&self, task: tokio::task::AbortHandle) {
+        let mut tasks = self
+            .tasks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.active.load(Ordering::Acquire) {
+            tasks.push(task);
+        } else {
+            task.abort();
+        }
+    }
+}
+impl Drop for AppletLifetime {
+    fn drop(&mut self) {
+        self.retire();
+    }
+}
+
 struct AppletChannelState {
     config: ArkretAppletConfig,
     /// Exact signed publications and accepted Realm/full Actor frontiers,
@@ -31,6 +76,7 @@ struct AppletChannelState {
     /// failed submission so expired DID-proof grants cannot wedge the applet.
     edge: tokio::sync::Mutex<Option<Arc<arkret_bridge_runtime::ArkretEdge>>>,
     host: tokio::sync::OnceCell<Arc<arkret_bridge_runtime::web::ManagedAppletHttpHost>>,
+    lifetime: AppletLifetime,
 }
 
 // `AuthoringJournal` is not `Debug`; provide a manual impl that elides it so
@@ -65,7 +111,9 @@ fn register_channel(state: AppletChannelState) -> anyhow::Result<()> {
             || old.config.service_id != state.config.service_id),
         "Applet Service is already registered by another channel"
     );
-    reg.insert(state.config.id.clone(), Arc::new(state));
+    if let Some(old) = reg.insert(state.config.id.clone(), Arc::new(state)) {
+        old.lifetime.retire();
+    }
     Ok(())
 }
 
@@ -78,7 +126,10 @@ pub(crate) fn remove_arkret_applet_channel(config_id: &str) -> anyhow::Result<bo
     let mut reg = applet_registry()
         .lock()
         .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
-    Ok(reg.remove(config_id).is_some())
+    Ok(reg
+        .remove(config_id)
+        .map(|old| old.lifetime.retire())
+        .is_some())
 }
 
 pub(crate) fn is_arkret_applet_registered(config_id: &str) -> bool {
@@ -453,6 +504,7 @@ pub(crate) async fn start_arkret_applet_channel(
         journal,
         edge: tokio::sync::Mutex::new(None),
         host: tokio::sync::OnceCell::new(),
+        lifetime: AppletLifetime::default(),
     };
     applet_host(&state)
         .await
@@ -462,23 +514,40 @@ pub(crate) async fn start_arkret_applet_channel(
         state.config.id, state.config.applet_id, state.config.service_id
     );
     let config_id = state.config.id.clone();
+    let edge = applet_edge(&state).await?;
+    let mut workers =
+        arkret_bridge_runtime::managed_device::ManagedDeviceWorkers::new(edge.clone())?;
+    if let Some(actor) = &state.config.bot_actor_id {
+        workers = workers.with_content_sink(Arc::new(bot::NativeRealmBotReplies {
+            runtime: Arc::new(
+                arkret_bridge_runtime::managed_device::ManagedDeviceRuntime::new(edge)?,
+            ),
+            actor: actor.clone(),
+            channel_id: config_id.clone(),
+            config: channel.config().clone(),
+            active: state.lifetime.active.clone(),
+        }));
+    }
     register_channel(state)?;
     let registered = lookup_by_config_id(&config_id)?
         .ok_or_else(|| anyhow::anyhow!("registered Applet disappeared"))?;
     let weak = Arc::downgrade(&registered);
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
         loop {
             interval.tick().await;
             let Some(state) = weak.upgrade() else {
                 break;
             };
+            if !state.lifetime.active.load(Ordering::Acquire) {
+                break;
+            }
             match applet_edge(&state).await {
                 Ok(edge) => {
                     if let Err(error) = edge.retry_pending_publications().await {
                         warn!(%error, "Applet publication recovery failed");
                     }
-                    if let Err(error) = arkret_bridge_runtime::managed_device::ManagedDeviceRuntime::bootstrap_if_configured(edge.clone()).await {
+                    if let Err(error) = workers.tick().await {
                         warn!(%error, "Applet native Device recovery failed");
                     }
                 }
@@ -486,6 +555,7 @@ pub(crate) async fn start_arkret_applet_channel(
             }
         }
     });
+    registered.lifetime.own(task.abort_handle());
     Ok(())
 }
 
@@ -561,6 +631,7 @@ mod tests {
                 .expect("authoring journal"),
             edge: tokio::sync::Mutex::new(None),
             host: tokio::sync::OnceCell::new(),
+            lifetime: AppletLifetime::default(),
         };
         register_channel(state).expect("register");
         let resolved = lookup_by_config_id(&applet.id)
@@ -568,6 +639,21 @@ mod tests {
             .expect("registered");
         assert_eq!(resolved.config.applet_id, applet.applet_id);
         remove_arkret_applet_channel(&applet.id).unwrap();
+        assert!(!resolved.lifetime.active.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn applet_retirement_cancels_owned_workers_and_late_registration() {
+        let lifetime = AppletLifetime::default();
+        let backend = lifetime.active.clone();
+        let task = tokio::spawn(std::future::pending::<()>());
+        lifetime.own(task.abort_handle());
+        lifetime.retire();
+        assert!(!backend.load(Ordering::Acquire));
+        assert!(task.await.unwrap_err().is_cancelled());
+        let late = tokio::spawn(std::future::pending::<()>());
+        lifetime.own(late.abort_handle());
+        assert!(late.await.unwrap_err().is_cancelled());
     }
 
     #[tokio::test]
@@ -612,6 +698,7 @@ mod tests {
             config: applet.clone(),
             edge: tokio::sync::Mutex::new(Some(edge)),
             host: tokio::sync::OnceCell::new(),
+            lifetime: AppletLifetime::default(),
         })
         .unwrap();
         let service = Service::new(

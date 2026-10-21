@@ -272,7 +272,7 @@ Legacy management transaction group dispatch is closed. Account-mode Agent nativ
 MLS handling is unchanged; these management updates do not establish a working
 Applet group execution runtime.
 
-The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, Service-signed create_event and completion preparation across retries and restart. Completion verifies those exact locally frozen bytes and the current governing Station material. The management path starts Device bootstrap only when explicitly configured; it does not start an MLS listener.
+The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, Service-signed create_event and completion preparation across retries and restart. Completion verifies those exact locally frozen bytes and the current governing Station material. The management path starts Device bootstrap only when explicitly configured; `device.mls` separately enables native content workers.
 
 Personal Agent replies always retain their accepted Account and native delivery binding. Applet namespace ownership never redirects those replies through another Bot.
 
@@ -295,9 +295,15 @@ key, HPKE private key, exact Principal-signed authorization and original creatio
 roots before submission. Restart retries that original Event and stored scope
 and expiry, including after an accepted response could not be saved locally.
 A wrong wrapping key, missing original roots or changed plan fails closed.
-This initial-generation bootstrap does not renew expired authorization, rotate
-the Principal, or start the separate MLS/queue/content execution loop.
+This initial-generation bootstrap does not renew expired authorization or rotate
+the Principal. Explicit `device.mls` enables the native MLS/queue/content workers.
 
 Historical Bot/Ghost creation receipts use the shared durable completion receiver. It verifies the current governing Station and the original accepted creation evidence, then retains the original outcome across retries and restart. It does not require an active business installation. Later business actions still check their current installation and exact permissions; recovery uses its independent authorization. Use the canonical `/_arkret/edge/applet/transactions` path and the signed `Destination-Service-Id` header to select the Applet. The registration epoch comes from the accepted creation evidence, not a manually configured completion epoch.
 
 Applet startup also requires `service_resolution_path`, a local JSON file containing the SDK `AuthenticatedServiceResolution` for this Applet Service, including its complete native WebVH history. The shared host verifies the history, role, current assertion method and configured signing key before registration. Expose the canonical `/_arkret/describe`, `/_arkret/open/services/{service_id}/resolution`, Applet management paths, and the native document/log/witness URLs derived from `service_did`. The gateway forwards original request bytes to the shared host, including configuration execution; it does not implement a separate signature or approval path.
+
+With `device.mls` explicitly enabled, the Applet host runs native Welcome, MLS and content workers. A complete `bot_actor_id` selects the managed Bot that handles direct mentions of its exact identity. Self echoes and empty input are ignored. Input exceeding 32 KiB after JSON string encoding is skipped without blocking later stream items. The fixed Responses text request does not invoke tools, read attachment bytes or act as the sender. Source access, Device incarnation and host lifetime are rechecked; replies use the Bot's own current authorization and encrypted Device publication.
+
+Encrypted custody binds each source to its processing intent and model configuration. The provider handoff is durable before IO; an unknown result is not called again. Completed output is retained before publication, and recovery after publication but before source ACK does not call the model or publish twice. Removing, disabling or replacing the channel retires old consumers and late network results immediately.
+
+If the MLS epoch changes during model processing, retained output waits in a separate publication queue. Input acknowledgement does not wait for successful publication, allowing the worker to verify and install the new MLS state before retrying with current permissions. Restart reuses the retained output. Managed Device recipient queues carry Welcome only; channel content uses the native Event stream.

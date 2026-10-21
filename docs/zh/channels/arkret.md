@@ -203,9 +203,15 @@ Applet host 可在验证 authoring completion 后，为本地创建的每个 Bot
 首次提交前，既有加密 authoring store 耐久保存独立 Device 签名私钥、HPKE 私钥、
 Principal 原签授权和原创建 roots。重启复用原 Event、原 scope 和期限；
 Station 已接纳但本地保存响应失败时也按原件恢复。错误 wrapping key、缺原 roots
-或变更原计划均拒绝。本首代引导不续期过期授权、不轮换 Principal，也不启动独立
-MLS／queue／内容执行循环。
+或变更原计划均拒绝。本首代引导不续期过期授权、不轮换 Principal。
+显式启用 `device.mls` 后，宿主持续运行原生 Welcome、MLS 与内容工作循环。
 
 Bot／Ghost 历史创建回执复用共享耐久接收器：核验当前治理站及原 accepted 创建证据，跨重试与重启保留原结果，不要求业务安装仍有效。后续业务仍检查当前安装与具体权限；恢复按独立恢复授权。使用正式 `/_arkret/edge/applet/transactions` 路径，以签名覆盖的 `Destination-Service-Id` 选择 Applet。回执的登记 epoch 来自原创建证据，无需人工配置。
 
 Applet 启动还必须配置 `service_resolution_path`，指向包含 SDK `AuthenticatedServiceResolution` 的本地 JSON 文件，附带该 Service 完整的原生 WebVH 历史。共享宿主在注册前验证历史、角色、当前 assertion 方法与实际签名密钥。反向代理须开放正式 `/_arkret/describe`、`/_arkret/open/services/{service_id}/resolution`、Applet 管理地址，以及由 `service_did` 推导的原生 document／log／witness 地址。网关将原始请求交给共享宿主，包括配置执行，不另建签名或审批流程。
+
+配置完整 `bot_actor_id` 后，原生消费者只处理对该 Bot 完整身份的直接提及，忽略自身回声；不会以发送者身份执行操作。回复使用配置的 Responses 模型单次文本请求，不执行工具，不读取附件正文。空正文或 JSON 编码后超过 32 KiB 的正文跳过模型处理，不阻塞后续输入。读取来源、设备实例及本地宿主生命周期在外部处理前重验，发布仍走 Bot 自身设备的当前权限和 MLS 加密。
+
+原消息、模型配置和处理意图绑定保存在加密 custody 中。模型请求交付前耐久登记；结果未知不自动再调用。已完成输出先保存再发布，回复已接纳而原消息尚未 ACK 的恢复不会重复调用模型或再次发布。停用、删除或重配渠道立即停用旧消费者和其迟到网络结果。
+
+模型处理期间发生 MLS 换钥时，已保存输出进入独立发布队列，输入消费确认不等待回复成功。工作循环继续验证和安装新的 MLS 状态，再按当前权限发布；重启沿用已保存输出。受管设备的收件队列仅承载 Welcome，频道内容走原生 Event 流。

@@ -588,3 +588,5 @@ pub use channels::arkret::native_reply::{
     NativePublicReplyHandle, NativePublicReplyHost, NativeReplySource,
     start_native_arkret_public_replies,
 };
+#[cfg(feature = "arkret")]
+pub use channels::arkret_applet::bot::NativeRealmBotReplies;
