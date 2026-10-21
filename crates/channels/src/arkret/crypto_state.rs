@@ -2181,13 +2181,34 @@ impl FileArkretCryptoStore {
         Ok(!already_joined)
     }
 
-    pub fn record_direct_conversation_binding_from_value(
+    /// Consume the outer Event of a Garth-verified committed delivery. Nested
+    /// user content cannot inherit the enclosing Event's admission authority.
+    pub fn record_committed_direct_conversation_binding(
         &self,
-        value: &Value,
+        delta: &garth::CommittedDelta,
     ) -> anyhow::Result<usize> {
-        let mut payloads = Vec::new();
-        collect_direct_conversation_bound_payloads(value, 8, &mut payloads);
-        self.record_direct_conversation_bindings(&payloads)
+        let Some(event) = delta.event() else {
+            return Ok(0);
+        };
+        if event.kind != arkret::EventKind::DirectConversationBound {
+            return Ok(0);
+        }
+        delta.view.validate_shape()?;
+        let payload: DirectConversationBoundPayload =
+            serde_json::from_value(serde_json::to_value(&event.payload)?)?;
+        payload.validate_shape()?;
+        anyhow::ensure!(
+            event.realm_id == delta.realm_id
+                && payload.realm_id == delta.realm_id
+                && event.scope_ref
+                    == (ScopeRef::Realm {
+                        realm_id: delta.realm_id.clone()
+                    })
+                && delta.commit().event_ref == event.event_id
+                && payload.unordered_participant_ids.contains(&event.actor_id),
+            "Direct binding differs from its accepted outer Event or covering Commit"
+        );
+        self.record_direct_conversation_bindings(&[(payload, Some(event.event_id.to_string()))])
     }
 
     /// Restore participant authority from an independently verified Snapshot
@@ -2942,48 +2963,6 @@ pub fn message_content_has_encrypted_carrier(content: &BTreeMap<String, Value>) 
     content.get("encrypted_content").is_some()
 }
 
-fn collect_direct_conversation_bound_payloads(
-    value: &Value,
-    remaining_depth: usize,
-    payloads: &mut Vec<(DirectConversationBoundPayload, Option<String>)>,
-) {
-    if let Value::Object(object) = value
-        && object.get("kind").and_then(Value::as_str) == Some("ak.direct_conversation.bound")
-        && let Some(payload) = object.get("payload")
-        && let Ok(payload) =
-            serde_json::from_value::<DirectConversationBoundPayload>(payload.clone())
-    {
-        if let Some(event_ref) = object
-            .get("event_id")
-            .and_then(Value::as_str)
-            .and_then(|id| EventId::new(id.to_owned()).ok())
-        {
-            payloads.push((payload, Some(event_ref.to_string())));
-        }
-        return;
-    }
-    if let Ok(payload) = serde_json::from_value::<DirectConversationBoundPayload>(value.clone()) {
-        payloads.push((payload, None));
-        return;
-    }
-    if remaining_depth == 0 {
-        return;
-    }
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                collect_direct_conversation_bound_payloads(item, remaining_depth - 1, payloads);
-            }
-        }
-        Value::Object(object) => {
-            for item in object.values() {
-                collect_direct_conversation_bound_payloads(item, remaining_depth - 1, payloads);
-            }
-        }
-        _ => {}
-    }
-}
-
 fn enrich_mls_welcome_consume_binding(
     binding: &mut ArkretMlsWelcomeConsumeBinding,
     direct_bindings: &BTreeMap<String, ArkretDirectConversationWelcomeBinding>,
@@ -3359,6 +3338,129 @@ mod tests {
         })
     }
 
+    // Host-projection fixture only: Garth owns signature/admission verification.
+    // These tests exercise which outer object the host consumes, not that verifier.
+    fn direct_projection_fixture(
+        kind: arkret::EventKind,
+        realm: &RealmId,
+        payload: Value,
+    ) -> garth::CommittedDelta {
+        let at = arkret::canonical::normalize_timestamp_canonical(Utc::now());
+        let actor = serde_json::from_value(direct_conversation_bound_payload(
+            realm.as_str(), FIXTURE_STRAND.as_str(),
+        )["unordered_participant_ids"][0].clone()).unwrap();
+        let event = arkret_wire::test_support::raw_event_for_actor_at(
+            kind.as_str(),
+            ScopeRef::Realm {
+                realm_id: realm.clone(),
+            },
+            actor,
+            payload,
+            at,
+        )
+        .unwrap();
+        let commit = arkret::RealmCommit {
+            commit_id: arkret::RealmCommitId::from_digest([3; 32]),
+            realm_id: realm.clone(),
+            stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: realm.clone(),
+            },
+            stream_position: 15,
+            previous_commit_ref: Some(arkret::RealmCommitId::from_digest([2; 32])),
+            event_ref: event.event_id.clone(),
+            governance_generation: 0,
+            authority_ref: arkret::RealmCommitAuthorityRef::GenesisOrChangeEvent(realm.event_id()),
+            committed_at: at,
+            producer_signer_fact_digest: None,
+            signature: arkret::DetachedObjectSignature {
+                context: arkret::DetachedSignatureContext::RealmCommit,
+                signature_algorithm: arkret::DetachedSignatureAlgorithm::Ed25519,
+                verification_method: arkret::DidUrl::new("did:web:station.example#authority")
+                    .unwrap(),
+                signed_digest: Hash::new(format!("sha256:{}", "3".repeat(64))).unwrap(),
+                created_at: at,
+                sig: arkret::Base64UrlString::new(arkret::base64url_encode([0_u8; 64])).unwrap(),
+            },
+        };
+        garth::CommittedDelta {
+            realm_id: realm.clone(),
+            view: arkret::CommittedEventView::Full(arkret::CommittedEventFullView {
+                event,
+                commit,
+            }),
+        }
+    }
+
+    #[test]
+    fn nested_message_content_cannot_install_or_replace_a_direct_binding() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "nested-bound", "agent");
+        store.ensure_created().unwrap();
+        let bound = direct_projection_fixture(
+            arkret::EventKind::DirectConversationBound,
+            &FIXTURE_REALM_B,
+            direct_conversation_bound_payload(FIXTURE_REALM_B.as_str(), FIXTURE_STRAND.as_str()),
+        );
+        for installed in [false, true] {
+            if installed {
+                assert_eq!(
+                    store
+                        .record_committed_direct_conversation_binding(&bound)
+                        .unwrap(),
+                    1
+                );
+            }
+            let before = std::fs::read(store.path()).unwrap();
+            for target in [&*FIXTURE_REALM_B, &*FIXTURE_REALM] {
+                let payload =
+                    direct_conversation_bound_payload(target.as_str(), FIXTURE_STRAND.as_str());
+                for nested in [
+                    payload.clone(),
+                    json!({
+                        "kind":"ak.direct_conversation.bound", "event_id":FIXTURE_EVENT_13.as_str(), "payload":payload,
+                    }),
+                ] {
+                    let message = direct_projection_fixture(
+                        arkret::EventKind::MessageCreate,
+                        &FIXTURE_REALM_B,
+                        json!({
+                            "strand_id":FIXTURE_STRAND.as_str(),"track_name":"discussion",
+                            "content":{"kind":"ak.content.text","body":"untrusted extra","extra_binding":nested},
+                        }),
+                    );
+                    assert_eq!(
+                        store
+                            .record_committed_direct_conversation_binding(&message)
+                            .unwrap(),
+                        0
+                    );
+                    assert_eq!(std::fs::read(store.path()).unwrap(), before);
+                }
+            }
+        }
+        let reopened = FileArkretCryptoStore::for_account(home.path(), "nested-bound", "agent");
+        assert_eq!(
+            reopened
+                .direct_conversation_binding_event_ref(FIXTURE_REALM_B.as_str())
+                .unwrap(),
+            Some(bound.commit().event_ref.clone())
+        );
+        let mut wrong_commit = bound.clone();
+        match &mut wrong_commit.view {
+            arkret::CommittedEventView::Full(full) => {
+                full.commit.event_ref = FIXTURE_EVENT_13.clone()
+            }
+            _ => unreachable!(),
+        }
+        let before = std::fs::read(store.path()).unwrap();
+        assert!(
+            store
+                .record_committed_direct_conversation_binding(&wrong_commit)
+                .is_err()
+        );
+        assert_eq!(std::fs::read(store.path()).unwrap(), before);
+    }
+
     #[test]
     fn replacement_runtime_restores_old_direct_binding_from_verified_current_cut() {
         let home = tempfile::tempdir().unwrap();
@@ -3368,8 +3470,14 @@ mod tests {
         )
         .unwrap();
         let actor = payload.unordered_participant_ids[1].clone();
+        let bound = direct_projection_fixture(
+            arkret::EventKind::DirectConversationBound,
+            &FIXTURE_REALM_B,
+            serde_json::to_value(&payload).unwrap(),
+        );
+        let binding_ref = bound.commit().event_ref.clone();
         let current = arkret::DirectConversationBindingCurrentValue {
-            binding_event_ref: FIXTURE_EVENT_14.clone(),
+            binding_event_ref: binding_ref.clone(),
             binding: payload.clone(),
         };
         let entry = TypedCurrentRow::Value {
@@ -3399,7 +3507,7 @@ mod tests {
             store
                 .direct_conversation_binding_event_ref(FIXTURE_REALM_B.as_str())
                 .unwrap(),
-            Some(FIXTURE_EVENT_14.clone())
+            Some(binding_ref.clone())
         );
         let generation = store.load().unwrap().generation;
         let mut conflicting = entry.clone();
@@ -3446,9 +3554,7 @@ mod tests {
         }
         assert_eq!(
             store
-                .record_direct_conversation_binding_from_value(
-                    &serde_json::to_value(&payload).unwrap(),
-                )
+                .record_committed_direct_conversation_binding(&bound)
                 .unwrap(),
             1
         );
@@ -3458,7 +3564,7 @@ mod tests {
             reopened
                 .direct_conversation_binding_event_ref(FIXTURE_REALM_B.as_str())
                 .unwrap(),
-            Some(FIXTURE_EVENT_14.clone()),
+            Some(binding_ref.clone()),
         );
         assert!(
             store
@@ -3496,7 +3602,7 @@ mod tests {
             reopened
                 .direct_conversation_binding_event_ref(FIXTURE_REALM_B.as_str())
                 .unwrap(),
-            Some(FIXTURE_EVENT_14.clone())
+            Some(binding_ref)
         );
         assert_eq!(reopened.load().unwrap().generation, generation);
         let mut wrong_pair = entry;
@@ -3545,14 +3651,15 @@ mod tests {
             .expect("pending binding should persist");
 
         let bound = direct_conversation_bound_payload(realm_id, strand_id);
-        let binding_event_ref = FIXTURE_EVENT_14.as_str();
+        let committed = direct_projection_fixture(
+            arkret::EventKind::DirectConversationBound,
+            &FIXTURE_REALM_B,
+            bound,
+        );
+        let binding_event_ref = committed.commit().event_ref.as_str();
         assert_eq!(
             store
-                .record_direct_conversation_binding_from_value(&json!({
-                    "event_id": binding_event_ref,
-                    "kind": "ak.direct_conversation.bound",
-                    "payload": bound
-                }))
+                .record_committed_direct_conversation_binding(&committed)
                 .expect("typed Direct Conversation binding should persist"),
             1
         );
@@ -4348,10 +4455,11 @@ mod tests {
         assert_eq!(round_trip.service_id, station);
         let placeholder = json!({"kid":method,"signature_algorithm":"Ed25519","sig":"AQ"});
         let at = Utc::now();
+        let claim_request_id = arkret::base64url_encode([71_u8; 16]);
         let mut receipt: arkret::PeerKeyPackageClaimReceipt = serde_json::from_value(json!({
-            "claim_request_id":arkret::base64url_encode([1u8;16]),"request_digest":format!("sha256:{}","1".repeat(64)),"claims_digest":format!("sha256:{}","2".repeat(64)),
+            "claim_request_id":claim_request_id,"request_digest":format!("sha256:{}","1".repeat(64)),"claims_digest":format!("sha256:{}","2".repeat(64)),
             "source_id":station,"destination_id":station,
-            "request":{"claim_request_id":arkret::base64url_encode([1u8;16]),"intended_realm_id":realm_id,"mls_group_id":alice_group.group_id(),"claim_purpose":"realm_membership","required_capabilities":[arkret_models_crypto::ARKRET_CONTENT_V1],"requester_account_id":alice_actor.as_account_id(),"target_agent_id":bob_actor.signing_principal_id(),"target_agent_verification_method":bob_method,"target_agent_key_authorize_event_id":*FIXTURE_EVENT_9,"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1))},
+            "request":{"claim_request_id":claim_request_id,"intended_realm_id":realm_id,"mls_group_id":alice_group.group_id(),"claim_purpose":"realm_membership","required_capabilities":[arkret_models_crypto::ARKRET_CONTENT_V1],"requester_account_id":alice_actor.as_account_id(),"target_agent_id":bob_actor.signing_principal_id(),"target_agent_verification_method":bob_method,"target_agent_key_authorize_event_id":*FIXTURE_EVENT_9,"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1))},
             "claimed_at":arkret::canonical::format_timestamp_canonical(at),"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1)),"signature":placeholder
         })).unwrap();
         receipt.request.validate_shape().unwrap();

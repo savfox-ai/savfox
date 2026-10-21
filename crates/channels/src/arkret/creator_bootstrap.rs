@@ -543,6 +543,8 @@ mod tests {
         )
         .unwrap();
         let absence = arkret::RealmStateSnapshot {
+            purpose: arkret::RealmSnapshotPurpose::FullRecovery,
+            history_basis: None,
             snapshot_id: arkret::RealmSnapshotId::from_digest([3; 32]),
             realm_id: commit.realm_id.clone(),
             governance_generation: 0,

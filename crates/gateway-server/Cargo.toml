@@ -65,7 +65,7 @@ rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
 rustls = { workspace = true, features = ["aws-lc-rs"] }
-salvo = { workspace = true }
+salvo = { workspace = true, features = ["rfc9457"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde-saphyr = { workspace = true }
