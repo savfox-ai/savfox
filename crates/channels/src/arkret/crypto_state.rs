@@ -2137,6 +2137,9 @@ impl FileArkretCryptoStore {
                 .context("durable MLS Welcome recipient identity is unavailable")?,
         )?;
         let verification_method = match &recipient {
+            arkret::RecipientMlsDurableSigner::RealmDevice { .. } => {
+                anyhow::bail!("Realm Device durable receipts require Realm custody, not an Account MLS identity");
+            }
             arkret::RecipientMlsDurableSigner::Agent {
                 recipient_agent_verification_method,
                 ..
@@ -2258,20 +2261,13 @@ impl FileArkretCryptoStore {
                 anyhow::ensure!(
                     previous.strand_id == binding.strand_id
                         && previous.initial_exact_pair_generation_ref
-                            == binding.initial_exact_pair_generation_ref,
-                    "Direct binding cannot replace its original coordinates"
+                            == binding.initial_exact_pair_generation_ref
+                        && (previous.binding_event_ref.is_none()
+                            || binding.binding_event_ref.is_none()
+                            || previous.binding_event_ref == binding.binding_event_ref),
+                    "Direct binding cannot replace its original Event or founding coordinates"
                 );
-                if let Some(previous_ref) = &previous.binding_event_ref {
-                    anyhow::ensure!(
-                        binding
-                            .binding_event_ref
-                            .as_ref()
-                            .is_none_or(|reference| reference == previous_ref),
-                        "Direct binding cannot replace its accepted Event"
-                    );
-                    continue;
-                }
-                if binding.binding_event_ref.is_none() {
+                if previous.binding_event_ref.is_some() || binding.binding_event_ref.is_none() {
                     continue;
                 }
             }
@@ -2961,11 +2957,13 @@ fn collect_direct_conversation_bound_payloads(
         && let Ok(payload) =
             serde_json::from_value::<DirectConversationBoundPayload>(payload.clone())
     {
-        let event_ref = object
+        if let Some(event_ref) = object
             .get("event_id")
             .and_then(Value::as_str)
-            .map(str::to_owned);
-        payloads.push((payload, event_ref));
+            .and_then(|id| EventId::new(id.to_owned()).ok())
+        {
+            payloads.push((payload, Some(event_ref.to_string())));
+        }
         return;
     }
     if let Ok(payload) = serde_json::from_value::<DirectConversationBoundPayload>(value.clone()) {
@@ -3430,6 +3428,42 @@ mod tests {
             )
             .unwrap();
         assert_eq!(store.load().unwrap().generation, generation);
+        for replace_event in [true, false] {
+            let mut changed = entry.clone();
+            let TypedCurrentRow::Value { value, .. } = &mut changed;
+            if replace_event {
+                value["binding_event_ref"] = serde_json::json!(FIXTURE_EVENT_13.as_str());
+            } else {
+                value["binding"]["initial_exact_pair_group_state_ref"] =
+                    serde_json::json!(FIXTURE_EVENT_13.as_str());
+            }
+            assert!(
+                store
+                    .record_verified_direct_conversation_current_entries(
+                        &FIXTURE_REALM_B,
+                        &actor,
+                        &[changed],
+                    )
+                    .is_err()
+            );
+            assert_eq!(store.load().unwrap().generation, generation);
+        }
+        assert_eq!(
+            store
+                .record_direct_conversation_binding_from_value(
+                    &serde_json::to_value(&payload).unwrap(),
+                )
+                .unwrap(),
+            1
+        );
+        let reopened = FileArkretCryptoStore::for_account(home.path(), "current", "new-runtime");
+        assert_eq!(reopened.load().unwrap().generation, generation);
+        assert_eq!(
+            reopened
+                .direct_conversation_binding_event_ref(FIXTURE_REALM_B.as_str())
+                .unwrap(),
+            Some(FIXTURE_EVENT_14.clone()),
+        );
         assert!(
             store
                 .record_verified_direct_conversation_current_entries(
@@ -3449,6 +3483,26 @@ mod tests {
                 )
                 .is_err()
         );
+        let mut replacement = entry.clone();
+        let TypedCurrentRow::Value { value, .. } = &mut replacement;
+        value["binding_event_ref"] = serde_json::to_value(FIXTURE_EVENT_13.clone()).unwrap();
+        assert!(
+            store
+                .record_verified_direct_conversation_current_entries(
+                    &FIXTURE_REALM_B,
+                    &actor,
+                    &[replacement]
+                )
+                .is_err()
+        );
+        let reopened = FileArkretCryptoStore::for_account(home.path(), "current", "new-runtime");
+        assert_eq!(
+            reopened
+                .direct_conversation_binding_event_ref(FIXTURE_REALM_B.as_str())
+                .unwrap(),
+            Some(FIXTURE_EVENT_14.clone())
+        );
+        assert_eq!(reopened.load().unwrap().generation, generation);
         let mut wrong_pair = entry;
         let TypedCurrentRow::Value { selector, .. } = &mut wrong_pair;
         *selector = arkret::CurrentSelector::DirectConversationBinding {
