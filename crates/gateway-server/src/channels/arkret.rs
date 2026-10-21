@@ -1009,22 +1009,18 @@ fn owner_direct_presence_binding(
         );
         let binding: arkret::DirectConversationBindingCurrentValue =
             serde_json::from_value(value.clone())?;
-        binding.binding_digest()?;
+        binding.validate_shape()?;
         anyhow::ensure!(
-            binding.endorsements.iter().all(|endorsement| {
-                endorsement.value.realm_id == *realm_id && endorsement.value.pair_key == *pair_key
-            }),
+            binding.binding.realm_id == *realm_id && binding.binding.pair_key == *pair_key,
             "Direct presence binding differs from its selector or Realm"
         );
-        let owner_pair = binding.endorsements.iter().all(|endorsement| {
-            endorsement.value.authorization_basis.kind
-                == arkret::DirectConversationAuthorizationKind::AgentController
-                && endorsement.value.unordered_participant_ids.contains(&agent)
-                && endorsement
-                    .value
-                    .unordered_participant_ids
-                    .contains(&controller)
-        });
+        let owner_pair = binding.binding.authorization_basis.kind
+            == arkret::DirectConversationAuthorizationKind::AgentController
+            && binding.binding.unordered_participant_ids.contains(&agent)
+            && binding
+                .binding
+                .unordered_participant_ids
+                .contains(&controller);
         anyhow::ensure!(
             !matched || !owner_pair,
             "Direct presence snapshot repeats the owner pair"
@@ -5044,11 +5040,8 @@ mod tests {
             created_at: Utc::now(),
         };
         let mut value = arkret::DirectConversationBindingCurrentValue {
-            endorsements: vec![arkret::DirectConversationBindingEndorsementEntry {
-                tag_id: arkret::exact_current_results::CanonicalEventDot::new(event(94), 0)
-                    .unwrap(),
-                value: payload,
-            }],
+            binding_event_ref: event(94),
+            binding: payload,
         };
         let row = |value| arkret::TypedCurrentRow::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding {
@@ -5072,8 +5065,7 @@ mod tests {
         assert!(!owner_direct_presence_binding(&[], &realm_id(), &account).unwrap());
         let mut foreign = account.controller_account_id.clone();
         foreign.station_id = DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
-        value.endorsements[0].value.unordered_participant_ids[1] =
-            arkret::ActorId::account(foreign);
+        value.binding.unordered_participant_ids[1] = arkret::ActorId::account(foreign);
         assert!(
             !owner_direct_presence_binding(
                 &[row(serde_json::to_value(&value).unwrap())],
@@ -5082,9 +5074,9 @@ mod tests {
             )
             .unwrap()
         );
-        value.endorsements[0].value.unordered_participant_ids[1] =
+        value.binding.unordered_participant_ids[1] =
             arkret::ActorId::account(account.controller_account_id.clone());
-        value.endorsements[0].value.authorization_basis.kind =
+        value.binding.authorization_basis.kind =
             arkret::DirectConversationAuthorizationKind::AcceptedContact;
         assert!(
             !owner_direct_presence_binding(
@@ -5094,7 +5086,7 @@ mod tests {
             )
             .unwrap()
         );
-        value.endorsements.clear();
+        value.binding.unordered_participant_ids.clear();
         assert!(
             owner_direct_presence_binding(
                 &[row(serde_json::to_value(&value).unwrap())],

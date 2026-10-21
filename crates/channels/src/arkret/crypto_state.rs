@@ -2219,24 +2219,14 @@ impl FileArkretCryptoStore {
             );
             let binding: arkret::DirectConversationBindingCurrentValue =
                 serde_json::from_value(value.clone())?;
-            binding.binding_digest()?;
+            binding.validate_shape()?;
             anyhow::ensure!(
-                binding.endorsements.iter().all(|entry| {
-                    entry.value.realm_id == *realm_id
-                        && entry.value.pair_key == *pair_key
-                        && entry.value.unordered_participant_ids.contains(actor)
-                }),
+                binding.binding.realm_id == *realm_id
+                    && binding.binding.pair_key == *pair_key
+                    && binding.binding.unordered_participant_ids.contains(actor),
                 "Direct binding current does not authorize this Realm participant"
             );
-            let first = binding
-                .endorsements
-                .iter()
-                .min_by_key(|entry| &entry.tag_id)
-                .context("Direct binding current has no accepted endorsement")?;
-            payloads.push((
-                first.value.clone(),
-                Some(first.tag_id.event_id().to_string()),
-            ));
+            payloads.push((binding.binding, Some(binding.binding_event_ref.to_string())));
         }
         self.record_direct_conversation_bindings(&payloads)
     }
@@ -2260,24 +2250,20 @@ impl FileArkretCryptoStore {
                     payload.initial_exact_pair_group_state_ref.to_string(),
                 ),
             };
-            if state
+            if let Some(previous) = state
                 .direct_conversation_welcome_bindings
                 .get(&binding.realm_id)
-                .is_some_and(|previous| {
+            {
+                anyhow::ensure!(
                     previous.binding_event_ref == binding.binding_event_ref
                         && previous.strand_id == binding.strand_id
                         && previous.initial_exact_pair_generation_ref
-                            == binding.initial_exact_pair_generation_ref
-                })
-            {
+                            == binding.initial_exact_pair_generation_ref,
+                    "Direct Conversation binding is immutable"
+                );
                 continue;
             }
             changed = true;
-            // One binding per Realm: drop any record an older build keyed by the
-            // Welcome Event so the same pair is never described twice.
-            state
-                .direct_conversation_welcome_bindings
-                .retain(|_, existing| existing.realm_id != binding.realm_id);
             state
                 .direct_conversation_welcome_bindings
                 .insert(binding.realm_id.clone(), binding);
@@ -2963,15 +2949,13 @@ fn collect_direct_conversation_bound_payloads(
         && let Ok(payload) =
             serde_json::from_value::<DirectConversationBoundPayload>(payload.clone())
     {
-        let event_ref = object
+        if let Some(event_ref) = object
             .get("event_id")
             .and_then(Value::as_str)
-            .map(str::to_owned);
-        payloads.push((payload, event_ref));
-        return;
-    }
-    if let Ok(payload) = serde_json::from_value::<DirectConversationBoundPayload>(value.clone()) {
-        payloads.push((payload, None));
+            .and_then(|id| EventId::new(id.to_owned()).ok())
+        {
+            payloads.push((payload, Some(event_ref.to_string())));
+        }
         return;
     }
     if remaining_depth == 0 {
@@ -3377,14 +3361,8 @@ mod tests {
         .unwrap();
         let actor = payload.unordered_participant_ids[1].clone();
         let current = arkret::DirectConversationBindingCurrentValue {
-            endorsements: vec![arkret::DirectConversationBindingEndorsementEntry {
-                tag_id: arkret_models_collaboration::exact_current_results::CanonicalEventDot::new(
-                    FIXTURE_EVENT_14.clone(),
-                    0,
-                )
-                .unwrap(),
-                value: payload.clone(),
-            }],
+            binding_event_ref: FIXTURE_EVENT_14.clone(),
+            binding: payload.clone(),
         };
         let entry = TypedCurrentRow::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding {
@@ -3443,6 +3421,26 @@ mod tests {
                 )
                 .is_err()
         );
+        let mut replacement = entry.clone();
+        let TypedCurrentRow::Value { value, .. } = &mut replacement;
+        value["binding_event_ref"] = serde_json::to_value(FIXTURE_EVENT_13.clone()).unwrap();
+        assert!(
+            store
+                .record_verified_direct_conversation_current_entries(
+                    &FIXTURE_REALM_B,
+                    &actor,
+                    &[replacement]
+                )
+                .is_err()
+        );
+        let reopened = FileArkretCryptoStore::for_account(home.path(), "current", "new-runtime");
+        assert_eq!(
+            reopened
+                .direct_conversation_binding_event_ref(FIXTURE_REALM_B.as_str())
+                .unwrap(),
+            Some(FIXTURE_EVENT_14.clone())
+        );
+        assert_eq!(reopened.load().unwrap().generation, generation);
         let mut wrong_pair = entry;
         let TypedCurrentRow::Value { selector, .. } = &mut wrong_pair;
         *selector = arkret::CurrentSelector::DirectConversationBinding {
@@ -4335,6 +4333,7 @@ mod tests {
                 .unwrap(),
                 attestation,
                 attestor_resolution: resolution,
+                claim_issuer_resolution: None,
             },
         ];
         let request = arkret::MlsMemberRosterAuthorityReadRequestBody {
@@ -4731,6 +4730,7 @@ mod tests {
             .unwrap(),
             attestation: next_attestation,
             attestor_resolution: next_resolution,
+            claim_issuer_resolution: None,
         });
         let mut next_page = roster.pages[0].clone();
         next_page.roster.records = next_records;
