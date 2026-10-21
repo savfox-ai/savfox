@@ -1009,22 +1009,18 @@ fn owner_direct_presence_binding(
         );
         let binding: arkret::DirectConversationBindingCurrentValue =
             serde_json::from_value(value.clone())?;
-        binding.binding_digest()?;
+        binding.validate_shape()?;
         anyhow::ensure!(
-            binding.endorsements.iter().all(|endorsement| {
-                endorsement.value.realm_id == *realm_id && endorsement.value.pair_key == *pair_key
-            }),
+            binding.binding.realm_id == *realm_id && binding.binding.pair_key == *pair_key,
             "Direct presence binding differs from its selector or Realm"
         );
-        let owner_pair = binding.endorsements.iter().all(|endorsement| {
-            endorsement.value.authorization_basis.kind
-                == arkret::DirectConversationAuthorizationKind::AgentController
-                && endorsement.value.unordered_participant_ids.contains(&agent)
-                && endorsement
-                    .value
-                    .unordered_participant_ids
-                    .contains(&controller)
-        });
+        let owner_pair = binding.binding.authorization_basis.kind
+            == arkret::DirectConversationAuthorizationKind::AgentController
+            && binding.binding.unordered_participant_ids.contains(&agent)
+            && binding
+                .binding
+                .unordered_participant_ids
+                .contains(&controller);
         anyhow::ensure!(
             !matched || !owner_pair,
             "Direct presence snapshot repeats the owner pair"
@@ -1032,6 +1028,31 @@ fn owner_direct_presence_binding(
         matched |= owner_pair;
     }
     Ok(matched)
+}
+
+fn direct_presence_head_from_verified_cut(
+    entries: &[arkret::TypedCurrentRow],
+    visible_heads: &[arkret::CommitStreamHead],
+    realm_id: &RealmId,
+    account: &ArkretAccountConfig,
+) -> anyhow::Result<Option<arkret::CommitStreamHead>> {
+    if !owner_direct_presence_binding(entries, realm_id, account)? {
+        return Ok(None);
+    }
+    let stream = arkret::CommitStreamRef::Realm {
+        realm_id: realm_id.clone(),
+    };
+    let mut heads = visible_heads
+        .iter()
+        .filter(|head| head.stream_ref == stream);
+    let head = heads
+        .next()
+        .context("Direct presence snapshot omits the Realm head")?;
+    anyhow::ensure!(
+        heads.next().is_none(),
+        "Direct presence snapshot repeats the Realm head"
+    );
+    Ok(Some(head.clone()))
 }
 
 async fn verified_realm_presence_head(
@@ -1042,23 +1063,12 @@ async fn verified_realm_presence_head(
 ) -> anyhow::Result<Option<arkret::CommitStreamHead>> {
     if crypto_store.realm_is_direct_conversation(realm_id.as_str())? {
         let (snapshot, _) = governance::verified_scope_snapshot(http, realm_id).await?;
-        if owner_direct_presence_binding(&snapshot.current_state_entries, realm_id, account)? {
-            let stream = arkret::CommitStreamRef::Realm {
-                realm_id: realm_id.clone(),
-            };
-            let mut heads = snapshot
-                .visible_stream_heads
-                .iter()
-                .filter(|head| head.stream_ref == stream);
-            let head = heads
-                .next()
-                .context("Direct presence snapshot omits the Realm head")?;
-            anyhow::ensure!(
-                heads.next().is_none(),
-                "Direct presence snapshot repeats the Realm head"
-            );
-            return Ok(Some(head.clone()));
-        }
+        return direct_presence_head_from_verified_cut(
+            &snapshot.current_state_entries,
+            &snapshot.visible_stream_heads,
+            realm_id,
+            account,
+        );
     }
     let outcome = garth::own_station_results::read_own_station_agent_interaction(
         http.own_station()?,
@@ -5044,11 +5054,8 @@ mod tests {
             created_at: Utc::now(),
         };
         let mut value = arkret::DirectConversationBindingCurrentValue {
-            endorsements: vec![arkret::DirectConversationBindingEndorsementEntry {
-                tag_id: arkret::exact_current_results::CanonicalEventDot::new(event(94), 0)
-                    .unwrap(),
-                value: payload,
-            }],
+            binding_event_ref: event(94),
+            binding: payload,
         };
         let row = |value| arkret::TypedCurrentRow::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding {
@@ -5061,48 +5068,53 @@ mod tests {
             },
             value,
         };
-        assert!(
-            owner_direct_presence_binding(
-                &[row(serde_json::to_value(&value).unwrap())],
+        let public = arkret::TypedCurrentRow::Value {
+            selector: arkret::CurrentSelector::AgentInteraction {
+                agent_account_id: account.actor_account_id.clone(),
+            },
+            source_stream_ref: head.stream_ref.clone(),
+            revision: arkret::CurrentRevision {
+                commit_id: head.commit_id.clone(),
+                stream_position: head.stream_position,
+            },
+            value: serde_json::json!({
+                "controller_account_id":account.controller_account_id,
+                "interaction_mode":"public",
+            }),
+        };
+        let direct = |entries: &[arkret::TypedCurrentRow]| {
+            direct_presence_head_from_verified_cut(
+                entries,
+                std::slice::from_ref(&head),
                 &realm_id(),
-                &account
+                &account,
             )
-            .unwrap()
+        };
+        assert_eq!(
+            direct(&[public.clone(), row(serde_json::to_value(&value).unwrap())]).unwrap(),
+            Some(head.clone()),
         );
-        assert!(!owner_direct_presence_binding(&[], &realm_id(), &account).unwrap());
+        assert!(direct(&[public.clone()]).unwrap().is_none());
+        assert!(direct(&[]).unwrap().is_none());
         let mut foreign = account.controller_account_id.clone();
         foreign.station_id = DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
-        value.endorsements[0].value.unordered_participant_ids[1] =
-            arkret::ActorId::account(foreign);
+        value.binding.unordered_participant_ids[1] = arkret::ActorId::account(foreign);
         assert!(
-            !owner_direct_presence_binding(
-                &[row(serde_json::to_value(&value).unwrap())],
-                &realm_id(),
-                &account
-            )
-            .unwrap()
+            direct(&[public.clone(), row(serde_json::to_value(&value).unwrap())])
+                .unwrap()
+                .is_none()
         );
-        value.endorsements[0].value.unordered_participant_ids[1] =
+        value.binding.unordered_participant_ids[1] =
             arkret::ActorId::account(account.controller_account_id.clone());
-        value.endorsements[0].value.authorization_basis.kind =
+        value.binding.authorization_basis.kind =
             arkret::DirectConversationAuthorizationKind::AcceptedContact;
         assert!(
-            !owner_direct_presence_binding(
-                &[row(serde_json::to_value(&value).unwrap())],
-                &realm_id(),
-                &account
-            )
-            .unwrap()
+            direct(&[public.clone(), row(serde_json::to_value(&value).unwrap())])
+                .unwrap()
+                .is_none()
         );
-        value.endorsements.clear();
-        assert!(
-            owner_direct_presence_binding(
-                &[row(serde_json::to_value(&value).unwrap())],
-                &realm_id(),
-                &account
-            )
-            .is_err()
-        );
+        value.binding.unordered_participant_ids.clear();
+        assert!(direct(&[public, row(serde_json::to_value(&value).unwrap())]).is_err());
     }
 
     #[test]
