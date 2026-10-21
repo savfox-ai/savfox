@@ -2220,24 +2220,14 @@ impl FileArkretCryptoStore {
             );
             let binding: arkret::DirectConversationBindingCurrentValue =
                 serde_json::from_value(value.clone())?;
-            binding.binding_digest()?;
+            binding.validate_shape()?;
             anyhow::ensure!(
-                binding.endorsements.iter().all(|entry| {
-                    entry.value.realm_id == *realm_id
-                        && entry.value.pair_key == *pair_key
-                        && entry.value.unordered_participant_ids.contains(actor)
-                }),
+                binding.binding.realm_id == *realm_id
+                    && binding.binding.pair_key == *pair_key
+                    && binding.binding.unordered_participant_ids.contains(actor),
                 "Direct binding current does not authorize this Realm participant"
             );
-            let first = binding
-                .endorsements
-                .iter()
-                .min_by_key(|entry| &entry.tag_id)
-                .context("Direct binding current has no accepted endorsement")?;
-            payloads.push((
-                first.value.clone(),
-                Some(first.tag_id.event_id().to_string()),
-            ));
+            payloads.push((binding.binding, Some(binding.binding_event_ref.to_string())));
         }
         self.record_direct_conversation_bindings(&payloads)
     }
@@ -2261,24 +2251,31 @@ impl FileArkretCryptoStore {
                     payload.initial_exact_pair_group_state_ref.to_string(),
                 ),
             };
-            if state
+            if let Some(previous) = state
                 .direct_conversation_welcome_bindings
                 .get(&binding.realm_id)
-                .is_some_and(|previous| {
-                    previous.binding_event_ref == binding.binding_event_ref
-                        && previous.strand_id == binding.strand_id
-                        && previous.initial_exact_pair_generation_ref
-                            == binding.initial_exact_pair_generation_ref
-                })
             {
-                continue;
+                anyhow::ensure!(
+                    previous.strand_id == binding.strand_id
+                        && previous.initial_exact_pair_generation_ref
+                            == binding.initial_exact_pair_generation_ref,
+                    "Direct binding cannot replace its original coordinates"
+                );
+                if let Some(previous_ref) = &previous.binding_event_ref {
+                    anyhow::ensure!(
+                        binding
+                            .binding_event_ref
+                            .as_ref()
+                            .is_none_or(|reference| reference == previous_ref),
+                        "Direct binding cannot replace its accepted Event"
+                    );
+                    continue;
+                }
+                if binding.binding_event_ref.is_none() {
+                    continue;
+                }
             }
             changed = true;
-            // One binding per Realm: drop any record an older build keyed by the
-            // Welcome Event so the same pair is never described twice.
-            state
-                .direct_conversation_welcome_bindings
-                .retain(|_, existing| existing.realm_id != binding.realm_id);
             state
                 .direct_conversation_welcome_bindings
                 .insert(binding.realm_id.clone(), binding);
@@ -3378,14 +3375,8 @@ mod tests {
         .unwrap();
         let actor = payload.unordered_participant_ids[1].clone();
         let current = arkret::DirectConversationBindingCurrentValue {
-            endorsements: vec![arkret::DirectConversationBindingEndorsementEntry {
-                tag_id: arkret_models_collaboration::exact_current_results::CanonicalEventDot::new(
-                    FIXTURE_EVENT_14.clone(),
-                    0,
-                )
-                .unwrap(),
-                value: payload.clone(),
-            }],
+            binding_event_ref: FIXTURE_EVENT_14.clone(),
+            binding: payload.clone(),
         };
         let entry = TypedCurrentRow::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding {
@@ -3417,6 +3408,20 @@ mod tests {
             Some(FIXTURE_EVENT_14.clone())
         );
         let generation = store.load().unwrap().generation;
+        let mut conflicting = entry.clone();
+        let TypedCurrentRow::Value { value, .. } = &mut conflicting;
+        value["binding_event_ref"] = json!(FIXTURE_EVENT_1.as_str());
+        assert!(
+            store
+                .record_verified_direct_conversation_current_entries(
+                    &FIXTURE_REALM_B,
+                    &actor,
+                    &[conflicting],
+                )
+                .is_err(),
+            "a second Event cannot replace the immutable binding reference"
+        );
+        assert_eq!(store.load().unwrap().generation, generation);
         store
             .record_verified_direct_conversation_current_entries(
                 &FIXTURE_REALM_B,
