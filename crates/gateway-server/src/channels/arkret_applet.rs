@@ -13,11 +13,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context as _;
-use arkret::http_signature::{
-    Component, HttpMessageVerificationError, HttpSignatureScenario, SignaturePolicyError,
-    SignatureVerificationPolicy, parse_signature_input, public_key_from_bytes,
-    verify_signed_http_message,
-};
 use arkret::{
     AppletActorView, AppletId, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, DidCoreId, Hash, IdempotencyClaim,
@@ -35,14 +30,9 @@ use super::render_error;
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
-/// Per-config in-memory state. We don't try to persist anything yet — the
-/// idempotency window is 5 minutes; cold restart cleanly accepts a retry.
-///
-/// Phase 7: `txn_dedupe` is now an SDK [`IdempotencyWindow`] (S-5) that
-/// implements spec applet-integration.md §7.3 properly — including
-/// `duplicate_conflict` detection when the same operation/direction/source/
-/// destination/Idempotency-Key identity arrives with different authenticated
-/// request material.
+/// Short-lived coordination of simultaneous deliveries. The shared durable
+/// authoring journal retains immutable creation, full delivery authentication
+/// records and the fixed accepted outcome across process restarts.
 #[derive(Debug)]
 struct AppletRuntimeState {
     txn_dedupe: IdempotencyWindow<AppletTransactionOutcome>,
@@ -91,7 +81,6 @@ fn applet_registry() -> &'static Mutex<AppletRegistry> {
 
 const TXN_DEDUPE_WINDOW: Duration = Duration::from_secs(300);
 const MAX_APPLET_TRANSACTION_BODY_BYTES: usize = 16 * 1024 * 1024;
-const SOURCE_SERVICE_ID_HEADER: &str = "source-service-id";
 const DESTINATION_SERVICE_ID_HEADER: &str = "destination-service-id";
 
 fn register_channel(state: AppletChannelState) -> anyhow::Result<()> {
@@ -157,21 +146,32 @@ fn complete_transaction_claim(
 }
 
 fn render_unauthorized(res: &mut Response, code: &str, message: impl Into<String>) {
-    render_error(res, StatusCode::UNAUTHORIZED, code, message);
+    render_completion_problem(res, StatusCode::UNAUTHORIZED, code, message);
 }
 
-#[derive(Debug, Clone)]
-struct VerifiedAppletHttpSignature {
-    source_service_id: String,
-    destination_service_id: String,
-    signature_label: String,
-    key_id: String,
-    verification_key_digest: String,
-    signature_algorithm: String,
-    content_digest: String,
-    covered_components: Vec<String>,
-    created: i64,
-    expires: i64,
+fn render_completion_problem(
+    res: &mut Response,
+    status: StatusCode,
+    code: &str,
+    message: impl Into<String>,
+) {
+    let problem = arkret::Problem::from_code(code, message)
+        .with_status(status.as_u16())
+        .with_instance(arkret::new_prefixed_uuid7("ak:request:"));
+    let mut output = salvo::http::Problem::new(status)
+        .kind(problem.problem_type)
+        .title(problem.title)
+        .detail(problem.detail)
+        .with_extensions(
+            problem
+                .extensions
+                .into_iter()
+                .collect::<serde_json::Map<_, _>>(),
+        );
+    if let Some(instance) = problem.instance {
+        output = output.instance(instance);
+    }
+    res.render(output);
 }
 
 fn render_state_unavailable(res: &mut Response, err: &anyhow::Error) {
@@ -349,30 +349,24 @@ async fn applet_transactions(req: &mut Request, _depot: &mut Depot, res: &mut Re
     let state = match select_applet_management_target(req) {
         Ok(Some(state)) => state,
         Ok(None) => {
-            render_error(
+            render_completion_problem(
                 res,
                 StatusCode::NOT_FOUND,
-                "applet_not_found",
+                "not_found",
                 "Applet management target is unconfigured",
             );
             return;
         }
         Err(error) => {
-            render_state_unavailable(res, &error);
+            warn!("applet transaction state unavailable: {error:#}");
+            render_completion_problem(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                "Applet transaction state unavailable",
+            );
             return;
         }
-    };
-    let Some(idempotency_key) = req
-        .header::<String>("idempotency-key")
-        .filter(|v| !v.trim().is_empty())
-    else {
-        render_error(
-            res,
-            StatusCode::BAD_REQUEST,
-            "missing_idempotency_key",
-            "Arkret applet transactions require an Idempotency-Key header",
-        );
-        return;
     };
     let request_headers = collect_headers(req);
     let signature_method = req.method().as_str().to_owned();
@@ -392,7 +386,7 @@ async fn applet_transactions(req: &mut Request, _depot: &mut Depot, res: &mut Re
     {
         Ok(bytes) => bytes,
         Err(salvo::http::ParseError::PayloadTooLarge) => {
-            render_error(
+            render_completion_problem(
                 res,
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "payload_too_large",
@@ -403,218 +397,177 @@ async fn applet_transactions(req: &mut Request, _depot: &mut Depot, res: &mut Re
             return;
         }
         Err(err) => {
-            render_error(
+            render_completion_problem(
                 res,
                 StatusCode::BAD_REQUEST,
-                "invalid_payload",
+                "json_invalid",
                 format!("failed to read AppletTransactionRequestBody: {err}"),
             );
             return;
         }
     };
 
+    if let Err(error) = arkret_bridge_runtime::precheck_applet_completion_envelope(
+        &request_headers,
+        body_bytes.as_ref(),
+    ) {
+        render_unauthorized(res, error.code, error.message);
+        return;
+    }
+    if header_value_from(&request_headers, "idempotency-key").is_none() {
+        render_unauthorized(
+            res,
+            "http_signature_invalid",
+            "transaction signature requires Idempotency-Key",
+        );
+        return;
+    }
     let body: AppletTransactionRequestBody = match serde_json::from_slice(body_bytes) {
         Ok(body) => body,
         Err(err) => {
-            render_error(
+            render_completion_problem(
                 res,
-                StatusCode::BAD_REQUEST,
-                "invalid_payload",
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "schema_violation",
                 format!("invalid AppletTransactionRequestBody: {err}"),
             );
             return;
         }
     };
 
-    let source_service_id = body.source_id().as_str().to_owned();
-    if let Some(expected_source) = state.config.arkret_server_did.as_deref()
-        && arkret::Did::new(expected_source.to_owned())
-            .and_then(|did| arkret::project_did_to_core_id(&did))
-            .map(|core| core.as_str() != source_service_id)
-            .unwrap_or(true)
-    {
-        render_unauthorized(
-            res,
-            "invalid_source_service_id",
-            "Arkret applet transaction source_service_id does not match the trusted server DID",
-        );
-        return;
-    }
-
-    let verified_http_signature = match verify_applet_transaction_http_signature(
-        &state,
-        &signature_method,
-        signature_target_uri.as_deref(),
-        signature_authority.as_deref(),
-        &signature_path,
-        &request_headers,
-        body_bytes.as_ref(),
-    ) {
-        Ok(verified) => verified,
-        Err(err) => {
-            warn!(
-                config_id = %state.config.id,
-                "applet: inbound HTTP message signature verification failed: {err:#}"
-            );
-            render_unauthorized(
-                res,
-                "invalid_signature",
-                "Arkret applet transaction HTTP message signature verification failed",
-            );
-            return;
-        }
-    };
-    let Some(signature) = verified_http_signature.as_ref() else {
-        render_unauthorized(
-            res,
-            "http_signature_required",
-            "Arkret applet transactions require a verified HTTP message signature",
-        );
-        return;
-    };
-    if signature.source_service_id != source_service_id {
-        render_unauthorized(
-            res,
-            "invalid_signature",
-            "Arkret applet transaction source_service_id does not match signed source service DID",
-        );
-        return;
-    }
-
-    // Canonical body hash for idempotency body-equality check (spec §7.3).
-    // Same `(source_service_id, key)` with matching body → return cached
-    // accepted; differing body → 409 duplicate_conflict.
-    let body_hash = match canonical::canonical_sha256(&body) {
-        Ok(digest) => match Hash::new(digest) {
-            Ok(h) => h,
-            Err(err) => {
-                warn!("applet: body hash construct failed: {err}");
-                render_error(
-                    res,
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "hash_failed",
-                    "failed to compute body canonical hash",
-                );
-                return;
-            }
-        },
-        Err(err) => {
-            warn!("applet: canonical hash failed: {err}");
-            render_error(
-                res,
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "hash_failed",
-                "failed to compute body canonical hash",
-            );
-            return;
-        }
-    };
-
-    // Preserve the received field value in the protocol record. Trimming is
-    // used only above to reject an all-whitespace value.
-    let Some(registration_epoch) = state
-        .config
-        .registration_epoch
-        .as_deref()
-        .filter(|epoch| !epoch.is_empty())
-    else {
-        render_unauthorized(
-            res,
-            "applet_registration_unauthorized",
-            "Arkret applet transaction has no effective registration epoch",
-        );
-        return;
-    };
-    let Ok(destination_service_id) = DidCoreId::new(state.config.service_id.clone()) else {
-        render_error(
-            res,
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "invalid_service_id",
-            "Arkret applet channel service_id is not a valid DID core id",
-        );
-        return;
-    };
-    let identity = IdempotencyIdentity::applet_transaction(
-        IdempotencyDirection::NodeToApplet,
-        body.source_id().clone(),
-        destination_service_id,
-        idempotency_key.clone(),
-    );
-    let delivery_authentication_record = json!({
-        "operation_id": ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION_V1,
-        "direction": IdempotencyDirection::NodeToApplet.as_str(),
-        "source_service_id": &signature.source_service_id,
-        "destination_service_id": &signature.destination_service_id,
-        "signature_label": &signature.signature_label,
-        "verification_method": &signature.key_id,
-        "verification_key_digest": &signature.verification_key_digest,
-        "signature_algorithm": &signature.signature_algorithm,
-        "registration_epoch": registration_epoch,
-        "idempotency_key": &idempotency_key,
-        "content_digest": &signature.content_digest,
-        "covered_components": &signature.covered_components,
-        "created": signature.created,
-        "expires": signature.expires,
-    });
-    let delivery_authentication_record_digest =
-        match canonical::canonical_json_bytes(&delivery_authentication_record) {
-            Ok(record_bytes) => {
-                let mut transcript = b"ak.applet.delivery-authentication-record.v1\n".to_vec();
-                transcript.extend(record_bytes);
-                canonical::sha256_digest(transcript)
-            }
-            Err(err) => {
-                warn!("applet: delivery authentication record digest failed: {err}");
-                render_error(
-                    res,
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "delivery_authentication_record_digest_failed",
-                    "failed to compute delivery authentication record digest",
-                );
-                return;
-            }
-        };
-
     if let Err(error) = body.validate() {
-        render_error(
+        render_completion_problem(
             res,
-            StatusCode::BAD_REQUEST,
-            "invalid_transaction",
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "schema_violation",
             error.to_string(),
         );
         return;
     }
-    if let AppletTransactionRequestBody::Events(events) = &body {
-        if !events.events.is_empty() {
-            render_error(
+    let AppletTransactionRequestBody::Authoring(completion) = &body else {
+        render_completion_problem(
+            res,
+            StatusCode::FORBIDDEN,
+            "capability_denied",
+            "Station-to-Applet Event and Signal subscriptions are prohibited; use an authorized managed Device",
+        );
+        return;
+    };
+    let edge = match applet_edge(&state).await {
+        Ok(edge) => edge,
+        Err(error) => {
+            warn!("applet transaction state unavailable: {error:#}");
+            render_completion_problem(
                 res,
-                StatusCode::BAD_REQUEST,
-                "uncommitted_event",
-                "Station-to-Applet transaction requires committed Event and Commit pairs",
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                "Applet transaction state unavailable",
             );
             return;
         }
-        if !events.signals.is_empty() {
-            render_error(
+    };
+    let (Some(authority), Some(target_uri)) = (signature_authority, signature_target_uri) else {
+        render_unauthorized(
+            res,
+            "http_signature_invalid",
+            "request authority/target URI is required",
+        );
+        return;
+    };
+    let request = arkret::http_signature::SignedRequestParts {
+        method: signature_method,
+        target_uri,
+        authority,
+        path: signature_path,
+        headers: request_headers,
+        body_digest: None,
+    };
+    // This call always precedes the cache. The shared runtime independently
+    // authenticates current governance/HTTP key and current manager, the
+    // original Service signer epoch, and the still-live exact material.
+    let verified_completion = match edge
+        .admit_managed_authoring_delivery(&request, body_bytes.as_ref(), completion)
+        .await
+    {
+        Ok(completion) => completion,
+        Err(error) => {
+            let status = if error.code == "duplicate_conflict" {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::UNAUTHORIZED
+            };
+            render_completion_problem(res, status, error.code, error.message);
+            return;
+        }
+    };
+    let Some(record) = verified_completion.delivery_authentication_record() else {
+        render_completion_problem(
+            res,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal_error",
+            "completion admission returned no authentication record",
+        );
+        return;
+    };
+    let body_hash = match canonical::canonical_sha256(&body)
+        .map_err(|error| error.to_string())
+        .and_then(|hash| Hash::new(hash).map_err(|error| error.to_string()))
+    {
+        Ok(hash) => hash,
+        Err(error) => {
+            render_completion_problem(
                 res,
-                StatusCode::NOT_IMPLEMENTED,
-                "unsupported_transaction_branch",
-                "Applet Signal transaction handling is unavailable",
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                error.to_string(),
             );
             return;
         }
+    };
+    let identity = IdempotencyIdentity::applet_transaction(
+        IdempotencyDirection::NodeToApplet,
+        record.source_id.clone(),
+        record.destination_id.clone(),
+        record.idempotency_key.clone(),
+    );
+    let delivery_authentication_record_digest = match record.stable_digest() {
+        Ok(digest) => digest.to_string(),
+        Err(error) => {
+            render_completion_problem(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                error,
+            );
+            return;
+        }
+    };
+
+    if let Some(outcome) = verified_completion.retained_outcome().cloned() {
+        if let Err(error) = edge.install_verified_managed_completion(verified_completion) {
+            render_completion_problem(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                error.to_string(),
+            );
+            return;
+        }
+        res.status_code(StatusCode::OK);
+        res.render(Json(outcome));
+        return;
     }
 
-    // Idempotency check (SDK S-5 IdempotencyWindow). The claim is persisted
-    // before any gateway dispatch side effect runs.
+    // Coordinate simultaneous first deliveries before installing the original.
+    // The journal's terminal receipt above provides durable replay recovery.
     {
         let runtime_state = if let Ok(runtime_state) = state.runtime.lock() {
             runtime_state
         } else {
-            render_error(
+            render_completion_problem(
                 res,
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "state_unavailable",
+                "internal_error",
                 "Arkret applet runtime state unavailable",
             );
             return;
@@ -627,6 +580,15 @@ async fn applet_transactions(req: &mut Request, _depot: &mut Depot, res: &mut Re
         ) {
             IdempotencyClaim::Fresh => {}
             IdempotencyClaim::Duplicate { outcome, .. } => {
+                if let Err(error) = edge.install_verified_managed_completion(verified_completion) {
+                    render_completion_problem(
+                        res,
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "internal_error",
+                        error.to_string(),
+                    );
+                    return;
+                }
                 debug!(
                     "applet: duplicate transaction (matching body hash/delivery authentication record digest) — returning cached outcome"
                 );
@@ -638,7 +600,7 @@ async fn applet_transactions(req: &mut Request, _depot: &mut Depot, res: &mut Re
                 warn!(
                     "applet: idempotency conflict — same identity with different body hash or delivery authentication record digest"
                 );
-                render_error(
+                render_completion_problem(
                     res,
                     StatusCode::CONFLICT,
                     "duplicate_conflict",
@@ -647,10 +609,10 @@ async fn applet_transactions(req: &mut Request, _depot: &mut Depot, res: &mut Re
                 return;
             }
             IdempotencyClaim::InFlight { .. } => {
-                render_error(
+                render_completion_problem(
                     res,
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "duplicate_in_flight",
+                    "temporarily_unavailable",
                     "duplicate transaction is still being processed; retry to receive the outcome",
                 );
                 return;
@@ -658,169 +620,24 @@ async fn applet_transactions(req: &mut Request, _depot: &mut Depot, res: &mut Re
         }
     }
 
-    let body = match &body {
-        AppletTransactionRequestBody::Authoring(completion) => {
-            let result = async {
-                let edge = applet_edge(&state).await?;
-                edge.install_managed_authoring_completion(completion)
-                    .await
-                    .map_err(|error| anyhow::anyhow!(error.to_string()))
-            }
-            .await;
-            if let Err(error) = result {
-                release_transaction_claim(&state, &identity);
-                render_error(
-                    res,
-                    StatusCode::BAD_REQUEST,
-                    "invalid_authoring_context",
-                    &error.to_string(),
-                );
-                return;
-            }
-            let outcome = AppletTransactionOutcome::Accepted {
-                committed_event_refs: Vec::new(),
-                rejections: Vec::new(),
-                retry_after_ms: None,
-            };
-            complete_transaction_claim(&state, &identity, outcome.clone());
-            res.status_code(StatusCode::OK);
-            res.render(Json(outcome));
-            return;
-        }
-        AppletTransactionRequestBody::Events(events) => events,
+    if let Err(error) = edge.install_verified_managed_completion(verified_completion) {
+        release_transaction_claim(&state, &identity);
+        render_completion_problem(
+            res,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal_error",
+            error.to_string(),
+        );
+        return;
+    }
+    let outcome = AppletTransactionOutcome::Accepted {
+        committed_event_refs: Vec::new(),
+        rejections: Vec::new(),
+        retry_after_ms: None,
     };
-
-    let _ = body;
-    release_transaction_claim(&state, &identity);
-    render_error(
-        res,
-        StatusCode::FORBIDDEN,
-        "capability_denied",
-        "Station-to-Applet Event and Signal subscriptions are prohibited; use an authorized managed Device",
-    );
-}
-
-fn verify_applet_transaction_http_signature(
-    state: &AppletChannelState,
-    method: &str,
-    target_uri: Option<&str>,
-    authority: Option<&str>,
-    path: &str,
-    headers: &[(String, String)],
-    body: &[u8],
-) -> anyhow::Result<Option<VerifiedAppletHttpSignature>> {
-    let has_signature_headers = header_value_from(headers, "signature-input").is_some()
-        || header_value_from(headers, "signature").is_some();
-    if state.config.trusted_verification_methods.is_empty() {
-        if has_signature_headers {
-            anyhow::bail!(
-                "request carries HTTP Message Signature headers but no trusted verification methods are configured"
-            );
-        }
-        return Ok(None);
-    }
-
-    let expected_source = state.config.arkret_server_did.as_deref().ok_or_else(|| {
-        anyhow::anyhow!("trusted verification methods require arkret_server_did / trustedServerDid")
-    })?;
-    let signature_input_header = header_value_from(headers, "signature-input")
-        .ok_or_else(|| anyhow::anyhow!("Signature-Input header is required"))?;
-    let signature_input = parse_signature_input(&signature_input_header)
-        .map_err(|err| anyhow::anyhow!("parse Signature-Input: {err}"))?;
-    let trusted_method = state
-        .config
-        .trusted_verification_methods
-        .iter()
-        .find(|method| method.verification_method == signature_input.key_id)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "verification method '{}' is not trusted for applet '{}'",
-                signature_input.key_id,
-                state.config.id
-            )
-        })?;
-    let signer_did = verification_method_did(&signature_input.key_id)
-        .ok_or_else(|| anyhow::anyhow!("HTTP signature keyid has no DID fragment"))?;
-    if signer_did != expected_source {
-        anyhow::bail!(
-            "HTTP signature keyid owner '{signer_did}' does not match trusted server DID '{expected_source}'"
-        );
-    }
-
-    let source = header_value_from(headers, SOURCE_SERVICE_ID_HEADER)
-        .ok_or_else(|| anyhow::anyhow!("{SOURCE_SERVICE_ID_HEADER} header is required"))?;
-    let expected_source_core =
-        arkret::project_did_to_core_id(&arkret::Did::new(expected_source.to_owned())?)?;
-    let source_core = DidCoreId::new(source.clone())?;
-    if source_core != expected_source_core {
-        anyhow::bail!(
-            "HTTP signature source service identity '{source}' does not match trusted server DID '{expected_source}'"
-        );
-    }
-    let destination = header_value_from(headers, DESTINATION_SERVICE_ID_HEADER)
-        .ok_or_else(|| anyhow::anyhow!("{DESTINATION_SERVICE_ID_HEADER} header is required"))?;
-    if destination != state.config.service_id {
-        anyhow::bail!(
-            "HTTP signature destination service DID '{destination}' does not match applet service DID '{}'",
-            state.config.service_id
-        );
-    }
-
-    let public_key_bytes = trusted_method
-        .public_key
-        .ed25519_bytes()
-        .map_err(|err| anyhow::anyhow!("trusted HTTP signature public key: {err}"))?;
-    let verification_key_digest = canonical::sha256_digest(&public_key_bytes);
-    let public_key = public_key_from_bytes(&public_key_bytes)
-        .map_err(|err| anyhow::anyhow!("trusted HTTP signature public key: {err}"))?;
-    let authority =
-        authority.ok_or_else(|| anyhow::anyhow!("request authority/Host is required"))?;
-    let target_uri =
-        target_uri.ok_or_else(|| anyhow::anyhow!("request target URI could not be constructed"))?;
-    if header_value_from(headers, "arkret-operation").as_deref()
-        != Some("ak.edge.applet.command.transaction.v1")
-    {
-        anyhow::bail!("Arkret-Operation must name the Applet transaction operation");
-    }
-    let policy =
-        SignatureVerificationPolicy::for_scenario(HttpSignatureScenario::AppletTransactionV1, &[])?;
-    let verified = verify_signed_http_message(
-        method,
-        target_uri,
-        authority,
-        path,
-        headers
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str())),
-        body,
-        &public_key,
-        &policy,
-        chrono::Utc::now().timestamp(),
-    )
-    .map_err(map_http_signature_error)?;
-    let content_digest = verified
-        .content_digest
-        .as_ref()
-        .map(|digest| digest.wire_value.clone())
-        .ok_or_else(|| anyhow::anyhow!("verified HTTP signature has no Content-Digest"))?;
-    let covered_components = verified
-        .signature_input
-        .covered_components
-        .iter()
-        .map(Component::canonical_name)
-        .collect();
-    Ok(Some(VerifiedAppletHttpSignature {
-        source_service_id: source,
-        destination_service_id: destination,
-        signature_label: verified.signature_input.label,
-        key_id: verified.signature_input.key_id,
-        verification_key_digest,
-        signature_algorithm: verified.signature_input.algorithm,
-        content_digest,
-        covered_components,
-        created: verified.signature_input.created,
-        expires: verified.signature_input.expires,
-    }))
+    complete_transaction_claim(&state, &identity, outcome.clone());
+    res.status_code(StatusCode::OK);
+    res.render(Json(outcome));
 }
 
 fn collect_headers(req: &Request) -> Vec<(String, String)> {
@@ -875,43 +692,6 @@ fn request_target_uri(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "http".to_owned());
     format!("{scheme}://{authority}{path}")
-}
-
-fn verification_method_did(verification_method: &str) -> Option<&str> {
-    verification_method
-        .rsplit_once('#')
-        .map(|(did, _)| did)
-        .filter(|did| !did.is_empty())
-}
-
-fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error {
-    match err {
-        HttpMessageVerificationError::MissingHeader(header) => {
-            anyhow::anyhow!("required HTTP signature header '{header}' is missing")
-        }
-        HttpMessageVerificationError::Policy(
-            SignaturePolicyError::MissingContentDigest
-            | SignaturePolicyError::MissingRequiredCoveredComponent,
-        ) => anyhow::anyhow!("HTTP signature does not cover required applet transaction fields"),
-        HttpMessageVerificationError::Policy(SignaturePolicyError::InvalidValidityWindow) => {
-            anyhow::anyhow!("HTTP signature validity window is invalid")
-        }
-        HttpMessageVerificationError::Policy(
-            SignaturePolicyError::UnregisteredConditionalComponent(component),
-        ) => anyhow::anyhow!("HTTP signature uses unregistered conditional component: {component}"),
-        HttpMessageVerificationError::Policy(
-            SignaturePolicyError::CreatedInFuture
-            | SignaturePolicyError::CreatedTooOld
-            | SignaturePolicyError::Expired,
-        ) => anyhow::anyhow!("HTTP signature timestamp is outside the accepted window"),
-        HttpMessageVerificationError::ContentEncodingNotAllowed => {
-            anyhow::anyhow!("signed applet transaction must not use Content-Encoding")
-        }
-        HttpMessageVerificationError::NonCanonicalJson(detail) => {
-            anyhow::anyhow!("signed applet transaction body is not canonical JSON: {detail}")
-        }
-        HttpMessageVerificationError::Signature(err) => anyhow::anyhow!("{err}"),
-    }
 }
 
 #[handler]
@@ -1425,12 +1205,6 @@ pub(crate) async fn log_arkret_applet_configs(savfox_home: &std::path::PathBuf) 
 
 #[cfg(test)]
 mod tests {
-    use arkret::http_signature::{
-        Component, ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
-        parse_signature_input, sign_message, signing_key_from_seed,
-    };
-    use arkret::signatures::PublicKeyMaterial;
-    use savfox_channels::arkret::applet::ArkretAppletTrustedVerificationMethod;
     use savfox_core::config::channel_store::ChannelConfig;
 
     use super::*;
@@ -1472,82 +1246,6 @@ mod tests {
         }
     }
 
-    fn state_with_trusted_http_signature_key(public_key: Vec<u8>) -> AppletChannelState {
-        let cfg = valid_channel_config();
-        let mut applet = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
-        applet.trusted_verification_methods = vec![ArkretAppletTrustedVerificationMethod {
-            verification_method: "did:webvh:z6mkstation:arkret.example.org#key-1".to_owned(),
-            public_key: PublicKeyMaterial::Ed25519Raw { bytes: public_key },
-        }];
-        applet.validate().expect("validate");
-        let tmp = tempfile::tempdir().expect("tempdir");
-        AppletChannelState {
-            config: applet.clone(),
-            runtime: Mutex::new(AppletRuntimeState::default()),
-            journal: build_applet_authoring_journal(tmp.path(), &applet.id)
-                .expect("authoring journal"),
-            edge: tokio::sync::Mutex::new(None),
-        }
-    }
-
-    fn signed_transaction_headers(body: &[u8], seed: [u8; 32]) -> (Vec<(String, String)>, Vec<u8>) {
-        let signing_key = signing_key_from_seed(&seed);
-        let public_key = signing_key.verifying_key().to_bytes().to_vec();
-        let now = chrono::Utc::now().timestamp();
-        let content_digest = ContentDigest::compute(body, ContentDigestAlgorithm::Sha256);
-        let signature_input = format!(
-            "sig1=(\"@method\" \"@target-uri\" \"@authority\" \
-             \"arkret-operation\" \"source-service-id\" \"destination-service-id\" \
-             \"content-digest\" \"idempotency-key\");created={now};expires={};\
-             keyid=\"did:webvh:z6mkstation:arkret.example.org#key-1\";alg=\"ed25519\"",
-            now + 300
-        );
-        let mut headers = vec![
-            ("host".to_owned(), "savfox.example".to_owned()),
-            (
-                "arkret-operation".to_owned(),
-                "ak.edge.applet.command.transaction.v1".to_owned(),
-            ),
-            (
-                SOURCE_SERVICE_ID_HEADER.to_owned(),
-                "ak:did_core:webvh:z6mkstation".to_owned(),
-            ),
-            (
-                DESTINATION_SERVICE_ID_HEADER.to_owned(),
-                "ak:did_core:webvh:z6mkbridge".to_owned(),
-            ),
-            (
-                "content-digest".to_owned(),
-                content_digest.wire_value.clone(),
-            ),
-            ("idempotency-key".to_owned(), "txn-1".to_owned()),
-            ("signature-input".to_owned(), signature_input.clone()),
-        ];
-        let parsed = parse_signature_input(&signature_input).expect("signature input should parse");
-        assert!(parsed.covers_all(&[
-            Component::Method,
-            Component::TargetUri,
-            Component::Authority,
-            Component::Header("arkret-operation".to_owned()),
-            Component::Header(SOURCE_SERVICE_ID_HEADER.to_owned()),
-            Component::Header(DESTINATION_SERVICE_ID_HEADER.to_owned()),
-            Component::Header("content-digest".to_owned()),
-            Component::Header("idempotency-key".to_owned()),
-        ]));
-        let request = SignedRequestParts {
-            method: "POST".to_owned(),
-            target_uri: "https://savfox.example/_arkret/edge/applet/transactions".to_owned(),
-            authority: "savfox.example".to_owned(),
-            path: "/_arkret/edge/applet/transactions".to_owned(),
-            headers: headers.clone(),
-            body_digest: Some(content_digest.wire_value),
-        };
-        let message = canonical_message(&request, &parsed).expect("canonical message");
-        let signature = sign_message(&message, &signing_key);
-        headers.push(("signature".to_owned(), format!("sig1=:{signature}:")));
-        (headers, public_key)
-    }
-
     #[tokio::test]
     async fn start_registers_applet_into_registry() {
         let cfg = valid_channel_config();
@@ -1573,99 +1271,134 @@ mod tests {
         assert_eq!(resolved.config.applet_id, applet.applet_id);
     }
 
-    #[test]
-    fn verifies_trusted_http_message_signature() {
-        let body = serde_json::to_vec(&json!({
-            "transaction_id": "txn-1",
-            "source_id": "ak:did_core:webvh:z6mkstation",
-            "applet_id": "ak:applet:21532600-0000-7000-8000-000000000000",
-            "events": []
-        }))
-        .expect("body should serialize");
-        let (headers, public_key) = signed_transaction_headers(&body, [9u8; 32]);
-        let state = state_with_trusted_http_signature_key(public_key);
-        let verified = verify_applet_transaction_http_signature(
-            &state,
-            "POST",
-            Some("https://savfox.example/_arkret/edge/applet/transactions"),
-            Some("savfox.example"),
-            "/_arkret/edge/applet/transactions",
-            &headers,
-            &body,
+    #[tokio::test]
+    async fn transaction_route_rejects_group_content_even_with_a_matching_cached_outcome() {
+        use salvo::test::{ResponseExt, TestClient};
+        let mut channel = valid_channel_config();
+        channel.id = "applet-group-cache-rejection".into();
+        let applet = ArkretAppletConfig::from_channel_config(&channel).unwrap();
+        let temporary = tempfile::tempdir().unwrap();
+        let state = AppletChannelState {
+            journal: build_applet_authoring_journal(temporary.path(), &applet.id).unwrap(),
+            config: applet.clone(),
+            runtime: Mutex::new(AppletRuntimeState::default()),
+            edge: tokio::sync::Mutex::new(None),
+        };
+        let event = arkret_wire::test_support::raw_event(
+            "ak.message.create",
+            arkret::ScopeRef::Realm {
+                realm_id: arkret::RealmId::new(
+                    "ak:realm:AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                )
+                .unwrap(),
+            },
+            DidCoreId::new("ak:did_core:webvh:zsender").unwrap(),
+            DidCoreId::new("ak:did_core:webvh:z6mkstation").unwrap(),
+            json!({"body":"no group subscription"}),
         )
-        .expect("signature should verify")
-        .expect("signature should be required");
-        assert_eq!(verified.source_service_id, "ak:did_core:webvh:z6mkstation");
-        assert_eq!(
-            verified.destination_service_id,
-            "ak:did_core:webvh:z6mkbridge"
+        .unwrap();
+        let body =
+            AppletTransactionRequestBody::Events(arkret::AppletEventTransactionRequestBody {
+                applet_id: AppletId::new(applet.applet_id.clone()).unwrap(),
+                source_id: DidCoreId::new("ak:did_core:webvh:z6mkstation").unwrap(),
+                events: vec![event],
+                committed_events: Vec::new(),
+                signals: Vec::new(),
+            });
+        let identity = IdempotencyIdentity::applet_transaction(
+            IdempotencyDirection::NodeToApplet,
+            body.source_id().clone(),
+            DidCoreId::new(applet.service_id.clone()).unwrap(),
+            "cached-group",
         );
-        assert_eq!(verified.signature_label, "sig1");
-        assert_eq!(
-            verified.key_id,
-            "did:webvh:z6mkstation:arkret.example.org#key-1"
-        );
-        assert_eq!(verified.signature_algorithm, "ed25519");
-        assert!(verified.verification_key_digest.starts_with("sha256:"));
-        assert!(verified.content_digest.starts_with("sha-256=:"));
-    }
-
-    #[test]
-    fn rejects_missing_or_cross_operation_http_signature() {
-        let body = b"{}";
-        let (headers, public_key) = signed_transaction_headers(body, [9u8; 32]);
-        let state = state_with_trusted_http_signature_key(public_key);
-        for operation in [None, Some("ak.self.applet.bot.command.provision.v1")] {
-            let mut invalid = headers.clone();
-            invalid.retain(|(name, _)| name != "arkret-operation");
-            if let Some(operation) = operation {
-                invalid.push(("arkret-operation".to_owned(), operation.to_owned()));
-            }
-            let error = verify_applet_transaction_http_signature(
-                &state,
-                "POST",
-                Some("https://savfox.example/_arkret/edge/applet/transactions"),
-                Some("savfox.example"),
-                "/_arkret/edge/applet/transactions",
-                &invalid,
-                body,
-            )
-            .expect_err("a transaction must bind its exact operation");
-            assert!(error.to_string().contains("Arkret-Operation"));
+        let hash = Hash::new(canonical::canonical_sha256(&body).unwrap()).unwrap();
+        {
+            let runtime = state.runtime.lock().unwrap();
+            assert!(matches!(
+                runtime.txn_dedupe.claim(&identity, &hash, "prior"),
+                IdempotencyClaim::Fresh
+            ));
+            assert!(runtime.txn_dedupe.complete(
+                &identity,
+                AppletTransactionOutcome::Accepted {
+                    committed_event_refs: Vec::new(),
+                    rejections: Vec::new(),
+                    retry_after_ms: None,
+                }
+            ));
         }
-    }
-
-    #[test]
-    fn rejects_tampered_http_message_signature_body() {
-        let body = serde_json::to_vec(&json!({
-            "transaction_id": "txn-1",
-            "source_id": "ak:did_core:webvh:z6mkstation",
-            "applet_id": "ak:applet:21532600-0000-7000-8000-000000000000",
-            "events": []
-        }))
-        .expect("body should serialize");
-        let (headers, public_key) = signed_transaction_headers(&body, [9u8; 32]);
-        let state = state_with_trusted_http_signature_key(public_key);
-        let tampered = serde_json::to_vec(&json!({
-            "transaction_id": "txn-1",
-            "source_id": "ak:did_core:webvh:z6mkstation",
-            "applet_id": "ak:applet:21532600-0000-7000-8000-000000000000",
-            "events": [{"kind":"ak.message.create"}]
-        }))
-        .expect("tampered body should serialize");
-        let err = verify_applet_transaction_http_signature(
-            &state,
-            "POST",
-            Some("https://savfox.example/_arkret/edge/applet/transactions"),
-            Some("savfox.example"),
-            "/_arkret/edge/applet/transactions",
-            &headers,
-            &tampered,
-        )
-        .expect_err("tampered body must fail signature verification");
-        assert!(
-            err.to_string().contains("content-digest") || err.to_string().contains("signature")
+        register_channel(state).unwrap();
+        let service = salvo::Service::new(arkret_appservices_router());
+        let url = format!(
+            "https://savfox.example/appservices/arkret/{}/_arkret/edge/applet/transactions",
+            applet.id
         );
+        let raw = canonical::canonical_json_bytes(&body).unwrap();
+        let digest = arkret::http_signature::ContentDigest::compute(
+            &raw,
+            arkret::http_signature::ContentDigestAlgorithm::Sha256,
+        );
+        let mut parts = arkret::http_signature::SignedRequestParts {
+            method: "POST".into(),
+            target_uri: url.clone(),
+            authority: "savfox.example".into(),
+            path: format!(
+                "/appservices/arkret/{}/_arkret/edge/applet/transactions",
+                applet.id
+            ),
+            headers: vec![
+                (
+                    "arkret-operation".into(),
+                    ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION_V1.into(),
+                ),
+                ("source-service-id".into(), body.source_id().to_string()),
+                ("destination-service-id".into(), applet.service_id.clone()),
+                ("content-digest".into(), digest.wire_value.clone()),
+                ("idempotency-key".into(), "cached-group".into()),
+            ],
+            body_digest: Some(digest.wire_value),
+        };
+        let key = arkret::http_signature::signing_key_from_seed(&[0x62; 32]);
+        let signed = arkret::http_signature::sign_http_message_for_scenario(
+            &parts,
+            arkret::http_signature::HttpSignatureScenario::AppletTransactionV1,
+            &[],
+            "sig1",
+            "did:webvh:z6mkstation:station.example#key-1",
+            chrono::Utc::now().timestamp(),
+            &key,
+        )
+        .unwrap();
+        parts
+            .headers
+            .push(("signature-input".into(), signed.signature_input_header));
+        parts
+            .headers
+            .push(("signature".into(), signed.signature_header));
+        let mut request = TestClient::post(&url).body(raw);
+        for (name, value) in parts.headers {
+            request = request.add_header(
+                salvo::http::header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                value,
+                true,
+            );
+        }
+        let mut response = request.send(&service).await;
+        assert_eq!(response.status_code, Some(StatusCode::FORBIDDEN));
+        assert!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.starts_with("application/problem+json"))
+        );
+        let problem: arkret::Problem = response.take_json().await.unwrap();
+        assert_eq!(
+            problem.problem_type,
+            "https://arkret.org/problems/capability_denied"
+        );
+        assert_eq!(problem.code(), "capability_denied");
+        remove_arkret_applet_channel(&applet.id).unwrap();
     }
 
     #[tokio::test]
@@ -1682,5 +1415,198 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn completion_route_prioritizes_exact_digest_and_canonical_wire_without_opening_edge() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use arkret::http_signature::{ContentDigest, ContentDigestAlgorithm};
+        use salvo::test::{ResponseExt, TestClient};
+        struct UntouchedJournal(AtomicUsize);
+        impl arkret_bridge_runtime::AuthoringStore for UntouchedJournal {
+            fn load(&self, _: &str) -> arkret_bridge_runtime::Result<Option<String>> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(None)
+            }
+            fn compare_exchange_batch(
+                &self,
+                _: &[(String, Option<String>)],
+                _: &[(String, Option<String>)],
+            ) -> arkret_bridge_runtime::Result<bool> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(true)
+            }
+            fn entries_with_prefix(
+                &self,
+                _: &str,
+            ) -> arkret_bridge_runtime::Result<Vec<(String, String)>> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(Vec::new())
+            }
+        }
+        let mut channel = valid_channel_config();
+        channel.id = "applet-envelope-priority".into();
+        let config = ArkretAppletConfig::from_channel_config(&channel).unwrap();
+        let store = Arc::new(UntouchedJournal(AtomicUsize::new(0)));
+        register_channel(AppletChannelState {
+            config: config.clone(),
+            runtime: Mutex::new(AppletRuntimeState::default()),
+            journal: arkret_bridge_runtime::AuthoringJournal::new(store.clone()),
+            edge: tokio::sync::Mutex::new(None),
+        })
+        .unwrap();
+        let state = lookup_by_config_id(&config.id).unwrap().unwrap();
+        let service = salvo::Service::new(arkret_appservices_router());
+        let url = format!(
+            "https://savfox.example/appservices/arkret/{}/_arkret/edge/applet/transactions",
+            config.id
+        );
+        for (label, body, mutation, code) in [
+            ("all-missing", "{invalid", "all", "http_signature_required"),
+            (
+                "signature-missing",
+                "{}",
+                "signature",
+                "http_signature_required",
+            ),
+            (
+                "signature-input-missing",
+                "{}",
+                "signature-input",
+                "http_signature_required",
+            ),
+            (
+                "only-digest-missing",
+                "{invalid",
+                "content-digest",
+                "http_signature_invalid",
+            ),
+            (
+                "wrong-exact-digest",
+                "{invalid",
+                "wrong-digest",
+                "http_signature_invalid",
+            ),
+            ("malformed-json", "{invalid", "", "http_signature_invalid"),
+            ("noncanonical-json", "{ }", "", "http_signature_invalid"),
+            (
+                "source-missing",
+                "{}",
+                "source-service-id",
+                "http_signature_invalid",
+            ),
+            (
+                "destination-missing",
+                "{}",
+                "destination-service-id",
+                "http_signature_invalid",
+            ),
+            (
+                "idempotency-missing",
+                "{}",
+                "idempotency-key",
+                "http_signature_invalid",
+            ),
+        ] {
+            let parsed = url::Url::parse(&url).unwrap();
+            let authority = parsed.host_str().unwrap().to_owned();
+            let digest = ContentDigest::compute(body.as_bytes(), ContentDigestAlgorithm::Sha256);
+            let mut parts = arkret::http_signature::SignedRequestParts {
+                method: "POST".into(),
+                target_uri: url.clone(),
+                authority,
+                path: parsed.path().into(),
+                headers: vec![
+                    (
+                        "arkret-operation".into(),
+                        ServiceOperationId::EDGE_APPLET_COMMAND_TRANSACTION_V1.into(),
+                    ),
+                    (
+                        "source-service-id".into(),
+                        "ak:did_core:webvh:z6mkstation".into(),
+                    ),
+                    (
+                        "destination-service-id".into(),
+                        "ak:did_core:webvh:z6mkbridge".into(),
+                    ),
+                    ("idempotency-key".into(), "envelope-before-json".into()),
+                    ("content-digest".into(), digest.wire_value.clone()),
+                ],
+                body_digest: Some(digest.wire_value),
+            };
+            let signed = arkret::http_signature::sign_http_message_for_scenario(
+                &parts,
+                arkret::http_signature::HttpSignatureScenario::AppletTransactionV1,
+                &[],
+                "sig1",
+                "did:webvh:z6mkstation:station.example#key-1",
+                chrono::Utc::now().timestamp(),
+                &arkret::http_signature::signing_key_from_seed(&[0x62; 32]),
+            )
+            .unwrap();
+            parts
+                .headers
+                .push(("signature-input".into(), signed.signature_input_header));
+            parts
+                .headers
+                .push(("signature".into(), signed.signature_header));
+            if mutation == "all" {
+                parts.headers.retain(|(name, _)| name == "arkret-operation");
+            } else if mutation == "wrong-digest" {
+                parts.headers.retain(|(name, _)| name != "content-digest");
+                parts.headers.push((
+                    "content-digest".into(),
+                    ContentDigest::compute(b"{}", ContentDigestAlgorithm::Sha256).wire_value,
+                ));
+            } else if !mutation.is_empty() {
+                parts.headers.retain(|(name, _)| name != mutation);
+            }
+            let mut request = TestClient::post(&url).body(body);
+            for (name, value) in parts.headers {
+                request = request.add_header(
+                    salvo::http::header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                    value,
+                    true,
+                );
+            }
+            let mut response = request.send(&service).await;
+            assert_eq!(
+                response.status_code,
+                Some(StatusCode::UNAUTHORIZED),
+                "{label}"
+            );
+            assert!(
+                response
+                    .headers()
+                    .get("content-type")
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| value.starts_with("application/problem+json"))
+            );
+            let problem: arkret::Problem = response.take_json().await.unwrap();
+            assert_eq!(
+                problem.problem_type,
+                format!("https://arkret.org/problems/{code}")
+            );
+            assert_eq!(problem.code(), code);
+            if mutation == "content-digest" || mutation == "wrong-digest" {
+                assert!(
+                    problem.detail.to_ascii_lowercase().contains("digest"),
+                    "Digest failure must precede malformed business JSON: {label}: {}",
+                    problem.detail
+                );
+            }
+            assert_eq!(problem.status, StatusCode::UNAUTHORIZED.as_u16());
+            assert!(
+                state.edge.try_lock().unwrap().is_none(),
+                "no authority/network initialization"
+            );
+            assert_eq!(
+                store.0.load(Ordering::SeqCst),
+                0,
+                "no local journal read or write"
+            );
+        }
+        remove_arkret_applet_channel(&config.id).unwrap();
     }
 }
