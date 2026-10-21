@@ -2962,6 +2962,10 @@ fn collect_direct_conversation_bound_payloads(
         }
         return;
     }
+    if let Ok(payload) = serde_json::from_value::<DirectConversationBoundPayload>(value.clone()) {
+        payloads.push((payload, None));
+        return;
+    }
     if remaining_depth == 0 {
         return;
     }
