@@ -207,3 +207,5 @@ Station 已接纳但本地保存响应失败时也按原件恢复。错误 wrapp
 MLS／queue／内容执行循环。
 
 Bot／Ghost 历史创建回执复用共享耐久接收器：核验当前治理站及原 accepted 创建证据，跨重试与重启保留原结果，不要求业务安装仍有效。后续业务仍检查当前安装与具体权限；恢复按独立恢复授权。使用正式 `/_arkret/edge/applet/transactions` 路径，以签名覆盖的 `Destination-Service-Id` 选择 Applet。回执的登记 epoch 来自原创建证据，无需人工配置。
+
+Applet 启动还必须配置 `service_resolution_path`，指向包含 SDK `AuthenticatedServiceResolution` 的本地 JSON 文件，附带该 Service 完整的原生 WebVH 历史。共享宿主在注册前验证历史、角色、当前 assertion 方法与实际签名密钥。反向代理须开放正式 `/_arkret/describe`、`/_arkret/open/services/{service_id}/resolution`、Applet 管理地址，以及由 `service_did` 推导的原生 document／log／witness 地址。网关将原始请求交给共享宿主，包括配置执行，不另建签名或审批流程。

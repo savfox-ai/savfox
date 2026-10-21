@@ -4294,11 +4294,14 @@ mod tests {
         let placeholder = json!({"kid":method,"signature_algorithm":"Ed25519","sig":"AQ"});
         let at = Utc::now();
         let mut receipt: arkret::PeerKeyPackageClaimReceipt = serde_json::from_value(json!({
-            "claim_request_id":"AQ","request_digest":format!("sha256:{}","1".repeat(64)),"claims_digest":format!("sha256:{}","2".repeat(64)),
+            "claim_request_id":arkret::base64url_encode([1u8;16]),"request_digest":format!("sha256:{}","1".repeat(64)),"claims_digest":format!("sha256:{}","2".repeat(64)),
             "source_id":station,"destination_id":station,
-            "request":{"claim_request_id":"AQ","intended_realm_id":realm_id,"mls_group_id":alice_group.group_id(),"claim_purpose":"realm_membership","required_capabilities":["mls"],"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1))},
+            "request":{"claim_request_id":arkret::base64url_encode([1u8;16]),"intended_realm_id":realm_id,"mls_group_id":alice_group.group_id(),"claim_purpose":"realm_membership","required_capabilities":[arkret_models_crypto::ARKRET_CONTENT_V1],"requester_account_id":alice_actor.as_account_id(),"target_agent_id":bob_actor.signing_principal_id(),"target_agent_verification_method":bob_method,"target_agent_key_authorize_event_id":*FIXTURE_EVENT_9,"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1))},
             "claimed_at":arkret::canonical::format_timestamp_canonical(at),"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1)),"signature":placeholder
         })).unwrap();
+        receipt.request.validate_shape().unwrap();
+        receipt.request_digest =
+            Hash::new(arkret::canonical::canonical_sha256(&receipt.request).unwrap()).unwrap();
         receipt.signature = arkret_signatures::keypackages::sign_keypackage_signing_input(
             &seed,
             &method,
@@ -4336,6 +4339,7 @@ mod tests {
                 .unwrap(),
                 attestation,
                 attestor_resolution: resolution,
+                claim_issuer_resolution: None,
             },
         ];
         let request = arkret::MlsMemberRosterAuthorityReadRequestBody {
@@ -4705,6 +4709,30 @@ mod tests {
         next_attestation.claim_id =
             KeypackageClaimId::new("ak:keypackage_claim:01904100-0000-7000-8000-000000000013")
                 .unwrap();
+        next_attestation.claim_receipt.request.target_agent_id =
+            Some(charlie_actor.signing_principal_id().clone());
+        next_attestation
+            .claim_receipt
+            .request
+            .target_agent_verification_method = Some(charlie_method.clone());
+        next_attestation
+            .claim_receipt
+            .request
+            .target_agent_key_authorize_event_id = Some(FIXTURE_EVENT_13.clone());
+        next_attestation.claim_receipt.request_digest = Hash::new(
+            arkret::canonical::canonical_sha256(&next_attestation.claim_receipt.request).unwrap(),
+        )
+        .unwrap();
+        next_attestation.claim_receipt.signature =
+            arkret_signatures::keypackages::sign_keypackage_signing_input(
+                &seed,
+                &method,
+                &arkret_models_crypto::peer_keypackage_claim_receipt_signing_bytes(
+                    &next_attestation.claim_receipt,
+                )
+                .unwrap(),
+            )
+            .unwrap();
         next_attestation.actor_id = charlie_actor;
         next_attestation.endpoint = MlsWelcomeRecipientEndpoint::AgentRuntime {
             verification_method: charlie_method,
@@ -4732,6 +4760,7 @@ mod tests {
             .unwrap(),
             attestation: next_attestation,
             attestor_resolution: next_resolution,
+            claim_issuer_resolution: None,
         });
         let mut next_page = roster.pages[0].clone();
         next_page.roster.records = next_records;

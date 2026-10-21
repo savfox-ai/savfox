@@ -74,6 +74,8 @@ pub struct ArkretAppletConfig {
     /// Resolvable Applet service DID; its projected core must equal service_id.
     pub service_did: Did,
     pub trust_domain: TrustDomainId,
+    /// JSON file containing the SDK authenticated public Service history.
+    pub service_resolution_path: PathBuf,
     /// Explicit runtime identity-custody settings; never synthesized from the Bot.
     pub managed_actor_authoring: ManagedActorAuthoringSettings,
     /// Arkret server base URL where outbound events are POSTed.
@@ -160,6 +162,8 @@ impl ArkretAppletConfig {
             .ok()?;
         let service_did = serde_json::from_value(raw.get("service_did")?.clone()).ok()?;
         let trust_domain = serde_json::from_value(raw.get("trust_domain")?.clone()).ok()?;
+        let service_resolution_path =
+            PathBuf::from(first_non_empty(raw, &["service_resolution_path"])?);
         let managed_actor_authoring =
             serde_json::from_value(raw.get("managed_actor_authoring")?.clone()).ok()?;
         let arkret_server_url =
@@ -227,6 +231,7 @@ impl ArkretAppletConfig {
             bot_actor_id,
             service_did,
             trust_domain,
+            service_resolution_path,
             managed_actor_authoring,
             arkret_server_url,
             arkret_server_did,
@@ -272,6 +277,10 @@ impl ArkretAppletConfig {
                 )
             })?;
         }
+        anyhow::ensure!(
+            !self.service_resolution_path.as_os_str().is_empty(),
+            "Applet service_resolution_path is required"
+        );
         let management_url = url::Url::parse(&self.base_url)?;
         anyhow::ensure!(
             management_url.scheme() == "https"
@@ -580,6 +589,7 @@ mod tests {
             "baseUrl": "https://savfox.example/appservices/arkret/arkret-applet-test",
             "bot_actor_id": {"kind":"realm","realm_actor_id":{"realm_id":realm,"principal_id":"ak:did_core:webvh:z6mkbot"}},
             "service_did":"did:webvh:z6mkfixture:slack.example",
+            "service_resolution_path":"service-resolution.json",
             "trust_domain":"ak:trust_domain:example.net",
             "verification_method":"did:webvh:z6mkfixture:slack.example#key-1",
             "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},

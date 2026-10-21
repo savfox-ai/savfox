@@ -10,18 +10,12 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
 
 use anyhow::Context as _;
-use arkret::{
-    AppletActorView, AppletId, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
-    DidCoreId, ServiceDescribe, ServiceKind, TransportBinding, canonical,
-};
 use salvo::http::StatusCode;
 use salvo::prelude::*;
-use savfox_channels::arkret::AppletNamespacesExt;
 use savfox_channels::arkret::applet::{ArkretAppletConfig, load_arkret_applet_configs};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::render_error;
@@ -36,6 +30,7 @@ struct AppletChannelState {
     /// Authenticated outbound edge, initialized lazily and refreshed after a
     /// failed submission so expired DID-proof grants cannot wedge the applet.
     edge: tokio::sync::Mutex<Option<Arc<arkret_bridge_runtime::ArkretEdge>>>,
+    host: tokio::sync::OnceCell<Arc<arkret_bridge_runtime::web::ManagedAppletHttpHost>>,
 }
 
 // `AuthoringJournal` is not `Debug`; provide a manual impl that elides it so
@@ -65,6 +60,11 @@ fn register_channel(state: AppletChannelState) -> anyhow::Result<()> {
     let mut reg = applet_registry()
         .lock()
         .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
+    anyhow::ensure!(
+        reg.values().all(|old| old.config.id == state.config.id
+            || old.config.service_id != state.config.service_id),
+        "Applet Service is already registered by another channel"
+    );
     reg.insert(state.config.id.clone(), Arc::new(state));
     Ok(())
 }
@@ -144,129 +144,23 @@ fn resolve_public_applet(req: &Request, res: &mut Response) -> Option<Arc<Applet
     }
 }
 
-// ─── Handlers ───────────────────────────────────────────────────────────────
-
-#[handler]
-async fn applet_ping(req: &mut Request, res: &mut Response) {
-    let Some(state) = resolve_public_applet(req, res) else {
-        return;
-    };
-    let body = AppletPingOutcome {
-        applet_id: AppletId::new(state.config.applet_id.clone())
-            .expect("applet_id validated at channel registration"),
-        // `service_id` is strictly validated (DidCoreId::new) in
-        // `ArkretAppletConfig::validate()` before the channel is registered,
-        // so a registered applet always has a parseable DID here. No silent
-        // `applet.unknown` fallback that would mask a config error.
-        service_id: DidCoreId::new(state.config.service_id.clone())
-            .expect("service_id validated at channel registration"),
-        protocol_version: "1.0".to_owned(),
-    };
-    res.status_code(StatusCode::OK);
-    res.render(Json(body));
+async fn applet_host(
+    state: &AppletChannelState,
+) -> anyhow::Result<&Arc<arkret_bridge_runtime::web::ManagedAppletHttpHost>> {
+    state
+        .host
+        .get_or_try_init(|| async {
+            let edge = applet_edge(state).await?;
+            arkret_bridge_runtime::run_blocking(move || {
+                arkret_bridge_runtime::web::ManagedAppletHttpHost::new(edge).map(Arc::new)
+            })
+            .await
+            .map_err(anyhow::Error::from)
+        })
+        .await
 }
 
-#[handler]
-async fn applet_describe(req: &mut Request, res: &mut Response) {
-    let Some(state) = resolve_public_applet(req, res) else {
-        return;
-    };
-    let cfg = &state.config;
-    let body = ServiceDescribe::development(
-        cfg.service_did.clone(),
-        cfg.trust_domain.clone(),
-        ServiceKind::AppletService,
-        vec!["ak.operation_bundle.applet_service.describe.v1".to_owned()],
-        vec![TransportBinding::HttpJson {
-            base_url: cfg.base_url.clone(),
-            extension_profile_required: (),
-        }],
-    );
-    res.status_code(StatusCode::OK);
-    res.render(Json(body));
-}
-
-#[handler]
-async fn applet_managed_actor_author(req: &mut Request, res: &mut Response) {
-    let Some(state) = resolve_public_applet(req, res) else {
-        return;
-    };
-    let edge = match applet_edge(&state).await {
-        Ok(edge) => edge,
-        Err(error) => {
-            warn!(%error, "Applet authoring transport initialization failed");
-            render_error(
-                res,
-                StatusCode::SERVICE_UNAVAILABLE,
-                "temporarily_unavailable",
-                "Managed identity authoring is unavailable",
-            );
-            return;
-        }
-    };
-    let author = arkret_bridge_runtime::run_blocking(move || {
-        arkret_bridge_runtime::managed_actor_authoring::ManagedActorAuthoringService::new(edge)
-    })
-    .await;
-    match author {
-        Ok(author) => {
-            let body = match req
-                .parse_json::<arkret::AppletManagedActorAuthorRequestBody>()
-                .await
-            {
-                Ok(body) => body,
-                Err(_) => {
-                    render_error(
-                        res,
-                        StatusCode::BAD_REQUEST,
-                        "schema_violation",
-                        "Invalid managed actor author request",
-                    );
-                    return;
-                }
-            };
-            match author.author(&body.authoring_request).await {
-                Ok(create_event) => res.render(Json(arkret::AppletManagedActorAuthorOutcome {
-                    create_event,
-                })),
-                Err(error) => {
-                    let status = match &error {
-                        arkret_bridge_runtime::BridgeError::App(message)
-                            if message.contains("expired") =>
-                        {
-                            StatusCode::GONE
-                        }
-                        arkret_bridge_runtime::BridgeError::App(_)
-                        | arkret_bridge_runtime::BridgeError::Arkret(_) => StatusCode::BAD_REQUEST,
-                        _ => StatusCode::INTERNAL_SERVER_ERROR,
-                    };
-                    warn!(%error, "Managed actor authoring failed");
-                    render_error(
-                        res,
-                        status,
-                        "managed_actor_authoring_failed",
-                        "Managed identity authoring failed",
-                    );
-                }
-            }
-        }
-        Err(error) => {
-            warn!(%error, "Applet authoring custody initialization failed");
-            render_error(
-                res,
-                StatusCode::SERVICE_UNAVAILABLE,
-                "temporarily_unavailable",
-                "Managed identity custody is unavailable",
-            );
-        }
-    }
-}
-
-#[handler]
-async fn applet_transactions(req: &mut Request, res: &mut Response) {
-    let Some(state) = resolve_public_applet(req, res) else {
-        return;
-    };
+async fn forward_applet(state: &AppletChannelState, req: &mut Request, res: &mut Response) {
     let body = match req
         .payload_with_max_size(arkret_bridge_runtime::web::MAX_APPLET_TRANSACTION_BODY_BYTES)
         .await
@@ -277,7 +171,7 @@ async fn applet_transactions(req: &mut Request, res: &mut Response) {
                 res,
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "payload_too_large",
-                "Applet completion body exceeds its limit",
+                "Applet request body exceeds its limit",
             );
             return;
         }
@@ -286,235 +180,141 @@ async fn applet_transactions(req: &mut Request, res: &mut Response) {
                 res,
                 StatusCode::BAD_REQUEST,
                 "schema_violation",
-                "Applet completion body could not be read",
+                "Applet request body could not be read",
             );
             return;
         }
     };
-    let receiver = async {
-        let edge = applet_edge(&state).await?;
-        arkret_bridge_runtime::web::receive_managed_completion_http(
-            edge,
-            req.method().clone(),
-            req.uri().clone(),
-            req.headers().clone(),
-            body,
-        )
-        .await
-        .map_err(anyhow::Error::from)
+    let result = async {
+        applet_host(state)
+            .await?
+            .receive(
+                req.method().clone(),
+                req.uri().clone(),
+                req.headers().clone(),
+                body,
+            )
+            .await
+            .map_err(anyhow::Error::from)
     }
     .await;
-    match receiver {
+    match result {
         Ok((status, headers, body)) => {
             res.status_code(status);
             *res.headers_mut() = headers;
             res.body(body);
         }
         Err(error) => {
-            warn!(%error, "Applet completion receiver unavailable");
+            warn!(%error, "Applet shared HTTP host unavailable");
             render_error(
                 res,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "temporarily_unavailable",
-                "Applet completion receiver unavailable",
+                "Applet HTTP host unavailable",
             );
         }
     }
 }
 
 #[handler]
-async fn applet_actor(req: &mut Request, res: &mut Response) {
+async fn applet_request(req: &mut Request, res: &mut Response) {
     let Some(state) = resolve_public_applet(req, res) else {
         return;
     };
-    let actor_id = req.param::<String>("actor_id").unwrap_or_default();
-    if !state.config.namespaces.actor_matches(&actor_id) {
-        render_error(
-            res,
-            StatusCode::NOT_FOUND,
-            "actor_not_in_namespace",
-            format!("actor '{actor_id}' is not in this applet's namespace"),
-        );
-        return;
-    }
-    let body = AppletActorView {
-        // Namespace ownership does not establish an accepted managed Account.
-        exists: false,
-        actor_id: None,
-        display_name: None,
-        external_ref: None,
-    };
-    res.status_code(StatusCode::OK);
-    res.render(Json(body));
+    forward_applet(&state, req, res).await;
 }
 
 #[handler]
-async fn applet_realm(req: &mut Request, res: &mut Response) {
-    let Some(state) = resolve_public_applet(req, res) else {
-        return;
-    };
-    let realm = req.param::<String>("realm_id_or_alias").unwrap_or_default();
-    if !state.config.namespaces.realm_matches(&realm) {
+async fn applet_service_resolution(req: &mut Request, res: &mut Response) {
+    let target = req.param::<String>("service_id");
+    let state = applet_registry().lock().ok().and_then(|registry| {
+        registry
+            .values()
+            .find(|state| Some(&state.config.service_id) == target.as_ref())
+            .cloned()
+    });
+    if let Some(state) = state {
+        forward_applet(&state, req, res).await;
+    } else {
         render_error(
             res,
             StatusCode::NOT_FOUND,
-            "realm_not_in_namespace",
-            format!("realm '{realm}' is not in this applet's namespace"),
+            "not_found",
+            "Applet Service is unconfigured",
         );
-        return;
     }
-    let body = AppletRealmView {
-        exists: false,
-        realm_id: None,
-        title: None,
-        external_ref: None,
-    };
-    res.status_code(StatusCode::OK);
-    res.render(Json(body));
 }
 
-#[handler]
-async fn applet_protocol(req: &mut Request, res: &mut Response) {
-    let Some(state) = resolve_public_applet(req, res) else {
-        return;
-    };
-    let protocol = req.param::<String>("protocol").unwrap_or_default();
-    if !state.config.protocols.iter().any(|p| p == &protocol) {
-        render_error(
-            res,
-            StatusCode::NOT_FOUND,
-            "protocol_not_supported",
-            format!("protocol '{protocol}' is not registered with this applet"),
-        );
-        return;
+fn is_native_resource_path(path: &str) -> bool {
+    if path.starts_with("/webvh/") && (path.ends_with("/did.json") || path.ends_with("/did.jsonl"))
+    {
+        return true;
     }
-    let body = AppletProtocolMetadata {
-        protocol: protocol.clone(),
-        display_name: protocol,
-        icon_blob_ref: None,
-        field_definitions: Default::default(),
-        instances: vec![],
-    };
-    res.status_code(StatusCode::OK);
-    res.render(Json(body));
-}
-
-fn third_party_query_fields(req: &Request) -> Map<String, Value> {
-    let mut fields = Map::new();
-    for (key, value) in req.queries().flat_iter() {
-        let key = key.trim();
-        let value = value.trim();
-        if key.is_empty() || value.is_empty() {
-            continue;
-        }
-        match fields.get_mut(key) {
-            Some(Value::Array(values)) => values.push(Value::String(value.to_owned())),
-            Some(existing) => {
-                let first = std::mem::take(existing);
-                *existing = Value::Array(vec![first, Value::String(value.to_owned())]);
-            }
-            None => {
-                fields.insert(key.to_owned(), Value::String(value.to_owned()));
-            }
-        }
-    }
-    fields
-}
-
-fn field_string<'a>(fields: &'a Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
-    keys.iter().find_map(|key| match fields.get(*key) {
-        Some(Value::String(value)) => {
-            let trimmed = value.trim();
-            (!trimmed.is_empty()).then_some(trimmed)
-        }
-        Some(Value::Array(values)) => values.iter().find_map(|value| match value {
-            Value::String(value) => {
-                let trimmed = value.trim();
-                (!trimmed.is_empty()).then_some(trimmed)
-            }
-            _ => None,
-        }),
-        _ => None,
+    applet_registry().lock().is_ok_and(|registry| {
+        registry.values().any(|state| {
+            let did = &state.config.service_did;
+            [
+                arkret::identity::DidWebvhResolver::document_url(did),
+                arkret::identity::DidWebvhResolver::log_url(did),
+                arkret::identity::DidWebvhResolver::witness_url(did),
+            ]
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter_map(|url| url::Url::parse(&url).ok())
+            .any(|url| url.path() == path)
+        })
     })
 }
 
-fn ensure_supported_protocol(
-    cfg: &ArkretAppletConfig,
-    fields: &Map<String, Value>,
-    res: &mut Response,
-) -> Option<String> {
-    let Some(protocol) = field_string(fields, &["protocol"]) else {
-        render_error(
-            res,
-            StatusCode::BAD_REQUEST,
-            "missing_protocol",
-            "third_party lookup requires a protocol query parameter",
-        );
-        return None;
+/// Try only the configured native publication surfaces, never a remote resolver.
+#[handler]
+async fn applet_native_resource(req: &mut Request, res: &mut Response) {
+    let states = match applet_registry().lock() {
+        Ok(registry) => registry.values().cloned().collect::<Vec<_>>(),
+        Err(_) => {
+            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+            return;
+        }
     };
-    if !cfg.protocols.iter().any(|value| value == protocol) {
-        render_error(
-            res,
-            StatusCode::NOT_FOUND,
-            "protocol_not_supported",
-            format!("protocol '{protocol}' is not registered with this applet"),
-        );
-        return None;
+    let mut found = None;
+    let mut unavailable = false;
+    for state in states {
+        let result = async {
+            applet_host(&state)
+                .await?
+                .receive(
+                    req.method().clone(),
+                    req.uri().clone(),
+                    req.headers().clone(),
+                    Vec::new(),
+                )
+                .await
+                .map_err(anyhow::Error::from)
+        }
+        .await;
+        match result {
+            Ok((StatusCode::NOT_FOUND, ..)) => {}
+            Ok(response) if response.0.is_success() => {
+                if found.is_some() {
+                    res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+                    return;
+                }
+                found = Some(response);
+            }
+            Ok(_) | Err(_) => unavailable = true,
+        }
     }
-    Some(protocol.to_owned())
-}
-
-fn third_party_external_ref(protocol: &str, fields: Map<String, Value>) -> Value {
-    let mut external_ref = fields;
-    external_ref
-        .entry("protocol".to_owned())
-        .or_insert_with(|| Value::String(protocol.to_owned()));
-    Value::Object(external_ref)
-}
-
-#[handler]
-async fn applet_third_party_users(req: &mut Request, res: &mut Response) {
-    let Some(state) = resolve_public_applet(req, res) else {
-        return;
-    };
-    let fields = third_party_query_fields(req);
-    let Some(protocol) = ensure_supported_protocol(&state.config, &fields, res) else {
-        return;
-    };
-    let external_ref = third_party_external_ref(&protocol, fields.clone());
-    let _ = external_ref;
-    // A namespace match is not an accepted Ghost mapping. This runtime has no
-    // verified mapping lookup yet, so it cannot advertise a synthetic identity.
-    res.status_code(StatusCode::OK);
-    res.render(Json(AppletActorView {
-        exists: false,
-        actor_id: None,
-        display_name: None,
-        external_ref: None,
-    }));
-}
-
-#[handler]
-async fn applet_third_party_locations(req: &mut Request, res: &mut Response) {
-    let Some(state) = resolve_public_applet(req, res) else {
-        return;
-    };
-    let fields = third_party_query_fields(req);
-    let Some(protocol) = ensure_supported_protocol(&state.config, &fields, res) else {
-        return;
-    };
-    let external_ref = third_party_external_ref(&protocol, fields.clone());
-    // A claimed location namespace is not an accepted Portal Realm mapping.
-    let realm_id: Option<String> = None;
-    let exists = false;
-
-    res.status_code(StatusCode::OK);
-    res.render(Json(json!({
-        "realm_id": &realm_id,
-        "space_id": &realm_id,
-        "exists": exists,
-        "external_ref": external_ref,
-    })));
+    if let Some((status, headers, body)) = found {
+        res.status_code(status);
+        *res.headers_mut() = headers;
+        res.body(body);
+    } else {
+        res.status_code(if unavailable {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            StatusCode::NOT_FOUND
+        });
+    }
 }
 
 async fn applet_edge(
@@ -571,6 +371,7 @@ async fn build_applet_edge(
             "verification_method_fragment": verification_method_fragment,
             "applet_namespaces": cfg.namespaces,
             "managed_actor_authoring": cfg.managed_actor_authoring,
+            "service_resolution": serde_json::from_slice::<arkret::AuthenticatedServiceResolution>(&tokio::fs::read(&cfg.service_resolution_path).await.context("read Applet service_resolution_path")?)?,
             "trusted_server_did": trusted_server_did,
             "trusted_verification_methods": cfg.trusted_verification_methods.iter().map(|method| json!({
                 "verification_method": method.verification_method,
@@ -584,129 +385,27 @@ async fn build_applet_edge(
         .map_err(|err| anyhow::anyhow!("build arkret outbound edge: {err}"))
 }
 
-/// Publish native Principal resources from the configured hosts' durable custody.
-/// No management transaction, private key, or group content is returned here.
-async fn applet_principal_resource(req: &Request, res: &mut Response, history: bool) {
-    let local_id = req.param::<String>("local_id").unwrap_or_default();
-    let states = match applet_registry().lock() {
-        Ok(registry) => registry.values().cloned().collect::<Vec<_>>(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
-    };
-    let mut found = None;
-    let mut unavailable = false;
-    for state in states {
-        let edge = match applet_edge(&state).await {
-            Ok(edge) => edge,
-            Err(error) => {
-                warn!(%error,"Principal publication transport unavailable");
-                unavailable = true;
-                continue;
-            }
-        };
-        let author =
-            match arkret_bridge_runtime::managed_actor_authoring::ManagedActorAuthoringService::new(
-                edge,
-            ) {
-                Ok(author) => author,
-                Err(error) => {
-                    warn!(%error,"Principal publication custody unavailable");
-                    unavailable = true;
-                    continue;
-                }
-            };
-        match author.published_principal(&local_id).await {
-            Ok(Some(material)) => {
-                if found.is_some() {
-                    res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-                    return;
-                }
-                found = Some(material);
-            }
-            Ok(None) => {}
-            Err(error) => {
-                warn!(%error,"Principal publication evidence unavailable");
-                unavailable = true;
-            }
-        }
-    }
-    let Some((document, entries)) = found else {
-        res.status_code(if unavailable {
-            StatusCode::SERVICE_UNAVAILABLE
-        } else {
-            StatusCode::NOT_FOUND
-        });
-        return;
-    };
-    res.headers_mut().insert(
-        "cache-control",
-        "no-store".parse().expect("static cache policy"),
-    );
-    if history {
-        let mut body = Vec::new();
-        for entry in entries {
-            match canonical::canonical_json_bytes(&entry) {
-                Ok(bytes) => {
-                    body.extend(bytes);
-                    body.push(b'\n');
-                }
-                Err(_) => {
-                    res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-                    return;
-                }
-            }
-        }
-        res.headers_mut().insert(
-            "content-type",
-            "application/jsonl".parse().expect("static content type"),
-        );
-        if let Err(error) = res.write_body(body) {
-            warn!(%error,"Principal native history response write failed");
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    } else {
-        res.render(Json(document));
-    }
-}
-
-#[handler]
-async fn applet_principal_document(req: &mut Request, res: &mut Response) {
-    applet_principal_resource(req, res, false).await;
-}
-#[handler]
-async fn applet_principal_history(req: &mut Request, res: &mut Response) {
-    applet_principal_resource(req, res, true).await;
-}
-
-/// Native DID-method resources use their canonical paths, outside the management tree.
+/// Native DID resources and canonical Service discovery share the verified host.
 pub(crate) fn arkret_principal_router() -> Router {
-    Router::with_path("webvh/{local_id}")
-        .push(Router::with_path("did.json").get(applet_principal_document))
-        .push(Router::with_path("did.jsonl").get(applet_principal_history))
+    Router::new()
+        .push(Router::with_path("_arkret/describe").get(applet_request))
+        .push(
+            Router::with_path("_arkret/open/services/{service_id}/resolution")
+                .get(applet_service_resolution),
+        )
+        .push(
+            Router::with_path("{**resource}")
+                .filter_fn(|req, _| is_native_resource_path(req.uri().path()))
+                .get(applet_native_resource),
+        )
 }
 
-// ─── Router ─────────────────────────────────────────────────────────────────
-
-/// Routes mounted at `/_arkret/edge/applet/...` (direct).
 pub(crate) fn arkret_applet_router() -> Router {
-    Router::with_path("_arkret/edge/applet")
-        .push(Router::with_path("ping").get(applet_ping))
-        .push(Router::with_path("describe").get(applet_describe))
-        .push(Router::with_path("transactions").post(applet_transactions))
-        .push(Router::with_path("managed-actors/author").post(applet_managed_actor_author))
-        .push(Router::with_path("actors/{actor_id}").get(applet_actor))
-        .push(Router::with_path("realms/{realm_id_or_alias}").get(applet_realm))
-        .push(Router::with_path("protocols/{protocol}").get(applet_protocol))
-        .push(Router::with_path("third_party/users").get(applet_third_party_users))
-        .push(Router::with_path("third_party/locations").get(applet_third_party_locations))
+    Router::with_path("_arkret/edge/applet/{**operation}")
+        .get(applet_request)
+        .post(applet_request)
 }
 
-// ─── Startup glue ───────────────────────────────────────────────────────────
-
-/// Open the Applet's durable ordinary publication journal. Each Realm/full Actor
-/// has its own accepted frontier; pending signed bytes survive edge refresh/restart.
 fn build_applet_authoring_journal(
     savfox_home: &std::path::Path,
     config_id: &str,
@@ -753,7 +452,11 @@ pub(crate) async fn start_arkret_applet_channel(
         config: applet_cfg,
         journal,
         edge: tokio::sync::Mutex::new(None),
+        host: tokio::sync::OnceCell::new(),
     };
+    applet_host(&state)
+        .await
+        .context("initialize verified Applet HTTP host")?;
     info!(
         "arkret: applet channel '{}' registered (applet_id={}, service_id={})",
         state.config.id, state.config.applet_id, state.config.service_id
@@ -822,6 +525,7 @@ mod tests {
                 "appletId": "ak:applet:21532600-0000-7000-8000-000000000000",
                 "serviceId": "ak:did_core:webvh:z6mkbridge",
                 "service_did":"did:webvh:z6mkbridge:bridge.example",
+                "service_resolution_path":"service-resolution.json",
                 "trust_domain":"ak:trust_domain:example.net",
                 "verification_method":"did:webvh:z6mkbridge:bridge.example#key-1",
                 "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
@@ -856,6 +560,7 @@ mod tests {
             journal: build_applet_authoring_journal(tmp.path(), &applet.id)
                 .expect("authoring journal"),
             edge: tokio::sync::Mutex::new(None),
+            host: tokio::sync::OnceCell::new(),
         };
         register_channel(state).expect("register");
         let resolved = lookup_by_config_id(&applet.id)
@@ -873,9 +578,30 @@ mod tests {
         std::fs::write(&key, [42u8; 32]).unwrap();
         let mut cfg = valid_channel_config();
         cfg.id = "completion-transport".into();
-        cfg.config["serviceId"] = json!("ak:did_core:webvh:z6mkcompletion");
-        cfg.config["service_did"] = json!("did:webvh:z6mkcompletion:bridge.example");
-        cfg.config["verification_method"] = json!("did:webvh:z6mkcompletion:bridge.example#key-1");
+        let now = chrono::Utc::now();
+        let mut identity = arkret_test_kit::service_identity::ServiceIdentityFixture::webvh(
+            &"https://savfox.example/service/".parse().unwrap(),
+            812,
+            [42u8; 32],
+            "key-1",
+            now - chrono::Duration::minutes(1),
+            now,
+        )
+        .unwrap();
+        identity.resolution.service_kind = "applet_service".into();
+        let resolution = tmp.path().join("resolution.json");
+        std::fs::write(
+            &resolution,
+            serde_json::to_vec(&identity.resolution).unwrap(),
+        )
+        .unwrap();
+        cfg.config["serviceId"] = json!(identity.service_id);
+        cfg.config["service_did"] = json!(identity.resolution.normalized_did_document.id);
+        cfg.config["verification_method"] = json!(format!(
+            "{}#key-1",
+            identity.resolution.normalized_did_document.id
+        ));
+        cfg.config["service_resolution_path"] = json!(resolution);
         cfg.config["keyRef"] = json!({"kind":"file","path":key});
         let applet = ArkretAppletConfig::from_channel_config(&cfg).unwrap();
         applet.validate().unwrap();
@@ -885,9 +611,14 @@ mod tests {
             journal,
             config: applet.clone(),
             edge: tokio::sync::Mutex::new(Some(edge)),
+            host: tokio::sync::OnceCell::new(),
         })
         .unwrap();
-        let service = Service::new(arkret_applet_router());
+        let service = Service::new(
+            Router::new()
+                .push(arkret_applet_router())
+                .push(arkret_principal_router()),
+        );
         let mut response =
             TestClient::post("https://savfox.example/_arkret/edge/applet/transactions")
                 .add_header("Destination-Service-Id", &applet.service_id, true)
@@ -912,6 +643,64 @@ mod tests {
             .send(&service)
             .await;
         assert_eq!(response.status_code, Some(StatusCode::PAYLOAD_TOO_LARGE));
+        for path in ["configuration", "managed-actors/author"] {
+            let mut response =
+                TestClient::post(format!("https://savfox.example/_arkret/edge/applet/{path}"))
+                    .add_header("Destination-Service-Id", &applet.service_id, true)
+                    .body("not-json")
+                    .send(&service)
+                    .await;
+            assert_eq!(
+                response.status_code,
+                Some(StatusCode::BAD_REQUEST),
+                "{path}"
+            );
+            let problem: arkret::Problem = response.take_json().await.unwrap();
+            assert_eq!(problem.code(), "operation_selector_required");
+        }
+        let mut response = TestClient::get("https://savfox.example/_arkret/describe")
+            .add_header("Destination-Service-Id", &applet.service_id, true)
+            .add_header(
+                "Arkret-Operation",
+                arkret::ServiceOperationId::SERVER_READ_DESCRIBE_V1,
+                true,
+            )
+            .send(&service)
+            .await;
+        assert_eq!(response.status_code, Some(StatusCode::OK));
+        let description: arkret::ServiceDescribe = response.take_json().await.unwrap();
+        description.validate().unwrap();
+        assert_eq!(description.service_resolution.did, applet.service_did);
+        let mut response = TestClient::get(format!(
+            "https://savfox.example{}",
+            arkret::canonical_service_resolution_path(&identity.service_id)
+        ))
+        .add_header(
+            "Arkret-Operation",
+            arkret::ServiceOperationId::OPEN_SERVICE_READ_RESOLUTION_V1,
+            true,
+        )
+        .send(&service)
+        .await;
+        assert_eq!(response.status_code, Some(StatusCode::OK));
+        let published: arkret::AuthenticatedServiceResolution = response.take_json().await.unwrap();
+        arkret::identity::verify_authenticated_service_resolution_history(
+            &published,
+            &identity.service_id,
+            now,
+        )
+        .unwrap();
+        let mut response = TestClient::get(
+            arkret::identity::DidWebvhResolver::log_url(&applet.service_did).unwrap(),
+        )
+        .send(&service)
+        .await;
+        assert_eq!(response.status_code, Some(StatusCode::OK));
+        arkret::identity::verify_did_webvh_v1_chain_bytes(
+            &applet.service_did,
+            &response.take_bytes(None).await.unwrap(),
+        )
+        .unwrap();
         remove_arkret_applet_channel(&applet.id).unwrap();
     }
 
