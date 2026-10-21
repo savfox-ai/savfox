@@ -472,7 +472,9 @@ pub fn build_mls_key_packages_claim_request(
     let request = KeyPackagesClaimRequestBody {
         claim_request_id,
         target_account_id: Some(target_account_id),
+        target_actor_id: None,
         requester_account_id,
+        requester_actor_id: None,
         intended_realm_id,
         mls_group_id,
         claim_purpose,

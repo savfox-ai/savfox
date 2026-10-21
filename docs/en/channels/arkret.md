@@ -244,11 +244,12 @@ an Applet bearer session. Outbound management requests carry SDK Service HTTP
 signatures; their native Event producer proofs remain independent.
 
 An installation does not create a default Bot. A runtime that executes as a Bot
-must configure an independently accepted `bot_account_id`, a complete Arkret
-`AccountId` with `principal_id` and `station_id`. A Service may manage multiple
-independent execution Accounts; an execution configuration selects one exact
-Account. An absent Bot permits Service management only. Synthetic `botActorId`
-strings and Service-derived Ghost DIDs are rejected or removed. Unimplemented
+must configure an independently accepted `bot_actor_id`, a complete Arkret
+Realm Actor object with `kind: "realm"` and `realm_actor_id` containing
+`realm_id` and `principal_id`. A Service may manage multiple independent Realm
+actors; an execution configuration selects one exact Bot. An absent Bot permits
+Service management only. Account-shaped Bot configuration, principal-only
+strings and Service-derived Ghost DIDs are rejected. Unimplemented
 Ghost mapping queries return no accepted identity.
 
 Configure a resolvable `service_did`, its matching `serviceId`, `trust_domain`,
@@ -256,9 +257,14 @@ Configure a resolvable `service_did`, its matching `serviceId`, `trust_domain`,
 `managed_actor_authoring` with `principal_endpoint` and
 `key_encryption_key_hex`. Creation proves provenance; it does not grant business
 permissions. Actual group execution needs current Service parents and terminal
-managed-Account children, independent native membership and accepted Devices. A child
-whose subject is a Bot or Ghost must be consumed by that actual managed Account;
-a Service proof cannot act as the Account through `executed_by`.
+Realm-actor children, independent native membership and accepted Devices. A child
+whose subject is a Bot or Ghost must be consumed by that actual Realm actor;
+a Service proof cannot act as the actor through `executed_by`.
+
+Device keys and accepted Device IDs come from the encrypted runtime journal,
+not a configured `device_id`. Static `signer_resolution_evidence_ref` is not a
+substitute for current governance material and is rejected in Applet configuration.
+Ordinary Account and personal Agent configurations retain their own contracts.
 
 Applet-mode native queue/Welcome/ACK/MLS/Blob readers,
 resolution rotation installation and continuous scope refresh remain unwired.
@@ -266,7 +272,7 @@ Legacy management transaction group dispatch is closed. Account-mode Agent nativ
 MLS handling is unchanged; these management updates do not establish a working
 Applet group execution runtime.
 
-The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, bundle and completion preparation across retries and restart. Completion still requires those exact locally frozen bytes. The management path starts Device bootstrap only when explicitly configured; it does not start an MLS listener.
+The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, Service-signed create_event and completion preparation across retries and restart. Completion verifies those exact locally frozen bytes and the current governing Station material. The management path starts Device bootstrap only when explicitly configured; it does not start an MLS listener.
 
 Personal Agent replies always retain their accepted Account and native delivery binding. Applet namespace ownership never redirects those replies through another Bot.
 
@@ -291,3 +297,5 @@ and expiry, including after an accepted response could not be saved locally.
 A wrong wrapping key, missing original roots or changed plan fails closed.
 This initial-generation bootstrap does not renew expired authorization, rotate
 the Principal, or start the separate MLS/queue/content execution loop.
+
+Historical Bot/Ghost creation receipts use the shared durable completion receiver. It verifies the current governing Station and the original accepted creation evidence, then retains the original outcome across retries and restart. It does not require an active business installation. Later business actions still check their current installation and exact permissions; recovery uses its independent authorization. Use the canonical `/_arkret/edge/applet/transactions` path and the signed `Destination-Service-Id` header to select the Applet. The registration epoch comes from the accepted creation evidence, not a manually configured completion epoch.

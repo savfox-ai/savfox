@@ -177,13 +177,15 @@ Genesis 消除 pending。仅在 controller 明确授权解绑且远端确认后�
 
 安装只接纳 Service，必须提供被 registration epoch 绑定的 HTTPS `baseUrl`，用于发现、主体 authoring 与签名 completion。该地址不能订阅群 Event／Signal。管理 transaction 接收方逐次验证 Station RFC9421 签名，不再要求 Applet bearer session；出站管理请求使用 SDK Service HTTP 签名，原生 Event producer proof 仍独立。
 
-安装不创建默认 Bot。需要以 Bot 执行时，单个 runtime 配置独立接受的完整 `bot_account_id`（`principal_id`／`station_id`）；同一 Service 可管理多个独立执行 Account，各配置选择一个 exact Account。未配置 Bot 时只提供 Service 管理。旧 `botActorId` 字符串与从 Service 拼接 Ghost DID 的机制已撤回；尚未接线的 Ghost 查询不能广告虚假身份。
+安装不创建默认 Bot。需要以 Bot 执行时，单个 runtime 配置独立接受的完整 `bot_actor_id`：`kind` 为 `realm`，`realm_actor_id` 包含 `realm_id` 和 `principal_id`。同一 Service 可管理多个 Realm 主体，各执行配置选择一个明确的 Bot。未配置 Bot 时只提供 Service 管理。Account 形式的 Bot 配置、仅有 Principal 的字符串和从 Service 拼接 Ghost DID 的机制均拒绝；尚未接线的 Ghost 查询不能广告虚假身份。
 
-配置可解析的 `service_did`、对应 `serviceId`、`trust_domain`、`verification_method` 与真实私钥 `keyRef`。身份托管继续使用 `managed_actor_authoring` 的 `principal_endpoint`／`key_encryption_key_hex`。创建是 provenance，不授业务权限；群业务必须具有当前 Service parent／terminal child、独立 membership 与 accepted Device。 Bot／Ghost subject 的子授权必须由实际 Bot／Ghost 消费；Service proof 不能通过 `executed_by` 代替该 Account。
+配置可解析的 `service_did`、对应 `serviceId`、`trust_domain`、`verification_method` 与真实私钥 `keyRef`。身份托管继续使用 `managed_actor_authoring` 的 `principal_endpoint`／`key_encryption_key_hex`。创建只证明身份来源，不授业务权限；群业务必须具有当前 Service parent／terminal child、独立 membership 与 accepted Device。Bot／Ghost subject 的子授权必须由实际 Bot／Ghost 消费；Service proof 不能通过 `executed_by` 代替该 Realm 主体。
+
+Device 私钥及已接纳的 DeviceId 来自加密 runtime journal，不接受配置中的 `device_id`。静态 `signer_resolution_evidence_ref` 不能代替当前治理材料，在 Applet 配置中拒绝。普通 Account 与个人 Agent 的配置合同保持独立。
 
 Applet 模式的原生 queue／Welcome／ACK／MLS／Blob reader、native resolution rotation installer 和持续 scope refresh 尚未接线。旧管理 transaction 群 dispatch 已关闭；Account 模式 Agent 原生 MLS 路径保持独立，本轮不能证明 Applet 群业务 runtime 已打通。
 
-正式 Applet author 地址复用共享 bridge runtime 的 Bot／Ghost Principal 托管。每个配置通过 publication journal 的原子耐久存储保管加密的历史 root、next-root 与独立 controller 私钥。配置 `managed_actor_authoring` 及精确可信 Station 验签公钥；加密密钥缺失或错误时拒绝。原请求、bundle 与 completion preparation 跨重试和重启保留；completion 仍要求本地冻结的逐字材料。这条管理路径仅在显式配置后启动 Device 引导，仍不启动 MLS listener。
+正式 Applet author 地址复用共享 bridge runtime 的 Bot／Ghost Principal 托管。每个配置通过 publication journal 的原子耐久存储保管加密的历史 root、next-root 与独立 controller 私钥。配置 `managed_actor_authoring` 及精确可信 Station 验签公钥；加密密钥缺失或错误时拒绝。原请求、Service 原签 create_event 与 completion preparation 跨重试和重启保留；completion 同时验证本地冻结的逐字材料与当前治理站提供的完整材料。这条管理路径仅在显式配置后启动 Device 引导，仍不启动 MLS listener。
 
 个人 Agent 回复始终使用其接纳的 Account 与原生 delivery binding；Applet namespace 声明不会把回复转给另一个 Bot 发送。
 
@@ -203,3 +205,5 @@ Principal 原签授权和原创建 roots。重启复用原 Event、原 scope 和
 Station 已接纳但本地保存响应失败时也按原件恢复。错误 wrapping key、缺原 roots
 或变更原计划均拒绝。本首代引导不续期过期授权、不轮换 Principal，也不启动独立
 MLS／queue／内容执行循环。
+
+Bot／Ghost 历史创建回执复用共享耐久接收器：核验当前治理站及原 accepted 创建证据，跨重试与重启保留原结果，不要求业务安装仍有效。后续业务仍检查当前安装与具体权限；恢复按独立恢复授权。使用正式 `/_arkret/edge/applet/transactions` 路径，以签名覆盖的 `Destination-Service-Id` 选择 Applet。回执的登记 epoch 来自原创建证据，无需人工配置。

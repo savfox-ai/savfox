@@ -1378,7 +1378,8 @@ impl ArkretHttpClient {
                             rand::random::<[u8; 32]>(),
                         ))?,
                         realm_id: scope.realm_id().clone(),
-                        recipient_account_id: client.session()?.account_id().clone(),
+                        recipient_account_id: Some(client.session()?.account_id().clone()),
+                        recipient_actor_id: None,
                         queries: vec![arkret::SignerKeyQuerySelector::CurrentAdmission {
                             sender: arkret::CurrentSignerKeyQuerySender::Agent {
                                 actor: record.intent().owner_actor_id().clone(),

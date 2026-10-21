@@ -576,7 +576,6 @@ pub(crate) fn build_router(
     {
         router = router.push(channels::arkret_applet::arkret_principal_router());
         router = router.push(channels::arkret_applet::arkret_applet_router());
-        router = router.push(channels::arkret_applet::arkret_appservices_router());
     }
 
     // WebChat embeddable widget endpoints.

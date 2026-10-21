@@ -8,8 +8,8 @@
 //! Group Events and Signals are consumed by authenticated managed Devices;
 //! the Applet management endpoint only accepts signed authoring completions.
 //!
-//! A Service installation may have no Bot. Each configured execution Account
-//! must be provisioned separately. The management URL never supplies group
+//! A Service installation may have no Bot. Each configured execution Realm actor
+//! must be created separately. The management URL never supplies group
 //! Events or Signals; the restricted Device reader is not wired for Applet mode.
 
 pub mod config;
