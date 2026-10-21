@@ -420,7 +420,7 @@ dependencies = [
 [[package]]
 name = "arkret-bridge-runtime"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/bridges.git?rev=69f22882da183678d3ef576d36ca54ccc7607892#69f22882da183678d3ef576d36ca54ccc7607892"
+source = "git+https://github.com/arkret-org/bridges.git?rev=c3a590f14e9ac116ab2b53b9c1674bf8f08f31fe#c3a590f14e9ac116ab2b53b9c1674bf8f08f31fe"
 dependencies = [
  "anyhow",
  "arkret",
