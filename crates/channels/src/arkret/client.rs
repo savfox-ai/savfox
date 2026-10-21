@@ -470,6 +470,8 @@ pub fn build_mls_key_packages_claim_request(
     )
     .then(|| arkret::AccountId::new(requester, service_binding.source_id.clone()));
     let request = KeyPackagesClaimRequestBody {
+        requester_actor_id: None,
+        target_actor_id: None,
         claim_request_id,
         target_account_id: Some(target_account_id),
         requester_account_id,

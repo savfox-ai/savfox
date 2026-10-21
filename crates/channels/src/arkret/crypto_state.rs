@@ -2137,6 +2137,9 @@ impl FileArkretCryptoStore {
                 .context("durable MLS Welcome recipient identity is unavailable")?,
         )?;
         let verification_method = match &recipient {
+            arkret::RecipientMlsDurableSigner::RealmDevice { .. } => {
+                anyhow::bail!("Realm Device durable receipts require Realm custody, not an Account MLS identity");
+            }
             arkret::RecipientMlsDurableSigner::Agent {
                 recipient_agent_verification_method,
                 ..

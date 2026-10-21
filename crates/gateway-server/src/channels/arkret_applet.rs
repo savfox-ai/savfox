@@ -308,11 +308,9 @@ async fn applet_managed_actor_author(req: &mut Request, res: &mut Response) {
                 }
             };
             match author.author(&body.authoring_request).await {
-                Ok(managed_actor_bundle) => {
-                    res.render(Json(arkret::AppletManagedActorAuthorOutcome {
-                        managed_actor_bundle,
-                    }))
-                }
+                Ok(create_event) => res.render(Json(arkret::AppletManagedActorAuthorOutcome {
+                    create_event,
+                })),
                 Err(error) => {
                     let status = match &error {
                         arkret_bridge_runtime::BridgeError::App(message)
@@ -662,29 +660,11 @@ async fn applet_transactions(req: &mut Request, _depot: &mut Depot, res: &mut Re
 
     let body = match &body {
         AppletTransactionRequestBody::Authoring(completion) => {
-            let attester = &completion
-                .authoring_context
-                .managed_actor_signer_evidence
-                .attester_signer_evidence;
             let result = async {
-                let method = state
-                    .config
-                    .trusted_verification_methods
-                    .iter()
-                    .find(|method| {
-                        method.verification_method == attester.verification_method.as_str()
-                    })
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("completion attester is not a configured own-Station key")
-                    })?;
                 let edge = applet_edge(&state).await?;
-                edge.install_managed_authoring_completion(
-                    completion,
-                    &arkret::DidUrl::new(method.verification_method.clone())
-                        .map_err(anyhow::Error::msg)?,
-                    &method.public_key,
-                )
-                .map_err(|error| anyhow::anyhow!(error.to_string()))
+                edge.install_managed_authoring_completion(completion)
+                    .await
+                    .map_err(|error| anyhow::anyhow!(error.to_string()))
             }
             .await;
             if let Err(error) = result {
