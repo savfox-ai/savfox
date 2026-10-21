@@ -2013,6 +2013,7 @@ mod recovery_tests {
                         request_id: request.request_id,
                         realm_id: request.realm_id,
                         recipient_account_id: request.recipient_account_id,
+                        recipient_actor_id: request.recipient_actor_id,
                         results: vec![arkret::SignerKeyQueryOutcome::HistoricalResolved {
                             selector: request.queries[0].clone(),
                             key: serde_json::from_value(key.clone()).unwrap(),

@@ -2953,15 +2953,13 @@ fn collect_direct_conversation_bound_payloads(
         && let Ok(payload) =
             serde_json::from_value::<DirectConversationBoundPayload>(payload.clone())
     {
-        let event_ref = object
+        if let Some(event_ref) = object
             .get("event_id")
             .and_then(Value::as_str)
-            .map(str::to_owned);
-        payloads.push((payload, event_ref));
-        return;
-    }
-    if let Ok(payload) = serde_json::from_value::<DirectConversationBoundPayload>(value.clone()) {
-        payloads.push((payload, None));
+            .and_then(|id| EventId::new(id.to_owned()).ok())
+        {
+            payloads.push((payload, Some(event_ref.to_string())));
+        }
         return;
     }
     if remaining_depth == 0 {
@@ -3463,6 +3461,26 @@ mod tests {
                 )
                 .is_err()
         );
+        let mut replacement = entry.clone();
+        let TypedCurrentRow::Value { value, .. } = &mut replacement;
+        value["binding_event_ref"] = serde_json::to_value(FIXTURE_EVENT_13.clone()).unwrap();
+        assert!(
+            store
+                .record_verified_direct_conversation_current_entries(
+                    &FIXTURE_REALM_B,
+                    &actor,
+                    &[replacement]
+                )
+                .is_err()
+        );
+        let reopened = FileArkretCryptoStore::for_account(home.path(), "current", "new-runtime");
+        assert_eq!(
+            reopened
+                .direct_conversation_binding_event_ref(FIXTURE_REALM_B.as_str())
+                .unwrap(),
+            Some(FIXTURE_EVENT_14.clone())
+        );
+        assert_eq!(reopened.load().unwrap().generation, generation);
         let mut wrong_pair = entry;
         let TypedCurrentRow::Value { selector, .. } = &mut wrong_pair;
         *selector = arkret::CurrentSelector::DirectConversationBinding {
@@ -4355,6 +4373,7 @@ mod tests {
                 .unwrap(),
                 attestation,
                 attestor_resolution: resolution,
+                claim_issuer_resolution: None,
             },
         ];
         let request = arkret::MlsMemberRosterAuthorityReadRequestBody {
@@ -4751,6 +4770,7 @@ mod tests {
             .unwrap(),
             attestation: next_attestation,
             attestor_resolution: next_resolution,
+            claim_issuer_resolution: None,
         });
         let mut next_page = roster.pages[0].clone();
         next_page.roster.records = next_records;
