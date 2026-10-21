@@ -177,9 +177,9 @@ Genesis 消除 pending。仅在 controller 明确授权解绑且远端确认后�
 
 安装只接纳 Service，必须提供被 registration epoch 绑定的 HTTPS `baseUrl`，用于发现、主体 authoring 与签名 completion。该地址不能订阅群 Event／Signal。管理 transaction 接收方逐次验证 Station RFC9421 签名，不再要求 Applet bearer session；出站管理请求使用 SDK Service HTTP 签名，原生 Event producer proof 仍独立。
 
-安装不创建默认 Bot。需要以 Bot 执行时，单个 runtime 配置独立接受的完整 `bot_account_id`（`principal_id`／`station_id`）；同一 Service 可管理多个独立执行 Account，各配置选择一个 exact Account。未配置 Bot 时只提供 Service 管理。旧 `botActorId` 字符串与从 Service 拼接 Ghost DID 的机制已撤回；尚未接线的 Ghost 查询不能广告虚假身份。
+安装不创建默认 Bot 或 Ghost。原生执行使用独立接受的完整 `RealmActorId`（精确的 `realm_id`／`principal_id`），并通过 `managed_actor_authoring.device` 配置独立的 accepted Device。旧 Bot Account 与顶层 Device 字段会被拒绝。旧 `botActorId` 字符串与从 Service 拼接的 Ghost DID 不能提供执行身份；尚未接线的 Ghost 查询不能广告虚假身份。
 
-配置可解析的 `service_did`、对应 `serviceId`、`trust_domain`、`verification_method` 与真实私钥 `keyRef`。身份托管继续使用 `managed_actor_authoring` 的 `principal_endpoint`／`key_encryption_key_hex`。创建是 provenance，不授业务权限；群业务必须具有当前 Service parent／terminal child、独立 membership 与 accepted Device。 Bot／Ghost subject 的子授权必须由实际 Bot／Ghost 消费；Service proof 不能通过 `executed_by` 代替该 Account。
+配置可解析的 `service_did`、对应 `serviceId`、`trust_domain`、`verification_method` 与真实私钥 `keyRef`。身份托管继续使用 `managed_actor_authoring` 的 `principal_endpoint`／`key_encryption_key_hex`。创建是 provenance，不授业务权限；群业务必须具有当前 Service parent／terminal RealmActor child、独立 membership 与 accepted Device。Bot／Ghost subject 的子授权必须由实际 Realm actor 消费；Service proof 不能通过 `executed_by` 代替该 Realm actor。
 
 Applet模式在显式device.mls下接通独立Device reader、Welcome／群状态／consume／ACK与cursor耐久恢复；消息stream／Blob／原签回复、native resolution rotation installer和持续scope refresh仍需接线。旧管理 transaction 群 dispatch 已关闭；Account 模式 Agent 原生 MLS 路径保持独立，本轮不能证明 Applet 群业务 runtime 已打通。
 

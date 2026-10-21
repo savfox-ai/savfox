@@ -771,7 +771,6 @@ fn insert_saved_channel_metadata(
                         )
                     {
                         info.insert("applet_id".to_owned(), json!(&parsed.applet_id));
-                        info.insert("bot_account_id".to_owned(), json!(&parsed.bot_account_id));
                         info.insert("base_url".to_owned(), json!(&parsed.base_url));
                         info.insert("service_id".to_owned(), json!(&parsed.service_id));
                         info.insert("protocol_count".to_owned(), json!(parsed.protocols.len()));
@@ -4832,7 +4831,6 @@ mod tests {
                 "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
                 "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/appservices/arkret/arkret-default",
-                "bot_account_id":{"principal_id":"ak:did_core:web:slack-bridge.example:bot", "station_id":"ak:did_core:webvh:z6mkstation"},
                 "arkretServerUrl": "https://arkret.example.org",
                 "protocols": ["slack"]
             }),

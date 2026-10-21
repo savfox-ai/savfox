@@ -1608,9 +1608,7 @@ async fn handle_account_client_event(
                     updated_at: Utc::now(),
                 })?;
             }
-            if let Ok(value) = serde_json::to_value(&event) {
-                crypto_store.record_direct_conversation_binding_from_value(&value)?;
-            }
+            crypto_store.record_committed_direct_conversation_binding(&delta)?;
             let accepted_ref = delta.committed_ref();
             let accepted_view = arkret::CommittedEventFullView {
                 event: event.clone(),

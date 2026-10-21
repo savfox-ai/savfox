@@ -243,28 +243,30 @@ transaction receiver verifies RFC9421 Station signatures and no longer requires
 an Applet bearer session. Outbound management requests carry SDK Service HTTP
 signatures; their native Event producer proofs remain independent.
 
-An installation does not create a default Bot. A runtime that executes as a Bot
-must configure an independently accepted `bot_account_id`, a complete Arkret
-`AccountId` with `principal_id` and `station_id`. A Service may manage multiple
-independent execution Accounts; an execution configuration selects one exact
-Account. An absent Bot permits Service management only. Synthetic `botActorId`
-strings and Service-derived Ghost DIDs are rejected or removed. Unimplemented
-Ghost mapping queries return no accepted identity.
+An installation does not create a default Bot or Ghost. Native execution uses
+the independently accepted `RealmActorId` with its exact `realm_id` and
+`principal_id`, and a separate accepted Device configured through
+`managed_actor_authoring.device`. Retired Bot Account and top-level Device
+fields are rejected. Synthetic `botActorId` strings and Service-derived Ghost
+DIDs cannot supply an execution identity. Unimplemented Ghost mapping queries
+return no accepted identity.
 
 Configure a resolvable `service_did`, its matching `serviceId`, `trust_domain`,
 `verification_method` and actual private `keyRef`. Managed identity custody uses
 `managed_actor_authoring` with `principal_endpoint` and
 `key_encryption_key_hex`. Creation proves provenance; it does not grant business
 permissions. Actual group execution needs current Service parents and terminal
-managed-Account children, independent native membership and accepted Devices. A child
-whose subject is a Bot or Ghost must be consumed by that actual managed Account;
-a Service proof cannot act as the Account through `executed_by`.
+managed-Realm-actor children, independent native membership and accepted Devices.
+A child whose subject is a Bot or Ghost must be consumed by that actual Realm
+actor; a Service proof cannot act as the Realm actor through `executed_by`.
 
-Applet-mode native queue/Welcome/ACK/MLS/Blob readers,
-resolution rotation installation and continuous scope refresh remain unwired.
+Applet mode with explicit device.mls configuration supports independent Device
+readers, Welcome/group state/consume/ACK handling and durable cursor recovery.
+Message streams, Blob readers, originally signed replies, native resolution
+rotation installation and continuous scope refresh still need their consumers.
 Legacy management transaction group dispatch is closed. Account-mode Agent native
-MLS handling is unchanged; these management updates do not establish a working
-Applet group execution runtime.
+MLS handling remains separate; these updates do not establish a complete Applet
+group execution runtime.
 
 The standard Applet author endpoint uses the shared bridge runtime for Bot/Ghost Principal custody. Each configuration keeps its encrypted history-root, next-root and separate controller keys through the publication journal’s atomic durable store. Configure `managed_actor_authoring` and the exact trusted Station verification methods; a missing or wrong encryption key fails closed. Authoring retains the original request, bundle and completion preparation across retries and restart. Completion still requires those exact locally frozen bytes. The management path starts Device bootstrap only when explicitly configured; device.mls separately enables the independent Welcome workers.
 

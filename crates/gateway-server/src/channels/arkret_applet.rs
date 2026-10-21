@@ -1453,7 +1453,6 @@ mod tests {
                 "managed_actor_authoring":{"principal_endpoint":"https://actors.example", "key_encryption_key_hex":"22".repeat(32)},
                 "controllerPrincipalId": "ak:did_core:webvh:zAdminScid",
                 "baseUrl": "https://savfox.example/applet-test",
-                "bot_account_id": {"principal_id":"ak:did_core:web:bridge.example:bot", "station_id":"ak:did_core:webvh:z6mkstation"},
                 "arkretServerUrl": "https://arkret.example.org",
                 "arkretServerDid": "did:webvh:z6mkstation:arkret.example.org",
                                 "keyRef": {"kind": "env", "var": "SAVFOX_ARKRET_APPLET_TEST_KEY"},

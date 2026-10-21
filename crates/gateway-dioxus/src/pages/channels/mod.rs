@@ -754,15 +754,6 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     secret: true, required: true, help: "Existing managed identity endpoint and encryption key configuration.",
                 },
                 ConfigField {
-                    key: "bot_account_id".into(),
-                    label: "Bot Account".into(),
-                    field_type: FieldType::Textarea,
-                    placeholder: r#"{"principal_id":"ak:did_core:webvh:zBotScid","station_id":"ak:did_core:web:station.example"}"#.into(),
-                    secret: false,
-                    required: false,
-                    help: "Optional independent Bot Account from accepted provisioning, including its Station. Service installation does not create a Bot.",
-                },
-                ConfigField {
                     key: "arkretServerUrl".into(),
                     label: "Arkret Server URL".into(),
                     field_type: FieldType::Text,
@@ -1813,7 +1804,6 @@ fn restore_arkret_derived_values(
         "inksonBootstrap",
         "keyRef",
         "trustedVerificationMethods",
-        "bot_account_id",
         "managed_actor_authoring",
         "requestedScope",
         "signerResolutionEvidenceRef",
@@ -2379,7 +2369,6 @@ fn is_arkret_applet_only_field(field_key: &str) -> bool {
         field_key,
         "appletId"
             | "controllerPrincipalId"
-            | "bot_account_id"
             | "service_did"
             | "trust_domain"
             | "managed_actor_authoring"
@@ -2562,7 +2551,7 @@ fn build_arkret_channel_patch(
                 }
                 patch[&field.key] = parsed;
             }
-            "controllerAccountId" | "bot_account_id" => {
+            "controllerAccountId" => {
                 let parsed = parse_json_config_field(&field.label, value)?;
                 let account = serde_json::from_value::<arkret_wire::AccountId>(parsed)
                     .map_err(|error| format!("Controller Account ID is invalid: {error}"))?;
@@ -7792,14 +7781,9 @@ mod tests {
         assert!(patch.get("accessToken").is_none());
         assert!(patch.get("loginChallenge").is_none());
         assert!(patch.get("ghostDidPrefix").is_none());
-        assert!(patch["bot_account_id"].is_null());
-        assert!(
-            !fields
-                .iter()
-                .find(|field| field.key == "bot_account_id")
-                .unwrap()
-                .required
-        );
+        assert!(patch.get("bot_account_id").is_none());
+        assert!(patch.get("deviceId").is_none());
+        assert!(!fields.iter().any(|field| field.key == "bot_account_id"));
         assert_eq!(
             patch["controllerPrincipalId"],
             json!("ak:did_core:webvh:zAdminScid")

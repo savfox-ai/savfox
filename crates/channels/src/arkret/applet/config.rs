@@ -2,14 +2,14 @@
 //!
 //! An Arkret channel saved with `mode = "applet"` declares an Applet Service.
 //! Its HTTPS management origin supplies discovery and signed completion.
-//! Independent managed Accounts require the formal authoring contract; this
-//! runtime uses the shared authoring custody and exact native Device settings.
+//! Managed Realm actors use the formal authoring contract, shared custody
+//! and exact native Device settings.
 
 use std::path::PathBuf;
 
 use anyhow::Context;
 use arkret::signatures::PublicKeyMaterial;
-use arkret::{AccountId, DeviceId, Did, DidCoreId, SignerEvidenceRef, TrustDomainId};
+use arkret::{Did, DidCoreId, SignerEvidenceRef, TrustDomainId};
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};
@@ -37,17 +37,11 @@ pub struct ArkretAppletConfig {
     /// Mandatory HTTPS discovery, authoring and completion management origin
     /// (mounted under `/appservices/arkret/{id}/_arkret/edge/applet`).
     pub base_url: String,
-    /// Exact Bot Account retained from accepted Applet provisioning.
-    pub bot_account_id: Option<AccountId>,
     /// Resolvable Applet service DID; its projected core must equal service_id.
     pub service_did: Did,
     pub trust_domain: TrustDomainId,
     /// Explicit runtime identity-custody settings; never synthesized from the Bot.
     pub managed_actor_authoring: ManagedActorAuthoringSettings,
-    /// Optional Arkret device id for the bot/applet local MLS member. Required
-    /// for generating precise MLS recovery plans, but kept optional for
-    /// a concrete accepted Bot Device runtime.
-    pub device_id: Option<String>,
     /// Arkret server base URL where outbound events are POSTed.
     pub arkret_server_url: String,
     /// Arkret server service DID used by applet outbound authentication.
@@ -115,20 +109,24 @@ impl ArkretAppletConfig {
         let controller_principal_id =
             first_non_empty(raw, &["controllerPrincipalId", "controller_principal_id"])?;
         let base_url = first_non_empty(raw, &["baseUrl", "base_url"])?;
-        if raw.contains_key("botActorId") || raw.contains_key("bot_actor_id") {
+        if [
+            "botActorId",
+            "bot_actor_id",
+            "botAccountId",
+            "bot_account_id",
+            "deviceId",
+            "device_id",
+            "botDeviceId",
+        ]
+        .iter()
+        .any(|key| raw.contains_key(*key))
+        {
             return None;
         }
-        let bot_account_id = raw
-            .get("bot_account_id")
-            .filter(|value| !value.is_null())
-            .map(|value| serde_json::from_value(value.clone()))
-            .transpose()
-            .ok()?;
         let service_did = serde_json::from_value(raw.get("service_did")?.clone()).ok()?;
         let trust_domain = serde_json::from_value(raw.get("trust_domain")?.clone()).ok()?;
         let managed_actor_authoring =
             serde_json::from_value(raw.get("managed_actor_authoring")?.clone()).ok()?;
-        let device_id = first_non_empty(raw, &["deviceId", "device_id", "botDeviceId"]);
         let arkret_server_url =
             first_non_empty(raw, &["arkretServerUrl", "arkret_server_url", "homeserver"])
                 .unwrap_or_else(|| base_url.clone());
@@ -197,11 +195,9 @@ impl ArkretAppletConfig {
             service_id,
             controller_principal_id,
             base_url,
-            bot_account_id,
             service_did,
             trust_domain,
             managed_actor_authoring,
-            device_id,
             arkret_server_url,
             arkret_server_did,
             trusted_verification_methods,
@@ -257,13 +253,6 @@ impl ArkretAppletConfig {
                 && management_url.fragment().is_none(),
             "Applet base_url requires HTTPS and cannot contain credentials or a fragment"
         );
-        if let Some(account) = &self.bot_account_id {
-            account.validate()?;
-        }
-        anyhow::ensure!(
-            self.device_id.is_none() || self.bot_account_id.is_some(),
-            "Device runtime requires its exact accepted Account"
-        );
         if let Some(device) = &self.managed_actor_authoring.device {
             device.validate()?;
         }
@@ -314,15 +303,6 @@ impl ArkretAppletConfig {
                 "Arkret applet channel '{}' requires signer_resolution_evidence_ref for offline Event authoring",
                 self.id
             );
-        }
-        if let Some(device_id) = self.device_id.as_deref() {
-            DeviceId::new(device_id.to_owned()).map_err(|err| {
-                anyhow::anyhow!(
-                    "Arkret applet channel '{}' device_id must be a valid Arkret device id, got '{}': {err}",
-                    self.id,
-                    device_id
-                )
-            })?;
         }
         if let Some(value) = self.arkret_server_did.as_deref() {
             Did::new(value.to_owned()).map_err(|err| {
@@ -558,7 +538,6 @@ mod tests {
             "serviceId": "ak:did_core:webvh:z6mkfixture",
             "controllerPrincipalId": "ak:did_core:webvh:z6mkcontroller",
             "baseUrl": "https://savfox.example/appservices/arkret/arkret-applet-test",
-            "bot_account_id": {"principal_id":"ak:did_core:webvh:z6mkbot", "station_id":"ak:did_core:webvh:z6mkstation"},
             "service_did":"did:webvh:z6mkfixture:slack.example",
             "trust_domain":"ak:trust_domain:example.net",
             "verification_method":"did:webvh:z6mkfixture:slack.example#key-1",
@@ -584,11 +563,32 @@ mod tests {
     }
 
     #[test]
-    fn applet_bot_requires_the_exact_account_and_service_binding() {
-        let mut body = valid_body();
-        body.as_object_mut().unwrap().remove("bot_account_id");
-        body["bot_actor_id"] = json!("did:webvh:z6mkbot:bot.example");
-        assert!(ArkretAppletConfig::from_channel_config(&make_channel_config(body)).is_none());
+    fn applet_configuration_rejects_retired_account_and_device_fields() {
+        for key in [
+            "botActorId",
+            "bot_actor_id",
+            "botAccountId",
+            "bot_account_id",
+            "deviceId",
+            "device_id",
+            "botDeviceId",
+        ] {
+            for value in [
+                Value::Null,
+                json!({"principal_id":"ak:did_core:webvh:z6mkbot", "station_id":"ak:did_core:webvh:z6mkstation"}),
+            ] {
+                let mut body = valid_body();
+                body[key] = value;
+                assert!(
+                    ArkretAppletConfig::from_channel_config(&make_channel_config(body)).is_none(),
+                    "accepted retired {key}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn applet_requires_its_exact_service_binding() {
         let mut body = valid_body();
         body["service_did"] = json!("did:webvh:z6mkother:other.example");
         assert!(
@@ -599,38 +599,25 @@ mod tests {
         );
         let parsed =
             ArkretAppletConfig::from_channel_config(&make_channel_config(valid_body())).unwrap();
-        assert_eq!(
-            parsed.bot_account_id.as_ref().unwrap().station_id.as_str(),
-            "ak:did_core:webvh:z6mkstation"
-        );
-        assert_ne!(
-            parsed.bot_account_id.as_ref().unwrap().station_id.as_str(),
-            parsed.service_id
-        );
+        parsed.validate().unwrap();
     }
 
     #[test]
     fn service_installation_does_not_require_a_default_bot() {
-        let mut body = valid_body();
-        body["bot_account_id"] = Value::Null;
-        body.as_object_mut().unwrap().remove("deviceId");
-        body.as_object_mut().unwrap().remove("device_id");
-        let parsed = ArkretAppletConfig::from_channel_config(&make_channel_config(body)).unwrap();
-        assert!(parsed.bot_account_id.is_none());
+        let parsed =
+            ArkretAppletConfig::from_channel_config(&make_channel_config(valid_body())).unwrap();
         parsed.validate().unwrap();
     }
 
     #[test]
     fn native_device_settings_survive_channel_parsing_and_shared_host_decode() {
         let mut body = valid_body();
-        body["bot_account_id"] = Value::Null;
         body["managed_actor_authoring"]["device"] = json!({
             "actions":["ak.event.read"],"lifetime_seconds":3600,"mls":true,"key_package_inventory_target":2
         });
         let parsed =
             ArkretAppletConfig::from_channel_config(&make_channel_config(body.clone())).unwrap();
         parsed.validate().unwrap();
-        assert!(parsed.bot_account_id.is_none());
         let host: arkret_bridge_runtime::ManagedActorAuthoringConfig =
             serde_json::from_value(serde_json::to_value(&parsed.managed_actor_authoring).unwrap())
                 .unwrap();
