@@ -2144,11 +2144,7 @@ impl FileArkretCryptoStore {
                 recipient_agent_verification_method,
                 ..
             } => recipient_agent_verification_method,
-            arkret::RecipientMlsDurableSigner::RealmDevice {
-                device_verification_method,
-                ..
-            }
-            | arkret::RecipientMlsDurableSigner::Device {
+            arkret::RecipientMlsDurableSigner::Device {
                 device_verification_method,
                 ..
             } => device_verification_method,
