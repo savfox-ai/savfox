@@ -3462,6 +3462,38 @@ mod tests {
     }
 
     #[test]
+    fn direct_binding_event_must_match_its_realm_scope() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "carrier", "agent");
+        store.ensure_created().unwrap();
+        let original = std::fs::read(store.path()).unwrap();
+        let bound = direct_projection_fixture(
+            arkret::EventKind::DirectConversationBound,
+            &FIXTURE_REALM_B,
+            direct_conversation_bound_payload(FIXTURE_REALM_B.as_str(), FIXTURE_STRAND.as_str()),
+        );
+        for wrong_scope in [false, true] {
+            let mut delta = bound.clone();
+            let arkret::CommittedEventView::Full(full) = &mut delta.view else {
+                unreachable!();
+            };
+            if wrong_scope {
+                full.event.scope_ref = ScopeRef::Realm {
+                    realm_id: FIXTURE_REALM.clone(),
+                };
+            } else {
+                full.event.realm_id = FIXTURE_REALM.clone();
+            }
+            assert!(
+                store
+                    .record_committed_direct_conversation_binding(&delta)
+                    .is_err()
+            );
+            assert_eq!(std::fs::read(store.path()).unwrap(), original);
+        }
+    }
+
+    #[test]
     fn replacement_runtime_restores_old_direct_binding_from_verified_current_cut() {
         let home = tempfile::tempdir().unwrap();
         let store = FileArkretCryptoStore::for_account(home.path(), "current", "new-runtime");
@@ -4898,9 +4930,38 @@ mod tests {
             .unwrap();
         next_attestation.actor_id = charlie_actor;
         next_attestation.endpoint = MlsWelcomeRecipientEndpoint::AgentRuntime {
-            verification_method: charlie_method,
+            verification_method: charlie_method.clone(),
         };
         next_attestation.authorization_event_ref = FIXTURE_EVENT_13.clone();
+        next_attestation.claim_receipt.claim_request_id =
+            Base64UrlString::new(arkret::base64url_encode(&rand::random::<[u8; 16]>())).unwrap();
+        next_attestation.claim_receipt.request.claim_request_id =
+            next_attestation.claim_receipt.claim_request_id.clone();
+        next_attestation.claim_receipt.request.target_agent_id =
+            Some(next_attestation.actor_id.signing_principal_id().clone());
+        next_attestation
+            .claim_receipt
+            .request
+            .target_agent_verification_method = Some(charlie_method);
+        next_attestation
+            .claim_receipt
+            .request
+            .target_agent_key_authorize_event_id = Some(FIXTURE_EVENT_13.clone());
+        next_attestation
+            .claim_receipt
+            .request
+            .validate_shape()
+            .unwrap();
+        next_attestation.claim_receipt.signature =
+            arkret_signatures::keypackages::sign_keypackage_signing_input(
+                &seed,
+                &method,
+                &arkret_models_crypto::peer_keypackage_claim_receipt_signing_bytes(
+                    &next_attestation.claim_receipt,
+                )
+                .unwrap(),
+            )
+            .unwrap();
         next_attestation.leaf_signature_key_b64u = next_proposal
             .target_after
             .as_ref()
