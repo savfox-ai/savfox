@@ -203,7 +203,7 @@ fn arkret_mode_from_config_obj(map: &serde_json::Map<String, Value>) -> String {
 
 fn arkret_namespace_count(map: &serde_json::Map<String, Value>) -> Option<u32> {
     let namespaces = map.get("namespaces").and_then(Value::as_object)?;
-    let count = ["actors", "realms", "handles"]
+    let count = ["realms", "handles"]
         .into_iter()
         .filter_map(|key| namespaces.get(key).and_then(Value::as_array))
         .map(|items| items.len() as u32)
@@ -775,8 +775,7 @@ fn insert_saved_channel_metadata(
                         info.insert("base_url".to_owned(), json!(&parsed.base_url));
                         info.insert("service_id".to_owned(), json!(&parsed.service_id));
                         info.insert("protocol_count".to_owned(), json!(parsed.protocols.len()));
-                        let namespace_count = parsed.namespaces.actors.len()
-                            + parsed.namespaces.realms.len()
+                        let namespace_count = parsed.namespaces.realms.len()
                             + parsed.namespaces.handles.len();
                         info.insert("namespace_count".to_owned(), json!(namespace_count));
                     } else {
@@ -2673,8 +2672,7 @@ async fn handle_arkret_channel_test(
         parsed
             .validate()
             .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
-        let namespace_count = parsed.namespaces.actors.len()
-            + parsed.namespaces.realms.len()
+        let namespace_count = parsed.namespaces.realms.len()
             + parsed.namespaces.handles.len();
         return Ok(json!({
             "platform": "arkret",
@@ -4807,9 +4805,6 @@ mod tests {
                 "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" },
                 "protocols": ["slack"],
                 "namespaces": {
-                    "actors": [
-                        { "pattern": "did:webvh:slack-bridge.example:ghost:*", "exclusive": true }
-                    ],
                     "realms": [
                         { "pattern": "slack:team:*:channel:*", "exclusive": true }
                     ],

@@ -781,15 +781,6 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "External protocols bridged by this applet, one per line or comma-separated.",
                 },
                 ConfigField {
-                    key: "namespaceActors".into(),
-                    label: "Actor Namespaces".into(),
-                    field_type: FieldType::Textarea,
-                    placeholder: "did:web:savfox.example:ghost:*".into(),
-                    secret: false,
-                    required: false,
-                    help: "Applet actor namespace patterns. Saved as Arkret namespaces.actors[].",
-                },
-                ConfigField {
                     key: "namespaceRealms".into(),
                     label: "Realm Namespaces".into(),
                     field_type: FieldType::Textarea,
@@ -1786,10 +1777,6 @@ fn restore_arkret_derived_values(
     );
     let namespaces = config_obj.get("namespaces").and_then(Value::as_object);
     if let Some(namespaces) = namespaces {
-        let actors = namespace_patterns_to_text(namespaces.get("actors"));
-        if !actors.is_empty() {
-            restored.insert(field_value_key(channel_id, "namespaceActors"), actors);
-        }
         let realms = namespace_patterns_to_text(namespaces.get("realms"));
         if !realms.is_empty() {
             restored.insert(field_value_key(channel_id, "namespaceRealms"), realms);
@@ -2375,7 +2362,6 @@ fn is_arkret_applet_only_field(field_key: &str) -> bool {
             | "arkretServerUrl"
             | "protocols"
             | "requestedScopes"
-            | "namespaceActors"
             | "namespaceRealms"
             | "namespaceHandles"
             | "receiveEvents"
@@ -2391,7 +2377,6 @@ fn is_arkret_helper_field(field_key: &str) -> bool {
     matches!(
         field_key,
         "advanced"
-            | "namespaceActors"
             | "namespaceRealms"
             | "namespaceHandles"
             | "authorizationResult"
@@ -2617,10 +2602,6 @@ fn build_arkret_channel_patch(
     }
 
     if mode == "applet" {
-        let actors = values
-            .get(&field_value_key(channel_id, "namespaceActors"))
-            .map(|value| namespace_patterns_from_text(value, true))
-            .unwrap_or_default();
         let realms = values
             .get(&field_value_key(channel_id, "namespaceRealms"))
             .map(|value| namespace_patterns_from_text(value, true))
@@ -2629,11 +2610,10 @@ fn build_arkret_channel_patch(
             .get(&field_value_key(channel_id, "namespaceHandles"))
             .map(|value| namespace_patterns_from_text(value, false))
             .unwrap_or_default();
-        if actors.is_empty() && realms.is_empty() && handles.is_empty() {
+        if realms.is_empty() && handles.is_empty() {
             patch["namespaces"] = Value::Null;
         } else {
             patch["namespaces"] = json!({
-                "actors": actors,
                 "realms": realms,
                 "handles": handles,
             });
@@ -7763,10 +7743,6 @@ mod tests {
         );
         values.insert(field_value_key("arkret", "protocols"), "slack".to_owned());
         values.insert(
-            field_value_key("arkret", "namespaceActors"),
-            "did:web:slack-bridge.example:ghost:*".to_owned(),
-        );
-        values.insert(
             field_value_key("arkret", "namespaceRealms"),
             "slack:team:*:channel:*".to_owned(),
         );
@@ -7790,13 +7766,8 @@ mod tests {
         );
         assert!(patch["receiveEvents"].is_null());
         assert!(patch["principalId"].is_null());
-        assert_eq!(
-            patch["namespaces"]["actors"][0],
-            json!({
-                "pattern": "did:web:slack-bridge.example:ghost:*",
-                "exclusive": true
-            })
-        );
+        assert!(patch["namespaces"].get("actors").is_none());
+        assert!(!fields.iter().any(|field| field.key == "namespaceActors"));
         assert_eq!(
             patch["namespaces"]["handles"][0],
             json!({

@@ -12,7 +12,7 @@ use arkret::signatures::PublicKeyMaterial;
 use arkret::{ActorId, Did, DidCoreId, TrustDomainId};
 use serde_json::Value;
 
-use super::namespace::{AppletNamespaces, NamespacePattern};
+use super::namespace::AppletNamespaces;
 use crate::arkret::signer::ArkretKeyRef;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,7 +151,7 @@ impl ArkretAppletConfig {
                 .or_else(|| raw.get("trusted_verification_methods")),
         )?;
 
-        let namespaces = parse_namespaces(raw.get("namespaces"));
+        let namespaces = parse_namespaces(raw.get("namespaces")).ok()?;
         let protocols = parse_string_list(raw.get("protocols"));
         let requested_scopes =
             parse_string_list(raw.get("requestedScopes").or(raw.get("requested_scopes")));
@@ -367,41 +367,11 @@ impl ArkretAppletConfig {
     }
 }
 
-fn parse_namespaces(value: Option<&Value>) -> AppletNamespaces {
-    let Some(Value::Object(obj)) = value else {
-        return AppletNamespaces::default();
-    };
-    AppletNamespaces {
-        actors: parse_pattern_list(obj.get("actors")),
-        realms: parse_pattern_list(obj.get("realms")),
-        handles: parse_pattern_list(obj.get("handles")),
-    }
+fn parse_namespaces(value: Option<&Value>) -> anyhow::Result<AppletNamespaces> {
+    value.map(|value| serde_json::from_value(value.clone()).map_err(Into::into))
+        .unwrap_or_else(|| Ok(AppletNamespaces::default()))
 }
 
-fn parse_pattern_list(value: Option<&Value>) -> Vec<NamespacePattern> {
-    let Some(Value::Array(items)) = value else {
-        return Vec::new();
-    };
-    items
-        .iter()
-        .filter_map(|item| {
-            let obj = item.as_object()?;
-            let pattern = obj.get("pattern").and_then(Value::as_str)?.trim();
-            if pattern.is_empty() {
-                return None;
-            }
-            let exclusive = obj
-                .get("exclusive")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            Some(if exclusive {
-                NamespacePattern::exclusive(pattern)
-            } else {
-                NamespacePattern::shared(pattern)
-            })
-        })
-        .collect()
-}
 
 fn parse_trusted_verification_methods(
     value: Option<&Value>,
@@ -559,9 +529,6 @@ mod tests {
             "keyRef": { "kind": "env", "var": "SAVFOX_ARKRET_APPLET_KEY" },
             "protocols": ["slack"],
             "namespaces": {
-                "actors": [
-                    { "pattern": "did:webvh:slack-bridge.example:ghost:*", "exclusive": true }
-                ],
                 "realms": [
                     { "pattern": "slack:team:*:channel:*", "exclusive": true }
                 ],
@@ -679,8 +646,8 @@ mod tests {
             parsed.arkret_server_did.as_deref(),
             Some("did:webvh:arkret.example.org")
         );
-        assert_eq!(parsed.namespaces.actors.len(), 1);
-        assert!(parsed.namespaces.actors[0].exclusive);
+        assert_eq!(parsed.namespaces.realms.len(), 1);
+        assert!(parsed.namespaces.realms[0].exclusive);
         parsed.validate().expect("validate");
     }
 
@@ -819,12 +786,19 @@ mod tests {
     #[test]
     fn service_only_installation_does_not_require_a_ghost_namespace() {
         let mut body = valid_body();
-        body["namespaces"] = json!({"actors": [], "realms": [], "handles": []});
+        body["namespaces"] = json!({"realms": [], "handles": []});
         let cfg = make_channel_config(body);
         let parsed = ArkretAppletConfig::from_channel_config(&cfg).expect("parse");
         parsed
             .validate()
             .expect("independent Bots do not need an external identity namespace");
+    }
+
+    #[test]
+    fn actor_namespace_is_rejected_even_when_empty() {
+        let mut body = valid_body();
+        body["namespaces"]["actors"] = json!([]);
+        assert!(ArkretAppletConfig::from_channel_config(&make_channel_config(body)).is_none());
     }
 
     #[test]
