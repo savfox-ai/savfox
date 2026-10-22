@@ -606,7 +606,6 @@ mod tests {
                                 "keyRef": {"kind": "env", "var": "SAVFOX_ARKRET_APPLET_TEST_KEY"},
                 "protocols": ["slack"],
                 "namespaces": {
-                    "actors": [{"pattern": "did:webvh:bridge.example:ghost:*", "exclusive": true}],
                     "realms": [{"pattern": "ak:realm:*", "exclusive": true}],
                     "handles": []
                 }
