@@ -1225,11 +1225,27 @@ pub struct ArkretNativeAgentCredentials {
     pub operation: arkret::ServiceOperationId,
 }
 
+impl std::fmt::Debug for ArkretNativeAgentCredentials {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ArkretNativeAgentCredentials")
+            .finish_non_exhaustive()
+    }
+}
+
 /// Holds the SAME ephemeral session signer and live provider as normal receive.
-/// No Clone/Debug/serde exposure of the signer or credentials.
+/// No Clone/serde exposure; Debug omits the signer and credentials.
 pub struct ArkretNativeCredentialSource {
     provider: ArkretAgentSessionProvider,
     factory: AgentAuthenticatedTransportFactory,
+}
+
+impl std::fmt::Debug for ArkretNativeCredentialSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ArkretNativeCredentialSource")
+            .finish_non_exhaustive()
+    }
 }
 impl ArkretNativeCredentialSource {
     pub async fn for_realm(&self, realm: &RealmId) -> anyhow::Result<Self> {

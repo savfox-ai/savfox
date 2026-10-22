@@ -28,8 +28,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[cfg(feature = "arkret")]
-use anyhow::Context as _;
 use salvo::http::StatusCode;
 use salvo::prelude::*;
 pub(crate) use savfox_core::channel::{Channel, RichMessage};

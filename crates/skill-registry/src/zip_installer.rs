@@ -47,25 +47,7 @@ pub async fn install_from_zip_bytes(
 pub fn detect_conflicts(zip_bytes: &[u8], skills_dir: &Path) -> anyhow::Result<Vec<ZipConflict>> {
     let reader = Cursor::new(zip_bytes);
     let archive = ZipArchive::new(reader)?;
-    // Use the same archive reference trick: collect_top_level_folders only
-    // needs the immutable name_for_index API.
-    let folders = {
-        let mut fld = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for i in 0..archive.len() {
-            let Some(name) = archive.name_for_index(i) else {
-                continue;
-            };
-            let name = name.replace('\\', "/");
-            if let Some(top) = name.split('/').next()
-                && !top.is_empty()
-                && seen.insert(top.to_owned())
-            {
-                fld.push(top.to_owned());
-            }
-        }
-        fld
-    };
+    let folders = collect_top_level_folders(&archive)?;
     let effective = effective_skill_folders(&folders);
 
     let mut conflicts = Vec::new();
@@ -90,7 +72,7 @@ fn install_zip_sync(
 
     let reader = Cursor::new(zip_bytes);
     let mut archive = ZipArchive::new(reader)?;
-    let folders = collect_top_level_folders(&archive);
+    let folders = collect_top_level_folders(&archive)?;
     let effective = effective_skill_folders(&folders);
 
     // Determine the prefix to strip from zip entries.
@@ -142,10 +124,7 @@ fn install_zip_sync(
                 Err(_) => continue,
             };
 
-            let full_name = match file.enclosed_name() {
-                Some(p) => p.to_string_lossy().replace('\\', "/"),
-                None => continue,
-            };
+            let full_name = normalized_entry_name(file.name()?.as_ref())?;
 
             if !full_name.starts_with(&entry_prefix) {
                 continue;
@@ -159,7 +138,7 @@ fn install_zip_sync(
             }
 
             let out_path = target.join(relative);
-            if file.name().ends_with('/') {
+            if file.is_dir() {
                 std::fs::create_dir_all(&out_path).ok();
             } else {
                 if let Some(parent) = out_path.parent() {
@@ -188,7 +167,7 @@ fn install_zip_sync(
 }
 
 /// Collect distinct top-level folder names from a zip archive.
-fn collect_top_level_folders(archive: &ZipArchive<Cursor<&[u8]>>) -> Vec<String> {
+fn collect_top_level_folders(archive: &ZipArchive<Cursor<&[u8]>>) -> anyhow::Result<Vec<String>> {
     let mut folders = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
@@ -196,7 +175,7 @@ fn collect_top_level_folders(archive: &ZipArchive<Cursor<&[u8]>>) -> Vec<String>
         let Some(name) = archive.name_for_index(i) else {
             continue;
         };
-        let name = name.replace('\\', "/");
+        let name = normalized_entry_name(name?.as_ref())?;
         if let Some(top) = name.split('/').next()
             && !top.is_empty()
             && seen.insert(top.to_owned())
@@ -204,7 +183,36 @@ fn collect_top_level_folders(archive: &ZipArchive<Cursor<&[u8]>>) -> Vec<String>
             folders.push(top.to_owned());
         }
     }
-    folders
+    Ok(folders)
+}
+
+// Normalize separators before checking components, so an archive produced on
+// another platform cannot turn a parent directory into an overwrite target.
+fn normalized_entry_name(raw: &str) -> anyhow::Result<String> {
+    use std::path::Component;
+
+    let name = raw.replace('\\', "/");
+    let mut parts = Vec::new();
+    for component in Path::new(&name).components() {
+        match component {
+            Component::Normal(part) => {
+                let part = part
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("ZIP path is not UTF-8"))?;
+                if part.contains(':') || part.ends_with('.') || part.ends_with(' ') {
+                    anyhow::bail!("ZIP path has an ambiguous component: {raw}");
+                }
+                parts.push(part);
+            }
+            Component::CurDir => {}
+            _ => anyhow::bail!("ZIP path leaves its installation directory: {raw}"),
+        }
+    }
+    let mut normalized = parts.join("/");
+    if name.ends_with('/') && !normalized.is_empty() {
+        normalized.push('/');
+    }
+    Ok(normalized)
 }
 
 /// If there's a single top-level folder named "skills", return its children.
@@ -257,6 +265,51 @@ mod tests {
 
         assert_eq!(result.installed, vec!["my-skill"]);
         assert!(skills_dir.join("my-skill/SKILL.md").exists());
+    }
+
+    #[test]
+    fn parent_paths_are_rejected_before_overwriting_existing_directories() {
+        for unsafe_name in [b"../x/SKILL.md", b"..\\x\\SKILL.md"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let skills = tmp.path().join("skills");
+            std::fs::create_dir(&skills).unwrap();
+            let sentinel = tmp.path().join("sentinel.txt");
+            std::fs::write(&sentinel, b"retained").unwrap();
+            let mut archive = make_test_zip(&[("safe/SKILL.md", b"content")]);
+            let offsets: Vec<_> = archive
+                .windows(unsafe_name.len())
+                .enumerate()
+                .filter_map(|(index, bytes)| (bytes == b"safe/SKILL.md").then_some(index))
+                .collect();
+            assert_eq!(
+                offsets.len(),
+                2,
+                "local and central names must both be changed"
+            );
+            for offset in offsets {
+                archive[offset..offset + unsafe_name.len()].copy_from_slice(unsafe_name);
+            }
+            assert!(detect_conflicts(&archive, &skills).is_err());
+            assert!(install_zip_sync(&archive, &skills, ConflictStrategy::Overwrite).is_err());
+            assert_eq!(std::fs::read(&sentinel).unwrap(), b"retained");
+            assert!(skills.is_dir());
+        }
+    }
+
+    #[test]
+    fn ambiguous_windows_names_are_rejected_on_every_platform() {
+        for name in [
+            ".. /skill/SKILL.md",
+            "C:/skill/SKILL.md",
+            "skill./SKILL.md",
+            "skill/file:stream",
+        ] {
+            assert!(normalized_entry_name(name).is_err(), "{name}");
+        }
+        assert_eq!(
+            normalized_entry_name("./skill/SKILL.md").unwrap(),
+            "skill/SKILL.md"
+        );
     }
 
     #[tokio::test]

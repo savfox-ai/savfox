@@ -240,7 +240,7 @@ impl SkillInstaller {
                     None => continue,
                 };
 
-                if file.name().ends_with('/') {
+                if file.is_dir() {
                     if let Err(err) = std::fs::create_dir_all(&outpath) {
                         return InstallResult {
                             success: false,

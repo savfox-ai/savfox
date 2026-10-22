@@ -587,8 +587,13 @@ fn extract_zip_archive(archive_bytes: &[u8], destination: &Path) -> Result<(), S
         let mut file = archive
             .by_index(idx)
             .map_err(|err| format!("zip entry error: {err}"))?;
-        let raw_name = Path::new(file.name());
-        let Some(clean_relative) = sanitize_archive_path(raw_name) else {
+        let clean_relative = {
+            let name = file
+                .name()
+                .map_err(|err| format!("invalid zip entry name: {err}"))?;
+            sanitize_archive_path(Path::new(name.as_ref()))
+        };
+        let Some(clean_relative) = clean_relative else {
             continue;
         };
         let out_path = destination.join(clean_relative);

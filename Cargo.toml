@@ -326,7 +326,7 @@ wildmatch = "2.6.1"
 wiremock = "0.6"
 x509-parser = "0.18"
 zeroize = "1.8.2"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 scraper = "0.26.0"
 feishu-sdk = { version = "0.1.2", features = ["websocket"] }
 dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-sdk", rev = "14ba4f9d784e1dd2e8830108529a1c968be7f3b7" }
