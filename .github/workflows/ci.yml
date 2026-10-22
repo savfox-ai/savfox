@@ -31,6 +31,7 @@ jobs:
       tui: ${{ steps.filter.outputs.tui }}
       gateway: ${{ steps.filter.outputs.gateway }}
       channels: ${{ steps.filter.outputs.channels }}
+      keyring: ${{ steps.filter.outputs.keyring }}
       docs: ${{ steps.filter.outputs.docs }}
       docker: ${{ steps.filter.outputs.docker }}
       web: ${{ steps.filter.outputs.web }}
@@ -70,6 +71,14 @@ jobs:
               - 'scripts/build-web.ps1'
             channels:
               - 'crates/channels/**'
+            keyring:
+              - 'crates/keyring-store/**'
+              - 'crates/core/Cargo.toml'
+              - 'crates/rmcp-client/Cargo.toml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.ci/with-test-secret-service.sh'
+              - '.github/workflows/ci.yml'
             docs:
               - 'docs/**'
               - '*.md'
@@ -78,6 +87,19 @@ jobs:
               - 'compose.yml'
             web:
               - 'crates/gateway-dioxus/**'
+
+  native-linux-credentials:
+    needs: [changes]
+    if: needs.changes.outputs.keyring == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install isolated Secret Service prerequisites
+        run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring libsecret-tools
+      - name: Verify Linux credential identity and lifecycle
+        run: bash .ci/with-test-secret-service.sh cargo run --locked -p savfox-keyring-store --example native-credential-smoke
 
   # ─── Formatting ────────────────────────────────────────────────────
   fmt:

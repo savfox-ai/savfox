@@ -285,7 +285,7 @@ textwrap = "0.16.2"
 thiserror = "2"
 time = "0.3"
 tiny_http = "0.12"
-tokio = "1"
+tokio = "1.54.1"
 tokio-native-tls = "0.3"
 tokio-rustls = { version = "0.26", default-features = false, features = [
     "aws-lc-rs",
@@ -345,8 +345,8 @@ arkret-models-collaboration = { version = "0.3.0", git = "https://github.com/ark
 arkret-models-crypto = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9", default-features = false }
 arkret-signatures = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9", default-features = false, features = ["collaboration"] }
 arkret-wire = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9", default-features = false }
-garth = { version = "0.3.0", git = "https://github.com/arkret-org/garth.git", rev = "91c0385c78f6f9022b295e755c248f63e2cb035b", default-features = false, features = ["native"] }
-arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "5a5ca6dc81df35a3797bcf027b2251d46e5ec4fc", default-features = false, features = ["edge", "managed-authoring", "web"] }
+garth = { version = "0.3.0", git = "https://github.com/arkret-org/garth.git", rev = "8cfc6775b84528ff75c1ce37e6f879bfb1bfaf33", default-features = false, features = ["native"] }
+arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "ee9f5086de0241d191ca9f8fada172de910e3819", default-features = false, features = ["edge", "managed-authoring", "web"] }
 
 arkret-test-kit = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9" }
 
@@ -452,7 +452,7 @@ arkret-signatures={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", r
 arkret-wire={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9" }
 
 [patch."https://github.com/arkret-org/bridges.git"]
-garth = { git = "https://github.com/arkret-org/garth.git", rev = "91c0385c78f6f9022b295e755c248f63e2cb035b" }
+garth = { git = "https://github.com/arkret-org/garth.git", rev = "8cfc6775b84528ff75c1ce37e6f879bfb1bfaf33" }
 arkret={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9" }
 arkret-canonical={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9" }
 arkret-egress-reqwest={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9" }

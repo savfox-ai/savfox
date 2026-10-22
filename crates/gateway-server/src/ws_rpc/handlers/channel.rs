@@ -775,8 +775,8 @@ fn insert_saved_channel_metadata(
                         info.insert("base_url".to_owned(), json!(&parsed.base_url));
                         info.insert("service_id".to_owned(), json!(&parsed.service_id));
                         info.insert("protocol_count".to_owned(), json!(parsed.protocols.len()));
-                        let namespace_count = parsed.namespaces.realms.len()
-                            + parsed.namespaces.handles.len();
+                        let namespace_count =
+                            parsed.namespaces.realms.len() + parsed.namespaces.handles.len();
                         info.insert("namespace_count".to_owned(), json!(namespace_count));
                     } else {
                         if let Some(applet_id) = first_non_empty_channel_config_string(
@@ -2672,8 +2672,7 @@ async fn handle_arkret_channel_test(
         parsed
             .validate()
             .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
-        let namespace_count = parsed.namespaces.realms.len()
-            + parsed.namespaces.handles.len();
+        let namespace_count = parsed.namespaces.realms.len() + parsed.namespaces.handles.len();
         return Ok(json!({
             "platform": "arkret",
             "ok": true,
