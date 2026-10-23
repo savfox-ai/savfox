@@ -142,7 +142,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2.85.3
+      - uses: taiki-e/install-action@v2.87.29
         with:
           tool: cargo-nextest
       - uses: facebook/install-dotslash@v2
@@ -180,7 +180,7 @@ jobs:
         with:
           cache-on-failure: true
           key: ${{ matrix.os }}
-      - uses: taiki-e/install-action@v2.85.3
+      - uses: taiki-e/install-action@v2.87.29
         with:
           tool: cargo-nextest
       - uses: facebook/install-dotslash@v2
@@ -207,7 +207,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2.85.3
+      - uses: taiki-e/install-action@v2.87.29
         with:
           tool: cargo-nextest
       - uses: actions/download-artifact@v8
