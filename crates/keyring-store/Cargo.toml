@@ -9,19 +9,23 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-keyring = { workspace = true, features = ["crypto-rust"] }
+keyring = { workspace = true }
 tracing = { workspace = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-# Keep the same keyutils/Secret Service credential model with the maintained
-# synchronous transport. Statically build libdbus for minimal Linux images.
-keyring = { workspace = true, features = ["linux-native-sync-persistent", "vendored"] }
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+keyring-legacy = { package = "keyring", version = "3.6.3", default-features = false, features = ["linux-native-sync-persistent", "crypto-rust", "vendored"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+keyring-legacy = { package = "keyring", version = "3.6.3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+keyring-legacy = { package = "keyring", version = "3.6.3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
+dbus-secret-service-keyring-store = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-keyring = { workspace = true, features = ["apple-native"] }
+apple-native-keyring-store = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-keyring = { workspace = true, features = ["windows-native"] }
-
-[target.'cfg(any(target_os = "freebsd", target_os = "openbsd"))'.dependencies]
-keyring = { workspace = true, features = ["sync-secret-service"] }
+windows-native-keyring-store = { workspace = true }

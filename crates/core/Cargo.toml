@@ -55,7 +55,7 @@ http = { workspace = true }
 include_dir = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
-keyring = { workspace = true, features = ["crypto-rust"] }
+keyring = { workspace = true }
 libc = { workspace = true }
 multimap = { workspace = true }
 once_cell = { workspace = true }
@@ -119,13 +119,11 @@ test-support = []
 nix = { workspace = true, features = ["user"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = { workspace = true, features = ["linux-native-sync-persistent", "vendored"] }
 landlock = { workspace = true }
 seccompiler = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = { workspace = true }
-keyring = { workspace = true, features = ["apple-native"] }
 
 # Build OpenSSL from source for musl builds.
 [target.x86_64-unknown-linux-musl.dependencies]
@@ -134,12 +132,6 @@ openssl-sys = { workspace = true, features = ["vendored"] }
 # Build OpenSSL from source for musl builds.
 [target.aarch64-unknown-linux-musl.dependencies]
 openssl-sys = { workspace = true, features = ["vendored"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-keyring = { workspace = true, features = ["windows-native"] }
-
-[target.'cfg(any(target_os = "freebsd", target_os = "openbsd"))'.dependencies]
-keyring = { workspace = true, features = ["sync-secret-service"] }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }

@@ -166,7 +166,10 @@ insta = "1.47.2"
 inventory = "0.3.24"
 itertools = "0.14.0"
 jsonwebtoken = "10"
-keyring = { version = "3.6", default-features = false }
+keyring = { package = "keyring-core", version = "1.0.1" }
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
+windows-native-keyring-store = "1.1.0"
+dbus-secret-service-keyring-store = { version = "1.0.1", default-features = false, features = ["crypto-rust", "vendored"] }
 landlock = "0.4.4"
 lazy_static = "1"
 libc = "0.2.183"

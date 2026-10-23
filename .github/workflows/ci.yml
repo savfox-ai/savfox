@@ -78,6 +78,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.ci/with-test-secret-service.sh'
+              - '.ci/verify-native-credentials.py'
               - '.github/workflows/ci.yml'
             docs:
               - 'docs/**'
@@ -88,18 +89,30 @@ jobs:
             web:
               - 'crates/gateway-dioxus/**'
 
-  native-linux-credentials:
+  native-credentials:
     needs: [changes]
     if: needs.changes.outputs.keyring == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
       - uses: Swatinem/rust-cache@v2
       - name: Install isolated Secret Service prerequisites
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring libsecret-tools
-      - name: Verify Linux credential identity and lifecycle
-        run: bash .ci/with-test-secret-service.sh cargo run --locked -p savfox-keyring-store --example native-credential-smoke
+      - name: Verify Linux persistent credentials and legacy identity
+        if: runner.os == 'Linux'
+        run: bash .ci/with-test-secret-service.sh python3 .ci/verify-native-credentials.py
+      - name: Verify native Windows and macOS credentials and legacy identity
+        if: runner.os != 'Linux'
+        run: python .ci/verify-native-credentials.py
 
   # ─── Formatting ────────────────────────────────────────────────────
   fmt:

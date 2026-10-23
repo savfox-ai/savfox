@@ -29,6 +29,7 @@
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
+use std::sync::{Arc, OnceLock};
 
 use keyring::{Entry, Error as KeyringError};
 use tracing::trace;
@@ -91,10 +92,55 @@ pub trait KeyringStore: Debug + Send + Sync {
 #[derive(Debug)]
 pub struct DefaultKeyringStore;
 
+fn platform_store() -> keyring::Result<Arc<keyring::CredentialStore>> {
+    #[cfg(target_os = "macos")]
+    let store = apple_native_keyring_store::keychain::Store::new()?;
+    #[cfg(target_os = "windows")]
+    let store = windows_native_keyring_store::Store::new()?;
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))]
+    let store = dbus_secret_service_keyring_store::Store::new()?;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "openbsd"
+    ))]
+    {
+        Ok(store)
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "openbsd"
+    )))]
+    {
+        Err(KeyringError::Invalid(
+            "platform".into(),
+            "native credential storage is unavailable".into(),
+        ))
+    }
+}
+
+fn native_entry(service: &str, account: &str) -> Result<Entry, CredentialStoreError> {
+    static STORE: OnceLock<Arc<keyring::CredentialStore>> = OnceLock::new();
+    let store = if let Some(store) = STORE.get() {
+        store
+    } else {
+        let store = platform_store().map_err(CredentialStoreError::new)?;
+        STORE.get_or_init(|| store)
+    };
+    store
+        .build(service, account, None)
+        .map_err(CredentialStoreError::new)
+}
+
 impl KeyringStore for DefaultKeyringStore {
     fn load(&self, service: &str, account: &str) -> Result<Option<String>, CredentialStoreError> {
         trace!("keyring.load start, service={service}, account={account}");
-        let entry = Entry::new(service, account).map_err(CredentialStoreError::new)?;
+        let entry = native_entry(service, account)?;
         match entry.get_password() {
             Ok(password) => {
                 trace!("keyring.load success, service={service}, account={account}");
@@ -116,7 +162,7 @@ impl KeyringStore for DefaultKeyringStore {
             "keyring.save start, service={service}, account={account}, value_len={}",
             value.len()
         );
-        let entry = Entry::new(service, account).map_err(CredentialStoreError::new)?;
+        let entry = native_entry(service, account)?;
         match entry.set_password(value) {
             Ok(()) => {
                 trace!("keyring.save success, service={service}, account={account}");
@@ -131,7 +177,7 @@ impl KeyringStore for DefaultKeyringStore {
 
     fn delete(&self, service: &str, account: &str) -> Result<bool, CredentialStoreError> {
         trace!("keyring.delete start, service={service}, account={account}");
-        let entry = Entry::new(service, account).map_err(CredentialStoreError::new)?;
+        let entry = native_entry(service, account)?;
         match entry.delete_credential() {
             Ok(()) => {
                 trace!("keyring.delete success, service={service}, account={account}");
@@ -154,50 +200,44 @@ pub mod tests {
     use std::sync::{Arc, Mutex, PoisonError};
 
     use keyring::Error as KeyringError;
-    use keyring::credential::CredentialApi as _;
-    use keyring::mock::MockCredential;
 
     use super::{CredentialStoreError, KeyringStore};
 
+    #[derive(Debug, Default)]
+    struct State {
+        values: HashMap<String, String>,
+        errors: HashMap<String, KeyringError>,
+    }
+
     #[derive(Default, Clone, Debug)]
     pub struct MockKeyringStore {
-        credentials: Arc<Mutex<HashMap<String, Arc<MockCredential>>>>,
+        state: Arc<Mutex<State>>,
     }
 
     impl MockKeyringStore {
-        pub fn credential(&self, account: &str) -> Arc<MockCredential> {
-            let mut guard = self
-                .credentials
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            guard
-                .entry(account.to_owned())
-                .or_insert_with(|| Arc::new(MockCredential::default()))
-                .clone()
-        }
-
         pub fn saved_value(&self, account: &str) -> Option<String> {
-            let credential = {
-                let guard = self
-                    .credentials
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
-                guard.get(account).cloned()
-            }?;
-            credential.get_password().ok()
+            self.state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .values
+                .get(account)
+                .cloned()
         }
 
         pub fn set_error(&self, account: &str, error: KeyringError) {
-            let credential = self.credential(account);
-            credential.set_error(error);
+            self.state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .errors
+                .insert(account.to_owned(), error);
         }
 
         pub fn contains(&self, account: &str) -> bool {
-            let guard = self
-                .credentials
+            self.state
                 .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            guard.contains_key(account)
+                .unwrap_or_else(PoisonError::into_inner)
+                .values
+                .contains_key(account)
         }
     }
 
@@ -207,23 +247,11 @@ pub mod tests {
             _service: &str,
             account: &str,
         ) -> Result<Option<String>, CredentialStoreError> {
-            let credential = {
-                let guard = self
-                    .credentials
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
-                guard.get(account).cloned()
-            };
-
-            let Some(credential) = credential else {
-                return Ok(None);
-            };
-
-            match credential.get_password() {
-                Ok(password) => Ok(Some(password)),
-                Err(KeyringError::NoEntry) => Ok(None),
-                Err(error) => Err(CredentialStoreError::new(error)),
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(error) = state.errors.remove(account) {
+                return Err(CredentialStoreError::new(error));
             }
+            Ok(state.values.get(account).cloned())
         }
 
         fn save(
@@ -232,37 +260,20 @@ pub mod tests {
             account: &str,
             value: &str,
         ) -> Result<(), CredentialStoreError> {
-            let credential = self.credential(account);
-            credential
-                .set_password(value)
-                .map_err(CredentialStoreError::new)
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(error) = state.errors.remove(account) {
+                return Err(CredentialStoreError::new(error));
+            }
+            state.values.insert(account.to_owned(), value.to_owned());
+            Ok(())
         }
 
         fn delete(&self, _service: &str, account: &str) -> Result<bool, CredentialStoreError> {
-            let credential = {
-                let guard = self
-                    .credentials
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
-                guard.get(account).cloned()
-            };
-
-            let Some(credential) = credential else {
-                return Ok(false);
-            };
-
-            let removed = match credential.delete_credential() {
-                Ok(()) => Ok(true),
-                Err(KeyringError::NoEntry) => Ok(false),
-                Err(error) => Err(CredentialStoreError::new(error)),
-            }?;
-
-            let mut guard = self
-                .credentials
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            guard.remove(account);
-            Ok(removed)
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(error) = state.errors.remove(account) {
+                return Err(CredentialStoreError::new(error));
+            }
+            Ok(state.values.remove(account).is_some())
         }
     }
 }

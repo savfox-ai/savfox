@@ -14,8 +14,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         ),
     };
     assert!(service.starts_with("savfox-ci-"));
+    if let Some(mode) = std::env::args()
+        .nth(1)
+        .filter(|mode| mode.starts_with("legacy-"))
+    {
+        return legacy_check(&service, &mode);
+    }
     let account = "native-round-trip";
     let store = DefaultKeyringStore;
+    if std::env::args().nth(1).as_deref() == Some("cleanup") {
+        store.delete(&service, account)?;
+        assert!(store.load(&service, account)?.is_none());
+        return Ok(());
+    }
+    eprintln!("native credential stage: load");
     if std::env::var_os("SAVFOX_KEYRING_SMOKE_SEEDED").is_some() {
         assert_eq!(
             store.load(&service, account)?.as_deref(),
@@ -24,6 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         assert!(store.load(&service, account)?.is_none());
     }
+    eprintln!("native credential stage: write");
     store.save(&service, account, "native-credential-λ")?;
     assert_eq!(
         store.load(&service, account)?.as_deref(),
@@ -41,5 +54,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         assert!(!store.delete(&service, account)?);
     }
     println!("native credential round trip passed");
+    Ok(())
+}
+
+fn legacy_check(service: &str, mode: &str) -> Result<(), Box<dyn Error>> {
+    let entry = keyring_legacy::Entry::new(service, "native-round-trip")?;
+    match mode {
+        "legacy-seed" => {
+            assert!(matches!(
+                entry.get_password(),
+                Err(keyring_legacy::Error::NoEntry)
+            ));
+            entry.set_password("old-backend-fixture")?;
+        }
+        "legacy-updated" => assert_eq!(entry.get_password()?, "updated-native-fixture"),
+        "legacy-absent" => {
+            assert!(matches!(
+                entry.get_password(),
+                Err(keyring_legacy::Error::NoEntry)
+            ));
+        }
+        _ => return Err("expected seed, updated, or absent".into()),
+    }
     Ok(())
 }
