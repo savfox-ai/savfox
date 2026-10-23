@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify OS storage, cross-process persistence, and keyring v3/v4 identity."""
+"""Verify OS storage, and cross-process persistence."""
 import json
 import os
 from pathlib import Path
@@ -21,13 +21,13 @@ def execute(binary, *args, **variables):
     subprocess.run([str(binary), *args], env={**environment, **variables}, check=True)
 
 try:
-    execute(native, "legacy-seed")
+    execute(native, "seed")
     execute(native, SAVFOX_KEYRING_SMOKE_SEEDED="1", SAVFOX_KEYRING_SMOKE_RETAIN="1")
-    execute(native, "legacy-updated")
+    execute(native, "updated")
     execute(native, "cleanup")
-    execute(native, "legacy-absent")
+    execute(native, "absent")
     execute(native)
-    execute(native, "legacy-absent")
+    execute(native, "absent")
 finally:
     execute(native, "cleanup")
-print("OS credential lifecycle and cross-process v3/v4 compatibility passed", flush=True)
+print("OS credential lifecycle and cross-process persistence passed", flush=True)

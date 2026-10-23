@@ -14,14 +14,28 @@ fn main() -> Result<(), Box<dyn Error>> {
         ),
     };
     assert!(service.starts_with("savfox-ci-"));
-    if let Some(mode) = std::env::args()
-        .nth(1)
-        .filter(|mode| mode.starts_with("legacy-"))
-    {
-        return legacy_check(&service, &mode);
-    }
     let account = "native-round-trip";
     let store = DefaultKeyringStore;
+    match std::env::args().nth(1).as_deref() {
+        Some("seed") => {
+            assert!(store.load(&service, account)?.is_none());
+            store.save(&service, account, "native-persistence-fixture")?;
+            return Ok(());
+        }
+        Some("updated") => {
+            assert_eq!(
+                store.load(&service, account)?.as_deref(),
+                Some("updated-native-fixture")
+            );
+            return Ok(());
+        }
+        Some("absent") => {
+            assert!(store.load(&service, account)?.is_none());
+            return Ok(());
+        }
+        _ => {}
+    }
+
     if std::env::args().nth(1).as_deref() == Some("cleanup") {
         store.delete(&service, account)?;
         assert!(store.load(&service, account)?.is_none());
@@ -31,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if std::env::var_os("SAVFOX_KEYRING_SMOKE_SEEDED").is_some() {
         assert_eq!(
             store.load(&service, account)?.as_deref(),
-            Some("old-backend-fixture")
+            Some("native-persistence-fixture")
         );
     } else {
         assert!(store.load(&service, account)?.is_none());
@@ -54,27 +68,5 @@ fn main() -> Result<(), Box<dyn Error>> {
         assert!(!store.delete(&service, account)?);
     }
     println!("native credential round trip passed");
-    Ok(())
-}
-
-fn legacy_check(service: &str, mode: &str) -> Result<(), Box<dyn Error>> {
-    let entry = keyring_legacy::Entry::new(service, "native-round-trip")?;
-    match mode {
-        "legacy-seed" => {
-            assert!(matches!(
-                entry.get_password(),
-                Err(keyring_legacy::Error::NoEntry)
-            ));
-            entry.set_password("old-backend-fixture")?;
-        }
-        "legacy-updated" => assert_eq!(entry.get_password()?, "updated-native-fixture"),
-        "legacy-absent" => {
-            assert!(matches!(
-                entry.get_password(),
-                Err(keyring_legacy::Error::NoEntry)
-            ));
-        }
-        _ => return Err("expected seed, updated, or absent".into()),
-    }
     Ok(())
 }

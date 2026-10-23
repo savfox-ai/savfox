@@ -107,10 +107,10 @@ jobs:
       - name: Install isolated Secret Service prerequisites
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring libsecret-tools
-      - name: Verify Linux persistent credentials and legacy identity
+      - name: Verify Linux persistent credentials
         if: runner.os == 'Linux'
         run: bash .ci/with-test-secret-service.sh python3 .ci/verify-native-credentials.py
-      - name: Verify native Windows and macOS credentials and legacy identity
+      - name: Verify native Windows and macOS credentials
         if: runner.os != 'Linux'
         run: python .ci/verify-native-credentials.py
 

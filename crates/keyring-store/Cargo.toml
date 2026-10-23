@@ -12,15 +12,6 @@ workspace = true
 keyring = { workspace = true }
 tracing = { workspace = true }
 
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-keyring-legacy = { package = "keyring", version = "3.6.3", default-features = false, features = ["linux-native-sync-persistent", "crypto-rust", "vendored"] }
-
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-keyring-legacy = { package = "keyring", version = "3.6.3", default-features = false, features = ["apple-native"] }
-
-[target.'cfg(target_os = "windows")'.dev-dependencies]
-keyring-legacy = { package = "keyring", version = "3.6.3", default-features = false, features = ["windows-native"] }
-
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))'.dependencies]
 dbus-secret-service-keyring-store = { workspace = true }
 
