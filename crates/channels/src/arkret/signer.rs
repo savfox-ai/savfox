@@ -399,7 +399,7 @@ mod tests {
         arkret::RecipientMlsDurableReceipt {
             domain: arkret::NonEmptyString::new("ak.recipient-mls-durable-receipt.v1").unwrap(),
             claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
-            key_package_ref: arkret::NonEmptyString::new(
+            keypackage_ref: arkret::NonEmptyString::new(
                 "ak:mls:kp:01904100-0000-7000-8000-000000000001",
             )
             .unwrap(),

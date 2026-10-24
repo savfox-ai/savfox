@@ -2153,7 +2153,7 @@ impl FileArkretCryptoStore {
             domain: arkret::NonEmptyString::new("ak.mls.recipient_durable_receipt.v1")
                 .map_err(anyhow::Error::msg)?,
             claim_request_id: claim_outcome.claim_request_id.clone(),
-            key_package_ref: arkret::NonEmptyString::new(&claim.keypackage_ref)
+            keypackage_ref: arkret::NonEmptyString::new(&claim.keypackage_ref)
                 .map_err(anyhow::Error::msg)?,
             recipient,
             recipient_id: local_station.clone(),
@@ -4460,8 +4460,8 @@ mod tests {
                     from_version_id: version.clone(),
                     to_version_id: version,
                 },
-                evidence: arkret::ResolutionDidBindingEvidenceReceipt {
-                    kind: arkret::ResolutionDidBindingEvidenceKind::AkDidBindingEvidenceV1,
+                evidence: arkret::DidBindingEvidenceReceipt {
+                    kind: arkret::DidBindingEvidenceKind::AkDidBindingEvidenceV1,
                     method: "key".to_owned(),
                     document_digest: Hash::new(format!("sha256:{}", "0".repeat(64))).unwrap(),
                     method_proofs: Vec::new(),

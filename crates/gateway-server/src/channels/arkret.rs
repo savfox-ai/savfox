@@ -1087,7 +1087,7 @@ fn public_presence_head_from_verified_read(
     Ok(match outcome? {
         arkret::exact_current_state::ExactCurrentStateReadResponseBody::Present {
             effective_stream_head,
-            entry: arkret::exact_current_state::ExactCurrentStateEntry::AgentInteraction(entry),
+            current_state: arkret::exact_current_state::ExactCurrentState::AgentInteraction(entry),
             ..
         } if public_presence_mode_matches_account(&entry, account) => Some(effective_stream_head),
         // Both private and authoritative never-written suppress shared presence.
@@ -1905,7 +1905,7 @@ async fn upload_account_mls_key_packages(
     match client.inner().keypackages_upload(&request).await {
         Ok(outcome) => {
             let accepted_refs = outcome
-                .key_package_refs
+                .keypackage_refs
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>();
@@ -1926,7 +1926,7 @@ async fn upload_account_mls_key_packages(
                     channel_id = %channel.id,
                     account_id = %account.id,
                     accepted = outcome.accepted,
-                    refs = outcome.key_package_refs.len(),
+                    refs = outcome.keypackage_refs.len(),
                     "arkret: published MLS KeyPackages"
                 );
             }
@@ -1950,7 +1950,7 @@ fn consume_outcome_acknowledges_binding(
         && outcome
             .consume_receipt
             .recipient_durable_receipt
-            .key_package_ref
+            .keypackage_ref
             .as_str()
             == keypackage_ref
 }
@@ -3252,7 +3252,7 @@ async fn agent_interaction_trigger_allowed(
     .and_then(|response| response.into_value().map_err(garth::Error::from))
     {
         Ok(arkret::exact_current_state::ExactCurrentStateReadResponseBody::Present {
-            entry: arkret::exact_current_state::ExactCurrentStateEntry::AgentInteraction(entry),
+            current_state: arkret::exact_current_state::ExactCurrentState::AgentInteraction(entry),
             ..
         }) => entry.value,
         Err(error) => return Err(error.into()),
@@ -4520,7 +4520,7 @@ pub(crate) async fn send_to_arkret_account(
         )
         .await?
         .into_value()?;
-        if !matches!(current, arkret::exact_current_state::ExactCurrentStateReadResponseBody::Present { entry: arkret::exact_current_state::ExactCurrentStateEntry::AgentInteraction(entry), .. } if entry.value.controller_account_id == account.controller_account_id && entry.value.interaction_mode == arkret::AgentInteractionMode::Public)
+        if !matches!(current, arkret::exact_current_state::ExactCurrentStateReadResponseBody::Present { current_state: arkret::exact_current_state::ExactCurrentState::AgentInteraction(entry), .. } if entry.value.controller_account_id == account.controller_account_id && entry.value.interaction_mode == arkret::AgentInteractionMode::Public)
         {
             anyhow::bail!("shared Agent execution authority is unavailable");
         }
@@ -4962,8 +4962,7 @@ mod tests {
     #[test]
     fn presence_shared_scope_requires_explicit_public_for_exact_accounts() {
         use arkret::exact_current_state::{
-            ExactCurrentStateEntry, ExactCurrentStateReadResponseBody,
-            NeverWrittenExactCurrentSelector,
+            ExactCurrentState, ExactCurrentStateReadResponseBody, NeverWrittenExactCurrentSelector,
         };
         let (account, _) = queued_message_fixture();
         let head = presence_head_fixture();
@@ -4985,7 +4984,7 @@ mod tests {
             realm_id: realm_id(),
             governance_generation: 1,
             effective_stream_head: head.clone(),
-            entry: ExactCurrentStateEntry::AgentInteraction(entry),
+            current_state: ExactCurrentState::AgentInteraction(entry),
         };
         assert_eq!(
             public_presence_head_from_verified_read(Ok(outcome(entry.clone())), &account).unwrap(),
@@ -5177,8 +5176,8 @@ mod tests {
             session_id: "runtime-observation".to_owned(),
             observed_at: Utc::now(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
-            entries: vec![arkret::AgentParticipationEntry {
-                scope: arkret::ParticipationScope::Realm {
+            entries: vec![arkret::AgentParticipationView {
+                target_scope: arkret::ParticipationScope::Realm {
                     realm_id: event.realm_id.clone(),
                 },
                 selection: arkret::ParticipationBits::ALL,
@@ -5327,7 +5326,7 @@ mod tests {
             recipient_durable_receipt: arkret::RecipientMlsDurableReceipt {
                 domain: arkret::NonEmptyString::new("ak.recipient-mls-durable-receipt.v1").unwrap(),
                 claim_request_id: arkret::Base64UrlString::new("Y2xhaW0tcmVxdWVzdC0x").unwrap(),
-                key_package_ref: arkret::NonEmptyString::new(keypackage_ref).unwrap(),
+                keypackage_ref: arkret::NonEmptyString::new(keypackage_ref).unwrap(),
                 recipient: arkret::RecipientMlsDurableSigner::Device {
                     recipient_account_id: arkret::AccountId::new(
                         actor_id(),

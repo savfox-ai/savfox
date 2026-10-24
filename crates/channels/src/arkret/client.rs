@@ -616,7 +616,7 @@ impl ArkretHttpClient {
         let mut realms = observation
             .entries
             .iter()
-            .map(|entry| entry.scope.realm_id().clone())
+            .map(|entry| entry.target_scope.realm_id().clone())
             .collect::<std::collections::BTreeSet<_>>();
         let request = arkret::DirectConversationResolveRequestBody {
             peer: arkret::ContactPeer::Human {
