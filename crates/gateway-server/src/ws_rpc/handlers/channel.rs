@@ -14,20 +14,26 @@ use crate::session::{SessionEntry, SessionStore};
 
 // ── Send / Wake / Channels ──────────────────────────────────────────────────
 
-pub(crate) async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
-    let channel_id = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
-    let text = params.get("text").and_then(|v| v.as_str()).unwrap_or("");
-    let thread_id = params
+pub(crate) async fn handle_send(parameters: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
+    let channel_id = parameters
+        .get("channel")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let text = parameters
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let thread_id = parameters
         .get("thread_id")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let reply_target = params
+    let reply_target = parameters
         .get("reply_target")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let saved_channel_config_id = requested_channel_instance_id(params);
+    let saved_channel_config_id = requested_channel_instance_id(parameters);
 
     if channel_id.is_empty() || text.is_empty() {
         return Err((
@@ -46,7 +52,7 @@ pub(crate) async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -
             thread_id,
             reply_target,
             saved_channel_config_id,
-            params.get("operation_id").and_then(Value::as_str),
+            parameters.get("operation_id").and_then(Value::as_str),
         )
         .await
     {
@@ -60,16 +66,16 @@ pub(crate) async fn handle_send_metrics() -> RpcResult {
     Ok(json!({ "metrics": metrics }))
 }
 
-pub(crate) async fn handle_wake(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
-    let message = params
+pub(crate) async fn handle_wake(parameters: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
+    let message = parameters
         .get("message")
         .and_then(|v| v.as_str())
         .unwrap_or("wake");
-    let agent = params
+    let agent = parameters
         .get("agent")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
-    let heartbeat = params
+    let heartbeat = parameters
         .get("heartbeat")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
@@ -130,21 +136,21 @@ fn channel_platform_matches_kind(kind: &str, platform: &str) -> bool {
     canonical_channel_platform(kind) == canonical_channel_platform(platform)
 }
 
-fn requested_channel_instance_id(params: &Value) -> Option<&str> {
-    params
+fn requested_channel_instance_id(parameters: &Value) -> Option<&str> {
+    parameters
         .get("id")
-        .or_else(|| params.get("config_id"))
-        .or_else(|| params.get("configId"))
+        .or_else(|| parameters.get("config_id"))
+        .or_else(|| parameters.get("configId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
 }
 
 fn request_matches_channel_instance(
-    params: &Value,
+    parameters: &Value,
     config: &savfox_core::config::channel_store::ChannelConfig,
 ) -> bool {
-    requested_channel_instance_id(params).is_none_or(|requested_id| config.id == requested_id)
+    requested_channel_instance_id(parameters).is_none_or(|requested_id| config.id == requested_id)
 }
 
 fn first_non_empty_channel_config_string(
@@ -936,12 +942,12 @@ fn insert_saved_channel_metadata(
 }
 
 pub(crate) async fn handle_channels_status(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let runtime = channel.runtime_channel_secrets().await;
     let saved_configs = load_saved_channel_configs(channel).await;
-    let probe_requested = params
+    let probe_requested = parameters
         .get("probe")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
@@ -1676,13 +1682,13 @@ pub(crate) async fn handle_channels_status(
         arkret.remove("lastError");
     }
 
-    let requested_channel = params
+    let requested_channel = parameters
         .get("channel")
-        .or_else(|| params.get("platform"))
+        .or_else(|| parameters.get("platform"))
         .and_then(|v| v.as_str())
         .map(canonical_channel_platform);
     if let Some(channel) = requested_channel.as_deref() {
-        if let Some(requested_id) = requested_channel_instance_id(params) {
+        if let Some(requested_id) = requested_channel_instance_id(parameters) {
             let instance = instances.get(requested_id).ok_or_else(|| {
                 (
                     INVALID_REQUEST,
@@ -1714,13 +1720,13 @@ pub(crate) async fn handle_channels_status(
 }
 
 pub(crate) async fn handle_channels_login(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let platform = params
+    let platform = parameters
         .get("platform")
-        .or_else(|| params.get("channel"))
+        .or_else(|| parameters.get("channel"))
         .and_then(|v| v.as_str())
         .map(canonical_channel_platform)
         .unwrap_or_default();
@@ -1735,10 +1741,10 @@ pub(crate) async fn handle_channels_login(
         .get("private_key")
         .and_then(|v| v.as_str())
         .is_some_and(|v| !v.trim().is_empty());
-    let is_configured = if requested_channel_instance_id(params).is_some() {
+    let is_configured = if requested_channel_instance_id(parameters).is_some() {
         saved_configs.iter().any(|config| {
             channel_platform_matches_kind(&config.kind, &platform)
-                && request_matches_channel_instance(params, config)
+                && request_matches_channel_instance(parameters, config)
                 && config.enabled
                 && saved_channel_config_ready(config)
         })
@@ -1763,7 +1769,7 @@ pub(crate) async fn handle_channels_login(
 
         for saved in &saved_configs {
             if !channel_platform_matches_kind(&saved.kind, "discord")
-                || !request_matches_channel_instance(params, saved)
+                || !request_matches_channel_instance(parameters, saved)
                 || !saved.enabled
             {
                 continue;
@@ -1864,7 +1870,7 @@ pub(crate) async fn handle_channels_login(
 
         for saved in &saved_configs {
             if !channel_platform_matches_kind(&saved.kind, "matrix")
-                || !request_matches_channel_instance(params, saved)
+                || !request_matches_channel_instance(parameters, saved)
                 || !saved.enabled
                 || !saved_channel_config_ready(saved)
             {
@@ -1946,7 +1952,7 @@ pub(crate) async fn handle_channels_login(
 
             for saved in &saved_configs {
                 if !channel_platform_matches_kind(&saved.kind, "arkret")
-                    || !request_matches_channel_instance(params, saved)
+                    || !request_matches_channel_instance(parameters, saved)
                     || !saved.enabled
                     || !saved_channel_config_ready(saved)
                 {
@@ -2058,7 +2064,7 @@ pub(crate) async fn handle_channels_login(
         let mut stream_disabled = 0_u32;
         for saved in &saved_configs {
             if !channel_platform_matches_kind(&saved.kind, "feishu")
-                || !request_matches_channel_instance(params, saved)
+                || !request_matches_channel_instance(parameters, saved)
                 || !saved.enabled
             {
                 continue;
@@ -2141,7 +2147,7 @@ pub(crate) async fn handle_channels_login(
         let mut polling_disabled = 0_u32;
         for saved in &saved_configs {
             if !channel_platform_matches_kind(&saved.kind, "telegram")
-                || !request_matches_channel_instance(params, saved)
+                || !request_matches_channel_instance(parameters, saved)
                 || !saved.enabled
             {
                 continue;
@@ -2222,12 +2228,12 @@ pub(crate) async fn handle_channels_login(
 }
 
 pub(crate) async fn handle_channels_logout(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let platform = params
+    let platform = parameters
         .get("platform")
-        .or_else(|| params.get("channel"))
+        .or_else(|| parameters.get("channel"))
         .and_then(|v| v.as_str())
         .map(canonical_channel_platform)
         .unwrap_or_default();
@@ -2237,7 +2243,7 @@ pub(crate) async fn handle_channels_logout(
 
     let mut secrets = channel.runtime_channel_secrets().await;
     let mut stopped = 0_u32;
-    let instance_scoped = requested_channel_instance_id(params).is_some();
+    let instance_scoped = requested_channel_instance_id(parameters).is_some();
     match platform.as_str() {
         "discord" => {
             if !instance_scoped {
@@ -2245,7 +2251,7 @@ pub(crate) async fn handle_channels_logout(
             }
             for saved in load_saved_channel_configs(channel).await {
                 if channel_platform_matches_kind(&saved.kind, "discord")
-                    && request_matches_channel_instance(params, &saved)
+                    && request_matches_channel_instance(parameters, &saved)
                     && savfox_channels::discord::stop_discord_stream(&saved.id).await
                 {
                     stopped = stopped.saturating_add(1);
@@ -2258,7 +2264,7 @@ pub(crate) async fn handle_channels_logout(
             }
             for saved in load_saved_channel_configs(channel).await {
                 if channel_platform_matches_kind(&saved.kind, "telegram")
-                    && request_matches_channel_instance(params, &saved)
+                    && request_matches_channel_instance(parameters, &saved)
                     && savfox_channels::telegram::stop_telegram_polling(&saved.id).await
                 {
                     stopped = stopped.saturating_add(1);
@@ -2285,7 +2291,7 @@ pub(crate) async fn handle_channels_logout(
         "feishu" => {
             for saved in load_saved_channel_configs(channel).await {
                 if channel_platform_matches_kind(&saved.kind, "feishu")
-                    && request_matches_channel_instance(params, &saved)
+                    && request_matches_channel_instance(parameters, &saved)
                     && savfox_channels::feishu::stop_feishu_stream(&saved.id).await
                 {
                     stopped = stopped.saturating_add(1);
@@ -2297,7 +2303,7 @@ pub(crate) async fn handle_channels_logout(
             let mut registry = registry.write().await;
             for saved in load_saved_channel_configs(channel).await {
                 if channel_platform_matches_kind(&saved.kind, "matrix")
-                    && request_matches_channel_instance(params, &saved)
+                    && request_matches_channel_instance(parameters, &saved)
                 {
                     let removed_registry = registry.remove(&saved.id).is_some();
                     let had_appservice =
@@ -2312,7 +2318,7 @@ pub(crate) async fn handle_channels_logout(
         "dingtalk" => {
             for saved in load_saved_channel_configs(channel).await {
                 if channel_platform_matches_kind(&saved.kind, "dingtalk")
-                    && request_matches_channel_instance(params, &saved)
+                    && request_matches_channel_instance(parameters, &saved)
                     && savfox_channels::dingtalk::stop_dingtalk_stream(&saved.id).await
                 {
                     stopped = stopped.saturating_add(1);
@@ -2324,7 +2330,7 @@ pub(crate) async fn handle_channels_logout(
             {
                 for saved in load_saved_channel_configs(channel).await {
                     if !channel_platform_matches_kind(&saved.kind, "arkret")
-                        || !request_matches_channel_instance(params, &saved)
+                        || !request_matches_channel_instance(parameters, &saved)
                     {
                         continue;
                     }
@@ -2354,7 +2360,7 @@ pub(crate) async fn handle_channels_logout(
     let reports = channel.channel_recovery_registry();
     for saved in load_saved_channel_configs(channel).await {
         if channel_platform_matches_kind(&saved.kind, &platform)
-            && request_matches_channel_instance(params, &saved)
+            && request_matches_channel_instance(parameters, &saved)
             && crate::channels::recovery::runtime_capability(&saved)
                 == crate::channels::recovery::ChannelRuntimeCapability::Persistent
         {
@@ -2390,12 +2396,12 @@ pub(crate) async fn handle_channels_logout(
 }
 
 pub(crate) async fn handle_channels_test(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let platform = params
+    let platform = parameters
         .get("platform")
-        .or_else(|| params.get("channel"))
+        .or_else(|| parameters.get("channel"))
         .and_then(|v| v.as_str())
         .map(canonical_channel_platform)
         .unwrap_or_default();
@@ -2410,7 +2416,7 @@ pub(crate) async fn handle_channels_test(
         .get("private_key")
         .and_then(|v| v.as_str())
         .is_some_and(|v| !v.trim().is_empty());
-    let requested_id = params
+    let requested_id = parameters
         .get("id")
         .and_then(Value::as_str)
         .map(str::trim)
@@ -2427,10 +2433,10 @@ pub(crate) async fn handle_channels_test(
     };
 
     if platform == "matrix" {
-        return handle_matrix_channel_test(params, channel, &saved_configs).await;
+        return handle_matrix_channel_test(parameters, channel, &saved_configs).await;
     }
     if platform == "arkret" {
-        return handle_arkret_channel_test(params, &saved_configs).await;
+        return handle_arkret_channel_test(parameters, &saved_configs).await;
     }
 
     Ok(json!({
@@ -2457,10 +2463,10 @@ pub(crate) async fn handle_channels_arkret_inspect(
 
 #[cfg(feature = "arkret")]
 pub(crate) async fn handle_channels_arkret_inspect(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let config_id = requested_channel_instance_id(params).ok_or_else(|| {
+    let config_id = requested_channel_instance_id(parameters).ok_or_else(|| {
         (
             INVALID_REQUEST,
             "channels.arkret.inspect requires an exact channel instance id".to_owned(),
@@ -2552,17 +2558,17 @@ pub(crate) async fn handle_channels_arkret_inspect(
 }
 
 fn arkret_test_channel_config(
-    params: &Value,
+    parameters: &Value,
     saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
 ) -> Option<savfox_core::config::channel_store::ChannelConfig> {
-    if let Some(config) = params.get("config").filter(|value| value.is_object()) {
-        let id = params
+    if let Some(config) = parameters.get("config").filter(|value| value.is_object()) {
+        let id = parameters
             .get("id")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or("arkret-test");
-        let name = params
+        let name = parameters
             .get("name")
             .and_then(Value::as_str)
             .map(str::trim)
@@ -2583,7 +2589,7 @@ fn arkret_test_channel_config(
         });
     }
 
-    if let Some(requested_id) = params
+    if let Some(requested_id) = parameters
         .get("id")
         .and_then(Value::as_str)
         .map(str::trim)
@@ -2644,10 +2650,10 @@ async fn handle_arkret_channel_test(
 
 #[cfg(feature = "arkret")]
 async fn handle_arkret_channel_test(
-    params: &Value,
+    parameters: &Value,
     saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
 ) -> RpcResult {
-    let Some(raw_config) = arkret_test_channel_config(params, saved_configs) else {
+    let Some(raw_config) = arkret_test_channel_config(parameters, saved_configs) else {
         return Ok(json!({
             "platform": "arkret",
             "ok": false,
@@ -2716,11 +2722,11 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
 
 #[cfg(feature = "arkret")]
 pub(crate) async fn handle_channels_arkret_runtime_key_request(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let saved_configs = load_saved_channel_configs(channel).await;
-    let Some(raw_config) = arkret_test_channel_config(params, &saved_configs) else {
+    let Some(raw_config) = arkret_test_channel_config(parameters, &saved_configs) else {
         return Err((
             INVALID_REQUEST,
             "Arkret agent channel config is required".to_owned(),
@@ -2729,9 +2735,9 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request(
     let parsed =
         savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_pairing_config(&raw_config)
             .map_err(|error| (INVALID_REQUEST, format!("{error:#}")))?;
-    let account_id = params
+    let account_id = parameters
         .get("account_id")
-        .or_else(|| params.get("accountId"))
+        .or_else(|| parameters.get("accountId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
@@ -2781,7 +2787,7 @@ async fn submit_arkret_runtime_key_approval_request(
     client: &reqwest::Client,
     account: &savfox_channels::arkret::ArkretAccountConfig,
     request: Value,
-) -> Result<arkret::AgentRuntimeApprovalOutcome, String> {
+) -> Result<arkret::AgentRuntimeApprovalResponseBody, String> {
     let bootstrap = account
         .inkson_bootstrap
         .as_ref()
@@ -2826,7 +2832,7 @@ async fn submit_arkret_runtime_key_approval_request(
             "Arkret runtime approval endpoint returned HTTP {status}: {detail}"
         ));
     }
-    serde_json::from_slice::<arkret::AgentRuntimeApprovalOutcome>(&bytes)
+    serde_json::from_slice::<arkret::AgentRuntimeApprovalResponseBody>(&bytes)
         .map_err(|err| format!("Arkret runtime approval endpoint returned invalid outcome: {err}"))
 }
 
@@ -2843,11 +2849,11 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
 
 #[cfg(feature = "arkret")]
 pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let saved_configs = load_saved_channel_configs(channel).await;
-    let Some(raw_config) = arkret_test_channel_config(params, &saved_configs) else {
+    let Some(raw_config) = arkret_test_channel_config(parameters, &saved_configs) else {
         return Err((
             INVALID_REQUEST,
             "Arkret agent channel config is required".to_owned(),
@@ -2856,9 +2862,9 @@ pub(crate) async fn handle_channels_arkret_runtime_key_request_status(
     let parsed =
         savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_pairing_config(&raw_config)
             .map_err(|error| (INVALID_REQUEST, format!("{error:#}")))?;
-    let account_id = params
+    let account_id = parameters
         .get("account_id")
-        .or_else(|| params.get("accountId"))
+        .or_else(|| parameters.get("accountId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
@@ -2981,7 +2987,7 @@ async fn poll_arkret_runtime_key_status(
     client: &reqwest::Client,
     account: &savfox_channels::arkret::ArkretAccountConfig,
     request: Value,
-) -> Result<arkret::AgentRuntimeApprovalStatusOutcome, String> {
+) -> Result<arkret::AgentRuntimeApprovalStatusResponseBody, String> {
     let bootstrap = account
         .inkson_bootstrap
         .as_ref()
@@ -3018,7 +3024,7 @@ async fn poll_arkret_runtime_key_status(
             "Arkret runtime key status endpoint returned HTTP {status}: {detail}"
         ));
     }
-    let outcome = serde_json::from_slice::<arkret::AgentRuntimeApprovalStatusOutcome>(&bytes)
+    let outcome = serde_json::from_slice::<arkret::AgentRuntimeApprovalStatusResponseBody>(&bytes)
         .map_err(|err| {
             format!("Arkret runtime key status endpoint returned invalid outcome: {err}")
         })?;
@@ -3041,15 +3047,15 @@ pub(crate) async fn handle_channels_arkret_resolve_pairing_bootstrap(
 
 #[cfg(feature = "arkret")]
 pub(crate) async fn handle_channels_arkret_resolve_pairing_bootstrap(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let input = params
+    let input = parameters
         .get("input")
-        .or_else(|| params.get("pairing_link"))
-        .or_else(|| params.get("pairingLink"))
-        .or_else(|| params.get("pairing_token"))
-        .or_else(|| params.get("pairingToken"))
+        .or_else(|| parameters.get("pairing_link"))
+        .or_else(|| parameters.get("pairingLink"))
+        .or_else(|| parameters.get("pairing_token"))
+        .or_else(|| parameters.get("pairingToken"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -3073,9 +3079,9 @@ pub(crate) async fn handle_channels_arkret_resolve_pairing_bootstrap(
         }));
     }
 
-    let base_url = params
+    let base_url = parameters
         .get("base_url")
-        .or_else(|| params.get("baseUrl"))
+        .or_else(|| parameters.get("baseUrl"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
@@ -3227,17 +3233,17 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
 
 #[cfg(feature = "arkret")]
 pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let label = params
+    let label = parameters
         .get("pairing_request_id")
-        .or_else(|| params.get("pairingRequestId"))
-        .or_else(|| params.get("account_id"))
-        .or_else(|| params.get("accountId"))
-        .or_else(|| params.get("agent_id"))
-        .or_else(|| params.get("agentId"))
-        .or_else(|| params.get("principalId"))
+        .or_else(|| parameters.get("pairingRequestId"))
+        .or_else(|| parameters.get("account_id"))
+        .or_else(|| parameters.get("accountId"))
+        .or_else(|| parameters.get("agent_id"))
+        .or_else(|| parameters.get("agentId"))
+        .or_else(|| parameters.get("principalId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
@@ -3246,9 +3252,9 @@ pub(crate) async fn handle_channels_arkret_generate_runtime_key_ref(
         "runtime-{}",
         sanitize_arkret_runtime_key_label(label.unwrap_or("agent"))
     );
-    let source_key_ref = params
+    let source_key_ref = parameters
         .get("key_ref")
-        .or_else(|| params.get("keyRef"))
+        .or_else(|| parameters.get("keyRef"))
         .filter(|value| !value.is_null())
         .map(|value| {
             serde_json::from_value::<savfox_channels::arkret::ArkretKeyRef>(value.clone())
@@ -3306,17 +3312,17 @@ fn sanitize_arkret_runtime_key_label(label: &str) -> String {
 }
 
 fn matrix_test_channel_config(
-    params: &Value,
+    parameters: &Value,
     saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
 ) -> Option<savfox_core::config::channel_store::ChannelConfig> {
-    if let Some(config) = params.get("config").filter(|value| value.is_object()) {
-        let id = params
+    if let Some(config) = parameters.get("config").filter(|value| value.is_object()) {
+        let id = parameters
             .get("id")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or("matrix-test");
-        let name = params
+        let name = parameters
             .get("name")
             .and_then(Value::as_str)
             .map(str::trim)
@@ -3337,7 +3343,7 @@ fn matrix_test_channel_config(
         });
     }
 
-    if let Some(requested_id) = params
+    if let Some(requested_id) = parameters
         .get("id")
         .and_then(Value::as_str)
         .map(str::trim)
@@ -3367,11 +3373,11 @@ fn matrix_test_channel_config(
 }
 
 async fn handle_matrix_channel_test(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
     saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
 ) -> RpcResult {
-    let Some(raw_config) = matrix_test_channel_config(params, saved_configs) else {
+    let Some(raw_config) = matrix_test_channel_config(parameters, saved_configs) else {
         return Ok(json!({
             "platform": "matrix",
             "ok": false,
@@ -3447,17 +3453,17 @@ async fn handle_matrix_channel_test(
 }
 
 pub(crate) async fn handle_channels_matrix_invites(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let include_dismissed = params
+    let include_dismissed = parameters
         .get("include_dismissed")
-        .or_else(|| params.get("includeDismissed"))
+        .or_else(|| parameters.get("includeDismissed"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let config_id = params
+    let config_id = parameters
         .get("config_id")
-        .or_else(|| params.get("configId"))
+        .or_else(|| parameters.get("configId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
@@ -3481,19 +3487,19 @@ pub(crate) async fn handle_channels_matrix_invites(
 }
 
 pub(crate) async fn handle_channels_matrix_invite_accept(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let room_id = params
+    let room_id = parameters
         .get("room_id")
-        .or_else(|| params.get("roomId"))
+        .or_else(|| parameters.get("roomId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| (INVALID_REQUEST, "missing 'room_id' parameter".to_owned()))?;
-    let config_id = params
+    let config_id = parameters
         .get("config_id")
-        .or_else(|| params.get("configId"))
+        .or_else(|| parameters.get("configId"))
         .and_then(Value::as_str)
         .unwrap_or("");
 
@@ -3514,19 +3520,19 @@ pub(crate) async fn handle_channels_matrix_invite_accept(
 }
 
 pub(crate) async fn handle_channels_matrix_invite_reject(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let room_id = params
+    let room_id = parameters
         .get("room_id")
-        .or_else(|| params.get("roomId"))
+        .or_else(|| parameters.get("roomId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| (INVALID_REQUEST, "missing 'room_id' parameter".to_owned()))?;
-    let config_id = params
+    let config_id = parameters
         .get("config_id")
-        .or_else(|| params.get("configId"))
+        .or_else(|| parameters.get("configId"))
         .and_then(Value::as_str)
         .unwrap_or("");
 
@@ -3547,19 +3553,19 @@ pub(crate) async fn handle_channels_matrix_invite_reject(
 }
 
 pub(crate) async fn handle_channels_matrix_invite_dismiss(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let room_id = params
+    let room_id = parameters
         .get("room_id")
-        .or_else(|| params.get("roomId"))
+        .or_else(|| parameters.get("roomId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| (INVALID_REQUEST, "missing 'room_id' parameter".to_owned()))?;
-    let config_id = params
+    let config_id = parameters
         .get("config_id")
-        .or_else(|| params.get("configId"))
+        .or_else(|| parameters.get("configId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -3581,15 +3587,18 @@ pub(crate) async fn handle_channels_matrix_invite_dismiss(
 }
 
 pub(crate) async fn handle_channels_account_update(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let platform = params
+    let platform = parameters
         .get("platform")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let account = params.get("account").and_then(|v| v.as_str()).unwrap_or("");
-    let enabled = params
+    let account = parameters
+        .get("account")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let enabled = parameters
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
@@ -3647,10 +3656,10 @@ fn normalize_directory_channel(value: &str) -> Option<String> {
     }
 }
 
-fn parse_directory_channels(params: &Value) -> Result<Vec<String>, (i64, String)> {
+fn parse_directory_channels(parameters: &Value) -> Result<Vec<String>, (i64, String)> {
     let mut channels = Vec::new();
 
-    if let Some(raw_channels) = params.get("channels").and_then(|v| v.as_array()) {
+    if let Some(raw_channels) = parameters.get("channels").and_then(|v| v.as_array()) {
         for raw in raw_channels {
             if let Some(value) = raw.as_str() {
                 let Some(channel) = normalize_directory_channel(value) else {
@@ -3664,7 +3673,7 @@ fn parse_directory_channels(params: &Value) -> Result<Vec<String>, (i64, String)
     }
 
     for key in ["channel", "platform"] {
-        if let Some(value) = params.get(key).and_then(|v| v.as_str()) {
+        if let Some(value) = parameters.get(key).and_then(|v| v.as_str()) {
             let Some(channel) = normalize_directory_channel(value) else {
                 return Err((INVALID_PARAMS, format!("unsupported channel: {value}")));
             };
@@ -3684,8 +3693,8 @@ fn parse_directory_channels(params: &Value) -> Result<Vec<String>, (i64, String)
     Ok(channels)
 }
 
-fn parse_directory_query(params: &Value) -> Option<String> {
-    let query = params.get("query").and_then(|v| v.as_str())?.trim();
+fn parse_directory_query(parameters: &Value) -> Option<String> {
+    let query = parameters.get("query").and_then(|v| v.as_str())?.trim();
     if query.is_empty() {
         None
     } else {
@@ -3693,8 +3702,8 @@ fn parse_directory_query(params: &Value) -> Option<String> {
     }
 }
 
-fn parse_directory_limit(params: &Value, default_limit: usize) -> usize {
-    params
+fn parse_directory_limit(parameters: &Value, default_limit: usize) -> usize {
+    parameters
         .get("limit")
         .and_then(|v| v.as_u64())
         .map(|v| v.clamp(1, 500) as usize)
@@ -3827,11 +3836,11 @@ fn directory_channel_configured(
 }
 
 pub(crate) async fn handle_directory_self(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let channels = parse_directory_channels(params)?;
+    let channels = parse_directory_channels(parameters)?;
     let runtime = channel.runtime_channel_secrets().await;
     let saved_configs = load_saved_channel_configs(channel).await;
     let account_doc = load_channel_accounts(channel).await;
@@ -3915,13 +3924,13 @@ pub(crate) async fn handle_directory_self(
 }
 
 pub(crate) async fn handle_directory_peers_list(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let channels = parse_directory_channels(params)?;
+    let channels = parse_directory_channels(parameters)?;
     let channel_set: HashSet<String> = channels.iter().cloned().collect();
-    let query = parse_directory_query(params);
-    let limit = parse_directory_limit(params, 50);
+    let query = parse_directory_query(parameters);
+    let limit = parse_directory_limit(parameters, 50);
 
     let mut entries = session_store.list().await;
     entries.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
@@ -3992,13 +4001,13 @@ struct DirectoryGroupAccumulator {
 }
 
 pub(crate) async fn handle_directory_groups_list(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let channels = parse_directory_channels(params)?;
+    let channels = parse_directory_channels(parameters)?;
     let channel_set: HashSet<String> = channels.iter().cloned().collect();
-    let query = parse_directory_query(params);
-    let limit = parse_directory_limit(params, 50);
+    let query = parse_directory_query(parameters);
+    let limit = parse_directory_limit(parameters, 50);
 
     let mut grouped: HashMap<String, DirectoryGroupAccumulator> = HashMap::new();
     for entry in session_store.list().await {
@@ -4108,12 +4117,12 @@ struct DirectoryMemberAccumulator {
 }
 
 pub(crate) async fn handle_directory_groups_members(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let group_id = params
+    let group_id = parameters
         .get("group_id")
-        .or_else(|| params.get("id"))
+        .or_else(|| parameters.get("id"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim()
@@ -4122,10 +4131,10 @@ pub(crate) async fn handle_directory_groups_members(
         return Err((INVALID_PARAMS, "missing 'group_id' parameter".to_owned()));
     }
 
-    let channels = parse_directory_channels(params)?;
+    let channels = parse_directory_channels(parameters)?;
     let channel_set: HashSet<String> = channels.iter().cloned().collect();
-    let query = parse_directory_query(params);
-    let limit = parse_directory_limit(params, 200);
+    let query = parse_directory_query(parameters);
+    let limit = parse_directory_limit(parameters, 200);
 
     let mut members: HashMap<String, DirectoryMemberAccumulator> = HashMap::new();
 

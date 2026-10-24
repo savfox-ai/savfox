@@ -13,15 +13,15 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use arkret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
-use arkret::sync::{AccountSubscribeFrame, SyncRequestBody};
+use arkret::sync::{AccountSubscribeFrame, AccountSubscribeParameters};
 use arkret::{
-    AgentSessionGrantRefreshRequest, AgentSessionRefreshProof, AgentSessionRefreshProofContext,
-    AuthoredEvent, AuthoritySubmitOutcome, AuthoritySubmitRequest, Base64UrlString, DeviceId,
-    DidCoreId, DidUrl, EventAdmissionSubmission, EventId, KeyPackagesClaimOutcome,
-    KeyPackagesClaimRequestBody, KeyPackagesClaimServiceBinding, NonEmptyString,
-    PeerKeyPackageClaimPurpose, PeerKeyPackageRequesterAuthorization, RealmId, ServiceDescribe,
-    SessionGrantDpopBindingProof, SessionGrantRefreshRequestBody, StrandId,
-    UnsignedAgentSessionGrantRequest, UnsignedAgentSessionRefreshProof,
+    AgentSessionGrantRefreshRequestBody, AgentSessionGrantSigningInput, AgentSessionRefreshProof,
+    AgentSessionRefreshProofContext, AuthoredEvent, AuthoritySubmitRequestBody,
+    AuthoritySubmitResponseBody, Base64UrlString, DeviceId, DidCoreId, DidUrl,
+    EventAdmissionSubmission, EventId, KeyPackagesClaimRequestBody, KeyPackagesClaimResponseBody,
+    KeyPackagesClaimServiceBinding, NonEmptyString, PeerKeyPackageClaimPurpose,
+    PeerKeyPackageRequesterAuthorization, RealmId, ServiceDescribe, SessionGrantDpopBindingProof,
+    SessionGrantRefreshRequestBody, StrandId, UnsignedAgentSessionRefreshProof,
 };
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -42,7 +42,7 @@ const SESSION_GRANT_PATH: &str = "/_arkret/gate/account/session-grants";
 #[allow(missing_debug_implementations)]
 pub struct ArkretHttpClient {
     pub(super) inner: Client,
-    own_station: Option<arkret::http_client::own_station_results::OwnStationResultClient>,
+    own_station: Option<arkret::http_client::own_station_results::OwnStationStateClient>,
     session_provider: Option<ArkretAgentSessionProvider>,
     station_binding: Option<arkret::StationConnectionBinding>,
 }
@@ -64,7 +64,7 @@ impl SessionGrantTransport for AgentSessionGrantTransport {
     fn issue_session_grant<'a>(
         &'a self,
         request: arkret::SessionGrantRequestBody,
-    ) -> BoxSessionFuture<'a, arkret::SessionGrantOutcome> {
+    ) -> BoxSessionFuture<'a, arkret::SessionGrantResponseBody> {
         Box::pin(async move {
             self.bootstrap
                 .auth_issue_session_grant(&request)
@@ -76,7 +76,7 @@ impl SessionGrantTransport for AgentSessionGrantTransport {
     fn refresh_session_grant<'a>(
         &'a self,
         request: arkret::SessionGrantRefreshRequestBody,
-    ) -> BoxSessionFuture<'a, arkret::SessionGrantOutcome> {
+    ) -> BoxSessionFuture<'a, arkret::SessionGrantResponseBody> {
         Box::pin(async move {
             let grant_jwt = match &request {
                 SessionGrantRefreshRequestBody::Human(request) => &request.grant_jwt,
@@ -165,7 +165,7 @@ fn generate_session_dpop_signing_key() -> SigningKey {
 }
 
 fn sign_agent_session_request(
-    request: UnsignedAgentSessionGrantRequest,
+    request: AgentSessionGrantSigningInput,
     signing_key: &SigningKey,
 ) -> anyhow::Result<arkret::SessionGrantRequestBody> {
     let proof = arkret::AgentSessionGrantProof {
@@ -201,11 +201,11 @@ impl AgentAuthenticatedTransportFactory {
         )?;
         anyhow::ensure!(proof.jkt == self.dpop_jkt, "Agent content holder changed");
         let issued_at = Utc::now();
-        let unsigned = UnsignedAgentSessionGrantRequest::new(
+        let unsigned = AgentSessionGrantSigningInput::new(
             self.account_id.principal_id.clone(),
             self.requested_scope.clone(),
             self.agent_key_authorization_ref.clone(),
-            arkret::SessionGrantAgentScopeRequest {
+            arkret::RequestedAgentSessionGrantScope {
                 realm_ids: vec![realm.clone()],
                 strand_ids: Vec::new(),
                 track_names: Vec::new(),
@@ -214,7 +214,7 @@ impl AgentAuthenticatedTransportFactory {
             SessionGrantDpopBindingProof {
                 proof_jwt: proof.header_value,
             },
-            arkret::UnsignedAgentSessionGrantProof {
+            arkret::AgentSessionGrantProofInput {
                 challenge: arkret::base64url_encode(rand::random::<[u8; 32]>()),
                 audience_id: self.account_id.station_id.clone(),
                 issued_at,
@@ -379,7 +379,7 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
         )?;
         Ok(SessionRefreshOptions {
             request: Some(SessionGrantRefreshRequestBody::Agent(
-                AgentSessionGrantRefreshRequest {
+                AgentSessionGrantRefreshRequestBody {
                     grant_jwt: state.grant_jwt.clone(),
                     audience_id: Some(state.audience_id.clone()),
                     principal_id: self.account_id.principal_id.clone(),
@@ -516,7 +516,7 @@ impl ArkretHttpClient {
 
     pub fn own_station(
         &self,
-    ) -> anyhow::Result<&arkret::http_client::own_station_results::OwnStationResultClient> {
+    ) -> anyhow::Result<&arkret::http_client::own_station_results::OwnStationStateClient> {
         self.own_station
             .as_ref()
             .context("Agent client has no accepted own-Station session")
@@ -709,7 +709,7 @@ impl ArkretHttpClient {
             "Agent configured Account, audience and accepted Station differ"
         );
         let authority = accepted_binding
-            .auth_metadata
+            .authentication_metadata
             .account_authority
             .as_ref()
             .context("accepted Station omitted Account Authority")?;
@@ -759,7 +759,7 @@ impl ArkretHttpClient {
         let issued_at = Utc::now();
         let expires_at = issued_at + chrono::Duration::minutes(5);
         let challenge = arkret::base64url_encode(rand::random::<[u8; 32]>());
-        let agent_scope_request = arkret::SessionGrantAgentScopeRequest {
+        let agent_scope_request = arkret::RequestedAgentSessionGrantScope {
             realm_ids: realm_id
                 .map(|realm_id| {
                     RealmId::new(realm_id.to_owned()).with_context(|| {
@@ -775,14 +775,14 @@ impl ArkretHttpClient {
         let dpop_binding_proof = SessionGrantDpopBindingProof {
             proof_jwt: binding_proof,
         };
-        let unsigned_request = UnsignedAgentSessionGrantRequest::new(
+        let unsigned_request = AgentSessionGrantSigningInput::new(
             principal_did.clone(),
             requested_scope,
             agent_key_authorization_ref.clone(),
             agent_scope_request,
             None,
             dpop_binding_proof,
-            arkret::UnsignedAgentSessionGrantProof {
+            arkret::AgentSessionGrantProofInput {
                 challenge,
                 audience_id: audience.clone(),
                 issued_at,
@@ -891,11 +891,11 @@ impl ArkretHttpClient {
         &self,
         after: Option<&str>,
     ) -> anyhow::Result<ArkretAccountFrameStream> {
-        let request = SyncRequestBody {
+        let request = AccountSubscribeParameters {
             after: after.map(str::to_owned),
             catchup: None,
             filter: None,
-            realm_list: None,
+            realm_list_parameters: None,
             replace_filter: None,
         };
         let stream = self
@@ -937,7 +937,7 @@ impl ArkretHttpClient {
     pub async fn submit_submission(
         &self,
         submission: &arkret::VerifiedSubmission<EventAdmissionSubmission>,
-    ) -> anyhow::Result<AuthoritySubmitOutcome> {
+    ) -> anyhow::Result<AuthoritySubmitResponseBody> {
         submission.validate()?;
         let content = self.for_realm(&submission.event.realm_id).await?;
         let outcome = content
@@ -945,7 +945,9 @@ impl ArkretHttpClient {
             .submit_event(submission)
             .await
             .map_err(anyhow::Error::from)?;
-        outcome.validate_for_request(&AuthoritySubmitRequest::Event(submission.wire().clone()))?;
+        outcome.validate_for_request(&AuthoritySubmitRequestBody::Event(
+            submission.wire().clone(),
+        ))?;
         Ok(outcome)
     }
 
@@ -953,7 +955,7 @@ impl ArkretHttpClient {
         &self,
         event: &AuthoredEvent,
         context: &arkret::ProducerVerificationContext,
-    ) -> anyhow::Result<AuthoritySubmitOutcome> {
+    ) -> anyhow::Result<AuthoritySubmitResponseBody> {
         let submission = self.prepare_submission(event, context)?;
         self.submit_submission(&submission).await
     }
@@ -961,7 +963,7 @@ impl ArkretHttpClient {
     pub async fn keypackages_claim(
         &self,
         request: &KeyPackagesClaimRequestBody,
-    ) -> anyhow::Result<KeyPackagesClaimOutcome> {
+    ) -> anyhow::Result<KeyPackagesClaimResponseBody> {
         self.inner
             .keypackages_claim(request)
             .await
@@ -982,12 +984,12 @@ fn resource_session_error(error: anyhow::Error) -> garth::Error {
 impl garth::AuthorityTransport for ArkretHttpClient {
     async fn submit(
         &self,
-        request: &arkret::VerifiedSubmission<AuthoritySubmitRequest>,
+        request: &arkret::VerifiedSubmission<AuthoritySubmitRequestBody>,
         options: &arkret::http_client::ClientRequestOptions,
-    ) -> garth::Result<AuthoritySubmitOutcome> {
+    ) -> garth::Result<AuthoritySubmitResponseBody> {
         let realm = match request.wire() {
-            AuthoritySubmitRequest::Event(value) => &value.event.realm_id,
-            AuthoritySubmitRequest::MlsCommit(value) => &value.commit_event.realm_id,
+            AuthoritySubmitRequestBody::Event(value) => &value.event.realm_id,
+            AuthoritySubmitRequestBody::MlsCommit(value) => &value.commit_event.realm_id,
         };
         let scoped = self
             .for_realm(realm)
@@ -1000,14 +1002,14 @@ impl garth::AuthorityTransport for ArkretHttpClient {
     async fn submit_self(
         &self,
         request: &arkret::VerifiedSubmission<
-            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest,
+            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody,
         >,
         options: &arkret::http_client::ClientRequestOptions,
-    ) -> garth::Result<arkret_models_collaboration::authority_commit::SelfAuthoritySubmitOutcome>
+    ) -> garth::Result<arkret_models_collaboration::authority_commit::SelfAuthoritySubmitResponseBody>
     {
         let realm = match request.wire() {
-            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest::Event(value) => Some(&value.event.realm_id),
-            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest::MlsCommit(value) => {
+            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody::Event(value) => Some(&value.event.realm_id),
+            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody::MlsCommit(value) => {
                 Some(&value.commit_event.realm_id)
             }
             _ => None,
@@ -1035,8 +1037,8 @@ impl garth::AuthorityTransport for ArkretHttpClient {
 
     async fn scan(
         &self,
-        request: &arkret::StreamScanRequest,
-    ) -> garth::Result<arkret::StreamScanOutcome> {
+        request: &arkret::StreamScanRequestBody,
+    ) -> garth::Result<arkret::StreamScanResponseBody> {
         let scoped = self
             .for_realm(&request.realm_id)
             .await
@@ -1050,7 +1052,7 @@ impl garth::AuthorityTransport for ArkretHttpClient {
 
     async fn authority_bundle(
         &self,
-        _request: &arkret::AuthorityBundleRequest,
+        _request: &arkret::RealmAuthorityBundleRequestBody,
     ) -> garth::Result<arkret::RealmAuthorityBundle> {
         Err(garth::Error::Protocol(
             "ordinary own-Station consumption does not perform governance discovery".into(),
@@ -1059,7 +1061,7 @@ impl garth::AuthorityTransport for ArkretHttpClient {
 
     async fn install_handoff(
         &self,
-        _request: &arkret::AuthorityHandoffRequest,
+        _request: &arkret::AuthorityRealmAuthorityHandoffRequestBody,
         _options: &arkret::http_client::ClientRequestOptions,
     ) -> garth::Result<arkret::RealmAuthorityHandoff> {
         Err(garth::Error::Protocol(
@@ -1393,9 +1395,9 @@ async fn discover_account_authority_base_url(
     // Never send the old Agent's proof to that Station's Account Authority.
     verify_agent_service_audience(audience, &description.service_id)?;
     let authority = description
-        .auth_metadata
+        .authentication_metadata
         .account_authority
-        .context("Arkret service description omitted auth_metadata.account_authority")?;
+        .context("Arkret service description omitted authentication_metadata.account_authority")?;
     let authority_url = Url::parse(authority.origin.as_str()).with_context(|| {
         format!(
             "invalid Arkret account authority origin: {}",
@@ -1667,11 +1669,11 @@ mod tests {
     fn agent_issuance_signs_closed_proof_and_authorization_request_digest() {
         let state = agent_session_state();
         let issued_at = Utc::now();
-        let unsigned = UnsignedAgentSessionGrantRequest::new(
+        let unsigned = AgentSessionGrantSigningInput::new(
             state.account_id.principal_id.clone(),
             savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap(),
             authorization_event(),
-            arkret::SessionGrantAgentScopeRequest {
+            arkret::RequestedAgentSessionGrantScope {
                 realm_ids: Vec::new(),
                 strand_ids: Vec::new(),
                 track_names: Vec::new(),
@@ -1680,7 +1682,7 @@ mod tests {
             SessionGrantDpopBindingProof {
                 proof_jwt: "unit-only-dpop-binding".to_owned(),
             },
-            arkret::UnsignedAgentSessionGrantProof {
+            arkret::AgentSessionGrantProofInput {
                 challenge: arkret::base64url_encode([37; 32]),
                 audience_id: state.audience_id.clone(),
                 issued_at,
@@ -2082,7 +2084,7 @@ mod tests {
             signature: arkret::KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(verification_method).unwrap(),
                 signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
-                sig: arkret::Base64UrlString::new("AQ").unwrap(),
+                signature: arkret::Base64UrlString::new("AQ").unwrap(),
             },
         };
         let request = build_mls_key_packages_claim_request(

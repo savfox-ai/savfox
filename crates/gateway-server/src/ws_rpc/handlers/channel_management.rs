@@ -256,13 +256,13 @@ fn validate_existing_arkret_scope_edit(previous: &Value, candidate: &Value) -> R
 }
 
 pub(in crate::ws_rpc) async fn handle_web_login_start(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let platform = params
+    let platform = parameters
         .get("platform")
-        .or_else(|| params.get("channel"))
+        .or_else(|| parameters.get("channel"))
         .and_then(|v| v.as_str())
         .unwrap_or("whatsapp");
     if platform == "whatsapp" {
@@ -278,12 +278,12 @@ pub(in crate::ws_rpc) async fn handle_web_login_start(
 }
 
 pub(in crate::ws_rpc) async fn handle_web_login_wait(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let platform = params
+    let platform = parameters
         .get("platform")
-        .or_else(|| params.get("channel"))
+        .or_else(|| parameters.get("channel"))
         .and_then(|v| v.as_str())
         .unwrap_or("whatsapp");
 
@@ -352,12 +352,12 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_get(
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_set(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let persisted = load_nostr_profile(channel).await;
     let mut profile = persisted.clone();
-    if let Some(incoming) = params.get("profile").and_then(|v| v.as_object()) {
+    if let Some(incoming) = parameters.get("profile").and_then(|v| v.as_object()) {
         for (key, value) in incoming {
             profile[key] = value.clone();
         }
@@ -371,7 +371,7 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_set(
             "private_key",
             "relays",
         ] {
-            if let Some(value) = params.get(key) {
+            if let Some(value) = parameters.get(key) {
                 profile[key] = value.clone();
             }
         }
@@ -393,12 +393,12 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_set(
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_import(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let private_key = params
+    let private_key = parameters
         .get("private_key")
-        .or_else(|| params.get("keypair"))
+        .or_else(|| parameters.get("keypair"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if private_key.is_empty() {
@@ -409,7 +409,7 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_import(
     }
     let mut profile = load_nostr_profile(channel).await;
     profile["private_key"] = json!(private_key);
-    if let Some(public_key) = params.get("public_key").and_then(|v| v.as_str()) {
+    if let Some(public_key) = parameters.get("public_key").and_then(|v| v.as_str()) {
         profile["public_key"] = json!(public_key);
     }
     save_nostr_profile(channel, &profile)
@@ -441,10 +441,13 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_relays_get(
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_nostr_relays_set(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let relays = params.get("relays").cloned().unwrap_or_else(|| json!([]));
+    let relays = parameters
+        .get("relays")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     if !relays.is_array() {
         return Err((INVALID_REQUEST, "'relays' must be an array".to_owned()));
     }
@@ -476,12 +479,12 @@ pub(in crate::ws_rpc) async fn handle_channels_config_list(
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_config_get(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     use savfox_core::config::channel_store;
 
-    let channel_id = require_str(params, "channel")?;
+    let channel_id = require_str(parameters, "channel")?;
     match channel_store::get_channel_config(&channel.config().savfox_home, channel_id).await {
         Ok(Some(config)) => Ok(json!({ "config": redacted_channel_config_json(&config) })),
         Ok(None) => Ok(json!({ "config": serde_json::Value::Null })),
@@ -490,19 +493,22 @@ pub(in crate::ws_rpc) async fn handle_channels_config_get(
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_config_save(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
     use savfox_core::config::channel_store;
 
-    let channel_kind = require_str(params, "channel")?;
+    let channel_kind = require_str(parameters, "channel")?;
     let fallback_name = channel_kind.to_owned();
-    let channel_name = params
+    let channel_name = parameters
         .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or(&fallback_name);
-    let config_value = params.get("config").cloned().unwrap_or_else(|| json!({}));
+    let config_value = parameters
+        .get("config")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
 
     let mut patch = if config_value.is_object() {
         config_value
@@ -516,7 +522,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     if let Some(enabled) = nested_enabled {
         patch["enabled"] = json!(enabled);
     }
-    if let Some(id) = params
+    if let Some(id) = parameters
         .get("id")
         .and_then(|v| v.as_str())
         .map(str::trim)
@@ -524,13 +530,13 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     {
         patch["id"] = json!(id);
     }
-    if let Some(router) = params.get("router") {
+    if let Some(router) = parameters.get("router") {
         patch["router"] = router.clone();
     }
-    if let Some(dm_policy) = params.get("dm_policy") {
+    if let Some(dm_policy) = parameters.get("dm_policy") {
         patch["dm_policy"] = dm_policy.clone();
     }
-    if let Some(group_policy) = params.get("group_policy") {
+    if let Some(group_policy) = parameters.get("group_policy") {
         patch["group_policy"] = group_policy.clone();
     }
 
@@ -751,12 +757,12 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
 }
 
 pub(in crate::ws_rpc) async fn handle_channels_config_delete(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     use savfox_core::config::channel_store;
 
-    let selector = require_str(params, "channel")?;
+    let selector = require_str(parameters, "channel")?;
     let Some(config) = channel_store::get_channel_config(&channel.config().savfox_home, selector)
         .await
         .map_err(|e| {
@@ -846,12 +852,12 @@ fn arkret_save_targets_config(
 /// new Agent can be paired. Controller key replacement fences the old remote
 /// KeyPackage pool; the revoke endpoint only admits real devices.
 pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     #[cfg(not(feature = "arkret"))]
     {
-        let _ = (params, channel);
+        let _ = (parameters, channel);
         Err((
             INVALID_REQUEST,
             "Arkret support is not enabled in this build".to_owned(),
@@ -862,7 +868,7 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
         use savfox_core::config::channel_store;
 
         let home = channel.config().savfox_home.clone();
-        let selector = params
+        let selector = parameters
             .get("channel")
             .and_then(Value::as_str)
             .map(str::trim)
@@ -886,9 +892,9 @@ pub(in crate::ws_rpc) async fn handle_channels_arkret_unbind(
         };
         let parsed = savfox_channels::arkret::ArkretChannelConfig::from_strict_agent_config(&config)
             .map_err(|error| (INVALID_REQUEST, format!("Cannot safely unbind the saved Agent: {error}. Restore its exact identity/scope or revoke it through the controller; local state was retained.")))?;
-        let account_id = params
+        let account_id = parameters
             .get("account_id")
-            .or_else(|| params.get("accountId"))
+            .or_else(|| parameters.get("accountId"))
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty());

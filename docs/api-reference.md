@@ -38,7 +38,7 @@ for browser and remote clients.
 ### JSON-RPC request format
 
 ```json
-{ "jsonrpc": "2.0", "id": 1, "method": "sessions.list", "params": {} }
+{ "jsonrpc": "2.0", "id": 1, "method": "sessions.list", "parameters": {} }
 ```
 
 ### JSON-RPC response (success)

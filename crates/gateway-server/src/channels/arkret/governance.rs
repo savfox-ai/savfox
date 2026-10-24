@@ -35,7 +35,7 @@ pub(crate) async fn accepted_commit_for_event(
     let mut after = None;
     let mut bytes = 0usize;
     for _ in 0..MLS_HISTORY_MAX_PAGES {
-        let request = arkret::StreamScanRequest {
+        let request = arkret::StreamScanRequestBody {
             realm_id: realm_id.clone(),
             stream_ref: stream_ref.clone(),
             direction: arkret::StreamScanDirection::After(after),
@@ -134,7 +134,7 @@ pub(super) async fn verified_mls_prefix(
     let mut commits = Vec::new();
     let mut prefix_bytes = 0usize;
     for _ in 0..MLS_HISTORY_MAX_PAGES {
-        let scan_request = arkret::StreamScanRequest {
+        let scan_request = arkret::StreamScanRequestBody {
             realm_id: realm.clone(),
             stream_ref: stream.clone(),
             direction: arkret::StreamScanDirection::After(Some(position)),
@@ -188,11 +188,11 @@ pub(super) async fn verified_mls_prefix(
 }
 
 pub(super) async fn admit_mls_prefix_page(
-    own: &arkret::http_client::own_station_results::OwnStationResultClient,
+    own: &arkret::http_client::own_station_results::OwnStationStateClient,
     replica: &mut garth::own_station_results::OwnStationReplica,
     response: arkret::http_client::own_station_results::BoundOwnStationResponse<
-        arkret::StreamScanRequest,
-        arkret::StreamScanOutcome,
+        arkret::StreamScanRequestBody,
+        arkret::StreamScanResponseBody,
     >,
 ) -> anyhow::Result<garth::own_station_results::OwnStationScanPage> {
     // An installed MLS base is not a history-floor basis. Freeze a covering
@@ -209,7 +209,7 @@ pub(crate) async fn verified_own_welcome_claim(
     http: &savfox_channels::arkret::ArkretHttpClient,
     delivery: &arkret::MlsWelcomeDelivery,
     local_station: &arkret::DidCoreId,
-) -> anyhow::Result<arkret::KeyPackagesClaimOutcome> {
+) -> anyhow::Result<arkret::KeyPackagesClaimResponseBody> {
     let own = http.own_station()?;
     anyhow::ensure!(
         &own.session()?.account_id().station_id == local_station,
@@ -446,11 +446,11 @@ fn stream_head(commit: &arkret::RealmCommit) -> arkret::CommitStreamHead {
 }
 
 async fn exact_scanned_original(
-    client: &arkret::http_client::own_station_results::OwnStationResultClient,
+    client: &arkret::http_client::own_station_results::OwnStationStateClient,
     commit: &arkret::RealmCommit,
     expected: Option<&arkret::CommittedEventFullView>,
 ) -> anyhow::Result<arkret::CommittedEventFullView> {
-    let request = arkret::StreamScanRequest {
+    let request = arkret::StreamScanRequestBody {
         realm_id: commit.realm_id.clone(),
         stream_ref: commit.stream_ref.clone(),
         direction: arkret::StreamScanDirection::Before(Some(

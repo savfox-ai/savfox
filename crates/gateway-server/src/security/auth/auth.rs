@@ -989,18 +989,18 @@ mod tests {
     async fn challenge_response_accepts_correct_signature() {
         let auth = GatewayAuth::single_token("hmac-token".to_owned());
         let nonce = "abc123";
-        let sig = hmac_signature("hmac-token", nonce);
-        let info = auth.validate_challenge_response(&sig, nonce).await;
+        let signature = hmac_signature("hmac-token", nonce);
+        let info = auth.validate_challenge_response(&signature, nonce).await;
         assert!(info.is_some(), "matching HMAC must yield TokenInfo");
     }
 
     #[tokio::test]
     async fn challenge_response_rejects_wrong_nonce() {
         let auth = GatewayAuth::single_token("hmac-token".to_owned());
-        let sig = hmac_signature("hmac-token", "real-nonce");
+        let signature = hmac_signature("hmac-token", "real-nonce");
         // Verifier passes a different nonce — must fail.
         assert!(
-            auth.validate_challenge_response(&sig, "tampered-nonce")
+            auth.validate_challenge_response(&signature, "tampered-nonce")
                 .await
                 .is_none()
         );
@@ -1010,9 +1010,9 @@ mod tests {
     async fn challenge_response_rejects_unknown_token_signature() {
         let auth = GatewayAuth::single_token("real-token".to_owned());
         // Compute HMAC under a token the server does not know.
-        let sig = hmac_signature("attacker-token", "abc");
+        let signature = hmac_signature("attacker-token", "abc");
         assert!(
-            auth.validate_challenge_response(&sig, "abc")
+            auth.validate_challenge_response(&signature, "abc")
                 .await
                 .is_none()
         );

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use arkret::mls::{ArkretMlsGroup, AuthorLeafCredential, MlsVerifiedLeafBinding};
 use arkret::{
     ActorId, CommittedEventFullView, DidCoreId, EventId, KeyPackageClaimRecord,
-    KeyPackagesClaimOutcome, MlsEndpointIdentity, MlsWelcomeDelivery,
+    KeyPackagesClaimResponseBody, MlsEndpointIdentity, MlsWelcomeDelivery,
 };
 
 use super::crypto_state::mls_key_package_record_from_claim;
@@ -42,7 +42,7 @@ pub fn verified_welcome_leaf_authority(
     delivery: &MlsWelcomeDelivery,
     accepted_commit: &CommittedEventFullView,
     local_endpoint: &MlsEndpointIdentity,
-    claim_outcome: &KeyPackagesClaimOutcome,
+    claim_outcome: &KeyPackagesClaimResponseBody,
     local_station: &DidCoreId,
     endpoint_authorization: &EventId,
 ) -> anyhow::Result<VerifiedMlsLeafAuthority> {

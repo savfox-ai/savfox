@@ -21,9 +21,9 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arkret::{
-    DeviceId, DeviceMessagesAckRequestBody, DidCoreId, EventId, KeyPackagesConsumeOutcome,
-    KeyPackagesConsumeUnsignedRequest, KeyPackagesUploadRequestBody,
-    KeyPackagesUploadUnsignedRequest, MlsKeyPackageRecord, RealmId, ServiceOperationId,
+    DeviceId, DeviceMessagesAcknowledgementRequestBody, DidCoreId, EventId,
+    KeyPackagesConsumeFields, KeyPackagesConsumeResponseBody, KeyPackagesUploadFields,
+    KeyPackagesUploadRequestBody, MlsKeyPackageRecord, RealmId, ServiceOperationId,
 };
 use chrono::Utc;
 use garth::{
@@ -974,7 +974,7 @@ fn presence_observation_matches_runtime(
 }
 
 fn public_presence_mode_matches_account(
-    entry: &arkret::AgentInteractionExactCurrentRow,
+    entry: &arkret::CurrentAgentInteraction,
     account: &ArkretAccountConfig,
 ) -> bool {
     entry.selector.agent_account_id == account.actor_account_id
@@ -983,7 +983,7 @@ fn public_presence_mode_matches_account(
 }
 
 fn owner_direct_presence_binding(
-    entries: &[arkret::TypedCurrentRow],
+    entries: &[arkret::CurrentState],
     realm_id: &RealmId,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<bool> {
@@ -994,7 +994,7 @@ fn owner_direct_presence_binding(
     let controller = arkret::ActorId::account(account.controller_account_id.clone());
     let mut matched = false;
     for entry in entries {
-        let arkret::TypedCurrentRow::Value {
+        let arkret::CurrentState::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding { pair_key },
             source_stream_ref,
             value,
@@ -1031,7 +1031,7 @@ fn owner_direct_presence_binding(
 }
 
 fn direct_presence_head_from_verified_cut(
-    entries: &[arkret::TypedCurrentRow],
+    entries: &[arkret::CurrentState],
     visible_heads: &[arkret::CommitStreamHead],
     realm_id: &RealmId,
     account: &ArkretAccountConfig,
@@ -1081,13 +1081,13 @@ async fn verified_realm_presence_head(
 }
 
 fn public_presence_head_from_verified_read(
-    outcome: garth::Result<arkret::exact_current_results::ExactCurrentResultsReadOutcome>,
+    outcome: garth::Result<arkret::exact_current_state::ExactCurrentStateReadResponseBody>,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<Option<arkret::CommitStreamHead>> {
     Ok(match outcome? {
-        arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present {
+        arkret::exact_current_state::ExactCurrentStateReadResponseBody::Present {
             effective_stream_head,
-            entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry),
+            entry: arkret::exact_current_state::ExactCurrentStateEntry::AgentInteraction(entry),
             ..
         } if public_presence_mode_matches_account(&entry, account) => Some(effective_stream_head),
         // Both private and authoritative never-written suppress shared presence.
@@ -1287,11 +1287,11 @@ fn queued_message_matches_runtime(
 }
 
 fn verify_runtime_publication(
-    request: arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest,
+    request: arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<
     arkret::VerifiedSubmission<
-        arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest,
+        arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody,
     >,
 > {
     let evidence = account
@@ -1389,7 +1389,7 @@ fn observed_reply_allowed(
     });
     observation
         .observed_selection_for_scopes(&scopes)
-        .is_some_and(|bits| bits.reply_message)
+        .is_some_and(|bits| bits.message_creation_allowed)
 }
 
 async fn drain_pending_account_outbound(
@@ -1942,7 +1942,7 @@ async fn upload_account_mls_key_packages(
 }
 
 fn consume_outcome_acknowledges_binding(
-    outcome: &KeyPackagesConsumeOutcome,
+    outcome: &KeyPackagesConsumeResponseBody,
     claim_id: &str,
     keypackage_ref: &str,
 ) -> bool {
@@ -2063,7 +2063,7 @@ fn build_signed_keypackage_upload_request(
         .collect::<Result<Vec<_>, _>>()
         .map_err(anyhow::Error::msg)
         .context("project canonical MLS KeyPackage upload entries")?;
-    let unsigned = KeyPackagesUploadUnsignedRequest {
+    let unsigned = KeyPackagesUploadFields {
         actor_id,
         principal_id,
         device_id: None,
@@ -2084,7 +2084,7 @@ fn build_signed_keypackage_upload_request(
 async fn recipient_page_with_content_session(
     service: &ArkretHttpClient,
     cursor: Option<&str>,
-) -> anyhow::Result<(ArkretHttpClient, arkret::DeviceMessagesGetOutcome)> {
+) -> anyhow::Result<(ArkretHttpClient, arkret::DeviceMessagesGetResponseBody)> {
     let current = service.current().await?;
     let service = &current;
     // The queue and ACK are cumulative, while a content grant names one
@@ -2279,18 +2279,19 @@ async fn drain_account_device_messages_from_cursor(
             }
             return;
         }
-        if !outcome.deliveries.is_empty() && outcome.ack_token.is_none() {
+        if !outcome.deliveries.is_empty() && outcome.acknowledgement_token.is_none() {
             warn!(
                 channel_id = %channel.id,
                 account_id = %account.id,
                 reason,
-                "arkret: device_messages returned messages without ack_token; leaving cursor unchanged"
+                "arkret: device_messages returned messages without acknowledgement_token; leaving cursor unchanged"
             );
             return;
         }
         if contiguous_complete
-            && let Some(ack_token) = outcome.ack_token.as_deref()
-            && !ack_account_device_messages(client, channel, account, ack_token, reason).await
+            && let Some(acknowledgement_token) = outcome.acknowledgement_token.as_deref()
+            && !ack_account_device_messages(client, channel, account, acknowledgement_token, reason)
+                .await
         {
             return;
         }
@@ -2341,7 +2342,7 @@ async fn ack_account_device_messages(
     client: &ArkretHttpClient,
     channel: &ArkretChannelConfig,
     account: &ArkretAccountConfig,
-    ack_token: &str,
+    acknowledgement_token: &str,
     reason: &'static str,
 ) -> bool {
     if !account.has_requested_scope(DEVICE_MESSAGES_ACK_SCOPE) {
@@ -2354,8 +2355,8 @@ async fn ack_account_device_messages(
         );
         return false;
     }
-    let request = DeviceMessagesAckRequestBody {
-        ack_token: ack_token.to_owned(),
+    let request = DeviceMessagesAcknowledgementRequestBody {
+        acknowledgement_token: acknowledgement_token.to_owned(),
     };
     match client.inner().ack_device_messages(&request).await {
         Ok(outcome) => {
@@ -2438,7 +2439,7 @@ async fn consume_account_mls_key_packages(
                 continue;
             }
         };
-        let unsigned = KeyPackagesConsumeUnsignedRequest {
+        let unsigned = KeyPackagesConsumeFields {
             claim_id,
             recipient_durable_receipt,
         };
@@ -2587,14 +2588,14 @@ async fn handle_sync_updates_for_account(
             .await;
         }
         AccountToDeviceAckPlan::Ack {
-            ack_token,
+            acknowledgement_token,
             followup,
         } => {
             if !ack_account_device_messages(
                 client,
                 channel,
                 account,
-                ack_token.as_str(),
+                acknowledgement_token.as_str(),
                 "to_device_sync",
             )
             .await
@@ -2645,7 +2646,7 @@ enum AccountToDeviceAckPlan {
     None,
     Pull(AccountDeviceMessagesPull),
     Ack {
-        ack_token: String,
+        acknowledgement_token: String,
         followup: Option<AccountDeviceMessagesPull>,
     },
 }
@@ -2666,14 +2667,14 @@ fn account_to_device_ack_plan(
     if !saw_to_device_messages {
         return AccountToDeviceAckPlan::None;
     }
-    let Some(ack_token) = to_device_ack_token else {
+    let Some(acknowledgement_token) = to_device_ack_token else {
         return AccountToDeviceAckPlan::Pull(AccountDeviceMessagesPull {
             initial_cursor: None,
             reason: "to_device_sync_missing_ack_token",
         });
     };
     AccountToDeviceAckPlan::Ack {
-        ack_token: ack_token.to_owned(),
+        acknowledgement_token: acknowledgement_token.to_owned(),
         followup: to_device_limited.then(|| AccountDeviceMessagesPull {
             initial_cursor: to_device_next_cursor.map(str::to_owned),
             reason: "to_device_sync_limited",
@@ -2720,7 +2721,7 @@ async fn collect_account_scan_catchup<F, Fut>(
 ) -> anyhow::Result<AccountScanCatchupOutcome>
 where
     F: FnMut(arkret::RealmId, arkret::CommitStreamRef, Option<u64>, u16) -> Fut,
-    Fut: Future<Output = anyhow::Result<arkret::StreamScanOutcome>>,
+    Fut: Future<Output = anyhow::Result<arkret::StreamScanResponseBody>>,
 {
     let mut events = Vec::new();
     let mut pages = 0;
@@ -3250,8 +3251,8 @@ async fn agent_interaction_trigger_allowed(
     .await
     .and_then(|response| response.into_value().map_err(garth::Error::from))
     {
-        Ok(arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present {
-            entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry),
+        Ok(arkret::exact_current_state::ExactCurrentStateReadResponseBody::Present {
+            entry: arkret::exact_current_state::ExactCurrentStateEntry::AgentInteraction(entry),
             ..
         }) => entry.value,
         Err(error) => return Err(error.into()),
@@ -4500,7 +4501,7 @@ pub(crate) async fn send_to_arkret_account(
     anyhow::ensure!(
         observation
             .observed_selection_for_scopes(&observed_scopes)
-            .is_some_and(|bits| bits.reply_message),
+            .is_some_and(|bits| bits.message_creation_allowed),
         "Agent session observation suppresses replies in this scope"
     );
     let outbound_store = open_account_store(
@@ -4519,7 +4520,7 @@ pub(crate) async fn send_to_arkret_account(
         )
         .await?
         .into_value()?;
-        if !matches!(current, arkret::exact_current_results::ExactCurrentResultsReadOutcome::Present { entry: arkret::exact_current_results::ExactCurrentResultEntry::AgentInteraction(entry), .. } if entry.value.controller_account_id == account.controller_account_id && entry.value.interaction_mode == arkret::AgentInteractionMode::Public)
+        if !matches!(current, arkret::exact_current_state::ExactCurrentStateReadResponseBody::Present { entry: arkret::exact_current_state::ExactCurrentStateEntry::AgentInteraction(entry), .. } if entry.value.controller_account_id == account.controller_account_id && entry.value.interaction_mode == arkret::AgentInteractionMode::Public)
         {
             anyhow::bail!("shared Agent execution authority is unavailable");
         }
@@ -4960,15 +4961,15 @@ mod tests {
 
     #[test]
     fn presence_shared_scope_requires_explicit_public_for_exact_accounts() {
-        use arkret::exact_current_results::{
-            ExactCurrentResultEntry, ExactCurrentResultsReadOutcome,
+        use arkret::exact_current_state::{
+            ExactCurrentStateEntry, ExactCurrentStateReadResponseBody,
             NeverWrittenExactCurrentSelector,
         };
         let (account, _) = queued_message_fixture();
         let head = presence_head_fixture();
         let selector =
             arkret::AgentInteractionExactCurrentSelector::new(account.actor_account_id.clone());
-        let mut entry = arkret::AgentInteractionExactCurrentRow {
+        let mut entry = arkret::CurrentAgentInteraction {
             selector: selector.clone(),
             source_stream_ref: head.stream_ref.clone(),
             revision: arkret::CurrentRevision {
@@ -4980,11 +4981,11 @@ mod tests {
                 interaction_mode: arkret::AgentInteractionMode::Public,
             },
         };
-        let outcome = |entry| ExactCurrentResultsReadOutcome::Present {
+        let outcome = |entry| ExactCurrentStateReadResponseBody::Present {
             realm_id: realm_id(),
             governance_generation: 1,
             effective_stream_head: head.clone(),
-            entry: ExactCurrentResultEntry::AgentInteraction(entry),
+            entry: ExactCurrentStateEntry::AgentInteraction(entry),
         };
         assert_eq!(
             public_presence_head_from_verified_read(Ok(outcome(entry.clone())), &account).unwrap(),
@@ -5012,7 +5013,7 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        let absent = ExactCurrentResultsReadOutcome::NeverWritten {
+        let absent = ExactCurrentStateReadResponseBody::NeverWritten {
             realm_id: realm_id(),
             governance_generation: 1,
             effective_stream_head: head,
@@ -5055,7 +5056,7 @@ mod tests {
             binding_event_ref: event(94),
             binding: payload,
         };
-        let row = |value| arkret::TypedCurrentRow::Value {
+        let row = |value| arkret::CurrentState::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding {
                 pair_key: pair_key.clone(),
             },
@@ -5066,7 +5067,7 @@ mod tests {
             },
             value,
         };
-        let public = arkret::TypedCurrentRow::Value {
+        let public = arkret::CurrentState::Value {
             selector: arkret::CurrentSelector::AgentInteraction {
                 agent_account_id: account.actor_account_id.clone(),
             },
@@ -5080,7 +5081,7 @@ mod tests {
                 "interaction_mode":"public",
             }),
         };
-        let direct = |entries: &[arkret::TypedCurrentRow]| {
+        let direct = |entries: &[arkret::CurrentState]| {
             direct_presence_head_from_verified_cut(
                 entries,
                 std::slice::from_ref(&head),
@@ -5313,7 +5314,7 @@ mod tests {
         assert!(!queued_message_matches_runtime(&event, &account, &crypto).unwrap());
     }
 
-    /// Signed consume receipt every `KeyPackagesConsumeOutcome` now carries.
+    /// Signed consume receipt every `KeyPackagesConsumeResponseBody` now carries.
     fn consume_receipt_fixture(
         claim_id: &str,
         keypackage_ref: &str,
@@ -5362,14 +5363,14 @@ mod tests {
                 signature: arkret::KeyOperationSignature {
                     kid: arkret::NonEmptyString::new(device_verification_method).unwrap(),
                     signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
-                    sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+                    signature: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
                 },
             },
             consumed_at: chrono::Utc::now(),
             signature: arkret::KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(device_verification_method).unwrap(),
                 signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
-                sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+                signature: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
             },
         }
     }
@@ -5378,7 +5379,7 @@ mod tests {
     fn pending_welcome_consume_accepts_only_its_own_receipt_binding() {
         let claim_id = "ak:keypackage_claim:01904100-0000-7000-8000-000000000008";
         let keypackage_ref = "sha256:direct-welcome-keypackage";
-        let outcome = KeyPackagesConsumeOutcome {
+        let outcome = KeyPackagesConsumeResponseBody {
             consume_receipt: consume_receipt_fixture(claim_id, keypackage_ref),
         };
         assert!(consume_outcome_acknowledges_binding(
@@ -5441,7 +5442,7 @@ mod tests {
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].0, event_ref);
         assert_eq!(commits[0].1.next_epoch(), 1);
-        assert_eq!(commits[0].1.commit_bytes_b64(), commit.commit);
+        assert_eq!(commits[0].1.commit_base64url(), commit.commit);
     }
 
     #[test]
@@ -6151,7 +6152,7 @@ mod tests {
                 Some("ak:cursor:device-next")
             ),
             AccountToDeviceAckPlan::Ack {
-                ack_token: "ack-1".to_owned(),
+                acknowledgement_token: "ack-1".to_owned(),
                 followup: Some(AccountDeviceMessagesPull {
                     initial_cursor: Some("ak:cursor:device-next".to_owned()),
                     reason: "to_device_sync_limited",

@@ -197,7 +197,7 @@ them into one receipt or cursor.
 
 The gateway WebSocket first completes typed `connectChallenge`/`connect`
 authentication, then accepts bare requests with a root `jsonrpc` discriminator.
-No `type` wrapper is needed. Field order cannot change routing even when `params`
+No `type` wrapper is needed. Field order cannot change routing even when `parameters`
 is large or contains non-ASCII text and `jsonrpc` is last. A nested key or quoted
 text cannot select the RPC route. The 1 MiB frame limit, typed parameter validation,
 and authorization checks remain in effect.

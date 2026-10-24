@@ -662,7 +662,7 @@ impl NativeReplyLedger {
                 let mut frozen = entry.submission.clone().ok_or_else(|| {
                     anyhow::anyhow!("native accepted reply has no frozen submission")
                 })?;
-                frozen.apply_outcome(arkret::AuthoritySubmitOutcome::Accepted {
+                frozen.apply_outcome(arkret::AuthoritySubmitResponseBody::Accepted {
                     status: arkret::AuthorityCommitStatus::Committed,
                     commit: commit.clone(),
                 })?;
@@ -1305,7 +1305,7 @@ impl ArkretExecutionBindingStore {
                 .submission
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("native reply has no retained signed submission"))?;
-            frozen.apply_outcome(arkret::AuthoritySubmitOutcome::Accepted {
+            frozen.apply_outcome(arkret::AuthoritySubmitResponseBody::Accepted {
                 status: arkret::AuthorityCommitStatus::Committed,
                 commit: commit.clone(),
             })?;

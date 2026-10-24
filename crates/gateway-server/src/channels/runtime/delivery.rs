@@ -203,10 +203,10 @@ pub(super) async fn send_approval_with_retry(
 ) -> anyhow::Result<()> {
     let policy_cfg = SendPolicyConfig::load(&gateway_channel.config().savfox_home).await;
     let policy = policy_cfg.resolve(channel_id);
-    let max_attempts = attempt_override.unwrap_or(policy.retry_count).max(1);
+    let max_attempt_count = attempt_override.unwrap_or(policy.retry_count).max(1);
     let timeout = Duration::from_millis(policy.timeout_ms.max(1));
     let base_backoff = policy.backoff_ms.max(1);
-    for attempt in 1..=max_attempts {
+    for attempt in 1..=max_attempt_count {
         let started = Instant::now();
         match tokio::time::timeout(
             timeout,
@@ -224,7 +224,7 @@ pub(super) async fn send_approval_with_retry(
                 record_send_metrics(channel_id, true, started.elapsed().as_millis() as u64).await;
                 return Ok(());
             }
-            Ok(Err(error)) if attempt >= max_attempts => {
+            Ok(Err(error)) if attempt >= max_attempt_count => {
                 record_send_metrics(channel_id, false, started.elapsed().as_millis() as u64).await;
                 write_dead_letter(
                     gateway_channel,
@@ -241,7 +241,7 @@ pub(super) async fn send_approval_with_retry(
                 .await;
                 return Err(error);
             }
-            Err(_) if attempt >= max_attempts => {
+            Err(_) if attempt >= max_attempt_count => {
                 record_send_metrics(channel_id, false, started.elapsed().as_millis() as u64).await;
                 let error = anyhow::anyhow!("approval send timeout after {}ms", policy.timeout_ms);
                 write_dead_letter(
@@ -282,7 +282,7 @@ pub(super) async fn send_with_retry(
 ) -> anyhow::Result<()> {
     let policy_cfg = SendPolicyConfig::load(&gateway_channel.config().savfox_home).await;
     let policy = policy_cfg.resolve(channel_id);
-    let max_attempts = attempt_override.unwrap_or(policy.retry_count).max(1);
+    let max_attempt_count = attempt_override.unwrap_or(policy.retry_count).max(1);
     let timeout = Duration::from_millis(policy.timeout_ms.max(1));
     let base_backoff = policy.backoff_ms.max(1);
     let chunk_max_override = (policy.chunk_max_chars > 0).then_some(policy.chunk_max_chars);
@@ -328,7 +328,7 @@ pub(super) async fn send_with_retry(
         // This identifies the delivery, not its content. The Arkret Applet freezes
         // it durably before its first HTTP request and retains it across retries.
         let delivery_operation_id = uuid::Uuid::now_v7().to_string();
-        for attempt in 1..=max_attempts {
+        for attempt in 1..=max_attempt_count {
             let started = Instant::now();
             let send_result = tokio::time::timeout(
                 timeout,
@@ -361,7 +361,7 @@ pub(super) async fn send_with_retry(
                 Ok(Err(err)) => {
                     let latency_ms = started.elapsed().as_millis() as u64;
                     record_send_metrics(channel_id, false, latency_ms).await;
-                    if attempt >= max_attempts {
+                    if attempt >= max_attempt_count {
                         let chunk_error = if chunk_texts.len() > 1 {
                             format!(
                                 "chunk {}/{} failed: {err}",
@@ -390,7 +390,7 @@ pub(super) async fn send_with_retry(
                 Err(_) => {
                     let latency_ms = started.elapsed().as_millis() as u64;
                     record_send_metrics(channel_id, false, latency_ms).await;
-                    if attempt >= max_attempts {
+                    if attempt >= max_attempt_count {
                         let err = anyhow::anyhow!("send timeout after {}ms", policy.timeout_ms);
                         let chunk_error = if chunk_texts.len() > 1 {
                             format!(

@@ -1,6 +1,6 @@
 //! Durable Agent creator transactions; Sidecar retains its independent handshake.
 
-use arkret::http_client::own_station_results::OwnStationResultClient;
+use arkret::http_client::own_station_results::OwnStationStateClient;
 use arkret_models_collaboration::mls_creator_bootstrap::*;
 
 use super::super::client::ArkretHttpClient;
@@ -112,7 +112,7 @@ impl FileArkretCryptoStore {
         &self,
         expected: &MlsCreatorBootstrapRecord,
         next: &MlsCreatorBootstrapRecord,
-        client: &OwnStationResultClient,
+        client: &OwnStationStateClient,
         install: Option<CurrentMlsGroupStateRecord>,
     ) -> anyhow::Result<bool> {
         self.commit_creator_step_at_cut(expected, next, client, install, None)
@@ -122,7 +122,7 @@ impl FileArkretCryptoStore {
         &self,
         expected: &MlsCreatorBootstrapRecord,
         next: &MlsCreatorBootstrapRecord,
-        client: &OwnStationResultClient,
+        client: &OwnStationStateClient,
         install: Option<CurrentMlsGroupStateRecord>,
         snapshot: Option<&arkret::RealmStateSnapshot>,
     ) -> anyhow::Result<bool> {
@@ -219,7 +219,7 @@ impl FileArkretCryptoStore {
     fn quarantine_creator(
         &self,
         record: &MlsCreatorBootstrapRecord,
-        client: &OwnStationResultClient,
+        client: &OwnStationStateClient,
         detail: String,
     ) -> anyhow::Result<()> {
         self.quarantine_creator_invariant(
@@ -234,7 +234,7 @@ impl FileArkretCryptoStore {
     fn quarantine_creator_invariant(
         &self,
         record: &MlsCreatorBootstrapRecord,
-        client: &OwnStationResultClient,
+        client: &OwnStationStateClient,
         invariant: MlsCreatorBootstrapInvariant,
         detail: String,
         known: Option<MlsCreatorBootstrapKnownGenesis>,
@@ -294,7 +294,7 @@ impl FileArkretCryptoStore {
     fn publish_creator_ready(
         &self,
         expected: &MlsCreatorBootstrapRecord,
-        client: &OwnStationResultClient,
+        client: &OwnStationStateClient,
     ) -> anyhow::Result<bool> {
         let _guard = self.acquire_mutation()?;
         client.check_session()?;
@@ -330,7 +330,7 @@ impl FileArkretCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    use arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest;
+    use arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody;
 
     use super::*;
 
@@ -405,7 +405,7 @@ mod tests {
                 verification_method: method,
             },
             arkret::MlsGovernanceBindingPayload::new(scope, None, 0, 0, 0).unwrap(),
-            SelfAuthoritySubmitRequest::Event(arkret::EventAdmissionSubmission::new(
+            SelfAuthoritySubmitRequestBody::Event(arkret::EventAdmissionSubmission::new(
                 authored.event().clone(),
             )),
         )
@@ -425,13 +425,13 @@ mod tests {
         }
     }
 
-    fn local_session(intent: &MlsCreatorBootstrapIntent) -> OwnStationResultClient {
+    fn local_session(intent: &MlsCreatorBootstrapIntent) -> OwnStationStateClient {
         let account = intent.owner_actor_id().as_account_id().unwrap().clone();
         let binding = arkret::StationConnectionBinding {
             service_id: account.station_id.clone(),
             base_url: "https://station.example/".into(),
             trust_domain: arkret::TrustDomainId::new("ak:trust_domain:example.net").unwrap(),
-            auth_metadata: arkret::AuthMetadata::minimal(),
+            authentication_metadata: arkret::AuthenticationMetadata::minimal(),
         };
         let snapshot = arkret::http_client::own_station_results::OwnStationSessionSnapshot::new(
             binding.clone(),
@@ -449,7 +449,7 @@ mod tests {
                 ))
                 .build()
                 .unwrap();
-        OwnStationResultClient::new(
+        OwnStationStateClient::new(
             raw,
             binding,
             Arc::new(LocalSession(std::sync::Mutex::new(snapshot))),
@@ -466,7 +466,8 @@ mod tests {
     ) {
         // Synthetic host-verified inputs isolate local CAS/RFC recovery. These
         // detached signatures do not claim an actual Station accepted anything.
-        let SelfAuthoritySubmitRequest::Event(create) = intent.signed_scope_create_unit() else {
+        let SelfAuthoritySubmitRequestBody::Event(create) = intent.signed_scope_create_unit()
+        else {
             unreachable!()
         };
         let now = create.event.created_at;
@@ -477,7 +478,7 @@ mod tests {
             signed_digest: arkret::Hash::new(arkret::canonical::sha256_digest(b"local-fixture"))
                 .unwrap(),
             created_at: now,
-            sig: arkret::Base64UrlString::new("AA").unwrap(),
+            signature: arkret::Base64UrlString::new("AA").unwrap(),
         };
         let commit = arkret::RealmCommit {
             commit_id: arkret::RealmCommitId::from_digest([1; 32]),
@@ -562,7 +563,7 @@ mod tests {
         };
         let authority = MlsCreatorBootstrapAgentAuthority::from_current_signer_query(
             intent,
-            arkret::SignerKeyQueryOutcome::CurrentResolved {
+            arkret::SignerKeyResolution::CurrentResolved {
                 selector: arkret::SignerKeyQuerySelector::CurrentAdmission {
                     sender: arkret::CurrentSignerKeyQuerySender::Agent {
                         actor: intent.owner_actor_id().clone(),
@@ -570,7 +571,7 @@ mod tests {
                     },
                 },
                 key: arkret::ResolvedSignerKey {
-                    public_key_b64u: arkret::Base64UrlString::new(arkret::base64url_encode(
+                    public_key_base64url: arkret::Base64UrlString::new(arkret::base64url_encode(
                         ed25519_dalek::SigningKey::from_bytes(&[11; 32])
                             .verifying_key()
                             .to_bytes(),
@@ -742,7 +743,7 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        let current = arkret::MlsGroupCurrent {
+        let current = arkret::MlsGroupValue {
             effective_scope: intent.effective_scope().clone(),
             genesis_event_ref: signed.event_id().clone(),
             cipher_suite: arkret::NonEmptyString::new(
@@ -764,7 +765,7 @@ mod tests {
         let mut accepted_cut = absence;
         accepted_cut
             .current_state_entries
-            .push(TypedCurrentRow::Value {
+            .push(CurrentState::Value {
                 selector: arkret::CurrentSelector::MlsGroup {
                     scope_ref: intent.effective_scope().clone(),
                 },
@@ -1041,7 +1042,7 @@ fn retain_creator_current(
         .current_state_entries
         .iter()
         .filter_map(|row| match row {
-            TypedCurrentRow::Value {
+            CurrentState::Value {
                 selector: arkret::CurrentSelector::MlsGroup { scope_ref },
                 source_stream_ref,
                 value,
@@ -1057,7 +1058,7 @@ fn retain_creator_current(
         stream == &arkret::CommitStreamRef::from_scope(scope, None)?,
         "creator current has another source stream"
     );
-    let current: arkret::MlsGroupCurrent = serde_json::from_value(value.clone())?;
+    let current: arkret::MlsGroupValue = serde_json::from_value(value.clone())?;
     anyhow::ensure!(
         current.effective_scope == *scope && current.genesis_event_ref == *genesis,
         "creator current differs from its accepted scope or Genesis"
@@ -1093,7 +1094,7 @@ fn require_creator_current_private(
     state: &ArkretCryptoStateFile,
     record: &MlsCreatorBootstrapRecord,
     group: &ArkretMlsGroup,
-    current: &arkret::MlsGroupCurrent,
+    current: &arkret::MlsGroupValue,
     genesis: &arkret::EventId,
 ) -> anyhow::Result<()> {
     let (_, tree) = group.public_group_state_bytes()?;
@@ -1215,7 +1216,7 @@ fn creator_checks(
         cipher_suite: group.group_ciphersuite_canonical_id()?.to_owned(),
         creator_leaf_authority: arkret::MlsGenesisCreatorLeafAuthority {
             endpoint: intent.creator_endpoint().clone(),
-            leaf_signature_key_b64u: leaf.signature_key.clone(),
+            leaf_signature_key_base64url: leaf.signature_key.clone(),
             authorization_event_ref: agent_key_authorize_event_id.clone(),
         },
         group_info_bytes,
@@ -1235,7 +1236,7 @@ fn original_runtime_key(
         };
         anyhow::ensure!(
             arkret::base64url_encode(key.verifying_key().to_bytes())
-                == authority.key().public_key_b64u.as_str(),
+                == authority.key().public_key_base64url.as_str(),
             "creator recovery requires its original runtime key"
         );
     }
@@ -1396,7 +1397,7 @@ impl ArkretHttpClient {
                     response.value()?.validate_for_request(&request)?;
                     let outcome = response
                         .value()?
-                        .results
+                        .resolutions
                         .first()
                         .context("creator Agent key unavailable")?
                         .clone();
@@ -1406,7 +1407,7 @@ impl ArkretHttpClient {
                         Utc::now(),
                     )?;
                     anyhow::ensure!(
-                        authority.key().public_key_b64u.as_str()
+                        authority.key().public_key_base64url.as_str()
                             == arkret::base64url_encode(key.verifying_key().to_bytes()),
                         "current creator Agent key differs from local original"
                     );
@@ -1423,7 +1424,7 @@ impl ArkretHttpClient {
                         let after = client.signer_keys_query(&request).await?;
                         after.value()?.validate_for_request(&request)?;
                         anyhow::ensure!(
-                            after.value()?.results == response.value()?.results,
+                            after.value()?.resolutions == response.value()?.resolutions,
                             "creator Agent authority changed while reading its scope cut"
                         );
                         let authority =
@@ -1589,7 +1590,7 @@ impl ArkretHttpClient {
                         if store.creator_bootstrap_record(scope)?.as_ref() != Some(&record) {
                             continue;
                         }
-                        let request = arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequest::Event(
+                        let request = arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody::Event(
                             arkret::EventAdmissionSubmission::new(queued.signed_genesis().event().clone()));
                         let request = arkret::VerifiedSubmission::verify(request, |_| {
                             Ok(producer_context.clone())

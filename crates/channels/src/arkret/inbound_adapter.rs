@@ -786,7 +786,7 @@ mod tests {
                 verification_method: arkret::DidUrl::new("did:web:station.example#key-1").unwrap(),
                 signed_digest: arkret::Hash::new(format!("sha256:{}", "11".repeat(32))).unwrap(),
                 created_at: chrono::Utc::now(),
-                sig: arkret::Base64UrlString::new("AQ").unwrap(),
+                signature: arkret::Base64UrlString::new("AQ").unwrap(),
             },
         };
         serde_json::to_value(arkret::CommittedEventFullView { commit, event }).unwrap()

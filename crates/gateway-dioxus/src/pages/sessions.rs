@@ -32,7 +32,7 @@ async fn preview_and_publish_arkret(
     title: &'static str,
     summary: String,
 ) -> Result<String, String> {
-    let params = json!({
+    let parameters = json!({
         "session_id": session_id,
         "kind": kind,
         "title": title,
@@ -41,7 +41,7 @@ async fn preview_and_publish_arkret(
         "next_actions": [],
     });
     let preview = ws
-        .call::<ArkretDeliveryPreview>("sessions.arkret.delivery.preview", Some(params.clone()))
+        .call::<ArkretDeliveryPreview>("sessions.arkret.delivery.preview", Some(parameters.clone()))
         .await?;
     let comparison = preview
         .previous_rendered
@@ -64,7 +64,7 @@ async fn preview_and_publish_arkret(
         return Ok(format!("## Publish preview\n\n{}", preview.rendered));
     }
     let published = ws
-        .call::<Value>("sessions.arkret.delivery.publish", Some(params))
+        .call::<Value>("sessions.arkret.delivery.publish", Some(parameters))
         .await?;
     let event_id = published
         .get("remoteEventId")

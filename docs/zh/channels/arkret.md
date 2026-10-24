@@ -144,7 +144,7 @@ worker 复用同一验证。内存 coordinator 接纳不是模型完成，也不
 不能越过未耐久处理的 Welcome/DeviceMessage。不要把二者混成一个 receipt 或游标。
 
 网关 WebSocket 先完成 typed `connectChallenge`/`connect` 认证，之后可直接发送顶层带 `jsonrpc`
-的 JSON-RPC 请求，不需要 `type` 包装。JSON 字段顺序不影响分类；即使 `params` 很大或含非 ASCII
+的 JSON-RPC 请求，不需要 `type` 包装。JSON 字段顺序不影响分类；即使 `parameters` 很大或含非 ASCII
 文本、`jsonrpc` 在最后也必须正常处理。嵌套对象或字符串里的同名内容不能选择 RPC 路由；1 MiB
 帧上限、正式参数验证和权限检查仍保留。
 

@@ -29,6 +29,10 @@ arkret-schema = { path = "../../arkret-org/arkret-rust-sdk/crates/schema" }
 arkret-signatures = { path = "../../arkret-org/arkret-rust-sdk/crates/signatures" }
 arkret-state = { path = "../../arkret-org/arkret-rust-sdk/crates/state" }
 arkret-wire = { path = "../../arkret-org/arkret-rust-sdk/crates/wire" }
+arkret-rate-limit = { path = "../../arkret-org/arkret-rust-sdk/crates/rate-limit" }
+arkret-schema-conformance = { path = "../../arkret-org/arkret-rust-sdk/crates/schema-conformance" }
+arkret-server = { path = "../../arkret-org/arkret-rust-sdk/crates/server" }
+arkret-test-kit = { path = "../../arkret-org/arkret-rust-sdk/crates/test-kit" }
 
 [patch."https://github.com/arkret-org/garth.git"]
 arkret-auth = { path = "../../arkret-org/arkret-rust-sdk/crates/auth" }

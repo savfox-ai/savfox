@@ -5040,14 +5040,14 @@ fn render_single_field(
             drop(value_map);
             return rsx! {};
         }
-        let current_result = current_val.trim().to_owned();
-        let has_generated_request = current_result.trim_start().starts_with('{');
+        let current_state = current_val.trim().to_owned();
+        let has_generated_request = current_state.trim_start().starts_with('{');
         let display_status = if has_generated_request {
             "Approval request prepared. Waiting for backend delivery to Inkson.".to_string()
-        } else if current_result.is_empty() {
+        } else if current_state.is_empty() {
             String::new()
         } else {
-            current_result.clone()
+            current_state.clone()
         };
         let pairing_state_key = arkret_pairing_state_key(ch_id);
         let pairing_state = value_map
@@ -5229,12 +5229,12 @@ fn render_single_field(
                                         key.clone(),
                                         "Generating local runtime key...".to_string(),
                                     );
-                                    let params =
+                                    let parameters =
                                         arkret_runtime_key_ref_generation_params(&ch_id, &snapshot);
                                     let result = ws
                                         .call::<serde_json::Value>(
                                             "channels.arkret.generate_runtime_key_ref",
-                                            Some(params),
+                                            Some(parameters),
                                         )
                                         .await;
                                     match result {
@@ -5436,7 +5436,7 @@ fn render_single_field(
         let ws_generate = ws.clone();
         let key_for_copy = key.clone();
         let key_input = key.clone();
-        let current_result = current_val.trim().to_owned();
+        let current_state = current_val.trim().to_owned();
         drop(value_map);
         return rsx! {
             div { class: "channels-cfg__field",
@@ -5467,12 +5467,12 @@ fn render_single_field(
                             let status_key = status_key_for_generate.clone();
                             let ws = ws_generate.clone();
                             let snapshot = values.read().clone();
-                            let params = arkret_runtime_key_ref_generation_params(&ch_id, &snapshot);
+                            let parameters = arkret_runtime_key_ref_generation_params(&ch_id, &snapshot);
                             spawn(async move {
                                 let result = ws
                                     .call::<serde_json::Value>(
                                         "channels.arkret.generate_runtime_key_ref",
-                                        Some(params),
+                                        Some(parameters),
                                     )
                                     .await;
                                 match result {
@@ -5499,7 +5499,7 @@ fn render_single_field(
                     button {
                         class: "channels-action-btn",
                         r#type: "button",
-                        disabled: current_result.is_empty(),
+                        disabled: current_state.is_empty(),
                         onclick: move |_| {
                             let text = values
                                 .read()
@@ -6063,19 +6063,19 @@ fn arkret_runtime_key_ref_generation_params(
             .map(str::to_owned)
     });
 
-    let mut params = serde_json::Map::new();
-    params.insert("platform".to_owned(), json!("arkret"));
+    let mut parameters = serde_json::Map::new();
+    parameters.insert("platform".to_owned(), json!("arkret"));
     if let Some(principal_id) = principal_id {
-        params.insert("agent_id".to_owned(), json!(principal_id));
+        parameters.insert("agent_id".to_owned(), json!(principal_id));
     }
     if let Some(pairing_request_id) = bootstrap
         .as_ref()
         .map(|bootstrap| bootstrap.pairing_request_id.to_string())
     {
-        params.insert("pairing_request_id".to_owned(), json!(pairing_request_id));
+        parameters.insert("pairing_request_id".to_owned(), json!(pairing_request_id));
     }
     if let Some(verification_method) = verification_method {
-        params.insert("verification_method".to_owned(), json!(verification_method));
+        parameters.insert("verification_method".to_owned(), json!(verification_method));
     }
     if let Some(key_ref) = values
         .get(&field_value_key(channel_id, "keyRef"))
@@ -6087,9 +6087,9 @@ fn arkret_runtime_key_ref_generation_params(
             )
         })
     {
-        params.insert("key_ref".to_owned(), key_ref);
+        parameters.insert("key_ref".to_owned(), key_ref);
     }
-    Value::Object(params)
+    Value::Object(parameters)
 }
 
 fn render_router_fields(
@@ -6518,7 +6518,7 @@ fn render_add_modal(
                                                     let group_policy = build_group_policy(&ch_id, &config);
                                                     saving.set(true);
                                                     spawn(async move {
-                                                        let params = json!({
+                                                        let parameters = json!({
                                                             "channel": ch_id,
                                                             "name": name,
                                                             "config": patch,
@@ -6528,7 +6528,7 @@ fn render_add_modal(
                                                         });
                                                         let result = ws.call::<serde_json::Value>(
                                                             "channels.config.save",
-                                                            Some(params),
+                                                            Some(parameters),
                                                         ).await;
                                                         saving.set(false);
                                                         match result {
@@ -7445,17 +7445,17 @@ mod tests {
             r#"{"kind":"inline_seed_base64","value":"secret"}"#.to_owned(),
         );
 
-        let params = arkret_runtime_key_ref_generation_params("arkret", &values);
+        let parameters = arkret_runtime_key_ref_generation_params("arkret", &values);
 
-        assert_eq!(params["platform"], "arkret");
-        assert_eq!(params["agent_id"], "ak:did_core:web:agent.example");
-        assert_eq!(params["pairing_request_id"], "pair-123");
+        assert_eq!(parameters["platform"], "arkret");
+        assert_eq!(parameters["agent_id"], "ak:did_core:web:agent.example");
+        assert_eq!(parameters["pairing_request_id"], "pair-123");
         assert_eq!(
-            params["verification_method"],
+            parameters["verification_method"],
             "did:web:agent.example#runtime-1"
         );
-        assert!(params.get("keyRef").is_none());
-        assert!(params.get("value").is_none());
+        assert!(parameters.get("keyRef").is_none());
+        assert!(parameters.get("value").is_none());
     }
 
     #[test]

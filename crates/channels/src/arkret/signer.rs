@@ -192,7 +192,7 @@ pub(crate) fn load_ed25519_signing_key(key_ref: &ArkretKeyRef) -> anyhow::Result
 pub fn sign_keypackages_upload_request(
     key_ref: &ArkretKeyRef,
     verification_method: &str,
-    unsigned: &arkret::KeyPackagesUploadUnsignedRequest,
+    unsigned: &arkret::KeyPackagesUploadFields,
 ) -> anyhow::Result<arkret::KeyOperationSignature> {
     let mut seed = load_seed_array(key_ref)?;
     let result = arkret::sign_keypackages_upload_request(unsigned, verification_method, &seed);
@@ -204,7 +204,7 @@ pub fn sign_keypackages_upload_request(
 pub fn sign_keypackages_consume_request(
     key_ref: &ArkretKeyRef,
     verification_method: &str,
-    unsigned: &arkret::KeyPackagesConsumeUnsignedRequest,
+    unsigned: &arkret::KeyPackagesConsumeFields,
 ) -> anyhow::Result<arkret::KeyOperationSignature> {
     let mut seed = load_seed_array(key_ref)?;
     let result = arkret::sign_keypackages_consume_request(unsigned, verification_method, &seed);
@@ -219,7 +219,7 @@ pub fn sign_keypackages_consume_request(
 pub fn sign_keypackages_revoke_request(
     key_ref: &ArkretKeyRef,
     verification_method: &str,
-    unsigned: &arkret::KeyPackagesRevokeUnsignedRequest,
+    unsigned: &arkret::KeyPackagesRevokeFields,
 ) -> anyhow::Result<arkret::KeyOperationSignature> {
     let mut seed = load_seed_array(key_ref)?;
     let result = arkret::sign_keypackages_revoke_request(unsigned, verification_method, &seed);
@@ -435,7 +435,7 @@ mod tests {
             signature: arkret::KeyOperationSignature {
                 kid: arkret::NonEmptyString::new(TEST_VM).unwrap(),
                 signature_algorithm: Some(arkret::NonEmptyString::new("Ed25519").unwrap()),
-                sig: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+                signature: arkret::Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
             },
         }
     }
@@ -548,7 +548,7 @@ mod tests {
     #[test]
     fn keypackage_consume_signer_uses_sdk_canonical_input() {
         let key_ref = ArkretKeyRef::InlineSeedBase64 { value: seed_b64() };
-        let unsigned = arkret::KeyPackagesConsumeUnsignedRequest {
+        let unsigned = arkret::KeyPackagesConsumeFields {
             claim_id: arkret::identifiers::KeypackageClaimId::new(
                 "ak:keypackage_claim:01904100-0000-7000-8000-000000000001",
             )

@@ -31,7 +31,7 @@ pub(super) async fn seed_welcome_checkpoint(
     if account_store.load(scope.clone()).await?.is_some() {
         return Ok(());
     }
-    let request = arkret::StreamScanRequest {
+    let request = arkret::StreamScanRequestBody {
         realm_id: welcome.realm_id.clone(),
         stream_ref: stream_ref.clone(),
         direction: arkret::StreamScanDirection::After(
@@ -60,7 +60,7 @@ pub(super) async fn seed_welcome_checkpoint(
         http.own_station()?,
         &reference,
         http.own_station()?
-            .scan_commit_stream(&arkret::StreamScanRequest {
+            .scan_commit_stream(&arkret::StreamScanRequestBody {
                 direction: arkret::StreamScanDirection::Before(Some(
                     exact
                         .commit
@@ -458,7 +458,7 @@ impl RecoveryProgress {
 
     fn check_publish_session(
         &self,
-        own: &arkret::http_client::own_station_results::OwnStationResultClient,
+        own: &arkret::http_client::own_station_results::OwnStationStateClient,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(own.session()? == &self.session, "recovery session changed");
         for page in &self.pages {
@@ -470,7 +470,7 @@ impl RecoveryProgress {
 
     fn check_publish(
         &self,
-        own: &arkret::http_client::own_station_results::OwnStationResultClient,
+        own: &arkret::http_client::own_station_results::OwnStationStateClient,
         checkpoint: &StreamCheckpoint,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
@@ -590,7 +590,7 @@ async fn recover_pending_content(
                         position <= checkpoint.head.stream_position,
                         "recovery baseline exceeds its retained head"
                     );
-                    let request = arkret::StreamScanRequest {
+                    let request = arkret::StreamScanRequestBody {
                         realm_id: stream_ref.realm_id().clone(),
                         stream_ref: stream_ref.clone(),
                         direction: arkret::StreamScanDirection::Before(Some(
@@ -646,7 +646,7 @@ async fn recover_pending_content(
                     if recovery.complete() {
                         break;
                     }
-                    let mut request = arkret::StreamScanRequest {
+                    let mut request = arkret::StreamScanRequestBody {
                         realm_id: stream_ref.realm_id().clone(),
                         stream_ref: stream_ref.clone(),
                         direction: arkret::StreamScanDirection::After(Some(recovery.after)),
@@ -738,7 +738,7 @@ async fn recover_pending_content(
 
 async fn publish_recovery(
     recovery: RecoveryProgress,
-    own: &arkret::http_client::own_station_results::OwnStationResultClient,
+    own: &arkret::http_client::own_station_results::OwnStationStateClient,
     checkpoint: &StreamCheckpoint,
     store: &garth::FileStore,
     scope: garth::CursorScope,
@@ -1440,7 +1440,7 @@ mod installed_scope_tests {
                     signed_digest: arkret::Hash::new(format!("sha256:{}", "00".repeat(32)))
                         .unwrap(),
                     created_at: Utc::now(),
-                    sig: arkret::Base64UrlString::new("AA").unwrap(),
+                    signature: arkret::Base64UrlString::new("AA").unwrap(),
                 },
             },
             event_disclosure: arkret::EventDisclosure {
@@ -1585,7 +1585,7 @@ mod installed_scope_tests {
 }
 
 async fn restore_visible_checkpoint(
-    own: &arkret::http_client::own_station_results::OwnStationResultClient,
+    own: &arkret::http_client::own_station_results::OwnStationStateClient,
     replica: &mut garth::own_station_results::OwnStationReplica,
     previous: &arkret::CommitStreamHead,
     snapshot: &arkret::http_client::own_station_results::BoundOwnStationResponse<
@@ -1703,7 +1703,7 @@ async fn scan_installed_scopes(
                 if limit == 0 {
                     return Ok(());
                 }
-                let request = arkret::StreamScanRequest {
+                let request = arkret::StreamScanRequestBody {
                     realm_id: realm_id.clone(),
                     stream_ref: stream_ref.clone(),
                     direction: arkret::StreamScanDirection::After(
@@ -1824,7 +1824,7 @@ mod recovery_tests {
     use std::io::{Read, Write};
 
     use arkret::http_client::own_station_results::{
-        OwnStationResultClient, OwnStationSessionSnapshot, OwnStationSessionSource,
+        OwnStationSessionSnapshot, OwnStationSessionSource, OwnStationStateClient,
     };
 
     use super::*;
@@ -1869,7 +1869,7 @@ mod recovery_tests {
                 verification_method: arkret::DidUrl::new("did:web:station.example#key-1").unwrap(),
                 signed_digest: arkret::Hash::new(format!("sha256:{}", "a".repeat(64))).unwrap(),
                 created_at: "2026-10-05T00:00:01.000Z".parse().unwrap(),
-                sig: arkret::Base64UrlString::new("AA").unwrap(),
+                signature: arkret::Base64UrlString::new("AA").unwrap(),
             },
         };
         seal_fixture_commit(&mut commit);
@@ -1944,7 +1944,7 @@ mod recovery_tests {
     fn http(
         bodies: Vec<Value>,
     ) -> (
-        OwnStationResultClient,
+        OwnStationStateClient,
         Arc<Source>,
         std::thread::JoinHandle<()>,
     ) {
@@ -1955,7 +1955,7 @@ mod recovery_tests {
             service_id: station.clone(),
             base_url: base.clone(),
             trust_domain: arkret::TrustDomainId::new("ak:trust_domain:station.example").unwrap(),
-            auth_metadata: arkret::AuthMetadata::minimal(),
+            authentication_metadata: arkret::AuthenticationMetadata::minimal(),
         };
         let session = OwnStationSessionSnapshot::new(
             binding.clone(),
@@ -2009,12 +2009,12 @@ mod recovery_tests {
                 let body = if let Some(key) = body.get("__signer_key") {
                     let request: arkret::SignerKeysQueryRequestBody =
                         serde_json::from_slice(&request[header_end..header_end + len]).unwrap();
-                    serde_json::to_value(arkret::SignerKeysQueryOutcome {
+                    serde_json::to_value(arkret::SignerKeyQueryResponseBody {
                         request_id: request.request_id,
                         realm_id: request.realm_id,
                         recipient_account_id: request.recipient_account_id,
                         recipient_actor_id: request.recipient_actor_id,
-                        results: vec![arkret::SignerKeyQueryOutcome::HistoricalResolved {
+                        resolutions: vec![arkret::SignerKeyResolution::HistoricalResolved {
                             selector: request.queries[0].clone(),
                             key: serde_json::from_value(key.clone()).unwrap(),
                             accepted_at: serde_json::from_value(body["__accepted_at"].clone())
@@ -2031,7 +2031,7 @@ mod recovery_tests {
             }
         });
         (
-            OwnStationResultClient::new(raw, binding, source.clone()).unwrap(),
+            OwnStationStateClient::new(raw, binding, source.clone()).unwrap(),
             source,
             server,
         )
@@ -2254,7 +2254,7 @@ mod recovery_tests {
                 .await
                 .unwrap();
             let response = own
-                .scan_commit_stream(&arkret::StreamScanRequest {
+                .scan_commit_stream(&arkret::StreamScanRequestBody {
                     realm_id: event.realm_id,
                     stream_ref: base_head.stream_ref.clone(),
                     direction: arkret::StreamScanDirection::After(Some(1)),
@@ -2292,7 +2292,7 @@ mod recovery_tests {
     fn setup(
         fork: bool,
     ) -> (
-        OwnStationResultClient,
+        OwnStationStateClient,
         Arc<Source>,
         std::thread::JoinHandle<()>,
         RecoveryProgress,
@@ -2333,9 +2333,9 @@ mod recovery_tests {
         authorization.committed_at = "2026-10-05T00:00:00.000Z".parse().unwrap();
         seal_fixture_commit(&mut authorization);
         let resolved = arkret::ResolvedSignerKey {
-            public_key_b64u: arkret::Base64UrlString::new(arkret::canonical::base64url_encode(
-                key.verifying_key().as_bytes(),
-            ))
+            public_key_base64url: arkret::Base64UrlString::new(
+                arkret::canonical::base64url_encode(key.verifying_key().as_bytes()),
+            )
             .unwrap(),
             authorization_ref: arkret::CommittedEventRef {
                 event_id: authorization.event_ref.clone(),
@@ -2427,11 +2427,11 @@ mod recovery_tests {
 
     async fn advance(
         recovery: &mut RecoveryProgress,
-        own: &OwnStationResultClient,
+        own: &OwnStationStateClient,
         after: Option<u64>,
         targets: &mut std::collections::BTreeSet<arkret::EventId>,
     ) -> anyhow::Result<()> {
-        let request = arkret::StreamScanRequest {
+        let request = arkret::StreamScanRequestBody {
             realm_id: recovery.expected_head.stream_ref.realm_id().clone(),
             stream_ref: recovery.expected_head.stream_ref.clone(),
             direction: arkret::StreamScanDirection::After(after),
@@ -2684,7 +2684,7 @@ pub(super) async fn native_actual_onboarding_heads(
             .find(|head| &head.stream_ref == stream)
             .context("native onboarding installed stream lacks current accepted head")?
             .clone();
-        let request = arkret::StreamScanRequest {
+        let request = arkret::StreamScanRequestBody {
             realm_id: realm,
             stream_ref: stream.clone(),
             direction: arkret::StreamScanDirection::Before(Some(

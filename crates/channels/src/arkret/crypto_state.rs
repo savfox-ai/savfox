@@ -12,13 +12,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::Context;
 use arkret::mls::{ArkretMlsGroup, ArkretMlsIdentity, ArkretMlsSigner};
 use arkret::{
-    AccountId, ActorId, CommittedEventRef, ContentBlock, DeviceId, DidCoreId,
+    AccountId, ActorId, CommittedEventRef, ContentBlock, CurrentState, DeviceId, DidCoreId,
     DirectConversationBoundPayload, EncryptedPayload, EncryptedPayloadScheme,
     EventContentPreEncryptionHeader, EventContentRoutingContext, EventId, MessageMetadata,
     MlsCommitPayload, MlsEncryptedPayload, MlsEndpointIdentity, MlsKeyPackageRecord,
     MlsKeyPackageState, MlsPayloadType, MlsWelcomeDelivery, PresencePlaintext, PresenceState,
-    RealmId, ScopeRef, SignalSequenceDomain, SignalSequenceEndpoint, TypedCurrentRow,
-    seal_signal_plaintext,
+    RealmId, ScopeRef, SignalSequenceDomain, SignalSequenceEndpoint, seal_signal_plaintext,
 };
 use arkret_models_crypto::MlsGroupStateRecord as CurrentMlsGroupStateRecord;
 use base64::Engine as _;
@@ -217,8 +216,8 @@ pub struct ArkretMlsReplayContinuation {
 #[derive(Debug, Clone)]
 pub struct ArkretMlsRosterMaterial {
     pub request: arkret::MlsMemberRosterAuthorityReadRequestBody,
-    pub pages: Vec<arkret::MlsSelfRosterAuthorityReadOutcome>,
-    pub genesis_material: arkret::MlsGroupStateMaterialOutcome,
+    pub pages: Vec<arkret::MlsSelfRosterAuthorityReadResponseBody>,
+    pub genesis_material: arkret::MlsGroupStateMaterialResponseBody,
 }
 
 impl PartialEq for ArkretMlsWelcomeConsumeBinding {
@@ -303,7 +302,7 @@ pub struct ArkretCryptoStateFile {
     pub mls_group_states: BTreeMap<String, CurrentMlsGroupStateRecord>,
     /// Account Station current results retained at their exact MLS epochs.
     #[serde(default)]
-    pub mls_station_currents: BTreeMap<String, BTreeMap<u64, arkret::MlsGroupCurrent>>,
+    pub mls_station_currents: BTreeMap<String, BTreeMap<u64, arkret::MlsGroupValue>>,
     /// Candidate accepted base bytes, atomically saved with the actual MLS
     /// checkpoint. Re-admitted through the current bound own-Station session before replay.
     #[serde(default)]
@@ -1262,7 +1261,7 @@ impl FileArkretCryptoStore {
         );
         let payload: MlsCommitPayload =
             serde_json::from_value(serde_json::to_value(&accepted.event.payload)?)?;
-        let commit_bytes = arkret::base64url_decode(payload.commit_bytes_b64())?;
+        let commit_bytes = arkret::base64url_decode(payload.commit_base64url())?;
         let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let mut changed = false;
@@ -1498,7 +1497,7 @@ impl FileArkretCryptoStore {
     /// epoch; a newer current result is never substituted for that base.
     pub fn record_station_mls_currents(
         &self,
-        current: &arkret::AccountCurrentView,
+        current: &arkret::AccountStateView,
     ) -> anyhow::Result<usize> {
         current.validate()?;
         self.record_verified_mls_current_entries(&current.realm_id, &current.entries)
@@ -1508,12 +1507,12 @@ impl FileArkretCryptoStore {
     pub fn record_verified_mls_current_entries(
         &self,
         realm_id: &RealmId,
-        entries: &[TypedCurrentRow],
+        entries: &[CurrentState],
     ) -> anyhow::Result<usize> {
         let mut accepted = Vec::new();
         let mut direct = false;
         for entry in entries {
-            if let TypedCurrentRow::Value {
+            if let CurrentState::Value {
                 selector: arkret::CurrentSelector::RealmGenesis,
                 source_stream_ref,
                 value,
@@ -1531,7 +1530,7 @@ impl FileArkretCryptoStore {
                 genesis.validate()?;
                 direct = genesis.purpose == arkret::RealmPurpose::DirectConversation;
             }
-            let TypedCurrentRow::Value {
+            let CurrentState::Value {
                 selector: arkret::CurrentSelector::MlsGroup { scope_ref },
                 source_stream_ref,
                 value,
@@ -1545,7 +1544,7 @@ impl FileArkretCryptoStore {
                     && source_stream_ref == &arkret::CommitStreamRef::from_scope(scope_ref, None)?,
                 "Station MLS current result has a mismatched Realm or stream"
             );
-            let group: arkret::MlsGroupCurrent = serde_json::from_value(value.clone())?;
+            let group: arkret::MlsGroupValue = serde_json::from_value(value.clone())?;
             anyhow::ensure!(
                 group.effective_scope == *scope_ref,
                 "Station MLS current value differs from its selector"
@@ -1586,7 +1585,7 @@ impl FileArkretCryptoStore {
         &self,
         scope: &ScopeRef,
         epoch: u64,
-    ) -> anyhow::Result<Option<arkret::MlsGroupCurrent>> {
+    ) -> anyhow::Result<Option<arkret::MlsGroupValue>> {
         let group_id = scope.canonical_mls_group_id()?;
         Ok(self
             .load()?
@@ -1603,7 +1602,7 @@ impl FileArkretCryptoStore {
     pub fn install_accepted_mls_commit(
         &self,
         accepted: &arkret::CommittedEventFullView,
-        station_base: &arkret::MlsGroupCurrent,
+        station_base: &arkret::MlsGroupValue,
         roster: &ArkretMlsRosterMaterial,
     ) -> anyhow::Result<bool> {
         self.install_accepted_mls_commit_authorized(accepted, station_base, roster)
@@ -1614,7 +1613,7 @@ impl FileArkretCryptoStore {
     pub fn install_accepted_mls_commit_with_roster(
         &self,
         accepted: &arkret::CommittedEventFullView,
-        station_base: &arkret::MlsGroupCurrent,
+        station_base: &arkret::MlsGroupValue,
         roster: &ArkretMlsRosterMaterial,
     ) -> anyhow::Result<bool> {
         anyhow::ensure!(
@@ -1839,7 +1838,7 @@ impl FileArkretCryptoStore {
     fn install_accepted_mls_commit_authorized(
         &self,
         accepted: &arkret::CommittedEventFullView,
-        station_base: &arkret::MlsGroupCurrent,
+        station_base: &arkret::MlsGroupValue,
         roster: &ArkretMlsRosterMaterial,
     ) -> anyhow::Result<bool> {
         accepted.validate_shape()?;
@@ -1920,7 +1919,7 @@ impl FileArkretCryptoStore {
         &self,
         delivery: &MlsWelcomeDelivery,
         accepted_commit: &arkret::CommittedEventFullView,
-        claim_outcome: &arkret::KeyPackagesClaimOutcome,
+        claim_outcome: &arkret::KeyPackagesClaimResponseBody,
         local_station: &DidCoreId,
         endpoint_authorization: &EventId,
         recipient: arkret::RecipientMlsDurableSigner,
@@ -2168,7 +2167,7 @@ impl FileArkretCryptoStore {
                 kid: arkret::NonEmptyString::new(verification_method.as_str())
                     .map_err(anyhow::Error::msg)?,
                 signature_algorithm: None,
-                sig: arkret::Base64UrlString::new("AA").map_err(anyhow::Error::msg)?,
+                signature: arkret::Base64UrlString::new("AA").map_err(anyhow::Error::msg)?,
             },
         };
         let receipt = identity.sign_recipient_mls_durable_receipt(receipt)?;
@@ -2218,11 +2217,11 @@ impl FileArkretCryptoStore {
         &self,
         realm_id: &RealmId,
         actor: &ActorId,
-        entries: &[TypedCurrentRow],
+        entries: &[CurrentState],
     ) -> anyhow::Result<usize> {
         let mut payloads = Vec::new();
         for entry in entries {
-            let TypedCurrentRow::Value {
+            let CurrentState::Value {
                 selector: arkret::CurrentSelector::DirectConversationBinding { pair_key },
                 source_stream_ref,
                 value,
@@ -3212,7 +3211,7 @@ mod tests {
         assert!(error.is::<serde_json::Error>());
         std::fs::remove_file(store.path()).unwrap();
         store.ensure_created().unwrap();
-        let entry = TypedCurrentRow::Value {
+        let entry = CurrentState::Value {
             selector: arkret::CurrentSelector::RealmGenesis,
             source_stream_ref: arkret::CommitStreamRef::Realm {
                 realm_id: FIXTURE_REALM_B.clone(),
@@ -3243,7 +3242,7 @@ mod tests {
                 extension_profile_required: (),
             }],
         );
-        description.auth_metadata.account_authority = Some(arkret::AccountAuthority {
+        description.authentication_metadata.account_authority = Some(arkret::AccountAuthority {
             origin: arkret::WebOrigin::new("https://auth.example").unwrap(),
             gate_account_base_url: "https://auth.example/_arkret/gate/account".into(),
             extra: Default::default(),
@@ -3279,7 +3278,7 @@ mod tests {
             {
                 let mut changed = pin.clone();
                 changed
-                    .auth_metadata
+                    .authentication_metadata
                     .account_authority
                     .as_mut()
                     .unwrap()
@@ -3379,7 +3378,8 @@ mod tests {
                     .unwrap(),
                 signed_digest: Hash::new(format!("sha256:{}", "3".repeat(64))).unwrap(),
                 created_at: at,
-                sig: arkret::Base64UrlString::new(arkret::base64url_encode([0_u8; 64])).unwrap(),
+                signature: arkret::Base64UrlString::new(arkret::base64url_encode([0_u8; 64]))
+                    .unwrap(),
             },
         };
         garth::CommittedDelta {
@@ -3512,7 +3512,7 @@ mod tests {
             binding_event_ref: binding_ref.clone(),
             binding: payload.clone(),
         };
-        let entry = TypedCurrentRow::Value {
+        let entry = CurrentState::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding {
                 pair_key: payload.pair_key.clone(),
             },
@@ -3543,7 +3543,7 @@ mod tests {
         );
         let generation = store.load().unwrap().generation;
         let mut conflicting = entry.clone();
-        let TypedCurrentRow::Value { value, .. } = &mut conflicting;
+        let CurrentState::Value { value, .. } = &mut conflicting;
         value["binding_event_ref"] = json!(FIXTURE_EVENT_1.as_str());
         assert!(
             store
@@ -3566,7 +3566,7 @@ mod tests {
         assert_eq!(store.load().unwrap().generation, generation);
         for replace_event in [true, false] {
             let mut changed = entry.clone();
-            let TypedCurrentRow::Value { value, .. } = &mut changed;
+            let CurrentState::Value { value, .. } = &mut changed;
             if replace_event {
                 value["binding_event_ref"] = serde_json::json!(FIXTURE_EVENT_13.as_str());
             } else {
@@ -3618,7 +3618,7 @@ mod tests {
                 .is_err()
         );
         let mut replacement = entry.clone();
-        let TypedCurrentRow::Value { value, .. } = &mut replacement;
+        let CurrentState::Value { value, .. } = &mut replacement;
         value["binding_event_ref"] = serde_json::to_value(FIXTURE_EVENT_13.clone()).unwrap();
         assert!(
             store
@@ -3638,7 +3638,7 @@ mod tests {
         );
         assert_eq!(reopened.load().unwrap().generation, generation);
         let mut wrong_pair = entry;
-        let TypedCurrentRow::Value { selector, .. } = &mut wrong_pair;
+        let CurrentState::Value { selector, .. } = &mut wrong_pair;
         *selector = arkret::CurrentSelector::DirectConversationBinding {
             pair_key: Hash::new(format!("sha256:{}", "cc".repeat(32))).unwrap(),
         };
@@ -4299,7 +4299,7 @@ mod tests {
             arkret::canonical::sha256_digest(&group_info)
         ))
         .unwrap();
-        let base = arkret::MlsGroupCurrent {
+        let base = arkret::MlsGroupValue {
             effective_scope: scope.clone(),
             genesis_event_ref: FIXTURE_EVENT_1.clone(),
             cipher_suite: arkret::NonEmptyString::new(
@@ -4373,7 +4373,7 @@ mod tests {
             verification_method: DidUrl::new("did:web:station.example#authority").unwrap(),
             signed_digest: Hash::new(format!("sha256:{}", "3".repeat(64))).unwrap(),
             created_at: Utc::now(),
-            sig: Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+            signature: Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
         };
         let accepted = CommittedEventFullView {
             event: Event {
@@ -4485,7 +4485,7 @@ mod tests {
         let round_trip: arkret::AuthenticatedServiceResolution =
             serde_json::from_value(serde_json::to_value(&resolution).unwrap()).unwrap();
         assert_eq!(round_trip.service_id, station);
-        let placeholder = json!({"kid":method,"signature_algorithm":"Ed25519","sig":"AQ"});
+        let placeholder = json!({"kid":method,"signature_algorithm":"Ed25519","signature":"AQ"});
         let at = Utc::now();
         let claim_request_id = arkret::base64url_encode([71_u8; 16]);
         let mut receipt: arkret::PeerKeyPackageClaimReceipt = serde_json::from_value(json!({
@@ -4504,9 +4504,9 @@ mod tests {
         )
         .unwrap();
         let mut attestation: MlsAddAuthorityAttestation = serde_json::from_value(json!({
-            "attestor_station_id":station,"realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"genesis_event_ref":*FIXTURE_EVENT_1,"commit_event_ref":accepted.event.event_id,"commit_stream_position":2,"epoch":1,
+            "attestor_station_id":station,"realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"genesis_event_ref":*FIXTURE_EVENT_1,"commit_event_ref":accepted.event.event_id,"commit_stream_position":2,"epoch":"1",
             "welcome_id":"ak:mls_welcome_delivery:01904100-0000-7000-8000-000000000004","claim_id":"ak:keypackage_claim:01904100-0000-7000-8000-000000000003",
-            "actor_id":bob_actor,"endpoint":{"kind":"agent_runtime","verification_method":bob_method},"authorization_event_ref":*FIXTURE_EVENT_9,"leaf_signature_key_b64u":leaf.signature_key,"claim_record_digest":format!("sha256:{}","3".repeat(64)),"claim_receipt":receipt,"attested_at":arkret::canonical::format_timestamp_canonical(at),"signature":placeholder
+            "actor_id":bob_actor,"endpoint":{"kind":"agent_runtime","verification_method":bob_method},"authorization_event_ref":*FIXTURE_EVENT_9,"leaf_signature_key_base64url":leaf.signature_key,"claim_record_digest":format!("sha256:{}","3".repeat(64)),"claim_receipt":receipt,"attested_at":arkret::canonical::format_timestamp_canonical(at),"signature":placeholder
         })).unwrap();
         attestation.signature = arkret_signatures::keypackages::sign_keypackage_signing_input(
             &seed,
@@ -4518,7 +4518,7 @@ mod tests {
             MlsRosterRecord::Genesis {
                 genesis_event_ref: FIXTURE_EVENT_1.clone(),
                 actor_id: alice_actor.clone(),
-                leaf_signature_key_b64u: creator_leaf.signature_key,
+                leaf_signature_key_base64url: creator_leaf.signature_key,
                 endpoint: MlsWelcomeRecipientEndpoint::Device {
                     device_id: alice_device.clone(),
                 },
@@ -4528,7 +4528,7 @@ mod tests {
                 commit_event_ref: accepted.event.event_id.clone(),
                 consumed_proposal_ordinal: proposal.ordinal,
                 sender_actor_id: alice_actor.clone(),
-                proposal_wire_b64u: Base64UrlString::new(arkret::base64url_encode(
+                proposal_wire_base64url: Base64UrlString::new(arkret::base64url_encode(
                     &proposal.proposal_wire,
                 ))
                 .unwrap(),
@@ -4547,7 +4547,7 @@ mod tests {
             cursor: None,
         };
         let mut manifest: MlsRosterAuthorityManifest = serde_json::from_value(json!({
-            "governance_station_id":station,"realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"genesis_event_ref":*FIXTURE_EVENT_1,"group_info_ref":info_ref,"ratchet_tree_ref":tree_ref,"target_commit_event_ref":accepted.event.event_id,"target_epoch":1,"authority_head_commit_event_ref":accepted.event.event_id,"caller_actor_id":alice_actor,"total_records":2,"page_count":1,"records_digest":arkret::canonical::canonical_sha256(&records).unwrap(),"issued_at":arkret::canonical::format_timestamp_canonical(at),"signature":placeholder
+            "governance_station_id":station,"realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"genesis_event_ref":*FIXTURE_EVENT_1,"group_info_ref":info_ref,"ratchet_tree_ref":tree_ref,"target_commit_event_ref":accepted.event.event_id,"target_epoch":"1","authority_head_commit_event_ref":accepted.event.event_id,"caller_actor_id":alice_actor,"total_record_count":2,"page_count":1,"records_digest":arkret::canonical::canonical_sha256(&records).unwrap(),"issued_at":arkret::canonical::format_timestamp_canonical(at),"signature":placeholder
         })).unwrap();
         manifest.signature = arkret_signatures::keypackages::sign_keypackage_signing_input(
             &seed,
@@ -4557,9 +4557,9 @@ mod tests {
         .unwrap();
         let add_digest =
             arkret::Hash::new(arkret::canonical::canonical_sha256(&records[1]).unwrap()).unwrap();
-        let key = json!({"verification_method":method,"public_key_b64u":arkret::base64url_encode(signer.verifying_key().as_bytes())});
-        let page:arkret::MlsSelfRosterAuthorityReadOutcome=serde_json::from_value(json!({"roster":{"manifest":manifest,"page_index":0,"records":records,"next_cursor":null},"manifest_signing_key":key,"add_signing_keys":[{"record_digest":add_digest,"claim_receipt_signing_key":key,"attestation_signing_key":key}]})).unwrap();
-        let material:arkret::MlsGroupStateMaterialOutcome=serde_json::from_value(json!({"realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"epoch":0,"group_state_event_id":*FIXTURE_EVENT_1,"group_info_ref":info_ref,"group_info_bytes_b64":arkret::base64url_encode(group_info),"ratchet_tree_ref":tree_ref,"ratchet_tree_bytes_b64":arkret::base64url_encode(tree)})).unwrap();
+        let key = json!({"verification_method":method,"public_key_base64url":arkret::base64url_encode(signer.verifying_key().as_bytes())});
+        let page:arkret::MlsSelfRosterAuthorityReadResponseBody=serde_json::from_value(json!({"roster":{"manifest":manifest,"page_index":0,"records":records,"next_cursor":null},"manifest_signing_key":key,"add_signing_keys":[{"record_digest":add_digest,"claim_receipt_signing_key":key,"attestation_signing_key":key}]})).unwrap();
+        let material:arkret::MlsGroupStateMaterialResponseBody=serde_json::from_value(json!({"realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"epoch":"0","group_state_event_id":*FIXTURE_EVENT_1,"group_info_ref":info_ref,"group_info_base64url":arkret::base64url_encode(group_info),"ratchet_tree_ref":tree_ref,"ratchet_tree_base64url":arkret::base64url_encode(tree)})).unwrap();
         let roster = ArkretMlsRosterMaterial {
             request: request.clone(),
             pages: vec![page.clone()],
@@ -4593,7 +4593,7 @@ mod tests {
                 1 => invalid.request.target_epoch = 2,
                 2 => invalid.pages.clear(),
                 _ => {
-                    invalid.pages[0].manifest_signing_key.public_key_b64u =
+                    invalid.pages[0].manifest_signing_key.public_key_base64url =
                         Base64UrlString::new(arkret::base64url_encode([9; 32])).unwrap()
                 }
             }
@@ -4635,7 +4635,7 @@ mod tests {
                 verification_method: bob_method,
             },
             keypackage_claim_ref: add.welcome.keypackage_claim_ref.clone(),
-            ciphertext_b64: add.welcome.ciphertext_b64.clone(),
+            ciphertext_base64url: add.welcome.ciphertext_base64url.clone(),
             producer_proof: signature(DetachedSignatureContext::MlsWelcomeDelivery),
         };
         let mut bob_group =
@@ -4802,7 +4802,7 @@ mod tests {
         )
         .unwrap();
         let (next_info, next_tree) = bob_group.public_group_state_bytes().unwrap();
-        let next_base = arkret::MlsGroupCurrent {
+        let next_base = arkret::MlsGroupValue {
             effective_scope: scope.clone(),
             genesis_event_ref: FIXTURE_EVENT_1.clone(),
             cipher_suite: base.cipher_suite.clone(),
@@ -4962,7 +4962,7 @@ mod tests {
                 .unwrap(),
             )
             .unwrap();
-        next_attestation.leaf_signature_key_b64u = next_proposal
+        next_attestation.leaf_signature_key_base64url = next_proposal
             .target_after
             .as_ref()
             .unwrap()
@@ -4978,7 +4978,7 @@ mod tests {
             commit_event_ref: next_accepted.event.event_id.clone(),
             consumed_proposal_ordinal: next_proposal.ordinal,
             sender_actor_id: next_accepted.event.actor_id.clone(),
-            proposal_wire_b64u: Base64UrlString::new(arkret::base64url_encode(
+            proposal_wire_base64url: Base64UrlString::new(arkret::base64url_encode(
                 &next_proposal.proposal_wire,
             ))
             .unwrap(),
@@ -4992,7 +4992,7 @@ mod tests {
         next_page.roster.manifest.target_commit_event_ref = next_accepted.event.event_id.clone();
         next_page.roster.manifest.authority_head_commit_event_ref =
             next_accepted.event.event_id.clone();
-        next_page.roster.manifest.total_records = 3;
+        next_page.roster.manifest.total_record_count = 3;
         next_page.roster.manifest.records_digest =
             Hash::new(arkret::canonical::canonical_sha256(&next_page.roster.records).unwrap())
                 .unwrap();
@@ -5382,7 +5382,7 @@ mod tests {
             verification_method: DidUrl::new("did:web:station.example#authority").unwrap(),
             signed_digest: Hash::new(format!("sha256:{}", "3".repeat(64))).unwrap(),
             created_at: Utc::now(),
-            sig: Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
+            signature: Base64UrlString::new("c2lnbmF0dXJl").unwrap(),
         };
         let accepted = CommittedEventFullView {
             event: Event {
@@ -5429,7 +5429,7 @@ mod tests {
                 verification_method: bob_method,
             },
             keypackage_claim_ref: add.welcome.keypackage_claim_ref.clone(),
-            ciphertext_b64: add.welcome.ciphertext_b64.clone(),
+            ciphertext_base64url: add.welcome.ciphertext_base64url.clone(),
             producer_proof: signature(DetachedSignatureContext::MlsWelcomeDelivery),
         };
         let mut bob_group =
@@ -5589,7 +5589,7 @@ mod tests {
         accepted_next.commit.commit_id = RealmCommitId::from_digest([64; 32]);
         accepted_next.commit.previous_commit_ref = Some(accepted.commit.commit_id.clone());
         accepted_next.commit.stream_position = 4;
-        let base = arkret::MlsGroupCurrent {
+        let base = arkret::MlsGroupValue {
             effective_scope: scope.clone(),
             genesis_event_ref: FIXTURE_EVENT_1.clone(),
             cipher_suite: arkret::NonEmptyString::new(
@@ -5613,16 +5613,16 @@ mod tests {
                 cursor: None,
             },
             pages: Vec::new(),
-            genesis_material: arkret::MlsGroupStateMaterialOutcome {
+            genesis_material: arkret::MlsGroupStateMaterialResponseBody {
                 realm_id: realm_id.clone(),
                 effective_scope: scope.clone(),
                 mls_group_id: alice_group.group_id(),
                 epoch: Default::default(),
                 group_state_event_id: FIXTURE_EVENT_1.clone(),
                 group_info_ref: arkret::BlobRef::from_bytes(b"missing"),
-                group_info_bytes_b64: Base64UrlString::new("bWlzc2luZw").unwrap(),
+                group_info_base64url: Base64UrlString::new("bWlzc2luZw").unwrap(),
                 ratchet_tree_ref: arkret::BlobRef::from_bytes(b"missing"),
-                ratchet_tree_bytes_b64: Base64UrlString::new("bWlzc2luZw").unwrap(),
+                ratchet_tree_base64url: Base64UrlString::new("bWlzc2luZw").unwrap(),
             },
         };
         let error = reopened
@@ -5871,7 +5871,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let mut entry = TypedCurrentRow::Value {
+        let mut entry = CurrentState::Value {
             selector: arkret::CurrentSelector::RealmGenesis,
             source_stream_ref: arkret::CommitStreamRef::Realm {
                 realm_id: FIXTURE_REALM_B.clone(),
@@ -5892,7 +5892,7 @@ mod tests {
                 .realm_is_direct_conversation(FIXTURE_REALM.as_str())
                 .unwrap()
         );
-        let TypedCurrentRow::Value {
+        let CurrentState::Value {
             source_stream_ref, ..
         } = &mut entry;
         *source_stream_ref = arkret::CommitStreamRef::Realm {

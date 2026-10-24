@@ -272,7 +272,7 @@ fn terminal_event_stream_payload(
 }
 
 pub(crate) async fn handle_chat_send(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
@@ -286,20 +286,23 @@ pub(crate) async fn handle_chat_send(
         DirectiveKind, fuzzy_match_model_name, parse_directives, parse_model_target,
     };
 
-    let message = params.get("message").and_then(|v| v.as_str()).unwrap_or("");
-    let agent = params
+    let message = parameters
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let agent = parameters
         .get("agent")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
-    let request_id = params
+    let request_id = parameters
         .get("request_id")
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
     let requested_session_id =
-        validate_uuid_v7_session_id(params.get("session_id").and_then(|v| v.as_str()))
+        validate_uuid_v7_session_id(parameters.get("session_id").and_then(|v| v.as_str()))
             .map_err(|message| (INVALID_PARAMS, message))?;
-    let attachments: Vec<ChatAttachment> = params
+    let attachments: Vec<ChatAttachment> = parameters
         .get("attachments")
         .map(|value| serde_json::from_value(value.clone()))
         .transpose()
@@ -337,7 +340,7 @@ pub(crate) async fn handle_chat_send(
 
     // Deterministic mock path for integration/e2e testing without external model dependencies.
     // Enabled only when the caller explicitly passes `mock_response`.
-    if let Some(mock_response) = params.get("mock_response") {
+    if let Some(mock_response) = parameters.get("mock_response") {
         let raw_response = if let Some(text) = mock_response.as_str() {
             text.to_owned()
         } else if mock_response.as_bool().unwrap_or(false) {
@@ -1461,19 +1464,22 @@ async fn handle_claude_send(
 }
 
 pub(crate) async fn handle_chat_history(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
     principal: Option<&str>,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
-    let source_channel = params
+    let limit = parameters
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(50) as usize;
+    let source_channel = parameters
         .get("source_channel")
-        .or_else(|| params.get("channel"))
+        .or_else(|| parameters.get("channel"))
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|v| !v.is_empty());
@@ -1500,15 +1506,15 @@ pub(crate) async fn handle_chat_history(
 }
 
 pub(crate) async fn handle_chat_abort(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
     principal: Option<&str>,
 ) -> RpcResult {
-    let target = params
+    let target = parameters
         .get("run_id")
-        .or_else(|| params.get("session_id"))
-        .or_else(|| params.get("thread_id"))
+        .or_else(|| parameters.get("session_id"))
+        .or_else(|| parameters.get("thread_id"))
         .and_then(Value::as_str);
     if let Some(target) = target
         && let Some(owner) = principal
@@ -1516,19 +1522,19 @@ pub(crate) async fn handle_chat_abort(
     {
         return Ok(json!({"status":"stop_requested","target":target,"execution_target":"claude"}));
     }
-    if params.get("run_id").is_some() {
+    if parameters.get("run_id").is_some() {
         return Err((
             INVALID_REQUEST,
             "Claude run not found in your execution scope".to_owned(),
         ));
     }
-    let thread_id_param = params
+    let thread_id_param = parameters
         .get("thread_id")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(ToOwned::to_owned);
-    let session_id_param = params
+    let session_id_param = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .map(str::trim)
@@ -1548,7 +1554,7 @@ pub(crate) async fn handle_chat_abort(
     if thread_id_param.is_some() || session_id_param.is_some() {
         return Ok(json!({"status":"not_found"}));
     }
-    if params.get("all").and_then(Value::as_bool) != Some(true) {
+    if parameters.get("all").and_then(Value::as_bool) != Some(true) {
         return Err((
             INVALID_REQUEST,
             "specify a session_id, run_id or explicit all=true".to_owned(),
@@ -1649,11 +1655,11 @@ pub(crate) async fn handle_sessions_list(
 }
 
 pub(crate) async fn handle_sessions_ambient_get(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
     channel: &GatewayChannel,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -1673,11 +1679,11 @@ pub(crate) async fn handle_sessions_ambient_get(
 }
 
 pub(crate) async fn handle_sessions_idle_reply_get(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
     channel: &GatewayChannel,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -1704,11 +1710,11 @@ pub(crate) async fn handle_sessions_idle_reply_get(
 }
 
 pub(crate) async fn handle_sessions_preview(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
     channel: &GatewayChannel,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -1747,7 +1753,7 @@ pub(crate) async fn handle_sessions_preview(
 
 #[cfg(feature = "arkret")]
 fn arkret_publish_params(
-    params: &Value,
+    parameters: &Value,
 ) -> Result<
     (
         crate::arkret_delivery::DeliveryCheckpointKind,
@@ -1759,13 +1765,13 @@ fn arkret_publish_params(
     ),
     (i64, String),
 > {
-    let kind_raw = params
+    let kind_raw = parameters
         .get("kind")
         .and_then(Value::as_str)
         .unwrap_or("milestone");
     let kind = crate::arkret_delivery::DeliveryCheckpointKind::parse(kind_raw)
         .map_err(|error| (INVALID_REQUEST, error.to_string()))?;
-    let summary = params
+    let summary = parameters
         .get("summary")
         .and_then(Value::as_str)
         .unwrap_or("")
@@ -1774,7 +1780,7 @@ fn arkret_publish_params(
     if summary.is_empty() {
         return Err((INVALID_REQUEST, "missing publish summary".to_owned()));
     }
-    let title = params
+    let title = parameters
         .get("title")
         .and_then(Value::as_str)
         .map(str::trim)
@@ -1782,7 +1788,7 @@ fn arkret_publish_params(
         .map(str::to_owned)
         .unwrap_or_else(|| kind.label().to_owned());
     let list = |key: &str| {
-        params
+        parameters
             .get(key)
             .and_then(Value::as_array)
             .map(|values| {
@@ -1815,11 +1821,11 @@ fn arkret_publish_params(
 
 #[cfg(feature = "arkret")]
 pub(crate) async fn handle_sessions_arkret_delivery_preview(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
     channel: &GatewayChannel,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(Value::as_str)
         .unwrap_or("")
@@ -1844,7 +1850,7 @@ pub(crate) async fn handle_sessions_arkret_delivery_preview(
         ));
     }
     let (kind, title, summary, verification, blockers, next_actions) =
-        arkret_publish_params(params)?;
+        arkret_publish_params(parameters)?;
     let checkpoint = crate::arkret_delivery::DeliveryCheckpoint {
         checkpoint_id: uuid::Uuid::nil(),
         binding_id: binding.binding_id,
@@ -1881,11 +1887,11 @@ pub(crate) async fn handle_sessions_arkret_delivery_preview(
 
 #[cfg(feature = "arkret")]
 pub(crate) async fn handle_sessions_arkret_delivery_publish(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
     channel: &GatewayChannel,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(Value::as_str)
         .unwrap_or("")
@@ -1903,7 +1909,7 @@ pub(crate) async fn handle_sessions_arkret_delivery_publish(
                 "session has no Arkret execution binding".to_owned(),
             ))?;
     let (kind, title, summary, verification, blockers, next_actions) =
-        arkret_publish_params(params)?;
+        arkret_publish_params(parameters)?;
     let request = crate::arkret_delivery::PublishCheckpointRequest {
         kind,
         title,
@@ -1931,10 +1937,10 @@ pub(crate) async fn handle_sessions_arkret_delivery_publish(
 }
 
 pub(crate) async fn handle_sessions_patch(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let requested_session_id = params
+    let requested_session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -1943,7 +1949,7 @@ pub(crate) async fn handle_sessions_patch(
     } else {
         requested_session_id.to_owned()
     };
-    let patch = params
+    let patch = parameters
         .get("patch")
         .cloned()
         .unwrap_or(Value::Object(serde_json::Map::new()));
@@ -1954,23 +1960,23 @@ pub(crate) async fn handle_sessions_patch(
     ))?;
 
     // Apply known patch fields.
-    if let Some(model) = patch_str(params, &patch, "model") {
+    if let Some(model) = patch_str(parameters, &patch, "model") {
         updated.model = Some(model.to_owned());
     }
-    if let Some(provider) = patch_str(params, &patch, "provider") {
+    if let Some(provider) = patch_str(parameters, &patch, "provider") {
         updated.provider = Some(provider.to_owned());
     }
     // Agent binding. A session's agent is fixed once set, so only record it
     // when the session does not already have one (e.g. on first creation).
     if updated.agent_id.is_none()
-        && let Some(agent) = patch_str(params, &patch, "agent")
+        && let Some(agent) = patch_str(parameters, &patch, "agent")
     {
         let normalized = agent.trim();
         if !normalized.is_empty() {
             updated.agent_id = Some(normalized.to_owned());
         }
     }
-    if let Some(label) = patch_str(params, &patch, "label") {
+    if let Some(label) = patch_str(parameters, &patch, "label") {
         let normalized = label.trim();
         updated.label = if normalized.is_empty() {
             None
@@ -1978,19 +1984,19 @@ pub(crate) async fn handle_sessions_patch(
             Some(normalized.to_owned())
         };
     }
-    if let Some(channel) = patch_str(params, &patch, "channel") {
+    if let Some(channel) = patch_str(parameters, &patch, "channel") {
         updated.last_channel = updated.channel.take();
         updated.channel = Some(channel.to_owned());
     }
     // Threading support: thread_id and parent_message_id
-    if let Some(thread_id) = patch_str(params, &patch, "thread_id") {
+    if let Some(thread_id) = patch_str(parameters, &patch, "thread_id") {
         updated.core_thread_id = Some(thread_id.to_owned());
     }
-    if let Some(parent_id) = patch_str(params, &patch, "parent_message_id") {
+    if let Some(parent_id) = patch_str(parameters, &patch, "parent_message_id") {
         updated.parent_message_id = Some(parent_id.to_owned());
     }
     // Group activation mode
-    if let Some(ga) = patch_str(params, &patch, "group_activation") {
+    if let Some(ga) = patch_str(parameters, &patch, "group_activation") {
         let normalized = ga.trim();
         updated.group_activation = if normalized.is_empty() {
             None
@@ -1999,8 +2005,10 @@ pub(crate) async fn handle_sessions_patch(
         };
     }
 
-    // Apply overrides from the patch object or from the top-level params.
-    let overrides_value = patch.get("overrides").or_else(|| params.get("overrides"));
+    // Apply overrides from the patch object or from the top-level parameters.
+    let overrides_value = patch
+        .get("overrides")
+        .or_else(|| parameters.get("overrides"));
     if let Some(ov) = overrides_value
         && let Ok(incoming) = serde_json::from_value::<SessionOverrides>(ov.clone())
     {
@@ -2012,20 +2020,20 @@ pub(crate) async fn handle_sessions_patch(
     Ok(json!({ "session_id": updated.session_id, "status": "patched" }))
 }
 
-fn patch_str<'a>(params: &'a Value, patch: &'a Value, key: &str) -> Option<&'a str> {
+fn patch_str<'a>(parameters: &'a Value, patch: &'a Value, key: &str) -> Option<&'a str> {
     patch
         .get(key)
         .and_then(|v| v.as_str())
-        .or_else(|| params.get(key).and_then(|v| v.as_str()))
+        .or_else(|| parameters.get(key).and_then(|v| v.as_str()))
 }
 
 pub(crate) async fn handle_sessions_reset(
-    params: &Value,
+    parameters: &Value,
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -2051,12 +2059,12 @@ pub(crate) async fn handle_sessions_reset(
 }
 
 pub(crate) async fn handle_sessions_delete(
-    params: &Value,
+    parameters: &Value,
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -2078,12 +2086,12 @@ pub(crate) async fn handle_sessions_delete(
 // ── Session Overrides ────────────────────────────────────────────────────────
 
 pub(crate) async fn handle_sessions_overrides_get(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
-        .or_else(|| params.get("key"))
+        .or_else(|| parameters.get("key"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.is_empty() {
@@ -2104,19 +2112,19 @@ pub(crate) async fn handle_sessions_overrides_get(
 }
 
 pub(crate) async fn handle_sessions_overrides_set(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
-        .or_else(|| params.get("key"))
+        .or_else(|| parameters.get("key"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
 
-    let overrides_value = params
+    let overrides_value = parameters
         .get("overrides")
         .cloned()
         .unwrap_or(Value::Object(serde_json::Map::new()));
@@ -2146,11 +2154,11 @@ pub(crate) async fn handle_identity_links_get(channel: &GatewayChannel) -> RpcRe
 }
 
 pub(crate) async fn handle_identity_links_set(
-    params: &Value,
+    parameters: &Value,
     channel: &GatewayChannel,
 ) -> RpcResult {
     let input: HashMap<String, Vec<String>> = serde_json::from_value(
-        params
+        parameters
             .get("links")
             .cloned()
             .unwrap_or(Value::Object(serde_json::Map::new())),
@@ -2169,10 +2177,13 @@ pub(crate) async fn handle_identity_links_set(
     Ok(json!({ "status": "updated", "count": merged.len(), "links": merged }))
 }
 
-pub(crate) async fn handle_identity_link(params: &Value, channel: &GatewayChannel) -> RpcResult {
-    let canonical = params
+pub(crate) async fn handle_identity_link(
+    parameters: &Value,
+    channel: &GatewayChannel,
+) -> RpcResult {
+    let canonical = parameters
         .get("canonical")
-        .or_else(|| params.get("identity"))
+        .or_else(|| parameters.get("identity"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim();
@@ -2180,7 +2191,7 @@ pub(crate) async fn handle_identity_link(params: &Value, channel: &GatewayChanne
         return Err((INVALID_PARAMS, "missing 'canonical' parameter".to_owned()));
     }
 
-    let mut peers: Vec<String> = params
+    let mut peers: Vec<String> = parameters
         .get("ids")
         .and_then(|v| v.as_array())
         .map(|items| {
@@ -2191,7 +2202,7 @@ pub(crate) async fn handle_identity_link(params: &Value, channel: &GatewayChanne
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    if let Some(single) = params.get("id").and_then(|v| v.as_str()) {
+    if let Some(single) = parameters.get("id").and_then(|v| v.as_str()) {
         peers.push(single.to_owned());
     }
     if peers.is_empty() {
@@ -2221,13 +2232,13 @@ pub(crate) async fn handle_dm_scope_policy_get(channel: &GatewayChannel) -> RpcR
 }
 
 pub(crate) async fn handle_dm_scope_policy_set(
-    params: &Value,
+    parameters: &Value,
     channel: &GatewayChannel,
 ) -> RpcResult {
-    let raw = params
+    let raw = parameters
         .get("policy")
         .cloned()
-        .unwrap_or_else(|| params.clone());
+        .unwrap_or_else(|| parameters.clone());
     let mut policy: DmScopePolicyConfig = serde_json::from_value(raw)
         .map_err(|e| (INVALID_PARAMS, format!("invalid policy: {e}")))?;
     policy.normalize();
@@ -2285,22 +2296,22 @@ fn merge_session_entries(mut left: SessionEntry, right: SessionEntry) -> Session
 }
 
 pub(crate) async fn handle_dm_scope_migrate(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let target_scope = parse_dm_scope(params.get("scope").and_then(|v| v.as_str()))
+    let target_scope = parse_dm_scope(parameters.get("scope").and_then(|v| v.as_str()))
         .ok_or_else(|| (INVALID_PARAMS, "invalid or missing 'scope'".to_owned()))?;
-    let dry_run = params
+    let dry_run = parameters
         .get("dry_run")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let filter_agent = params
+    let filter_agent = parameters
         .get("agent")
-        .or_else(|| params.get("agent_id"))
+        .or_else(|| parameters.get("agent_id"))
         .and_then(|v| v.as_str())
         .map(|v| v.trim().to_ascii_lowercase())
         .filter(|v| !v.is_empty());
-    let filter_channel = params
+    let filter_channel = parameters
         .get("channel")
         .and_then(|v| v.as_str())
         .map(|v| v.trim().to_ascii_lowercase())
@@ -2396,10 +2407,10 @@ pub(crate) async fn handle_dm_scope_migrate(
 // ── Sessions Usage ──────────────────────────────────────────────────────────
 
 pub(crate) async fn handle_sessions_usage(
-    params: &Value,
+    parameters: &Value,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -2454,10 +2465,10 @@ pub(crate) async fn handle_sessions_usage(
 // ── Media Staging ───────────────────────────────────────────────────────────
 
 pub(crate) async fn handle_media_staging_list(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let session_id = params.get("session_id").and_then(|v| v.as_str());
+    let session_id = parameters.get("session_id").and_then(|v| v.as_str());
     let store = MediaStore::from_home(&channel.config().savfox_home);
     let entries = store.list_staging(session_id).await;
     Ok(json!({
@@ -2468,16 +2479,16 @@ pub(crate) async fn handle_media_staging_list(
 }
 
 pub(crate) async fn handle_media_staging_import(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    let id = parameters.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.trim().is_empty() {
         return Err((INVALID_PARAMS, "missing 'id' parameter".to_owned()));
     }
-    let workspace_dir = params
+    let workspace_dir = parameters
         .get("workspace_dir")
-        .or_else(|| params.get("workspace"))
+        .or_else(|| parameters.get("workspace"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
             (
@@ -2503,10 +2514,10 @@ pub(crate) async fn handle_media_staging_import(
 }
 
 pub(crate) async fn handle_media_staging_cleanup(
-    params: &Value,
+    parameters: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -2526,15 +2537,15 @@ pub(crate) async fn handle_media_staging_cleanup(
 // ── Typing Indicators ───────────────────────────────────────────────────────
 
 pub(crate) async fn handle_typing_start(
-    params: &Value,
+    parameters: &Value,
     session_mgr: &Arc<GatewaySessionManager>,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let agent_id = params
+    let agent_id = parameters
         .get("agent_id")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
@@ -2554,15 +2565,15 @@ pub(crate) async fn handle_typing_start(
 }
 
 pub(crate) async fn handle_typing_stop(
-    params: &Value,
+    parameters: &Value,
     session_mgr: &Arc<GatewaySessionManager>,
 ) -> RpcResult {
-    let session_id = params
+    let session_id = parameters
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let agent_id = params
+    let agent_id = parameters
         .get("agent_id")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
@@ -2610,8 +2621,8 @@ const EVENT_TYPES: &[&str] = &[
     "memory.updated",
 ];
 
-pub(crate) async fn handle_events_subscribe(params: &Value) -> RpcResult {
-    let events: Vec<String> = params
+pub(crate) async fn handle_events_subscribe(parameters: &Value) -> RpcResult {
+    let events: Vec<String> = parameters
         .get("events")
         .and_then(|v| v.as_array())
         .map(|arr| {
@@ -2649,8 +2660,8 @@ pub(crate) async fn handle_events_subscribe(params: &Value) -> RpcResult {
     }))
 }
 
-pub(crate) async fn handle_events_unsubscribe(params: &Value) -> RpcResult {
-    let events: Vec<String> = params
+pub(crate) async fn handle_events_unsubscribe(parameters: &Value) -> RpcResult {
+    let events: Vec<String> = parameters
         .get("events")
         .and_then(|v| v.as_array())
         .map(|arr| {
