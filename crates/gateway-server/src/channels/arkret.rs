@@ -1917,7 +1917,7 @@ async fn upload_account_mls_key_packages(
                 warn!(
                     channel_id = %channel.id,
                     account_id = %account.id,
-                    accepted = outcome.accepted,
+                    accepted_count = outcome.accepted_count,
                     rejected = ?outcome.rejections,
                     "arkret: MLS KeyPackage upload returned rejected entries"
                 );
@@ -1925,7 +1925,7 @@ async fn upload_account_mls_key_packages(
                 debug!(
                     channel_id = %channel.id,
                     account_id = %account.id,
-                    accepted = outcome.accepted,
+                    accepted_count = outcome.accepted_count,
                     refs = outcome.keypackage_refs.len(),
                     "arkret: published MLS KeyPackages"
                 );
