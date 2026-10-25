@@ -368,10 +368,10 @@ impl ArkretAppletConfig {
 }
 
 fn parse_namespaces(value: Option<&Value>) -> anyhow::Result<AppletNamespaces> {
-    value.map(|value| serde_json::from_value(value.clone()).map_err(Into::into))
+    value
+        .map(|value| serde_json::from_value(value.clone()).map_err(Into::into))
         .unwrap_or_else(|| Ok(AppletNamespaces::default()))
 }
-
 
 fn parse_trusted_verification_methods(
     value: Option<&Value>,
