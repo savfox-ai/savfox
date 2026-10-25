@@ -9,8 +9,10 @@ remain owned by the gateway.
 
 The workspace consumes sibling checkouts at `../../glory-rs/glory` and
 `../../glory-rs/sapid`. In the Windows development layout these are
-`D:/Works/glory-rs/glory` and `D:/Works/glory-rs/sapid`. CI restores pinned source
-revisions with `.github/actions/ui-sources`.
+`D:/Works/glory-rs/glory` and `D:/Works/glory-rs/sapid`. CI checks out the latest
+`main` branch from `glory-rs/glory` and `sapid-ui/sapid` with `.github/actions/ui-sources`, and records both commit SHAs
+in the build log. Local checkouts may contain work in progress; use clean
+checkouts of those upstream branches when verifying compatibility.
 
 Install the Rust `wasm32-unknown-unknown` target and a `wasm-bindgen-cli` version
 matching the `wasm-bindgen` entry in `Cargo.lock`. Set `WASM_BINDGEN` or pass

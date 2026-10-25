@@ -441,14 +441,18 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
             )),
             ui::error_text(ctx, state.error),
             when(show_search, move || {
-                col().class("channels-search").fill(
+                col().class("channels-search").fill((
                     sapid::text_field()
                         .unstyled()
                         .name(search_label)
-                        .placeholder(search_placeholder)
                         .value(search)
                         .on_value_change(move |value| ui::set(search, value)),
-                )
+                    when(search.map(|value| value.is_empty()), move || {
+                        text()
+                            .class("channels-search__hint")
+                            .content(search_placeholder)
+                    }),
+                ))
             }),
             col().class("channels-grid").fill(rows),
             when(empty, move || {

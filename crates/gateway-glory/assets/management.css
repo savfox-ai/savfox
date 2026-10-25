@@ -5401,3 +5401,6 @@
 .management-page--tts .record-list:has(.tts-provider-row) { gap:0!important; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .management-page--tts .tts-provider-row { border:0!important; border-bottom:1px solid var(--border)!important; min-height:64px; }
 .management-page--tts .tts-provider-row:last-child { border-bottom:0!important; }
+
+:is(.agent-list-search,.config-sidebar__search) .form-field{position:relative}
+:is(.agent-list-search,.config-sidebar__search) .form-field--empty>.form-label{display:block!important;position:absolute;left:12px;right:12px;top:50%;transform:translateY(-50%);margin:0!important;font-weight:400!important;font-size:12px!important;color:var(--text-muted)!important;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:1}

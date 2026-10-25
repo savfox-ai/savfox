@@ -1026,3 +1026,5 @@ body[data-theme=dark] .session-icon { filter:invert(.85); }
 .session-page .sapid-combobox-option{flex:0 0 auto!important;width:100%!important;min-height:32px!important;padding:7px 10px!important;border:0!important;border-radius:6px!important;background:transparent!important;color:var(--text-primary)!important;text-align:left!important;justify-content:flex-start!important;font:inherit!important;font-size:12px!important;line-height:1.5!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .session-page .sapid-combobox-option:is(:hover,:focus,[aria-selected=true],[data-gly-highlighted]){background:var(--bg-hover)!important;color:var(--text-primary)!important;outline:0}
 .session-page .sapid-combobox-empty{color:var(--text-muted)!important;padding:10px!important;font-size:12px!important}
+
+.session-list-search{position:relative}.session-list-search .session-search-hint{position:absolute;left:36px;right:14px;top:50%;transform:translateY(-50%);font-size:12px!important;font-weight:400!important;color:var(--text-muted)!important;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

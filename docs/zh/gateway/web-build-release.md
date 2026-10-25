@@ -8,7 +8,9 @@
 
 工作区使用相对根目录的 `../../glory-rs/glory` 与 `../../glory-rs/sapid`。
 本地对应 `D:/Works/glory-rs/glory` 和 `D:/Works/glory-rs/sapid`。
-CI 通过 `.github/actions/ui-sources` 检出固定版本，并恢复相同目录关系。
+CI 通过 `.github/actions/ui-sources` 检出这两个仓库最新的 `main` 分支，
+恢复相同目录关系，并在日志中记录实际提交 SHA。本地目录可能有正在开发的改动；
+验证上游兼容性时，应使用远端 `main` 的干净检出。
 
 需要安装 Rust 的 `wasm32-unknown-unknown` target，以及与 `Cargo.lock` 中
 `wasm-bindgen` 版本一致的 `wasm-bindgen-cli`。可通过 `WASM_BINDGEN` 环境变量

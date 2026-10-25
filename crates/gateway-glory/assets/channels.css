@@ -1417,3 +1417,5 @@
 /* Preserve the reference dashboard's row heights across desktop and phone. */
 .channels-health__card{min-height:114px}
 @media(max-width:768px){.channels-health__card{min-height:82px}.channels-health__card--connected,.channels-health__card--running{min-height:106px}.app-layout .channels-health__value{font-size:22px!important}}
+
+.channels-search{position:relative}.channels-search__hint{position:absolute;left:12px;right:12px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px!important;font-weight:400!important;color:var(--text-muted)!important}

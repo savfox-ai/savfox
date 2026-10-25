@@ -120,6 +120,7 @@ pub(super) fn render(
     let list_ctx = ctx.clone();
     let list_state = state.clone();
     let list_query = sessions.clone();
+    let search_hint = label(ctx, "Filter sessions…", "搜索会话…");
     let sidebar = col()
         .class(scope.bond(move || {
             if list_open.get() {
@@ -165,9 +166,11 @@ pub(super) fn render(
                     .unstyled()
                     .class("session-search-input")
                     .name(label(ctx, "Filter sessions", "搜索会话"))
-                    .placeholder(label(ctx, "Filter sessions…", "搜索会话…"))
                     .value(search)
                     .on_value_change(move |value| set(search, value)),
+                when(search.map(|value| value.is_empty()), move || {
+                    text().class("session-search-hint").content(search_hint)
+                }),
             )),
             error_text(ctx, sessions.error),
             col().class("session-list-scroll").fill((
@@ -788,7 +791,6 @@ fn picker(
                 .unstyled()
                 .class("chat-model-select")
                 .label(label(ctx, en, zh))
-                .placeholder(label(ctx, "Choose model", "选择模型"))
                 .value(selected_key)
                 .options(native_options)
                 .empty_message(words(

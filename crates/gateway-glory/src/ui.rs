@@ -155,19 +155,26 @@ pub fn field(
 ) -> Box<dyn Widget> {
     let label: Lotus<String> = label.into();
     Box::new(
-        col().class("form-field form-group").fill((
-            text()
-                .class("field-label form-label")
-                .content(label.clone()),
-            sapid::text_field()
-                .unstyled()
-                .class("form-input")
-                .placeholder(label.clone())
-                .name(label)
-                .value(value)
-                .multiline(multiline)
-                .on_value_change(move |next| set(value, next)),
-        )),
+        col()
+            .class(value.map(|value| {
+                if value.is_empty() {
+                    "form-field form-group form-field--empty".into()
+                } else {
+                    "form-field form-group".into()
+                }
+            }))
+            .fill((
+                text()
+                    .class("field-label form-label")
+                    .content(label.clone()),
+                sapid::text_field()
+                    .unstyled()
+                    .class("form-input")
+                    .name(label)
+                    .value(value)
+                    .multiline(multiline)
+                    .on_value_change(move |next| set(value, next)),
+            )),
     )
 }
 
