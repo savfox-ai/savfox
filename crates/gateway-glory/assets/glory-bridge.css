@@ -120,3 +120,5 @@ body{font-size:14px;overflow:hidden}
 @media(max-width:480px){.sidebar-overlay.visible{display:none!important}}
 /* Match the reference header on phones, including its compact brand subtitle. */
 @media(max-width:480px){.app-layout{--header-height:56px}.app-layout>.top-header{gap:6px!important}.top-header__left,.top-header__right,.top-header__brand{gap:8px!important}.top-header__brand .top-header__logo{width:36px!important;height:36px!important}.app-layout .top-header__title{font-size:26px!important}.app-layout .top-header__subtitle{display:inline-flex!important;font-size:9px!important;letter-spacing:.12em;white-space:nowrap}.top-header__bell{display:inline-flex!important;width:38px!important;height:38px!important;flex-shrink:0}.top-header__health{font-size:11px!important;padding:4px 8px!important}}
+
+@media(max-width:360px){.app-layout .top-header__subtitle{display:none!important}}

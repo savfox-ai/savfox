@@ -16,6 +16,12 @@ const allRoutes = [['sessions', '/sessions'], ['dashboard', '/'], ['agents', '/a
 const requestedRoutes = process.env.SAVFOX_VISUAL_ROUTES?.split(',').map(value => value.trim()).filter(Boolean);
 const routes = requestedRoutes ? allRoutes.filter(([name]) => requestedRoutes.includes(name)) : allRoutes;
 if (!routes.length || requestedRoutes?.some(name => !allRoutes.some(([known]) => known === name))) throw new Error('SAVFOX_VISUAL_ROUTES must contain known route names');
+const viewportSpecs = process.env.SAVFOX_VISUAL_VIEWPORTS;
+const viewports = viewportSpecs ? viewportSpecs.split(',').map(spec => {
+  const match = spec.trim().match(/^(\d{3,4})x(\d{3,4})$/);
+  if (!match) throw new Error('SAVFOX_VISUAL_VIEWPORTS must contain WIDTHxHEIGHT pairs');
+  return [Number(match[1]), Number(match[2])];
+}) : [[1440, 900], [390, 844]];
 const report = { base, source: 'actual frontend with read-only Gateway requests', pages: [], resizes: [], popups: [], errors: [] };
 let browser;
 let page;
@@ -73,11 +79,12 @@ function inspectLayout() {
   return {
     viewport: { width: innerWidth, height: innerHeight },
     document: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight },
-    geometry: Object.fromEntries(['.top-header', '.sidebar', '.main-content', '.session-list-pane', '.session-list-scroll', '.session-main', '.chat-input-area', '.chat-input', '.bottom-tab-bar', '.sapid-combobox-listbox', '.sapid-select-listbox', '.skill-card .sapid-collapsible-panel'].map(selector => [selector, geometry(selector)])),
+    geometry: Object.fromEntries(['.top-header', '.sidebar', '.main-content', '.session-list-pane', '.session-list-scroll', '.session-main', '.chat-input-area', '.chat-input', '.chat-picker--agent .sapid-select', '.chat-picker--model .chat-model-select', '.chat-picker--effort .sapid-select', '.sapid-prompt-actions>button:first-child', '.sapid-prompt-actions .sapid-file-button', '.session-search-field', '.session-search-input', '.session-search-field .session-icon', '.bottom-tab-bar', '.sapid-combobox-listbox', '.sapid-select-listbox', '.skill-card .sapid-collapsible-panel'].map(selector => [selector, geometry(selector)])),
     labels,
     icons: { count: glyphs.length, missing: missingIcons },
     duplicateButtons,
     clippedConfigCards,
+    searchSkin: (() => { const input = document.querySelector(".session-search-input"); if (!input) return null; const style = getComputedStyle(input); return { border: parseFloat(style.borderTopWidth), shadow: style.boxShadow, background: style.backgroundImage }; })(),
   };
 }
 
@@ -114,9 +121,9 @@ function verify(item) {
     const scroll = geometry['.session-list-scroll'];
     const composer = geometry['.chat-input-area'];
     const sessionMain = geometry['.session-main'];
-    if (!sessionMain || sessionMain.width < 250 || sessionMain.height < 200) problems.push('session workspace disappeared or collapsed');
-    if (viewport.width >= 900) {
-      if (!list || Math.abs(list.width - 320) > 2) problems.push(`desktop session list width must be 320px, received ${list?.width}`);
+    if (!sessionMain || sessionMain.width < 200 || sessionMain.height < 200) problems.push('session workspace disappeared or collapsed');
+    if (viewport.width > 760) {
+      if (!list || (viewport.width >= 1200 ? Math.abs(list.width - 320) > 2 : list.width < 240 || list.width > 322)) problems.push(`desktop session list width must be 320px, received ${list?.width}`);
       if (!scroll || !['auto', 'scroll'].includes(scroll.overflowY)) problems.push('session list must have independent vertical scrolling');
       if (item.sessionRows >= 20 && scroll && scroll.scrollHeight <= scroll.clientHeight) problems.push('long session list does not scroll inside its own pane');
     }
@@ -124,6 +131,21 @@ function verify(item) {
     const boundary = bottom && bottom.height > 0 ? bottom.y : viewport.height;
     if (!composer || composer.height < 100 || composer.bottom > boundary + 2) problems.push(`composer is clipped/overlaps navigation: bottom=${composer?.bottom}, boundary=${boundary}`);
     if (composer && composer.right > viewport.width + 1) problems.push('composer horizontal overflow');
+    const card = geometry['.chat-input'];
+    const controls = ['.chat-picker--agent .sapid-select', '.chat-picker--model .chat-model-select', '.chat-picker--effort .sapid-select', '.sapid-prompt-actions>button:first-child', '.sapid-prompt-actions .sapid-file-button'].map(selector => ({ selector, bounds: geometry[selector] }));
+    for (const { selector, bounds } of controls) {
+      if (!bounds || bounds.width < 24 || bounds.height < 28) problems.push('editor control is missing or collapsed: ' + selector);
+      else if (!card || bounds.x < card.x - 1 || bounds.right > card.right + 1 || bounds.y < card.y - 1 || bounds.bottom > card.bottom + 1 || bounds.bottom > boundary + 1) problems.push('editor control is clipped: ' + selector);
+    }
+    for (let i = 0; i < controls.length; i++) for (let j = i + 1; j < controls.length; j++) {
+      const a = controls[i].bounds, b = controls[j].bounds;
+      if (a && b && Math.min(a.right, b.right) - Math.max(a.x, b.x) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y) > 1) problems.push('editor controls overlap: ' + controls[i].selector + ' / ' + controls[j].selector);
+    }
+    const search = geometry['.session-search-field'], input = geometry['.session-search-input'], glyph = geometry['.session-search-field .session-icon'];
+    if (!search || !input || !glyph || input.x < glyph.right + 4 || input.right > search.right + 1 || Math.abs((input.y + input.height / 2) - (glyph.y + glyph.height / 2)) > 1) problems.push('search icon and input do not align inside their shared field');
+    if (search && list && search.bottom > list.bottom + 1) problems.push('session search field is clipped by its pane');
+    if (metrics.searchSkin && (metrics.searchSkin.border !== 0 || metrics.searchSkin.shadow !== 'none' || metrics.searchSkin.background !== 'none')) problems.push('session search input has a second frame inside the shared field');
+
   }
   if (viewport.width < 600) {
     const bottom = geometry['.bottom-tab-bar'];
@@ -140,7 +162,7 @@ function htmlEscape(value) { return String(value).replace(/[&<>"']/g, c => ({ '&
   try {
     browser = await chromium.launch({ headless: true });
     for (const theme of ['dark', 'light']) {
-      for (const [width, height] of [[1440, 900], [390, 844]]) {
+      for (const [width, height] of viewports) {
         const context = await browser.newContext({ viewport: { width, height }, locale: 'zh-CN', colorScheme: theme });
         await context.addInitScript(({ token, theme }) => {
           localStorage.setItem('savfox_token', token);
@@ -157,13 +179,22 @@ function htmlEscape(value) { return String(value).replace(/[&<>"']/g, c => ({ '&
           if (name === 'sessions') await page.locator('.session-list-item').first().waitFor();
           await page.evaluate(() => document.fonts.ready);
           await page.waitForTimeout(180);
-          const file = `${name}-${width}-${theme}.png`;
+          const size = viewportSpecs ? `${width}x${height}` : `${width}`;
+          const file = `${name}-${size}-${theme}.png`;
           await page.screenshot({ path: path.join(cache, file), fullPage: false });
           const item = { name, route, theme, width, height, file, sessionRows: await page.locator('.session-list-item').count(), metrics: await page.evaluate(inspectLayout) };
           item.problems = verify(item);
           report.pages.push(item);
           report.errors.push(...item.problems.map(error => ({ name, theme, width, error })));
           console.log(`${theme} ${width} ${route}: ${item.problems.length ? item.problems.join('; ') : 'PASS'}`);
+          if (name === 'sessions') {
+            await page.locator('.session-search-input').focus();
+            const focused = { name, route, theme, width, height, file: 'sessions-search-focus-' + size + '-' + theme + '.png', sessionRows: item.sessionRows, metrics: await page.evaluate(inspectLayout), searchFocus: true };
+            focused.problems = verify(focused);
+            await page.screenshot({ path: path.join(cache, focused.file), fullPage: false });
+            report.popups.push(focused);
+            report.errors.push(...focused.problems.map(error => ({ name, theme, width, height, searchFocus: true, error })));
+          }
           const selects = page.locator('.sapid-select:visible');
           const selectCount = await selects.count();
           for (let index = 0; index < selectCount; index++) {
@@ -173,7 +204,7 @@ function htmlEscape(value) { return String(value).replace(/[&<>"']/g, c => ({ '&
             const listbox = page.locator('.sapid-select-listbox:visible');
             await listbox.waitFor();
             await page.waitForTimeout(100);
-            const popup = { name, route, theme, width, height, file: name + '-select-' + index + '-' + width + '-' + theme + '.png', selectPopup: true, options: await listbox.getByRole('option').count(), selected: await listbox.locator('[aria-selected="true"]').count(), metrics: await page.evaluate(inspectLayout) };
+            const popup = { name, route, theme, width, height, file: name + '-select-' + index + '-' + size + '-' + theme + '.png', selectPopup: true, options: await listbox.getByRole('option').count(), selected: await listbox.locator('[aria-selected="true"]').count(), metrics: await page.evaluate(inspectLayout) };
             await page.screenshot({ path: path.join(cache, popup.file), fullPage: false });
             popup.problems = verify(popup);
             report.popups.push(popup);
@@ -182,7 +213,7 @@ function htmlEscape(value) { return String(value).replace(/[&<>"']/g, c => ({ '&
             await trigger.press('Escape');
             await listbox.waitFor({ state: 'hidden' });
           }
-          if (name === 'sessions' && width === 1440) {
+          if (name === 'sessions' && width === 1440 && height === 900) {
             await page.setViewportSize({ width: 390, height: 844 });
             await page.waitForTimeout(180);
             const resized = { name, route, theme, width: 390, height: 844, file: `sessions-resized-390-${theme}.png`, sessionRows: await page.locator('.session-list-item').count(), metrics: await page.evaluate(inspectLayout) };

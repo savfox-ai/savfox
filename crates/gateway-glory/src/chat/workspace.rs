@@ -160,18 +160,20 @@ pub(super) fn render(
                         .on_press(move || refresh.refresh())
                 },
             )),
-            row().class("session-list-search").fill((
-                icon(crate::utils::icons::ICON_SEARCH),
-                sapid::text_field()
-                    .unstyled()
-                    .class("session-search-input")
-                    .name(label(ctx, "Filter sessions", "搜索会话"))
-                    .value(search)
-                    .on_value_change(move |value| set(search, value)),
-                when(search.map(|value| value.is_empty()), move || {
-                    text().class("session-search-hint").content(search_hint)
-                }),
-            )),
+            row().class("session-list-search").fill(
+                row().class("session-search-field").fill((
+                    icon(crate::utils::icons::ICON_SEARCH),
+                    sapid::text_field()
+                        .unstyled()
+                        .class("session-search-input")
+                        .name(label(ctx, "Filter sessions", "搜索会话"))
+                        .value(search)
+                        .on_value_change(move |value| set(search, value)),
+                    when(search.map(|value| value.is_empty()), move || {
+                        text().class("session-search-hint").content(search_hint)
+                    }),
+                )),
+            ),
             error_text(ctx, sessions.error),
             col().class("session-list-scroll").fill((
                 {
@@ -555,28 +557,40 @@ pub(super) fn render(
             prompt,
             row().class("chat-input-actions").fill((
                 row().class("chat-input-actions-left").fill((
-                    catalog_picker(
-                        ctx,
-                        agents.value,
-                        state.agent,
-                        PickerKind::Agent,
-                        Some(state.session),
-                    ),
-                    catalog_picker(ctx, models.value, state.model, PickerKind::Model, None),
-                    localized_choice(
-                        ctx,
-                        "Reasoning effort",
-                        "推理力度",
-                        state.thinking,
-                        &[
-                            ("off", "Off", "关闭"),
-                            ("minimal", "Minimal", "最少"),
-                            ("low", "Low", "低"),
-                            ("medium", "Medium", "中"),
-                            ("high", "High", "高"),
-                            ("xhigh", "Extra high", "极高"),
-                        ],
-                    ),
+                    row()
+                        .class("chat-picker chat-picker--agent")
+                        .fill(catalog_picker(
+                            ctx,
+                            agents.value,
+                            state.agent,
+                            PickerKind::Agent,
+                            Some(state.session),
+                        )),
+                    row()
+                        .class("chat-picker chat-picker--model")
+                        .fill(catalog_picker(
+                            ctx,
+                            models.value,
+                            state.model,
+                            PickerKind::Model,
+                            None,
+                        )),
+                    row()
+                        .class("chat-picker chat-picker--effort")
+                        .fill(localized_choice(
+                            ctx,
+                            "Reasoning effort",
+                            "推理力度",
+                            state.thinking,
+                            &[
+                                ("off", "Off", "关闭"),
+                                ("minimal", "Minimal", "最少"),
+                                ("low", "Low", "低"),
+                                ("medium", "Medium", "中"),
+                                ("high", "High", "高"),
+                                ("xhigh", "Extra high", "极高"),
+                            ],
+                        )),
                 )),
                 text().class("chat-input-hint").content(label(
                     ctx,
