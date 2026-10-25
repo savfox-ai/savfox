@@ -9,6 +9,7 @@ use crate::utils::provider_registry::{
 };
 
 pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let provider = ctx.scope.cage("openai".to_owned());
     let account = ctx.scope.cage(String::new());
     let base = ctx.scope.cage(String::new());
@@ -33,10 +34,14 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
     let mut children = vec![
         nav(ctx, "All models", "/models"),
         ui::error_text(ctx, error),
-        select("Provider", provider, options),
-        ui::field("Account name", account, false),
-        ui::field("Custom endpoint (optional)", base, false),
-        secret("API key", key),
+        select_for(locale, "Provider", provider, options),
+        ui::field(ui::label_for(locale, "Account name"), account, false),
+        ui::field(
+            ui::label_for(locale, "Custom endpoint (optional)"),
+            base,
+            false,
+        ),
+        secret(ui::label_for(locale, "API key"), key),
         Box::new(text().content(result)),
     ];
     let login_context = ctx.clone();
@@ -127,12 +132,12 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         },
     )));
     children.push(ui::field(
-        "Manual model ID (for endpoints without discovery)",
+        ui::label_for(locale, "Manual model ID (for endpoints without discovery)"),
         manual_model,
         false,
     ));
     let context = ctx.clone();
-    children.push(Box::new(sapid::button().label("Save provider and models").loading(busy).on_press(move||{
+    children.push(Box::new(sapid::button().label(ui::label_for(locale, "Save provider and models")).loading(busy).on_press(move||{
         if busy.get(){return;}let provider=canonical_provider_id(&provider.get());let mut entries=models.get().into_iter().filter(|entry|enabled.get().contains(&string(entry,&["id"]))).collect::<Vec<_>>();
         if !manual_model.get_untracked().trim().is_empty(){let model=manual_model.get_untracked();entries.push(json!({"id":format!("{provider}/{model}"),"name":model,"model_slug":model}));}
         if entries.is_empty(){ui::set(error,"Choose at least one model or enter a model ID".to_owned());return;}
@@ -141,8 +146,11 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         ui::set(busy,true);ui::set(error,String::new());let context_async=context.clone();context.spawn(async move{match context_async.rpc.call::<Value>("models.import",Some(params)).await{Ok(_)=>{ui::set(key,String::new());context_async.navigate("/models");},Err(message)=>ui::set(error,message)}ui::set(busy,false);});
     })));
     ui::page(
-        "Connect provider",
-        "Choose an endpoint, test credentials, select models and save the account",
+        ui::label_for(locale, "Connect provider"),
+        ui::label_for(
+            locale,
+            "Choose an endpoint, test credentials, select models and save the account",
+        ),
         children,
     )
 }

@@ -6,6 +6,20 @@ use serde_json::Value;
 
 use crate::api::ws::WsRpc;
 use crate::i18n::{self, Locale};
+mod page_strings;
+
+pub fn label(ctx: &AppContext, source: impl Into<String>) -> Lotus<String> {
+    label_for(ctx.locale, source)
+}
+pub fn label_for(locale: Cage<Locale>, source: impl Into<String>) -> Lotus<String> {
+    let source = source.into();
+    locale
+        .map(move |locale| page_strings::translate(*locale, &source))
+        .into()
+}
+pub fn translate(locale: Locale, source: &str) -> String {
+    page_strings::translate(locale, source)
+}
 
 #[derive(Clone)]
 pub struct AppContext {
@@ -89,18 +103,18 @@ pub fn set<T: 'static>(cage: Cage<T>, value: T) {
 }
 
 pub fn page(
-    title: impl Into<String>,
-    description: impl Into<String>,
+    title: impl Into<Lotus<String>>,
+    description: impl Into<Lotus<String>>,
     children: Vec<Box<dyn Widget>>,
 ) -> Box<dyn Widget> {
     Box::new(
-        col().class("gateway-page").fill((
+        col().class("gateway-page management-page").fill((
             text()
                 .class("page-title")
                 .kind(TextKind::Heading(1))
                 .content(title.into()),
             text().class("page-description").content(description.into()),
-            col().class("page-content").fill(children),
+            col().class("page-body page-content-body").fill(children),
         )),
     )
 }
@@ -116,23 +130,39 @@ pub fn localized_page(
     let locale = ctx.locale;
     let key = key.to_owned();
     Box::new(
-        col().class("gateway-page").fill((
-            text()
-                .class("page-title")
-                .kind(TextKind::Heading(1))
-                .content(ctx.scope.bond(move || i18n::t(locale.get(), &key))),
-            text().class("page-description").content(description.into()),
-            col().class("page-content").fill(children),
-        )),
+        col()
+            .class(format!(
+                "gateway-page management-page management-page--{}",
+                key.trim_start_matches("nav.")
+            ))
+            .fill((
+                text()
+                    .class("page-title")
+                    .kind(TextKind::Heading(1))
+                    .content(ctx.scope.bond(move || i18n::t(locale.get(), &key))),
+                text()
+                    .class("page-description")
+                    .content(label(ctx, description.into())),
+                col().class("page-body page-content-body").fill(children),
+            )),
     )
 }
 
-pub fn field(label: impl Into<String>, value: Cage<String>, multiline: bool) -> Box<dyn Widget> {
-    let label = label.into();
+pub fn field(
+    label: impl Into<Lotus<String>>,
+    value: Cage<String>,
+    multiline: bool,
+) -> Box<dyn Widget> {
+    let label: Lotus<String> = label.into();
     Box::new(
-        col().class("form-field").fill((
-            text().class("field-label").content(label.clone()),
+        col().class("form-field form-group").fill((
+            text()
+                .class("field-label form-label")
+                .content(label.clone()),
             sapid::text_field()
+                .unstyled()
+                .class("form-input")
+                .placeholder(label.clone())
                 .name(label)
                 .value(value)
                 .multiline(multiline)
@@ -141,8 +171,17 @@ pub fn field(label: impl Into<String>, value: Cage<String>, multiline: bool) -> 
     )
 }
 
-pub fn action(label: impl Into<String>, callback: impl FnMut() + 'static) -> Box<dyn Widget> {
-    Box::new(sapid::button().label(label.into()).on_press(callback))
+pub fn action(
+    label: impl Into<Lotus<String>>,
+    callback: impl FnMut() + 'static,
+) -> Box<dyn Widget> {
+    Box::new(
+        sapid::button()
+            .unstyled()
+            .class("btn btn-secondary")
+            .label(label.into())
+            .on_press(callback),
+    )
 }
 
 pub fn error_text(ctx: &AppContext, error: Cage<String>) -> Box<dyn Widget> {
@@ -165,11 +204,15 @@ pub fn json_text(ctx: &AppContext, value: Cage<Value>) -> Box<dyn Widget> {
 }
 
 /// A mounted panel preserves the controls' state across disclosure changes.
-pub fn details(key: &str, label: &str, content: Box<dyn Widget>) -> Box<dyn Widget> {
+pub fn details(
+    key: &str,
+    label: impl Into<Lotus<String>>,
+    content: Box<dyn Widget>,
+) -> Box<dyn Widget> {
     let mut content = Some(content);
     Box::new(
         sapid::collapsible(key.to_owned())
-            .label(label.to_owned())
+            .label(label.into())
             .content_policy(sapid::ContentPolicy::KeepMounted)
             .content(move || content.take().unwrap_or_else(|| Box::new(col()))),
     )

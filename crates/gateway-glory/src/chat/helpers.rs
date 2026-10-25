@@ -155,17 +155,35 @@ pub(super) fn parse_history_message(item: &Value) -> Option<ChatMessage> {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    if content.trim().is_empty() || is_internal_session_message(&content) {
+    let attachments = item
+        .get("attachments")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| serde_json::from_value::<ChatAttachment>(item.clone()).ok())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if (content.trim().is_empty() && attachments.is_empty())
+        || is_internal_session_message(&content)
+    {
         return None;
     }
 
     Some(ChatMessage {
         role,
         content,
-        attachments: vec![],
-        timestamp: None,
-        thinking: None,
-        terminal_events: vec![],
+        attachments,
+        timestamp: item
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        thinking: item
+            .get("thinking")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        terminal_events: parse_terminal_events(item.get("terminal_events")),
     })
 }
 
@@ -392,5 +410,26 @@ mod tests {
         assert_eq!(messages[0].role, "assistant");
         assert_eq!(messages[0].content, "done");
         assert!(messages[0].terminal_events.is_empty());
+    }
+    #[test]
+    fn history_keeps_image_only_messages_and_skips_malformed_attachments() {
+        let image =
+            json!({"filename":"image.png","mime_type":"image/png","data_base64":"aW1hZ2U="});
+        let messages = parse_history_messages(&json!({"messages":[
+            {"role":"user","content":"","attachments":[image.clone(),{"filename":"invalid"}]},
+            {"role":"assistant","content":"An image","attachments":[image],"thinking":"Reasoning","timestamp":"2026-10-25T00:00:00Z","terminal_events":[{"event":"completed","exit_code":0}]},
+            {"role":"user","content":"  ","attachments":[{"filename":"invalid"}]}
+        ]}));
+        assert_eq!(messages.len(), 2);
+        assert!(messages[0].content.is_empty());
+        assert_eq!(messages[0].attachments.len(), 1);
+        assert_eq!(messages[0].attachments[0].filename, "image.png");
+        assert_eq!(messages[1].attachments.len(), 1);
+        assert_eq!(messages[1].thinking.as_deref(), Some("Reasoning"));
+        assert_eq!(
+            messages[1].timestamp.as_deref(),
+            Some("2026-10-25T00:00:00Z")
+        );
+        assert_eq!(messages[1].terminal_events[0].exit_code, Some(0));
     }
 }

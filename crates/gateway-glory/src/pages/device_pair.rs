@@ -4,12 +4,14 @@ use serde_json::json;
 use crate::ui::{self, AppContext};
 
 pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let code = ctx.scope.cage(serde_json::Value::Null);
     let error = ctx.scope.cage(String::new());
     let busy = ctx.scope.cage(false);
     let context = ctx.clone();
-    ui::page(
-        "Device pairing",
+    ui::localized_page(
+        ctx,
+        "nav.device_pair",
         "Generate a code to authorize a new device.",
         vec![
             ui::error_text(ctx, error),
@@ -20,7 +22,9 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             ),
             Box::new(
                 sapid::button()
-                    .label("Generate pairing code")
+                    .unstyled()
+                    .class("btn btn-primary")
+                    .label(ui::label_for(locale, "Generate pairing code"))
                     .loading(busy)
                     .on_press(move || {
                         if busy.get() {

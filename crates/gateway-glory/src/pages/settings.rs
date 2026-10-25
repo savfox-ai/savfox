@@ -5,6 +5,7 @@ use super::common::*;
 use crate::i18n::{self, Locale};
 use crate::ui::{self, AppContext};
 pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let theme = ctx.scope.cage(preference("savfox_theme", "system"));
     let notifications = ctx
         .scope
@@ -25,7 +26,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         }
     });
     let context = ctx.clone();
-    let save = ui::action("Save preferences", move || {
+    let save = ui::action(ui::label_for(locale, "Save preferences"), move || {
         for (key, value) in [
             ("savfox_theme", theme.get()),
             ("savfox_notifications", notifications.get().to_string()),
@@ -46,7 +47,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
     });
     let context = ctx.clone();
     let log_state = state.clone();
-    let save_log = ui::action("Apply logging", move || {
+    let save_log = ui::action(ui::label_for(locale, "Apply logging"), move || {
         let value = if filter.get().trim().is_empty() {
             level.get()
         } else {
@@ -72,46 +73,44 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         vec![
             Box::new(text().content(saved)),
             card(
-                "Appearance",
+                ui::label_for(locale, "Appearance"),
                 vec![
-                    choice(
+                    choice_for(
+                        locale,
                         "Theme",
                         theme,
                         &[("system", "System"), ("dark", "Dark"), ("light", "Light")],
                     ),
-                    choice(
+                    choice_for(
+                        locale,
                         "Language",
                         language,
                         &[("en", "English"), ("zh-CN", "简体中文")],
                     ),
-                    toggle("Desktop notifications", notifications),
+                    toggle(
+                        ui::label_for(locale, "Desktop notifications"),
+                        notifications,
+                    ),
                 ],
             ),
             card(
-                "Connection and defaults",
+                ui::label_for(locale, "Connection and defaults"),
                 vec![
                     ui::field(
-                        "Gateway WebSocket URL (empty uses this host)",
+                        ui::label_for(locale, "Gateway WebSocket URL (empty uses this host)"),
                         gateway,
                         false,
                     ),
-                    ui::field("Default model", model, false),
-                    Box::new(each(
-                        model_items,
-                        |(id, _)| id.clone(),
-                        move |item, _| {
-                            let (id, label) = item.get_untracked();
-                            ui::action(label, move || ui::set(model, id.clone()))
-                        },
-                    )),
+                    select_source(ctx, "Default model", model, model_items),
                     save,
                 ],
             ),
             card(
-                "Logging",
+                ui::label_for(locale, "Logging"),
                 vec![
                     status(ctx, &state),
-                    choice(
+                    choice_for(
+                        locale,
                         "Log level",
                         level,
                         &[
@@ -122,7 +121,11 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                             ("trace", "Trace"),
                         ],
                     ),
-                    ui::field("Custom RUST_LOG filter", filter, false),
+                    ui::field(
+                        ui::label_for(locale, "Custom RUST_LOG filter"),
+                        filter,
+                        false,
+                    ),
                     save_log,
                 ],
             ),

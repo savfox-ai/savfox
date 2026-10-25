@@ -463,6 +463,7 @@ fn merge_schema_with_value(
 }
 
 pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let config = query(ctx, "config.get", None);
     let schema = query(ctx, "config.schema", None);
     let draft = ctx.scope.cage(json!({}));
@@ -478,7 +479,9 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             );
         }
     });
-    let section = path.strip_prefix("/config/").map(str::to_owned);
+    let section = ctx
+        .scope
+        .cage(path.strip_prefix("/config/").map(str::to_owned));
     let config_value = config.value;
     let schema_value = schema.value;
     let context = ctx.clone();
@@ -495,8 +498,9 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         if let Some(properties) = schema["properties"].as_object() {
             keys.extend(properties.keys().cloned());
         }
-        keys.into_iter()
-            .filter(|key| section.as_ref().is_none_or(|section| section == key))
+        ordered_section_keys(keys)
+            .into_iter()
+            .filter(|key| section.get().as_ref().is_none_or(|section| section == key))
             .map(|key| {
                 let fingerprint = format!("{key}-{}-{}", value[&key], schema["properties"][&key]);
                 (fingerprint, key, value.clone(), schema.clone())
@@ -506,63 +510,81 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     let mut children = vec![
         status(ctx, &config),
         status(ctx, &schema),
-        refresh(ctx, &config),
-        nav(ctx, "All sections", "/config"),
         Box::new(each(
             sections,
             |(key, ..)| key.clone(),
             move |item, _| {
                 let (_, key, _, root_schema) = item.get_untracked();
                 let schema = root_schema["properties"][&key].clone();
-                card(
-                    key.clone(),
-                    vec![field(
-                        &context,
-                        draft,
-                        vec![key],
-                        &schema,
-                        &root_schema,
-                        field_error,
-                        0,
-                    )],
-                )
+                let current = draft
+                    .get_untracked()
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let object = schema_primary_type(&schema).as_deref() == Some("object")
+                    || current.is_object();
+                let body = field(
+                    &context,
+                    draft,
+                    vec![key.clone()],
+                    &schema,
+                    &root_schema,
+                    field_error,
+                    0,
+                );
+                if object {
+                    body
+                } else {
+                    card(ui::label(&context, key), vec![body])
+                }
             },
         )),
     ];
-    children.push(card(
-        "Review configuration",
-        vec![
-            Box::new(text().class("config-diff").content(ctx.scope.bond(move || {
-                let original = config_value.get()["config"]
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect::<HashMap<_, _>>();
-                let current = draft
-                    .get()
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect::<HashMap<_, _>>();
-                compute_deep_diff(&original, &current)
-                    .iter()
-                    .map(|entry| format!("{:?}: {}", entry.kind, entry.path))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }))),
-            Box::new(text().class("config-preview").content(
-                draft.map(|value| serde_json::to_string_pretty(value).unwrap_or_default()),
-            )),
-        ],
+    children.push(ui::details(
+        "config-review",
+        ui::label_for(locale, "Review configuration"),
+        card(
+            ui::label_for(locale, "Review configuration"),
+            vec![
+                Box::new(text().class("config-diff").content(ctx.scope.bond(move || {
+                    let original = config_value.get()["config"]
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect::<HashMap<_, _>>();
+                    let current = draft
+                        .get()
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect::<HashMap<_, _>>();
+                    compute_deep_diff(&original, &current)
+                        .iter()
+                        .map(|entry| format!("{:?}: {}", entry.kind, entry.path))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }))),
+                Box::new(text().class("config-preview").content(
+                    draft.map(|value| serde_json::to_string_pretty(value).unwrap_or_default()),
+                )),
+            ],
+        ),
     ));
+    let mut actions = vec![refresh(ctx, &config)];
     for (label, apply) in [("Save configuration", false), ("Save and apply", true)] {
         let context = ctx.clone();
         let state = config.clone();
-        children.push(Box::new(
+        actions.push(Box::new(
             sapid::button()
-                .label(label)
+                .unstyled()
+                .class(if apply {
+                    "btn btn-primary"
+                } else {
+                    "btn btn-secondary"
+                })
+                .label(ui::label_for(locale, label))
                 .loading(config.busy)
                 .on_press(move || {
                     let document = draft.get();
@@ -613,41 +635,153 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                 }),
         ));
     }
-    children.push(ui::action("Export configuration", move || {
-        crate::utils::download::trigger_download(
-            "savfox-config.json",
-            &serde_json::to_string_pretty(&draft.get()).unwrap_or_default(),
-            "application/json",
-        )
-    }));
-    children.push(ui::action("Revert all changes", move || {
-        if let Some(value) = config_value.get().get("config") {
-            ui::set(draft, value.clone());
-        }
-    }));
-    let error = config.error;
-    children.push(card(
-        "JSON import",
-        vec![
-            ui::field("Configuration JSON", raw, true),
-            ui::action("Import into form", move || {
-                match serde_json::from_str::<Value>(&raw.get()) {
-                    Ok(value) if value.is_object() => {
-                        ui::set(draft, value);
-                        ui::set(error, String::new());
-                    }
-                    Ok(_) => ui::set(error, "Configuration must be a JSON object".to_owned()),
-                    Err(message) => ui::set(error, message.to_string()),
-                }
-            }),
-        ],
+    actions.push(ui::action(
+        ui::label_for(locale, "Export configuration"),
+        move || {
+            crate::utils::download::trigger_download(
+                "savfox-config.json",
+                &serde_json::to_string_pretty(&draft.get()).unwrap_or_default(),
+                "application/json",
+            )
+        },
     ));
-    ui::localized_page(
-        ctx,
-        "nav.config",
-        "Schema-guided editing with a change preview before saving",
-        children,
+    actions.push(ui::action(
+        ui::label_for(locale, "Revert all changes"),
+        move || {
+            if let Some(value) = config_value.get().get("config") {
+                ui::set(draft, value.clone());
+            }
+        },
+    ));
+    let error = config.error;
+    children.push(ui::details(
+        "config-import",
+        ui::label_for(locale, "JSON import"),
+        card(
+            ui::label_for(locale, "JSON import"),
+            vec![
+                ui::field(ui::label_for(locale, "Configuration JSON"), raw, true),
+                ui::action(ui::label_for(locale, "Import into form"), move || {
+                    match serde_json::from_str::<Value>(&raw.get()) {
+                        Ok(value) if value.is_object() => {
+                            ui::set(draft, value);
+                            ui::set(error, String::new());
+                        }
+                        Ok(_) => ui::set(error, "Configuration must be a JSON object".to_owned()),
+                        Err(message) => ui::set(error, message.to_string()),
+                    }
+                }),
+            ],
+        ),
+    ));
+    let search = ctx.scope.cage(String::new());
+    let schema_nav = schema.value;
+    let config_nav = config.value;
+    let section_names = ctx.scope.bond(move || {
+        let schema = schema_nav.get();
+        let config = config_nav.get();
+        let mut keys = BTreeSet::new();
+        if let Some(properties) = schema
+            .pointer("/schema/properties")
+            .and_then(Value::as_object)
+        {
+            keys.extend(properties.keys().cloned());
+        }
+        if let Some(properties) = config["config"].as_object() {
+            keys.extend(properties.keys().cloned());
+        }
+        let search = search.get().to_lowercase();
+        ordered_section_keys(keys)
+            .into_iter()
+            .filter(|key| key.to_lowercase().contains(&search))
+            .collect::<Vec<_>>()
+    });
+    let all = ui::action(ui::label_for(locale, "All settings"), move || {
+        ui::set(section, None);
+        crate::utils::deep_link::replace_url("/config");
+    });
+    let sidebar = col().class("config-sidebar").fill((
+        col().class("config-sidebar__header").fill(
+            text()
+                .class("page-title")
+                .kind(TextKind::Heading(1))
+                .content(ui::label_for(locale, "Settings")),
+        ),
+        col().class("config-sidebar__search").fill(ui::field(
+            ui::label_for(locale, "Search settings"),
+            search,
+            false,
+        )),
+        col().class("config-nav").fill((
+            all,
+            each(
+                section_names,
+                |name| name.clone(),
+                move |name, _| {
+                    let key = name.get_untracked();
+                    let read = key.clone();
+                    let label = key.replace('_', " ");
+                    sapid::button()
+                        .unstyled()
+                        .class(section.map(move |current| {
+                            if current.as_deref() == Some(read.as_str()) {
+                                "config-nav-item config-nav-item--active".into()
+                            } else {
+                                "config-nav-item".into()
+                            }
+                        }))
+                        .label(ui::label_for(locale, label))
+                        .on_press(move || {
+                            ui::set(section, Some(key.clone()));
+                            crate::utils::deep_link::replace_url(&format!("/config/{key}"));
+                        })
+                },
+            ),
+        )),
+    ));
+    Box::new(
+        row()
+            .class("gateway-page management-page config-page config-layout")
+            .fill((
+                sidebar,
+                col().class("config-main").fill((
+                    row().class("config-actions").fill(actions),
+                    col().class("config-scroll").fill(children),
+                )),
+            )),
     )
+}
+fn ordered_section_keys(keys: BTreeSet<String>) -> Vec<String> {
+    const ORDER: &[&str] = &[
+        "env",
+        "environment",
+        "updates",
+        "agents",
+        "auth",
+        "channels",
+        "messages",
+        "commands",
+        "hooks",
+        "skills",
+        "tools",
+        "gateway",
+        "logging",
+        "browser",
+        "models",
+        "audio",
+        "memory",
+    ];
+    let mut keys = keys.into_iter().collect::<Vec<_>>();
+    keys.sort_by_key(|key| {
+        (
+            ORDER
+                .iter()
+                .position(|section| *section == key.as_str())
+                .unwrap_or(ORDER.len()),
+            key.clone(),
+        )
+    });
+    keys
 }
 fn pointer(path: &[String]) -> String {
     path.iter()
@@ -749,6 +883,8 @@ fn field(
         let bind_ptr = ptr.clone();
         return Box::new(
             sapid::checkbox()
+                .unstyled()
+                .class("form-checkbox")
                 .label(name)
                 .checked(draft.map(move |v| {
                     v.pointer(&bind_ptr)
@@ -787,6 +923,8 @@ fn field(
         let bind_ptr = ptr.clone();
         return Box::new(
             sapid::native_select(select_key(&format!("config-enum-{}", path.join("/"))))
+                .unstyled()
+                .class("form-select")
                 .label(name)
                 .value(draft.map(move |document| {
                     document
@@ -811,6 +949,8 @@ fn field(
         );
     }
     let input = sapid::text_field()
+        .unstyled()
+        .class("form-input")
         .name(name.clone())
         .value(value)
         .on_value_change(move |text| {
@@ -852,6 +992,7 @@ fn json_field(
     error: Cage<String>,
     name: String,
 ) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let ptr = pointer(&path);
     let initial = draft.get().pointer(&ptr).cloned().unwrap_or_else(|| {
         if schema_primary_type(&schema).as_deref() == Some("array") {
@@ -865,8 +1006,9 @@ fn json_field(
         .cage(serde_json::to_string_pretty(&initial).unwrap_or_default());
     Box::new(col().class("form-field").fill((
         ui::field(name, input, true),
-        ui::action("Update field", move || {
-            match serde_json::from_str::<Value>(&input.get()) {
+        ui::action(
+            ui::label_for(locale, "Update field"),
+            move || match serde_json::from_str::<Value>(&input.get()) {
                 Ok(value) => {
                     if let Some(message) = field_validation_error(&schema, Some(&value)) {
                         ui::set(error, message);
@@ -876,8 +1018,8 @@ fn json_field(
                     }
                 }
                 Err(message) => ui::set(error, message.to_string()),
-            }
-        }),
+            },
+        ),
     )))
 }
 #[cfg(test)]

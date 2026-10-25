@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use super::common::*;
 use crate::ui::{self, AppContext};
 pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let state = query(ctx, "tts.status", None);
     let providers = query(ctx, "tts.providers", None);
     let voice_data = ctx.scope.cage(Value::Null);
@@ -38,30 +39,68 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             )
         }))),
     ];
+    let mut enable_actions = Vec::new();
     for (label, method) in [("Enable", "tts.enable"), ("Disable", "tts.disable")] {
         let context = ctx.clone();
         let state = state.clone();
-        children.push(ui::action(label, move || {
+        enable_actions.push(ui::action(ui::label_for(locale, label), move || {
             mutate(&context, &state, method, json!({}))
         }));
     }
-    children.push(ui::field("Provider", provider, false));
+    children.push(Box::new(row().class("actions").fill(enable_actions)));
+    children.push(card(
+        ui::label_for(locale, "Providers"),
+        vec![records(ctx, &providers, &["providers"], move |entry, _| {
+            let id = string(&entry, &["id", "provider"]);
+            let selected = id.clone();
+            Box::new(
+                row().class("tts-provider-row").fill((
+                    sapid::button()
+                        .unstyled()
+                        .class("tts-provider-name")
+                        .label(string(&entry, &["name", "id"]))
+                        .on_press(move || ui::set(provider, selected.clone())),
+                    text().class("tts-provider-status").content(ui::label_for(
+                        locale,
+                        if entry["is_configured"]
+                            .as_bool()
+                            .or_else(|| entry["configured"].as_bool())
+                            .unwrap_or(false)
+                        {
+                            "Configured"
+                        } else {
+                            "Not configured"
+                        },
+                    )),
+                )),
+            )
+        })],
+    ));
+    let mut voice_children = Vec::new();
+    voice_children.push(ui::field(
+        ui::label_for(locale, "Provider"),
+        provider,
+        false,
+    ));
     let context = ctx.clone();
     let error = state.error;
-    children.push(ui::action("List voices", move || {
-        let context_async = context.clone();
-        let provider = provider.get();
-        context.spawn(async move {
-            match context_async
-                .rpc
-                .call::<Value>("tts.voices", Some(json!({"provider":provider})))
-                .await
-            {
-                Ok(value) => ui::set(voice_data, value),
-                Err(message) => ui::set(error, message),
-            }
-        });
-    }));
+    voice_children.push(ui::action(
+        ui::label_for(locale, "List voices"),
+        move || {
+            let context_async = context.clone();
+            let provider = provider.get();
+            context.spawn(async move {
+                match context_async
+                    .rpc
+                    .call::<Value>("tts.voices", Some(json!({"provider":provider})))
+                    .await
+                {
+                    Ok(value) => ui::set(voice_data, value),
+                    Err(message) => ui::set(error, message),
+                }
+            });
+        },
+    ));
     let voice_items = voice_data.map(|value| {
         array(value, &["voices"])
             .into_iter()
@@ -69,7 +108,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             .map(|(i, value)| (format!("{i}-{}", record_key(&value)), value))
             .collect::<Vec<_>>()
     });
-    children.push(Box::new(each(
+    voice_children.push(Box::new(each(
         voice_items,
         |(key, _)| key.clone(),
         move |item, _| {
@@ -82,42 +121,54 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             ui::action(name, move || ui::set(voice, selected.clone()))
         },
     )));
-    children.push(ui::field("Voice", voice, false));
+    voice_children.push(ui::field(ui::label_for(locale, "Voice"), voice, false));
     let context = ctx.clone();
     let settings_state = state.clone();
-    children.push(ui::action("Apply provider and voice", move || {
-        let context_async = context.clone();
-        let state = settings_state.clone();
-        let provider = provider.get();
-        let voice = voice.get();
-        ui::set(state.busy, true);
-        context.spawn(async move {
-            let result = async {
-                context_async
-                    .rpc
-                    .call::<Value>("tts.setProvider", Some(json!({"provider":provider})))
-                    .await?;
-                context_async
-                    .rpc
-                    .call::<Value>("tts.setVoice", Some(json!({"voice":voice})))
-                    .await
-            }
-            .await;
-            match result {
-                Ok(_) => state.refresh(),
-                Err(message) => ui::set(state.error, message),
-            }
-            ui::set(state.busy, false);
-        });
-    }));
-    children.push(ui::field("Speed (0.5 to 2)", speed, false));
-    children.push(ui::field("Pitch (0.5 to 2)", pitch, false));
-    children.push(ui::field("Text to convert", text_value, true));
+    voice_children.push(ui::action(
+        ui::label_for(locale, "Apply provider and voice"),
+        move || {
+            let context_async = context.clone();
+            let state = settings_state.clone();
+            let provider = provider.get();
+            let voice = voice.get();
+            ui::set(state.busy, true);
+            context.spawn(async move {
+                let result = async {
+                    context_async
+                        .rpc
+                        .call::<Value>("tts.setProvider", Some(json!({"provider":provider})))
+                        .await?;
+                    context_async
+                        .rpc
+                        .call::<Value>("tts.setVoice", Some(json!({"voice":voice})))
+                        .await
+                }
+                .await;
+                match result {
+                    Ok(_) => state.refresh(),
+                    Err(message) => ui::set(state.error, message),
+                }
+                ui::set(state.busy, false);
+            });
+        },
+    ));
+    children.push(card(ui::label_for(locale, "Voice"), voice_children));
+    let settings_children = vec![
+        ui::field(ui::label_for(locale, "Speed (0.5 to 2)"), speed, false),
+        ui::field(ui::label_for(locale, "Pitch (0.5 to 2)"), pitch, false),
+    ];
+    children.push(card(ui::label_for(locale, "Settings"), settings_children));
+    let mut convert_children = Vec::new();
+    convert_children.push(ui::field(
+        ui::label_for(locale, "Text to convert"),
+        text_value,
+        true,
+    ));
     let context = ctx.clone();
     let convert_state = state.clone();
-    children.push(Box::new(
+    convert_children.push(Box::new(
         sapid::button()
-            .label("Convert to speech")
+            .label(ui::label_for(locale, "Convert to speech"))
             .loading(state.busy)
             .on_press(move || {
                 if text_value.get().trim().is_empty() {
@@ -158,14 +209,14 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 });
             }),
     ));
-    children.push(Box::new(text().content(output.map(|value| {
+    convert_children.push(Box::new(text().content(output.map(|value| {
         value["audio_path"]
             .as_str()
             .or_else(|| value["audio_url"].as_str())
             .unwrap_or("")
             .to_owned()
     }))));
-    children.push(Box::new(when(
+    convert_children.push(Box::new(when(
         output.map(|value| {
             value["audio_url"]
                 .as_str()
@@ -182,10 +233,14 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             Box::new(
                 link()
                     .target(url)
-                    .fill(text().content("Open generated audio")),
+                    .fill(text().content(ui::label_for(locale, "Open generated audio"))),
             ) as Box<dyn Widget>
         },
     )));
+    children.push(card(
+        ui::label_for(locale, "Convert to speech"),
+        convert_children,
+    ));
     ui::localized_page(
         ctx,
         "nav.tts",

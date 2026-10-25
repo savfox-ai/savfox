@@ -157,6 +157,7 @@ fn build_payload(
 }
 
 pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     if path == "/cron/new" {
         return create(ctx);
     }
@@ -167,21 +168,65 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     let runs = selected
         .as_ref()
         .map(|id| query(ctx, "cron.runs", Some(json!({"id":id}))));
-    let mut children = vec![
+    let selected_for_list = selected.clone();
+    let has_selection = selected.is_some();
+    let list_context = ctx.clone();
+    let job_rows = state.value.map(|v| array(v, &["jobs"]));
+    let list = col().class("split-view__list agent-list-pane").fill((
+        row().class("panel-header").fill((
+            text()
+                .class("panel-header__title page-title")
+                .kind(TextKind::Heading(1))
+                .content(ui::label_for(locale, "Cron Jobs")),
+            row().class("toolbar-actions").fill((
+                refresh(ctx, &state),
+                nav(ctx, "Create scheduled job", "/cron/new"),
+            )),
+        )),
+        text()
+            .class("cron-scheduler-status")
+            .content(ctx.scope.bond(move || {
+                ui::translate(
+                    locale.get(),
+                    if clock.value.get()["running"].as_bool().unwrap_or(false) {
+                        "Running"
+                    } else {
+                        "Stopped"
+                    },
+                )
+            })),
         status(ctx, &state),
-        refresh(ctx, &state),
-        nav(ctx, "Create scheduled job", "/cron/new"),
-        Box::new(text().content(clock.value.map(|v| {
-            format!(
-                "Scheduler: {}",
-                if v["enabled"].as_bool().unwrap_or(false) {
-                    "enabled"
-                } else {
-                    "disabled"
-                }
-            )
-        }))),
-    ];
+        col()
+            .class("agent-list-scroll")
+            .fill(each(job_rows, record_key, move |item, _| {
+                let job = item.get_untracked();
+                let id = string(&job, &["id"]);
+                let target = id.clone();
+                let context = list_context.clone();
+                col()
+                    .class(if selected_for_list.as_deref() == Some(id.as_str()) {
+                        "list-item agent-list-item list-item--active"
+                    } else {
+                        "list-item agent-list-item"
+                    })
+                    .fill((
+                        sapid::button()
+                            .unstyled()
+                            .class("agent-select")
+                            .label(string(&job, &["name", "id"]))
+                            .on_press(move || context.navigate(&format!("/cron/{target}"))),
+                        text()
+                            .class("list-item__subtitle")
+                            .content(string(&job, &["schedule"])),
+                        text().class("list-item__subtitle").content(format!(
+                            "{}: {}",
+                            ui::translate(locale.get(), "Next run"),
+                            string(&job, &["next_run"])
+                        )),
+                    ))
+            })),
+    ));
+    let mut children = Vec::new();
     children.push(records(ctx, &state, &["jobs"], move |job, context| {
         let id = string(&job, &["id"]);
         if selected.as_ref().is_some_and(|selected| *selected != id) {
@@ -200,7 +245,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         ] {
             let context = context.clone();
             let state = row_state.clone();
-            actions.push(ui::action(label, move || {
+            actions.push(ui::action(ui::label_for(locale, label), move || {
                 if method == "cron.remove" && !confirmed("Remove this scheduled job?") {
                     return;
                 }
@@ -210,7 +255,8 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         card(
             string(&job, &["name", "id"]),
             vec![
-                metadata(
+                metadata_for(
+                    locale,
                     &job,
                     &[
                         ("schedule", "Schedule"),
@@ -228,12 +274,13 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     }));
     if let Some(runs) = runs {
         children.push(card(
-            "Run history",
+            ui::label_for(locale, "Run history"),
             vec![
                 status(ctx, &runs),
                 refresh(ctx, &runs),
-                records(ctx, &runs, &["runs"], |run, _| {
-                    metadata(
+                records(ctx, &runs, &["runs"], move |run, _| {
+                    metadata_for(
+                        locale,
                         &run,
                         &[
                             ("started_at", "Started"),
@@ -247,14 +294,21 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             ],
         ));
     }
-    ui::localized_page(
-        ctx,
-        "nav.cron_jobs",
-        "Manage recurring jobs and one-time tasks",
-        children,
-    )
+    let detail: Box<dyn Widget> = if has_selection {
+        Box::new(col().class("cron-detail-content").fill(children))
+    } else {
+        Box::new(
+            col().class("agent-empty-detail").fill(
+                text()
+                    .class("empty-state__message")
+                    .content(ui::label_for(locale, "Select a job or create a new one")),
+            ),
+        )
+    };
+    Box::new(row().class(if has_selection {"gateway-page management-page agent-workspace cron-workspace split-view split-view--detail"}else{"gateway-page management-page agent-workspace cron-workspace split-view"}).fill((list,col().class("split-view__detail").fill(detail))))
 }
 fn create(ctx: &AppContext) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let name = ctx.scope.cage(String::new());
     let schedule = ctx.scope.cage("every".to_owned());
     let interval = ctx.scope.cage("1".to_owned());
@@ -270,7 +324,7 @@ fn create(ctx: &AppContext) -> Box<dyn Widget> {
     let state = query(ctx, "agents.list", None);
     let context = ctx.clone();
     let save_state = state.clone();
-    ui::page("New scheduled job","Intervals, RFC3339 timestamps and cron expressions are supported",vec![nav(ctx,"All scheduled jobs","/cron"),status(ctx,&state),ui::field("Job name",name,false),choice("Schedule",schedule,&[("every","Interval"),("at","Once"),("cron","Cron expression")]),ui::field("Interval",interval,false),choice("Interval unit",unit,&[("seconds","Seconds"),("minutes","Minutes"),("hours","Hours"),("days","Days")]),ui::field("Run at (RFC3339 with timezone)",at,false),ui::field("Cron expression",expression,false),ui::field("Timezone",timezone,false),ui::field("Agent ID (optional)",agent,false),choice("Session target",target,&[("main","Main"),("isolated","Isolated")]),choice("Payload",payload_type,&[("system_event","System event"),("agent_turn","Agent turn")]),ui::field("Message",text,true),ui::field("Timeout seconds",timeout,false),Box::new(sapid::button().label("Create job").loading(state.busy).on_press(move||{
+    ui::page(ui::label_for(locale, "New scheduled job"), ui::label_for(locale, "Intervals, RFC3339 timestamps and cron expressions are supported"),vec![nav(ctx,"All scheduled jobs","/cron"),status(ctx,&state),ui::field(ui::label_for(locale, "Job name"),name,false),choice_for(locale, "Schedule",schedule,&[("every","Interval"),("at","Once"),("cron","Cron expression")]),ui::field(ui::label_for(locale, "Interval"),interval,false),choice_for(locale, "Interval unit",unit,&[("seconds","Seconds"),("minutes","Minutes"),("hours","Hours"),("days","Days")]),ui::field(ui::label_for(locale, "Run at (RFC3339 with timezone)"),at,false),ui::field(ui::label_for(locale, "Cron expression"),expression,false),ui::field(ui::label_for(locale, "Timezone"),timezone,false),ui::field(ui::label_for(locale, "Agent ID (optional)"),agent,false),choice_for(locale, "Session target",target,&[("main","Main"),("isolated","Isolated")]),choice_for(locale, "Payload",payload_type,&[("system_event","System event"),("agent_turn","Agent turn")]),ui::field(ui::label_for(locale, "Message"),text,true),ui::field(ui::label_for(locale, "Timeout seconds"),timeout,false),Box::new(sapid::button().label(ui::label_for(locale, "Create job")).loading(state.busy).on_press(move||{
         if name.get().trim().is_empty(){ui::set(save_state.error,"Job name is required".to_owned());return;}
         let schedule_type=match schedule.get().as_str(){"at"=>ScheduleType::At,"cron"=>ScheduleType::Cron,_=>ScheduleType::Every};
         let schedule=match build_schedule(schedule_type,&interval.get(),&unit.get(),&at.get(),&expression.get(),&timezone.get()){Ok(value)=>value,Err(error)=>{ui::set(save_state.error,error);return;}};

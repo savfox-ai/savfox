@@ -70,6 +70,19 @@ login cancellation, channel edits, record refresh and mobile navigation. CI runs
 this independently of native tests. `node scripts/check-web-proxy.cjs` verifies the
 actual development server's HTTP/WebSocket proxy and static bundle paths.
 
+
+Visual acceptance also runs against a real, already running gateway with
+`node scripts/check-web-visual.cjs`. It reads the local gateway token without
+printing it and only navigates/read-loads pages. Set `SAVFOX_VISUAL_BASE`,
+`SAVFOX_VISUAL_TOKEN_FILE`, and `SAVFOX_VISUAL_REFERENCE` when needed. Screenshots
+and an HTML comparison report are written to `D:/BuildCache/savfox-glory/visual-review`.
+The audit covers all 18 navigation pages at desktop/mobile sizes in both themes, label
+contrast, visible icons, form clipping, independent session scrolling, composer
+bounds, and resizing without reloading. Compare the actual screenshots with the
+pre-migration Dioxus reference as well as checking the assertions. The shell keeps
+the original 56px header, 260px navigation, and 320px desktop session list; the
+mobile editor must stop above the bottom navigation.
+
 Docker builds require named source contexts:
 
 ```powershell

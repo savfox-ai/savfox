@@ -3,6 +3,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result;
 
+#[path = "workspace.rs"]
+mod workspace;
+
 use base64::Engine;
 use glory::prelude::*;
 use serde_json::{Value, json};
@@ -27,6 +30,7 @@ struct Conversation {
     reasoning: Cage<String>,
     verbose: Cage<String>,
     busy: Cage<bool>,
+    history_busy: Cage<bool>,
     error: Cage<String>,
     request: Cage<String>,
     abort: Rc<RefCell<Option<web_sys::AbortController>>>,
@@ -50,6 +54,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         reasoning: scope.cage("on".into()),
         verbose: scope.cage("on".into()),
         busy: scope.cage(false),
+        history_busy: scope.cage(false),
         error: scope.cage(String::new()),
         request: scope.cage(String::new()),
         abort: Rc::new(RefCell::new(None)),
@@ -60,6 +65,31 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     let sessions = common::query(ctx, "sessions.list", None);
     let agents = common::query(ctx, "agents.list", None);
     let models = common::query(ctx, "models.list", None);
+    let draft_agent = state.agent;
+    let draft_model = state.model;
+    let draft_session = state.session;
+    let agent_catalog = agents.value;
+    ctx.scope.effect(move || {
+        let data = agent_catalog.get();
+        let selected = draft_agent.get();
+        if draft_session.get_untracked().is_empty() && draft_model.get_untracked() == "default" {
+            let entry = common::array(&data, &["agents"]).into_iter().find(|entry| {
+                common::item_id(entry) == selected
+                    || (selected == "default" && entry["is_default"].as_bool() == Some(true))
+            });
+            if let Some(model) = entry
+                .and_then(|entry| {
+                    entry
+                        .pointer("/native/model")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .filter(|value| !value.is_empty())
+            {
+                set(draft_model, model);
+            }
+        }
+    });
     let selected = state.session;
     let agent = state.agent;
     let model = state.model;
@@ -93,260 +123,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         }
     });
 
-    let entries = sessions.value;
-    let filtered = scope.cage(String::new());
-    let session_items = scope.bond(move || {
-        serde_json::from_value::<SessionsResponse>(entries.get())
-            .map(|value| {
-                let filter = filtered.get().to_lowercase();
-                let mut entries = value.entries;
-                entries.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
-                entries
-                    .into_iter()
-                    .filter(|entry| {
-                        filter.is_empty()
-                            || entry.display_label().to_lowercase().contains(&filter)
-                            || entry.display_id().to_lowercase().contains(&filter)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
-    });
-    let list_ctx = ctx.clone();
-    let list_state = state.clone();
-    let list_query = sessions.clone();
-    let new_ctx = ctx.clone();
-    let new_state = state.clone();
-    let composer = composer(ctx, &state, &agents, &sessions);
-    let indexed = state.messages;
-    let message_items =
-        scope.bond(move || indexed.get().into_iter().enumerate().collect::<Vec<_>>());
-    let show = state.show_thinking;
-    let metadata = state.details;
-    let model_value = models.value;
-    let agent_value = agents.value;
-    let model_state = state.model;
-    let agent_state = state.agent;
-    let selected_session = state.session;
-    let preferences = crate::utils::model_visibility::load_model_preferences();
-    let content = Box::new(
-        row().class("sessions-workspace").fill((
-            col().class("sessions-sidebar").fill((
-                action("New session", move || {
-                    if new_state.busy.get() {
-                        set(
-                            new_state.error,
-                            "Stop the current response before starting a new session".into(),
-                        );
-                        return;
-                    }
-                    set(new_state.session, String::new());
-                    set(new_state.messages, Vec::new());
-                    set(new_state.prompt, String::new());
-                    set(new_state.details, Value::Null);
-                    new_ctx.navigate("/sessions");
-                }),
-                field("Filter sessions", filtered, false),
-                common::refresh(ctx, &sessions),
-                common::status(ctx, &sessions),
-                each(
-                    session_items,
-                    |entry| entry.display_id(),
-                    move |entry, _| {
-                        let id = entry.get_untracked().display_id();
-                        let state = list_state.clone();
-                        let ctx = list_ctx.clone();
-                        let query = list_query.clone();
-                        let delete_ctx = ctx.clone();
-                        let delete_id = id.clone();
-                        let session_id = state.session;
-                        let label = entry.map(|value| {
-                            format!("{} · {}", value.display_label(), value.display_count())
-                        });
-                        let target = id.clone();
-                        let select_ctx = ctx.clone();
-                        col()
-                            .class(ctx.scope.bond(move || {
-                                if session_id.get() == id {
-                                    "session-row active".into()
-                                } else {
-                                    "session-row".into()
-                                }
-                            }))
-                            .fill((
-                                sapid::button()
-                                    .class("session-choice")
-                                    .label(label)
-                                    .on_press(move || {
-                                        select_ctx.navigate(&format!(
-                                            "/sessions?session_id={}",
-                                            encode(&target)
-                                        ));
-                                    }),
-                                sapid::button().label("Delete").on_press(move || {
-                                    if confirm("Delete this session and its history?") {
-                                        common::mutate(
-                                            &delete_ctx,
-                                            &query,
-                                            "sessions.delete",
-                                            json!({"session_id":delete_id}),
-                                        );
-                                    }
-                                }),
-                            ))
-                    },
-                ),
-            )),
-            col().class("conversation").fill((
-                row().class("conversation-options").fill((
-                    Box::new(
-                        col().class("form-field").fill((
-                            text().class("field-label").content("Agent"),
-                            sapid::text_field()
-                                .name("Agent")
-                                .value(state.agent)
-                                .enabled(selected_session.map(|session| session.is_empty()))
-                                .on_value_change(move |value| set(agent_state, value)),
-                        )),
-                    ) as Box<dyn Widget>,
-                    field("Model", state.model, false),
-                    common::choice(
-                        "Thinking",
-                        state.thinking,
-                        &[
-                            ("off", "Off"),
-                            ("minimal", "Minimal"),
-                            ("low", "Low"),
-                            ("medium", "Medium"),
-                            ("high", "High"),
-                            ("xhigh", "Extra high"),
-                        ],
-                    ),
-                    common::choice(
-                        "Reasoning",
-                        state.reasoning,
-                        &[("off", "Off"), ("on", "On"), ("stream", "Stream")],
-                    ),
-                    common::choice(
-                        "Verbose",
-                        state.verbose,
-                        &[("off", "Off"), ("on", "On"), ("full", "Full")],
-                    ),
-                    common::toggle("Show reasoning", state.show_thinking),
-                )),
-                crate::ui::details(
-                    "available-chat-models",
-                    "Available agents and models",
-                    Box::new(col().fill((
-                        each(
-                            scope.bond(move || {
-                                common::array(&agent_value.get(), &["agents", "entries"])
-                            }),
-                            common::item_id,
-                            move |item, _| {
-                                let data = item.get_untracked();
-                                let id = common::item_id(&data);
-                                sapid::button()
-                                    .label(item.map(|value| common::string(value, &["name", "id"])))
-                                    .enabled(selected_session.map(|session| session.is_empty()))
-                                    .on_press(move || {
-                                        let model = item.get_untracked()["native"]["model"]
-                                            .as_str()
-                                            .unwrap_or("default")
-                                            .to_owned();
-                                        set(agent_state, id.clone());
-                                        set(model_state, model);
-                                    })
-                            },
-                        ),
-                        each(
-                            scope.bond(move || {
-                                common::array(&model_value.get(), &["models", "entries"])
-                                    .into_iter()
-                                    .filter(|model| {
-                                        crate::utils::model_visibility::is_model_visible(
-                                            &preferences,
-                                            &crate::pages::models::visibility_key(model),
-                                        )
-                                    })
-                                    .collect::<Vec<_>>()
-                            }),
-                            common::item_id,
-                            move |item, _| {
-                                let data = item.get_untracked();
-                                let id = common::item_id(&data);
-                                sapid::button()
-                                    .label(item.map(|value| common::string(value, &["name", "id"])))
-                                    .on_press(move || set(model_state, id.clone()))
-                            },
-                        ),
-                    ))),
-                ),
-                error_text(ctx, state.error),
-                col().class("chat-messages").fill(each(
-                    message_items,
-                    |value| value.0,
-                    move |item, _| {
-                        widget(move |scope| {
-                            let message = item.map(|(_, message)| message.clone());
-                            let source = scope.bond(move || vec![message.get().content]);
-                            let thinking = scope.bond(move || {
-                                if show.get() {
-                                    message.get().thinking.unwrap_or_default()
-                                } else {
-                                    String::new()
-                                }
-                            });
-                            let role = scope.bond(move || message.get().role);
-                            col()
-                                .class(
-                                    scope.bond(move || {
-                                        format!("chat-message {}", message.get().role)
-                                    }),
-                                )
-                                .fill((
-                                    text().class("message-author").content(role),
-                                    text().class("message-thinking").content(thinking),
-                                    each(
-                                        source,
-                                        |value| value.clone(),
-                                        move |content, _| markdown(&content.get_untracked()),
-                                    ),
-                                    text().class("terminal-events").content(scope.bond(
-                                        move || {
-                                            message
-                                                .get()
-                                                .terminal_events
-                                                .iter()
-                                                .filter_map(|event| {
-                                                    event
-                                                        .text
-                                                        .as_deref()
-                                                        .or(event.message.as_deref())
-                                                })
-                                                .collect::<Vec<_>>()
-                                                .join("\n")
-                                        },
-                                    )),
-                                ))
-                                .build(scope)?;
-                            Ok(())
-                        })
-                    },
-                )),
-                composer,
-                terminal_controls(ctx, &state),
-                delivery_controls(ctx, &state),
-                json_text(ctx, metadata),
-            )),
-        )),
-    ) as Box<dyn Widget>;
-    crate::ui::localized_page(
-        ctx,
-        "nav.sessions",
-        "Continue a conversation or start a new session.",
-        vec![content],
-    )
+    workspace::render(ctx, &state, &sessions, &agents, &models)
 }
 
 fn history_effect(ctx: &AppContext, state: &Conversation) {
@@ -361,6 +138,7 @@ fn history_effect(ctx: &AppContext, state: &Conversation) {
         let ctx = ctx_effect.clone();
         let state = state.clone();
         ctx_effect.spawn(async move {
+            set(state.history_busy, true);
             match ctx
                 .rpc
                 .call::<Value>(
@@ -372,6 +150,7 @@ fn history_effect(ctx: &AppContext, state: &Conversation) {
                 Ok(value) => set(state.messages, parse_history_messages(&value)),
                 Err(error) => set(state.error, error),
             }
+            set(state.history_busy, false);
         });
     });
 }
@@ -418,8 +197,24 @@ fn composer(
     let error = state.error;
     Box::new(
         sapid::prompt_input("savfox-chat")
-            .class("chat-composer")
-            .label("Message")
+            .class(ctx.scope.bond({
+                let busy = state.busy;
+                move || {
+                    if busy.get() {
+                        "chat-composer chat-composer--busy".into()
+                    } else {
+                        "chat-composer".into()
+                    }
+                }
+            }))
+            .label(if ctx.locale.get_untracked() == crate::i18n::Locale::ZhCn {
+                "消息"
+            } else {
+                "Message"
+            })
+            .send_label(ctx.tr("chat.send_message"))
+            .cancel_label(ctx.tr("chat.stop_generation"))
+            .attachment_label(ctx.tr("chat.attach_image"))
             .value(state.prompt)
             .busy(state.busy)
             .enabled(ctx.connected)
@@ -663,7 +458,11 @@ async fn read_attachments(
 }
 
 fn terminal_controls(ctx: &AppContext, state: &Conversation) -> Box<dyn Widget> {
-    let mut controls = vec![field("Terminal input", state.terminal_input, true)];
+    let mut controls = vec![field(
+        workspace::label(ctx, "Terminal input", "终端输入"),
+        state.terminal_input,
+        true,
+    )];
     for (label, method, kind) in [
         ("Read output", "agent.terminal.pty.read", "read"),
         ("Send line", "agent.terminal.pty.write", "line"),
@@ -672,7 +471,18 @@ fn terminal_controls(ctx: &AppContext, state: &Conversation) -> Box<dyn Widget> 
     ] {
         let ctx = ctx.clone();
         let state = state.clone();
-        controls.push(action(label,move ||{
+        let translated = match label {
+            "Read output" => "读取输出",
+            "Send line" => "发送一行",
+            "Interrupt" => "中断",
+            "Close terminal" => "关闭终端",
+            "Ambient context" => "环境上下文",
+            "Idle fallback" => "空闲回复",
+            "Preview Arkret checkpoint" => "预览 Arkret 检查点",
+            "Publish Arkret checkpoint" => "发布 Arkret 检查点",
+            _ => label,
+        };
+        controls.push(action(workspace::label(&ctx,label,translated),move ||{
             let session=state.session.get();if session.is_empty(){set(state.error,"Choose a session first".into());return;}
             let task_ctx=ctx.clone();let state=state.clone();
             ctx.spawn(async move {
@@ -685,7 +495,7 @@ fn terminal_controls(ctx: &AppContext, state: &Conversation) -> Box<dyn Widget> 
     }
     crate::ui::details(
         "session-terminal",
-        "Terminal controls",
+        workspace::label(ctx, "Terminal controls", "终端控制"),
         Box::new(col().class("terminal-controls").fill(controls)),
     )
 }
@@ -693,7 +503,11 @@ fn terminal_controls(ctx: &AppContext, state: &Conversation) -> Box<dyn Widget> 
 fn delivery_controls(ctx: &AppContext, state: &Conversation) -> Box<dyn Widget> {
     let summary = ctx.scope.cage(String::new());
     let preview = ctx.scope.cage(Value::Null);
-    let mut controls = vec![field("Public checkpoint summary", summary, true)];
+    let mut controls = vec![field(
+        workspace::label(ctx, "Public checkpoint summary", "公开检查点摘要"),
+        summary,
+        true,
+    )];
     for (label, method) in [
         ("Ambient context", "sessions.ambient.get"),
         ("Idle fallback", "sessions.idle_reply.get"),
@@ -708,7 +522,18 @@ fn delivery_controls(ctx: &AppContext, state: &Conversation) -> Box<dyn Widget> 
     ] {
         let ctx = ctx.clone();
         let state = state.clone();
-        controls.push(action(label,move ||{
+        let translated = match label {
+            "Read output" => "读取输出",
+            "Send line" => "发送一行",
+            "Interrupt" => "中断",
+            "Close terminal" => "关闭终端",
+            "Ambient context" => "环境上下文",
+            "Idle fallback" => "空闲回复",
+            "Preview Arkret checkpoint" => "预览 Arkret 检查点",
+            "Publish Arkret checkpoint" => "发布 Arkret 检查点",
+            _ => label,
+        };
+        controls.push(action(workspace::label(&ctx,label,translated),move ||{
             let session=state.session.get();if session.is_empty(){set(state.error,"Choose a session first".into());return;}
             let ctx_task=ctx.clone();let state=state.clone();
             let params=json!({"session_id":session,"kind":"progress","title":"Progress update","summary":summary.get(),"verification":[],"next_actions":[]});
@@ -726,7 +551,11 @@ fn delivery_controls(ctx: &AppContext, state: &Conversation) -> Box<dyn Widget> 
     }
     crate::ui::details(
         "session-delivery",
-        "Session context and Arkret delivery",
+        workspace::label(
+            ctx,
+            "Session context and Arkret delivery",
+            "会话上下文与 Arkret 投递",
+        ),
         Box::new(col().class("delivery-controls").fill(controls)),
     )
 }

@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use super::common::*;
 use crate::ui::{self, AppContext};
 pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let page = ctx.scope.cage(1_u64);
     let size = ctx.scope.cage("50".to_owned());
     let category = ctx.scope.cage(String::new());
@@ -16,11 +17,11 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
     let revision = state.revision;
     let context = ctx.clone();
     ctx.scope.effect(move||{let connected=context.connected.get();let page=page.get();let page_size=size.get().parse::<u64>().unwrap_or(50);let category=category.get();let search=filter.get();let _=revision.get();if !connected{return;}let context_async=context.clone();context.spawn(async move{ui::set(busy,true);match context_async.rpc.call::<Value>("skills.bins",Some(json!({"page":page,"page_size":page_size,"category":category,"search":search}))).await{Ok(value)=>ui::set(bins,value),Err(message)=>ui::set(error,message)}ui::set(busy,false);});});
-    let mut children = vec![
-        status(ctx, &state),
+    let mut controls = vec![
         refresh(ctx, &state),
-        ui::field("Search skills", filter, false),
-        choice(
+        ui::field(ui::label_for(locale, "Search skills"), filter, false),
+        choice_for(
+            locale,
             "Category",
             category,
             &[
@@ -30,32 +31,86 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 ("third_party", "Third party"),
             ],
         ),
-        choice(
+        choice_for(
+            locale,
             "Page size",
             size,
             &[("25", "25"), ("50", "50"), ("100", "100")],
         ),
-        ui::field("Git URL", url, false),
+        ui::field(ui::label_for(locale, "Git URL"), url, false),
     ];
     let context = ctx.clone();
     let install = state.clone();
-    children.push(ui::action("Install from URL", move || {
-        if url.get().trim().is_empty() {
-            ui::set(install.error, "Enter a Git URL".to_owned());
-            return;
-        }
-        mutate(
-            &context,
-            &install,
-            "skills.install_url",
-            json!({"url":url.get()}),
-        );
-    }));
+    controls.push(ui::action(
+        ui::label_for(locale, "Install from URL"),
+        move || {
+            if url.get().trim().is_empty() {
+                ui::set(install.error, "Enter a Git URL".to_owned());
+                return;
+            }
+            mutate(
+                &context,
+                &install,
+                "skills.install_url",
+                json!({"url":url.get()}),
+            );
+        },
+    ));
     let context = ctx.clone();
     let zip_state = state.clone();
-    children.push(ui::action("Upload ZIP", move || {
+    controls.push(ui::action(ui::label_for(locale, "Upload ZIP"), move || {
         upload_zip(&context, &zip_state)
     }));
+    let stats = [
+        ("Installed", "installed_count"),
+        ("Available", "available_count"),
+        ("Enabled", "enabled_count"),
+        ("Blocked", "blocked_count"),
+    ]
+    .into_iter()
+    .map(|(label, key)| {
+        let source = state.value;
+        Box::new(
+            col().class("skill-stat").fill((
+                text()
+                    .class("skill-stat__label")
+                    .content(ui::label_for(locale, label)),
+                text()
+                    .class("skill-stat__value")
+                    .content(ctx.scope.bond(move || {
+                        source.get()[key]
+                            .as_u64()
+                            .map(|n| n.to_string())
+                            .unwrap_or_else(|| {
+                                let entries = array(&bins.get(), &["bins", "skills"]);
+                                if entries.is_empty() {
+                                    "—".into()
+                                } else {
+                                    entries
+                                        .iter()
+                                        .filter(|entry| {
+                                            if key == "enabled_count" {
+                                                entry["enabled"].as_bool().unwrap_or(false)
+                                            } else {
+                                                entry["allowlist_blocked"]
+                                                    .as_bool()
+                                                    .unwrap_or(false)
+                                            }
+                                        })
+                                        .count()
+                                        .to_string()
+                                }
+                            })
+                    })),
+            )),
+        ) as Box<dyn Widget>
+    })
+    .collect::<Vec<_>>();
+    let mut children = vec![
+        status(ctx, &state),
+        Box::new(row().class("skills-toolbar").fill(controls)),
+        Box::new(row().class("skills-stats").fill(stats)),
+    ];
     let context = ctx.clone();
     let row_state = state.clone();
     let items = bins.map(|value| {
@@ -80,7 +135,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 let name = name.clone();
                 actions.push(Box::new(
                     sapid::checkbox()
-                        .label("Enabled")
+                        .label(ui::label_for(locale, "Enabled"))
                         .checked(enabled)
                         .on_checked_change(move |enabled| {
                             mutate(
@@ -95,7 +150,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 let context = context.clone();
                 let state = row_state.clone();
                 let name = name.clone();
-                actions.push(ui::action("Install", move || {
+                actions.push(ui::action(ui::label_for(locale, "Install"), move || {
                     mutate(
                         &context,
                         &state,
@@ -109,45 +164,76 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 let value = context.scope.cage(String::new());
                 let context_env = context.clone();
                 let state = row_state.clone();
-                actions.push(secret(&env_name, value));
-                actions.push(ui::action("Save credential", move || {
-                    let context_async = context_env.clone();
-                    let state = state.clone();
-                    let key = env_name.clone();
-                    let secret = value.get();
-                    context_env.spawn(async move {
-                        match context_async
-                            .rpc
-                            .call::<Value>("skills.setEnv", Some(json!({"key":key,"value":secret})))
-                            .await
-                        {
-                            Ok(_) => {
-                                ui::set(value, String::new());
-                                state.refresh();
+                actions.push(secret(env_name.clone(), value));
+                actions.push(ui::action(
+                    ui::label_for(locale, "Save credential"),
+                    move || {
+                        let context_async = context_env.clone();
+                        let state = state.clone();
+                        let key = env_name.clone();
+                        let secret = value.get();
+                        context_env.spawn(async move {
+                            match context_async
+                                .rpc
+                                .call::<Value>(
+                                    "skills.setEnv",
+                                    Some(json!({"key":key,"value":secret})),
+                                )
+                                .await
+                            {
+                                Ok(_) => {
+                                    ui::set(value, String::new());
+                                    state.refresh();
+                                }
+                                Err(message) => ui::set(state.error, message),
                             }
-                            Err(message) => ui::set(state.error, message),
-                        }
-                    });
-                }));
+                        });
+                    },
+                ));
             }
-            card(
-                name,
-                vec![
-                    metadata(
-                        &skill,
-                        &[
-                            ("description", "Description"),
-                            ("category", "Source"),
-                            ("version", "Version"),
-                            ("path", "Path"),
-                            ("eligible", "Eligible"),
-                            ("missing_deps", "Missing dependencies"),
-                            ("disabled_reason", "Disabled reason"),
-                            ("conflicts", "Conflicts"),
-                        ],
+            let primary = actions.remove(0);
+            let details = col().class("skill-details").fill((
+                metadata_for(
+                    locale,
+                    &skill,
+                    &[
+                        ("version", "Version"),
+                        ("path", "Path"),
+                        ("missing_deps", "Missing dependencies"),
+                        ("disabled_reason", "Disabled reason"),
+                        ("conflicts", "Conflicts"),
+                    ],
+                ),
+                col().class("actions").fill(actions),
+            ));
+            Box::new(
+                col().class("skill-card").fill((
+                    row().class("skill-card__header").fill((
+                        text().class("skill-card__name").content(name.clone()),
+                        text()
+                            .class("skill-card__source")
+                            .content(string(&skill, &["category"])),
+                        text()
+                            .class("skill-card__eligibility")
+                            .content(ui::label_for(
+                                locale,
+                                if skill["eligible"].as_bool().unwrap_or(false) {
+                                    "Eligible"
+                                } else {
+                                    "Blocked"
+                                },
+                            )),
+                        primary,
+                    )),
+                    text()
+                        .class("skill-card__description")
+                        .content(string(&skill, &["description"])),
+                    ui::details(
+                        &select_key(&format!("skill-{name}-{}", record_key(&skill))),
+                        ui::label_for(locale, "More"),
+                        Box::new(details),
                     ),
-                    Box::new(col().class("actions").fill(actions)),
-                ],
+                )),
             )
         },
     )));
@@ -159,10 +245,11 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             bins.get()["total"].as_u64().unwrap_or(0)
         )
     }))));
-    children.push(ui::action("Previous page", move || {
-        ui::set(page, page.get().saturating_sub(1).max(1))
-    }));
-    children.push(ui::action("Next page", move || {
+    children.push(ui::action(
+        ui::label_for(locale, "Previous page"),
+        move || ui::set(page, page.get().saturating_sub(1).max(1)),
+    ));
+    children.push(ui::action(ui::label_for(locale, "Next page"), move || {
         let total = bins.get()["total_pages"].as_u64().unwrap_or(1);
         if page.get() < total {
             ui::set(page, page.get() + 1);

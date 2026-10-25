@@ -1283,98 +1283,87 @@ fn model_select_value(models: &[AvailableModel], model_id: &str) -> String {
 // ---------------------------------------------------------------------------
 
 pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
-    let segments = path.trim_matches('/').split('/').collect::<Vec<_>>();
-    if segments.get(1) == Some(&"new") {
-        return agent_form(ctx, Value::Null, true);
-    }
-    if let Some(id) = segments.get(1) {
-        let state = query(ctx, "agents.get", Some(json!({"id":id})));
-        let tab = segments.get(2).copied().unwrap_or("overview").to_owned();
-        let agent = id.to_string();
-        let context = ctx.clone();
-        let value = state.value;
-        let navs = [
-            ("Overview", "overview"),
-            ("Files", "files"),
-            ("Tools", "tools"),
-            ("Skills", "skills"),
-        ]
-        .iter()
-        .map(|(label, tab)| nav(ctx, label, format!("/agents/{id}/{tab}")))
-        .collect::<Vec<_>>();
-        return ui::page(
-            format!("Agent: {id}"),
-            "Agent configuration and capabilities",
-            vec![
-                nav(ctx, "All agents", "/agents"),
-                Box::new(row().class("actions").fill(navs)),
-                status(ctx, &state),
-                Box::new(when(value.map(|value| !value.is_null()), move || {
-                    let detail = value.get();
-                    let detail = detail.get("agent").cloned().unwrap_or(detail);
-                    match tab.as_str() {
-                        "files" => files(&context, &agent),
-                        "tools" => tools(&context, &agent, detail),
-                        "skills" => skills(&context, &agent),
-                        _ => agent_form(&context, detail, false),
-                    }
-                })),
-            ],
-        );
-    }
+    let locale = ctx.locale;
     let state = query(ctx, "agents.list", None);
     let search = ctx.scope.cage(String::new());
-    let context = ctx.clone();
-    let row_state = state.clone();
-    let data = state.value;
-    let filtered = ctx.scope.bond(move || {
-        array(&data.get(), &["agents"])
+    let source = state.value;
+    let selected = path
+        .trim_matches('/')
+        .split('/')
+        .nth(1)
+        .unwrap_or("")
+        .to_owned();
+    let selected_key = selected.clone();
+    let rows = ctx.scope.bond(move || {
+        let filter = search.get().to_lowercase();
+        array(&source.get(), &["agents"])
             .into_iter()
-            .filter(|value| {
-                value
-                    .to_string()
-                    .to_lowercase()
-                    .contains(&search.get().to_lowercase())
-            })
-            .enumerate()
-            .map(|(i, v)| (format!("{i}-{}", record_key(&v)), v))
+            .filter(|agent| agent.to_string().to_lowercase().contains(&filter))
             .collect::<Vec<_>>()
     });
-    ui::localized_page(
-        ctx,
-        "nav.agents",
-        "Configure native and terminal agents",
-        vec![
-            status(ctx, &state),
-            refresh(ctx, &state),
-            nav(ctx, "Create agent", "/agents/new"),
-            ui::field("Search agents", search, false),
-            Box::new(each(
-                filtered,
-                |(key, _)| key.clone(),
-                move |item, _| {
-                    let value = item.get_untracked().1;
-                    let id = string(&value, &["id", "name"]);
-                    let context_delete = context.clone();
-                    let state = row_state.clone();
-                    let id_delete = id.clone();
-                    let default_context = context.clone();
-                    let default_state = row_state.clone();
-                    let default_id = id.clone();
-                    card(
-                        string(&value, &["name", "id"]),
-                        vec![
-                            metadata(
-                                &value,
-                                &[
-                                    ("kind", "Kind"),
-                                    ("description", "Description"),
-                                    ("status", "Status"),
-                                ],
-                            ),
-                            nav(&context, "Configure", format!("/agents/{id}")),
-                            nav(&context, "Files", format!("/agents/{id}/files")),
-                            ui::action("Use as default agent", move || {
+    let context = ctx.clone();
+    let row_state = state.clone();
+    let list = col().class("split-view__list agent-list-pane").fill((
+        row().class("panel-header").fill((
+            text()
+                .class("panel-header__title page-title")
+                .kind(TextKind::Heading(1))
+                .content(ui::label_for(locale, "Agents")),
+            row().class("toolbar-actions").fill((
+                refresh(ctx, &state),
+                nav(ctx, "Create agent", "/agents/new"),
+            )),
+        )),
+        col().class("agent-list-search").fill(ui::field(
+            ui::label_for(locale, "Search agents"),
+            search,
+            false,
+        )),
+        status(ctx, &state),
+        col()
+            .class("agent-list-scroll")
+            .fill(each(rows, record_key, move |item, _| {
+                let agent = item.get_untracked();
+                let id = string(&agent, &["id", "name"]);
+                let target = id.clone();
+                let selected = selected_key == id;
+                let open_context = context.clone();
+                let default_context = context.clone();
+                let delete_context = context.clone();
+                let default_state = row_state.clone();
+                let delete_state = row_state.clone();
+                let default_id = id.clone();
+                let delete_id = id.clone();
+                let name = string(&agent, &["name", "id"]);
+                let subtitle = if agent["kind"].as_str() == Some("terminal") {
+                    string(&agent["terminal"], &["runtime", "command"])
+                } else {
+                    let native = &agent["native"];
+                    {
+                        let provider = string(native, &["provider"]);
+                        let model = string(native, &["model"]);
+                        if provider.is_empty() || model.starts_with(&format!("{provider}/")) {
+                            model
+                        } else {
+                            format!("{provider}/{model}")
+                        }
+                    }
+                };
+                col()
+                    .class(if selected {
+                        "list-item list-item--active agent-list-item"
+                    } else {
+                        "list-item agent-list-item"
+                    })
+                    .fill((
+                        sapid::button()
+                            .unstyled()
+                            .class("agent-select")
+                            .label(name)
+                            .on_press(move || open_context.navigate(&format!("/agents/{target}"))),
+                        text().class("list-item__subtitle").content(subtitle),
+                        row().class("list-item__actions").fill((
+                            ui::action(ui::label_for(locale, "Use as default agent"), move || {
                                 mutate(
                                     &default_context,
                                     &default_state,
@@ -1382,25 +1371,93 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                                     json!({"id":default_id,"is_default":true}),
                                 )
                             }),
-                            ui::action("Delete", move || {
+                            ui::action(ui::label_for(locale, "Delete"), move || {
                                 if confirmed("Delete this agent?") {
                                     mutate(
-                                        &context_delete,
-                                        &state,
+                                        &delete_context,
+                                        &delete_state,
                                         "agents.delete",
-                                        json!({"id":id_delete}),
+                                        json!({"id":delete_id}),
                                     );
                                 }
                             }),
-                        ],
-                    )
-                },
+                        )),
+                    ))
+            })),
+    ));
+    let detail: Box<dyn Widget> = if selected == "new" {
+        agent_form(ctx, Value::Null, true)
+    } else if !selected.is_empty() {
+        let detail = query(ctx, "agents.get", Some(json!({"id":selected})));
+        let tab = path
+            .trim_matches('/')
+            .split('/')
+            .nth(2)
+            .unwrap_or("overview")
+            .to_owned();
+        let agent = selected.clone();
+        let context = ctx.clone();
+        let data = detail.value;
+        let navs = [
+            ("Overview", "overview"),
+            ("Files", "files"),
+            ("Tools", "tools"),
+            ("Skills", "skills"),
+        ]
+        .into_iter()
+        .map(|(label, tab)| nav(ctx, label, format!("/agents/{selected}/{tab}")))
+        .collect::<Vec<_>>();
+        Box::new(
+            col().class("agent-detail-panel").fill((
+                row().class("panel-header agent-detail-header").fill((
+                    text()
+                        .class("page-title")
+                        .kind(TextKind::Heading(1))
+                        .content(selected),
+                    nav(ctx, "All agents", "/agents"),
+                )),
+                row().class("agent-tabs actions").fill(navs),
+                status(ctx, &detail),
+                when(data.map(|value| !value.is_null()), move || {
+                    let detail = data.get_untracked();
+                    let detail = detail.get("agent").cloned().unwrap_or(detail);
+                    match tab.as_str() {
+                        "files" => files(&context, &agent),
+                        "tools" => tools(&context, &agent, detail),
+                        "skills" => skills(&context, &agent),
+                        _ => agent_form(&context, detail, false),
+                    }
+                }),
             )),
-        ],
+        )
+    } else {
+        Box::new(
+            col().class("agent-empty-detail").fill(
+                col().class("empty-state agent-empty-card").fill((
+                    text()
+                        .class("agent-empty-icon shell-icon shell-icon--bot")
+                        .content(""),
+                    text()
+                        .class("empty-state__message")
+                        .content(ui::label_for(locale, "Select an agent or create a new one")),
+                    nav(ctx, "Create agent", "/agents/new"),
+                )),
+            ),
+        )
+    };
+    Box::new(
+        row()
+            .class(if path == "/agents" {
+                "gateway-page management-page agent-workspace split-view"
+            } else {
+                "gateway-page management-page agent-workspace split-view split-view--detail"
+            })
+            .fill((list, col().class("split-view__detail").fill(detail))),
     )
 }
 
 fn agent_form(ctx: &AppContext, detail: Value, creating: bool) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let id = ctx.scope.cage(string(&detail, &["id", "name"]));
     let name = ctx.scope.cage(string(&detail, &["name"]));
     let kind = ctx
@@ -1479,137 +1536,174 @@ fn agent_form(ctx: &AppContext, detail: Value, creating: bool) -> Box<dyn Widget
     });
     let model_scope = ctx.scope.clone();
     let mut sections = vec![
-        ui::field("Agent ID", id, false),
-        ui::field("Agent name", name, false),
-        choice(
+        ui::field(ui::label_for(locale, "Agent ID"), id, false),
+        ui::field(ui::label_for(locale, "Agent name"), name, false),
+        choice_for(
+            locale,
             "Agent kind",
             kind,
             &[("native", "Native agent"), ("terminal", "Terminal agent")],
         ),
-        ui::field("System prompt", prompt, true),
+        ui::field(ui::label_for(locale, "System prompt"), prompt, true),
     ];
-    sections.push(card(
-        "Native model",
-        vec![
-            ui::field("Provider", provider, false),
-            ui::field("Model ID", model, false),
-            ui::field("Fallback model IDs (one per line)", fallback, true),
-            choice(
-                "Thinking level",
-                thinking,
-                &[
-                    ("", "Provider default"),
-                    ("off", "Off"),
-                    ("minimal", "Minimal"),
-                    ("low", "Low"),
-                    ("medium", "Medium"),
-                    ("high", "High"),
-                    ("xhigh", "Extra high"),
+    sections.push(Box::new(
+        col()
+            .class("agent-kind-section")
+            .style(kind.map(|value| {
+                Style::new().display(if value == "native" {
+                    Display::Flex
+                } else {
+                    Display::None
+                })
+            }))
+            .fill(card(
+                ui::label_for(locale, "Native model"),
+                vec![
+                    ui::field(ui::label_for(locale, "Provider"), provider, false),
+                    ui::field(ui::label_for(locale, "Model ID"), model, false),
+                    ui::field(
+                        ui::label_for(locale, "Fallback model IDs (one per line)"),
+                        fallback,
+                        true,
+                    ),
+                    choice_for(
+                        locale,
+                        "Thinking level",
+                        thinking,
+                        &[
+                            ("", "Provider default"),
+                            ("off", "Off"),
+                            ("minimal", "Minimal"),
+                            ("low", "Low"),
+                            ("medium", "Medium"),
+                            ("high", "High"),
+                            ("xhigh", "Extra high"),
+                        ],
+                    ),
+                    select_source(ctx, "Model", model, model_options),
                 ],
-            ),
-            Box::new(each(
-                model_options,
-                |(id, _)| id.clone(),
-                move |item, _| {
-                    let (id, label) = item.get_untracked();
-                    Box::new(
-                        sapid::button()
-                            .label(label)
-                            .on_press(move || ui::set(model, id.clone())),
-                    ) as Box<dyn Widget>
-                },
             )),
-        ],
     ));
     let _ = model_scope;
-    sections.push(card(
-        "Terminal runtime",
-        vec![
-            choice(
-                "Runtime",
-                profile,
-                &[("codex", "Codex"), ("claude", "Claude")],
-            ),
-            ui::field("Executable", command, false),
-            ui::field(
-                "Arguments (one per line or Claude JSON settings)",
-                args,
-                true,
-            ),
-            ui::field("Standard input template", stdin, true),
-            ui::field("Working directory", cwd, false),
-            ui::field("Environment (KEY=value per line)", env, true),
-            ui::field("Timeout seconds", timeout, false),
-            toggle("Include system prompt", include_prompt),
-            choice(
-                "Runtime mode",
-                mode,
-                &[
-                    ("app_server", "Codex app server"),
-                    ("claude_stream", "Claude stream"),
-                    ("one_shot", "One shot"),
-                    ("managed_pty", "Managed PTY"),
+    sections.push(Box::new(
+        col()
+            .class("agent-kind-section")
+            .style(kind.map(|value| {
+                Style::new().display(if value == "terminal" {
+                    Display::Flex
+                } else {
+                    Display::None
+                })
+            }))
+            .fill(card(
+                ui::label_for(locale, "Terminal runtime"),
+                vec![
+                    choice_for(
+                        locale,
+                        "Runtime",
+                        profile,
+                        &[("codex", "Codex"), ("claude", "Claude")],
+                    ),
+                    ui::field(ui::label_for(locale, "Executable"), command, false),
+                    ui::field(
+                        ui::label_for(locale, "Arguments (one per line or Claude JSON settings)"),
+                        args,
+                        true,
+                    ),
+                    ui::field(
+                        ui::label_for(locale, "Standard input template"),
+                        stdin,
+                        true,
+                    ),
+                    ui::field(ui::label_for(locale, "Working directory"), cwd, false),
+                    ui::field(
+                        ui::label_for(locale, "Environment (KEY=value per line)"),
+                        env,
+                        true,
+                    ),
+                    ui::field(ui::label_for(locale, "Timeout seconds"), timeout, false),
+                    toggle(
+                        ui::label_for(locale, "Include system prompt"),
+                        include_prompt,
+                    ),
+                    choice_for(
+                        locale,
+                        "Runtime mode",
+                        mode,
+                        &[
+                            ("app_server", "Codex app server"),
+                            ("claude_stream", "Claude stream"),
+                            ("one_shot", "One shot"),
+                            ("managed_pty", "Managed PTY"),
+                        ],
+                    ),
+                    choice_for(
+                        locale,
+                        "Session scope",
+                        session_scope,
+                        &[
+                            ("per_turn", "Per turn"),
+                            ("per_session", "Per session"),
+                            ("per_agent", "Per agent"),
+                            ("manual", "Manual"),
+                        ],
+                    ),
+                    choice_for(
+                        locale,
+                        "I/O protocol",
+                        io_protocol,
+                        &[
+                            ("plain_text", "Plain text"),
+                            ("jsonl", "JSONL"),
+                            ("profile", "Profile"),
+                            ("sentinel", "Sentinel"),
+                        ],
+                    ),
+                    choice_for(
+                        locale,
+                        "Terminal execution",
+                        execution,
+                        &[
+                            ("native_terminal", "Native terminal"),
+                            ("managed_workspace", "Managed workspace"),
+                        ],
+                    ),
+                    choice_for(
+                        locale,
+                        "Approval bridge",
+                        approval,
+                        &[("disabled", "Disabled"), ("required", "Required")],
+                    ),
+                    choice_for(
+                        locale,
+                        "Workspace mode",
+                        workspace,
+                        &[
+                            ("shared", "Shared"),
+                            ("read_only", "Read only"),
+                            ("worktree", "Git worktree"),
+                            ("patch_only", "Patch only"),
+                        ],
+                    ),
+                    ui::field(ui::label_for(locale, "Workspace base"), base, false),
+                    choice_for(
+                        locale,
+                        "Cleanup policy",
+                        cleanup,
+                        &[
+                            ("per_turn", "Per turn"),
+                            ("per_session", "Per session"),
+                            ("manual", "Manual"),
+                        ],
+                    ),
                 ],
-            ),
-            choice(
-                "Session scope",
-                session_scope,
-                &[
-                    ("per_turn", "Per turn"),
-                    ("per_session", "Per session"),
-                    ("per_agent", "Per agent"),
-                    ("manual", "Manual"),
-                ],
-            ),
-            choice(
-                "I/O protocol",
-                io_protocol,
-                &[
-                    ("plain_text", "Plain text"),
-                    ("jsonl", "JSONL"),
-                    ("profile", "Profile"),
-                    ("sentinel", "Sentinel"),
-                ],
-            ),
-            choice(
-                "Terminal execution",
-                execution,
-                &[
-                    ("native_terminal", "Native terminal"),
-                    ("managed_workspace", "Managed workspace"),
-                ],
-            ),
-            choice(
-                "Approval bridge",
-                approval,
-                &[("disabled", "Disabled"), ("required", "Required")],
-            ),
-            choice(
-                "Workspace mode",
-                workspace,
-                &[
-                    ("shared", "Shared"),
-                    ("read_only", "Read only"),
-                    ("worktree", "Git worktree"),
-                    ("patch_only", "Patch only"),
-                ],
-            ),
-            ui::field("Workspace base", base, false),
-            choice(
-                "Cleanup policy",
-                cleanup,
-                &[
-                    ("per_turn", "Per turn"),
-                    ("per_session", "Per session"),
-                    ("manual", "Manual"),
-                ],
-            ),
-        ],
+            )),
     ));
     sections.push(card(
-        "Channel behavior",
+        ui::label_for(locale, "Channel behavior"),
         vec![
-            choice(
+            choice_for(
+                locale,
                 "Group activation",
                 group_activation,
                 &[
@@ -1619,24 +1713,54 @@ fn agent_form(ctx: &AppContext, detail: Value, creating: bool) -> Box<dyn Widget
                     ("keyword", "Keyword"),
                 ],
             ),
-            ui::field("Group keywords (one per line)", group_keywords, true),
-            ui::field("Agent aliases (one per line)", aliases, true),
-            choice(
+            ui::field(
+                ui::label_for(locale, "Group keywords (one per line)"),
+                group_keywords,
+                true,
+            ),
+            ui::field(
+                ui::label_for(locale, "Agent aliases (one per line)"),
+                aliases,
+                true,
+            ),
+            choice_for(
+                locale,
                 "Ingest policy",
                 ingest,
                 &[("", "Inherit"), ("mentions", "Mentions"), ("all", "All")],
             ),
-            choice(
+            choice_for(
+                locale,
                 "External bot policy",
                 bots,
                 &[("", "Inherit"), ("ignore", "Ignore"), ("allow", "Allow")],
             ),
-            ui::field("Channel reply overrides (JSON object)", channels, true),
-            ui::field("Matrix auto-user channel IDs (one per line)", matrix, true),
-            toggle("Idle replies", idle_enabled),
-            ui::field("Idle delay seconds", idle_delay, false),
-            ui::field("Idle replies per hour", idle_hour, false),
-            ui::field("Idle reply prompt", idle_prompt, true),
+            ui::field(
+                ui::label_for(locale, "Channel reply overrides (JSON object)"),
+                channels,
+                true,
+            ),
+            ui::field(
+                ui::label_for(locale, "Matrix auto-user channel IDs (one per line)"),
+                matrix,
+                true,
+            ),
+            toggle(ui::label_for(locale, "Idle replies"), idle_enabled),
+            ui::field(
+                ui::label_for(locale, "Idle delay seconds"),
+                idle_delay,
+                false,
+            ),
+            ui::field(
+                ui::label_for(locale, "Idle replies per hour"),
+                idle_hour,
+                false,
+            ),
+            ui::field(
+                ui::label_for(locale, "Idle reply prompt"),
+                idle_prompt,
+                true,
+            ),
         ],
     ));
     let context = ctx.clone();
@@ -1780,8 +1904,11 @@ fn agent_form(ctx: &AppContext, detail: Value, creating: bool) -> Box<dyn Widget
     ));
     if creating {
         ui::page(
-            "New agent",
-            "Configure models, terminal execution and channel behavior",
+            ui::label_for(locale, "New agent"),
+            ui::label_for(
+                locale,
+                "Configure models, terminal execution and channel behavior",
+            ),
             sections,
         )
     } else {
@@ -1794,6 +1921,7 @@ fn agent_form(ctx: &AppContext, detail: Value, creating: bool) -> Box<dyn Widget
 }
 
 fn files(ctx: &AppContext, agent: &str) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let state = query(ctx, "agents.files.list", Some(json!({"agent_id":agent})));
     let path = ctx.scope.cage(String::new());
     let content = ctx.scope.cage(String::new());
@@ -1854,7 +1982,7 @@ fn files(ctx: &AppContext, agent: &str) -> Box<dyn Widget> {
             );
         }));
     }
-    actions.push(ui::action("Reset", move || {
+    actions.push(ui::action(ui::label_for(locale, "Reset"), move || {
         ui::set(content, original.get())
     }));
     agent_section(
@@ -1864,13 +1992,14 @@ fn files(ctx: &AppContext, agent: &str) -> Box<dyn Widget> {
             status(ctx, &state),
             refresh(ctx, &state),
             rows,
-            ui::field("File path", path, false),
-            ui::field("Content", content, true),
+            ui::field(ui::label_for(locale, "File path"), path, false),
+            ui::field(ui::label_for(locale, "Content"), content, true),
             Box::new(row().class("actions").fill(actions)),
         ],
     )
 }
 fn tools(ctx: &AppContext, agent: &str, detail: Value) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let state = query(ctx, "security.rules.list", None);
     let profile = ctx.scope.cage(
         detail
@@ -1898,7 +2027,7 @@ fn tools(ctx: &AppContext, agent: &str, detail: Value) -> Box<dyn Widget> {
     let context = ctx.clone();
     let agent_id = agent.to_owned();
     let tool_state = state.clone();
-    let save = ui::action("Save permissions", move || {
+    let save = ui::action(ui::label_for(locale, "Save permissions"), move || {
         let Some(boundary) = crate::api::types::agent_preset_boundary(&profile.get()) else {
             ui::set(
                 tool_state.error,
@@ -1916,7 +2045,7 @@ fn tools(ctx: &AppContext, agent: &str, detail: Value) -> Box<dyn Widget> {
     let context = ctx.clone();
     let agent_id = agent.to_owned();
     let error = state.error;
-    let simulate = ui::action("Simulate command", move || {
+    let simulate = ui::action(ui::label_for(locale, "Simulate command"), move || {
         let context_async = context.clone();
         let agent = agent_id.clone();
         let command = command.get();
@@ -1936,7 +2065,7 @@ fn tools(ctx: &AppContext, agent: &str, detail: Value) -> Box<dyn Widget> {
     });
     let context = ctx.clone();
     let add_state = state.clone();
-    let add = ui::action("Add rule", move || {
+    let add = ui::action(ui::label_for(locale, "Add rule"), move || {
         if command.get().trim().is_empty() {
             ui::set(add_state.error, "Command is required".to_owned());
             return;
@@ -1954,7 +2083,8 @@ fn tools(ctx: &AppContext, agent: &str, detail: Value) -> Box<dyn Widget> {
         "Agent execution boundaries and core execpolicy rules",
         vec![
             status(ctx, &state),
-            choice(
+            choice_for(
+                locale,
                 "Permission preset",
                 profile,
                 &[
@@ -1965,12 +2095,17 @@ fn tools(ctx: &AppContext, agent: &str, detail: Value) -> Box<dyn Widget> {
                     ("unrestricted", "Unrestricted"),
                 ],
             ),
-            ui::field("Allowed tools (one per line)", allowed, true),
+            ui::field(
+                ui::label_for(locale, "Allowed tools (one per line)"),
+                allowed,
+                true,
+            ),
             save,
-            ui::field("Command", command, false),
+            ui::field(ui::label_for(locale, "Command"), command, false),
             simulate,
             ui::json_text(ctx, simulation),
-            choice(
+            choice_for(
+                locale,
                 "Decision",
                 decision,
                 &[("allow", "Allow"), ("ask", "Ask"), ("deny", "Deny")],
@@ -1983,8 +2118,8 @@ fn tools(ctx: &AppContext, agent: &str, detail: Value) -> Box<dyn Widget> {
                 card(
                     string(&rule, &["rule"]),
                     vec![
-                        metadata(&rule, &[("decision", "Decision")]),
-                        ui::action("Remove", move || {
+                        metadata_for(locale, &rule, &[("decision", "Decision")]),
+                        ui::action(ui::label_for(locale, "Remove"), move || {
                             mutate(&context, &state, "security.rules.remove", params.clone())
                         }),
                     ],
@@ -1994,6 +2129,7 @@ fn tools(ctx: &AppContext, agent: &str, detail: Value) -> Box<dyn Widget> {
     )
 }
 fn skills(ctx: &AppContext, agent: &str) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let state = query(ctx, "skills.status", None);
     let enabled = query(ctx, "agents.skills.get", Some(json!({"agent":agent})));
     let agent = agent.to_owned();
@@ -2019,7 +2155,8 @@ fn skills(ctx: &AppContext, agent: &str) -> Box<dyn Widget> {
                 card(
                     name.clone(),
                     vec![
-                        metadata(
+                        metadata_for(
+                            locale,
                             &skill,
                             &[
                                 ("description", "Description"),
@@ -2029,7 +2166,7 @@ fn skills(ctx: &AppContext, agent: &str) -> Box<dyn Widget> {
                         ),
                         Box::new(
                             sapid::checkbox()
-                                .label("Enabled")
+                                .label(ui::label_for(locale, "Enabled"))
                                 .checked(selected)
                                 .on_checked_change(move |enabled| {
                                     mutate(

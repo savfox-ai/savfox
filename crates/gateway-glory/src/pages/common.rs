@@ -71,40 +71,55 @@ pub fn mutate(ctx: &AppContext, state: &Query, method: &str, params: Value) {
     });
 }
 pub fn status(ctx: &AppContext, state: &Query) -> Box<dyn Widget> {
-    Box::new(col().class("page-status").fill((
-        ui::error_text(ctx, state.error),
-        text().content(state.busy.map(|busy| {
-            if *busy {
-                "Loading…".to_owned()
-            } else {
-                String::new()
-            }
-        })),
-    )))
+    let busy = state.busy;
+    let locale = ctx.locale;
+    Box::new(
+        col().class("page-status").fill((
+            ui::error_text(ctx, state.error),
+            text()
+                .class("loading-state")
+                .content(ctx.scope.bond(move || {
+                    if busy.get() {
+                        ui::translate(locale.get(), "Loading…")
+                    } else {
+                        String::new()
+                    }
+                })),
+        )),
+    )
 }
 pub fn refresh(ctx: &AppContext, state: &Query) -> Box<dyn Widget> {
     let state = state.clone();
     let connected = ctx.connected;
     Box::new(
         sapid::button()
-            .label("Refresh")
+            .unstyled()
+            .class("btn btn-secondary")
+            .label(ui::label(ctx, "Refresh"))
             .enabled(connected)
             .on_press(move || state.refresh()),
     )
 }
-pub fn card(title: impl Into<String>, children: Vec<Box<dyn Widget>>) -> Box<dyn Widget> {
-    Box::new(col().class("card").fill((
-        text().class("card-title").content(title.into()),
-        col().class("card-body").fill(children),
-    )))
+pub fn card(title: impl Into<Lotus<String>>, children: Vec<Box<dyn Widget>>) -> Box<dyn Widget> {
+    Box::new(
+        col().class("card").fill((
+            text()
+                .class("card-title")
+                .kind(TextKind::Heading(2))
+                .content(title.into()),
+            col().class("card-body").fill(children),
+        )),
+    )
 }
-pub fn paragraph(value: impl Into<String>) -> Box<dyn Widget> {
+pub fn paragraph(value: impl Into<Lotus<String>>) -> Box<dyn Widget> {
     Box::new(text().content(value.into()))
 }
-pub fn toggle(label: &str, value: Cage<bool>) -> Box<dyn Widget> {
+pub fn toggle(label: impl Into<Lotus<String>>, value: Cage<bool>) -> Box<dyn Widget> {
     Box::new(
         sapid::checkbox()
-            .label(label.to_owned())
+            .unstyled()
+            .class("form-checkbox")
+            .label(label.into())
             .checked(value)
             .on_checked_change(move |next| ui::set(value, next)),
     )
@@ -115,7 +130,7 @@ pub fn select(
     value: Cage<String>,
     mut options: Vec<(String, String)>,
 ) -> Box<dyn Widget> {
-    let initial = value.get();
+    let initial = value.get_untracked();
     if !options.iter().any(|(key, _)| *key == initial) {
         options.push((
             initial.clone(),
@@ -138,26 +153,31 @@ pub fn select(
         .enumerate()
         .map(|(i, (value, label))| sapid::select_option(format!("option-{i}"), label).value(value));
     Box::new(
-        sapid::native_select(select_key(label))
-            .label(label.to_owned())
-            .value(value.map(move |current| {
-                selected_values
-                    .iter()
-                    .position(|value| value == current)
-                    .map(|index| format!("option-{index}"))
-            }))
-            .options(native_options)
-            .on_value_change(move |key| {
-                if let Some(next) = key
-                    .and_then(|key| {
-                        key.strip_prefix("option-")
-                            .and_then(|index| index.parse::<usize>().ok())
-                    })
-                    .and_then(|index| values.get(index))
-                {
-                    ui::set(value, next.clone());
-                }
-            }),
+        col().class("form-group form-field").fill((
+            text().class("form-label").content(label.to_owned()),
+            sapid::native_select(select_key(label))
+                .unstyled()
+                .class("form-select")
+                .label(label.to_owned())
+                .value(value.map(move |current| {
+                    selected_values
+                        .iter()
+                        .position(|value| value == current)
+                        .map(|index| format!("option-{index}"))
+                }))
+                .options(native_options)
+                .on_value_change(move |key| {
+                    if let Some(next) = key
+                        .and_then(|key| {
+                            key.strip_prefix("option-")
+                                .and_then(|index| index.parse::<usize>().ok())
+                        })
+                        .and_then(|index| values.get(index))
+                    {
+                        ui::set(value, next.clone());
+                    }
+                }),
+        )),
     )
 }
 pub(super) fn select_key(label: &str) -> String {
@@ -166,8 +186,75 @@ pub(super) fn select_key(label: &str) -> String {
     label.hash(&mut hash);
     format!("select-{:016x}", hash.finish())
 }
-pub fn choice(label: &str, value: Cage<String>, options: &[(&str, &str)]) -> Box<dyn Widget> {
-    select(
+pub fn select_source(
+    ctx: &AppContext,
+    label: &str,
+    value: Cage<String>,
+    options: impl Into<Lotus<Vec<(String, String)>>>,
+) -> Box<dyn Widget> {
+    let source = options.into();
+    let label = label.to_owned();
+    let locale = ctx.locale;
+    let rows = ctx.scope.bond(move || vec![source.get()]);
+    Box::new(each(
+        rows,
+        |options| {
+            options
+                .iter()
+                .map(|(key, label)| format!("{key}:{label}"))
+                .collect::<Vec<_>>()
+                .join("|")
+        },
+        move |options, _| select_for(locale, &label, value, options.get_untracked()),
+    ))
+}
+
+pub fn select_for(
+    locale: Cage<crate::i18n::Locale>,
+    label: &str,
+    value: Cage<String>,
+    options: Vec<(String, String)>,
+) -> Box<dyn Widget> {
+    let label = label.to_owned();
+    let options = std::rc::Rc::new(options);
+    Box::new(each(
+        locale.map(|locale| vec![*locale]),
+        |locale| locale.code().to_owned(),
+        move |current, _| {
+            let label = label.clone();
+            let options = options.clone();
+            widget(move |scope| {
+                let locale = current.get_untracked();
+                let mut options = options
+                    .iter()
+                    .map(|(key, label)| (key.clone(), ui::translate(locale, label)))
+                    .collect::<Vec<_>>();
+                let saved = value.get_untracked();
+                if !options.iter().any(|(key, _)| *key == saved) {
+                    options.push((
+                        saved.clone(),
+                        if saved.is_empty() {
+                            ui::translate(locale, "Unspecified")
+                        } else {
+                            saved
+                        },
+                    ));
+                }
+                let mut control = select(&ui::translate(locale, &label), value, options);
+                control.build(scope)?;
+                scope.retain(control)
+            })
+        },
+    ))
+}
+pub fn choice_for(
+    locale: Cage<crate::i18n::Locale>,
+    label: &str,
+    value: Cage<String>,
+    options: &[(&str, &str)],
+) -> Box<dyn Widget> {
+    select_for(
+        locale,
         label,
         value,
         options
@@ -176,10 +263,13 @@ pub fn choice(label: &str, value: Cage<String>, options: &[(&str, &str)]) -> Box
             .collect(),
     )
 }
-pub fn secret(label: &str, value: Cage<String>) -> Box<dyn Widget> {
+
+pub fn secret(label: impl Into<Lotus<String>>, value: Cage<String>) -> Box<dyn Widget> {
     Box::new(
         sapid::password_input()
-            .name(label.to_owned())
+            .unstyled()
+            .class("form-input")
+            .name(label.into())
             .value(value)
             .on_value_change(move |next| ui::set(value, next)),
     )
@@ -223,10 +313,11 @@ pub fn records(
     });
     let context = ctx.clone();
     let render = std::rc::Rc::new(render);
+    let empty_locale = ctx.locale;
     Box::new(col().class("record-list").fill((
         text().class("empty-state").content(ctx.scope.bond(move || {
             if items.get().is_empty() {
-                "No entries".to_owned()
+                ui::translate(empty_locale.get(), "No entries")
             } else {
                 String::new()
             }
@@ -263,10 +354,39 @@ pub fn metadata(value: &Value, fields: &[(&str, &str)]) -> Box<dyn Widget> {
         .collect::<Vec<_>>();
     Box::new(col().class("metadata").fill(rows))
 }
+pub fn metadata_for(
+    locale: Cage<crate::i18n::Locale>,
+    value: &Value,
+    fields: &[(&str, &str)],
+) -> Box<dyn Widget> {
+    let rows = fields
+        .iter()
+        .filter_map(|(key, label)| {
+            let value = &value[*key];
+            if value.is_null() {
+                return None;
+            }
+            let value = value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string());
+            Some(Box::new(
+                col().class("metadata-item").fill((
+                    text()
+                        .class("metadata-label")
+                        .content(ui::label_for(locale, *label)),
+                    text().class("metadata-value").content(value),
+                )),
+            ) as Box<dyn Widget>)
+        })
+        .collect::<Vec<_>>();
+    Box::new(row().class("metadata").fill(rows))
+}
+
 pub fn nav(ctx: &AppContext, label: &str, path: impl Into<String>) -> Box<dyn Widget> {
     let context = ctx.clone();
     let path = path.into();
-    ui::action(label.to_owned(), move || context.navigate(&path))
+    ui::action(ui::label(ctx, label), move || context.navigate(&path))
 }
 pub fn confirmed(message: &str) -> bool {
     #[cfg(target_arch = "wasm32")]

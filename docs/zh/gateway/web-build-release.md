@@ -65,6 +65,16 @@ Glory 的浏览器测试目录。CI 独立执行此验收。
 `node scripts/check-web-proxy.cjs` 还会验证真实开发服务器的 HTTP/WebSocket 代理
 与静态 bundle 路径。
 
+
+视觉验收还需连接已运行的真实 gateway：`node scripts/check-web-visual.cjs`。
+脚本读取本地 gateway token，不输出密钥，只导航和读取页面。可通过
+`SAVFOX_VISUAL_BASE`、`SAVFOX_VISUAL_TOKEN_FILE`、`SAVFOX_VISUAL_REFERENCE`
+指定地址、token 文件和旧版截图目录。截图与 HTML 对照报告输出到
+`D:/BuildCache/savfox-glory/visual-review`。检查覆盖全部 18 个导航页面的桌面/手机、
+深浅主题、文字对比度、图标、表单裁切、会话列表独立滚动、输入框边界及不刷新
+切换窗口尺寸。除了断言，还必须人工对照迁移前 Dioxus 的真实截图。页面保留原来的
+56px 顶栏、260px 导航栏和桌面 320px 会话列表；手机输入框必须位于底部导航上方。
+
 Docker 构建需要显式提供命名上下文：
 
 ```powershell

@@ -13,6 +13,7 @@ struct History {
     success: bool,
 }
 pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let state = query(ctx, "status", None);
     let health = ctx.scope.cage(Value::Null);
     let method = ctx.scope.cage(String::new());
@@ -28,12 +29,15 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             ui::set(health, value);
         }
     });
-    let mut children = vec![
-        status(ctx, &state),
-        refresh(ctx, &state),
-        card("Gateway status", vec![ui::json_text(ctx, state.value)]),
-        card("HTTP health", vec![ui::json_text(ctx, health)]),
-    ];
+    let snapshots = card(
+        ui::label_for(locale, "Snapshots"),
+        vec![
+            paragraph(ui::label_for(locale, "Gateway status")),
+            ui::json_text(ctx, state.value),
+            paragraph(ui::label_for(locale, "HTTP health")),
+            ui::json_text(ctx, health),
+        ],
+    );
     let examples = [
         "status",
         "models.list",
@@ -50,12 +54,20 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         })
     })
     .collect::<Vec<_>>();
-    children.push(Box::new(row().class("actions").fill(examples)));
-    children.push(ui::field("RPC method", method, false));
-    children.push(ui::field("Parameters (JSON)", params, true));
-    children.push(Box::new(
+    let mut rpc_controls = vec![Box::new(row().class("actions").fill(examples)) as Box<dyn Widget>];
+    rpc_controls.push(ui::field(
+        ui::label_for(locale, "RPC method"),
+        method,
+        false,
+    ));
+    rpc_controls.push(ui::field(
+        ui::label_for(locale, "Parameters (JSON)"),
+        params,
+        true,
+    ));
+    rpc_controls.push(Box::new(
         sapid::button()
-            .label("Call method")
+            .label(ui::label_for(locale, "Call method"))
             .loading(busy)
             .on_press(move || {
                 if method.get().trim().is_empty() {
@@ -106,16 +118,29 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 });
             }),
     ));
+    let mut children = vec![
+        status(ctx, &state),
+        refresh(ctx, &state),
+        Box::new(row().class("debug-columns").fill((
+            snapshots,
+            card(ui::label_for(locale, "Manual RPC"), rpc_controls),
+        ))),
+    ];
     children.push(card(
-        "Response",
+        ui::label_for(locale, "Response"),
         vec![
             ui::json_text(ctx, output),
-            ui::action("Pin response", move || ui::set(pinned, output.get())),
+            ui::action(ui::label_for(locale, "Pin response"), move || {
+                ui::set(pinned, output.get())
+            }),
         ],
     ));
-    children.push(card("Pinned response", vec![ui::json_text(ctx, pinned)]));
     children.push(card(
-        "Call history",
+        ui::label_for(locale, "Pinned response"),
+        vec![ui::json_text(ctx, pinned)],
+    ));
+    children.push(card(
+        ui::label_for(locale, "Call history"),
         vec![
             Box::new(each(
                 history.map(|entries| {
@@ -144,7 +169,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                         title,
                         vec![
                             paragraph(entry.result),
-                            ui::action("Reuse", move || {
+                            ui::action(ui::label_for(locale, "Reuse"), move || {
                                 ui::set(method, method_value.clone());
                                 ui::set(params, params_value.clone());
                             }),
@@ -152,7 +177,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                     )
                 },
             )),
-            ui::action("Clear history", move || {
+            ui::action(ui::label_for(locale, "Clear history"), move || {
                 save_history(&[]);
                 ui::set(history, Vec::new());
             }),

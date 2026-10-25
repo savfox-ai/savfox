@@ -202,6 +202,30 @@ pub(crate) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     dashboard(ctx)
 }
 
+fn channel_copy(ctx: &AppContext, en: &'static str, zh: &'static str) -> glory::Bond<String> {
+    let locale = ctx.locale;
+    ctx.scope.bond(move || {
+        if locale.get() == crate::i18n::Locale::ZhCn {
+            zh.into()
+        } else {
+            en.into()
+        }
+    })
+}
+
+fn channel_button(
+    label: impl Into<glory::Lotus<String>>,
+    class: &str,
+    mut action: impl FnMut() + 'static,
+) -> Box<dyn Widget> {
+    Box::new(
+        glory::prelude::button()
+            .label(label)
+            .class(class.to_owned())
+            .on(glory::prelude::activate, move |_| action()),
+    )
+}
+
 fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
     let state = Dashboard {
         configs: ctx.scope.cage(json!([])),
@@ -217,12 +241,8 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
         }
     });
     let status = state.status;
-    let health = ctx.scope.bond(move || {
-        let (connected,running,disconnected,errors)=compute_health_counts(Some(&status.get()));
-        format!("Connected: {connected} · Running: {running} · Disconnected: {disconnected} · Errors: {errors}")
-    });
-    let search = ctx.scope.cage(String::new());
     let configs = state.configs;
+    let search = ctx.scope.cage(String::new());
     let cards = ctx.scope.bond(move || {
         let query = search.get().to_ascii_lowercase();
         let mut entries = saved_channel_summaries(Some(&configs.get()));
@@ -231,10 +251,10 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
             if entries.iter().any(|entry| entry.kind == platform.id) {
                 continue;
             }
-            let state = channel_status(&runtime, &platform.id, &platform.id);
+            let item = channel_status(&runtime, &platform.id, &platform.id);
             if ["configured", "running", "connected"]
                 .into_iter()
-                .any(|key| state[key].as_bool() == Some(true))
+                .any(|key| item[key].as_bool() == Some(true))
             {
                 entries.push(SavedChannelSummary {
                     kind: platform.id.clone(),
@@ -244,6 +264,13 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
                 });
             }
         }
+        entries.sort_by_key(|entry| {
+            get_channel_types()
+                .iter()
+                .find(|kind| kind.id == entry.kind)
+                .map(|kind| kind.name.to_ascii_lowercase())
+                .unwrap_or_else(|| entry.name.to_ascii_lowercase())
+        });
         entries
             .into_iter()
             .filter(|entry| {
@@ -253,124 +280,43 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
             })
             .collect::<Vec<_>>()
     });
-    let card_ctx = ctx.clone();
-    let card_state = state.clone();
-    let rows = each(
-        cards,
-        |entry| entry.id.clone(),
-        move |entry, _| {
-            let channel = entry.get_untracked();
-            let id = channel.id.clone();
-            let kind = channel.kind.clone();
-            let read_id = id.clone();
-            let read_kind = kind.clone();
-            let status = card_state.status;
-            let summary = card_ctx.scope.bond(move || {
-                let value = channel_status(&status.get(), &read_id, &read_kind);
-                let running = value["running"].as_bool().unwrap_or(false);
-                let connected = value["connected"].as_bool().unwrap_or(false);
-                let failure = value
-                    .get("lastError")
-                    .or_else(|| value.get("last_error"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                format!(
-                    "{} · {}{}",
-                    if running { "Running" } else { "Stopped" },
-                    if connected {
-                        "Connected"
-                    } else {
-                        "Disconnected"
-                    },
-                    if failure.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" · {failure}")
-                    }
-                )
-            });
-            let edit_ctx = card_ctx.clone();
-            let edit_id = id.clone();
-            let health_ctx = card_ctx.clone();
-            let health_id = id.clone();
-            let start_ctx = card_ctx.clone();
-            let start_state = card_state.clone();
-            let start_id = id.clone();
-            let start_kind = kind.clone();
-            let stop_ctx = card_ctx.clone();
-            let stop_state = card_state.clone();
-            let stop_id = id.clone();
-            let stop_kind = kind.clone();
-            let test_ctx = card_ctx.clone();
-            let test_state = card_state.clone();
-            let test_id = id.clone();
-            let test_kind = kind.clone();
-            let enable_ctx = card_ctx.clone();
-            let enable_state = card_state.clone();
-            col().class("card channel-card").fill((
+    let mut health = Vec::<Box<dyn Widget>>::new();
+    for (index, variant, en, zh) in [
+        (0, "connected", "Connected", "已连接"),
+        (1, "running", "Running", "运行中"),
+        (2, "disconnected", "Disconnected", "未连接"),
+        (3, "errors", "Errors", "错误"),
+    ] {
+        let count = ctx.scope.bond(move || {
+            let (a, b, c, d) = compute_health_counts(Some(&status.get()));
+            [a, b, c, d][index].to_string()
+        });
+        let mut content: Vec<Box<dyn Widget>> = vec![
+            Box::new(text().class("channels-health__value").content(count)),
+            Box::new(
                 text()
-                    .class("card-title")
-                    .content(entry.map(|channel| format!("{} · {}", channel.name, channel.kind))),
-                text().content(id),
-                text().content(entry.map(|channel| {
-                    if channel.enabled {
-                        "Enabled".to_owned()
-                    } else {
-                        "Disabled".to_owned()
-                    }
-                })),
-                text().content(summary),
-                row().class("actions").fill((
-                    sapid::button()
-                        .label(entry.map(|entry| {
-                            if entry.enabled {
-                                "Disable".to_owned()
-                            } else {
-                                "Enable".to_owned()
-                            }
-                        }))
-                        .on_press(move || toggle_enabled(&enable_ctx, &enable_state, entry.get())),
-                    ui::action("Configure", move || {
-                        edit_ctx.navigate(&format!("/channels/edit/{edit_id}"))
-                    }),
-                    ui::action("Health", move || {
-                        health_ctx.navigate(&format!("/channels/health/{health_id}"))
-                    }),
-                    ui::action("Start", move || {
-                        runtime_action(
-                            &start_ctx,
-                            &start_state,
-                            "channels.login",
-                            &start_kind,
-                            &start_id,
-                        )
-                    }),
-                    ui::action("Stop", move || {
-                        runtime_action(
-                            &stop_ctx,
-                            &stop_state,
-                            "channels.logout",
-                            &stop_kind,
-                            &stop_id,
-                        )
-                    }),
-                    ui::action("Test", move || {
-                        runtime_action(
-                            &test_ctx,
-                            &test_state,
-                            "channels.test",
-                            &test_kind,
-                            &test_id,
-                        )
-                    }),
-                )),
-            ))
-        },
-    );
+                    .class("channels-health__label")
+                    .content(channel_copy(ctx, en, zh)),
+            ),
+        ];
+        if index == 0 {
+            content.push(Box::new(
+                glory::prelude::view().class("channels-health__indicator"),
+            ));
+        }
+        health.push(Box::new(
+            col()
+                .class(format!(
+                    "channels-health__card channels-health__card--{variant}"
+                ))
+                .fill(content),
+        ));
+    }
+    let auto = ctx.scope.cage(false);
+    let show_search = ctx.scope.cage(false);
     let refresh_ctx = ctx.clone();
     let refresh_state = state.clone();
     let add_ctx = ctx.clone();
-    let auto = ctx.scope.cage(false);
     let alive = std::rc::Rc::new(std::cell::Cell::new(true));
     let cleanup = alive.clone();
     let _ = ctx.scope.on_cleanup(move || cleanup.set(false));
@@ -384,55 +330,465 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
             }
         }
     });
-    let mut children: Vec<Box<dyn Widget>> = vec![
-        Box::new(text().content(health)),
-        ui::field("Search channels", search, false),
-        Box::new(
-            row().class("actions").fill((
-                ui::action("Add channel", move || add_ctx.navigate("/channels/add")),
-                ui::action("Refresh", move || reload(&refresh_ctx, &refresh_state)),
-                sapid::checkbox()
-                    .label("Auto-refresh every 30 seconds")
-                    .checked(auto)
-                    .on_checked_change(move |value| ui::set(auto, value)),
-            )),
-        ),
-        ui::error_text(ctx, state.error),
-        Box::new(rows),
-    ];
-    let empty = ctx
-        .scope
-        .bond(move || saved_channel_summaries(Some(&configs.get())).is_empty());
-    children.push(Box::new(when(empty, || {
-        text().content("No saved channels. Add a channel to connect a messaging platform.")
-    })));
-    let platform_ctx = ctx.clone();
+    let locale = ctx.locale;
+    let active = ctx.scope.bond(move || {
+        let (a, b, ..) = compute_health_counts(Some(&status.get()));
+        format!(
+            "{} {}",
+            a + b,
+            if locale.get() == crate::i18n::Locale::ZhCn {
+                "活跃"
+            } else {
+                "active"
+            }
+        )
+    });
+    let configured = ctx.scope.bond(move || {
+        format!(
+            "{} {}",
+            saved_channel_summaries(Some(&configs.get())).len(),
+            if locale.get() == crate::i18n::Locale::ZhCn {
+                "已配置"
+            } else {
+                "configured"
+            }
+        )
+    });
+    let card_ctx = ctx.clone();
+    let card_state = state.clone();
+    let rows = each(
+        cards,
+        |entry| entry.id.clone(),
+        move |entry, _| {
+            let context = card_ctx.clone();
+            let state = card_state.clone();
+            glory::prelude::widget(move |scope| {
+                channel_card(&context.with_scope(scope), &state, entry).build(scope)
+            })
+        },
+    );
+    let empty = ctx.scope.bond(move || cards.get().is_empty());
+    let empty_label = channel_copy(
+        ctx,
+        "No channels configured. Add a channel to get started.",
+        "尚未配置渠道，添加渠道以连接消息平台。",
+    );
+    let search_label = channel_copy(ctx, "Search channels", "搜索渠道");
+    let search_placeholder = channel_copy(ctx, "Search channels…", "搜索渠道…");
+    let show_platforms = ctx.scope.cage(false);
     let platform_links = get_channel_types()
         .iter()
         .map(|platform| {
+            let navigation = ctx.clone();
             let target = format!("/channels/{}", platform.id);
-            let ctx = platform_ctx.clone();
-            Box::new(
-                col().fill((
-                    ui::action(platform.name.clone(), move || ctx.navigate(&target)),
-                    text()
-                        .class("field-help")
-                        .content(platform.description.clone()),
-                )),
-            ) as Box<dyn Widget>
+            channel_button(platform.name.clone(), "channels-btn", move || {
+                navigation.navigate(&target)
+            })
         })
         .collect::<Vec<_>>();
-    children.push(Box::new(
-        col()
-            .class("card")
-            .fill(text().content("Platform runtime status"))
-            .fill(platform_links),
-    ));
-    ui::localized_page(
-        ctx,
-        "nav.channels",
-        "Configure messaging platforms, routing and access policies",
-        children,
+    Box::new(
+        col().class("channels-page").fill((
+            col().class("channels-health").fill(health),
+            row().class("channels-toolbar").fill((
+                col().class("channels-toolbar__left").fill((
+                    text()
+                        .class("channels-toolbar__title page-title")
+                        .kind(glory::prelude::TextKind::Heading(1))
+                        .content(channel_copy(ctx, "Channels", "渠道")),
+                    text()
+                        .class("channels-toolbar__subtitle")
+                        .content(channel_copy(
+                            ctx,
+                            "Configure messaging platform integrations",
+                            "配置消息平台集成",
+                        )),
+                )),
+                row().class("channels-toolbar__actions").fill((
+                    channel_button(
+                        channel_copy(ctx, "Search", "搜索"),
+                        "channels-btn",
+                        move || ui::set(show_search, !show_search.get()),
+                    ),
+                    text()
+                        .class("channels-status-badge channels-status-badge--connected")
+                        .content(active),
+                    text()
+                        .class("channels-status-badge channels-status-badge--configured")
+                        .content(configured),
+                    glory::prelude::button()
+                        .label(channel_copy(ctx, "Auto-refresh", "自动刷新"))
+                        .class(auto.map(|enabled| {
+                            if *enabled {
+                                "channels-btn channels-btn--auto-active".into()
+                            } else {
+                                "channels-btn".into()
+                            }
+                        }))
+                        .on(glory::prelude::activate, move |_| {
+                            ui::set(auto, !auto.get())
+                        }),
+                    channel_button(
+                        channel_copy(ctx, "Refresh", "刷新"),
+                        "channels-btn",
+                        move || reload(&refresh_ctx, &refresh_state),
+                    ),
+                    channel_button(
+                        channel_copy(ctx, "+ Add Channel", "添加渠道"),
+                        "channels-btn channels-btn--primary",
+                        move || add_ctx.navigate("/channels/add"),
+                    ),
+                )),
+            )),
+            ui::error_text(ctx, state.error),
+            when(show_search, move || {
+                col().class("channels-search").fill(
+                    sapid::text_field()
+                        .unstyled()
+                        .name(search_label)
+                        .placeholder(search_placeholder)
+                        .value(search)
+                        .on_value_change(move |value| ui::set(search, value)),
+                )
+            }),
+            col().class("channels-grid").fill(rows),
+            when(empty, move || {
+                text().class("channels-empty").content(empty_label)
+            }),
+            channel_button(
+                channel_copy(ctx, "Platform runtime status", "平台运行状态"),
+                "channels-catalog-toggle",
+                move || ui::set(show_platforms, !show_platforms.get()),
+            ),
+            row()
+                .class(show_platforms.map(|open| {
+                    if *open {
+                        "channels-platform-catalog".into()
+                    } else {
+                        "channels-platform-catalog is-hidden".into()
+                    }
+                }))
+                .fill(platform_links),
+        )),
+    )
+}
+
+fn channel_card(
+    ctx: &AppContext,
+    state: &Dashboard,
+    entry: Cage<SavedChannelSummary>,
+) -> Box<dyn Widget> {
+    let channel = entry.get_untracked();
+    let id = channel.id.clone();
+    let kind = channel.kind.clone();
+    let platform = get_channel_types()
+        .iter()
+        .find(|platform| platform.id == kind);
+    let name = platform
+        .map(|platform| platform.name.clone())
+        .unwrap_or_else(|| channel.name.clone());
+    let description = platform
+        .map(|platform| platform.description.clone())
+        .unwrap_or_default();
+    let status = state.status;
+    let read_id = id.clone();
+    let read_kind = kind.clone();
+    let value = ctx
+        .scope
+        .bond(move || channel_status(&status.get(), &read_id, &read_kind));
+    let connected = ctx
+        .scope
+        .bond(move || value.get()["connected"].as_bool().unwrap_or(false));
+    let running = ctx
+        .scope
+        .bond(move || value.get()["running"].as_bool().unwrap_or(false));
+    let attention = ctx.scope.bond(move || {
+        let snapshot = value.get();
+        snapshot
+            .get("lastError")
+            .or_else(|| snapshot.get("last_error"))
+            .and_then(Value::as_str)
+            .is_some_and(|error| !error.is_empty())
+            || matches!(
+                snapshot.get("recovery_phase").and_then(Value::as_str),
+                Some("failed" | "retrying" | "migration_required" | "unsupported_runtime")
+            )
+            || snapshot.get("health_state").and_then(Value::as_str) == Some("degraded")
+    });
+    let locale = ctx.locale;
+    let status_label = ctx.scope.bond(move || {
+        let zh = locale.get() == crate::i18n::Locale::ZhCn;
+        if !entry.get().enabled {
+            if zh { "已禁用" } else { "Disabled" }
+        } else if attention.get() {
+            if zh {
+                "需要注意"
+            } else {
+                "Needs attention"
+            }
+        } else if connected.get() {
+            if zh { "已连接" } else { "Connected" }
+        } else if running.get() {
+            if zh { "运行中" } else { "Running" }
+        } else {
+            if zh { "未连接" } else { "Disconnected" }
+        }
+        .to_owned()
+    });
+    let menu = ctx.scope.cage(false);
+    let edit_ctx = ctx.clone();
+    let edit_id = id.clone();
+    let health_ctx = ctx.clone();
+    let health_id = id.clone();
+    let start_ctx = ctx.clone();
+    let start_state = state.clone();
+    let start_id = id.clone();
+    let start_kind = kind.clone();
+    let stop_ctx = ctx.clone();
+    let stop_state = state.clone();
+    let stop_id = id.clone();
+    let stop_kind = kind.clone();
+    let test_ctx = ctx.clone();
+    let test_state = state.clone();
+    let test_id = id.clone();
+    let test_kind = kind.clone();
+    let enable_ctx = ctx.clone();
+    let enable_state = state.clone();
+    let mut metrics = Vec::<Box<dyn Widget>>::new();
+    for (index, en, zh) in [
+        (0, "Last message", "最近消息"),
+        (1, "Last event", "最近事件"),
+        (2, "Uptime", "运行时长"),
+        (3, "Error rate", "错误率"),
+        (4, "Sent", "已发送"),
+        (5, "Failed", "失败"),
+    ] {
+        let metric = ctx.scope.bond(move || {
+            let status = value.get();
+            match index {
+                0 => status
+                    .get("lastMessageTime")
+                    .or_else(|| status.get("lastMessageAt"))
+                    .or_else(|| status.get("last_message_at"))
+                    .and_then(value_to_field_text)
+                    .unwrap_or_else(|| "-".into()),
+                1 => status
+                    .get("lastEventTime")
+                    .or_else(|| status.get("lastEventAt"))
+                    .or_else(|| status.get("last_event_at"))
+                    .and_then(value_to_field_text)
+                    .unwrap_or_else(|| "-".into()),
+                2 => status
+                    .get("uptimeMs")
+                    .or_else(|| status.get("uptime_ms"))
+                    .and_then(Value::as_u64)
+                    .map(format_uptime_compact)
+                    .unwrap_or_else(|| "-".into()),
+                3 => format!(
+                    "{:.1}%",
+                    status
+                        .get("errorRate")
+                        .or_else(|| status.get("error_rate"))
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0)
+                        * 100.0
+                ),
+                4 => status
+                    .get("messages_total")
+                    .or_else(|| status.get("sent"))
+                    .or_else(|| status.get("sent_count"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    .to_string(),
+                _ => status
+                    .get("messages_failed")
+                    .or_else(|| status.get("failed"))
+                    .or_else(|| status.get("failed_count"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    .to_string(),
+            }
+        });
+        metrics.push(Box::new(
+            row().class("channels-card__metric").fill((
+                text()
+                    .class("channels-card__metric-label")
+                    .content(channel_copy(ctx, en, zh)),
+                text().class("channels-card__metric-value").content(metric),
+            )),
+        ));
+    }
+    let error = ctx.scope.bond(move || {
+        let status = value.get();
+        status
+            .get("lastError")
+            .or_else(|| status.get("last_error"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    });
+    let has_error = ctx.scope.bond(move || !error.get().is_empty());
+    let badge_class = ctx.scope.bond(move || {
+        format!(
+            "channels-status-badge channels-status-badge--{}",
+            if attention.get() {
+                "errors"
+            } else if connected.get() {
+                "connected"
+            } else if running.get() {
+                "running"
+            } else {
+                "disconnected"
+            }
+        )
+    });
+    let border = ctx.scope.bond(move || {
+        format!(
+            "channels-card channel-card {}",
+            if !entry.get().enabled {
+                "channels-card--disabled"
+            } else if attention.get() {
+                "channels-card--error"
+            } else if connected.get() {
+                "channels-card--connected"
+            } else if running.get() {
+                "channels-card--running"
+            } else {
+                "channels-card--configured"
+            }
+        )
+    });
+    let configuration = format!("{} / {}", id, channel.name);
+    Box::new(
+        col().class(border).fill((
+            row().class("channels-card__header").fill((
+                row().class("channels-card__identity").fill((
+                    text()
+                        .class("channels-card__icon")
+                        .content(name.chars().next().unwrap_or('C').to_string()),
+                    col().class("channels-card__meta").fill((
+                        text().class("channels-card__name").content(name),
+                        text().class("channels-card__desc").content(description),
+                        text()
+                            .class("channels-card__config-id")
+                            .content(configuration),
+                    )),
+                )),
+                row().class("channels-card__header-actions").fill((
+                    text().class(badge_class).content(status_label),
+                    col().class("channels-card__menu-wrap").fill((
+                        glory::prelude::button()
+                            .name(channel_copy(ctx, "Channel actions", "渠道操作"))
+                            .class("channels-card__menu-trigger")
+                            .fill(text().class("shell-icon shell-icon--settings").content(""))
+                            .on(glory::prelude::activate, move |_| {
+                                ui::set(menu, !menu.get())
+                            }),
+                        col()
+                            .class(menu.map(|open| {
+                                if *open {
+                                    "channels-card__menu".into()
+                                } else {
+                                    "channels-card__menu is-hidden".into()
+                                }
+                            }))
+                            .fill((
+                                channel_button(
+                                    channel_copy(ctx, "Configure", "配置"),
+                                    "channels-card__menu-item",
+                                    move || edit_ctx.navigate(&format!("/channels/edit/{edit_id}")),
+                                ),
+                                channel_button(
+                                    channel_copy(ctx, "Health", "健康状态"),
+                                    "channels-card__menu-item",
+                                    move || {
+                                        health_ctx
+                                            .navigate(&format!("/channels/health/{health_id}"))
+                                    },
+                                ),
+                                channel_button(
+                                    channel_copy(ctx, "Start", "启动"),
+                                    "channels-card__menu-item",
+                                    move || {
+                                        ui::set(menu, false);
+                                        runtime_action(
+                                            &start_ctx,
+                                            &start_state,
+                                            "channels.login",
+                                            &start_kind,
+                                            &start_id,
+                                        )
+                                    },
+                                ),
+                                channel_button(
+                                    channel_copy(ctx, "Stop", "停止"),
+                                    "channels-card__menu-item",
+                                    move || {
+                                        ui::set(menu, false);
+                                        runtime_action(
+                                            &stop_ctx,
+                                            &stop_state,
+                                            "channels.logout",
+                                            &stop_kind,
+                                            &stop_id,
+                                        )
+                                    },
+                                ),
+                            )),
+                    )),
+                )),
+            )),
+            col().class("channels-card__metrics").fill(metrics),
+            when(has_error, move || {
+                text().class("channels-card__error").content(error)
+            }),
+            row().class("channels-card__actions").fill((
+                glory::prelude::button()
+                    .name(entry.map(|entry| {
+                        if entry.enabled {
+                            "Disable".to_owned()
+                        } else {
+                            "Enable".to_owned()
+                        }
+                    }))
+                    .label(ctx.scope.bond(move || {
+                        if entry.get().enabled {
+                            if locale.get() == crate::i18n::Locale::ZhCn {
+                                "已启用"
+                            } else {
+                                "Enabled"
+                            }
+                        } else if locale.get() == crate::i18n::Locale::ZhCn {
+                            "已禁用"
+                        } else {
+                            "Disabled"
+                        }
+                        .to_owned()
+                    }))
+                    .class(entry.map(|entry| {
+                        if entry.enabled {
+                            "channels-action-btn channels-action-btn--enabled".into()
+                        } else {
+                            "channels-action-btn".into()
+                        }
+                    }))
+                    .on(glory::prelude::activate, move |_| {
+                        toggle_enabled(&enable_ctx, &enable_state, entry.get())
+                    }),
+                channel_button(
+                    channel_copy(ctx, "Test", "测试"),
+                    "channels-action-btn channels-action-btn--test",
+                    move || {
+                        runtime_action(
+                            &test_ctx,
+                            &test_state,
+                            "channels.test",
+                            &test_kind,
+                            &test_id,
+                        )
+                    },
+                ),
+            )),
+        )),
     )
 }
 

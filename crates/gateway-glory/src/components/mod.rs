@@ -2,15 +2,17 @@
 mod approvals;
 pub mod markdown_renderer;
 mod semantic_markdown;
+mod shell;
 
 use glory::prelude::*;
 
 use crate::api::client::validate_token;
-use crate::api::ws::{WsRpc, clear_token, get_token, set_token};
+use crate::api::ws::{WsRpc, get_token, set_token};
 use crate::i18n::{self, Locale};
 use crate::ui::{AppContext, action, error_text, set};
 
 pub fn app(scope: &Scope) -> Box<dyn Widget> {
+    shell::initialize_theme();
     let ctx = AppContext {
         scope: scope.clone(),
         rpc: WsRpc::new(),
@@ -109,7 +111,10 @@ fn auth(ctx: &AppContext, reconnect_epoch: Cage<u64>) -> Box<dyn Widget> {
                     .class("auth-subtitle")
                     .content(ctx.scope.bond(move || subtitle_ctx.tr("auth.subtitle"))),
                 sapid::password_input()
-                    .name("Gateway token")
+                    .name(ctx.scope.bond({
+                        let locale = ctx.locale;
+                        move || i18n::t(locale.get(), "auth.placeholder")
+                    }))
                     .value(token)
                     .on_value_change(move |value| set(token, value)),
                 error_text(ctx, error),
@@ -142,109 +147,22 @@ fn auth(ctx: &AppContext, reconnect_epoch: Cage<u64>) -> Box<dyn Widget> {
 }
 
 fn shell(ctx: &AppContext) -> Box<dyn Widget> {
-    let palette_open = ctx.scope.cage(false);
-    keyboard_shortcuts(ctx, palette_open);
-    let mut links = Vec::<Box<dyn Widget>>::new();
-    for &(path, label) in crate::route::NAVIGATION {
-        let selected = ctx.path;
-        let locale = ctx.locale;
-        let navigation = ctx.clone();
-        let class = ctx.scope.bond(move || {
-            if crate::route::is_active(&selected.get(), path) {
-                "nav-link active".into()
-            } else {
-                "nav-link".into()
-            }
-        });
-        links.push(Box::new(
-            sapid::anchor()
-                .class(class)
-                .href(path)
-                .label(ctx.scope.bond(move || {
-                    let translated = i18n::t(locale.get(), label);
-                    if translated == label {
-                        path.trim_start_matches('/').replace('-', " ")
-                    } else {
-                        translated
-                    }
-                }))
-                .on_navigate(move |_| navigation.navigate(path)),
-        ));
-    }
-    let connected = ctx.connected;
-    let logout_ctx = ctx.clone();
-    let path = ctx.path;
-    let routes = ctx.scope.bond(move || vec![path.get()]);
-    let routed = ctx.clone();
-    Box::new(
-        row().class("gateway-shell").fill((
-            col().class("gateway-sidebar").fill((
-                image()
-                    .source("/assets/savfox.svg")
-                    .alt("Savfox")
-                    .class("sidebar-logo"),
-                text().class("brand").content("Savfox"),
-                col().class("gateway-navigation").fill(links),
-                locale_control(ctx),
-                action("Sign out", move || {
-                    logout_ctx.rpc.disconnect();
-                    clear_token();
-                    set(logout_ctx.connected, false);
-                    set(logout_ctx.authenticated, false);
-                }),
-            )),
-            col().class("gateway-main").fill((
-                row().class("gateway-topbar").fill((
-                    text().class("gateway-label").content("Workspace"),
-                    Box::new(
-                        button()
-                            .label("Search pages (Ctrl+K)")
-                            .semantics(ctx.scope.bond(move || {
-                                Some(Box::new(Semantics {
-                                    popup: Some(glory::render::PopupKind::Dialog),
-                                    expanded: Some(palette_open.get()),
-                                    ..Default::default()
-                                }))
-                            }))
-                            .on(activate, move |_| set(palette_open, true)),
-                    ) as Box<dyn Widget>,
-                    text()
-                        .class(ctx.scope.bond(move || {
-                            if connected.get() {
-                                "connection connected".into()
-                            } else {
-                                "connection disconnected".into()
-                            }
-                        }))
-                        .content(ctx.scope.bond(move || {
-                            if connected.get() {
-                                "Connected".into()
-                            } else {
-                                "Connecting…".into()
-                            }
-                        })),
-                )),
-                approvals::center(ctx),
-                command_palette(ctx, palette_open),
-                each(
-                    routes,
-                    |value| value.clone(),
-                    move |route, _| {
-                        let ctx = routed.clone();
-                        widget(move |scope| {
-                            crate::pages::render(&ctx.with_scope(scope), &route.get_untracked())
-                                .build(scope)
-                        })
-                    },
-                ),
-            )),
-        )),
-    )
+    shell::render(ctx)
 }
 
 fn command_palette(ctx: &AppContext, open: Cage<bool>) -> Box<dyn Widget> {
+    let locale = ctx.locale;
+    let locales = ctx.scope.bond(move || vec![locale.get().code().to_owned()]);
+    let context = ctx.clone();
+    Box::new(each(locales, Clone::clone, move |_, _| {
+        let context = context.clone();
+        widget(move |scope| command_palette_content(&context.with_scope(scope), open).build(scope))
+    }))
+}
+
+fn command_palette_content(ctx: &AppContext, open: Cage<bool>) -> Box<dyn Widget> {
     let navigation = ctx.clone();
-    let actions = crate::route::NAVIGATION
+    let mut actions = crate::route::NAVIGATION
         .iter()
         .enumerate()
         .map(|(index, (_, label))| {
@@ -252,13 +170,26 @@ fn command_palette(ctx: &AppContext, open: Cage<bool>) -> Box<dyn Widget> {
             sapid::command_action(format!("nav-{index}"), translated)
         })
         .collect::<Vec<_>>();
+    actions.push(sapid::command_action(
+        "sign-out",
+        if ctx.locale.get_untracked() == Locale::ZhCn {
+            "断开连接"
+        } else {
+            "Sign out"
+        },
+    ));
     Box::new(
         sapid::command("gateway-navigation")
-            .label("Go to page")
+            .label(ctx.tr("nav.command_palette"))
             .open(open)
             .on_open_change(move |value| set(open, value))
             .actions(actions)
             .on_action(move |key| {
+                if key == "sign-out" {
+                    set(open, false);
+                    shell::sign_out(&navigation);
+                    return;
+                }
                 if let Some(index) = key
                     .strip_prefix("nav-")
                     .and_then(|value| value.parse::<usize>().ok())
@@ -269,33 +200,4 @@ fn command_palette(ctx: &AppContext, open: Cage<bool>) -> Box<dyn Widget> {
                 }
             }),
     )
-}
-
-fn keyboard_shortcuts(ctx: &AppContext, open: Cage<bool>) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use wasm_bindgen::JsCast;
-        use wasm_bindgen::closure::Closure;
-        if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-            let handler = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
-                if (event.ctrl_key() || event.meta_key()) && event.key().eq_ignore_ascii_case("k") {
-                    event.prevent_default();
-                    set(open, !open.get());
-                } else if event.key() == "Escape" && open.get() {
-                    set(open, false);
-                }
-            }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
-            let _ = document
-                .add_event_listener_with_callback("keydown", handler.as_ref().unchecked_ref());
-            let _ = ctx.scope.on_cleanup(move || {
-                let _ = document.remove_event_listener_with_callback(
-                    "keydown",
-                    handler.as_ref().unchecked_ref(),
-                );
-                drop(handler);
-            });
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (ctx, open);
 }

@@ -23,6 +23,8 @@ chrono = { workspace = true, features = ["wasmbind"] }
 web-sys = { workspace = true, features = [
     "console",
     "Window",
+    "MediaQueryList",
+    "MediaQueryListEvent",
     "Location",
     "Storage",
     "Document",

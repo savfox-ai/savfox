@@ -20,8 +20,9 @@ pub mod voice;
 
 use glory::prelude::*;
 
-use crate::ui::AppContext;
+use crate::ui::{self, AppContext};
 pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
+    let locale = ctx.locale;
     let full_path = path;
     let path = path.split('?').next().unwrap_or("/").trim_end_matches('/');
     match path {
@@ -44,8 +45,8 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         "/usage" => usage::render(ctx),
         "/voice" => voice::render(ctx),
         _ => crate::ui::page(
-            "Page not found",
-            "The requested page does not exist.",
+            ui::label_for(locale, "Page not found"),
+            ui::label_for(locale, "The requested page does not exist."),
             vec![common::nav(ctx, "Overview", "/")],
         ),
     }
@@ -103,9 +104,71 @@ mod tests {
             })
             .unwrap_or_else(|error| panic!("route {path} failed: {error}"));
             assert!(
-                html.contains("gateway-page"),
+                html.contains(if path.starts_with("/sessions") {
+                    "session-page"
+                } else {
+                    "gateway-page"
+                }),
                 "route {path} did not render page container"
             );
         }
+    }
+    #[test]
+    fn restored_management_pages_keep_reference_layout_regions() {
+        for (path, expected) in [
+            (
+                "/",
+                vec![
+                    "ov-hero",
+                    "ov-hero__aside",
+                    "stats-grid",
+                    "ov-system-grid",
+                    "ov-trio-grid",
+                ],
+            ),
+            (
+                "/agents",
+                vec![
+                    "split-view__list",
+                    "agent-list-scroll",
+                    "split-view__detail",
+                    "agent-empty-card",
+                ],
+            ),
+            ("/models", vec!["models-toolbar", "models-current-default"]),
+            (
+                "/config",
+                vec![
+                    "config-sidebar",
+                    "config-nav",
+                    "config-actions",
+                    "config-scroll",
+                ],
+            ),
+        ] {
+            let html = glory::ssr::render_with(|scope| {
+                let mut context = AppContext::new(scope);
+                context.locale = scope.cage(Locale::ZhCn);
+                render(&context, path)
+            })
+            .unwrap_or_else(|error| panic!("reference layout {path}: {error}"));
+            for class in expected {
+                assert!(
+                    html.contains(class),
+                    "{path} is missing restored reference region {class}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn localized_form_labels_do_not_reset_the_controlled_value() {
+        let app = glory::App::memory();
+        let locale = app.scope().cage(Locale::En);
+        let value = app.scope().cage("unsaved setting".to_owned());
+        app.mount(ui::field(ui::label_for(locale, "Agent name"), value, false))
+            .expect("mount localized field");
+        locale.revise(|current| *current = Locale::ZhCn);
+        app.flush().expect("update translation");
+        assert_eq!(value.get(), "unsaved setting");
     }
 }
