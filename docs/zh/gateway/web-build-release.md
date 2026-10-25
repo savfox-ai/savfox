@@ -6,11 +6,13 @@
 
 ## 依赖与存储位置
 
-工作区使用相对根目录的 `../../glory-rs/glory` 与 `../../glory-rs/sapid`。
-本地对应 `D:/Works/glory-rs/glory` 和 `D:/Works/glory-rs/sapid`。
-CI 通过 `.github/actions/ui-sources` 检出这两个仓库最新的 `main` 分支，
-恢复相同目录关系，并在日志中记录实际提交 SHA。本地目录可能有正在开发的改动；
-验证上游兼容性时，应使用远端 `main` 的干净检出。
+工作区通过 Git 依赖使用 `https://github.com/glory-rs/glory.git` 与
+`https://github.com/sapid-ui/sapid.git` 的 `main` 分支。
+`Cargo.lock` 固定实际提交，使本地、CI 和 Docker 使用相同版本；共享兄弟目录不再
+是构建输入。Sapid 当前仍以兄弟路径声明 Glory，工作区通过针对 Sapid Git 来源的
+patch 将它统一到同一份 Glory Git 依赖，无本地路径回退。
+升级上游版本时运行 `cargo update -p glory -p sapid`，检查锁文件差异，再验证原生
+测试、WASM 和浏览器行为。`.github/actions/ui-sources` 检查锁文件并记录双方提交。
 
 需要安装 Rust 的 `wasm32-unknown-unknown` target，以及与 `Cargo.lock` 中
 `wasm-bindgen` 版本一致的 `wasm-bindgen-cli`。可通过 `WASM_BINDGEN` 环境变量
@@ -31,7 +33,7 @@ just gateway-release
 ```
 
 分离开发时，分别运行 `just gateway-frontend` 与 `just gateway-backend`。
-前端开发服务器使用 Node.js，默认端口 18080；监听应用和 Glory/Sapid 源码，
+前端开发服务器使用 Node.js，默认端口 18080；监听应用源码、依赖清单与锁文件，
 重建 WASM 后自动刷新页面，并把 `/api`、`/health` 与 WebSocket `/ws` 代理到
 18881。可用 `SAVFOX_DEV_BACKEND` 修改代理目标。
 `just web-serve` 和 `just gateway-skip-web` 兼容入口继续保留。
@@ -39,7 +41,8 @@ just gateway-release
 ## 构建边界
 
 `scripts/build-web.ps1` 转交 Node.js 构建引擎 `scripts/build-web.cjs` 执行
-Cargo 和 wasm-bindgen，复制 Sapid CSS 与应用资源，
+带 `--locked` 的 Cargo 和 wasm-bindgen，从 `cargo metadata` 实际解析的 Git
+依赖中复制对应 Sapid CSS 与应用资源，
 将完整 bundle 同步到 `crates/gateway-server/static`。
 中间产物位于 `D:/BuildCache/savfox-glory/web/<profile>`。
 `-SkipCopy` 仅构建中间 bundle；`-Force` 强制构建与同步。
@@ -81,11 +84,16 @@ Glory 的浏览器测试目录。CI 独立执行此验收。
 切换窗口尺寸。除了断言，还必须人工对照迁移前 Dioxus 的真实截图。页面保留原来的
 56px 顶栏、260px 导航栏和桌面 320px 会话列表；手机输入框必须位于底部导航上方。
 
-Docker 构建需要显式提供命名上下文：
+Docker 使用同一锁定 Git 依赖，并从 Cargo 包复制 Sapid CSS，无需额外源码上下文：
 
 ```powershell
-docker buildx build --build-context glory=D:/Works/glory-rs/glory --build-context sapid=D:/Works/glory-rs/sapid -t savfox .
+docker buildx build -t savfox .
 ```
 
 本地执行前必须核实 builder 的实际数据存储位于 D 盘或远端；现有 Docker
-Desktop 的 C 盘虚拟磁盘不满足要求。CI 在远端 runner 上构建并传入相同上下文。
+Desktop 的 C 盘虚拟磁盘不满足要求。CI 在远端 runner 上构建。
+
+
+可组合 `SAVFOX_VISUAL_ROUTES=sessions` 与
+`SAVFOX_VISUAL_VIEWPORTS=1440x900,1120x900,800x560,390x560` 验证中间聊天栏
+宽度和矮窗口，检查输入区控件裁切、重叠及搜索框聚焦前后的边框对齐。

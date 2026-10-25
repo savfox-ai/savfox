@@ -112,11 +112,11 @@ server.on('connection', socket => {
   socket.on('close', () => sockets.delete(socket));
 });
 
-for (const relative of ['crates/gateway-glory/src', 'crates/gateway-glory/assets', 'crates/gateway-glory/locales', 'crates/gateway-shared/src', 'crates/utils/src', '../../glory-rs/glory/crates', '../../glory-rs/sapid/src', '../../glory-rs/sapid/styles']) {
+for (const relative of ['crates/gateway-glory/src', 'crates/gateway-glory/assets', 'crates/gateway-glory/locales', 'crates/gateway-shared/src', 'crates/utils/src']) {
   const directory = path.resolve(root, relative);
   if (fs.existsSync(directory)) watchers.push(fs.watch(directory, { recursive: true }, schedule));
 }
-for (const relative of ['Cargo.toml', 'Cargo.lock', '.cargo/config.toml', 'crates/gateway-glory/Cargo.toml', 'crates/gateway-glory/index.html', 'crates/gateway-shared/Cargo.toml', 'crates/utils/Cargo.toml', 'scripts/build-web.cjs', 'scripts/build-web.ps1', '../../glory-rs/glory/Cargo.toml', '../../glory-rs/sapid/Cargo.toml']) {
+for (const relative of ['Cargo.toml', 'Cargo.lock', '.cargo/config.toml', 'crates/gateway-glory/Cargo.toml', 'crates/gateway-glory/index.html', 'crates/gateway-shared/Cargo.toml', 'crates/utils/Cargo.toml', 'scripts/build-web.cjs', 'scripts/ui-sources.cjs', 'scripts/build-web.ps1']) {
   watchers.push(fs.watch(path.resolve(root, relative), schedule));
 }
 server.listen(port, '127.0.0.1', () => {

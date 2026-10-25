@@ -7,29 +7,26 @@ ARG WASM_BINDGEN_VERSION=0.2.129
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        clang lld && \
+        clang lld git jq && \
     rm -rf /var/lib/apt/lists/*
 
 RUN rustup target add wasm32-unknown-unknown && \
     cargo install wasm-bindgen-cli --version "${WASM_BINDGEN_VERSION}" --locked
 
-COPY --from=glory /Cargo.toml /Cargo.lock /work/glory-rs/glory/
-COPY --from=glory /crates /work/glory-rs/glory/crates/
-COPY --from=sapid /Cargo.toml /README.md /work/glory-rs/sapid/
-COPY --from=sapid /src /work/glory-rs/sapid/src/
-COPY --from=sapid /styles /work/glory-rs/sapid/styles/
 WORKDIR /work/savfox-ai/savfox
 COPY .cargo/ .cargo/
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 
-RUN cargo build --release -p savfox-gateway-glory --lib --target wasm32-unknown-unknown && \
+RUN cargo build --locked --release -p savfox-gateway-glory --lib --target wasm32-unknown-unknown && \
     mkdir -p /web/wasm /web/assets && \
     wasm-bindgen target/wasm32-unknown-unknown/release/savfox_gateway_glory.wasm \
         --target web --out-name savfox_gateway_glory --out-dir /web/wasm && \
     cp crates/gateway-glory/index.html /web/index.html && \
     cp -r crates/gateway-glory/assets/. /web/assets/ && \
-    cp /work/glory-rs/sapid/styles/sapid.css /web/assets/sapid.css
+    sapid_manifest="$(cargo metadata --locked --format-version 1 --filter-platform wasm32-unknown-unknown | \
+      jq -er '.packages[] | select(.name == "sapid" and ((.source // "") | startswith("git+https://github.com/sapid-ui/sapid.git?branch=main#"))) | .manifest_path')" && \
+    cp "$(dirname "$sapid_manifest")/styles/sapid.css" /web/assets/sapid.css
 
 # ---------------------------------------------------------------------------
 # Stage 2: Build the Rust binary
@@ -41,10 +38,6 @@ RUN apt-get update && \
         clang lld pkg-config libssl-dev git && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=glory /Cargo.toml /Cargo.lock /work/glory-rs/glory/
-COPY --from=glory /crates /work/glory-rs/glory/crates/
-COPY --from=sapid /Cargo.toml /README.md /work/glory-rs/sapid/
-COPY --from=sapid /src /work/glory-rs/sapid/src/
 WORKDIR /work/savfox-ai/savfox
 COPY . .
 
@@ -52,7 +45,7 @@ COPY . .
 COPY --from=web-builder /web/ \
      crates/gateway-server/static/
 
-RUN cargo build --release --bin savfox && \
+RUN cargo build --locked --release --bin savfox && \
     strip target/release/savfox
 
 # ---------------------------------------------------------------------------

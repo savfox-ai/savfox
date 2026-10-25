@@ -350,9 +350,9 @@ arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-or
 
 arkret-test-kit = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9" }
 
-# Browser UI: sibling checkouts are shared with Sapid.
-glory = { path = "../../glory-rs/glory/crates/glory", default-features = false, features = ["web", "ssr"] }
-sapid = { path = "../../glory-rs/sapid", features = ["chat", "code", "json", "dates", "files", "charts"] }
+# Browser UI: Cargo.lock pins the upstream main revisions used by every build.
+glory = { git = "https://github.com/glory-rs/glory.git", branch = "main", default-features = false, features = ["web", "ssr"] }
+sapid = { git = "https://github.com/sapid-ui/sapid.git", branch = "main", features = ["chat", "code", "json", "dates", "files", "charts"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
@@ -413,9 +413,13 @@ use_self = "warn"
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "warn"
 
-# ── Patch crates-io ─────────────────────────────────────────────────────────
-# Ensure transitive dependencies (e.g. tracing-opentelemetry) use the same
-# git revision of the opentelemetry crates as our workspace.
+# ── Dependency source patches ───────────────────────────────────────────────
+[patch."https://github.com/sapid-ui/sapid.git"]
+# Sapid main declares Glory via a sibling path. Within a Git dependency Cargo
+# interprets it as a package in Sapid's Git source; redirect it to our one Glory.
+glory = { git = "https://github.com/glory-rs/glory.git", branch = "main" }
+
+# Ensure transitive dependencies use the same OpenTelemetry revision.
 [patch.crates-io]
 opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }
 opentelemetry_sdk = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", rev = "67e7dffc" }

@@ -70,6 +70,8 @@ jobs:
               - 'crates/gateway-shared/**'
               - 'scripts/build-web.ps1'
               - 'scripts/build-web.cjs'
+              - 'scripts/ui-sources.cjs'
+              - 'scripts/ui-sources.test.cjs'
               - 'scripts/serve-web.cjs'
               - 'scripts/check-web.cjs'
             channels:
@@ -94,8 +96,7 @@ jobs:
         with:
           toolchain: ${{ env.RUSTFMT_NIGHTLY }}
           components: rustfmt
-      # A virtual workspace formats all members by default. --all also walks
-      # sibling path dependencies, whose formatting belongs to their repos.
+      # Format workspace sources; upstream UI dependencies are locked Git packages.
       - run: cargo +${{ steps.rustfmt-toolchain.outputs.name }} fmt --check
 
   # ─── Clippy lints ──────────────────────────────────────────────────
@@ -373,6 +374,8 @@ jobs:
         run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
       - name: Build Web UI
         run: node scripts/build-web.cjs --release
+      - name: Verify locked UI source resolution
+        run: node --test scripts/ui-sources.test.cjs
       - name: Install browser acceptance runtime
         run: |
           npm install --prefix "$RUNNER_TEMP/savfox-web-check" --no-package-lock --ignore-scripts playwright@1.60.0
@@ -401,9 +404,6 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
-          build-contexts: |
-            glory=../../glory-rs/glory
-            sapid=../../glory-rs/sapid
           push: false
           tags: savfox:ci
           cache-from: type=gha

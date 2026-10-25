@@ -51,8 +51,8 @@ savfox --full-auto exec "Refactor the auth module"
 
 Build the web frontend and start the gateway server with [just](https://github.com/casey/just):
 
-The Glory + Sapid frontend uses sibling checkouts at `../../glory-rs/glory` and
-`../../glory-rs/sapid` (locally `D:/Works/glory-rs`). Install Node.js, the Rust WASM target
+The Glory + Sapid frontend uses upstream Git `main` dependencies pinned in
+`Cargo.lock`; shared local checkouts are not required. Install Node.js, the Rust WASM target
 and wasm-bindgen CLI matching `Cargo.lock`; see the
 [web build guide](docs/en/gateway/web-build-release.md). Local build output and
 caches live in `D:/BuildCache/savfox-glory`.

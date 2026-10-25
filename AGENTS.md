@@ -126,7 +126,7 @@ savfox-cli / savfox-exec / savfox-tui
 ## Gateway And Frontend Notes
 
 - `scripts/build-web.ps1` is the canonical frontend build/sync script.
-- That script fingerprints frontend and sibling Glory/Sapid inputs, skips unnecessary rebuilds, and syncs the generated bundle from `D:/BuildCache/savfox-glory/web` into `crates/gateway-server/static`.
+- That script fingerprints frontend and locked Git Glory/Sapid inputs, skips unnecessary rebuilds, and syncs the generated bundle from `D:/BuildCache/savfox-glory/web` into `crates/gateway-server/static`.
 - When you change `crates/gateway-glory` or `crates/gateway-shared`, verify the web build still succeeds and that the gateway can serve the updated static assets.
 - `crates/gateway-server/src/ws_rpc` carries a large compatibility-heavy JSON-RPC surface. Preserve existing method names and aliases unless the change explicitly intends to break or version the protocol.
 
@@ -136,9 +136,10 @@ The Glory frontend uses Sapid's semantic icon widgets and SVG assets. Give icon-
 
 ### Frontend dependencies
 
-- Glory: `../../glory-rs/glory/crates/glory` relative to the workspace root.
-- Sapid: `../../glory-rs/sapid` relative to the workspace root.
-- These paths resolve to the requested `D:/Works/glory-rs` checkouts locally. Keep the same sibling layout on CI; see `.github/actions/ui-sources`.
+- Glory: `https://github.com/glory-rs/glory.git`, branch `main`.
+- Sapid: `https://github.com/sapid-ui/sapid.git`, branch `main`.
+- `Cargo.lock` pins the actual Git commits. Sapid's Git source is patched to the same Glory Git dependency because upstream Sapid still declares a sibling Glory path. Do not introduce local path fallbacks or modify shared framework checkouts to make a build pass.
+- `scripts/build-web.cjs` resolves Sapid CSS from Cargo metadata and verifies both Git sources; `.github/actions/ui-sources` reports the locked revisions in CI.
 - Build browser artifacts with `scripts/build-web.ps1`; it verifies Cargo's actual target directory and requires a matching wasm-bindgen CLI.
 
 ## Generated Artifacts

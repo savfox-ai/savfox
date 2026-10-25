@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
+const { resolvedUiSources } = require('./ui-sources.cjs');
 const root = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 const has = name => args.some(arg => arg.toLowerCase() === name.toLowerCase());
@@ -13,8 +14,6 @@ const force = has('--force') || has('-Force');
 const profile = release ? 'release' : 'debug';
 const web = path.join(root, 'crates/gateway-glory');
 const destination = path.join(root, 'crates/gateway-server/static');
-const glory = path.resolve(root, '../../glory-rs/glory');
-const sapid = path.resolve(root, '../../glory-rs/sapid');
 const env = { ...process.env };
 let cache;
 if (process.platform === 'win32') {
@@ -61,11 +60,16 @@ try {
   const metadata = JSON.parse(run('cargo', ['metadata', '--no-deps', '--format-version', '1'], true));
   if (path.resolve(metadata.target_directory) !== path.resolve(env.CARGO_TARGET_DIR)) throw new Error(`Unexpected Cargo target: ${metadata.target_directory}`);
   console.log(`==> Cargo target verified: ${metadata.target_directory}`);
+  const dependencies = JSON.parse(run('cargo', ['metadata', '--locked', '--format-version', '1', '--filter-platform', 'wasm32-unknown-unknown'], true));
+  const sources = resolvedUiSources(dependencies, fs.readFileSync(path.join(root, 'Cargo.lock'), 'utf8'));
+  const glory = path.resolve(sources.glory, '../..');
+  const sapid = sources.sapid;
+  for (const [name, value] of Object.entries(sources.locked)) console.log(`==> ${name} main: ${value.revision}`);
   const bindgenIndex = args.findIndex(arg => /^(--bindgen|-Bindgen)$/i.test(arg));
   const localTool = path.join(cache, 'tools/bin', process.platform === 'win32' ? 'wasm-bindgen.exe' : 'wasm-bindgen');
   const bindgen = (bindgenIndex >= 0 ? args[bindgenIndex + 1] : undefined) || env.WASM_BINDGEN || (fs.existsSync(localTool) ? localTool : 'wasm-bindgen');
   const version = run(bindgen, ['--version'], true).trim();
-  const inputs = [__filename, path.join(__dirname, 'build-web.ps1'), path.join(root, 'Cargo.toml'), path.join(root, 'Cargo.lock'), path.join(root, '.cargo/config.toml'),
+  const inputs = [__filename, path.join(__dirname, 'ui-sources.cjs'), path.join(__dirname, 'build-web.ps1'), path.join(root, 'Cargo.toml'), path.join(root, 'Cargo.lock'), path.join(root, '.cargo/config.toml'),
     path.join(web, 'Cargo.toml'), path.join(web, 'src'), path.join(web, 'assets'), path.join(web, 'locales'), path.join(web, 'index.html'),
     path.join(root, 'crates/gateway-shared'), path.join(root, 'crates/utils/src'), path.join(root, 'crates/utils/Cargo.toml'),
     path.join(glory, 'Cargo.toml'), path.join(glory, 'crates'), path.join(sapid, 'Cargo.toml'), path.join(sapid, 'README.md'), path.join(sapid, 'src'), path.join(sapid, 'styles')];
@@ -73,7 +77,7 @@ try {
   const stamp = path.join(cache, `${profile}-frontend.stamp`);
   const before = fingerprint(inputs, version);
   if (force || !ready(output) || !matches(stamp, before)) {
-    run('cargo', ['build', '-p', 'savfox-gateway-glory', '--lib', '--target', 'wasm32-unknown-unknown', ...(release ? ['--release'] : [])]);
+    run('cargo', ['build', '--locked', '-p', 'savfox-gateway-glory', '--lib', '--target', 'wasm32-unknown-unknown', ...(release ? ['--release'] : [])]);
     const expected = fs.readFileSync(path.join(root, 'Cargo.lock'), 'utf8').match(/^name = "wasm-bindgen"\r?\nversion = "([^"]+)"/m)?.[1];
     if (version !== `wasm-bindgen ${expected}`) throw new Error(`Install wasm-bindgen-cli ${expected}; selected ${version}. Use WASM_BINDGEN or --bindgen.`);
     const staging = path.join(cache, 'web', `${profile}-staging`);

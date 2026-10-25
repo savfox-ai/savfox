@@ -26,8 +26,6 @@ jobs:
       - name: Build amd64 image
         run: |
           docker buildx build --load \
-            --build-context glory=../../glory-rs/glory \
-            --build-context sapid=../../glory-rs/sapid \
             --file Dockerfile \
             --pull \
             --label org.opencontainers.image.title=Savfox \
@@ -60,8 +58,6 @@ jobs:
       - name: Build arm64 image
         run: |
           docker buildx build --load \
-            --build-context glory=../../glory-rs/glory \
-            --build-context sapid=../../glory-rs/sapid \
             --file Dockerfile \
             --pull \
             --label org.opencontainers.image.title=Savfox \

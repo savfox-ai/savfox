@@ -1,14 +1,9 @@
-name: Checkout semantic UI dependencies
-description: Restore the sibling Glory and Sapid layout used by workspace path dependencies
+name: Verify semantic UI dependencies
+description: Verify and report the upstream main revisions pinned in Cargo.lock
 runs:
   using: composite
   steps:
     - shell: bash
       run: |
         set -euo pipefail
-        ui_root="$(cd "$GITHUB_WORKSPACE/../.." && pwd)/glory-rs"
-        mkdir -p "$ui_root"
-        git clone --depth 1 --single-branch --branch main https://github.com/glory-rs/glory.git "$ui_root/glory"
-        git -C "$ui_root/glory" log -1 --format="Glory main: %H"
-        git clone --depth 1 --single-branch --branch main https://github.com/sapid-ui/sapid.git "$ui_root/sapid"
-        git -C "$ui_root/sapid" log -1 --format="Sapid main: %H"
+        node scripts/ui-sources.cjs

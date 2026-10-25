@@ -7,12 +7,15 @@ remain owned by the gateway.
 
 ## Dependencies and storage
 
-The workspace consumes sibling checkouts at `../../glory-rs/glory` and
-`../../glory-rs/sapid`. In the Windows development layout these are
-`D:/Works/glory-rs/glory` and `D:/Works/glory-rs/sapid`. CI checks out the latest
-`main` branch from `glory-rs/glory` and `sapid-ui/sapid` with `.github/actions/ui-sources`, and records both commit SHAs
-in the build log. Local checkouts may contain work in progress; use clean
-checkouts of those upstream branches when verifying compatibility.
+The workspace depends on the `main` branches of
+`https://github.com/glory-rs/glory.git` and `https://github.com/sapid-ui/sapid.git`.
+`Cargo.lock` pins their commits for reproducible local, CI and Docker builds.
+Sibling checkouts are not build inputs. Sapid currently declares Glory through a
+sibling path; the workspace patches Sapid's Git source to the same Glory Git
+dependency so Cargo resolves one copy of Glory without a local path fallback.
+To adopt newer upstream commits, run `cargo update -p glory -p sapid`, review the
+lockfile changes, then repeat native, WASM and browser verification. The
+`.github/actions/ui-sources` action checks the lockfile and reports both revisions.
 
 Install the Rust `wasm32-unknown-unknown` target and a `wasm-bindgen-cli` version
 matching the `wasm-bindgen` entry in `Cargo.lock`. Set `WASM_BINDGEN` or pass
@@ -33,8 +36,8 @@ just gateway-release
 ```
 
 For development, run `just gateway-frontend` and `just gateway-backend` in separate
-terminals. Node.js runs the frontend server on port 18080, watches application and
-sibling framework sources, rebuilds WASM and reloads connected pages. It proxies
+terminals. Node.js runs the frontend server on port 18080, watches application
+sources and dependency manifests/lockfile, rebuilds WASM and reloads connected pages. It proxies
 `/api`, `/health` and WebSocket `/ws` to port 18881. Set `SAVFOX_DEV_BACKEND` to
 override the proxy target. `just web-serve` and `just gateway-skip-web` remain
 available.
@@ -42,7 +45,8 @@ available.
 ## Build boundary
 
 `scripts/build-web.ps1` delegates to the Node.js engine in `scripts/build-web.cjs`.
-It runs Cargo and wasm-bindgen, copies Sapid CSS and application
+It runs Cargo with `--locked` and wasm-bindgen, copies Sapid CSS from the exact
+Git package selected by `cargo metadata` and copies application
 assets, and publishes a complete bundle to `crates/gateway-server/static`. The
 intermediate bundle is in `D:/BuildCache/savfox-glory/web/<profile>`. `-SkipCopy`
 builds only that bundle; `-Force` rebuilds and resyncs it. Content fingerprints
@@ -90,12 +94,19 @@ pre-migration Dioxus reference as well as checking the assertions. The shell kee
 the original 56px header, 260px navigation, and 320px desktop session list; the
 mobile editor must stop above the bottom navigation.
 
-Docker builds require named source contexts:
+Docker resolves the same locked Git dependencies and copies Sapid CSS from its
+Cargo package. No additional source contexts are required:
 
 ```powershell
-docker buildx build --build-context glory=D:/Works/glory-rs/glory --build-context sapid=D:/Works/glory-rs/sapid -t savfox .
+docker buildx build -t savfox .
 ```
 
 Before running this locally, verify the Docker builder actually stores data on
 D: or a remote host. Docker Desktop's existing C: virtual disk does not satisfy
-that rule. CI builds Docker on remote runners and supplies the same source contexts.
+that rule. CI builds Docker on remote runners.
+
+
+Use `SAVFOX_VISUAL_VIEWPORTS=1440x900,1120x900,800x560,390x560` with
+`SAVFOX_VISUAL_ROUTES=sessions` to check intermediate conversation widths and
+short windows. The audit checks editor controls for clipping/overlap and verifies
+the search field before and after focus.
