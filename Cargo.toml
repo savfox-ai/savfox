@@ -350,20 +350,14 @@ arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-or
 
 arkret-test-kit = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "d012011c7fa597dcad78ded9feeb0779c9e805a9" }
 
-# WASM dependencies for gateway-dioxus
-dioxus = { version = "=0.7.10", default-features = false, features = [
-    "web",
-    "router",
-    "lib",
-    "launch",
-    "logger",
-] }
+# Browser UI: sibling checkouts are shared with Sapid.
+glory = { path = "../../glory-rs/glory/crates/glory", default-features = false, features = ["web", "ssr"] }
+sapid = { path = "../../glory-rs/sapid", features = ["chat", "code", "json", "dates", "files", "charts"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
-lucide-dioxus = { version = "2", features = ["all-icons"] }
 
 # Compress
 brotli = { version = "8", default-features = false }

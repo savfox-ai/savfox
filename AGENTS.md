@@ -65,7 +65,7 @@ Notes:
 
 - `just gateway` and `just gateway-release` run `scripts/build-web.ps1` before starting the gateway.
 - `just gateway-backend` runs only the gateway server on the fixed dev port `18881` and is meant to pair with `just gateway-frontend`.
-- `just gateway-frontend` runs `dx serve --web` for the Dioxus app; its dev server proxies `/api`, `/health`, and `/ws` back to the local gateway backend on port `18881`.
+- `just gateway-frontend` runs `scripts/serve-web.cjs`, rebuilding Glory WASM on save and reloading the page. It proxies `/api`, `/health`, and `/ws` to the gateway backend on port `18881`.
 - `just gateway-skip-web` and `just web-serve` remain available as compatibility aliases for the split backend/frontend dev loop.
 
 ## Workspace Architecture
@@ -80,7 +80,7 @@ savfox-cli / savfox-exec / savfox-tui
      |         |            |
  protocol   api-client   app-server / mcp-server
      |                        |
- gateway-server -------- gateway-dioxus
+ gateway-server -------- gateway-glory
      |
   channels / cron / web / ws-rpc
 ```
@@ -96,7 +96,7 @@ savfox-cli / savfox-exec / savfox-tui
 - `crates/app-server` and `crates/app-server-protocol`: stdio JSON-RPC server and protocol types for IDE/editor integrations. Current exported protocol types are generated from `src/protocol/common.rs`, `src/protocol/session_history.rs`, and `src/protocol/v1.rs`.
 - `crates/mcp-server` and `crates/rmcp-client`: Savfox as an MCP server plus support for external MCP servers/tools.
 - `crates/gateway-server`: the remote HTTP/WebSocket gateway built on Salvo. It owns ws-rpc dispatch, auth, cron jobs, channel routing, webchat, browser/voice helpers, session bridging, and gateway-side state.
-- `crates/gateway-dioxus` and `crates/gateway-shared`: the web frontend and its shared serde types. The built frontend is copied into `crates/gateway-server/static`.
+- `crates/gateway-glory` and `crates/gateway-shared`: the web frontend and its shared serde types. The built frontend is copied into `crates/gateway-server/static`.
 - `crates/channels`: channel implementations for external platforms such as Discord, Telegram, Slack, Matrix, Mattermost, Feishu, IRC, Webhook, and others used by the gateway.
 - `crates/memory`, `crates/skill-registry`, `crates/browser-automation`, `crates/network-proxy`, `crates/linux-sandbox`, and `crates/windows-sandbox`: supporting subsystems for long-term memory, skills, browser tooling, network policy, and platform sandboxing.
 - `apps/` and `apps/shared/SavfoxKit`: Apple and Android client surfaces that talk to Savfox services rather than reimplementing the core agent stack.
@@ -126,24 +126,20 @@ savfox-cli / savfox-exec / savfox-tui
 ## Gateway And Frontend Notes
 
 - `scripts/build-web.ps1` is the canonical frontend build/sync script.
-- That script fingerprints frontend inputs, skips unnecessary rebuilds, and syncs Dioxus output into both the frontend `out_dir` and `crates/gateway-server/static`.
-- When you change `crates/gateway-dioxus` or `crates/gateway-shared`, verify the web build still succeeds and that the gateway can serve the updated static assets.
+- That script fingerprints frontend and sibling Glory/Sapid inputs, skips unnecessary rebuilds, and syncs the generated bundle from `D:/BuildCache/savfox-glory/web` into `crates/gateway-server/static`.
+- When you change `crates/gateway-glory` or `crates/gateway-shared`, verify the web build still succeeds and that the gateway can serve the updated static assets.
 - `crates/gateway-server/src/ws_rpc` carries a large compatibility-heavy JSON-RPC surface. Preserve existing method names and aliases unless the change explicitly intends to break or version the protocol.
 
-### Icons (Lucide)
+### Icons
 
-The web frontend (`gateway-dioxus`) uses [Lucide](https://lucide.dev) icons via the [`lucide-dioxus`](https://crates.io/crates/lucide-dioxus) crate (MIT license). This replaces all previous text/emoji/unicode character icons.
+The Glory frontend uses Sapid's semantic icon widgets and SVG assets. Give icon-only controls accessible names. Do not use emoji or Unicode characters as icons, or add dependencies on another UI runtime.
 
-- **Dependency**: `lucide-dioxus` with `all-icons` feature in workspace `Cargo.toml`.
-- **Usage**: Import individual icon components and use them in `rsx!`:
-  ```rust
-  use lucide_dioxus::{Home, Settings, Bot};
-  rsx! { Home { size: 16 } }
-  ```
-- **Props**: `size` (usize, default 24), `color` (String, default "currentColor"), `stroke_width` (usize, default 2), `class`, `style`.
-- **Convention**: Navigation icons use `size: 16`, page header icons use `size: 20`, inline status icons use `size: 14`.
-- **Do not** reintroduce text characters, unicode escapes, or emoji as icons. All new icons must use Lucide components.
-- Browse available icons at [lucide.dev/icons](https://lucide.dev/icons).
+### Frontend dependencies
+
+- Glory: `../../glory-rs/glory/crates/glory` relative to the workspace root.
+- Sapid: `../../glory-rs/sapid` relative to the workspace root.
+- These paths resolve to the requested `D:/Works/glory-rs` checkouts locally. Keep the same sibling layout on CI; see `.github/actions/ui-sources`.
+- Build browser artifacts with `scripts/build-web.ps1`; it verifies Cargo's actual target directory and requires a matching wasm-bindgen CLI.
 
 ## Generated Artifacts
 

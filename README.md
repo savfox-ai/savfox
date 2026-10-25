@@ -51,6 +51,12 @@ savfox --full-auto exec "Refactor the auth module"
 
 Build the web frontend and start the gateway server with [just](https://github.com/casey/just):
 
+The Glory + Sapid frontend uses sibling checkouts at `../../glory-rs/glory` and
+`../../glory-rs/sapid` (locally `D:/Works/glory-rs`). Install Node.js, the Rust WASM target
+and wasm-bindgen CLI matching `Cargo.lock`; see the
+[web build guide](docs/en/gateway/web-build-release.md). Local build output and
+caches live in `D:/BuildCache/savfox-glory`.
+
 ```bash
 # Build frontend + start gateway (debug, default port 18881)
 just gateway
@@ -62,10 +68,10 @@ just port=9000 token=mysecret gateway
 just gateway-release
 ```
 
-`just gateway` reuses the last Dioxus web build when `crates/gateway-dioxus/`,
+`just gateway` reuses the last Glory web build when `crates/gateway-glory/`,
 `crates/gateway-shared/`, and the relevant shared frontend inputs have not changed.
 
-For live frontend hot-reload during UI development, run two terminals:
+For automatic frontend rebuild and page reload during UI development, run two terminals:
 
 ```bash
 # Terminal 1 — watches and rebuilds WASM on every save
@@ -93,7 +99,7 @@ just help          # list all recipes
 
 > **How it works:** `build.rs` in `gateway-server` declares the `static/` folder as
 > a Cargo dependency, so the backend automatically re-embeds the fresh frontend after
-> each synced `dx build --web`. `scripts/build-web.ps1` skips the web rebuild and static
+> each synced Glory WASM build. `scripts/build-web.ps1` skips the web rebuild and static
 > copy when the tracked frontend inputs have not changed.
 
 ## Documentation

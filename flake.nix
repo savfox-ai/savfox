@@ -1,4 +1,4 @@
-﻿{
+{
   description = "Savfox - AI Assistant Gateway & Agent Runtime";
 
   inputs = {
@@ -79,9 +79,7 @@
             # Docker/container testing
             docker-compose
 
-            # Dioxus CLI for web UI builds
-            # (uncomment when dioxus-cli is packaged in nixpkgs)
-            # dioxus-cli
+            # Install wasm-bindgen-cli matching Cargo.lock for Glory UI builds.
           ] ++ darwinDeps;
 
           shellHook = ''

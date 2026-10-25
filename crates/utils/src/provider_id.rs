@@ -6,7 +6,7 @@
 //! endpoint we ship for that provider; values containing `${VAR}` placeholders
 //! are intended for substitution by the caller.
 //!
-//! Lives in `savfox-utils` so both `savfox-model` (native) and the Dioxus
+//! Lives in `savfox-utils` so both `savfox-model` (native) and the Glory
 //! gateway frontend (wasm32) can share a single source of truth instead of
 //! maintaining parallel copies that drift.
 

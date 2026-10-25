@@ -76,6 +76,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
 
       - name: Determine tag
         id: tag

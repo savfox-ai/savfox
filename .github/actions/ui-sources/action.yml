@@ -1,0 +1,14 @@
+name: Checkout semantic UI dependencies
+description: Restore the sibling Glory and Sapid layout used by workspace path dependencies
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        ui_root="$(cd "$GITHUB_WORKSPACE/../.." && pwd)/glory-rs"
+        mkdir -p "$ui_root"
+        git clone --no-checkout https://github.com/glory-rs/glory.git "$ui_root/glory"
+        git -C "$ui_root/glory" checkout --detach aecbe360bd0731f118af31e653f6df2b26ef7576
+        git clone --no-checkout https://github.com/sapid-ui/sapid.git "$ui_root/sapid"
+        git -C "$ui_root/sapid" checkout --detach fd64d78edf9f91f9dc63bfa2be6e59ec1f739a58

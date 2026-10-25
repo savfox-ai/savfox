@@ -1,4 +1,4 @@
-﻿# Contributing to Savfox
+# Contributing to Savfox
 
 Thank you for your interest in contributing to Savfox! This document provides guidelines and instructions for contributing.
 
@@ -50,8 +50,8 @@ cargo build --release
 # Build specific crate
 cargo build -p savfox-gateway-server
 
-# Build the web UI (requires dioxus-cli)
-cd crates/gateway-dioxus && dx build --release
+# Build the Glory + Sapid web UI (requires wasm-bindgen-cli)
+pwsh -NoProfile -File scripts/build-web.ps1 -Release
 ```
 
 ### Testing
@@ -136,7 +136,7 @@ crates/
 ├── api-client/             # Multi-provider LLM HTTP client (OpenAI / Anthropic / Responses)
 ├── gateway-server/         # HTTP/WebSocket gateway + REST API + Web UI host
 ├── gateway-shared/         # Wire types shared between gateway-server and the web UI
-├── gateway-dioxus/         # Dioxus-based web UI
+├── gateway-glory/         # Glory-based web UI
 ├── app-server/             # JSON-RPC daemon used by TUI / IDE plugins
 ├── app-server-protocol/    # JSON-RPC v1 wire protocol for the app-server
 ├── protocol/               # Agent ↔ engine protocol (events, sandbox policies)

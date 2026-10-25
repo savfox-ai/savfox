@@ -4,5 +4,7 @@ target/
 docs/
 deploy/
 .github/
-crates/gateway-dioxus/target/
-crates/gateway-dioxus/dist/
+crates/gateway-glory/target/
+crates/gateway-glory/dist/
+crates/gateway-server/static/*
+!crates/gateway-server/static/.gitkeep

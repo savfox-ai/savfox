@@ -1,4 +1,4 @@
-﻿# Gateway Architecture
+# Gateway Architecture
 
 The Savfox gateway server is a persistent, multi-protocol hub that exposes the
 Savfox AI engine over WebSocket, REST, and chat-platform webhooks. It runs as
@@ -105,7 +105,7 @@ mapped to a required permission scope via `required_scope()` in `auth.rs`.
 
 ## Web UI
 
-The gateway embeds a Dioxus 0.7 WASM single-page application via `rust-embed`.
+The gateway embeds a Glory + Sapid WASM single-page application via `rust-embed`.
 Assets are served from `web/dist/`, with SPA fallback routing for unmatched GET
 requests.
 

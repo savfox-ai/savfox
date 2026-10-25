@@ -1,54 +1,81 @@
 # Gateway Web Build and Release
 
-This document defines the ownership boundary between the Dioxus frontend and the gateway static bundle.
+The browser application uses Glory's semantic UI and Sapid widgets. It lives in
+`crates/gateway-glory`; shared browser/backend models remain in
+`crates/gateway-shared`. Authentication and the existing HTTP/WebSocket protocol
+remain owned by the gateway.
 
-## Source of truth
+## Dependencies and storage
 
-- source code lives in `crates/gateway-dioxus`
-- shared browser/backend data models live in `crates/gateway-shared`
-- deployable static assets are copied into `crates/gateway-server/static`
-- `scripts/build-web.ps1` is the canonical build-and-sync entrypoint
+The workspace consumes sibling checkouts at `../../glory-rs/glory` and
+`../../glory-rs/sapid`. In the Windows development layout these are
+`D:/Works/glory-rs/glory` and `D:/Works/glory-rs/sapid`. CI restores pinned source
+revisions with `.github/actions/ui-sources`.
+
+Install the Rust `wasm32-unknown-unknown` target and a `wasm-bindgen-cli` version
+matching the `wasm-bindgen` entry in `Cargo.lock`. Set `WASM_BINDGEN` or pass
+`-Bindgen <path>` to select a CLI. The build validates the version before bundling.
+
+Windows compilation, Cargo downloads, temporary files, stamps and frontend
+bundles use `D:/BuildCache`. WSL uses a verified `/mnt/d` mount. The script checks
+`cargo metadata --no-deps --format-version 1` against `CARGO_TARGET_DIR` before
+compilation. Remote CI uses runner storage. It does not start Docker.
 
 ## Local workflows
 
-### One-shot build
+```powershell
+just web-build                 # debug WASM bundle and gateway static sync
+just web-build-release         # release bundle and static sync
+just gateway                   # build frontend, then run gateway
+just gateway-release
+```
 
-- `just web-build`
-- `just web-build-release`
+For development, run `just gateway-frontend` and `just gateway-backend` in separate
+terminals. Node.js runs the frontend server on port 18080, watches application and
+sibling framework sources, rebuilds WASM and reloads connected pages. It proxies
+`/api`, `/health` and WebSocket `/ws` to port 18881. Set `SAVFOX_DEV_BACKEND` to
+override the proxy target. `just web-serve` and `just gateway-skip-web` remain
+available.
 
-### Full gateway dev loop
+## Build boundary
 
-- `just gateway`
-- `just gateway-release`
+`scripts/build-web.ps1` delegates to the Node.js engine in `scripts/build-web.cjs`.
+It runs Cargo and wasm-bindgen, copies Sapid CSS and application
+assets, and publishes a complete bundle to `crates/gateway-server/static`. The
+intermediate bundle is in `D:/BuildCache/savfox-glory/web/<profile>`. `-SkipCopy`
+builds only that bundle; `-Force` rebuilds and resyncs it. Content fingerprints
+include the application, locales, shared types, workspace lockfile, Glory, Sapid,
+stylesheet and build tooling. A failed build never replaces the gateway bundle.
 
-### Split frontend/backend dev loop
+Generated static files are ignored by Git. Do not edit them by hand. The gateway
+embeds them at compilation and serves `index.html` for application routes. The
+bootstrap HTML uses absolute URLs so refreshing nested routes works. Unhashed
+assets are served with `no-cache`.
 
-- terminal 1: `just gateway-frontend`
-- terminal 2: `just gateway-backend`
+For shell-independent builds, run `node scripts/build-web.cjs`; its options are
+`--release`, `--skip-copy`, `--force` and `--bindgen <path>`.
 
-Compatibility aliases still exist:
-- `just web-serve`
-- `just gateway-skip-web`
+## Verification and deployment
 
-## Script responsibilities
+Run `cargo test -p savfox-gateway-glory -p savfox-gateway-shared`, a WASM build, and the gateway's ignored
+`built_frontend_assets_are_served_with_spa_fallback` test after generating the
+bundle. Browser acceptance must cover authentication, navigation, RPC requests,
+chat streaming and reconnect behavior.
 
-`build-web.ps1` is responsible for:
-- tracking relevant frontend inputs
-- hashing inputs to a fingerprint
-- skipping unnecessary rebuilds
-- syncing the build output to the Dioxus `out_dir`
-- syncing the same output to `crates/gateway-server/static`
+`node scripts/check-web.cjs` runs the built bundle through Chromium against
+deterministic gateway fixtures. Set `SAVFOX_PLAYWRIGHT` to a Playwright installation
+when it is not installed in Glory's sibling browser test directory. It covers
+authentication, deep links, session streaming, approval/question events, provider
+login cancellation, channel edits, record refresh and mobile navigation. CI runs
+this independently of native tests. `node scripts/check-web-proxy.cjs` verifies the
+actual development server's HTTP/WebSocket proxy and static bundle paths.
 
-## Release rule
+Docker builds require named source contexts:
 
-Do not treat `crates/gateway-server/static` as hand-edited source. It is a build artifact destination owned by the sync script.
+```powershell
+docker buildx build --build-context glory=D:/Works/glory-rs/glory --build-context sapid=D:/Works/glory-rs/sapid -t savfox .
+```
 
-## CI expectation
-
-CI should validate the frontend independently from native gateway tests. A frontend-only change should still prove the Dioxus build works.
-
-## Failure modes to watch
-
-- frontend source changed but static bundle was not rebuilt
-- shared serde models changed but wasm/native compatibility was not revalidated
-- local dev used compatibility aliases without realizing the preferred split loop changed
+Before running this locally, verify the Docker builder actually stores data on
+D: or a remote host. Docker Desktop's existing C: virtual disk does not satisfy
+that rule. CI builds Docker on remote runners and supplies the same source contexts.

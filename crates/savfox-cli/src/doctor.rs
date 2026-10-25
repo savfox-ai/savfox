@@ -374,8 +374,7 @@ fn check_web_ui_assets(savfox_home: &Path, summary: &mut DoctorSummary) {
 
     let mut candidates = vec![
         savfox_home.join("web").join("index.html"),
-        PathBuf::from("crates/gateway-dioxus/dist/index.html"),
-        PathBuf::from("crates/gateway-dioxus/index.html"),
+        PathBuf::from("crates/gateway-server/static/index.html"),
     ];
     if let Ok(exe) = std::env::current_exe()
         && let Some(parent) = exe.parent()
