@@ -67,6 +67,10 @@ Glory 的浏览器测试目录。CI 独立执行此验收。
 `node scripts/check-web-proxy.cjs` 还会验证真实开发服务器的 HTTP/WebSocket 代理
 与静态 bundle 路径。
 
+选项控件统一使用带应用主题的 Sapid 下拉列表，使触发按钮和展开的选项保持同一
+配色。浏览器验收必须实际展开菜单，检查对比度与视口边界，并验证鼠标和键盘
+切换用量时间范围后发送的 RPC 参数。
+
 
 视觉验收还需连接已运行的真实 gateway：`node scripts/check-web-visual.cjs`。
 脚本读取本地 gateway token，不输出密钥，只导航和读取页面。可通过

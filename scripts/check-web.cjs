@@ -167,6 +167,33 @@ const server = http.createServer((request, response) => {
       report.routes.push(route);
       console.log(`Checked ${route}`);
     }
+    await page.goto(base + '/usage');
+    await page.locator('.top-header__health--ok').waitFor();
+    const period = page.getByRole('combobox', { name: 'Period', exact: true });
+    assert.equal(await period.evaluate(element => element.tagName), 'BUTTON', 'Period must use the themed Sapid listbox rather than an OS popup');
+    assert((await period.innerText()).includes('7 days'));
+    await period.click();
+    await page.getByRole('listbox').waitFor({ state: 'visible' });
+    await page.getByRole('option', { name: 'Today', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.usage-cost-hero__period')?.textContent.includes('Today'));
+    assert(calls.some(call => call.method === 'usage.cost' && call.params.period === 'today'), 'Selecting a period must refresh the matching usage data');
+    await period.press('ArrowDown');
+    await period.press('End');
+    await page.waitForFunction(() => {
+      const trigger = document.querySelector('.usage-page .sapid-select');
+      const current = document.getElementById(trigger?.getAttribute('aria-activedescendant'));
+      return current?.textContent === 'All time' && getComputedStyle(current).backgroundColor !== 'rgba(0, 0, 0, 0)' && current.getAttribute('aria-selected') === 'false';
+    });
+    await period.press('Enter');
+    await page.waitForFunction(() => document.querySelector('.usage-cost-hero__period')?.textContent.includes('All time'));
+    assert(calls.some(call => call.method === 'usage.cost' && call.params.period === 'all'), 'Keyboard selection must update the application value');
+    await period.click();
+    await period.press('Escape');
+    await page.waitForFunction(() => document.querySelector('.usage-page .sapid-select')?.getAttribute('aria-expanded') === 'false');
+    assert(await period.evaluate(element => document.activeElement === element), 'Escape must retain focus on the select trigger');
+    report.checks.push('themed dropdown pointer/keyboard selection; usage RPC period mapping; active option highlight; Escape focus');
+    await page.goto(base + '/sessions?session_id=browser-session');
+    await page.locator('.top-header__health--ok').waitFor();
     await page.getByText('History restored', { exact: true }).waitFor();
     const strong = page.locator('.chat-message.assistant .markdown-strong').filter({ hasText: 'Fixture strong' });
     await strong.waitFor();

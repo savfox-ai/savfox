@@ -922,8 +922,7 @@ fn field(
             .collect::<Vec<_>>();
         let bind_ptr = ptr.clone();
         return Box::new(
-            sapid::native_select(select_key(&format!("config-enum-{}", path.join("/"))))
-                .unstyled()
+            crate::ui::select_control(select_key(&format!("config-enum-{}", path.join("/"))))
                 .class("form-select")
                 .label(name)
                 .value(draft.map(move |document| {

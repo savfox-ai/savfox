@@ -72,6 +72,11 @@ login cancellation, channel edits, record refresh and mobile navigation. CI runs
 this independently of native tests. `node scripts/check-web-proxy.cjs` verifies the
 actual development server's HTTP/WebSocket proxy and static bundle paths.
 
+Choice controls use themed Sapid listboxes so both the trigger and expanded
+options follow the application palette. Browser acceptance opens these menus,
+checks their contrast and viewport bounds, and verifies pointer/keyboard period
+selection against the usage RPC parameters.
+
 
 Visual acceptance also runs against a real, already running gateway with
 `node scripts/check-web-visual.cjs`. It reads the local gateway token without

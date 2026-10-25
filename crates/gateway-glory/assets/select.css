@@ -1,0 +1,224 @@
+/* Savfox skin for Sapid Select. Sapid owns value, focus, keyboard navigation and
+   layer placement; its themed inline option background marks the current item. */
+:root {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --select-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 5 5 9-10'/%3E%3C/svg%3E");
+}
+
+.app-layout .sapid-select {
+  position: relative !important;
+  display: block !important;
+  box-sizing: border-box !important;
+  width: auto;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  min-height: 38px !important;
+  margin: 0;
+  padding: 8px 34px 8px 12px !important;
+  border: 1px solid var(--field-stroke) !important;
+  border-radius: 10px !important;
+  background: var(--field-surface) !important;
+  box-shadow: var(--surface-inner) !important;
+  color: var(--text-primary) !important;
+  font: 500 13px/20px var(--font-body) !important;
+  text-align: start !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  appearance: none;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.app-layout .sapid-select::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 15px;
+  height: 15px;
+  background: currentColor;
+  -webkit-mask: var(--select-chevron) center / contain no-repeat;
+  mask: var(--select-chevron) center / contain no-repeat;
+  opacity: .75;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: transform .15s ease;
+}
+
+.app-layout .sapid-select[aria-expanded="true"]::after {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.app-layout .sapid-select:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: color-mix(in srgb, var(--field-stroke) 60%, var(--accent) 40%) !important;
+  background: var(--field-hover) !important;
+}
+
+.app-layout .sapid-select:is(:focus, [aria-expanded="true"]) {
+  border-color: var(--accent) !important;
+  box-shadow: var(--field-focus) !important;
+}
+
+.app-layout .sapid-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.app-layout .sapid-select:is(:disabled, [aria-disabled="true"]) {
+  color: var(--text-muted) !important;
+  background: var(--field-surface) !important;
+  opacity: .55;
+  cursor: not-allowed;
+  box-shadow: none !important;
+}
+
+.app-layout .sapid-select[aria-readonly="true"] {
+  cursor: default;
+}
+
+.app-layout .sapid-select[aria-invalid="true"] {
+  border-color: var(--danger) !important;
+}
+
+.app-layout .sapid-select:is(.form-select, .form-input) {
+  width: 100% !important;
+}
+
+.session-page .sapid-select.chat-agent-select {
+  width: auto;
+  height: 38px !important;
+  min-height: 38px !important;
+  padding: 0 28px 0 10px !important;
+  font-size: 12px !important;
+  line-height: 36px !important;
+}
+
+.session-page .sapid-select.chat-agent-select::after {
+  right: 8px;
+  width: 14px;
+  height: 14px;
+}
+
+/* Keep the popover in the document theme, even when the host raises it into the
+   top layer. Do not override its position or the current option's background. */
+.sapid-select-listbox {
+  box-sizing: border-box !important;
+  min-width: min(180px, calc(100vw - 24px)) !important;
+  max-width: calc(100vw - 24px) !important;
+  max-height: min(288px, calc(100dvh - 32px)) !important;
+  margin: 0 !important;
+  padding: 5px !important;
+  gap: 2px !important;
+  border: 1px solid var(--surface-stroke-strong) !important;
+  border-radius: 12px !important;
+  background: var(--surface-panel-strong), var(--bg-secondary) !important;
+  box-shadow: var(--surface-inner), var(--surface-shadow) !important;
+  color: var(--text-primary) !important;
+  font: 13px/1.5 var(--font-body) !important;
+  backdrop-filter: blur(24px) saturate(125%);
+  -webkit-backdrop-filter: blur(24px) saturate(125%);
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.sapid-select-listbox:is([hidden], [aria-hidden="true"], [data-gly-hidden]) {
+  display: none !important;
+}
+
+.sapid-select-listbox .sapid-select-option {
+  position: relative !important;
+  display: block !important;
+  box-sizing: border-box !important;
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 34px !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 8px 34px 8px 10px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  box-shadow: none !important;
+  color: var(--text-primary) !important;
+  font: 400 13px/1.5 var(--font-body) !important;
+  text-align: start !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sapid-select-listbox .sapid-select-option[aria-selected="true"] {
+  font-weight: 650 !important;
+}
+
+.sapid-select-listbox .sapid-select-option[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  background: var(--accent);
+  -webkit-mask: var(--select-check) center / contain no-repeat;
+  mask: var(--select-check) center / contain no-repeat;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.sapid-select-listbox .sapid-select-option:is(:hover, :focus-visible):not(:disabled):not([aria-disabled="true"]) {
+  background: var(--accent-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+.sapid-select-listbox .sapid-select-option:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.sapid-select-listbox .sapid-select-option:is(:disabled, [aria-disabled="true"]) {
+  color: var(--text-muted) !important;
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.sapid-select-listbox .sapid-select-option:is(:disabled, [aria-disabled="true"])::after {
+  background: currentColor;
+}
+
+.sapid-select-listbox [role="group"] {
+  gap: 2px !important;
+}
+
+.sapid-select-listbox [role="group"] > [data-gly-kind="text"] {
+  padding: 8px 10px 4px !important;
+  color: var(--text-muted) !important;
+  font: 600 11px/1.4 var(--font-body) !important;
+}
+
+@media (max-width: 760px) {
+  .sapid-select-listbox {
+    max-height: min(288px, calc(100dvh - 24px)) !important;
+  }
+  .sapid-select-listbox .sapid-select-option {
+    min-height: 40px !important;
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-layout .sapid-select,
+  .app-layout .sapid-select::after {
+    transition: none;
+  }
+}

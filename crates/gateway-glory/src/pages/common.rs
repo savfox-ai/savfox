@@ -155,8 +155,7 @@ pub fn select(
     Box::new(
         col().class("form-group form-field").fill((
             text().class("form-label").content(label.to_owned()),
-            sapid::native_select(select_key(label))
-                .unstyled()
+            crate::ui::select_control(select_key(label))
                 .class("form-select")
                 .label(label.to_owned())
                 .value(value.map(move |current| {
@@ -412,7 +411,7 @@ pub fn record_key(value: &Value) -> String {
 mod tests {
     use super::*;
     #[test]
-    fn native_select_maps_empty_and_long_values_to_bounded_keys() {
+    fn select_maps_empty_and_long_values_to_bounded_keys() {
         for initial in [
             String::new(),
             "account/".to_owned() + &"long-model".repeat(20),

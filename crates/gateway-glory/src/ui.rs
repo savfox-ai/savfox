@@ -224,3 +224,13 @@ pub fn details(
             .content(move || content.take().unwrap_or_else(|| Box::new(col()))),
     )
 }
+
+/// Keep Sapid's cursor styling and keyboard behavior while the CSS palette
+/// supplies surfaces and text for both application color schemes.
+pub fn select_control(key: impl Into<String>) -> sapid::Select {
+    sapid::select(key).theme(sapid::Theme {
+        name: "savfox-select".into(),
+        accent_soft: glory::style::Color(236, 118, 126, 46),
+        ..sapid::Theme::default()
+    })
+}

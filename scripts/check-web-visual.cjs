@@ -31,11 +31,14 @@ function inspectLayout() {
       const bounds = ancestor.getBoundingClientRect();
       if (ancestorStyle.overflowX !== 'visible') { left = Math.max(left, bounds.left); right = Math.min(right, bounds.right); }
       if (ancestorStyle.overflowY !== 'visible') { top = Math.max(top, bounds.top); bottom = Math.min(bottom, bounds.bottom); }
+      if (ancestor.matches(':popover-open')) break;
     }
     return right - left > 2 && bottom - top > 2;
   };
   const geometry = selector => {
-    const node = document.querySelector(selector);
+    const node = selector.endsWith('-listbox')
+      ? [...document.querySelectorAll(selector)].find(node => node.getBoundingClientRect().width > 2 && !node.hidden)
+      : document.querySelector(selector);
     if (!node) return null;
     const rect = node.getBoundingClientRect();
     const style = getComputedStyle(node);
@@ -53,7 +56,7 @@ function inspectLayout() {
   const over = (foreground, background) => foreground.slice(0, 3).map((value, i) => value * foreground[3] + background[i] * (1 - foreground[3])).concat(1);
   const luminance = color => color.slice(0, 3).map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((sum, value, i) => sum + value * [.2126, .7152, .0722][i], 0);
   const rootBackground = rgba(getComputedStyle(document.body).getPropertyValue('--bg-primary').trim() || getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim() || '#ffffff');
-  const labels = [...document.querySelectorAll('label,.field-label,.form-label,.session-list-filter__label,.chat-input-model-badge__label,.page-title,.panel-header__title,.session-main-title,.page-description,.section-description,.nav-link .nav-label,.sapid-combobox-option,.sapid-collapsible>button,.skill-card__name,.skill-card__description,.skill-card__source')].filter(visible).filter(node => node.textContent.trim()).slice(0, 100).map(node => {
+  const labels = [...document.querySelectorAll('label,.field-label,.form-label,.session-list-filter__label,.chat-input-model-badge__label,.page-title,.panel-header__title,.session-main-title,.page-description,.section-description,.nav-link .nav-label,.sapid-combobox-option,.sapid-select-option,.sapid-collapsible>button,.skill-card__name,.skill-card__description,.skill-card__source')].filter(visible).filter(node => node.textContent.trim()).slice(0, 100).map(node => {
     let background = rootBackground;
     const ancestors = [];
     for (let current = node; current; current = current.parentElement) ancestors.push(current);
@@ -70,7 +73,7 @@ function inspectLayout() {
   return {
     viewport: { width: innerWidth, height: innerHeight },
     document: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight },
-    geometry: Object.fromEntries(['.top-header', '.sidebar', '.main-content', '.session-list-pane', '.session-list-scroll', '.session-main', '.chat-input-area', '.chat-input', '.bottom-tab-bar', '.sapid-combobox-listbox', '.skill-card .sapid-collapsible-panel'].map(selector => [selector, geometry(selector)])),
+    geometry: Object.fromEntries(['.top-header', '.sidebar', '.main-content', '.session-list-pane', '.session-list-scroll', '.session-main', '.chat-input-area', '.chat-input', '.bottom-tab-bar', '.sapid-combobox-listbox', '.sapid-select-listbox', '.skill-card .sapid-collapsible-panel'].map(selector => [selector, geometry(selector)])),
     labels,
     icons: { count: glyphs.length, missing: missingIcons },
     duplicateButtons,
@@ -93,6 +96,12 @@ function verify(item) {
     const menu = geometry['.sapid-combobox-listbox'];
     if (!item.options || !menu || menu.width < 100 || menu.height < 20) problems.push('opened model picker has no visible model options');
     if (menu && (menu.y < -1 || menu.bottom > viewport.height + 1 || menu.right > viewport.width + 1)) problems.push('model picker options extend outside the viewport');
+  }
+  if (item.selectPopup) {
+    const menu = geometry['.sapid-select-listbox'];
+    if (!item.options || !menu || menu.width < 100 || menu.height < 20) problems.push('opened select has no visible options');
+    if (menu && (menu.y < -1 || menu.bottom > viewport.height + 1 || menu.right > viewport.width + 1 || menu.x < -1)) problems.push('select menu extends outside the viewport');
+    if (item.selected > 1 || (item.name === 'usage' && item.selected !== 1)) problems.push('select menu has an invalid selected-option count');
   }
   if (item.disclosure) {
     const panel = geometry['.skill-card .sapid-collapsible-panel'];
@@ -155,6 +164,24 @@ function htmlEscape(value) { return String(value).replace(/[&<>"']/g, c => ({ '&
           report.pages.push(item);
           report.errors.push(...item.problems.map(error => ({ name, theme, width, error })));
           console.log(`${theme} ${width} ${route}: ${item.problems.length ? item.problems.join('; ') : 'PASS'}`);
+          const selects = page.locator('.sapid-select:visible');
+          const selectCount = await selects.count();
+          for (let index = 0; index < selectCount; index++) {
+            const trigger = selects.nth(index);
+            if (await trigger.isDisabled()) continue;
+            await trigger.click();
+            const listbox = page.locator('.sapid-select-listbox:visible');
+            await listbox.waitFor();
+            await page.waitForTimeout(100);
+            const popup = { name, route, theme, width, height, file: name + '-select-' + index + '-' + width + '-' + theme + '.png', selectPopup: true, options: await listbox.getByRole('option').count(), selected: await listbox.locator('[aria-selected="true"]').count(), metrics: await page.evaluate(inspectLayout) };
+            await page.screenshot({ path: path.join(cache, popup.file), fullPage: false });
+            popup.problems = verify(popup);
+            report.popups.push(popup);
+            report.errors.push(...popup.problems.map(error => ({ name, theme, width, selectPopup: true, error })));
+            console.log(theme + ' ' + width + ' ' + route + ' select ' + index + ': ' + (popup.problems.length ? popup.problems.join('; ') : 'PASS'));
+            await trigger.press('Escape');
+            await listbox.waitFor({ state: 'hidden' });
+          }
           if (name === 'sessions' && width === 1440) {
             await page.setViewportSize({ width: 390, height: 844 });
             await page.waitForTimeout(180);

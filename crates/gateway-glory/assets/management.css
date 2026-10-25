@@ -5139,11 +5139,11 @@
 .management-page .card { gap:14px!important; min-width:0; padding:20px!important; border-radius:var(--radius-lg); }
 .management-page .card-title { margin:0!important; font-size:16px!important; font-weight:650!important; color:var(--text-primary)!important; }
 .management-page .card-body { gap:14px!important; min-width:0; }
-.management-page .card-body:has(>.form-group,>.sapid-native-select) { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
-.management-page .card-body:has(>.form-group,>.sapid-native-select)>.actions,
-.management-page .card-body:has(>.form-group,>.sapid-native-select)>.card,
-.management-page .card-body:has(>.form-group,>.sapid-native-select)>button,
-.management-page .card-body:has(>.form-group,>.sapid-native-select)>[data-gly-kind=button] { grid-column:1/-1; }
+.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select) { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
+.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select)>.actions,
+.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select)>.card,
+.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select)>button:not(.sapid-select),
+.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select)>[data-gly-kind=button]:not(.sapid-select) { grid-column:1/-1; }
 .management-page .form-group { gap:7px!important; margin:0; min-width:0; width:100%; }
 .management-page .form-label { display:block!important; color:var(--text-secondary)!important; font-size:12px!important; font-weight:600!important; line-height:1.4!important; }
 .management-page .form-input,.management-page .form-select { min-width:0; width:100%; min-height:38px; padding:9px 12px!important; border:1px solid var(--field-stroke)!important; border-radius:10px!important; background:var(--field-surface)!important; color:var(--text-primary)!important; font:13px/1.5 var(--font-body)!important; }
@@ -5210,7 +5210,7 @@
 .status-ok { color:var(--success)!important; font-size:11px!important; }
 .status-dot { width:7px; height:7px; border-radius:50%; background:var(--text-muted); flex-shrink:0; }.status-dot--success { background:var(--success); box-shadow:0 0 0 3px var(--success-bg); }
 @media(max-width:1250px){.management-page .models-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.overview-page .ov-trio-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.overview-page .ov-trio-grid>.card:last-child{grid-column:1/-1;}}
-@media(max-width:760px){.management-page{padding:18px 16px;}.management-page .card-body:has(>.form-group,>.sapid-native-select){grid-template-columns:1fr;}.management-page .models-card-grid{grid-template-columns:1fr;}.management-page .provider-header{align-items:flex-start;flex-direction:column!important;}.overview-page .ov-hero{flex-direction:column!important;padding:22px!important;}.overview-page .ov-hero__aside{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));min-width:0;}.overview-page .ov-hero__title{font-size:30px!important;}.overview-page .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px!important;}.overview-page .ov-trio-grid{grid-template-columns:1fr;}.management-toolbar>.form-group{max-width:none;flex-basis:100%;}}
+@media(max-width:760px){.management-page{padding:18px 16px;}.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select){grid-template-columns:1fr;}.management-page .models-card-grid{grid-template-columns:1fr;}.management-page .provider-header{align-items:flex-start;flex-direction:column!important;}.overview-page .ov-hero{flex-direction:column!important;padding:22px!important;}.overview-page .ov-hero__aside{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));min-width:0;}.overview-page .ov-hero__title{font-size:30px!important;}.overview-page .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px!important;}.overview-page .ov-trio-grid{grid-template-columns:1fr;}.management-toolbar>.form-group{max-width:none;flex-basis:100%;}}
 
 /* Original split-pane agent workspace and configuration section navigation. */
 .agent-workspace.management-page { padding:0!important; gap:0!important; height:100%; min-height:0; flex-direction:row!important; overflow:hidden; }

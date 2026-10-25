@@ -82,7 +82,7 @@ fn form_select(
             .map(|index| format!("option-{index}"))
     });
     Box::new(
-        sapid::native_select(crate::pages::common::select_key(&key))
+        crate::ui::select_control(crate::pages::common::select_key(&key))
             .label(label)
             .value(selected)
             .options(
@@ -1455,7 +1455,7 @@ fn editor(ctx: &AppContext, selector: Option<String>) -> Box<dyn Widget> {
                 values.insert(channel_name_key(&kind.get()), value);
             })
         });
-    let kind_control = sapid::native_select("channel-type")
+    let kind_control = crate::ui::select_control("channel-type")
         .label("Messaging platform")
         .value(kind.map(|kind| Some(kind.clone())))
         .enabled(selector.is_none())

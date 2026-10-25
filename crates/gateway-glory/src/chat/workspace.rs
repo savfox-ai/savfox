@@ -801,8 +801,7 @@ fn picker(
                 .on_value_change(callback),
         )
     } else {
-        let mut control = sapid::native_select(key)
-            .unstyled()
+        let mut control = crate::ui::select_control(key)
             .class("chat-agent-select")
             .label(label(ctx, en, zh))
             .value(selected_key)
