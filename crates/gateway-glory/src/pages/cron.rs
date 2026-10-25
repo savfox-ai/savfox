@@ -172,6 +172,8 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     let has_selection = selected.is_some();
     let list_context = ctx.clone();
     let job_rows = state.value.map(|v| array(v, &["jobs"]));
+    let refresh_jobs = state.clone();
+    let create_context = ctx.clone();
     let list = col().class("split-view__list agent-list-pane").fill((
         row().class("panel-header").fill((
             text()
@@ -179,8 +181,23 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                 .kind(TextKind::Heading(1))
                 .content(ui::label_for(locale, "Cron Jobs")),
             row().class("toolbar-actions").fill((
-                refresh(ctx, &state),
-                nav(ctx, "Create scheduled job", "/cron/new"),
+                sapid::button()
+                    .unstyled()
+                    .class("btn btn-secondary cron-toolbar-button")
+                    .name(ui::label_for(locale, "Refresh"))
+                    .enabled(ctx.connected)
+                    .fill(
+                        text()
+                            .class("shell-icon shell-icon--refresh-cw")
+                            .content(""),
+                    )
+                    .on_press(move || refresh_jobs.refresh()),
+                sapid::button()
+                    .unstyled()
+                    .class("btn btn-secondary cron-toolbar-button")
+                    .name(ui::label_for(locale, "Create scheduled job"))
+                    .fill(text().class("shell-icon shell-icon--plus").content(""))
+                    .on_press(move || create_context.navigate("/cron/new")),
             )),
         )),
         text()

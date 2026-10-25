@@ -5404,3 +5404,8 @@
 
 :is(.agent-list-search,.config-sidebar__search) .form-field{position:relative}
 :is(.agent-list-search,.config-sidebar__search) .form-field--empty>.form-label{display:block!important;position:absolute;left:12px;right:12px;top:50%;transform:translateY(-50%);margin:0!important;font-weight:400!important;font-size:12px!important;color:var(--text-muted)!important;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:1}
+
+.cron-workspace .panel-header{justify-content:space-between;flex-wrap:nowrap!important}
+.cron-workspace .panel-header__title{white-space:nowrap;min-width:0}
+.cron-workspace .panel-header .toolbar-actions{flex:0 0 auto;flex-wrap:nowrap!important}
+.cron-workspace .panel-header .cron-toolbar-button{display:inline-flex!important;align-items:center;justify-content:center;flex:0 0 34px;width:34px!important;height:34px!important;min-width:34px!important;min-height:34px!important;padding:7px!important}
