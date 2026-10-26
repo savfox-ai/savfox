@@ -8,6 +8,7 @@
 
 :root,
 body[data-theme="dark"] {
+  color-scheme:dark;
   --bg-primary: #11090d;
   --bg-secondary: #1a0f15;
   --bg-tertiary: #27171f;
@@ -84,6 +85,7 @@ body[data-theme="dark"] {
 }
 
 body[data-theme="light"] {
+  color-scheme:light;
   --bg-primary: #fff7f4;
   --bg-secondary: #fffdfb;
   --bg-tertiary: #fff0e9;
@@ -583,7 +585,8 @@ code, pre {
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 8px 12px;
+  min-height: 32px;
+  padding: 6px 10px;
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -591,7 +594,7 @@ code, pre {
   font-weight: 700;
   cursor: pointer;
   transition: color var(--transition-fast) ease;
-  margin-top: 12px;
+  margin: 12px 0 4px;
 }
 
 .nav-group-header:hover {
@@ -612,8 +615,9 @@ code, pre {
   border-radius: var(--radius);
   color: var(--text-secondary);
   text-decoration: none;
+  min-height: 42px;
   font-size: 14px;
-  margin-bottom: 2px;
+  margin: 0;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
@@ -626,8 +630,6 @@ code, pre {
 .nav-link.active {
   background: var(--bg-hover);
   color: var(--text-primary);
-  border-left: 3px solid var(--accent);
-  padding-left: 9px;
 }
 
 .nav-icon {
@@ -833,7 +835,7 @@ code, pre {
     min-width: 44px;
   }
 
-  select, input, textarea {
+  select, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea {
     min-height: 44px;
     font-size: 16px;
   }
@@ -855,7 +857,7 @@ code, pre {
     min-height: 44px;
     min-width: 44px;
   }
-  input, select, textarea {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea {
     min-height: 44px;
   }
 }
@@ -2613,7 +2615,7 @@ button:disabled {
     padding: 12px 16px;
   }
 
-  input,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
   textarea,
   select,
   .cfg-input,
@@ -3465,7 +3467,7 @@ select:focus-visible {
 /* ============== T061 – Mobile Form Optimization ============== */
 
 @media (max-width: 480px) {
-  input, select, textarea {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea {
     width: 100%;
     min-height: 44px;
     font-size: 16px; /* Prevents iOS zoom */
@@ -3570,38 +3572,6 @@ select:focus-visible {
   color: var(--text-primary);
   outline: none;
   font-size: 14px;
-}
-
-select.form-input {
-  min-height: 38px;
-  padding-right: 42px;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
-    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
-  background-position:
-    calc(100% - 19px) 50%,
-    calc(100% - 13px) 50%;
-  background-size:
-    6px 6px,
-    6px 6px;
-  background-repeat: no-repeat;
-}
-
-select.form-input option {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-select.form-input option:checked {
-  background: var(--accent);
-  color: #fff;
-}
-
-select.form-input:disabled {
-  color: var(--text-muted);
-  opacity: 0.72;
 }
 
 .form-input--error {
@@ -5213,11 +5183,6 @@ body[data-theme="dark"]::after {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 12px 24px color-mix(in srgb, var(--ornament) 10%, transparent);
 }
 
-.nav-link.active {
-  padding-left: 14px;
-  border-left: none;
-}
-
 .nav-link.active::before,
 .more-sheet__link.active::before {
   content: none;
@@ -5502,21 +5467,6 @@ body[data-theme="dark"]::after {
   box-shadow: var(--field-focus);
 }
 
-select.form-input,
-select.form-input:hover,
-select.form-input:focus {
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
-    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
-  background-position:
-    calc(100% - 19px) 50%,
-    calc(100% - 13px) 50%;
-  background-size:
-    6px 6px,
-    6px 6px;
-  background-repeat: no-repeat;
-}
-
 .config-actions,
 .page-header,
 .skills-toolbar,
@@ -5799,8 +5749,6 @@ summary:focus-visible {
 }
 
 .nav-group-header {
-  margin: 10px 0 6px;
-  padding: 8px 10px;
   border-radius: 14px;
   border: 1px solid transparent;
   color: color-mix(in srgb, var(--text-muted) 84%, var(--ornament) 16%);
@@ -5815,7 +5763,6 @@ summary:focus-visible {
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--surface-flat-soft) 94%) 0%, transparent 100%);
 }
 
-.nav-link,
 .more-sheet__link {
   gap: 12px;
   padding: 12px 14px;

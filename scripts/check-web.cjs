@@ -19,12 +19,21 @@ let browser;
 let page;
 let currentSocket;
 let connections = 0;
+async function waitForCall(predicate) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (calls.some(predicate)) return;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.fail("Expected gateway request did not arrive");
+}
 let agentName = 'Browser agent';
 let signInComplete = false;
 const agent = () => ({ id: 'browser-agent', name: agentName, kind: 'native', native: { provider: 'openai', model: 'test-model' } });
 const redactedChannelSecret = '__SAVFOX_CHANNEL_SECRET_REDACTED__';
 const channel = { id: 'discord-test', kind: 'discord', name: 'Browser Discord', enabled: true, config: { bot_token: redactedChannelSecret, mode: 'stream' } };
 let channelRunning = true;
+let voiceSettings = { enabled: false, keyword: "hey savfox" };
+let skillEnabled = true;
 const model = { id: 'openai/test-model', name: 'Test model', provider: 'openai', model_slug: 'test-model' };
 function fixture(method, params) {
   switch (method) {
@@ -85,14 +94,16 @@ function fixture(method, params) {
     case 'system-presence': return { entries: [] };
     case 'logs.tail': return { lines: ['fixture log entry'], cursor: 1 };
     case 'skills.status': return { skills: [] };
-    case 'skills.bins': return { bins: [] };
+    case 'skills.bins': return { bins: [{ name: 'Fixture skill', installed: true, enabled: skillEnabled, description: 'Installed test skill' }] };
+    case 'skills.update': skillEnabled = params.enabled; return { ok: true };
     case 'security.audit': return { findings: [], summary: { critical: 0 } };
     case 'security.rules.list': return { rules: [] };
     case 'exec.approvals.get': return { approvals: [] };
     case 'tts.status': return { enabled: false, provider: 'openai' };
     case 'tts.providers': return { providers: [] };
     case 'tts.voices': return { voices: [] };
-    case 'voicewake.get': return { enabled: false, triggers: ['savfox'] };
+    case 'voicewake.get': return voiceSettings;
+    case 'voicewake.set': voiceSettings = { ...params }; return { ok: true };
     case 'talk.mode': return { mode: 'off' };
     case 'log.get_level': return { level: 'info' };
     case 'usage.status': return { total_tokens: 120, requests: 2 };
@@ -167,6 +178,36 @@ const server = http.createServer((request, response) => {
       report.routes.push(route);
       console.log(`Checked ${route}`);
     }
+    await page.goto(base + '/voice');
+    const wake = page.getByRole('checkbox', { name: 'Wake word enabled', exact: true });
+    await wake.waitFor();
+    assert.equal(await wake.evaluate(input => input.closest('.sapid-checkbox')?.classList.contains('sapid-unstyled')), false, 'Checkbox must retain Sapid styling');
+    await page.getByText('Wake word enabled', { exact: true }).click();
+    assert.equal(await wake.isChecked(), true, 'Clicking the checkbox label must toggle its value');
+    await wake.focus();
+    await wake.press('Space');
+    assert.equal(await wake.isChecked(), false, 'Checkbox must support keyboard toggling');
+    await wake.press('Space');
+    await page.getByLabel('Wake word', { exact: true }).fill('browser wake word');
+    await page.getByRole('button', { name: 'Save wake settings', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('input[aria-label="Wake word"]')?.value === 'browser wake word');
+    await waitForCall(call => call.method === 'voicewake.set' && call.params.enabled && call.params.keyword === 'browser wake word');
+    await page.goto(base + '/models');
+    const visibility = page.getByRole('switch', { name: 'Visible in model picker', exact: true }).first();
+    await visibility.waitFor();
+    const previousVisibility = await visibility.isChecked();
+    await visibility.press('Space');
+    assert.equal(await visibility.isChecked(), !previousVisibility);
+    await page.reload();
+    await visibility.waitFor();
+    assert.equal(await visibility.isChecked(), !previousVisibility, 'Model switch must persist the preference');
+    await page.goto(base + '/skills');
+    const skillSwitch = page.getByRole('switch', { name: 'Enabled', exact: true });
+    await skillSwitch.waitFor();
+    await skillSwitch.click();
+    await page.waitForFunction(() => document.querySelector('.skill-card .sapid-switch input')?.checked === false);
+    await waitForCall(call => call.method === 'skills.update' && call.params.name === 'Fixture skill' && call.params.enabled === false);
+    report.checks.push('Sapid checkbox label/keyboard activation and save RPC; semantic model/skill switches and persistence');
     await page.goto(base + '/usage');
     await page.locator('.top-header__health--ok').waitFor();
     const period = page.getByRole('combobox', { name: 'Period', exact: true });

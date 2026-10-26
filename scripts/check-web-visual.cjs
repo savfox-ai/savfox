@@ -82,6 +82,17 @@ function inspectLayout() {
     geometry: Object.fromEntries(['.top-header', '.sidebar', '.main-content', '.session-list-pane', '.session-list-scroll', '.session-main', '.chat-input-area', '.chat-input', '.chat-picker--agent .sapid-select', '.chat-picker--model .chat-model-select', '.chat-picker--effort .sapid-select', '.sapid-prompt-actions>button:first-child', '.sapid-prompt-actions .sapid-file-button', '.session-search-field', '.session-search-input', '.session-search-field .session-icon', '.bottom-tab-bar', '.sapid-combobox-listbox', '.sapid-select-listbox', '.skill-card .sapid-collapsible-panel'].map(selector => [selector, geometry(selector)])),
     labels,
     icons: { count: glyphs.length, missing: missingIcons },
+    controlSkin: [...document.querySelectorAll('.sapid-checkbox input,.sapid-switch input')].filter(visible).map(input => {
+      const host = input.closest('.sapid-checkbox,.sapid-switch');
+      const bounds = input.getBoundingClientRect();
+      return { switch: host.classList.contains('sapid-switch'), unstyled: host.classList.contains('sapid-unstyled'), width: bounds.width, height: bounds.height, scheme: getComputedStyle(input).colorScheme, expectedScheme: getComputedStyle(document.body).colorScheme };
+    }),
+    navigationHeights: [...document.querySelectorAll('.sidebar .nav-link')].filter(visible).map(node => node.getBoundingClientRect().height),
+    formRows: [...document.querySelectorAll('.form-row')].filter(visible).map(row => [...row.children].filter(visible).map(node => {
+      const control = node.matches('.form-group') ? node.querySelector('input,textarea,.sapid-select') : node;
+      const rect = control.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, height: rect.height };
+    })),
     duplicateButtons,
     clippedConfigCards,
     searchSkin: (() => { const input = document.querySelector(".session-search-input"); if (!input) return null; const style = getComputedStyle(input); return { border: parseFloat(style.borderTopWidth), shadow: style.boxShadow, background: style.backgroundImage }; })(),
@@ -97,6 +108,19 @@ function verify(item) {
   if (!geometry['.top-header'] || geometry['.top-header'].height < 48) problems.push('persistent application header is missing or collapsed');
   if (!geometry['.main-content'] || geometry['.main-content'].width < 200 || geometry['.main-content'].height < 100) problems.push('main page content is missing or collapsed');
   if (metrics.icons.count < 4 || metrics.icons.missing.length) problems.push(`missing navigation/control icons: ${metrics.icons.missing.join(', ') || metrics.icons.count}`);
+  for (const control of metrics.controlSkin) {
+    if (control.unstyled) problems.push('boolean control bypasses Sapid styling');
+    if (Math.abs(control.width - (control.switch ? 34 : 17)) > 1 || Math.abs(control.height - (control.switch ? 20 : 17)) > 1) problems.push('Sapid boolean control is distorted');
+    if (control.scheme !== control.expectedScheme) problems.push('boolean control uses the wrong color scheme');
+  }
+  if (viewport.width > 768 && metrics.navigationHeights.some(height => height < 40 || height > 44)) problems.push('desktop navigation item has excessive or insufficient height');
+  for (const controls of metrics.formRows) {
+    for (let i = 1; i < controls.length; i++) {
+      const a = controls[i - 1], b = controls[i];
+      if (b.x >= a.right && Math.abs(a.bottom - b.bottom) > 1) problems.push('inline form controls are not aligned');
+      if (Math.min(a.right,b.right) - Math.max(a.x,b.x) > 1 && Math.min(a.bottom,b.bottom) - Math.max(a.y,b.y) > 1) problems.push('inline form controls overlap');
+    }
+  }
   if (metrics.duplicateButtons.length) problems.push(`duplicate visible button labels: ${metrics.duplicateButtons.join(', ')}`);
   if (metrics.clippedConfigCards.length) problems.push(`configuration cards clip form content: ${metrics.clippedConfigCards.map(card => `${card.title} ${card.clientHeight}/${card.scrollHeight}px`).join(', ')}`);
   if (item.modelPicker) {

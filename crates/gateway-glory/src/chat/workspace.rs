@@ -497,7 +497,6 @@ pub(super) fn render(
                 ),
                 Box::new(
                     sapid::checkbox()
-                        .unstyled()
                         .label(label(&ctx, "Show reasoning", "显示思考过程"))
                         .checked(options_state.show_thinking)
                         .on_checked_change(move |value| set(show, value)),

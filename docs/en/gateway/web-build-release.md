@@ -81,6 +81,12 @@ options follow the application palette. Browser acceptance opens these menus,
 checks their contrast and viewport bounds, and verifies pointer/keyboard period
 selection against the usage RPC parameters.
 
+Boolean fields use styled Sapid Checkbox widgets, and enable/visibility toggles
+use Sapid Switch widgets. Their internal native inputs preserve keyboard and
+label activation; keep Sapid styling enabled instead of drawing replacement
+controls in page CSS. Shared control sizing and palette belong in
+`glory-bridge.css`; page styles should only arrange those controls.
+
 
 Visual acceptance also runs against a real, already running gateway with
 `node scripts/check-web-visual.cjs`. It reads the local gateway token without

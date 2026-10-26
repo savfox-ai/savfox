@@ -52,33 +52,37 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             card(
                 ui::label_for(locale, "Talk mode"),
                 vec![
-                    choice_for(
-                        locale,
-                        "Talk mode",
-                        mode,
-                        &[("text", "Text"), ("voice", "Voice")],
-                    ),
-                    apply,
-                    Box::new(text().content(saved_mode)),
+                    form_row(vec![
+                        choice_for(
+                            locale,
+                            "Talk mode",
+                            mode,
+                            &[("text", "Text"), ("voice", "Voice")],
+                        ),
+                        apply,
+                    ]),
+                    Box::new(text().class("form-status").content(saved_mode)),
                 ],
             ),
             card(
                 ui::label_for(locale, "Wake word settings"),
                 vec![
                     toggle(ui::label_for(locale, "Wake word enabled"), enabled),
-                    ui::field(ui::label_for(locale, "Wake word"), word, false),
-                    ui::action(ui::label_for(locale, "Save wake settings"), move || {
-                        if word.get().trim().is_empty() {
-                            ui::set(save_state.error, "Wake word is required".to_owned());
-                            return;
-                        }
-                        mutate(
-                            &context,
-                            &save_state,
-                            "voicewake.set",
-                            json!({"enabled":enabled.get(),"keyword":word.get()}),
-                        );
-                    }),
+                    form_row(vec![
+                        ui::field(ui::label_for(locale, "Wake word"), word, false),
+                        ui::action(ui::label_for(locale, "Save wake settings"), move || {
+                            if word.get().trim().is_empty() {
+                                ui::set(save_state.error, "Wake word is required".to_owned());
+                                return;
+                            }
+                            mutate(
+                                &context,
+                                &save_state,
+                                "voicewake.set",
+                                json!({"enabled":enabled.get(),"keyword":word.get()}),
+                            );
+                        }),
+                    ]),
                 ],
             ),
         ],

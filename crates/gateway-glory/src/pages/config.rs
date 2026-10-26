@@ -883,7 +883,6 @@ fn field(
         let bind_ptr = ptr.clone();
         return Box::new(
             sapid::checkbox()
-                .unstyled()
                 .class("form-checkbox")
                 .label(name)
                 .checked(draft.map(move |v| {

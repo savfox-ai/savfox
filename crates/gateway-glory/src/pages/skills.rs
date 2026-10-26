@@ -134,7 +134,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 let state = row_state.clone();
                 let name = name.clone();
                 actions.push(Box::new(
-                    sapid::checkbox()
+                    sapid::switch()
                         .label(ui::label_for(locale, "Enabled"))
                         .checked(enabled)
                         .on_checked_change(move |enabled| {

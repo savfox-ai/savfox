@@ -5139,19 +5139,21 @@
 .management-page .card { gap:14px!important; min-width:0; padding:20px!important; border-radius:var(--radius-lg); }
 .management-page .card-title { margin:0!important; font-size:16px!important; font-weight:650!important; color:var(--text-primary)!important; }
 .management-page .card-body { gap:14px!important; min-width:0; }
-.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select) { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
-.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select)>.actions,
-.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select)>.card,
-.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select)>button:not(.sapid-select),
-.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select)>[data-gly-kind=button]:not(.sapid-select) { grid-column:1/-1; }
-.management-page .form-group { gap:7px!important; margin:0; min-width:0; width:100%; }
+.management-page .card-body:has(>.form-group,>.sapid-select) { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
+.management-page .card-body:has(>.form-group,>.sapid-select)>.actions,
+.management-page .card-body:has(>.form-group,>.sapid-select)>.card,
+.management-page .card-body:has(>.form-group,>.sapid-select)>button:not(.sapid-select),
+.management-page .card-body:has(>.form-group,>.sapid-select)>[data-gly-kind=button]:not(.sapid-select) { grid-column:1/-1; }
+.management-page .form-group { gap:6px!important; margin:0; min-width:0; width:100%; }
+.form-row { flex-wrap:wrap; align-items:flex-end; gap:12px; }
+.form-row>.form-group { flex:0 1 360px; }
+.management-page .form-row>.sapid-button { align-self:flex-end; }
+.form-status:empty { display:none!important; }
 .management-page .form-label { display:block!important; color:var(--text-secondary)!important; font-size:12px!important; font-weight:600!important; line-height:1.4!important; }
-.management-page .form-input,.management-page .form-select { min-width:0; width:100%; min-height:38px; padding:9px 12px!important; border:1px solid var(--field-stroke)!important; border-radius:10px!important; background:var(--field-surface)!important; color:var(--text-primary)!important; font:13px/1.5 var(--font-body)!important; }
+.management-page .form-input,.management-page .form-select { min-width:0; width:100%; }
 .management-page textarea.form-input { min-height:92px; resize:vertical; }
-.management-page .form-input:focus,.management-page .form-select:focus { outline:0; border-color:var(--accent)!important; box-shadow:var(--field-focus); }
-.management-page .form-checkbox { color:var(--text-primary)!important; font:13px/1.5 var(--font-body)!important; gap:8px; align-items:center; }
 .management-page .form-help { color:var(--text-muted)!important; font-size:12px!important; }
-.management-page .btn { width:auto; align-self:flex-start; min-height:34px; padding:7px 13px!important; font:600 12px/1.5 var(--font-body)!important; border-radius:10px!important; }
+.management-page .sapid-button { justify-self:start; align-self:flex-start; max-width:100%; }
 .management-toolbar { width:100%; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; }
 .management-toolbar>.form-group { flex:1; max-width:360px; }
 .toolbar-actions,.management-page .actions,.management-page .provider-actions,.management-page .model-card__footer { gap:8px!important; flex-wrap:wrap; align-items:center; }
@@ -5210,7 +5212,7 @@
 .status-ok { color:var(--success)!important; font-size:11px!important; }
 .status-dot { width:7px; height:7px; border-radius:50%; background:var(--text-muted); flex-shrink:0; }.status-dot--success { background:var(--success); box-shadow:0 0 0 3px var(--success-bg); }
 @media(max-width:1250px){.management-page .models-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.overview-page .ov-trio-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.overview-page .ov-trio-grid>.card:last-child{grid-column:1/-1;}}
-@media(max-width:760px){.management-page{padding:18px 16px;}.management-page .card-body:has(>.form-group,>.sapid-native-select,>.sapid-select){grid-template-columns:1fr;}.management-page .models-card-grid{grid-template-columns:1fr;}.management-page .provider-header{align-items:flex-start;flex-direction:column!important;}.overview-page .ov-hero{flex-direction:column!important;padding:22px!important;}.overview-page .ov-hero__aside{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));min-width:0;}.overview-page .ov-hero__title{font-size:30px!important;}.overview-page .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px!important;}.overview-page .ov-trio-grid{grid-template-columns:1fr;}.management-toolbar>.form-group{max-width:none;flex-basis:100%;}}
+@media(max-width:760px){.management-page{padding:18px 16px;}.management-page .card-body:has(>.form-group,>.sapid-select){grid-template-columns:1fr;}.management-page .models-card-grid{grid-template-columns:1fr;}.management-page .provider-header{align-items:flex-start;flex-direction:column!important;}.overview-page .ov-hero{flex-direction:column!important;padding:22px!important;}.overview-page .ov-hero__aside{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));min-width:0;}.overview-page .ov-hero__title{font-size:30px!important;}.overview-page .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px!important;}.overview-page .ov-trio-grid{grid-template-columns:1fr;}.management-toolbar>.form-group{max-width:none;flex-basis:100%;}}
 
 /* Original split-pane agent workspace and configuration section navigation. */
 .agent-workspace.management-page { padding:0!important; gap:0!important; height:100%; min-height:0; flex-direction:row!important; overflow:hidden; }
@@ -5256,10 +5258,6 @@
 .config-layout .config-scroll { flex:1; min-height:0; overflow:auto; padding:20px 24px 36px; gap:20px!important; }
 .config-layout .config-scroll>.card { gap:16px!important; border-radius:24px; }
 .config-layout .config-scroll .config-preview { white-space:pre-wrap; font:12px/1.65 var(--font-mono)!important; padding:14px; max-height:400px; overflow:auto; background:var(--surface-flat-soft); border-radius:10px; }
-.management-page .model-visibility input { appearance:none!important; width:34px!important; height:20px!important; border-radius:999px!important; background:var(--bg-tertiary)!important; border:1px solid var(--surface-stroke-strong)!important; position:relative; cursor:pointer; }
-.management-page .model-visibility input::after { content:""; position:absolute; left:3px; top:3px; width:12px; height:12px; background:var(--text-muted); border-radius:50%; transition:transform .15s; }
-.management-page .model-visibility input:checked { background:var(--accent)!important; border-color:var(--accent)!important; }
-.management-page .model-visibility input:checked::after { background:#fff; transform:translateX(14px); }
 .management-page .model-card__specs { font-size:11px!important; color:var(--text-muted)!important; }
 .management-page .model-card__specs:empty { display:none!important; }
 .management-page .model-card>.sapid-collapsible { margin-top:auto; }
@@ -5280,11 +5278,6 @@
 .overview-page .ov-security-summary { color:var(--success)!important; font-size:12px!important; }
 @media(max-width:1050px){.overview-page .stats-grid{grid-template-columns:repeat(3,minmax(0,1fr));}.overview-page .ov-hero__aside{flex-basis:34%;min-width:210px;}}
 @media(max-width:760px){.overview-page .ov-hero{min-height:0;}.overview-page .ov-hero__aside{min-width:0;display:grid!important;grid-template-columns:1fr;}.overview-page .ov-hero__title{font-size:34px!important;}.overview-page .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.overview-page .ov-system-grid{grid-template-columns:1fr;}.overview-page .ov-connection-row{flex-direction:column!important;align-items:flex-start;}}
-/* Native labels inherit the active theme after Sapid's component styles load. */
-.management-page .sapid-checkbox,
-.management-page .sapid-checkbox [data-gly-kind="text"],
-.management-page .form-checkbox,
-.management-page .form-checkbox [data-gly-kind="text"] { color:var(--text-primary)!important; }
 @media(max-width:760px){
   .config-layout.management-page { flex-direction:column!important; }
   .config-layout .config-sidebar { height:auto!important; flex:0 0 auto!important; max-height:142px; }
@@ -5372,7 +5365,7 @@
 .management-page--skills .skill-card__header { align-items:center; gap:10px!important; }
 .management-page--skills .skill-card__name { font-size:16px!important; font-weight:650!important; }
 .management-page--skills .skill-card__source,.management-page--skills .skill-card__eligibility { font-size:11px!important; padding:2px 8px; border-radius:999px; background:var(--accent-bg); color:var(--accent)!important; }
-.management-page--skills .skill-card__header>.sapid-checkbox,.management-page--skills .skill-card__header>.btn { margin-left:auto; }
+.management-page--skills .skill-card__header>.sapid-switch,.management-page--skills .skill-card__header>.btn { margin-left:auto; }
 .management-page--skills .skill-card__description { color:var(--text-secondary)!important; font-size:13px!important; line-height:1.65!important; }
 .management-page--tts .tts-provider-row { align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); }
 .management-page--tts .tts-provider-name { border:0!important; background:transparent!important; color:var(--text-primary)!important; padding:0!important; text-align:left; font:600 14px/1.5 var(--font-body)!important; }
@@ -5393,10 +5386,6 @@
 .management-page .sapid-collapsible>button { background:var(--surface-flat-soft)!important; color:var(--text-secondary)!important; border:1px solid var(--surface-stroke)!important; border-radius:8px!important; font:500 12px/1.5 var(--font-body)!important; min-height:30px; padding:6px 12px!important; }
 .management-page--skills .skill-card .sapid-collapsible>button { background:transparent!important; border:0!important; padding:2px 0!important; min-height:24px; text-align:left; }
 .management-page--skills .skill-card__eligibility { color:var(--success)!important; background:var(--success-bg); }
-.management-page--skills .skill-card__header>.sapid-checkbox input { appearance:none!important; width:40px!important; height:22px!important; border-radius:999px!important; background:var(--bg-tertiary)!important; border:1px solid var(--surface-stroke-strong)!important; position:relative; }
-.management-page--skills .skill-card__header>.sapid-checkbox input::after { content:""; position:absolute; width:16px; height:16px; left:2px; top:2px; border-radius:50%; background:var(--text-muted); }
-.management-page--skills .skill-card__header>.sapid-checkbox input:checked { background:var(--accent)!important; }
-.management-page--skills .skill-card__header>.sapid-checkbox input:checked::after { transform:translateX(18px); background:#fff; }
 .management-page--skills .skills-toolbar>.btn { align-self:flex-end; }
 .management-page--tts .record-list:has(.tts-provider-row) { gap:0!important; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .management-page--tts .tts-provider-row { border:0!important; border-bottom:1px solid var(--border)!important; min-height:64px; }

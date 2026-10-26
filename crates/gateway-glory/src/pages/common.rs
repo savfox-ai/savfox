@@ -117,12 +117,16 @@ pub fn paragraph(value: impl Into<Lotus<String>>) -> Box<dyn Widget> {
 pub fn toggle(label: impl Into<Lotus<String>>, value: Cage<bool>) -> Box<dyn Widget> {
     Box::new(
         sapid::checkbox()
-            .unstyled()
             .class("form-checkbox")
             .label(label.into())
             .checked(value)
             .on_checked_change(move |next| ui::set(value, next)),
     )
+}
+
+/// Keep a field and its action together without stretching the action across a card.
+pub fn form_row(children: Vec<Box<dyn Widget>>) -> Box<dyn Widget> {
+    Box::new(row().class("form-row").fill(children))
 }
 /// Sapid selects semantic option keys; application values remain independent.
 pub fn select(

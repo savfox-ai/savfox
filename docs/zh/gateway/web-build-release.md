@@ -74,6 +74,10 @@ Glory 的浏览器测试目录。CI 独立执行此验收。
 配色。浏览器验收必须实际展开菜单，检查对比度与视口边界，并验证鼠标和键盘
 切换用量时间范围后发送的 RPC 参数。
 
+布尔字段使用保留默认样式的 Sapid Checkbox，启用和可见性开关使用 Sapid Switch。
+组件内部的原生 input 保留键盘和标签点击行为；不要禁用 Sapid 样式后在页面 CSS
+里重新绘制控件。通用控件尺寸与配色集中在 `glory-bridge.css`，页面样式只负责布局。
+
 
 视觉验收还需连接已运行的真实 gateway：`node scripts/check-web-visual.cjs`。
 脚本读取本地 gateway token，不输出密钥，只导航和读取页面。可通过
