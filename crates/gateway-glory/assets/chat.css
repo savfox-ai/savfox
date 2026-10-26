@@ -558,7 +558,7 @@
     .stop-generating-btn {
         padding: 8px 24px;
         border: 1px solid var(--border);
-        border-radius: 20px;
+        border-radius: var(--radius);
         background: var(--bg-secondary);
         color: var(--text-primary);
         font-size: 13px;
@@ -640,7 +640,7 @@
         gap: 10px;
         padding: 14px 14px 12px;
         border: 1px solid color-mix(in srgb, var(--surface-stroke) 62%, var(--accent) 38%);
-        border-radius: 22px;
+        border-radius: var(--radius-lg);
         background: var(--surface-panel-strong);
         box-shadow: var(--surface-inner), var(--surface-shadow), 0 0 0 1px rgba(255, 255, 255, 0.03);
         backdrop-filter: blur(var(--panel-blur)) saturate(150%);
@@ -728,7 +728,7 @@
         min-width: 140px;
         padding: 0 12px;
         border: 1px solid var(--field-stroke);
-        border-radius: 10px;
+        border-radius: var(--radius);
         background: var(--field-surface);
         color: var(--text-primary);
         font-size: 12px;
@@ -765,7 +765,7 @@
 
     .chat-effort-btn {
         height: 38px;
-        border-radius: 10px;
+        border-radius: var(--radius);
         border: 1px solid var(--border);
         background: var(--button-surface);
         color: var(--text-primary);
@@ -801,7 +801,7 @@
     .chat-icon-btn {
         width: 38px;
         height: 38px;
-        border-radius: 10px;
+        border-radius: var(--radius);
         border: 1px solid var(--border);
         display: inline-flex;
         align-items: center;
@@ -866,7 +866,7 @@
 
         .chat-input {
             padding: 10px 10px 8px;
-            border-radius: 14px;
+            border-radius: var(--radius-lg);
         }
 
         .chat-textarea {
@@ -941,7 +941,7 @@ body[data-theme=dark] .session-icon { filter:invert(.85); }
 .session-page .session-list-filter__label { font-size:11px!important; color:var(--text-muted)!important; }
 .session-page .session-list-refresh { flex:0 0 30px; width:30px; height:30px; min-height:30px; padding:6px!important; background:transparent!important; border:1px solid var(--border)!important; border-radius:var(--radius); }
 .session-list-search { flex:0 0 auto!important; padding:8px 12px!important; border-bottom:1px solid color-mix(in srgb,var(--border) 40%,transparent); }
-.session-search-field { position:relative; display:flex!important; align-items:center!important; gap:8px!important; width:100%; min-width:0; height:36px; box-sizing:border-box; padding:0 10px!important; border:1px solid var(--field-stroke); border-radius:10px; background:var(--field-surface); }
+.session-search-field { position:relative; display:flex!important; align-items:center!important; gap:8px!important; width:100%; min-width:0; height:36px; box-sizing:border-box; padding:0 10px!important; border:1px solid var(--field-stroke); border-radius:var(--radius); background:var(--field-surface); }
 .session-search-field:focus-within { border-color:var(--accent); box-shadow:var(--field-focus); }
 .session-search-field .session-icon { width:16px!important; height:16px!important; min-width:16px; opacity:.55; }
 .app-layout .session-page .session-search-field input.session-search-input { flex:1 1 0!important; width:100%!important; min-width:0!important; height:22px!important; min-height:0!important; margin:0!important; padding:0!important; border:0!important; border-radius:0!important; outline:0!important; background:transparent!important; box-shadow:none!important; font:400 12px/22px var(--font-body)!important; color:var(--text-primary)!important; }
@@ -969,7 +969,7 @@ body[data-theme=dark] .session-icon { filter:invert(.85); }
 .session-page .chat-empty-title { font-size:18px!important; font-weight:500!important; color:var(--text-secondary)!important; }
 .session-page .chat-empty-description { font-size:13px!important; color:var(--text-muted)!important; }
 .session-page .chat-message { padding:18px 22px; margin:0 auto 18px; width:100%; max-width:800px; gap:10px!important; color:var(--text-primary)!important; }
-.session-page .chat-message.user { background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; }
+.session-page .chat-message.user { background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius); }
 .session-page .message-author { font-size:12px!important; font-weight:600!important; color:var(--text-secondary)!important; }
 .session-page .message-thinking { padding-left:12px; border-left:2px solid var(--border); white-space:pre-wrap; font-size:12px!important; color:var(--text-muted)!important; }
 .session-page :is(.message-thinking,.terminal-events):empty { display:none; }
@@ -985,7 +985,7 @@ body[data-theme=dark] .session-icon { filter:invert(.85); }
 .session-page .chat-composer label { position:absolute!important; width:1px!important; height:1px!important; overflow:hidden!important; clip:rect(0,0,0,0); white-space:nowrap; }
 .session-page .chat-composer textarea { color:var(--text-primary)!important; background:transparent!important; border:0!important; border-radius:0!important; box-shadow:none!important; resize:none!important; font-size:14px!important; line-height:1.6!important; padding:4px 0!important; min-height:76px!important; max-height:200px; }
 .session-page .sapid-prompt-actions { position:absolute!important; inset:auto 14px 13px auto; display:flex!important; flex-direction:row!important; align-items:center!important; gap:5px!important; }
-.session-page .sapid-prompt-actions>button { min-height:34px; width:34px; height:34px; border-radius:9px!important; font-size:0!important; padding:7px!important; border:0!important; background:var(--button-cta-surface)!important; color:#fff!important; }
+.session-page .sapid-prompt-actions>button { min-height:34px; width:34px; height:34px; border-radius:var(--radius)!important; font-size:0!important; padding:7px!important; border:0!important; background:var(--button-cta-surface)!important; color:#fff!important; }
 .session-page .sapid-prompt-actions>button::before { content:'';display:block;width:18px;height:18px;background:currentColor;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 7-7 7 7M12 5v14'/%3E%3C/svg%3E") center/contain no-repeat; }
 .session-page .sapid-prompt-actions>button:nth-child(2)::before {mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Crect x='6' y='6' width='12' height='12' rx='2'/%3E%3C/svg%3E");}
 .session-page .chat-composer:not(.chat-composer--busy) .sapid-prompt-actions>button:nth-child(2),.session-page .chat-composer--busy .sapid-prompt-actions>button:first-child { display:none!important; }
@@ -1009,7 +1009,7 @@ body[data-theme=dark] .session-icon { filter:invert(.85); }
 @media(max-width:760px) { .session-page .session-shell { position:relative; }.session-page .session-list-pane { display:none!important; position:absolute; inset:0 auto 0 0; width:min(320px,90vw); z-index:45; background:var(--bg-primary); box-shadow:10px 0 40px #0003; }.session-page .session-list-pane--open { display:flex!important; }.session-page .session-mobile-list-toggle { display:inline-flex!important; width:30px; height:30px; padding:6px!important; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); }.session-page .session-main-header { padding:10px 12px!important; min-height:55px; gap:8px!important; flex-wrap:nowrap; }.session-page .session-main-header__left,.session-page .session-main-header__right { width:auto!important; }.session-page .session-main-header__right .session-pill-btn { font-size:0!important; width:28px; height:28px; padding:5px!important; }.session-page .session-main-header__right .session-pill-btn [data-gly-kind=text] { display:none; }.session-page .session-main-badge { display:none; }.session-page .chat-messages { padding:14px 12px!important; }.session-page .chat-input-area { padding:8px 10px 12px!important; }.session-page .chat-input { padding:10px 12px!important; }.session-page .chat-input-actions-left { gap:5px!important; }.session-page .chat-input-actions select { max-width:115px; font-size:11px!important; }.session-page .chat-input-actions input { width:130px; font-size:11px!important; }.session-page .chat-input-model-badge__name { max-width:110px; }.session-page .chat-message { padding:14px 12px; }.session-page .session-main-subtitle { max-width:125px; } }
 .session-page .sapid-prompt-actions .sapid-file-input { display:flex!important; overflow:visible!important; }
 .session-page .sapid-prompt-actions .sapid-file-input .sapid-file-status { display:none!important; }
-.session-page .sapid-prompt-actions .sapid-file-input .sapid-file-attachment { display:flex!important; position:absolute; bottom:100px; right:0; width:220px; padding:8px; background:var(--surface-panel); border:1px solid var(--border); border-radius:10px; z-index:5; }
+.session-page .sapid-prompt-actions .sapid-file-input .sapid-file-attachment { display:flex!important; position:absolute; bottom:100px; right:0; width:220px; padding:8px; background:var(--surface-panel); border:1px solid var(--border); border-radius:var(--radius); z-index:5; }
 /* The conversation width, rather than the window, determines editor layout. */
 .session-page .session-main { container:conversation / inline-size; min-width:0!important; }
 .session-page .chat-input-area { flex:0 0 auto!important; height:auto!important; min-height:0!important; padding:12px!important; }
@@ -1069,10 +1069,10 @@ body[data-theme=dark] .session-icon { filter:invert(.85); }
   .session-page .chat-composer { min-height:48px!important; }
   .session-page .chat-composer textarea { height:48px!important; min-height:48px!important; }
 }
-.session-page .chat-message-attachment{display:block;max-width:min(100%,480px);max-height:360px;object-fit:contain;border:1px solid var(--border);border-radius:12px;align-self:flex-start}
+.session-page .chat-message-attachment{display:block;max-width:min(100%,480px);max-height:360px;object-fit:contain;border:1px solid var(--border);border-radius:var(--radius);align-self:flex-start}
 
 /* Search results are a top-layer menu, with the same theme as the editor. */
-.session-page .sapid-combobox-listbox{padding:5px!important;border:1px solid var(--border)!important;border-radius:10px!important;background:var(--bg-secondary)!important;color:var(--text-primary)!important;box-shadow:0 16px 40px #0005!important;min-width:240px!important;gap:2px!important}
+.session-page .sapid-combobox-listbox{padding:5px!important;border:1px solid var(--border)!important;border-radius:var(--radius-lg)!important;background:var(--bg-secondary)!important;color:var(--text-primary)!important;box-shadow:0 16px 40px #0005!important;min-width:240px!important;gap:2px!important}
 .session-page .sapid-combobox-option{flex:0 0 auto!important;width:100%!important;min-height:32px!important;padding:7px 10px!important;border:0!important;border-radius:6px!important;background:transparent!important;color:var(--text-primary)!important;text-align:left!important;justify-content:flex-start!important;font:inherit!important;font-size:12px!important;line-height:1.5!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .session-page .sapid-combobox-option:is(:hover,:focus,[aria-selected=true],[data-gly-highlighted]){background:var(--bg-hover)!important;color:var(--text-primary)!important;outline:0}
 .session-page .sapid-combobox-empty{color:var(--text-muted)!important;padding:10px!important;font-size:12px!important}

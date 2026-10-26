@@ -16,7 +16,7 @@
   margin: 0;
   padding: 7px 34px 7px 11px !important;
   border: 1px solid var(--field-stroke) !important;
-  border-radius: var(--control-radius) !important;
+  border-radius: var(--radius) !important;
   background: var(--field-surface) !important;
   box-shadow: var(--surface-inner) !important;
   color: var(--text-primary) !important;
@@ -114,7 +114,7 @@
   padding: 5px !important;
   gap: 2px !important;
   border: 1px solid var(--surface-stroke-strong) !important;
-  border-radius: 12px !important;
+  border-radius: var(--radius-lg) !important;
   background: var(--surface-panel-strong), var(--bg-secondary) !important;
   box-shadow: var(--surface-inner), var(--surface-shadow) !important;
   color: var(--text-primary) !important;
@@ -144,7 +144,7 @@
   margin: 0 !important;
   padding: 8px 34px 8px 10px !important;
   border: 0 !important;
-  border-radius: 7px !important;
+  border-radius: var(--radius) !important;
   box-shadow: none !important;
   color: var(--text-primary) !important;
   font: 400 13px/1.5 var(--font-body) !important;
