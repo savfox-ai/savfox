@@ -3818,7 +3818,6 @@
         padding: 22px;
     }
 
-    .card-title,
     .stat-label {
         position: relative;
         z-index: 1;
@@ -3830,6 +3829,8 @@
     }
 
     .card-title {
+        position: relative;
+        z-index: 1;
         margin-bottom: 16px;
     }
 
@@ -5288,7 +5289,6 @@
 .config-layout .config-scroll > *,
 .config-layout .config-scroll .card { flex-shrink:0!important; }
 .config-layout .config-scroll .card-body { display:flex!important; flex-direction:column!important; align-items:stretch!important; }
-.config-layout .config-scroll .card-title { text-transform:none; letter-spacing:normal; }
 .config-layout .config-scroll .card .card { padding:14px!important; background:var(--surface-flat-soft); }
 /* Match the reference's overview rhythm without doubling its block margins. */
 .overview-page.management-page { padding-top:36px; }
@@ -5368,7 +5368,8 @@
 .management-page--skills .skill-card__header>.sapid-switch,.management-page--skills .skill-card__header>.btn { margin-left:auto; }
 .management-page--skills .skill-card__description { color:var(--text-secondary)!important; font-size:13px!important; line-height:1.65!important; }
 .management-page--tts .tts-provider-row { align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); }
-.management-page--tts .tts-provider-name { border:0!important; background:transparent!important; color:var(--text-primary)!important; padding:0!important; text-align:left; font:600 14px/1.5 var(--font-body)!important; }
+.app-layout .management-page--tts .tts-provider-name,
+.app-layout .management-page--tts .tts-provider-name:hover { align-self:center; border:0!important; border-radius:0!important; background:transparent!important; box-shadow:none; color:var(--text-primary)!important; padding:0!important; text-align:left; font:600 14px/1.5 var(--font-body)!important; }
 .management-page--tts .tts-provider-status { font-size:11px!important; color:var(--text-secondary)!important; }
 @media(max-width:760px){.management-page--debug .debug-columns{grid-template-columns:1fr;}.management-page--skills .skills-stats{grid-template-columns:repeat(2,minmax(0,1fr));}.management-page--skills .skill-card__header{flex-wrap:wrap;}}
 .management-page--device_pair { align-items:center; padding-top:40px; }
