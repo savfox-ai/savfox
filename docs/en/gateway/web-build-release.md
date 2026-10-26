@@ -87,6 +87,13 @@ label activation; keep Sapid styling enabled instead of drawing replacement
 controls in page CSS. Shared control sizing and palette belong in
 `glory-bridge.css`; page styles should only arrange those controls.
 
+The shared button skin applies to styled Sapid buttons and explicit `.btn`
+actions. Unstyled widgets keep their own appearance; text actions use the shared
+`.btn-plain` baseline instead of page-specific background/shadow resets. Display
+headings, labels and provider names in their source case, without CSS case conversion.
+Buttons and links share the keyboard focus outline; keep the input focus shadow
+limited to input controls instead of applying it to all focusable elements.
+
 
 Visual acceptance also runs against a real, already running gateway with
 `node scripts/check-web-visual.cjs`. It reads the local gateway token without

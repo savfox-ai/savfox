@@ -11,13 +11,14 @@ body{font-size:14px;overflow:hidden}
 .app-layout input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),.app-layout textarea,.auth-container input{color:var(--text-primary)!important;background:var(--field-surface)!important;border:1px solid var(--field-stroke)!important;border-radius:var(--radius)!important;box-shadow:var(--surface-inner);font:400 13px/20px var(--font-body)!important;min-width:0;max-width:100%;min-height:var(--control-height);padding:7px 11px;outline:0}
 .app-layout input::placeholder,.app-layout textarea::placeholder{color:var(--text-muted)!important;opacity:.85}
 .app-layout input:not([type="checkbox"]):not([type="radio"]):focus,.app-layout textarea:focus{border-color:var(--accent)!important;box-shadow:var(--field-focus)!important}
-.app-layout .sapid-button,.auth-container .sapid-button{min-height:var(--control-height);padding:7px 12px!important;border-radius:var(--radius)!important;border:1px solid var(--surface-stroke)!important;background:var(--button-surface)!important;box-shadow:var(--surface-inner),var(--button-soft-shadow);color:var(--text-secondary)!important;font:600 13px/20px var(--font-body)!important}
-.app-layout .sapid-button:hover:enabled,.auth-container .sapid-button:hover:enabled{background:var(--button-surface-hover)!important;border-color:color-mix(in srgb,var(--border) 70%,var(--accent) 30%)!important}
+.app-layout .sapid-button:where(:not(.sapid-unstyled),.btn),.auth-container .sapid-button:where(:not(.sapid-unstyled),.btn){min-height:var(--control-height);padding:7px 12px!important;border-radius:var(--radius)!important;border:1px solid var(--surface-stroke)!important;background:var(--button-surface)!important;box-shadow:var(--surface-inner),var(--button-soft-shadow);color:var(--text-secondary)!important;font:600 13px/20px var(--font-body)!important}
+.app-layout .sapid-button:where(:not(.sapid-unstyled),.btn):hover:enabled,.auth-container .sapid-button:where(:not(.sapid-unstyled),.btn):hover:enabled{background:var(--button-surface-hover)!important;border-color:color-mix(in srgb,var(--border) 70%,var(--accent) 30%)!important}
 .app-layout button:disabled,.auth-container button:disabled{opacity:.45;cursor:default}
 .app-layout .btn--primary,.auth-container .auth-submit{background:var(--button-primary-surface)!important;color:#fff!important;border-color:transparent!important;box-shadow:var(--button-primary-shadow)!important}
 .app-layout .btn--danger{color:var(--danger)!important}
+/* Text actions share a neutral baseline; unstyled Sapid widgets own their skin. */
+.btn-plain{appearance:none;margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none;font:inherit;color:inherit;text-align:inherit}
 .app-layout :is(.sapid-checkbox,.sapid-switch){color:var(--text-secondary)!important;font:400 13px/20px var(--font-body)!important;min-height:24px;max-width:100%}
-.app-layout :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .app-body{min-height:0;min-width:0;overflow:hidden}
 .app-layout>.top-header{flex:0 0 var(--header-height);height:var(--header-height);min-height:var(--header-height);gap:12px}
 .top-header__left,.top-header__right,.top-header__brand{flex-shrink:0}

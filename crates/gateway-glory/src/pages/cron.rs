@@ -229,7 +229,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                     .fill((
                         sapid::button()
                             .unstyled()
-                            .class("agent-select")
+                            .class("btn-plain agent-select")
                             .label(string(&job, &["name", "id"]))
                             .on_press(move || context.navigate(&format!("/cron/{target}"))),
                         text()

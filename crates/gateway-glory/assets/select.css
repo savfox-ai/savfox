@@ -22,8 +22,6 @@
   color: var(--text-primary) !important;
   font: 500 13px/20px var(--font-body) !important;
   text-align: start !important;
-  text-transform: none !important;
-  letter-spacing: normal !important;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -149,8 +147,6 @@
   color: var(--text-primary) !important;
   font: 400 13px/1.5 var(--font-body) !important;
   text-align: start !important;
-  text-transform: none !important;
-  letter-spacing: normal !important;
   white-space: normal;
   overflow-wrap: anywhere;
   cursor: pointer;

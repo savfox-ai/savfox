@@ -5052,13 +5052,6 @@ body[data-theme="dark"]::after {
   text-shadow: 0 6px 16px color-mix(in srgb, var(--ornament) 16%, transparent);
 }
 
-.top-header__subtitle,
-.nav-group,
-.section-title--nodes {
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
 .top-header__subtitle {
   color: color-mix(in srgb, var(--text-muted) 84%, var(--ornament) 16%);
 }
@@ -5613,14 +5606,6 @@ body[data-theme="dark"] .chip--info {
   border-color: color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
-button:focus-visible,
-a:focus-visible,
-[role="button"]:focus-visible,
-[tabindex]:focus-visible:not(input):not(textarea):not(select),
-summary:focus-visible {
-  outline: none;
-  box-shadow: var(--field-focus);
-}
 
 
 @media (max-width: 768px) {
@@ -5750,8 +5735,6 @@ summary:focus-visible {
   border-radius: var(--radius);
   border: 1px solid transparent;
   color: color-mix(in srgb, var(--text-muted) 84%, var(--ornament) 16%);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
   font-size: 13px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--surface-flat-soft) 92%, transparent) 0%, transparent 100%);
 }

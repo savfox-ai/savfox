@@ -57,7 +57,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 row().class("tts-provider-row").fill((
                     sapid::button()
                         .unstyled()
-                        .class("tts-provider-name")
+                        .class("btn-plain tts-provider-name")
                         .label(string(&entry, &["name", "id"]))
                         .on_press(move || ui::set(provider, selected.clone())),
                     text().class("tts-provider-status").content(ui::label_for(

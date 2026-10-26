@@ -93,6 +93,14 @@ function inspectLayout() {
       const rect = control.getBoundingClientRect();
       return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, height: rect.height };
     })),
+    forcedCase: [...document.querySelectorAll('h1,h2,h3,button,label,a,[data-gly-kind="text"]')]
+      .filter(visible)
+      .filter(node => node.textContent.trim() && getComputedStyle(node).textTransform !== 'none')
+      .map(node => ({ text: node.textContent.slice(0, 70), className: node.className, transform: getComputedStyle(node).textTransform })),
+    textActions: [...document.querySelectorAll('.btn-plain')].filter(visible).map(node => {
+      const style = getComputedStyle(node);
+      return { className: node.className, shadow: style.boxShadow, background: style.backgroundImage, border: style.borderTopWidth, backgroundColor: style.backgroundColor };
+    }),
     duplicateButtons,
     clippedConfigCards,
     searchSkin: (() => { const input = document.querySelector(".session-search-input"); if (!input) return null; const style = getComputedStyle(input); return { border: parseFloat(style.borderTopWidth), shadow: style.boxShadow, background: style.backgroundImage }; })(),
@@ -121,6 +129,8 @@ function verify(item) {
       if (Math.min(a.right,b.right) - Math.max(a.x,b.x) > 1 && Math.min(a.bottom,b.bottom) - Math.max(a.y,b.y) > 1) problems.push('inline form controls overlap');
     }
   }
+  if (metrics.forcedCase.length) problems.push('visible text is forced into another case: ' + JSON.stringify(metrics.forcedCase));
+  if (metrics.textActions.some(action => action.shadow !== 'none' || action.background !== 'none')) problems.push('text action inherits a button surface or shadow');
   if (metrics.duplicateButtons.length) problems.push(`duplicate visible button labels: ${metrics.duplicateButtons.join(', ')}`);
   if (metrics.clippedConfigCards.length) problems.push(`configuration cards clip form content: ${metrics.clippedConfigCards.map(card => `${card.title} ${card.clientHeight}/${card.scrollHeight}px`).join(', ')}`);
   if (item.modelPicker) {

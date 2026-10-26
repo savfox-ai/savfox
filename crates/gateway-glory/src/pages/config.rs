@@ -725,9 +725,9 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                         .unstyled()
                         .class(section.map(move |current| {
                             if current.as_deref() == Some(read.as_str()) {
-                                "config-nav-item config-nav-item--active".into()
+                                "btn-plain config-nav-item config-nav-item--active".into()
                             } else {
-                                "config-nav-item".into()
+                                "btn-plain config-nav-item".into()
                             }
                         }))
                         .label(ui::label_for(locale, label))

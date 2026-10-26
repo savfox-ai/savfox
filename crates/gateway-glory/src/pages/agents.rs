@@ -1358,7 +1358,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                     .fill((
                         sapid::button()
                             .unstyled()
-                            .class("agent-select")
+                            .class("btn-plain agent-select")
                             .label(name)
                             .on_press(move || open_context.navigate(&format!("/agents/{target}"))),
                         text().class("list-item__subtitle").content(subtitle),

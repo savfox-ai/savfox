@@ -41,7 +41,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                 col().class("agent-list-item").fill((
                     sapid::button()
                         .unstyled()
-                        .class("agent-select")
+                        .class("btn-plain agent-select")
                         .label(string(&node, &["name", "id"]))
                         .on_press(move || context.navigate(&format!("/nodes/{id}"))),
                     text()

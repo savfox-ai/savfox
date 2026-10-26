@@ -196,8 +196,10 @@ const server = http.createServer((request, response) => {
     const visibility = page.getByRole('switch', { name: 'Visible in model picker', exact: true }).first();
     await visibility.waitFor();
     const previousVisibility = await visibility.isChecked();
+    const storedPreferences = await page.evaluate(() => localStorage.getItem('savfox_model_preferences_v2'));
     await visibility.press('Space');
     assert.equal(await visibility.isChecked(), !previousVisibility);
+    await page.waitForFunction(previous => localStorage.getItem('savfox_model_preferences_v2') !== previous, storedPreferences);
     await page.reload();
     await visibility.waitFor();
     assert.equal(await visibility.isChecked(), !previousVisibility, 'Model switch must persist the preference');

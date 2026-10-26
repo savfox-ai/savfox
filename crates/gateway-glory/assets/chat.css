@@ -97,8 +97,6 @@
     .session-list-filter__label {
         font-size: 11px;
         font-weight: 600;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
         color: var(--text-muted);
         flex-shrink: 0;
     }
@@ -669,8 +667,6 @@
     .chat-input-model-badge__label {
         color: color-mix(in srgb, var(--text-muted) 84%, var(--ornament) 16%);
         font-weight: 500;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
     }
 
     .chat-input-model-badge__name {
