@@ -40,7 +40,7 @@ Regular PRs do not run the full Windows/macOS matrix unless the workflow is manu
 | TUI | `just test-tui` | `savfox-tui` |
 | Gateway | `just test-gateway` | `savfox-gateway-server`, `savfox-gateway-shared`, `savfox-channels` |
 | Channels only | `just test-channels` | `savfox-channels` |
-| Web | `just test-web` | Dioxus frontend build |
+| Web | `just test-web` | Glory frontend build |
 
 ## Selection rule
 

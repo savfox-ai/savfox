@@ -28,7 +28,7 @@ _*.md
 
 crates/gateway-server/static/*
 !crates/gateway-server/static/.gitkeep
-crates/gateway-dioxus/dist
+crates/gateway-glory/dist
 crates/app-server-protocol/schema
 .tmp*
 *.log

@@ -12,7 +12,7 @@
 - model/provider runtime 协调
 - skills、memory、prompt 组装
 
-不要把 gateway 专有 HTTP handler、Dioxus UI state 或 editor 专有 JSON-RPC framing 放进这里。
+不要把 gateway 专有 HTTP handler、Glory UI state 或 editor 专有 JSON-RPC framing 放进这里。
 
 ### Surface crates
 
@@ -22,7 +22,7 @@
 - `savfox-app-server`
 - `savfox-mcp-server`
 - `savfox-gateway-server`
-- `savfox-gateway-dioxus`
+- `savfox-gateway-glory`
 
 它们可以处理 transport、生命周期和 UX，但不应复制核心策略逻辑。
 
@@ -45,7 +45,7 @@ core -> protocol / lower-level support crates
 ```
 
 避免：
-- `savfox-core` 依赖 gateway、TUI、app-server 或 Dioxus
+- `savfox-core` 依赖 gateway、TUI、app-server 或 Glory
 - 协议 crate 依赖 surface crate
-- `savfox-gateway-dioxus` 依赖 native-only runtime crate
+- `savfox-gateway-glory` 依赖 native-only runtime crate
 - `savfox-channels` 依赖 TUI 或 app-server

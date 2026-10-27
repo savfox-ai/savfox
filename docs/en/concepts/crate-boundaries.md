@@ -12,7 +12,7 @@ Owns transport-independent agent behavior:
 - model/provider runtime coordination
 - skills, memory, prompt assembly
 
-Do not put gateway-only HTTP handlers, Dioxus UI state, or editor-specific JSON-RPC framing here.
+Do not put gateway-only HTTP handlers, Glory UI state, or editor-specific JSON-RPC framing here.
 
 ### Surface crates
 
@@ -22,7 +22,7 @@ Surface crates should stay thin:
 - `savfox-app-server`
 - `savfox-mcp-server`
 - `savfox-gateway-server`
-- `savfox-gateway-dioxus`
+- `savfox-gateway-glory`
 
 They may adapt transport, lifecycle, and UX. They should not duplicate core policy or business rules.
 
@@ -52,9 +52,9 @@ core -> protocol / lower-level support crates
 ```
 
 Avoid these edges:
-- `savfox-core` depending on gateway, TUI, app-server, or Dioxus crates
+- `savfox-core` depending on gateway, TUI, app-server, or Glory crates
 - protocol crates depending on surface crates
-- `savfox-gateway-dioxus` depending on native-only runtime crates
+- `savfox-gateway-glory` depending on native-only runtime crates
 - `savfox-channels` depending on TUI or app-server crates
 
 ## Placement guide

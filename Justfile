@@ -12,6 +12,9 @@ port  := "18881"
 dev_backend_port := "18881"
 frontend_port := "18080"
 
+# Keep native gateway builds beside the WASM build cache on Windows.
+export CARGO_TARGET_DIR := if os() == "windows" { "D:/BuildCache/savfox-glory/target" } else { env_var_or_default("CARGO_TARGET_DIR", "/mnt/d/BuildCache/savfox-glory/target") }
+
 # ── Gateway ─────────────────────────────────────────────────────────────────
 
 # Build web frontend if needed + run gateway server (debug)
@@ -28,7 +31,7 @@ gateway-release:
 gateway-skip-web:
     $gatewayArgs = @('run', '--bin', 'savfox', '--', 'gateway', '--port', '{{port}}'); if ($env:SAVFOX_GATEWAY_TOKEN) { $gatewayArgs += @('--token', $env:SAVFOX_GATEWAY_TOKEN) }; cargo @gatewayArgs
 
-# Run the Arkret-enabled gateway backend on the fixed dev port expected by the Dioxus proxy config
+# Run the Arkret-enabled gateway backend on the fixed dev port expected by the frontend proxy
 gateway-backend:
     $gatewayArgs = @('run', '--bin', 'savfox', '--features', 'savfox-gateway-server/arkret', '--', 'gateway', '--port', '{{dev_backend_port}}'); if ($env:SAVFOX_GATEWAY_TOKEN) { $gatewayArgs += @('--token', $env:SAVFOX_GATEWAY_TOKEN) }; cargo @gatewayArgs
 
@@ -44,11 +47,11 @@ web-build-release:
 
 # Live-reload web frontend (run alongside `just gateway-skip-web` in another terminal)
 web-serve:
-    Push-Location crates/gateway-dioxus; dx serve --web --port {{frontend_port}} --open false; Pop-Location
+    node scripts/serve-web.cjs {{frontend_port}}
 
-# Live-reload Dioxus frontend with dev-server proxying /api, /health, and /ws to the local gateway backend
+# Rebuild Glory WASM on save with dev-server proxying /api, /health, and /ws to the local gateway backend
 gateway-frontend:
-    Push-Location crates/gateway-dioxus; dx serve --web --port {{frontend_port}} --open false; Pop-Location
+    node scripts/serve-web.cjs {{frontend_port}}
 
 # ── General Cargo ─────────────────────────────────────────────────────────────
 
@@ -98,7 +101,7 @@ test-channels:
 
 # Targeted build check: web frontend
 test-web:
-    Push-Location crates/gateway-dioxus; dx build --web; Pop-Location
+    pwsh -NoProfile -File scripts/build-web.ps1 -SkipCopy
 
 # ── Install ─────────────────────────────────────────────────────────────────
 
@@ -106,13 +109,13 @@ test-web:
 install:
     cargo build
     New-Item -ItemType Directory -Force -Path "$HOME/bin" | Out-Null
-    Get-ChildItem target/debug -Filter "savfox*.exe" | Copy-Item -Destination "$HOME/bin" -Force
+    Get-ChildItem "$env:CARGO_TARGET_DIR/debug" -Filter "savfox*.exe" | Copy-Item -Destination "$HOME/bin" -Force
 
 # Build debug and copy exes to ~/bin (fast dev iteration)
 dist-dev:
     cargo build
     New-Item -ItemType Directory -Force -Path "$HOME/bin" | Out-Null
-    Get-ChildItem target/debug -Filter "savfox*.exe" | Copy-Item -Destination "$HOME/bin" -Force
+    Get-ChildItem "$env:CARGO_TARGET_DIR/debug" -Filter "savfox*.exe" | Copy-Item -Destination "$HOME/bin" -Force
     Write-Host "Copied to ~/bin:" -ForegroundColor Green
     Get-ChildItem "$HOME/bin/savfox*.exe" | ForEach-Object { Write-Host "  $_" }
 

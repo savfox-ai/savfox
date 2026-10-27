@@ -40,7 +40,7 @@ CI 现在有这些校验层：
 | TUI | `just test-tui` | `savfox-tui` |
 | Gateway | `just test-gateway` | `savfox-gateway-server`、`savfox-gateway-shared`、`savfox-channels` |
 | Channels only | `just test-channels` | `savfox-channels` |
-| Web | `just test-web` | Dioxus frontend build |
+| Web | `just test-web` | Glory frontend build |
 
 ## 选择规则
 

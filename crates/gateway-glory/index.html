@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <title>Savfox | AI Assistant</title>
+    <link rel="icon" href="/assets/savfox.ico">
+    <link rel="stylesheet" href="/assets/sapid.css">
+    <link rel="stylesheet" href="/assets/main.css">
+    <link rel="stylesheet" href="/assets/shell-icons.css">
+    <link rel="stylesheet" href="/assets/glory-bridge.css">
+    <link rel="stylesheet" href="/assets/management.css">
+    <link rel="stylesheet" href="/assets/channels.css">
+    <link rel="stylesheet" href="/assets/chat.css">
+    <link rel="stylesheet" href="/assets/select.css">
+  </head>
+  <body>
+    <div id="app" aria-label="Savfox"></div>
+    <script type="module">
+      import init from '/wasm/savfox_gateway_glory.js';
+      init().catch(error => {
+        console.error(error);
+        document.getElementById('app').textContent = 'Unable to start Savfox. Reload the page or check the gateway connection.';
+      });
+    </script>
+  </body>
+</html>

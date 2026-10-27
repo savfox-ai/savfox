@@ -406,7 +406,7 @@ pub(crate) async fn dispatch_rpc(
         // ── System ──────────────────────────────────────────────────────
         // The dash-style names below pre-date the `domain.action` convention
         // used elsewhere; they're kept as deprecated aliases so existing
-        // Dioxus + scope-guard call sites keep working while clients migrate.
+        // Browser + scope-guard call sites keep working while clients migrate.
         "system.heartbeat" | "last-heartbeat" => Box::pin(handle_last_heartbeat(&params)),
         "system.heartbeats.set" | "set-heartbeats" => {
             Box::pin(handle_set_heartbeats(&params, channel))

@@ -18,13 +18,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
 
       - name: Log in to ghcr.io
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "${{ env.REGISTRY }}" -u "${{ github.actor }}" --password-stdin
 
       - name: Build amd64 image
         run: |
-          docker build \
+          docker buildx build --load \
             --file Dockerfile \
             --pull \
             --label org.opencontainers.image.title=Savfox \
@@ -49,13 +50,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
 
       - name: Log in to ghcr.io
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "${{ env.REGISTRY }}" -u "${{ github.actor }}" --password-stdin
 
       - name: Build arm64 image
         run: |
-          docker build \
+          docker buildx build --load \
             --file Dockerfile \
             --pull \
             --label org.opencontainers.image.title=Savfox \

@@ -1,0 +1,9 @@
+name: Verify semantic UI dependencies
+description: Verify and report the upstream main revisions pinned in Cargo.lock
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        node scripts/ui-sources.cjs

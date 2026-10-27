@@ -1,5 +1,5 @@
 //! Agent-related wire types shared between gateway-server and the web /
-//! Dioxus frontend.
+//! Glory frontend.
 //!
 //! These structs are the JSON shapes returned by the `agents.*` family of
 //! WS-RPC methods. The frontend uses them to render the agent picker and

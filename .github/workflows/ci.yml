@@ -50,6 +50,7 @@ jobs:
               - '.config/nextest.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.github/actions/ui-sources/**'
             core:
               - 'crates/core/**'
               - 'crates/config/**'
@@ -69,6 +70,11 @@ jobs:
               - 'crates/gateway-server/**'
               - 'crates/gateway-shared/**'
               - 'scripts/build-web.ps1'
+              - 'scripts/build-web.cjs'
+              - 'scripts/ui-sources.cjs'
+              - 'scripts/ui-sources.test.cjs'
+              - 'scripts/serve-web.cjs'
+              - 'scripts/check-web.cjs'
             channels:
               - 'crates/channels/**'
             keyring:
@@ -87,7 +93,7 @@ jobs:
               - 'Dockerfile*'
               - 'compose.yml'
             web:
-              - 'crates/gateway-dioxus/**'
+              - 'crates/gateway-glory/**'
 
   native-credentials:
     needs: [changes]
@@ -119,13 +125,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - id: rustfmt-toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUSTFMT_NIGHTLY }}
           components: rustfmt
-      # A virtual workspace formats all members by default. --all also walks
-      # sibling path dependencies, whose formatting belongs to their repos.
+      # Format workspace sources; upstream UI dependencies are locked Git packages.
       - run: cargo +${{ steps.rustfmt-toolchain.outputs.name }} fmt --check
 
   # ─── Clippy lints ──────────────────────────────────────────────────
@@ -135,6 +141,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -151,6 +158,7 @@ jobs:
     if: needs.changes.outputs.workspace == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -188,6 +196,7 @@ jobs:
         os: [windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -216,6 +225,7 @@ jobs:
     if: always() && (needs.web.result == 'success' || needs.web.result == 'skipped') && (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -274,6 +284,7 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.extended_checks)
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -320,6 +331,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -344,6 +356,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -362,6 +375,7 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.extended_checks)
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu
@@ -382,6 +396,7 @@ jobs:
     if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -390,21 +405,22 @@ jobs:
           cache-on-failure: true
           workspaces: . -> target
           key: web-wasm
-      - name: Install Dioxus CLI
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cli_dir="$RUNNER_TEMP/dioxus-cli"
-          mkdir -p "$cli_dir/bin"
-          gh release download v0.7.10 --repo DioxusLabs/dioxus \
-            --pattern 'dx-x86_64-unknown-linux-gnu.tar.gz' \
-            --pattern 'dx-x86_64-unknown-linux-gnu.sha256' --dir "$cli_dir"
-          (cd "$cli_dir" && sha256sum --ignore-missing --check dx-x86_64-unknown-linux-gnu.sha256)
-          tar -xzf "$cli_dir/dx-x86_64-unknown-linux-gnu.tar.gz" -C "$cli_dir/bin"
-          echo "$cli_dir/bin" >> "$GITHUB_PATH"
+      - name: Install wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
       - name: Build Web UI
-        shell: pwsh
-        run: ./scripts/build-web.ps1 -Release
+        run: node scripts/build-web.cjs --release
+      - name: Verify locked UI source resolution
+        run: node --test scripts/ui-sources.test.cjs
+      - name: Install browser acceptance runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/savfox-web-check" --no-package-lock --ignore-scripts playwright@1.60.0
+          node "$RUNNER_TEMP/savfox-web-check/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Browser workflow acceptance
+        env:
+          SAVFOX_PLAYWRIGHT: ${{ runner.temp }}/savfox-web-check/node_modules/playwright
+          SAVFOX_WEB_BUNDLE: ${{ github.workspace }}/target/web-build/web/release
+          SAVFOX_WEB_CHECK_CACHE: ${{ github.workspace }}/target/web-browser
+        run: node scripts/check-web.cjs
       - uses: actions/upload-artifact@v7
         with:
           name: gateway-web
@@ -418,6 +434,7 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.extended_checks) || (github.event_name != 'workflow_dispatch' && needs.changes.outputs.docker == 'true')
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/ui-sources
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
