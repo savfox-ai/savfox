@@ -365,7 +365,7 @@ console_error_panic_hook = "0.1"
 # Compress
 brotli = { version = "8", default-features = false }
 flate2 = { version = "1", default-features = false }
-zstd = { version = "0.13", default-features = false }
+zstd = { version = "0.14.3", default-features = false }
 
 [workspace.lints.rust]
 missing_debug_implementations = "warn"
