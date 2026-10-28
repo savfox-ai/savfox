@@ -183,6 +183,10 @@ savfox features disable <F>  # disable a feature
 
 Manage gateway-side configuration via WS-RPC.
 
+`savfox config set gateway.port 18882` updates only the selected field using a
+merge patch, preserving other configuration fields. Setting a field to JSON
+`null` removes it. Restart the gateway for persisted changes to take effect.
+
 ```bash
 savfox config validate
 savfox config export --format yaml --output config.yaml

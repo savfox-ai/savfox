@@ -177,6 +177,12 @@ savfox features enable <F>   # 启用特性
 savfox features disable <F>  # 禁用特性
 ```
 
+### `config`
+
+通过 WS-RPC 管理网关配置。`savfox config set gateway.port 18882` 使用合并补丁，
+仅修改指定字段并保留其它配置。设置为 JSON `null` 会删除该字段。
+持久化的配置修改需要重启网关才能生效。
+
 ### `cloud`（别名：`cloud-tasks`）
 
 **实验性功能。** 管理云端任务。

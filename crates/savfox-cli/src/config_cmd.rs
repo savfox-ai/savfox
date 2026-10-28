@@ -103,10 +103,10 @@ pub async fn run(cmd: ConfigCommand) -> Result<(), Box<dyn std::error::Error>> {
             let parsed_value = parse_value(&value);
             let config = build_nested_object(&path, parsed_value);
 
-            let params = json!({ "config": config });
-            let result = ws_rpc_client::rpc_call(gateway_url, token, "config.set", params)
+            let params = json!({ "patch": config });
+            let result = ws_rpc_client::rpc_call(gateway_url, token, "config.patch", params)
                 .await
-                .map_err(|e| format!("config.set failed: {e}"))?;
+                .map_err(|e| format!("config.patch failed: {e}"))?;
             ws_rpc_client::print_json(&result);
         }
 
@@ -224,4 +224,56 @@ fn extract_path(value: &serde_json::Value, path: &str) -> serde_json::Value {
         }
     }
     current.clone()
+}
+
+#[cfg(test)]
+mod set_tests {
+    use futures_util::{SinkExt, StreamExt};
+    use pretty_assertions::assert_eq;
+    use serde_json::{Value, json};
+
+    #[tokio::test]
+    async fn setting_one_field_sends_a_patch_and_preserves_unrelated_config() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let request: Value =
+                serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
+                    .unwrap();
+            assert_eq!(request["method"], "config.patch");
+            assert_eq!(
+                request["params"],
+                json!({"patch":{"gateway":{"port":18882}}})
+            );
+            // Model the gateway's merge-patch contract, including sibling preservation.
+            let mut config =
+                json!({"model":"provider/model", "gateway":{"host":"localhost", "port":18881}});
+            config["gateway"]["port"] = request["params"]["patch"]["gateway"]["port"].clone();
+            socket
+                .send(tokio_tungstenite::tungstenite::Message::Text(
+                    json!({"jsonrpc":"2.0", "id":request["id"], "result":{"status":"patched"}})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+            config
+        });
+        super::run(super::ConfigCommand {
+            action: super::ConfigAction::Set {
+                path: "gateway.port".into(),
+                value: "18882".into(),
+            },
+            gateway_url: format!("http://{address}"),
+            token: "test-token".into(),
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            server.await.unwrap(),
+            json!({"model":"provider/model", "gateway":{"host":"localhost", "port":18882}})
+        );
+    }
 }
