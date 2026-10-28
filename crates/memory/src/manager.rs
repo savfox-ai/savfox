@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ use crate::storage::VectorStorage;
 use crate::sync::{MemoryFileSync, SessionFileSync};
 use crate::types::{
     EMBEDDING_BATCH_MAX_TOKENS, MemoryChunk, MemoryConfig, MemoryIndexMeta, MemoryMetadata,
-    MemorySearchResult, MemorySyncProgress, MemorySyncStatus,
+    MemorySearchResult, MemorySource, MemorySyncProgress, MemorySyncStatus,
 };
 
 pub struct MemoryManager {
@@ -103,7 +103,7 @@ impl MemoryManager {
 
         let storage = self.storage.read().await;
         let existing_hashes = storage
-            .get_file_hashes()
+            .source_file_hashes(&MemorySource::File)
             .await
             .map_err(|e| MemoryError::StorageError(e.to_string()))?;
         drop(storage);
@@ -119,7 +119,7 @@ impl MemoryManager {
 
         for (idx, file) in files.iter().enumerate() {
             let needs_update = existing_hashes
-                .get(file.path.to_str().unwrap_or(""))
+                .get(file.path.to_string_lossy().as_ref())
                 .map(|h| *h != file.hash)
                 .unwrap_or(true);
 
@@ -133,7 +133,8 @@ impl MemoryManager {
                     status: MemorySyncStatus::Embedding,
                 });
 
-                self.index_chunks(&chunks).await?;
+                self.replace_file(&MemorySource::File, &file.path, &file.hash, &chunks)
+                    .await?;
 
                 stats.files_updated += 1;
                 stats.chunks_added += chunks.len();
@@ -148,6 +149,9 @@ impl MemoryManager {
                 status: MemorySyncStatus::Indexing,
             });
         }
+
+        self.prune_files(&MemorySource::File, files.iter().map(|file| &file.path))
+            .await?;
 
         if let Some(ref session_sync) = self.session_sync {
             self.sync_sessions(session_sync).await?;
@@ -171,41 +175,94 @@ impl MemoryManager {
             .scan_session_files()
             .map_err(|e| MemoryError::SyncError(e.to_string()))?;
 
-        for file in files {
-            let chunks = session_sync.build_session_chunks(&file, self.config.chunk_tokens);
-            self.index_chunks(&chunks).await?;
+        let existing_hashes = self
+            .storage
+            .read()
+            .await
+            .source_file_hashes(&MemorySource::Session)
+            .await
+            .map_err(|e| MemoryError::StorageError(e.to_string()))?;
+        for file in &files {
+            if existing_hashes.get(file.path.to_string_lossy().as_ref()) == Some(&file.hash) {
+                continue;
+            }
+            let chunks = session_sync.build_session_chunks(file, self.config.chunk_tokens);
+            self.replace_file(&MemorySource::Session, &file.path, &file.hash, &chunks)
+                .await?;
         }
+
+        self.prune_files(&MemorySource::Session, files.iter().map(|file| &file.path))
+            .await?;
 
         Ok(())
     }
 
     async fn index_chunks(&self, chunks: &[MemoryChunk]) -> Result<(), MemoryError> {
+        let chunks = self.embed_chunks(chunks).await?;
+        let storage = self.storage.write().await;
+        for chunk in &chunks {
+            storage
+                .insert_chunk(chunk)
+                .await
+                .map_err(|e| MemoryError::StorageError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    async fn replace_file(
+        &self,
+        source: &MemorySource,
+        path: &Path,
+        hash: &str,
+        chunks: &[MemoryChunk],
+    ) -> Result<(), MemoryError> {
+        // Finish remote work before starting the transaction. A failed embedding
+        // leaves the previously published revision and its manifest intact.
+        let chunks = self.embed_chunks(chunks).await?;
+        self.storage
+            .write()
+            .await
+            .replace_file_chunks(source, &path.to_string_lossy(), hash, &chunks)
+            .await
+            .map_err(|e| MemoryError::StorageError(e.to_string()))
+    }
+
+    async fn prune_files<'a>(
+        &self,
+        source: &MemorySource,
+        paths: impl Iterator<Item = &'a std::path::PathBuf>,
+    ) -> Result<(), MemoryError> {
+        let live: HashSet<String> = paths
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
+        self.storage
+            .write()
+            .await
+            .prune_source_files(source, &live)
+            .await
+            .map_err(|e| MemoryError::StorageError(e.to_string()))
+    }
+
+    async fn embed_chunks(&self, chunks: &[MemoryChunk]) -> Result<Vec<MemoryChunk>, MemoryError> {
         if chunks.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         let texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
         let batches = split_into_batches(&texts, EMBEDDING_BATCH_MAX_TOKENS);
+        let mut chunks = chunks.to_vec();
 
         for batch in batches {
             let embeddings = self.embed_texts_cached(&batch.texts).await?;
 
-            let storage = self.storage.write().await;
-
             for (batch_idx, &chunk_idx) in batch.indices.iter().enumerate() {
                 if chunk_idx < chunks.len() && batch_idx < embeddings.len() {
-                    let mut chunk = chunks[chunk_idx].clone();
-                    chunk.embedding = Some(embeddings[batch_idx].clone());
-
-                    storage
-                        .insert_chunk(&chunk)
-                        .await
-                        .map_err(|e| MemoryError::StorageError(e.to_string()))?;
+                    chunks[chunk_idx].embedding = Some(embeddings[batch_idx].clone());
                 }
             }
         }
 
-        Ok(())
+        Ok(chunks)
     }
 
     pub async fn search(&self, query: &str) -> Result<Vec<MemorySearchResult>, MemoryError> {
@@ -425,4 +482,136 @@ pub enum MemoryError {
 
     #[error("QMD error: {0}")]
     QmdError(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::embedding::{EmbeddingError, EmbeddingResult};
+    use crate::types::EmbeddingProviderConfig;
+
+    struct TestProvider {
+        fail: Arc<AtomicBool>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for TestProvider {
+        async fn embed(&self, texts: &[String]) -> Result<EmbeddingResult, EmbeddingError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(EmbeddingError::Config("injected failure".to_owned()));
+            }
+            Ok(EmbeddingResult {
+                embeddings: vec![vec![1.0, 0.0]; texts.len()],
+                model: "test".to_owned(),
+                total_tokens: 0,
+            })
+        }
+        fn model_name(&self) -> &str {
+            "test"
+        }
+        fn provider_name(&self) -> &str {
+            "test"
+        }
+        fn vector_dims(&self) -> usize {
+            2
+        }
+        fn max_input_tokens(&self) -> usize {
+            8192
+        }
+    }
+
+    async fn manager(home: &Path) -> (MemoryManager, Arc<AtomicBool>, Arc<AtomicUsize>) {
+        let config = MemoryConfig {
+            embedding_provider: EmbeddingProviderConfig::Ollama {
+                model: "test".to_owned(),
+                base_url: "http://127.0.0.1:1".to_owned(),
+            },
+            ..Default::default()
+        };
+        let mut manager = MemoryManager::new(home, config, EmbeddingApiKeys::default())
+            .await
+            .unwrap();
+        let fail = Arc::new(AtomicBool::new(false));
+        let calls = Arc::new(AtomicUsize::new(0));
+        manager.provider = Box::new(TestProvider {
+            fail: Arc::clone(&fail),
+            calls: Arc::clone(&calls),
+        });
+        (manager, fail, calls)
+    }
+
+    #[tokio::test]
+    async fn sync_replaces_revisions_skips_unchanged_and_prunes_removed_sources() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir(home.path().join("memory")).unwrap();
+        std::fs::create_dir(home.path().join("sessions")).unwrap();
+        let file = home.path().join("memory/notes.md");
+        let session = home.path().join("sessions/session.md");
+        std::fs::write(&file, "old memory").unwrap();
+        std::fs::write(&session, "old session").unwrap();
+        let (manager, _, calls) = manager(home.path()).await;
+        manager.sync_all().await.unwrap();
+        assert_eq!(manager.get_chunk_count().await.unwrap(), 2);
+        let count = calls.load(Ordering::SeqCst);
+        manager.sync_all().await.unwrap();
+        assert_eq!(manager.get_chunk_count().await.unwrap(), 2);
+        assert_eq!(calls.load(Ordering::SeqCst), count);
+
+        std::fs::write(&file, "new memory").unwrap();
+        std::fs::write(&session, "new session").unwrap();
+        manager.sync_all().await.unwrap();
+        assert_eq!(manager.get_chunk_count().await.unwrap(), 2);
+        assert!(manager.search_keyword("old").await.unwrap().is_empty());
+
+        std::fs::write(&file, "").unwrap();
+        manager.sync_all().await.unwrap();
+        assert_eq!(manager.get_chunk_count().await.unwrap(), 1);
+        assert_eq!(manager.sync_all().await.unwrap().files_unchanged, 1);
+
+        let manual = manager.add_memory("keep manual", None).await.unwrap();
+        std::fs::remove_file(file).unwrap();
+        std::fs::remove_file(session).unwrap();
+        manager.sync_all().await.unwrap();
+        assert_eq!(manager.get_chunk_count().await.unwrap(), 1);
+        assert!(
+            manager
+                .storage
+                .read()
+                .await
+                .get_chunk(&manual.id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn embedding_or_scan_failure_preserves_published_revision() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir(home.path().join("memory")).unwrap();
+        let file = home.path().join("memory/notes.md");
+        std::fs::write(&file, "old revision").unwrap();
+        let (manager, fail, _) = manager(home.path()).await;
+        manager.sync_all().await.unwrap();
+        std::fs::write(&file, "new revision").unwrap();
+        fail.store(true, Ordering::SeqCst);
+        assert!(manager.sync_all().await.is_err());
+        assert_eq!(manager.search_keyword("old").await.unwrap().len(), 1);
+        assert!(manager.search_keyword("new").await.unwrap().is_empty());
+
+        fail.store(false, Ordering::SeqCst);
+        std::fs::write(&file, [0xff]).unwrap();
+        assert!(manager.sync_all().await.is_err());
+        assert_eq!(manager.get_chunk_count().await.unwrap(), 1);
+        std::fs::write(&file, "new revision").unwrap();
+        manager.sync_all().await.unwrap();
+        assert_eq!(manager.get_chunk_count().await.unwrap(), 1);
+        assert!(manager.search_keyword("old").await.unwrap().is_empty());
+    }
 }

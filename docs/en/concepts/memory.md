@@ -1,4 +1,4 @@
-﻿# Memory System
+# Memory System
 
 Savfox uses a 4-layer Markdown memory system that provides persistent context across sessions. Memory entries are plain `.md` files with optional YAML frontmatter, making them easy to read and edit with any text editor.
 
@@ -141,3 +141,7 @@ pinned: true
 - Maximum line length: 100 characters
 EOF
 ```
+
+## Vector index synchronization
+
+Memory and session files are tracked by source, path, and content hash. Unchanged files skip embedding; changed files replace their previous chunks and embeddings in one transaction after all new embeddings succeed. Empty files are tracked too. A complete successful scan removes entries for deleted files while preserving manually added memories. Read or embedding failures keep the last published file revision. Existing indexes are rebuilt per file on their first sync to remove duplicate legacy revisions.
