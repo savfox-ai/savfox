@@ -7,8 +7,8 @@ pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Gateway WebSocket frame envelope types.
 ///
-/// These wrap the existing JSON-RPC messages from `savfox-app-server-protocol` in a thin
-/// envelope that adds gateway-specific concerns (auth handshake, event sequencing).
+/// Authentication, keepalive and server-push controls. Business requests and
+/// responses use JSON-RPC 2.0 directly, without a typed request wrapper.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum GatewayMessage {
@@ -52,24 +52,6 @@ pub enum GatewayMessage {
         policy: Option<ConnectionPolicy>,
     },
 
-    /// Wrapped JSON-RPC request (reuses `ClientRequest` from app-server-protocol).
-    Request {
-        id: String,
-        method: String,
-        #[serde(default)]
-        params: Option<Value>,
-    },
-
-    /// Wrapped JSON-RPC response.
-    Response {
-        id: String,
-        ok: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        payload: Option<Value>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        error: Option<Value>,
-    },
-
     /// Server-push event (wraps `ServerNotification`).
     Event {
         event: String,
@@ -77,9 +59,6 @@ pub enum GatewayMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seq: Option<u64>,
     },
-
-    /// Approval response from a client.
-    ApprovalResponse { request_id: String, approved: bool },
 
     /// Error envelope.
     Error {

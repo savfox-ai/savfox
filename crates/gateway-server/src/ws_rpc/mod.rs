@@ -57,6 +57,13 @@ pub(crate) async fn dispatch_rpc(
         Ok(r) => r,
         Err(err) => return rpc_error(Value::Null, PARSE_ERROR, format!("parse error: {err}")),
     };
+    if request.jsonrpc.as_deref() != Some("2.0") {
+        return rpc_error(
+            request.id,
+            INVALID_REQUEST,
+            "jsonrpc must be \"2.0\"".to_owned(),
+        );
+    }
 
     // M17: destructure rather than clone. The previous `request.id.clone()`
     // and `request.params.clone()` walked the entire `serde_json::Value`

@@ -1428,16 +1428,12 @@ mod tests {
                 .unwrap(),
         );
         let sessions = Arc::new(SessionStore::from_home(home.path()));
-        let (outgoing_tx, _outgoing_rx) = tokio::sync::mpsc::channel(8);
         let gateway = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
             config,
             session_store: Arc::clone(&sessions),
             cli_overrides: vec![],
             cloud_requirements: Default::default(),
-            feedback: savfox_feedback::SavfoxFeedback::new(),
-            savfox_linux_sandbox_exe: None,
             websocket_manager: GatewaySessionManager::new(),
-            outgoing_tx,
             channel_registry: crate::channels::create_channel_registry(),
             channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
             ),

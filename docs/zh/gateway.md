@@ -72,7 +72,7 @@ curl -X POST http://localhost:18881/api/token/validate \
 ws://localhost:18881/ws
 ```
 
-协议使用 JSON-RPC 2.0。请求示例：
+认证后的业务请求只使用 JSON-RPC 2.0，`jsonrpc` 必须为 `"2.0"`。请求示例：
 
 ```json
 {
@@ -235,4 +235,9 @@ secret = "通用 webhook 的 HMAC 共享密钥"
 
 网关内置令牌桶速率限制器以防止滥用。速率限制按令牌粒度应用，可按需配置。
 
-旧版 WebSocket request 封装同样执行权限校验：会话读取需要读取权限，生命周期修改需要写入权限，对话轮次需要 Chat 权限，配置与凭据操作需要管理员权限。审批响应同时校验审批解决权限及请求所属凭据主体；会话访问也执行执行主体隔离。
+旧版 `type: request`、`type: response`、`type: approvalResponse` 封装及专属的
+app-server 分发器已经移除，不提供兼容或回退入口。这些帧会收到控制错误，不会
+执行方法或处理审批。配置、登录、会话和审批统一使用 gateway 的 JSON-RPC 方法，
+由同一个入口校验方法权限及会话所有权。审批使用 `exec.approval.resolve`，并提供
+`request_id`、一次性 `nonce` 和 `decision`；原有审批权限及所有权校验继续适用。
+认证、事件推送及 ping/pong 使用控制帧。
