@@ -177,6 +177,11 @@ savfox features enable <F>   # 启用特性
 savfox features disable <F>  # 禁用特性
 ```
 
+### `config`
+
+`savfox config get gateway.port` 按点分路径读取持久化配置中的字段。
+`savfox config validate` 校验配置文档，不会把网关版本和连接信息作为配置传入。
+
 ### `cloud`（别名：`cloud-tasks`）
 
 **实验性功能。** 管理云端任务。
