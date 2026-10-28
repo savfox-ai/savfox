@@ -152,23 +152,38 @@ fn render_export(id: &str, format: &str, history: &serde_json::Value) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use futures_util::{SinkExt, StreamExt};
     use pretty_assertions::assert_eq;
     use serde_json::{Value, json};
+
+    use super::*;
 
     async fn mock_rpc(
         expected_method: &'static str,
         result: Value,
     ) -> (String, tokio::task::JoinHandle<()>) {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the mock sessions gateway");
+        let address = listener
+            .local_addr()
+            .expect("read the mock gateway address");
         let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
-            let request: Value =
-                serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
-                    .unwrap();
+            let (stream, _) = listener.accept().await.expect("accept the CLI connection");
+            let mut socket = tokio_tungstenite::accept_async(stream)
+                .await
+                .expect("complete the mock WebSocket handshake");
+            let frame = socket
+                .next()
+                .await
+                .expect("receive a sessions request frame")
+                .expect("read the sessions request frame");
+            let request: Value = serde_json::from_str(
+                frame
+                    .to_text()
+                    .expect("sessions request must be a text frame"),
+            )
+            .expect("decode the sessions JSON-RPC request");
             assert_eq!(request["method"], expected_method);
             assert_eq!(request["params"]["session_id"], "session-1");
             assert!(request["params"].get("id").is_none());
@@ -182,7 +197,7 @@ mod tests {
                         .into(),
                 ))
                 .await
-                .unwrap();
+                .expect("send the sessions gateway response");
         });
         (format!("http://{address}"), server)
     }
@@ -200,13 +215,13 @@ mod tests {
             "test-token",
         )
         .await
-        .unwrap();
-        server.await.unwrap();
+        .expect("delete the session through the gateway");
+        server.await.expect("join the mock sessions gateway");
     }
 
     #[tokio::test]
     async fn export_writes_all_history_in_each_requested_format() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("create the session export test directory");
         let messages = (0..60).map(|index| json!({"role":if index % 2 == 0 {"user"} else {"assistant"}, "text":format!("message {index} 你好")})).collect::<Vec<_>>();
         for format in ["json", "markdown", "text"] {
             let (url, server) = mock_rpc(
@@ -227,16 +242,19 @@ mod tests {
                 "test-token",
             )
             .await
-            .unwrap();
-            server.await.unwrap();
-            let content = tokio::fs::read_to_string(path).await.unwrap();
+            .expect("export the session in the selected format");
+            server.await.expect("join the mock history gateway");
+            let content = tokio::fs::read_to_string(path)
+                .await
+                .expect("read the generated session export");
             assert!(content.contains("message 0 你好"));
             assert!(content.contains("message 59 你好"));
             if format == "json" {
                 assert_eq!(
-                    serde_json::from_str::<Value>(&content).unwrap()["messages"]
+                    serde_json::from_str::<Value>(&content)
+                        .expect("decode the JSON session export")["messages"]
                         .as_array()
-                        .unwrap()
+                        .expect("JSON session export must contain a messages array")
                         .len(),
                     60
                 );
@@ -250,9 +268,11 @@ mod tests {
 
     #[tokio::test]
     async fn history_errors_do_not_overwrite_an_export_file() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("create the existing export test directory");
         let path = directory.path().join("export.md");
-        tokio::fs::write(&path, "existing export").await.unwrap();
+        tokio::fs::write(&path, "existing export")
+            .await
+            .expect("create the existing session export");
         let (url, server) = mock_rpc(
             "chat.history",
             json!({"error":"outside execution scope", "messages":[]}),
@@ -270,10 +290,12 @@ mod tests {
             "test-token",
         )
         .await;
-        server.await.unwrap();
+        server.await.expect("join the mock failing history gateway");
         assert!(result.is_err());
         assert_eq!(
-            tokio::fs::read_to_string(path).await.unwrap(),
+            tokio::fs::read_to_string(path)
+                .await
+                .expect("read the original session export after failure"),
             "existing export"
         );
     }
