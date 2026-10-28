@@ -170,24 +170,32 @@ fn parse_payload(kind: &str, message: Option<String>) -> Result<CronPayload, Str
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use futures_util::{SinkExt, StreamExt};
     use pretty_assertions::assert_eq;
     use serde_json::{Value, json};
 
+    use super::*;
+
     #[test]
     fn schedules_and_payloads_use_gateway_types() {
         assert_eq!(
-            serde_json::to_value(parse_schedule("every 5m").unwrap()).unwrap(),
+            serde_json::to_value(parse_schedule("every 5m").expect("parse a five-minute interval"))
+                .expect("serialize the interval schedule"),
             json!({"kind":"every", "interval_secs":300, "anchor_ms":0})
         );
         assert_eq!(
-            serde_json::to_value(parse_schedule("0 */5 * * * *").unwrap()).unwrap(),
+            serde_json::to_value(
+                parse_schedule("0 */5 * * * *").expect("parse a cron expression"),
+            )
+            .expect("serialize the cron schedule"),
             json!({"kind":"cron", "expression":"0 */5 * * * *", "timezone":null})
         );
         assert_eq!(
-            serde_json::to_value(parse_payload("agentTurn", Some("hello".into())).unwrap())
-                .unwrap()["type"],
+            serde_json::to_value(
+                parse_payload("agentTurn", Some("hello".into()))
+                    .expect("parse the camelCase agent-turn payload type"),
+            )
+            .expect("serialize the agent-turn payload")["type"],
             "agent_turn"
         );
         for invalid in [
@@ -204,18 +212,29 @@ mod tests {
 
     #[tokio::test]
     async fn add_request_deserializes_as_the_gateway_contract() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the mock cron gateway");
+        let address = listener
+            .local_addr()
+            .expect("read the mock gateway address");
         let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let (stream, _) = listener.accept().await.expect("accept the CLI connection");
+            let mut socket = tokio_tungstenite::accept_async(stream)
+                .await
+                .expect("complete the mock WebSocket handshake");
+            let frame = socket
+                .next()
+                .await
+                .expect("receive a cron request frame")
+                .expect("read the cron request frame");
             let request: Value =
-                serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
-                    .unwrap();
+                serde_json::from_str(frame.to_text().expect("cron request must be a text frame"))
+                    .expect("decode the cron JSON-RPC request");
             assert_eq!(request["method"], "cron.add");
             assert_eq!(
                 serde_json::from_value::<CronSchedule>(request["params"]["schedule"].clone())
-                    .unwrap(),
+                    .expect("deserialize the CLI schedule using the gateway type"),
                 CronSchedule::Every {
                     interval_secs: 300,
                     anchor_ms: 0
@@ -223,7 +242,7 @@ mod tests {
             );
             assert_eq!(
                 serde_json::from_value::<CronPayload>(request["params"]["payload"].clone())
-                    .unwrap(),
+                    .expect("deserialize the CLI payload using the gateway type"),
                 CronPayload::SystemEvent {
                     text: "hello".into()
                 }
@@ -235,7 +254,7 @@ mod tests {
                         .into(),
                 ))
                 .await
-                .unwrap();
+                .expect("send the cron.add response");
         });
         run(CronCommand {
             action: CronAction::Add {
@@ -249,7 +268,7 @@ mod tests {
             token: "test-token".into(),
         })
         .await
-        .unwrap();
-        server.await.unwrap();
+        .expect("add the cron job through the gateway");
+        server.await.expect("join the mock cron gateway");
     }
 }
