@@ -40,3 +40,18 @@ When changing a git dependency:
 - note blast radius in the test slice
 - prefer a commit pin after validating a branch update
 - keep removal opportunities visible in maintenance review
+
+## Matrix appservice security fork
+
+`matrix-bot-sdk` 0.2.4 still depends on Salvo 0.89, which retains vulnerable
+zstd 0.13 packages. Savfox uses Salvo 1.0.1 and pins the maintenance fork
+`https://github.com/arkret-org/matrix-bot-sdk` at
+`bc5c32e935134e2ff2363616fab1eb1ba3f090be` (`arkret/salvo1-security`).
+The fork imports only the public crates.io 0.2.4 source archive and preserves
+the Apache-2.0 license; it contains no private upstream Git history.
+All appservice/client functionality remains enabled.
+
+Savfox integration maintainers own upgrades and compatibility regressions.
+Return to crates.io when an upstream release supports the maintained Salvo
+version without the affected compression dependency chain, after running
+Matrix appservice route/client tests and gateway integration checks.

@@ -89,7 +89,7 @@ async-channel = "2.5.0"
 async-session = "3"
 async-stream = "0.3.6"
 async-trait = "0.1"
-salvo = { version = "0.96.0", default-features = false, features = [
+salvo = { version = "1.0.1", default-features = false, features = [
     "server",
     "server-handle",
     "http1",
@@ -177,7 +177,7 @@ log = "0.4"
 lopdf = "0.45"
 lru = "0.18.5"
 maplit = "1.0.2"
-matrix-bot-sdk = { version = "0.2.4", default-features = false }
+matrix-bot-sdk = { version = "0.2.4", git = "https://github.com/arkret-org/matrix-bot-sdk", rev = "bc5c32e935134e2ff2363616fab1eb1ba3f090be", default-features = false }
 mime = "0.3"
 mime-infer = "4"
 mime_guess = "2.0.5"
