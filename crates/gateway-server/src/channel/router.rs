@@ -63,181 +63,6 @@ fn legacy_request_scope(request: &ClientRequest) -> TokenScope {
     }
 }
 
-#[cfg(test)]
-mod legacy_authorization_tests {
-    use std::sync::Arc;
-
-    use savfox_core::config::ConfigBuilder;
-    use serde_json::json;
-    use tokio::sync::mpsc;
-
-    use super::*;
-    use crate::auth::TokenInfo;
-    use crate::channel::GatewayBridgeArgs;
-    use crate::session::{ClientSession, GatewaySessionManager, SessionStore};
-
-    #[tokio::test]
-    async fn legacy_dispatch_enforces_scopes_and_response_ownership() {
-        let home = tempfile::tempdir().unwrap();
-        for root in [home.path().to_path_buf(), home.path().join("skills")] {
-            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
-        }
-        let config = ConfigBuilder::default()
-            .savfox_home(home.path().to_path_buf())
-            .build()
-            .await
-            .unwrap();
-        let manager = GatewaySessionManager::new();
-        let (bridge_tx, mut bridge_rx) = mpsc::channel(32);
-        let channel = GatewayChannel::new(GatewayBridgeArgs {
-            config: Arc::new(config),
-            session_store: Arc::new(SessionStore::from_home(home.path())),
-            cli_overrides: vec![],
-            cloud_requirements: Default::default(),
-            feedback: savfox_feedback::SavfoxFeedback::new(),
-            savfox_linux_sandbox_exe: None,
-            websocket_manager: manager.clone(),
-            outgoing_tx: bridge_tx,
-            channel_registry: crate::channels::create_channel_registry(),
-            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
-            ),
-            channel_recovery_supervisors:
-                crate::channels::recovery::create_channel_recovery_supervisors(),
-        });
-        for scope in [
-            TokenScope::Viewer,
-            TokenScope::Chat,
-            TokenScope::OperatorWrite,
-            TokenScope::OperatorAdmin,
-        ] {
-            let id = SessionId::new();
-            let (sender, mut receiver) = mpsc::channel(16);
-            let mut session = ClientSession::new(
-                id,
-                TokenInfo {
-                    label: "same-label".to_owned(),
-                    scopes: vec![scope],
-                },
-                sender,
-            );
-            session.principal = format!("owner-{scope:?}");
-            manager.add_session(session).await;
-            // ConfigService validates the current structured model schema;
-            // a scalar model value would fail validation even for an admin.
-            let params = json!({
-                "keyPath":"model",
-                "value":{"provider":"openai","slug":"legacy-authorized-model"},
-                "mergeStrategy":"replace"
-            });
-            channel
-                .process_request(
-                    &id.to_string(),
-                    JSONRPCRequest {
-                        id: RequestId::String("write".to_owned()),
-                        method: "config/value/write".to_owned(),
-                        params: Some(params),
-                    },
-                )
-                .await;
-            if scope == TokenScope::OperatorAdmin {
-                let response = bridge_rx.recv().await.unwrap();
-                assert!(
-                    matches!(&response, BridgeOutgoing::Response { .. }),
-                    "authorized configuration write failed: {response:?}"
-                );
-                let config = tokio::fs::read_to_string(home.path().join("config.toml"))
-                    .await
-                    .unwrap();
-                assert!(config.contains("legacy-authorized-model"));
-            } else {
-                assert!(matches!(
-                    receiver.recv().await.unwrap(),
-                    GatewayMessage::Error { code: -32003, .. }
-                ));
-                assert!(bridge_rx.try_recv().is_err());
-                assert!(!home.path().join("config.toml").exists());
-            }
-            // Reading a session list remains available to read-only clients.
-            if scope == TokenScope::Viewer {
-                channel
-                    .process_request(
-                        &id.to_string(),
-                        JSONRPCRequest {
-                            id: RequestId::String("list".to_owned()),
-                            method: "session/list".to_owned(),
-                            params: Some(json!({})),
-                        },
-                    )
-                    .await;
-                assert!(matches!(
-                    bridge_rx.recv().await.unwrap(),
-                    BridgeOutgoing::Response { .. }
-                ));
-            }
-            let request_id = RequestId::String(format!("approval-{scope:?}"));
-            let (tx, mut rx) = oneshot::channel();
-            channel
-                .pending_requests
-                .lock()
-                .await
-                .insert(request_id.clone(), (format!("owner-{scope:?}"), tx));
-            channel
-                .process_client_response(
-                    &id.to_string(),
-                    request_id.clone(),
-                    json!({"approved":true}),
-                )
-                .await;
-            assert!(
-                rx.try_recv().is_err(),
-                "non-approval scopes cannot resolve pending requests"
-            );
-            assert!(
-                channel
-                    .pending_requests
-                    .lock()
-                    .await
-                    .remove(&request_id)
-                    .is_some()
-            );
-            manager.remove_session(&id).await;
-        }
-
-        let (tx, mut rx) = oneshot::channel();
-        let request_id = RequestId::String("owned-approval".to_owned());
-        channel
-            .pending_requests
-            .lock()
-            .await
-            .insert(request_id.clone(), ("owner".to_owned(), tx));
-        for owner in ["other", "owner"] {
-            let id = SessionId::new();
-            let (sender, _receiver) = mpsc::channel(4);
-            let mut session = ClientSession::new(
-                id,
-                TokenInfo {
-                    label: "same-label".to_owned(),
-                    scopes: vec![TokenScope::OperatorApprovalsResolve],
-                },
-                sender,
-            );
-            session.principal = owner.to_owned();
-            manager.add_session(session).await;
-            channel
-                .process_client_response(
-                    &id.to_string(),
-                    request_id.clone(),
-                    json!({"approved":true}),
-                )
-                .await;
-            if owner == "other" {
-                assert!(rx.try_recv().is_err());
-            }
-        }
-        assert_eq!(rx.await.unwrap(), json!({"approved":true}));
-    }
-}
-
 impl GatewayChannel {
     /// Process an incoming JSON-RPC request from a WebSocket client.
     pub(crate) async fn process_request(&self, session_id: &str, request: JSONRPCRequest) {
@@ -1486,5 +1311,180 @@ impl GatewayChannel {
         {
             warn!("failed to send notification: {err}");
         }
+    }
+}
+
+#[cfg(test)]
+mod legacy_authorization_tests {
+    use std::sync::Arc;
+
+    use savfox_core::config::ConfigBuilder;
+    use serde_json::json;
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::auth::TokenInfo;
+    use crate::channel::GatewayBridgeArgs;
+    use crate::session::{ClientSession, GatewaySessionManager, SessionStore};
+
+    #[tokio::test]
+    async fn legacy_dispatch_enforces_scopes_and_response_ownership() {
+        let home = tempfile::tempdir().unwrap();
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        let manager = GatewaySessionManager::new();
+        let (bridge_tx, mut bridge_rx) = mpsc::channel(32);
+        let channel = GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: Arc::new(SessionStore::from_home(home.path())),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            feedback: savfox_feedback::SavfoxFeedback::new(),
+            savfox_linux_sandbox_exe: None,
+            websocket_manager: manager.clone(),
+            outgoing_tx: bridge_tx,
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        });
+        for scope in [
+            TokenScope::Viewer,
+            TokenScope::Chat,
+            TokenScope::OperatorWrite,
+            TokenScope::OperatorAdmin,
+        ] {
+            let id = SessionId::new();
+            let (sender, mut receiver) = mpsc::channel(16);
+            let mut session = ClientSession::new(
+                id,
+                TokenInfo {
+                    label: "same-label".to_owned(),
+                    scopes: vec![scope],
+                },
+                sender,
+            );
+            session.principal = format!("owner-{scope:?}");
+            manager.add_session(session).await;
+            // ConfigService validates the current structured model schema;
+            // a scalar model value would fail validation even for an admin.
+            let params = json!({
+                "keyPath":"model",
+                "value":{"provider":"openai","slug":"legacy-authorized-model"},
+                "mergeStrategy":"replace"
+            });
+            channel
+                .process_request(
+                    &id.to_string(),
+                    JSONRPCRequest {
+                        id: RequestId::String("write".to_owned()),
+                        method: "config/value/write".to_owned(),
+                        params: Some(params),
+                    },
+                )
+                .await;
+            if scope == TokenScope::OperatorAdmin {
+                let response = bridge_rx.recv().await.unwrap();
+                assert!(
+                    matches!(&response, BridgeOutgoing::Response { .. }),
+                    "authorized configuration write failed: {response:?}"
+                );
+                let config = tokio::fs::read_to_string(home.path().join("config.toml"))
+                    .await
+                    .unwrap();
+                assert!(config.contains("legacy-authorized-model"));
+            } else {
+                assert!(matches!(
+                    receiver.recv().await.unwrap(),
+                    GatewayMessage::Error { code: -32003, .. }
+                ));
+                assert!(bridge_rx.try_recv().is_err());
+                assert!(!home.path().join("config.toml").exists());
+            }
+            // Reading a session list remains available to read-only clients.
+            if scope == TokenScope::Viewer {
+                channel
+                    .process_request(
+                        &id.to_string(),
+                        JSONRPCRequest {
+                            id: RequestId::String("list".to_owned()),
+                            method: "session/list".to_owned(),
+                            params: Some(json!({})),
+                        },
+                    )
+                    .await;
+                assert!(matches!(
+                    bridge_rx.recv().await.unwrap(),
+                    BridgeOutgoing::Response { .. }
+                ));
+            }
+            let request_id = RequestId::String(format!("approval-{scope:?}"));
+            let (tx, mut rx) = oneshot::channel();
+            channel
+                .pending_requests
+                .lock()
+                .await
+                .insert(request_id.clone(), (format!("owner-{scope:?}"), tx));
+            channel
+                .process_client_response(
+                    &id.to_string(),
+                    request_id.clone(),
+                    json!({"approved":true}),
+                )
+                .await;
+            assert!(
+                rx.try_recv().is_err(),
+                "non-approval scopes cannot resolve pending requests"
+            );
+            assert!(
+                channel
+                    .pending_requests
+                    .lock()
+                    .await
+                    .remove(&request_id)
+                    .is_some()
+            );
+            manager.remove_session(&id).await;
+        }
+
+        let (tx, mut rx) = oneshot::channel();
+        let request_id = RequestId::String("owned-approval".to_owned());
+        channel
+            .pending_requests
+            .lock()
+            .await
+            .insert(request_id.clone(), ("owner".to_owned(), tx));
+        for owner in ["other", "owner"] {
+            let id = SessionId::new();
+            let (sender, _receiver) = mpsc::channel(4);
+            let mut session = ClientSession::new(
+                id,
+                TokenInfo {
+                    label: "same-label".to_owned(),
+                    scopes: vec![TokenScope::OperatorApprovalsResolve],
+                },
+                sender,
+            );
+            session.principal = owner.to_owned();
+            manager.add_session(session).await;
+            channel
+                .process_client_response(
+                    &id.to_string(),
+                    request_id.clone(),
+                    json!({"approved":true}),
+                )
+                .await;
+            if owner == "other" {
+                assert!(rx.try_recv().is_err());
+            }
+        }
+        assert_eq!(rx.await.unwrap(), json!({"approved":true}));
     }
 }
