@@ -116,7 +116,11 @@ pub(crate) async fn ws_handler(
         ));
         return Err(StatusError::too_many_requests());
     }
-    let client_ip = client_ip_opt;
+    // Own the reservation before attempting the handshake. Invalid upgrades
+    // and dropped upgrade callbacks must release their slot too.
+    let slot = ConnectionSlotGuard {
+        client_ip: client_ip_opt,
+    };
 
     // Cap inbound WebSocket frames so a single oversized payload cannot
     // OOM the daemon (M15). The values are deliberately generous — a
@@ -134,7 +138,7 @@ pub(crate) async fn ws_handler(
                 session_store,
                 cron_service,
                 query_token,
-                client_ip,
+                slot,
             )
         })
         .await
@@ -199,11 +203,10 @@ async fn handle_ws_connection(
     session_store: Arc<SessionStore>,
     cron_service: Arc<CronService>,
     query_token: Option<String>,
-    client_ip: Option<std::net::IpAddr>,
+    _slot: ConnectionSlotGuard,
 ) {
     // Release the per-IP connection slot reserved in `ws_handler` when this
     // connection ends, even on early return / panic.
-    let _slot = ConnectionSlotGuard { client_ip };
     // --- Authentication phase ---
     // The client must authenticate either:
     // 1. Via query parameter `?token=...` (already extracted)
@@ -578,6 +581,7 @@ mod terminal_ws_tests {
     use std::time::Duration;
 
     use futures_util::{SinkExt, StreamExt};
+    use salvo::conn::Acceptor;
     use salvo::prelude::*;
     use savfox_core::config::ConfigBuilder;
     use serde_json::{Value, json};
@@ -609,6 +613,73 @@ mod terminal_ws_tests {
         ))
         .await
         .expect("send");
+    }
+
+    #[tokio::test]
+    async fn failed_upgrades_do_not_exhaust_connection_slots() {
+        let home = tempfile::tempdir().expect("tempdir");
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        let sessions = Arc::new(GatewaySessionManager::new());
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let (outgoing_tx, _outgoing_rx) = mpsc::channel(16);
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: store.clone(),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            feedback: savfox_feedback::SavfoxFeedback::new(),
+            savfox_linux_sandbox_exe: None,
+            websocket_manager: (*sessions).clone(),
+            outgoing_tx,
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let router = crate::server::build_router(
+            Arc::new(GatewayAuth::single_token("slot-test-token".to_owned())),
+            sessions,
+            channel,
+            &GatewayConfig::default(),
+            store,
+            Arc::new(CronService::from_home(home.path())),
+            home.path().to_path_buf(),
+        );
+        let acceptor = TcpListener::new("127.0.0.1:0").bind().await;
+        let address = acceptor.holdings()[0]
+            .local_addr
+            .clone()
+            .into_std()
+            .unwrap();
+        let server = Server::new(acceptor);
+        let shutdown = server.handle();
+        let task = tokio::spawn(async move { server.serve(router).await });
+        let client = reqwest::Client::new();
+        for _ in 0..25 {
+            let response = client
+                .get(format!("http://{address}/ws"))
+                .send()
+                .await
+                .unwrap();
+            assert_ne!(response.status(), reqwest::StatusCode::TOO_MANY_REQUESTS);
+            assert!(!response.status().is_success());
+        }
+        let (mut socket, _) =
+            tokio_tungstenite::connect_async(format!("ws://{address}/ws?token=slot-test-token"))
+                .await
+                .expect("failed handshakes must leave room for an authenticated connection");
+        assert_eq!(receive(&mut socket).await["type"], "connected");
+        socket.close(None).await.unwrap();
+        shutdown.stop_graceful(None);
+        task.await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
