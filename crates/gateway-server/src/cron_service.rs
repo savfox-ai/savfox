@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::FutureExt;
 use savfox_core::cron::{
     CronDelivery, CronJob, CronJobState, CronPayload, CronRunEntry, CronSchedule,
     CronServiceStatus, CronSessionTarget,
@@ -47,10 +48,21 @@ fn payload_timeout_secs(payload: &CronPayload) -> u64 {
 
 fn preview_reply(reply: String) -> String {
     if reply.len() > 200 {
-        format!("{}...", &reply[..200])
+        format!("{}...", &reply[..reply.floor_char_boundary(200)])
     } else {
         reply
     }
+}
+
+// Catch panics while polling a payload so the scheduler can record an error,
+// release the running marker, and apply the same backoff as other failures.
+async fn isolate_payload(
+    payload: impl std::future::Future<Output = Result<Option<String>, String>>,
+) -> Result<Option<String>, String> {
+    std::panic::AssertUnwindSafe(payload)
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|_| Err("cron payload panicked".to_owned()))
 }
 
 // ─── Cron Service ──────────────────────────────────────────────────────────
@@ -223,7 +235,7 @@ impl CronService {
 
         let result = tokio::time::timeout(
             Duration::from_secs(timeout_secs),
-            self.execute_payload(job, channel, session_id.as_deref()),
+            isolate_payload(self.execute_payload(job, channel, session_id.as_deref())),
         )
         .await;
 
@@ -617,4 +629,30 @@ pub fn create_cron_service() -> Arc<CronService> {
                 .join(".savfox")
         });
     Arc::new(CronService::from_home(&home))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reply_preview_preserves_unicode_boundaries() {
+        assert_eq!(
+            preview_reply("中".repeat(67)),
+            format!("{}...", "中".repeat(66))
+        );
+        let mixed = format!("{}😀", "a".repeat(199));
+        assert_eq!(preview_reply(mixed), format!("{}...", "a".repeat(199)));
+        assert_eq!(preview_reply("中".repeat(66)), "中".repeat(66));
+    }
+
+    #[tokio::test]
+    async fn payload_panic_is_an_error_and_next_payload_can_run() {
+        let failure = isolate_payload(async { panic!("provider panic") }).await;
+        assert_eq!(failure, Err("cron payload panicked".to_owned()));
+        assert_eq!(
+            isolate_payload(async { Ok(Some("next job".to_owned())) }).await,
+            Ok(Some("next job".to_owned()))
+        );
+    }
 }
