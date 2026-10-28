@@ -354,6 +354,27 @@ mod tests {
         assert_eq!(frames, vec!["first", "second", "stop", "[DONE]"]);
     }
 
+    #[tokio::test]
+    async fn producer_disappearance_is_an_error_instead_of_success() {
+        let (sender, mut stream, _) = bounded_stream();
+        assert!(sender.send("partial reply".into()));
+        drop(sender);
+        assert_eq!(stream.next().await, Some(Ok("partial reply".into())));
+        assert_eq!(
+            stream.next().await,
+            Some(Err(StreamFailure::ProducerDropped))
+        );
+        assert_eq!(stream.next().await, None);
+    }
+
+    #[tokio::test]
+    async fn a_terminal_frame_also_obeys_the_size_limit() {
+        let (sender, mut stream, _) = bounded_stream();
+        sender.complete(vec!["x".repeat(MAX_FRAME_BYTES + 1)]);
+        assert_eq!(stream.next().await, Some(Err(StreamFailure::FrameTooLarge)));
+        assert_eq!(stream.next().await, None);
+    }
+
     #[test]
     fn unicode_chunks_are_bounded_and_lossless() {
         let text = "你好🌍".repeat(2048);
