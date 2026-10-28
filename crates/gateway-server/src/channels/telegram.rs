@@ -271,7 +271,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .and_then(|b| b.webhook_secret_token.clone())
         })
         .or_else(|| std::env::var("TELEGRAM_WEBHOOK_SECRET_TOKEN").ok());
-    if let Some(expected_secret) = expected_secret {
+    let Some(expected_secret) = super::require_inbound_secret(expected_secret, res, "telegram")
+    else {
+        return;
+    };
+    {
         let received_secret = req
             .headers()
             .get("x-telegram-bot-api-secret-token")

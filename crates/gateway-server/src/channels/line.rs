@@ -58,7 +58,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             std::env::var("LINE_CHANNEL_SECRET").ok()
         }
     };
-    if let Some(secret) = channel_secret {
+    let Some(secret) = super::require_inbound_secret(channel_secret, res, "line") else {
+        return;
+    };
+    {
         let signature = req
             .headers()
             .get("x-line-signature")

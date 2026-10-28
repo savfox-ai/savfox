@@ -1570,12 +1570,12 @@ pub(crate) fn verify_webhook_hmac(secret: &str, signature: &str, body: &[u8]) ->
         Err(_) => return false,
     };
     mac.update(body);
-    let result = mac.finalize();
-    let computed = hex::encode(result.into_bytes());
-
     // Support both raw hex and "sha256=" prefix
     let expected = signature.strip_prefix("sha256=").unwrap_or(signature);
-    computed == expected
+    let Ok(expected) = hex::decode(expected) else {
+        return false;
+    };
+    mac.verify_slice(&expected).is_ok()
 }
 
 /// Verify Telegram webhook secret token equality.
