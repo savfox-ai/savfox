@@ -29,7 +29,7 @@ Savfox 当前确实保留了一小部分 git 依赖与 git patch，这件事必�
 `matrix-bot-sdk` 0.2.4 仍依赖 Salvo 0.89，传递引入存在漏洞的 zstd 0.13。
 Savfox 采用 Salvo 1.0.1，并将维护 fork
 `https://github.com/arkret-org/matrix-bot-sdk` 固定到
-`bc5c32e935134e2ff2363616fab1eb1ba3f090be`（`arkret/salvo1-security`）。
+`d079403dd100af26d2fe7c5ea83dffa7c547cc5a`（`arkret/salvo1-security`）。
 维护仓仅导入 crates.io 已公开的 0.2.4 源码包，保留 Apache-2.0 许可证，
 不包含上游私有 Git 历史。Appservice 和客户端功能均保留。
 

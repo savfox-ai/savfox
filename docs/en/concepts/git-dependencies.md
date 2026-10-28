@@ -46,7 +46,7 @@ When changing a git dependency:
 `matrix-bot-sdk` 0.2.4 still depends on Salvo 0.89, which retains vulnerable
 zstd 0.13 packages. Savfox uses Salvo 1.0.1 and pins the maintenance fork
 `https://github.com/arkret-org/matrix-bot-sdk` at
-`bc5c32e935134e2ff2363616fab1eb1ba3f090be` (`arkret/salvo1-security`).
+`d079403dd100af26d2fe7c5ea83dffa7c547cc5a` (`arkret/salvo1-security`).
 The fork imports only the public crates.io 0.2.4 source archive and preserves
 the Apache-2.0 license; it contains no private upstream Git history.
 All appservice/client functionality remains enabled.
