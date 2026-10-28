@@ -177,6 +177,12 @@ savfox features enable <F>   # 启用特性
 savfox features disable <F>  # 禁用特性
 ```
 
+### `cron`
+
+使用 `savfox cron add reminder "every 5m" --message "检查进度" --enabled` 创建网关任务。
+间隔格式为正整数加 `s`、`m`、`h` 或 `d`，也支持 cron 表达式。
+`--payload-type` 支持 `systemEvent`（默认）和 `agentTurn`，以及对应的蛇形命名。
+
 ### `cloud`（别名：`cloud-tasks`）
 
 **实验性功能。** 管理云端任务。
