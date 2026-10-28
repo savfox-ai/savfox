@@ -200,3 +200,5 @@ After authentication, use `Request` messages to call any of the 90+ RPC methods:
 ## Protocol Version
 
 The current protocol version is `1`. Version negotiation occurs during the `Connect` / `Connected` handshake via `min_protocol` and `max_protocol` fields.
+
+Legacy WebSocket request envelopes enforce permissions on the parsed app-server method: session reads require operator read, lifecycle writes require operator write, turns require chat, and configuration or credential operations require operator admin. Approval responses require approval-resolution scope and the same credential owner as the pending request. Session access also checks execution ownership.

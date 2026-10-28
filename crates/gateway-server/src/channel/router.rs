@@ -18,6 +18,218 @@ use super::{
     BridgeOutgoing, GatewayChannel, INTERNAL_ERROR_CODE, INVALID_REQUEST_ERROR_CODE,
     METHOD_NOT_FOUND_ERROR_CODE,
 };
+use crate::auth::TokenScope;
+use crate::protocol::GatewayMessage;
+
+// Classify typed legacy requests exhaustively. New app-server methods must make
+// an explicit permission decision before becoming available over the gateway.
+fn legacy_request_scope(request: &ClientRequest) -> TokenScope {
+    match request {
+        ClientRequest::Initialize { .. }
+        | ClientRequest::SessionList { .. }
+        | ClientRequest::SessionLoadedList { .. }
+        | ClientRequest::SessionRead { .. }
+        | ClientRequest::SkillsList { .. }
+        | ClientRequest::AppsList { .. }
+        | ClientRequest::ModelList { .. }
+        | ClientRequest::CollaborationModeList { .. }
+        | ClientRequest::McpServerStatusList { .. }
+        | ClientRequest::ConfigRequirementsRead { .. }
+        | ClientRequest::GetAccount { .. }
+        | ClientRequest::GetAccountRateLimits { .. }
+        | ClientRequest::FuzzyFileSearch { .. } => TokenScope::OperatorRead,
+        ClientRequest::SessionStart { .. }
+        | ClientRequest::SessionResume { .. }
+        | ClientRequest::SessionFork { .. }
+        | ClientRequest::SessionArchive { .. }
+        | ClientRequest::SessionUnarchive { .. }
+        | ClientRequest::SessionSetName { .. }
+        | ClientRequest::SessionRollback { .. }
+        | ClientRequest::FeedbackUpload { .. } => TokenScope::OperatorWrite,
+        ClientRequest::TurnStart { .. }
+        | ClientRequest::TurnInterrupt { .. }
+        | ClientRequest::ReviewStart { .. } => TokenScope::Chat,
+        ClientRequest::ConfigRead { .. }
+        | ClientRequest::ConfigValueWrite { .. }
+        | ClientRequest::ConfigBatchWrite { .. }
+        | ClientRequest::SkillsConfigWrite { .. }
+        | ClientRequest::McpServerOauthLogin { .. }
+        | ClientRequest::McpServerRefresh { .. }
+        | ClientRequest::LoginAccount { .. }
+        | ClientRequest::CancelLoginAccount { .. }
+        | ClientRequest::LogoutAccount { .. }
+        | ClientRequest::OneOffCommandExec { .. }
+        | ClientRequest::MockExperimentalMethod { .. } => TokenScope::OperatorAdmin,
+    }
+}
+
+#[cfg(test)]
+mod legacy_authorization_tests {
+    use std::sync::Arc;
+
+    use savfox_core::config::ConfigBuilder;
+    use serde_json::json;
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::auth::TokenInfo;
+    use crate::channel::GatewayBridgeArgs;
+    use crate::session::{ClientSession, GatewaySessionManager, SessionStore};
+
+    #[tokio::test]
+    async fn legacy_dispatch_enforces_scopes_and_response_ownership() {
+        let home = tempfile::tempdir().unwrap();
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        let manager = GatewaySessionManager::new();
+        let (bridge_tx, mut bridge_rx) = mpsc::channel(32);
+        let channel = GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: Arc::new(SessionStore::from_home(home.path())),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            feedback: savfox_feedback::SavfoxFeedback::new(),
+            savfox_linux_sandbox_exe: None,
+            websocket_manager: manager.clone(),
+            outgoing_tx: bridge_tx,
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        });
+        for scope in [
+            TokenScope::Viewer,
+            TokenScope::Chat,
+            TokenScope::OperatorWrite,
+            TokenScope::OperatorAdmin,
+        ] {
+            let id = SessionId::new();
+            let (sender, mut receiver) = mpsc::channel(16);
+            let mut session = ClientSession::new(
+                id,
+                TokenInfo {
+                    label: "same-label".to_owned(),
+                    scopes: vec![scope],
+                },
+                sender,
+            );
+            session.principal = format!("owner-{scope:?}");
+            manager.add_session(session).await;
+            let params = json!({"keyPath":"model", "value":"legacy-authorized-model", "mergeStrategy":"replace"});
+            channel
+                .process_request(
+                    &id.to_string(),
+                    JSONRPCRequest {
+                        id: RequestId::String("write".to_owned()),
+                        method: "config/value/write".to_owned(),
+                        params: Some(params),
+                    },
+                )
+                .await;
+            if scope == TokenScope::OperatorAdmin {
+                assert!(matches!(
+                    bridge_rx.recv().await.unwrap(),
+                    BridgeOutgoing::Response { .. }
+                ));
+                let config = tokio::fs::read_to_string(home.path().join("config.toml"))
+                    .await
+                    .unwrap();
+                assert!(config.contains("legacy-authorized-model"));
+            } else {
+                assert!(matches!(
+                    receiver.recv().await.unwrap(),
+                    GatewayMessage::Error { code: -32003, .. }
+                ));
+                assert!(bridge_rx.try_recv().is_err());
+                assert!(!home.path().join("config.toml").exists());
+            }
+            // Reading a session list remains available to read-only clients.
+            if scope == TokenScope::Viewer {
+                channel
+                    .process_request(
+                        &id.to_string(),
+                        JSONRPCRequest {
+                            id: RequestId::String("list".to_owned()),
+                            method: "session/list".to_owned(),
+                            params: Some(json!({})),
+                        },
+                    )
+                    .await;
+                assert!(matches!(
+                    bridge_rx.recv().await.unwrap(),
+                    BridgeOutgoing::Response { .. }
+                ));
+            }
+            let request_id = RequestId::String(format!("approval-{scope:?}"));
+            let (tx, mut rx) = oneshot::channel();
+            channel
+                .pending_requests
+                .lock()
+                .await
+                .insert(request_id.clone(), (format!("owner-{scope:?}"), tx));
+            channel
+                .process_client_response(
+                    &id.to_string(),
+                    request_id.clone(),
+                    json!({"approved":true}),
+                )
+                .await;
+            assert!(
+                rx.try_recv().is_err(),
+                "non-approval scopes cannot resolve pending requests"
+            );
+            assert!(
+                channel
+                    .pending_requests
+                    .lock()
+                    .await
+                    .remove(&request_id)
+                    .is_some()
+            );
+            manager.remove_session(&id).await;
+        }
+
+        let (tx, mut rx) = oneshot::channel();
+        let request_id = RequestId::String("owned-approval".to_owned());
+        channel
+            .pending_requests
+            .lock()
+            .await
+            .insert(request_id.clone(), ("owner".to_owned(), tx));
+        for owner in ["other", "owner"] {
+            let id = SessionId::new();
+            let (sender, _receiver) = mpsc::channel(4);
+            let mut session = ClientSession::new(
+                id,
+                TokenInfo {
+                    label: "same-label".to_owned(),
+                    scopes: vec![TokenScope::OperatorApprovalsResolve],
+                },
+                sender,
+            );
+            session.principal = owner.to_owned();
+            manager.add_session(session).await;
+            channel
+                .process_client_response(
+                    &id.to_string(),
+                    request_id.clone(),
+                    json!({"approved":true}),
+                )
+                .await;
+            if owner == "other" {
+                assert!(rx.try_recv().is_err());
+            }
+        }
+        assert_eq!(rx.await.unwrap(), json!({"approved":true}));
+    }
+}
 
 impl GatewayChannel {
     /// Process an incoming JSON-RPC request from a WebSocket client.
@@ -49,6 +261,53 @@ impl GatewayChannel {
                 return;
             }
         };
+
+        let connection = SessionId::from_string(session_id).ok();
+        let connection = match connection {
+            Some(id) => self.websocket_manager.get_session(&id).await,
+            None => None,
+        };
+        let Some(connection) = connection else {
+            return;
+        };
+        let (authorized, principal) = {
+            let connection = connection.read().await;
+            (
+                connection
+                    .token_info
+                    .has_scope(legacy_request_scope(&client_request)),
+                connection.principal.clone(),
+            )
+        };
+        let ownership = if let Some(target) = request
+            .params
+            .as_ref()
+            .and_then(|params| params.get("sessionId").or_else(|| params.get("session_id")))
+            .and_then(Value::as_str)
+        {
+            self.claude_runtime
+                .authorize_session(Some(&principal), target)
+                .await
+        } else {
+            Ok(())
+        };
+        if !authorized || ownership.is_err() {
+            let _ = self
+                .websocket_manager
+                .send_to_session(
+                    session_id,
+                    GatewayMessage::Error {
+                        id: Some(match request_id {
+                            RequestId::String(id) => id,
+                            RequestId::Integer(id) => id.to_string(),
+                        }),
+                        code: -32003,
+                        message: "permission denied for legacy request".to_owned(),
+                    },
+                )
+                .await;
+            return;
+        }
 
         info!(
             session_id = %session_id,
@@ -1089,9 +1348,36 @@ impl GatewayChannel {
     }
 
     /// Process a JSON-RPC response from a client (answering a server request).
-    pub(crate) async fn process_client_response(&self, id: RequestId, result: Value) {
+    pub(crate) async fn process_client_response(
+        &self,
+        session_id: &str,
+        id: RequestId,
+        result: Value,
+    ) {
+        let Ok(connection_id) = SessionId::from_string(session_id) else {
+            return;
+        };
+        let Some(connection) = self.websocket_manager.get_session(&connection_id).await else {
+            return;
+        };
+        let principal = {
+            let connection = connection.read().await;
+            if !connection
+                .token_info
+                .has_scope(TokenScope::OperatorApprovalsResolve)
+            {
+                return;
+            }
+            connection.principal.clone()
+        };
         let mut pending = self.pending_requests.lock().await;
-        if let Some(tx) = pending.remove(&id) {
+        if pending
+            .get(&id)
+            .is_some_and(|(owner, _)| owner != &principal)
+        {
+            return;
+        }
+        if let Some((_, tx)) = pending.remove(&id) {
             if let Err(err) = tx.send(result) {
                 warn!("failed to deliver client response for {id:?}: {err:?}");
             }
@@ -1103,14 +1389,19 @@ impl GatewayChannel {
     /// Send a server->client request (e.g. approval) and wait for a response.
     pub(crate) async fn send_server_request(
         &self,
+        session_id: &str,
         payload: ServerRequestPayload,
     ) -> oneshot::Receiver<Value> {
         let id = RequestId::String(uuid::Uuid::now_v7().to_string());
         let (tx, rx) = oneshot::channel();
 
+        let Some(principal) = self.websocket_manager.principal(session_id).await else {
+            return rx;
+        };
+
         {
             let mut pending = self.pending_requests.lock().await;
-            pending.insert(id.clone(), tx);
+            pending.insert(id.clone(), (principal, tx));
         }
 
         let request = payload.request_with_id(id);

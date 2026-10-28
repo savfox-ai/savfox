@@ -470,7 +470,7 @@ async fn handle_client_message(
         } => {
             let result = payload.unwrap_or(Value::Null);
             channel
-                .process_client_response(RequestId::String(id), result)
+                .process_client_response(session_id, RequestId::String(id), result)
                 .await;
         }
 
@@ -480,7 +480,7 @@ async fn handle_client_message(
         } => {
             let result = serde_json::json!({ "approved": approved });
             channel
-                .process_client_response(RequestId::String(request_id), result)
+                .process_client_response(session_id, RequestId::String(request_id), result)
                 .await;
         }
 

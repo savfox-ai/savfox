@@ -78,7 +78,7 @@ pub(crate) struct GatewayChannel {
     savfox_linux_sandbox_exe: Option<PathBuf>,
     websocket_manager: GatewaySessionManager,
     /// Pending server->client requests awaiting a response.
-    pending_requests: Arc<Mutex<HashMap<RequestId, oneshot::Sender<Value>>>>,
+    pending_requests: Arc<Mutex<HashMap<RequestId, (String, oneshot::Sender<Value>)>>>,
     /// Outbound message channel.
     outgoing_tx: mpsc::Sender<BridgeOutgoing>,
     /// HTTP client for outbound platform API calls.
