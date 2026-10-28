@@ -122,7 +122,13 @@ mod legacy_authorization_tests {
             );
             session.principal = format!("owner-{scope:?}");
             manager.add_session(session).await;
-            let params = json!({"keyPath":"model", "value":"legacy-authorized-model", "mergeStrategy":"replace"});
+            // ConfigService validates the current structured model schema;
+            // a scalar model value would fail validation even for an admin.
+            let params = json!({
+                "keyPath":"model",
+                "value":{"provider":"openai","slug":"legacy-authorized-model"},
+                "mergeStrategy":"replace"
+            });
             channel
                 .process_request(
                     &id.to_string(),
@@ -134,10 +140,11 @@ mod legacy_authorization_tests {
                 )
                 .await;
             if scope == TokenScope::OperatorAdmin {
-                assert!(matches!(
-                    bridge_rx.recv().await.unwrap(),
-                    BridgeOutgoing::Response { .. }
-                ));
+                let response = bridge_rx.recv().await.unwrap();
+                assert!(
+                    matches!(&response, BridgeOutgoing::Response { .. }),
+                    "authorized configuration write failed: {response:?}"
+                );
                 let config = tokio::fs::read_to_string(home.path().join("config.toml"))
                     .await
                     .unwrap();
