@@ -228,17 +228,16 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default()
         .to_owned();
-    let body_bytes = match req.payload().await {
-        Ok(bytes) => bytes.to_vec(),
-        Err(_) => {
-            render_error(
-                res,
-                StatusCode::BAD_REQUEST,
-                "invalid_payload",
-                "failed to read request body",
-            );
-            return;
-        }
+    let body_bytes = if let Ok(bytes) = req.payload().await {
+        bytes.to_vec()
+    } else {
+        render_error(
+            res,
+            StatusCode::BAD_REQUEST,
+            "invalid_payload",
+            "failed to read request body",
+        );
+        return;
     };
     if !ZaloChannel::verify_signature(&secret, &body_bytes, &signature) {
         render_error(

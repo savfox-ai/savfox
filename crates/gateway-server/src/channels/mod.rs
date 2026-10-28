@@ -263,22 +263,20 @@ pub(crate) async fn webhook_ingress_guard(
     let gateway = depot
         .get_typed::<Arc<GatewayChannel>>()
         .expect("enabled check requires gateway");
-    let configs = match savfox_core::config::channel_store::list_channel_configs(
-        &gateway.config().savfox_home,
-    )
-    .await
+    let configs = if let Ok(configs) =
+        savfox_core::config::channel_store::list_channel_configs(&gateway.config().savfox_home)
+            .await
     {
-        Ok(configs) => configs,
-        Err(_) => {
-            render_error(
-                res,
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "config_unavailable",
-                "failed to load webhook verification configuration",
-            );
-            ctrl.skip_rest();
-            return;
-        }
+        configs
+    } else {
+        render_error(
+            res,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "config_unavailable",
+            "failed to load webhook verification configuration",
+        );
+        ctrl.skip_rest();
+        return;
     };
     let secret = configs
         .iter()
