@@ -156,6 +156,7 @@ pub(crate) struct BoundedStream {
     terminal: oneshot::Receiver<TerminalResult>,
     final_frames: VecDeque<String>,
     cancellation: StreamCancellation,
+    cancelled: Pin<Box<dyn Future<Output = StreamFailure> + Send>>,
     terminal_received: bool,
     finished: bool,
 }
@@ -165,6 +166,17 @@ impl Stream for BoundedStream {
 
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
+        if !this.terminal_received
+            && let Poll::Ready(failure) = this.cancelled.as_mut().poll(context)
+        {
+            // In particular, a persistent terminal may retain a sender after
+            // HTTP delivery fails. Do not wait for that process to complete in
+            // order to tell its subscriber that the stream is incomplete.
+            this.frames.close();
+            while this.frames.try_recv().is_ok() {}
+            this.terminal_received = true;
+            return Poll::Ready(Some(Err(failure)));
+        }
         if let Some(frame) = this.final_frames.pop_front() {
             return Poll::Ready(Some(Ok(frame)));
         }
@@ -210,6 +222,7 @@ pub(crate) fn bounded_stream() -> (StreamSender, BoundedStream, StreamCancellati
     let (tx, rx) = mpsc::channel(STREAM_CAPACITY);
     let (terminal_tx, terminal_rx) = oneshot::channel();
     let cancellation = StreamCancellation::new();
+    let receiver_cancellation = cancellation.clone();
     (
         StreamSender {
             frames: tx,
@@ -221,6 +234,7 @@ pub(crate) fn bounded_stream() -> (StreamSender, BoundedStream, StreamCancellati
             terminal: terminal_rx,
             final_frames: VecDeque::new(),
             cancellation: cancellation.clone(),
+            cancelled: Box::pin(async move { receiver_cancellation.cancelled().await }),
             terminal_received: false,
             finished: false,
         },
@@ -268,7 +282,6 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use futures_util::StreamExt;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 
@@ -280,12 +293,11 @@ mod tests {
         }
         assert!(!sender.send("lost delta".into()));
         assert_eq!(cancellation.cancelled().await, StreamFailure::SlowConsumer);
-        sender.complete(vec!["stop".into(), "[DONE]".into()]);
-        for index in 0..STREAM_CAPACITY {
-            assert_eq!(stream.next().await, Some(Ok(index.to_string())));
-        }
         assert_eq!(stream.next().await, Some(Err(StreamFailure::SlowConsumer)));
         assert_eq!(stream.next().await, None);
+        // Retaining the original producer does not delay the error.
+        assert!(!sender.send("later terminal output".into()));
+        sender.complete(vec!["stop".into(), "[DONE]".into()]);
     }
 
     #[tokio::test]
