@@ -1,5 +1,8 @@
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::path::Path;
 
+use futures::TryStreamExt;
 use sqlx::SqlitePool;
 use sqlx::migrate::MigrateDatabase;
 use tracing::info;
@@ -180,36 +183,44 @@ impl VectorStorage {
         query_embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<(MemoryChunk, f32)>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, ChunkWithEmbeddingRow>(
-            r#"
-            SELECT c.id, c.source, c.content, c.file_path, c.line_start, c.line_end, 
-                   c.token_count, c.hash, c.created_at, c.updated_at, e.embedding
-            FROM chunks c
-            JOIN embeddings e ON c.id = e.chunk_id
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let pool = self.pool.clone();
+        let query_embedding = query_embedding.to_vec();
+        // Run cosine work on a blocking worker rather than Tokio's async workers.
+        // SQLx's stream buffers only a bounded row window.
+        tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                let mut tx = pool.begin().await?;
+                let mut rows = sqlx::query_as::<_, (String, Vec<u8>)>(
+                    "SELECT c.id, e.embedding FROM chunks c JOIN embeddings e ON c.id = e.chunk_id ORDER BY c.rowid",
+                ).fetch(&mut *tx);
+                let mut best = BinaryHeap::new();
+                let mut ordinal = 0;
+                while let Some((id, bytes)) = rows.try_next().await? {
+                    let embedding = Self::bytes_to_embedding(&bytes);
+                    let candidate = RankedChunk { id, score: cosine_similarity(&query_embedding, &embedding), ordinal };
+                    retain_top_k(&mut best, candidate, limit);
+                    ordinal += 1;
+                }
+                drop(rows);
 
-        let mut results: Vec<(MemoryChunk, f32)> = rows
-            .into_iter()
-            .map(|row| {
-                let chunk = row.into_chunk();
-                let score = cosine_similarity(
-                    query_embedding,
-                    chunk
-                        .embedding
-                        .as_ref()
-                        .expect("sqlite row with embedding should deserialize with embedding"),
-                );
-                (chunk, score)
+                let mut ranked = best.into_vec();
+                ranked.sort_unstable();
+                let mut results = Vec::with_capacity(ranked.len());
+                // Fetch content and metadata only for winners in the same read
+                // snapshot, so concurrent edits cannot invalidate selected IDs.
+                for candidate in ranked {
+                    let row = sqlx::query_as::<_, ChunkWithEmbeddingRow>(
+                        "SELECT c.id, c.source, c.content, c.file_path, c.line_start, c.line_end, c.token_count, c.hash, c.created_at, c.updated_at, e.embedding FROM chunks c JOIN embeddings e ON c.id = e.chunk_id WHERE c.id = ?1",
+                    ).bind(candidate.id).fetch_one(&mut *tx).await?;
+                    results.push((row.into_chunk(), candidate.score));
+                }
+                tx.commit().await?;
+                Ok::<_, sqlx::Error>(results)
             })
-            .collect();
-
-        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        results.truncate(limit);
-
-        Ok(results)
+        }).await.map_err(|error| sqlx::Error::Io(std::io::Error::other(error)))?
     }
 
     pub async fn search_fts(
@@ -317,6 +328,55 @@ impl VectorStorage {
             .iter()
             .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
             .collect()
+    }
+}
+
+// Worst candidate sorts greatest, exposing the entry to evict. Insertion order
+// breaks ties, matching a stable descending score sort.
+struct RankedChunk {
+    id: String,
+    score: f32,
+    ordinal: usize,
+}
+
+impl PartialEq for RankedChunk {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+impl Eq for RankedChunk {}
+impl PartialOrd for RankedChunk {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for RankedChunk {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Undefined cosine scores rank last without breaking the heap's total
+        // ordering. Finite scores retain the existing descending semantics.
+        let rank = |score: f32| {
+            if score.is_nan() {
+                f32::NEG_INFINITY
+            } else {
+                score
+            }
+        };
+        rank(other.score)
+            .partial_cmp(&rank(self.score))
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| self.ordinal.cmp(&other.ordinal))
+    }
+}
+
+fn retain_top_k(best: &mut BinaryHeap<RankedChunk>, candidate: RankedChunk, limit: usize) {
+    if limit == 0 {
+        return;
+    }
+    if best.len() < limit {
+        best.push(candidate);
+    } else if best.peek().is_some_and(|worst| candidate < *worst) {
+        best.pop();
+        best.push(candidate);
     }
 }
 
@@ -443,4 +503,125 @@ fn bm25_score(content: &str, query: &str) -> f32 {
     }
 
     score
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn top_k_is_bounded_and_matches_stable_full_sort() {
+        let mut heap = BinaryHeap::new();
+        let mut reference = Vec::new();
+        for ordinal in 0..10_000 {
+            let score = ((ordinal * 37) % 101) as f32 / 100.0;
+            reference.push((ordinal.to_string(), score));
+            retain_top_k(
+                &mut heap,
+                RankedChunk {
+                    id: ordinal.to_string(),
+                    score,
+                    ordinal,
+                },
+                7,
+            );
+            assert!(heap.len() <= 7);
+        }
+        reference.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        reference.truncate(7);
+        let mut retained = heap.into_vec();
+        retained.sort_unstable();
+        assert_eq!(
+            retained
+                .into_iter()
+                .map(|candidate| (candidate.id, candidate.score))
+                .collect::<Vec<_>>(),
+            reference
+        );
+    }
+
+    #[test]
+    fn top_k_handles_zero_limit_and_undefined_scores() {
+        let mut heap = BinaryHeap::new();
+        retain_top_k(
+            &mut heap,
+            RankedChunk {
+                id: "none".to_owned(),
+                score: 1.0,
+                ordinal: 0,
+            },
+            0,
+        );
+        assert!(heap.is_empty());
+        retain_top_k(
+            &mut heap,
+            RankedChunk {
+                id: "nan".to_owned(),
+                score: f32::NAN,
+                ordinal: 0,
+            },
+            1,
+        );
+        retain_top_k(
+            &mut heap,
+            RankedChunk {
+                id: "valid".to_owned(),
+                score: -1.0,
+                ordinal: 1,
+            },
+            1,
+        );
+        assert_eq!(heap.pop().unwrap().id, "valid");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn streamed_search_matches_full_sort_and_returns_winner_metadata() {
+        let storage = VectorStorage::new(Path::new(":memory:"), 2).await.unwrap();
+        let mut reference = Vec::new();
+        for ordinal in 0..64 {
+            // Repeated scores deliberately exercise stable insertion-order ties.
+            let embedding = vec![(ordinal % 5) as f32 - 2.0, 1.0];
+            let chunk = MemoryChunk {
+                id: ordinal.to_string(),
+                source: MemorySource::Manual,
+                content: format!("content {ordinal}"),
+                embedding: Some(embedding.clone()),
+                metadata: MemoryMetadata {
+                    file_path: None,
+                    line_start: 1,
+                    line_end: 1,
+                    token_count: 2,
+                    hash: String::new(),
+                },
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            };
+            storage.insert_chunk(&chunk).await.unwrap();
+            reference.push((chunk.id, cosine_similarity(&[1.0, 0.0], &embedding)));
+        }
+        reference.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        for limit in [0, 1, 7, 100] {
+            let results = storage.search_similar(&[1.0, 0.0], limit).await.unwrap();
+            let actual = results
+                .iter()
+                .map(|(chunk, score)| (chunk.id.clone(), *score))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                actual,
+                reference.iter().take(limit).cloned().collect::<Vec<_>>()
+            );
+            for (chunk, _) in results {
+                assert_eq!(chunk.content, format!("content {}", chunk.id));
+                assert!(chunk.embedding.is_some());
+            }
+        }
+        storage.pool.close().await;
+        assert!(
+            storage
+                .search_similar(&[1.0, 0.0], 0)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
 }
