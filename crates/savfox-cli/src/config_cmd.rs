@@ -234,14 +234,28 @@ mod set_tests {
 
     #[tokio::test]
     async fn setting_one_field_sends_a_patch_and_preserves_unrelated_config() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the mock config gateway");
+        let address = listener
+            .local_addr()
+            .expect("read the mock gateway address");
         let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
-            let request: Value =
-                serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
-                    .unwrap();
+            let (stream, _) = listener.accept().await.expect("accept the CLI connection");
+            let mut socket = tokio_tungstenite::accept_async(stream)
+                .await
+                .expect("complete the mock WebSocket handshake");
+            let frame = socket
+                .next()
+                .await
+                .expect("receive a config request frame")
+                .expect("read the config request frame");
+            let request: Value = serde_json::from_str(
+                frame
+                    .to_text()
+                    .expect("config request must be a text frame"),
+            )
+            .expect("decode the config JSON-RPC request");
             assert_eq!(request["method"], "config.patch");
             assert_eq!(
                 request["params"],
@@ -258,7 +272,7 @@ mod set_tests {
                         .into(),
                 ))
                 .await
-                .unwrap();
+                .expect("send the config.patch response");
             config
         });
         super::run(super::ConfigCommand {
@@ -270,9 +284,9 @@ mod set_tests {
             token: "test-token".into(),
         })
         .await
-        .unwrap();
+        .expect("set the selected config field through the gateway");
         assert_eq!(
-            server.await.unwrap(),
+            server.await.expect("join the mock config gateway"),
             json!({"model":"provider/model", "gateway":{"host":"localhost", "port":18882}})
         );
     }
