@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use sqlx::SqlitePool;
@@ -92,17 +93,27 @@ impl VectorStorage {
             .execute(&self.pool)
             .await?;
 
+        // Do not backfill from chunks: legacy indexes may contain multiple
+        // revisions of the same file. The first sync replaces them completely.
+        sqlx::query("CREATE TABLE IF NOT EXISTS indexed_files (source TEXT NOT NULL, file_path TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY (source, file_path))")
+            .execute(&self.pool)
+            .await?;
+
         info!("Vector storage initialized with {} dims", self.vector_dims);
         Ok(())
     }
 
     pub async fn insert_chunk(&self, chunk: &MemoryChunk) -> Result<(), sqlx::Error> {
-        let source_str = match chunk.source {
-            MemorySource::File => "file",
-            MemorySource::Session => "session",
-            MemorySource::Qmd => "qmd",
-            MemorySource::Manual => "manual",
-        };
+        let mut tx = self.pool.begin().await?;
+        Self::insert_chunk_on(&mut tx, chunk).await?;
+        tx.commit().await
+    }
+
+    async fn insert_chunk_on(
+        connection: &mut sqlx::SqliteConnection,
+        chunk: &MemoryChunk,
+    ) -> Result<(), sqlx::Error> {
+        let source_str = source_name(&chunk.source);
 
         sqlx::query(
             r#"
@@ -121,7 +132,7 @@ impl VectorStorage {
         .bind(&chunk.metadata.hash)
         .bind(chunk.created_at.to_rfc3339())
         .bind(chunk.updated_at.to_rfc3339())
-        .execute(&self.pool)
+        .execute(&mut *connection)
         .await?;
 
         if let Some(ref embedding) = chunk.embedding {
@@ -129,11 +140,79 @@ impl VectorStorage {
             sqlx::query("INSERT OR REPLACE INTO embeddings (chunk_id, embedding) VALUES (?1, ?2)")
                 .bind(&chunk.id)
                 .bind(&embedding_bytes)
-                .execute(&self.pool)
+                .execute(&mut *connection)
                 .await?;
         }
 
         Ok(())
+    }
+
+    pub(crate) async fn source_file_hashes(
+        &self,
+        source: &MemorySource,
+    ) -> Result<HashMap<String, String>, sqlx::Error> {
+        let rows: Vec<(String, String)> =
+            sqlx::query_as("SELECT file_path, hash FROM indexed_files WHERE source = ?1")
+                .bind(source_name(source))
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().collect())
+    }
+
+    /// Publish a fully embedded revision atomically, including empty files.
+    pub(crate) async fn replace_file_chunks(
+        &self,
+        source: &MemorySource,
+        path: &str,
+        hash: &str,
+        chunks: &[MemoryChunk],
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM chunks WHERE source = ?1 AND file_path = ?2")
+            .bind(source_name(source))
+            .bind(path)
+            .execute(&mut *tx)
+            .await?;
+        for chunk in chunks {
+            Self::insert_chunk_on(&mut tx, chunk).await?;
+        }
+        sqlx::query(
+            "INSERT OR REPLACE INTO indexed_files (source, file_path, hash) VALUES (?1, ?2, ?3)",
+        )
+        .bind(source_name(source))
+        .bind(path)
+        .bind(hash)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await
+    }
+
+    /// Prune only after a complete successful source scan. Include legacy rows
+    /// without a manifest so removed files from older indexes are cleaned up.
+    pub(crate) async fn prune_source_files(
+        &self,
+        source: &MemorySource,
+        live: &HashSet<String>,
+    ) -> Result<(), sqlx::Error> {
+        let source = source_name(source);
+        let mut tx = self.pool.begin().await?;
+        let paths: Vec<(String,)> = sqlx::query_as("SELECT file_path FROM indexed_files WHERE source = ?1 UNION SELECT file_path FROM chunks WHERE source = ?1 AND file_path IS NOT NULL")
+            .bind(source).fetch_all(&mut *tx).await?;
+        for (path,) in paths {
+            if !live.contains(&path) {
+                sqlx::query("DELETE FROM chunks WHERE source = ?1 AND file_path = ?2")
+                    .bind(source)
+                    .bind(&path)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM indexed_files WHERE source = ?1 AND file_path = ?2")
+                    .bind(source)
+                    .bind(&path)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        tx.commit().await
     }
 
     pub async fn delete_chunk(&self, id: &str) -> Result<bool, sqlx::Error> {
@@ -320,6 +399,15 @@ impl VectorStorage {
     }
 }
 
+fn source_name(source: &MemorySource) -> &'static str {
+    match source {
+        MemorySource::File => "file",
+        MemorySource::Session => "session",
+        MemorySource::Qmd => "qmd",
+        MemorySource::Manual => "manual",
+    }
+}
+
 #[derive(sqlx::FromRow)]
 struct ChunkRow {
     id: String,
@@ -443,4 +531,87 @@ fn bm25_score(content: &str, query: &str) -> f32 {
     }
 
     score
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chunk(id: &str, content: &str) -> MemoryChunk {
+        MemoryChunk {
+            id: id.to_owned(),
+            source: MemorySource::File,
+            content: content.to_owned(),
+            embedding: Some(vec![1.0, 0.0]),
+            metadata: MemoryMetadata {
+                file_path: Some("notes.md".to_owned()),
+                line_start: 1,
+                line_end: 1,
+                token_count: 1,
+                hash: content.to_owned(),
+            },
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn replacement_repairs_legacy_duplicates_and_rolls_back_failed_writes() {
+        let storage = VectorStorage::new(Path::new(":memory:"), 2).await.unwrap();
+        storage.insert_chunk(&chunk("old1", "old")).await.unwrap();
+        storage.insert_chunk(&chunk("old2", "old")).await.unwrap();
+        storage
+            .replace_file_chunks(
+                &MemorySource::File,
+                "notes.md",
+                "new",
+                &[chunk("new", "new")],
+            )
+            .await
+            .unwrap();
+        assert_eq!(storage.get_chunk_count().await.unwrap(), 1);
+        assert!(storage.get_embedding("old1").await.unwrap().is_none());
+        sqlx::query("CREATE TRIGGER fail_insert BEFORE INSERT ON chunks WHEN NEW.content = 'fail' BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+            .execute(&storage.pool).await.unwrap();
+        assert!(
+            storage
+                .replace_file_chunks(
+                    &MemorySource::File,
+                    "notes.md",
+                    "fail",
+                    &[chunk("fail", "fail")]
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(storage.get_chunk_count().await.unwrap(), 1);
+        assert!(storage.get_chunk("new").await.unwrap().is_some());
+        assert_eq!(
+            storage
+                .source_file_hashes(&MemorySource::File)
+                .await
+                .unwrap()
+                .get("notes.md")
+                .map(String::as_str),
+            Some("new")
+        );
+
+        // Legacy entries lacking a manifest are also pruned after source deletion.
+        storage
+            .insert_chunk(&chunk("legacy", "legacy"))
+            .await
+            .unwrap();
+        storage
+            .prune_source_files(&MemorySource::File, &HashSet::new())
+            .await
+            .unwrap();
+        assert_eq!(storage.get_chunk_count().await.unwrap(), 0);
+        assert!(
+            storage
+                .source_file_hashes(&MemorySource::File)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
 }
