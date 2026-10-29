@@ -2,6 +2,9 @@
 
 网关服务器提供 HTTP/WebSocket 远程访问能力，支持 Web 客户端、聊天平台集成和多设备使用。
 
+浏览器管理权限、私有会话所有权、置顶与归档持久化，以及出站响应大小限制，见
+[网关访问权限与下载限制](gateway/access-and-download-limits.md)。
+
 ## 启动网关
 
 ```bash

@@ -5,13 +5,20 @@ use super::*;
 pub(super) async fn submission_loop(
     sess: Arc<Session>,
     config: Arc<Config>,
-    rx_sub: Receiver<Submission>,
+    rx_sub: Receiver<SessionCommand>,
 ) {
     // Seed with context in case there is an OverrideTurnContext first.
     let mut previous_context: Option<Arc<TurnContext>> = Some(sess.new_default_turn().await);
 
     // To break out of this loop, send Op::Shutdown.
-    while let Ok(sub) = rx_sub.recv().await {
+    while let Ok(command) = rx_sub.recv().await {
+        let sub = match command {
+            SessionCommand::Submission(sub) => *sub,
+            SessionCommand::InterruptTurn { turn_id, response } => {
+                let _ = response.send(sess.interrupt_turn(&turn_id).await);
+                continue;
+            }
+        };
         debug!(?sub, "Submission");
         match sub.op.clone() {
             Op::Interrupt => {

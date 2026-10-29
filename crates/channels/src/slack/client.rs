@@ -120,13 +120,13 @@ pub async fn edit_message(
         .body(body.to_string())
         .send()
         .await?;
-    let resp_body: serde_json::Value = response.json().await.unwrap_or_default();
+    let resp_body: serde_json::Value = response.error_for_status()?.json().await?;
     if resp_body.get("ok").and_then(|v| v.as_bool()) != Some(true) {
         let err = resp_body
             .get("error")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        warn!("Slack chat.update error: {err}");
+        anyhow::bail!("Slack chat.update error: {err}");
     }
     Ok(())
 }

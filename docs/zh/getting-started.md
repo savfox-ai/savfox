@@ -20,7 +20,15 @@ Cargo 会自行获取固定提交的 Arkret SDK、Garth 和桥接 Git 依赖；
 从源码构建无需检出相邻仓库。Arkret 本地协同开发的覆盖配置见
 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
 
-### 验证安装
+### 发布安装器
+
+发布安装脚本使用与原生 release 工作流相同的 target triple。
+`SAVFOX_VERSION=0.3.1` 或 `v0.3.1` 可固定版本，未设置时选择最新版本。
+脚本会下载归档和对应 `.sha256` 文件，在解压或替换已安装二进制前验证摘要；
+校验文件缺失或摘要不匹配会使安装失败。解析最新版本需要 curl，固定版本下载
+也支持 wget。目前原生 Windows 发布支持 x64。
+
+### 检查已安装的二进制
 
 ```bash
 savfox --version

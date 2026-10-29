@@ -14,7 +14,14 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/build-release-web
+
   build-linux:
+    needs: [web]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -25,11 +32,17 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: gateway-release-web
+          path: crates/gateway-server/static
+      - run: node scripts/verify-web-bundle.cjs
+
       - name: Build Linux x64
-        run: cargo build --release --target x86_64-unknown-linux-musl -p savfox-cli
+        run: cargo build --locked --release --target x86_64-unknown-linux-musl -p savfox-cli
 
       - name: Build Linux ARM64
-        run: cargo build --release --target aarch64-unknown-linux-musl -p savfox-cli
+        run: cargo build --locked --release --target aarch64-unknown-linux-musl -p savfox-cli
 
       - name: Package Linux binaries
         run: |
@@ -46,6 +59,7 @@ jobs:
           path: dist/
 
   build-macos:
+    needs: [web]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -56,11 +70,17 @@ jobs:
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: gateway-release-web
+          path: crates/gateway-server/static
+      - run: node scripts/verify-web-bundle.cjs
+
       - name: Build macOS x64
-        run: cargo build --release --target x86_64-apple-darwin -p savfox-cli
+        run: cargo build --locked --release --target x86_64-apple-darwin -p savfox-cli
 
       - name: Build macOS ARM64
-        run: cargo build --release --target aarch64-apple-darwin -p savfox-cli
+        run: cargo build --locked --release --target aarch64-apple-darwin -p savfox-cli
 
       - name: Package macOS binaries
         run: |
@@ -77,6 +97,7 @@ jobs:
           path: dist/
 
   build-windows:
+    needs: [web]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -87,8 +108,14 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: gateway-release-web
+          path: crates/gateway-server/static
+      - run: node scripts/verify-web-bundle.cjs
+
       - name: Build Windows x64
-        run: cargo build --release --target x86_64-pc-windows-msvc -p savfox-cli
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc -p savfox-cli
 
       - name: Package Windows binaries
         run: |

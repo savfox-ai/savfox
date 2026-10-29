@@ -221,6 +221,12 @@ pub struct SessionEntry {
     /// Label for UI display.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Whether the user pinned this session in the UI.
+    #[serde(default)]
+    pub pinned: bool,
+    /// Whether the user archived this session in the UI.
+    #[serde(default)]
+    pub archived: bool,
     /// Fingerprint of the effective execution security policy last used for
     /// this logical session. A changed fingerprint invalidates the in-memory
     /// core session so stale session-scoped grants cannot survive a policy
@@ -392,6 +398,8 @@ impl Default for SessionEntry {
             provider: None,
             identity: None,
             label: None,
+            pinned: false,
+            archived: false,
             security_policy_fingerprint: None,
             execution_mode: None,
             sandbox_enforcement: None,
@@ -941,6 +949,38 @@ impl SessionStore {
         Some(entry)
     }
 
+    /// Persist a field update before publishing it in memory. Interactive APIs
+    /// use this path when a successful response must confirm durable storage.
+    pub async fn try_update<F>(
+        &self,
+        session_id: &str,
+        f: F,
+    ) -> std::io::Result<Option<SessionEntry>>
+    where
+        F: FnOnce(&mut SessionEntry),
+    {
+        self.refresh_cache().await;
+        let _mutation = self.mutation.lock().await;
+        let mut entries = {
+            let cache = self.cache.read().await;
+            let Some(cache) = cache.as_ref() else {
+                return Ok(None);
+            };
+            cache.entries.clone()
+        };
+        let Some(entry) = entries.get_mut(session_id) else {
+            return Ok(None);
+        };
+        f(entry);
+        entry.touch();
+        let updated = entry.clone();
+        self.persist_entries(&entries).await?;
+        if let Some(cache) = self.cache.write().await.as_mut() {
+            cache.entries = entries;
+        }
+        Ok(Some(updated))
+    }
+
     /// Remove a session by session_id.
     pub async fn remove(&self, session_id: &str) -> bool {
         if !is_uuid_v7(session_id) {
@@ -992,13 +1032,17 @@ impl SessionStore {
     }
 
     /// Set a session's pinned status.
-    pub async fn set_pinned(&self, _session_id: &str, _pinned: bool) -> bool {
-        true
+    pub async fn set_pinned(&self, session_id: &str, pinned: bool) -> bool {
+        self.try_update(session_id, |entry| entry.pinned = pinned)
+            .await
+            .is_ok_and(|entry| entry.is_some())
     }
 
     /// Set a session's archived status.
-    pub async fn set_archived(&self, _session_id: &str, _archived: bool) -> bool {
-        true
+    pub async fn set_archived(&self, session_id: &str, archived: bool) -> bool {
+        self.try_update(session_id, |entry| entry.archived = archived)
+            .await
+            .is_ok_and(|entry| entry.is_some())
     }
 
     /// List recent sessions.
@@ -1227,6 +1271,57 @@ mod tests {
             .expect("routing id should be restored");
 
         assert_eq!(restored.session_id, created.session_id);
+    }
+
+    #[tokio::test]
+    async fn pinned_and_archived_state_survives_reload_and_can_be_cleared() {
+        let home = tempdir().expect("tempdir");
+        let store = SessionStore::from_home(home.path());
+        let entry = store.get_or_create_for_routing_id("ui-state").await;
+        assert!(store.set_pinned(&entry.session_id, true).await);
+        assert!(store.set_archived(&entry.session_id, true).await);
+        let reloaded = SessionStore::from_home(home.path());
+        let restored = reloaded.get(&entry.session_id).await.expect("restored");
+        assert!(restored.pinned);
+        assert!(restored.archived);
+        assert!(restored.version > entry.version);
+        assert!(reloaded.set_pinned(&entry.session_id, false).await);
+        assert!(reloaded.set_archived(&entry.session_id, false).await);
+        let cleared = SessionStore::from_home(home.path())
+            .get(&entry.session_id)
+            .await
+            .expect("cleared");
+        assert!(!cleared.pinned);
+        assert!(!cleared.archived);
+        let missing = uuid::Uuid::now_v7().to_string();
+        assert!(!store.set_pinned(&missing, true).await);
+        assert!(!store.set_archived(&missing, true).await);
+    }
+
+    #[tokio::test]
+    async fn failed_durable_ui_update_keeps_cached_state_and_reports_failure() {
+        let home = tempdir().expect("tempdir");
+        let store = SessionStore::from_home(home.path());
+        let entry = store.get_or_create_for_routing_id("write-failure").await;
+        let metadata = home.path().join("gateway-session-store.json");
+        std::fs::remove_file(&metadata).expect("remove metadata file");
+        std::fs::create_dir(&metadata).expect("block atomic replacement with a directory");
+        assert!(!store.set_pinned(&entry.session_id, true).await);
+        assert!(!store.set_archived(&entry.session_id, true).await);
+        let cached = store.get(&entry.session_id).await.expect("cached entry");
+        assert!(!cached.pinned);
+        assert!(!cached.archived);
+        assert_eq!(cached.version, entry.version);
+    }
+
+    #[test]
+    fn legacy_session_metadata_defaults_ui_state_to_false() {
+        let mut json = serde_json::to_value(SessionEntry::new()).expect("serialize");
+        json.as_object_mut().expect("object").remove("pinned");
+        json.as_object_mut().expect("object").remove("archived");
+        let restored: SessionEntry = serde_json::from_value(json).expect("legacy metadata");
+        assert!(!restored.pinned);
+        assert!(!restored.archived);
     }
 
     #[tokio::test]

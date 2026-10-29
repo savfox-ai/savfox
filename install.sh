@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Savfox installer — one-line install:
 #   curl -fsSL https://savfox.ai/install.sh | bash
 #
@@ -20,10 +20,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-info() { printf "${BLUE}info${NC}  %s\n" "$1"; }
-warn() { printf "${YELLOW}warn${NC}  %s\n" "$1"; }
+info() { printf "${BLUE}info${NC}  %s\n" "$1" >&2; }
+warn() { printf "${YELLOW}warn${NC}  %s\n" "$1" >&2; }
 error() { printf "${RED}error${NC} %s\n" "$1" >&2; }
-success() { printf "${GREEN}✓${NC} %s\n" "$1"; }
+success() { printf "${GREEN}✓${NC} %s\n" "$1" >&2; }
 
 # Detect OS and architecture
 detect_platform() {
@@ -51,6 +51,13 @@ detect_platform() {
     PLATFORM="${os}"
     ARCH="${arch}"
 
+    case "${os}/${arch}" in
+        linux/*) TARGET="${arch}-unknown-linux-gnu" ;;
+        darwin/*) TARGET="${arch}-apple-darwin" ;;
+        windows/x86_64) TARGET="x86_64-pc-windows-msvc" ;;
+        *) error "No release binary for ${os}/${arch}"; return 1 ;;
+    esac
+
     if [ "$os" = "windows" ]; then
         BINARY_NAME="savfox.exe"
         ARCHIVE_EXT="zip"
@@ -67,20 +74,38 @@ get_download_url() {
 
     if [ "$version" = "latest" ]; then
         # Fetch latest release tag
-        version=$(curl -fsSL "${base_url}/latest" -o /dev/null -w '%{redirect_url}' | grep -oE '[^/]+$')
-        if [ -z "$version" ]; then
+        local effective_url
+        effective_url=$(curl -fsSL "${base_url}/latest" -o /dev/null -w '%{url_effective}') || return 1
+        if [[ "$effective_url" != "${base_url}/tag/"* ]]; then
             error "Could not determine latest version"
-            exit 1
+            return 1
         fi
+        version="${effective_url##*/}"
         info "Latest version: ${version}"
     fi
 
-    local filename="savfox-${version}-${ARCH}-${PLATFORM}.${ARCHIVE_EXT}"
+    if [[ ! "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]; then
+        error "Invalid release version: ${version}"
+        return 1
+    fi
+    [[ "$version" == v* ]] || version="v${version}"
+    local filename="savfox-${version}-${TARGET}.${ARCHIVE_EXT}"
     echo "${base_url}/download/${version}/${filename}"
 }
 
+download() {
+    if command -v curl &>/dev/null; then
+        curl -fsSL "$1" -o "$2"
+    elif command -v wget &>/dev/null; then
+        wget -qO "$2" "$1"
+    else
+        error "Neither curl nor wget found. Please install one of them."
+        return 1
+    fi
+}
+
 # Download and install
-install() {
+install() (
     local url="$1"
     local tmpdir
 
@@ -89,13 +114,28 @@ install() {
 
     info "Downloading from ${url}..."
 
-    if command -v curl &>/dev/null; then
-        curl -fsSL "$url" -o "${tmpdir}/savfox-archive"
-    elif command -v wget &>/dev/null; then
-        wget -qO "${tmpdir}/savfox-archive" "$url"
+    download "$url" "${tmpdir}/savfox-archive" || return 1
+    download "${url}.sha256" "${tmpdir}/savfox-archive.sha256" || return 1
+
+    local expected actual checksum_filename
+    read -r expected checksum_filename < "${tmpdir}/savfox-archive.sha256"
+    if [[ ! "$expected" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        error "Invalid SHA256 checksum file"
+        return 1
+    fi
+    if command -v sha256sum &>/dev/null; then
+        actual=$(sha256sum "${tmpdir}/savfox-archive")
+    elif command -v shasum &>/dev/null; then
+        actual=$(shasum -a 256 "${tmpdir}/savfox-archive")
     else
-        error "Neither curl nor wget found. Please install one of them."
-        exit 1
+        error "Neither sha256sum nor shasum found"
+        return 1
+    fi
+    actual="${actual%% *}"
+    expected=$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')
+    if [ "$actual" != "$expected" ]; then
+        error "SHA256 checksum mismatch"
+        return 1
     fi
 
     info "Extracting..."
@@ -122,7 +162,7 @@ install() {
     chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
     success "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
-}
+)
 
 # Add to PATH if needed
 setup_path() {
@@ -140,7 +180,7 @@ setup_path() {
     esac
 
     if [ -n "$shell_config" ]; then
-        if [ "${SHELL:-}" = "*/fish" ]; then
+        if [[ "${SHELL:-}" == */fish ]]; then
             echo "fish_add_path ${INSTALL_DIR}" >> "$shell_config"
         else
             echo "export PATH=\"${INSTALL_DIR}:\$PATH\"" >> "$shell_config"
@@ -189,4 +229,6 @@ main() {
     echo ""
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
+    main "$@"
+fi

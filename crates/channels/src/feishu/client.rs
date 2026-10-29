@@ -125,13 +125,9 @@ pub async fn edit_message(
         .body(body.to_string())
         .send()
         .await?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "Feishu edit error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
+    let payload: serde_json::Value = response.error_for_status()?.json().await?;
+    if payload.get("code").and_then(serde_json::Value::as_i64) != Some(0) {
+        anyhow::bail!("Feishu message edit was not acknowledged as successful");
     }
     Ok(())
 }

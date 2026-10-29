@@ -423,6 +423,20 @@ pub fn required_scope(method: &str) -> Scope {
         return Scope::Admin;
     }
 
+    // Profiles select executables, extensions and process arguments. Downloads
+    // can write into a caller-selected filesystem directory. Keep both behind
+    // the process/filesystem administration boundary, even though ordinary
+    // browsing can use an administrator-configured profile with Write access.
+    if matches!(
+        method,
+        "browser.profiles.create"
+            | "browser.profiles.delete"
+            | "browser.profiles.default.set"
+            | "browser.download"
+    ) {
+        return Scope::Admin;
+    }
+
     // Agent lifecycle writes can change sandbox, approval, tool, and network
     // policy. Treat them as security-boundary mutations, not ordinary CRUD.
     if matches!(
@@ -818,6 +832,33 @@ mod tests {
         // Other agent.* methods stay at Write.
         assert_eq!(required_scope("agent.list"), Scope::Read);
         assert_eq!(required_scope("agent"), Scope::Write);
+    }
+
+    #[test]
+    fn browser_process_configuration_requires_admin() {
+        for method in [
+            "browser.profiles.create",
+            "browser.profiles.delete",
+            "browser.profiles.default.set",
+            "browser.download",
+        ] {
+            let scope = required_scope(method);
+            assert_eq!(scope, Scope::Admin, "{method}");
+            for token_scope in [TokenScope::OperatorWrite, TokenScope::OperatorRead] {
+                let token = TokenInfo {
+                    label: "limited".to_owned(),
+                    scopes: vec![token_scope],
+                };
+                assert!(!has_scope(&token, &scope), "{method}");
+            }
+            let admin = TokenInfo {
+                label: "admin".to_owned(),
+                scopes: vec![TokenScope::OperatorAdmin],
+            };
+            assert!(has_scope(&admin, &scope), "{method}");
+        }
+        assert_eq!(required_scope("browser.start"), Scope::Write);
+        assert_eq!(required_scope("browser.profiles.list"), Scope::Read);
     }
 
     #[test]

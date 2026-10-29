@@ -11,6 +11,12 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/build-release-web
+
   # ─── Generate changelog from conventional commits ─────────────────
   changelog:
     name: Generate changelog
@@ -41,6 +47,7 @@ jobs:
 
   # ─── Build release binaries ───────────────────────────────────────
   build:
+    needs: [web]
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -102,7 +109,16 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} --bin savfox
+        uses: actions/download-artifact@v8
+        with:
+          name: gateway-release-web
+          path: crates/gateway-server/static
+
+      - name: Verify embedded Web assets
+        run: node scripts/verify-web-bundle.cjs
+
+      - name: Build binary with Web assets
+        run: cargo build --locked --release --target ${{ matrix.target }} --bin savfox
 
       # ── Package: tar.gz for Linux/macOS ──
       - name: Package (tar.gz)

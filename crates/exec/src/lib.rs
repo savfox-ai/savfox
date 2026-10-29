@@ -21,6 +21,7 @@ pub mod event_processor_with_jsonl_output;
 pub mod exec_events;
 
 use std::collections::HashSet;
+use std::future::Future;
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -45,6 +46,7 @@ use savfox_core::git_info::get_git_repo_root;
 use savfox_core::models_manager::manager::RefreshStrategy;
 use savfox_core::protocol::{
     AskForApproval, Event, EventMsg, Op, ReviewRequest, ReviewTarget, SessionSource,
+    TurnAbortReason,
 };
 use savfox_core::{
     AuthManager, LMSTUDIO_OSS_PROVIDER_ID, NewSession, OLLAMA_CHAT_PROVIDER_ID,
@@ -56,7 +58,7 @@ use savfox_protocol::config_types::SandboxMode;
 use savfox_protocol::user_input::UserInput;
 use serde_json::Value;
 use supports_color::Stream;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
@@ -80,6 +82,115 @@ struct SessionEventEnvelope {
     session_id: savfox_protocol::SessionId,
     session: Arc<savfox_core::SavfoxSession>,
     event: Event,
+}
+
+#[derive(Default)]
+struct ExecLifecycle {
+    initial_submitted: bool,
+    interrupted: bool,
+    terminal_emitted: bool,
+}
+
+impl ExecLifecycle {
+    fn can_submit_initial(&self) -> bool {
+        !self.initial_submitted && !self.interrupted
+    }
+
+    /// The signal is authoritative even if core has no active turn to abort.
+    fn interrupt(&mut self) {
+        self.interrupted = true;
+    }
+
+    /// Idle sessions do not produce TurnAborted. Finish cancellation output
+    /// only after shutdown acknowledgements, without duplicating a core event.
+    fn missing_cancellation_terminal(&mut self) -> Option<Event> {
+        if !self.interrupted || self.terminal_emitted {
+            return None;
+        }
+        self.terminal_emitted = true;
+        Some(Event {
+            id: String::new(),
+            msg: EventMsg::TurnAborted(savfox_core::protocol::TurnAbortedEvent {
+                reason: TurnAbortReason::Interrupted,
+            }),
+        })
+    }
+
+    fn accept_event(&mut self, primary: bool, event: &EventMsg) -> bool {
+        if !primary && matches!(event, EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)) {
+            return false;
+        }
+        let terminal = matches!(event, EventMsg::TurnComplete(_))
+            || matches!(event, EventMsg::TurnAborted(event) if event.reason == TurnAbortReason::Interrupted);
+        if primary && terminal {
+            if std::mem::replace(&mut self.terminal_emitted, true) {
+                return false;
+            }
+            if matches!(event, EventMsg::TurnAborted(_)) {
+                self.interrupted = true;
+            }
+        }
+        true
+    }
+}
+
+// Keep streamed events inline instead of allocating a box for every token.
+#[allow(clippy::large_enum_variant)]
+enum ExecLoopInput {
+    Signal(bool),
+    Submitted(savfox_core::error::Result<String>),
+    Session(Option<SessionEventEnvelope>),
+}
+
+#[derive(Default)]
+struct ExecShutdown {
+    requested: HashSet<savfox_protocol::SessionId>,
+    pending: HashSet<savfox_protocol::SessionId>,
+    primary_finished: bool,
+}
+
+impl ExecShutdown {
+    fn acknowledge(&mut self, id: savfox_protocol::SessionId, primary: bool) {
+        // A session may close on its own, before exec requests its shutdown.
+        // Remember that fact so cleanup does not enqueue another operation on
+        // its closed coordinator.
+        self.requested.insert(id);
+        self.pending.remove(&id);
+        self.primary_finished |= primary;
+    }
+
+    fn complete(&self) -> bool {
+        self.primary_finished && self.pending.is_empty()
+    }
+}
+
+async fn next_exec_input(
+    interrupt: &mut oneshot::Receiver<()>,
+    signal_finished: bool,
+    submission: &mut (impl Future<Output = savfox_core::error::Result<String>> + Unpin),
+    can_submit: bool,
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<SessionEventEnvelope>,
+) -> ExecLoopInput {
+    tokio::select! {
+        biased;
+        result = interrupt, if !signal_finished => ExecLoopInput::Signal(result.is_ok()),
+        result = submission, if can_submit => ExecLoopInput::Submitted(result),
+        event = events.recv() => ExecLoopInput::Session(event),
+    }
+}
+
+async fn request_exec_shutdown(manager: &SessionManager, shutdown: &mut ExecShutdown) {
+    for id in manager.list_session_ids().await {
+        if !shutdown.requested.insert(id) {
+            continue;
+        }
+        let Ok(session) = manager.get_session(id).await else {
+            continue;
+        };
+        if session.submit(Op::Shutdown).await.is_ok() {
+            shutdown.pending.insert(id);
+        }
+    }
 }
 
 pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
@@ -328,13 +439,9 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     } = if let Some(ExecCommand::Resume(args)) = command.as_ref() {
         let resume_path = resolve_resume_path(&config, args).await?;
 
-        if let Some(path) = resume_path {
-            session_manager
-                .resume_session_from_rollout(config.clone(), path, auth_manager.clone())
-                .await?
-        } else {
-            session_manager.start_session(config.clone()).await?
-        }
+        session_manager
+            .resume_session_from_rollout(config.clone(), resume_path, auth_manager.clone())
+            .await?
     } else {
         session_manager.start_session(config.clone()).await?
     };
@@ -408,16 +515,27 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     let attached_sessions = Arc::new(Mutex::new(HashSet::from([primary_session_id])));
     spawn_session_listener(primary_session_id, session.clone(), tx.clone());
 
-    {
-        let session = session.clone();
-        tokio::spawn(async move {
-            if tokio::signal::ctrl_c().await.is_ok() {
-                tracing::debug!("Keyboard interrupt");
-                // Immediately notify Savfox to abort any in-flight task.
-                session.submit(Op::Interrupt).await.ok();
+    let (interrupt_tx, mut interrupt_rx) = oneshot::channel();
+    let (signal_ready_tx, signal_ready_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let signal = tokio::signal::ctrl_c();
+        tokio::pin!(signal);
+        let mut signal_ready_tx = Some(signal_ready_tx);
+        let result = std::future::poll_fn(|context| {
+            // ctrl_c installs the OS listener on its first poll. Do that
+            // before initial submission can start any model/tool work.
+            let result = signal.as_mut().poll(context);
+            if let Some(ready) = signal_ready_tx.take() {
+                let _ = ready.send(());
             }
-        });
-    }
+            result
+        })
+        .await;
+        if result.is_ok() {
+            let _ = interrupt_tx.send(());
+        }
+    });
+    let _ = signal_ready_rx.await;
 
     {
         let session_manager = Arc::clone(&session_manager);
@@ -450,46 +568,79 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         });
     }
 
-    match initial_operation {
-        InitialOperation::UserTurn {
-            items,
-            output_schema,
-        } => {
-            let task_id = session
-                .submit(Op::UserTurn {
-                    items,
-                    cwd: default_cwd,
-                    approval_policy: default_approval_policy,
-                    sandbox_policy: default_sandbox_policy.clone(),
-                    model: default_model,
-                    effort: default_effort,
-                    summary: default_summary,
-                    final_output_json_schema: output_schema,
-                    collaboration_mode: None,
-                    personality: None,
-                })
-                .await?;
-            info!("Sent prompt with event ID: {task_id}");
-            task_id
+    let mut initial_submission = Box::pin(async {
+        match initial_operation {
+            InitialOperation::UserTurn {
+                items,
+                output_schema,
+            } => {
+                session
+                    .submit(Op::UserTurn {
+                        items,
+                        cwd: default_cwd,
+                        approval_policy: default_approval_policy,
+                        sandbox_policy: default_sandbox_policy.clone(),
+                        model: default_model,
+                        effort: default_effort,
+                        summary: default_summary,
+                        final_output_json_schema: output_schema,
+                        collaboration_mode: None,
+                        personality: None,
+                    })
+                    .await
+            }
+            InitialOperation::Review { review_request } => {
+                session.submit(Op::Review { review_request }).await
+            }
         }
-        InitialOperation::Review { review_request } => {
-            let task_id = session.submit(Op::Review { review_request }).await?;
-            info!("Sent review request with event ID: {task_id}");
-            task_id
-        }
-    };
+    });
 
     // Run the loop until the task is complete.
     // Track whether a fatal error was reported by the server so we can
     // exit with a non-zero status for automation-friendly signaling.
     let mut error_seen = false;
-    while let Some(envelope) = rx.recv().await {
+    let mut lifecycle = ExecLifecycle::default();
+    let mut signal_finished = false;
+    let mut shutdown_state = ExecShutdown::default();
+    loop {
+        let envelope = match next_exec_input(
+            &mut interrupt_rx,
+            signal_finished,
+            &mut initial_submission,
+            lifecycle.can_submit_initial(),
+            &mut rx,
+        )
+        .await
+        {
+            ExecLoopInput::Signal(received) => {
+                signal_finished = true;
+                if received {
+                    tracing::debug!("Keyboard interrupt");
+                    lifecycle.interrupt();
+                    request_exec_shutdown(&session_manager, &mut shutdown_state).await;
+                    if shutdown_state.pending.is_empty() {
+                        break;
+                    }
+                }
+                continue;
+            }
+            ExecLoopInput::Submitted(result) => {
+                let task_id = result?;
+                lifecycle.initial_submitted = true;
+                info!("Sent initial request with event ID: {task_id}");
+                continue;
+            }
+            ExecLoopInput::Session(Some(envelope)) => envelope,
+            ExecLoopInput::Session(None) => break,
+        };
         let SessionEventEnvelope {
             session_id,
             session,
-            event,
+            mut event,
         } = envelope;
-        if let EventMsg::ElicitationRequest(ev) = &event.msg {
+        if !lifecycle.interrupted
+            && let EventMsg::ElicitationRequest(ev) = &event.msg
+        {
             // Automatically cancel elicitation requests in exec mode.
             session
                 .submit(Op::ResolveElicitation {
@@ -502,7 +653,17 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         if matches!(event.msg, EventMsg::Error(_)) {
             error_seen = true;
         }
-        if session_id != primary_session_id && matches!(&event.msg, EventMsg::TurnComplete(_)) {
+        if lifecycle.interrupted
+            && session_id == primary_session_id
+            && matches!(event.msg, EventMsg::TurnComplete(_))
+        {
+            // A completed core turn may already be queued when the signal
+            // arrives. The exec operation was cancelled before delivering it.
+            event.msg = EventMsg::TurnAborted(savfox_core::protocol::TurnAbortedEvent {
+                reason: TurnAbortReason::Interrupted,
+            });
+        }
+        if !lifecycle.accept_event(session_id == primary_session_id, &event.msg) {
             continue;
         }
         let shutdown = event_processor.process_event(event);
@@ -512,13 +673,40 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         match shutdown {
             SavfoxStatus::Running => continue,
             SavfoxStatus::InitiateShutdown => {
-                session.submit(Op::Shutdown).await?;
+                if lifecycle.interrupted {
+                    // Wait for every session's cleanup before exiting, including
+                    // shell processes owned by sub-agents.
+                    request_exec_shutdown(&session_manager, &mut shutdown_state).await;
+                    if shutdown_state.pending.is_empty() {
+                        break;
+                    }
+                } else {
+                    shutdown_state.requested.insert(session_id);
+                    shutdown_state.pending.insert(session_id);
+                    session.submit(Op::Shutdown).await?;
+                }
             }
-            SavfoxStatus::Shutdown if session_id == primary_session_id => break,
-            SavfoxStatus::Shutdown => continue,
+            SavfoxStatus::Shutdown => {
+                let primary = session_id == primary_session_id;
+                shutdown_state.acknowledge(session_id, primary);
+                if primary {
+                    // Preserve spontaneous primary shutdown and clean up any
+                    // remaining sub-agent sessions before returning.
+                    request_exec_shutdown(&session_manager, &mut shutdown_state).await;
+                }
+                if shutdown_state.complete() {
+                    break;
+                }
+            }
         }
     }
+    if let Some(event) = lifecycle.missing_cancellation_terminal() {
+        event_processor.process_event(event);
+    }
     event_processor.print_final_output();
+    if lifecycle.interrupted {
+        std::process::exit(130);
+    }
     if error_seen {
         std::process::exit(1);
     }
@@ -565,15 +753,15 @@ fn spawn_session_listener(
 async fn resolve_resume_path(
     config: &Config,
     args: &crate::cli::ResumeArgs,
-) -> anyhow::Result<Option<PathBuf>> {
-    if args.last {
+) -> anyhow::Result<PathBuf> {
+    let path = if args.last {
         let default_provider_filter = vec![config.model_provider_id.clone()];
         let filter_cwd = if args.all {
             None
         } else {
             Some(config.cwd.as_path())
         };
-        match savfox_core::RolloutRecorder::find_latest_session_path(
+        savfox_core::RolloutRecorder::find_latest_session_path(
             &config.savfox_home,
             1,
             None,
@@ -584,24 +772,28 @@ async fn resolve_resume_path(
             filter_cwd,
         )
         .await
-        {
-            Ok(path) => Ok(path),
-            Err(e) => {
-                error!("Error listing sessions: {e}");
-                Ok(None)
-            }
-        }
+        .map_err(|err| anyhow::anyhow!("failed to list sessions for resume: {err}"))?
     } else if let Some(id_str) = args.session_id.as_deref() {
         if Uuid::parse_str(id_str).is_ok() {
-            let path = find_session_path_by_id_str(&config.savfox_home, id_str).await?;
-            Ok(path)
+            find_session_path_by_id_str(&config.savfox_home, id_str).await?
         } else {
-            let path = find_session_path_by_name_str(&config.savfox_home, id_str).await?;
-            Ok(path)
+            find_session_path_by_name_str(&config.savfox_home, id_str).await?
         }
     } else {
-        Ok(None)
-    }
+        anyhow::bail!("Specify a session id or name, or use --last, to resume a session");
+    };
+    path.ok_or_else(|| {
+        if args.last {
+            anyhow::anyhow!(
+                "No recorded session found matching --last; start a new session with savfox exec"
+            )
+        } else {
+            anyhow::anyhow!(
+                "No recorded session found for {}; check the session id or name",
+                args.session_id.as_deref().unwrap_or_default()
+            )
+        }
+    })
 }
 
 fn load_output_schema(path: Option<PathBuf>) -> Option<Value> {
@@ -780,6 +972,150 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    #[test]
+    fn spontaneous_primary_shutdown_finishes_without_a_prior_request() {
+        let primary = savfox_protocol::SessionId::new();
+        let mut shutdown = ExecShutdown::default();
+        shutdown.acknowledge(primary, true);
+        assert!(shutdown.complete());
+        assert!(shutdown.requested.contains(&primary));
+        assert!(
+            !shutdown.requested.insert(primary),
+            "the closed session must not be requested again"
+        );
+    }
+
+    #[test]
+    fn spontaneous_primary_shutdown_waits_for_remaining_child_cleanup() {
+        let primary = savfox_protocol::SessionId::new();
+        let child = savfox_protocol::SessionId::new();
+        let mut shutdown = ExecShutdown::default();
+        shutdown.acknowledge(primary, true);
+        // The production loop discovers and requests child cleanup after the
+        // spontaneous primary acknowledgement, before checking completion.
+        shutdown.requested.insert(child);
+        shutdown.pending.insert(child);
+        assert!(!shutdown.complete());
+        shutdown.acknowledge(child, false);
+        assert!(shutdown.complete());
+    }
+
+    #[test]
+    fn spontaneous_child_shutdown_does_not_finish_the_primary() {
+        let child = savfox_protocol::SessionId::new();
+        let mut shutdown = ExecShutdown::default();
+        shutdown.acknowledge(child, false);
+        assert!(!shutdown.complete());
+    }
+
+    #[tokio::test]
+    async fn interrupt_before_submission_never_polls_the_initial_turn() {
+        let (signal_tx, mut signal_rx) = oneshot::channel();
+        signal_tx.send(()).unwrap();
+        let polled = std::cell::Cell::new(false);
+        let mut submission = std::future::poll_fn(|_| {
+            polled.set(true);
+            std::task::Poll::Ready(Ok("initial-turn".to_owned()))
+        });
+        let (_events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let input =
+            next_exec_input(&mut signal_rx, false, &mut submission, true, &mut events).await;
+        assert!(matches!(input, ExecLoopInput::Signal(true)));
+        assert!(
+            !polled.get(),
+            "a pending cancellation must win before submission"
+        );
+        let mut lifecycle = ExecLifecycle::default();
+        lifecycle.interrupt();
+        assert!(!lifecycle.can_submit_initial());
+        assert!(lifecycle.missing_cancellation_terminal().is_some());
+        assert!(lifecycle.missing_cancellation_terminal().is_none());
+    }
+
+    #[tokio::test]
+    async fn interrupt_after_submission_is_observed_without_a_core_abort_event() {
+        let (signal_tx, mut signal_rx) = oneshot::channel();
+        let mut submission = std::future::ready(Ok("initial-turn".to_owned()));
+        let (_events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let mut lifecycle = ExecLifecycle::default();
+        let input =
+            next_exec_input(&mut signal_rx, false, &mut submission, true, &mut events).await;
+        assert!(matches!(input, ExecLoopInput::Submitted(Ok(_))));
+        lifecycle.initial_submitted = true;
+        signal_tx.send(()).unwrap();
+        let input = next_exec_input(
+            &mut signal_rx,
+            false,
+            &mut submission,
+            lifecycle.can_submit_initial(),
+            &mut events,
+        )
+        .await;
+        assert!(matches!(input, ExecLoopInput::Signal(true)));
+        lifecycle.interrupt();
+        let terminal = lifecycle
+            .missing_cancellation_terminal()
+            .expect("idle cancellation terminal");
+        let mut processor = EventProcessorWithJsonOutput::new(None);
+        let output = processor.collect_session_events(&terminal);
+        assert_eq!(output.len(), 1);
+        assert!(
+            matches!(&output[0], exec_events::SessionEvent::TurnFailed(event)
+            if event.error.message == "Turn interrupted")
+        );
+    }
+
+    #[test]
+    fn interrupt_terminals_are_unique_across_signals_and_late_core_events() {
+        let aborted = EventMsg::TurnAborted(savfox_core::protocol::TurnAbortedEvent {
+            reason: TurnAbortReason::Interrupted,
+        });
+        let completed = EventMsg::TurnComplete(savfox_core::protocol::TurnCompleteEvent {
+            last_agent_message: None,
+        });
+        let mut lifecycle = ExecLifecycle::default();
+        assert!(!lifecycle.accept_event(false, &aborted));
+        assert!(!lifecycle.interrupted);
+        lifecycle.interrupt();
+        assert!(lifecycle.accept_event(true, &aborted));
+        assert!(!lifecycle.accept_event(true, &completed));
+        assert!(lifecycle.missing_cancellation_terminal().is_none());
+        lifecycle.interrupt();
+        assert!(lifecycle.missing_cancellation_terminal().is_none());
+
+        let mut completed_lifecycle = ExecLifecycle::default();
+        assert!(completed_lifecycle.accept_event(true, &completed));
+        completed_lifecycle.interrupt();
+        assert!(completed_lifecycle.interrupted);
+        assert!(
+            completed_lifecycle
+                .missing_cancellation_terminal()
+                .is_none(),
+            "a signal during shutdown cannot append a second terminal after turn.completed"
+        );
+    }
+
+    #[tokio::test]
+    async fn interrupted_turn_starts_shutdown_in_both_output_modes() {
+        let home = tempfile::tempdir().unwrap();
+        let config = core_test_support::load_default_config_for_test(&home).await;
+        let mut processors: Vec<Box<dyn EventProcessor>> = vec![
+            Box::new(EventProcessorWithHumanOutput::create_with_ansi(
+                false, &config, None,
+            )),
+            Box::new(EventProcessorWithJsonOutput::new(None)),
+        ];
+        for processor in &mut processors {
+            let status = processor.process_event(Event {
+                id: "interrupted-turn".to_owned(),
+                msg: EventMsg::TurnAborted(savfox_core::protocol::TurnAbortedEvent {
+                    reason: TurnAbortReason::Interrupted,
+                }),
+            });
+            assert!(matches!(status, SavfoxStatus::InitiateShutdown));
+        }
+    }
 
     #[test]
     fn builds_uncommitted_review_request() {

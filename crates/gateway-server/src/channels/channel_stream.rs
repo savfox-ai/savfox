@@ -27,7 +27,7 @@ pub(crate) trait StreamSink: Send + Sync + 'static {
     /// Send the initial message and return its ID (platform-specific string).
     async fn send_initial(&self, text: &str) -> Option<String>;
     /// Edit the message identified by `message_id` with new content.
-    async fn edit_message(&self, message_id: &str, text: &str);
+    async fn edit_message(&self, message_id: &str, text: &str) -> anyhow::Result<()>;
     /// Delete the message identified by `message_id`.
     async fn delete_message(&self, message_id: &str);
     /// Maximum text length for a single message on this platform.
@@ -59,8 +59,8 @@ impl ChannelStreamWriter {
         }
     }
 
-    /// Run the streaming loop.  Returns `true` if at least one message was
-    /// sent (meaning the caller should skip its own `send_with_retry`).
+    /// Return true only after the complete final revision was acknowledged.
+    /// False tells the caller to use its ordinary final-send retry path.
     pub async fn run(self, mut rx: mpsc::UnboundedReceiver<StreamEvent>) -> bool {
         let mut buffer = String::new();
         let mut message_id: Option<String> = None;
@@ -134,34 +134,49 @@ impl ChannelStreamWriter {
             self.sink.delete_message(sid).await;
         }
 
-        // Final flush with footer.
         if let Some(footer) = &completed_footer {
             buffer.push_str(footer);
         }
-        if !buffer.is_empty() {
-            self.flush(tag, max_len, &buffer, &mut message_id, &mut flushed_len)
-                .await;
-        }
-
-        let sent = message_id.is_some();
-        debug!(
-            platform = tag,
-            streamed = sent,
-            total_len = buffer.len(),
-            "Stream writer finished"
-        );
-
-        // If the final text exceeded the platform limit, delete the partial
-        // streaming message and return false so the caller falls back to
-        // the chunked send_with_retry path.
+        // An oversized reply uses the existing chunked final-send path.
         if buffer.len() > max_len {
             if let Some(ref mid) = message_id {
                 self.sink.delete_message(mid).await;
             }
             return false;
         }
-
-        sent
+        // An initial message ID only proves that an earlier prefix arrived.
+        // Confirm the final revision, retrying edits of the same message rather
+        // than issuing duplicate new messages on a transient edit failure.
+        for attempt in 0..3 {
+            if message_id.is_some() && flushed_len == buffer.len() {
+                return true;
+            }
+            if buffer.is_empty() {
+                return false;
+            }
+            if self
+                .flush(tag, max_len, &buffer, &mut message_id, &mut flushed_len)
+                .await
+            {
+                debug!(
+                    platform = tag,
+                    total_len = buffer.len(),
+                    "Stream writer finished"
+                );
+                return true;
+            }
+            if attempt < 2 {
+                tokio::time::sleep(throttle).await;
+            }
+        }
+        warn!(
+            platform = tag,
+            "final streaming revision failed; falling back to final send"
+        );
+        if let Some(ref mid) = message_id {
+            self.sink.delete_message(mid).await;
+        }
+        false
     }
 
     async fn flush(
@@ -171,7 +186,7 @@ impl ChannelStreamWriter {
         text: &str,
         message_id: &mut Option<String>,
         flushed_len: &mut usize,
-    ) {
+    ) -> bool {
         let display_text = if text.len() > max_len {
             &text[..text.floor_char_boundary(max_len)]
         } else {
@@ -179,19 +194,19 @@ impl ChannelStreamWriter {
         };
 
         if let Some(ref mid) = *message_id {
-            self.sink.edit_message(mid, display_text).await;
-        } else {
-            match self.sink.send_initial(display_text).await {
-                Some(mid) => {
-                    debug!(platform = tag, id = %mid, "Initial message sent");
-                    *message_id = Some(mid);
-                }
-                None => {
-                    debug!(platform = tag, "Initial send returned no id");
-                }
+            if let Err(error) = self.sink.edit_message(mid, display_text).await {
+                warn!(platform = tag, %error, "stream edit failed");
+                return false;
             }
+        } else if let Some(mid) = self.sink.send_initial(display_text).await {
+            debug!(platform = tag, id = %mid, "Initial message sent");
+            *message_id = Some(mid);
+        } else {
+            debug!(platform = tag, "Initial send returned no id");
+            return false;
         }
         *flushed_len = text.len();
+        true
     }
 }
 
@@ -247,18 +262,17 @@ impl StreamSink for TelegramSink {
         }
     }
 
-    async fn edit_message(&self, message_id: &str, text: &str) {
-        if let Ok(mid) = message_id.parse::<i64>() {
-            let _ = savfox_channels::telegram::client::edit_message(
-                &self.client,
-                &self.bot_token,
-                &self.chat_id,
-                mid,
-                text,
-                Some("HTML"),
-            )
-            .await;
-        }
+    async fn edit_message(&self, message_id: &str, text: &str) -> anyhow::Result<()> {
+        let mid = message_id.parse::<i64>()?;
+        savfox_channels::telegram::client::edit_message(
+            &self.client,
+            &self.bot_token,
+            &self.chat_id,
+            mid,
+            text,
+            Some("HTML"),
+        )
+        .await
     }
 
     async fn delete_message(&self, message_id: &str) {
@@ -330,15 +344,15 @@ impl StreamSink for DiscordSink {
         }
     }
 
-    async fn edit_message(&self, message_id: &str, text: &str) {
-        let _ = savfox_channels::discord::client::edit_message(
+    async fn edit_message(&self, message_id: &str, text: &str) -> anyhow::Result<()> {
+        savfox_channels::discord::client::edit_message(
             &self.client,
             &self.bot_token,
             &self.channel_id,
             message_id,
             text,
         )
-        .await;
+        .await
     }
 
     async fn delete_message(&self, message_id: &str) {
@@ -408,15 +422,15 @@ impl StreamSink for SlackSink {
         }
     }
 
-    async fn edit_message(&self, ts: &str, text: &str) {
-        let _ = savfox_channels::slack::client::edit_message(
+    async fn edit_message(&self, ts: &str, text: &str) -> anyhow::Result<()> {
+        savfox_channels::slack::client::edit_message(
             &self.client,
             &self.bot_token,
             &self.channel_id,
             ts,
             text,
         )
-        .await;
+        .await
     }
 
     async fn delete_message(&self, ts: &str) {
@@ -490,15 +504,15 @@ impl StreamSink for MattermostSink {
         }
     }
 
-    async fn edit_message(&self, post_id: &str, text: &str) {
-        let _ = savfox_channels::mattermost::client::edit_message(
+    async fn edit_message(&self, post_id: &str, text: &str) -> anyhow::Result<()> {
+        savfox_channels::mattermost::client::edit_message(
             &self.client,
             &self.server_url,
             &self.access_token,
             post_id,
             text,
         )
-        .await;
+        .await
     }
 
     async fn delete_message(&self, post_id: &str) {
@@ -572,15 +586,15 @@ impl StreamSink for FeishuSink {
         }
     }
 
-    async fn edit_message(&self, message_id: &str, text: &str) {
-        let _ = savfox_channels::feishu::client::edit_message(
+    async fn edit_message(&self, message_id: &str, text: &str) -> anyhow::Result<()> {
+        savfox_channels::feishu::client::edit_message(
             &self.client,
             &self.base_url,
             &self.tenant_token,
             message_id,
             text,
         )
-        .await;
+        .await
     }
 
     async fn delete_message(&self, message_id: &str) {
@@ -716,28 +730,23 @@ impl StreamSink for DingtalkSink {
         Some(key)
     }
 
-    async fn edit_message(&self, _message_id: &str, text: &str) {
-        // DingTalk doesn't support editing text messages.
-        // Recall the current message and send a replacement.
-        let mut current = self.current_key.lock().await;
-        if let Some(old_key) = current.take() {
-            drop(current);
+    async fn edit_message(&self, _message_id: &str, text: &str) -> anyhow::Result<()> {
+        let old_key = self.current_key.lock().await.clone();
+        let new_key = self
+            .send_text(text)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("DingTalk replacement send failed"))?;
+        *self.current_key.lock().await = Some(new_key);
+        // Keep the old content visible until its replacement was accepted.
+        if let Some(old_key) = old_key {
             self.recall(&old_key).await;
-        } else {
-            drop(current);
         }
-        if let Some(new_key) = self.send_text(text).await {
-            *self.current_key.lock().await = Some(new_key);
-        }
+        Ok(())
     }
 
     async fn delete_message(&self, message_id: &str) {
-        self.recall(message_id).await;
-        // Clear current_key if it matches the deleted message.
-        let mut current = self.current_key.lock().await;
-        if current.as_deref() == Some(message_id) {
-            *current = None;
-        }
+        let current = self.current_key.lock().await.take();
+        self.recall(current.as_deref().unwrap_or(message_id)).await;
     }
 
     fn max_length(&self) -> usize {
@@ -982,4 +991,218 @@ pub(crate) async fn create_stream_sink(
 /// Returns the message ID that should be passed to `ChannelStreamWriter::new`.
 pub(crate) async fn send_status_message(sink: &dyn StreamSink) -> Option<String> {
     sink.send_initial("\u{23f3}").await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::sync::{Mutex, Notify};
+
+    use super::*;
+
+    #[derive(Default)]
+    struct DeliveryState {
+        initial: Notify,
+        delivered: Mutex<String>,
+        failures: AtomicUsize,
+        attempts: AtomicUsize,
+        deleted: AtomicUsize,
+    }
+
+    struct FailingSink(Arc<DeliveryState>);
+
+    #[async_trait]
+    impl StreamSink for FailingSink {
+        async fn send_initial(&self, text: &str) -> Option<String> {
+            *self.0.delivered.lock().await = text.to_owned();
+            self.0.initial.notify_one();
+            Some("message-1".to_owned())
+        }
+
+        async fn edit_message(&self, message_id: &str, text: &str) -> anyhow::Result<()> {
+            assert_eq!(
+                message_id, "message-1",
+                "retries must edit the existing message"
+            );
+            self.0.attempts.fetch_add(1, Ordering::SeqCst);
+            if self
+                .0
+                .failures
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+                    value.checked_sub(1)
+                })
+                .is_ok()
+            {
+                anyhow::bail!("injected edit failure");
+            }
+            *self.0.delivered.lock().await = text.to_owned();
+            Ok(())
+        }
+
+        async fn delete_message(&self, _message_id: &str) {
+            self.0.deleted.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn max_length(&self) -> usize {
+            4000
+        }
+        fn throttle_interval(&self) -> Duration {
+            Duration::from_millis(2)
+        }
+        fn platform_tag(&self) -> &'static str {
+            "test"
+        }
+    }
+
+    async fn stream_with_edit_failures(failures: usize) -> (bool, Arc<DeliveryState>) {
+        let state = Arc::new(DeliveryState::default());
+        state.failures.store(failures, Ordering::SeqCst);
+        let writer = ChannelStreamWriter::new(Box::new(FailingSink(state.clone())), None);
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let handle = tokio::spawn(writer.run(receiver));
+        sender
+            .send(StreamEvent::Delta(
+                "this prefix is already visible".to_owned(),
+            ))
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), state.initial.notified())
+            .await
+            .unwrap();
+        sender
+            .send(StreamEvent::Delta(
+                " and this is the final answer".to_owned(),
+            ))
+            .unwrap();
+        sender
+            .send(StreamEvent::Complete {
+                footer: Some(" [footer]".to_owned()),
+            })
+            .unwrap();
+        drop(sender);
+        (
+            tokio::time::timeout(Duration::from_secs(2), handle)
+                .await
+                .unwrap()
+                .unwrap(),
+            state,
+        )
+    }
+
+    #[tokio::test]
+    async fn final_edit_failure_is_retried_without_duplicate_initial_send() {
+        let (sent, state) = stream_with_edit_failures(1).await;
+        assert!(sent);
+        assert!(state.attempts.load(Ordering::SeqCst) >= 2);
+        assert_eq!(
+            &*state.delivered.lock().await,
+            "this prefix is already visible and this is the final answer [footer]"
+        );
+        assert_eq!(state.deleted.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn exhausted_final_edit_retries_request_fallback_instead_of_success() {
+        let (sent, state) = stream_with_edit_failures(usize::MAX).await;
+        assert!(!sent, "an initial prefix is not successful final delivery");
+        assert!(state.attempts.load(Ordering::SeqCst) >= 3);
+        assert_eq!(
+            &*state.delivered.lock().await,
+            "this prefix is already visible"
+        );
+        assert_eq!(state.deleted.load(Ordering::SeqCst), 1);
+    }
+
+    async fn response_server(status: &str, body: &str) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 4096];
+            let header_end = loop {
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&chunk[..count]);
+                if let Some(offset) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                    break offset + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let length: usize = headers
+                .lines()
+                .find_map(|line| {
+                    let (key, value) = line.split_once(':')?;
+                    key.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().unwrap())
+                })
+                .unwrap_or(0);
+            while request.len() < header_end + length {
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&chunk[..count]);
+            }
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        (base_url, task)
+    }
+
+    #[tokio::test]
+    async fn feishu_stream_edits_surface_http_and_business_rejections() {
+        for (status, body) in [
+            ("429 Too Many Requests", "{}"),
+            ("200 OK", r#"{"code":230001,"msg":"rejected"}"#),
+            ("200 OK", "not-json"),
+        ] {
+            let (base_url, task) = response_server(status, body).await;
+            let sink = FeishuSink::new(
+                reqwest::Client::new(),
+                base_url,
+                "test-token".to_owned(),
+                "chat".to_owned(),
+                "chat_id".to_owned(),
+            );
+            assert!(
+                sink.edit_message("message-1", "final answer")
+                    .await
+                    .is_err()
+            );
+            task.await.unwrap();
+        }
+        let (base_url, task) = response_server("200 OK", r#"{"code":0}"#).await;
+        let sink = FeishuSink::new(
+            reqwest::Client::new(),
+            base_url,
+            "test-token".to_owned(),
+            "chat".to_owned(),
+            "chat_id".to_owned(),
+        );
+        sink.edit_message("message-1", "final answer")
+            .await
+            .unwrap();
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mattermost_stream_edit_surfaces_server_failure() {
+        let (base_url, task) = response_server("503 Service Unavailable", "{}").await;
+        let sink = MattermostSink::new(
+            reqwest::Client::new(),
+            base_url,
+            "test-token".to_owned(),
+            "chat".to_owned(),
+            None,
+        );
+        assert!(
+            sink.edit_message("message-1", "final answer")
+                .await
+                .is_err()
+        );
+        task.await.unwrap();
+    }
 }

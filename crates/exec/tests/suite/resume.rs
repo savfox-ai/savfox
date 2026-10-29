@@ -106,6 +106,39 @@ fn exec_repo_root() -> anyhow::Result<std::path::PathBuf> {
 }
 
 #[test]
+fn exec_resume_missing_session_fails_without_creating_a_rollout() -> anyhow::Result<()> {
+    for selector in [
+        Uuid::new_v4().to_string(),
+        "missing-session-name".to_owned(),
+        "--last".to_owned(),
+    ] {
+        let test = test_savfox_exec();
+        test.cmd()
+            .env("SAVFOX_RS_SSE_FIXTURE", exec_fixture()?)
+            .env("OPENAI_BASE_URL", "http://unused.local")
+            .arg("--skip-git-repo-check")
+            .arg("resume")
+            .arg(&selector)
+            .arg("continue the previous task")
+            .timeout(Duration::from_secs(15))
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains("No recorded session found"));
+        let sessions_dir = test.home_path().join("sessions");
+        assert!(
+            !WalkDir::new(sessions_dir)
+                .into_iter()
+                .filter_map(Result::ok)
+                .any(|entry| {
+                    entry.file_type().is_file()
+                        && entry.path().extension().is_some_and(|ext| ext == "jsonl")
+                })
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn exec_resume_last_appends_to_existing_file() -> anyhow::Result<()> {
     let test = test_savfox_exec();
     let fixture = exec_fixture()?;

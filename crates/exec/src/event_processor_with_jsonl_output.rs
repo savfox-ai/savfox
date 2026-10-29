@@ -131,6 +131,14 @@ impl EventProcessorWithJsonOutput {
             }
             protocol::EventMsg::TurnStarted(ev) => self.handle_task_started(ev),
             protocol::EventMsg::TurnComplete(_) => self.handle_task_complete(),
+            protocol::EventMsg::TurnAborted(event)
+                if event.reason == protocol::TurnAbortReason::Interrupted =>
+            {
+                self.last_critical_error = Some(SessionErrorEvent {
+                    message: "Turn interrupted".to_owned(),
+                });
+                self.handle_task_complete()
+            }
             protocol::EventMsg::Error(ev) => {
                 let error = SessionErrorEvent {
                     message: ev.message.clone(),
@@ -847,6 +855,11 @@ impl EventProcessor for EventProcessorWithJsonOutput {
                 SavfoxStatus::InitiateShutdown
             }
             protocol::EventMsg::ShutdownComplete => SavfoxStatus::Shutdown,
+            protocol::EventMsg::TurnAborted(event)
+                if event.reason == protocol::TurnAbortReason::Interrupted =>
+            {
+                SavfoxStatus::InitiateShutdown
+            }
             _ => SavfoxStatus::Running,
         }
     }

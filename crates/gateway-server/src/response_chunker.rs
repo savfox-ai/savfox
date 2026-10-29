@@ -97,75 +97,78 @@ pub fn chunk_message_with_options(
         }];
     }
 
+    // The total can gain digits when reserving space creates another chunk.
+    // Re-split only at digit boundaries until every final page marker fits.
+    let mut number_digits = 1;
+    let mut numbered = true;
+    loop {
+        let marker_chars = if numbered { 5 + 2 * number_digits } else { 0 };
+        if marker_chars >= max {
+            // A tiny custom limit must still make forward progress. Numbering
+            // is optional when even one source character would not fit.
+            numbered = false;
+            continue;
+        }
+        let chunks = split_message_body(text, max - marker_chars, overlap_chars);
+        let total = chunks.len();
+        let total_digits = total.to_string().len();
+        if numbered && total_digits > number_digits {
+            number_digits = total_digits;
+            continue;
+        }
+        return chunks
+            .into_iter()
+            .enumerate()
+            .map(|(i, text)| MessageChunk {
+                text: if numbered && total > 1 {
+                    format!("{text}\n\n({}/{})", i + 1, total)
+                } else {
+                    text
+                },
+                index: i + 1,
+                total,
+            })
+            .collect();
+    }
+}
+
+/// Split content within the budget left after numbering. Reserve overlap and
+/// its separator before producing pieces, so a full-size piece never overflows
+/// when the previous message's tail is prepended. Clamp excessive overlap to
+/// half the body budget to keep useful progress on every chunk.
+fn split_message_body(text: &str, max: usize, overlap_chars: usize) -> Vec<String> {
+    let overlap = overlap_chars.min(max.saturating_sub(1) / 2);
+    let overlap_budget = if overlap > 0 { overlap + 1 } else { 0 };
+    let piece_max = max - overlap_budget;
     let mut pieces = Vec::new();
     for segment in split_segments(text) {
         let mut segment_pieces = match segment {
-            Segment::Text(value) => split_text_segment(&value, max),
-            Segment::Code(value) => split_code_segment(&value, max),
+            Segment::Text(value) => split_text_segment(&value, piece_max),
+            Segment::Code(value) => split_code_segment(&value, piece_max),
         };
         pieces.append(&mut segment_pieces);
     }
-
     let mut chunks = Vec::new();
     let mut current = String::new();
-    let mut previous_sent = String::new();
-
     for piece in pieces {
-        if current.is_empty() {
-            if overlap_chars > 0 && !previous_sent.is_empty() {
-                let tail = tail_chars(&previous_sent, overlap_chars);
-                if !tail.is_empty() {
-                    current.push_str(&format!("{tail}\n"));
-                }
+        if char_len(&current) + char_len(&piece) > max
+            || (current.contains("```") && piece.contains("```"))
+        {
+            let previous = std::mem::take(&mut current);
+            // Repeating a closing/opening code fence as context would unbalance
+            // the next message. Keep fenced segments independently renderable.
+            if overlap > 0 && !previous.contains("```") && !piece.contains("```") {
+                current.push_str(&tail_chars(&previous, overlap));
+                current.push('\n');
             }
-            current.push_str(piece.as_str());
-            continue;
+            chunks.push(previous);
         }
-
-        if char_len(&current) + char_len(&piece) <= max {
-            current.push_str(piece.as_str());
-            continue;
-        }
-
-        if !current.is_empty() {
-            previous_sent = current.clone();
-            chunks.push(previous_sent.clone());
-        }
-        current.clear();
-        if overlap_chars > 0 && !previous_sent.is_empty() {
-            let tail = tail_chars(&previous_sent, overlap_chars);
-            if !tail.is_empty() {
-                current.push_str(&format!("{tail}\n"));
-            }
-        }
-        current.push_str(piece.as_str());
+        current.push_str(&piece);
     }
-
     if !current.is_empty() {
         chunks.push(current);
     }
-
-    if chunks.is_empty() {
-        chunks.push(text.to_owned());
-    }
-
-    let total = chunks.len();
     chunks
-        .into_iter()
-        .enumerate()
-        .map(|(i, text)| {
-            let t = if total > 1 {
-                format!("{text}\n\n({}/{})", i + 1, total)
-            } else {
-                text
-            };
-            MessageChunk {
-                text: t,
-                index: i + 1,
-                total,
-            }
-        })
-        .collect()
 }
 
 fn split_segments(text: &str) -> Vec<Segment> {
@@ -239,48 +242,16 @@ fn split_code_segment(code_block: &str, max: usize) -> Vec<String> {
     let header = &code_block[..=first_line_end];
     let footer = "```";
     let content = &code_block[first_line_end + 1..code_block.len() - 3];
+    // Every synthetic close has its own newline. Keeping that newline separate
+    // preserves blank lines, trailing newlines, and long-line content verbatim.
     let available = max.saturating_sub(char_len(header) + char_len(footer) + 1);
-    if available < 32 {
+    if available == 0 {
         return split_text_segment(code_block, max);
     }
-
-    let mut out = Vec::new();
-    let mut current = String::new();
-    for line in content.lines() {
-        let candidate = if current.is_empty() {
-            line.to_owned()
-        } else {
-            format!("{current}\n{line}")
-        };
-        if char_len(&candidate) <= available {
-            current = candidate;
-            continue;
-        }
-
-        if !current.is_empty() {
-            out.push(format!("{header}{current}\n{footer}"));
-            current.clear();
-        }
-
-        if char_len(line) <= available {
-            current.push_str(line);
-            continue;
-        }
-
-        let mut tail = line;
-        while !tail.is_empty() {
-            let split_at = nth_char_boundary(tail, available);
-            let (chunk, rest) = tail.split_at(split_at);
-            out.push(format!("{header}{chunk}\n{footer}"));
-            tail = rest;
-        }
-    }
-
-    if !current.is_empty() {
-        out.push(format!("{header}{current}\n{footer}"));
-    }
-
-    out
+    split_text_segment(content, available)
+        .into_iter()
+        .map(|piece| format!("{header}{piece}\n{footer}"))
+        .collect()
 }
 
 /// Find the best break point in text, preferring paragraph > sentence > word boundaries
@@ -361,7 +332,7 @@ mod tests {
         let chunks = chunk_message(&long, PlatformLimit::Discord);
         assert!(chunks.len() > 1);
         for chunk in &chunks {
-            assert!(chunk.text.len() <= 2100); // allow for page indicator
+            assert!(chunk.text.chars().count() <= 2000);
         }
     }
 
@@ -372,7 +343,7 @@ mod tests {
         assert!(chunks.len() > 1);
         for chunk in chunks {
             assert!(chunk.text.contains("```"));
-            assert!(chunk.text.len() <= 2100);
+            assert!(chunk.text.chars().count() <= 2000);
         }
     }
 
@@ -401,7 +372,90 @@ mod tests {
         let chunks = chunk_message_for_channel(&text, "discord:1", Some(300), 0);
         assert!(chunks.len() > 1);
         for chunk in chunks {
-            assert!(chunk.text.chars().count() <= 340);
+            assert!(chunk.text.chars().count() <= 300);
+        }
+    }
+
+    fn without_marker(chunk: &MessageChunk) -> &str {
+        let marker = format!("\n\n({}/{})", chunk.index, chunk.total);
+        chunk.text.strip_suffix(&marker).unwrap_or(&chunk.text)
+    }
+
+    #[test]
+    fn numbering_fits_ascii_unicode_and_two_digit_totals_without_losing_body() {
+        for text in ["abcde ".repeat(700), "中文🙂\n".repeat(700)] {
+            let chunks = chunk_message_with_options(&text, 64, 0);
+            assert!(chunks.len() >= 10);
+            assert!(chunks.iter().all(|chunk| char_len(&chunk.text) <= 64));
+            for (index, chunk) in chunks.iter().enumerate() {
+                assert_eq!(chunk.index, index + 1);
+                assert_eq!(chunk.total, chunks.len());
+                assert!(
+                    chunk
+                        .text
+                        .ends_with(&format!("\n\n({}/{})", index + 1, chunks.len()))
+                );
+            }
+            assert_eq!(chunks.iter().map(without_marker).collect::<String>(), text);
+        }
+    }
+
+    #[test]
+    fn overlap_and_numbering_share_the_platform_budget() {
+        let text = "中文🙂 alpha beta.\n".repeat(120);
+        for requested_overlap in [16, usize::MAX] {
+            let chunks = chunk_message_with_options(&text, 64, requested_overlap);
+            assert!(chunks.len() >= 10);
+            let marker_chars = 5 + 2 * chunks.len().to_string().len();
+            let overlap = requested_overlap.min((64 - marker_chars - 1) / 2);
+            let mut reconstructed = String::new();
+            let mut previous = "";
+            for (index, chunk) in chunks.iter().enumerate() {
+                assert!(char_len(&chunk.text) <= 64);
+                let body = without_marker(chunk);
+                if index == 0 {
+                    reconstructed.push_str(body);
+                } else {
+                    let context = format!("{}\n", tail_chars(previous, overlap));
+                    reconstructed.push_str(body.strip_prefix(&context).expect("overlap prefix"));
+                }
+                previous = body;
+            }
+            assert_eq!(reconstructed, text);
+        }
+    }
+
+    #[test]
+    fn tiny_limits_preserve_source_and_omit_unfittable_page_markers() {
+        let text = "中文🙂abcdefghijklmnopqrstuvwxyz";
+        for max in 1..=10 {
+            let chunks = chunk_message_with_options(text, max, 0);
+            assert!(chunks.iter().all(|chunk| char_len(&chunk.text) <= max));
+            assert_eq!(chunks.iter().map(without_marker).collect::<String>(), text);
+        }
+    }
+
+    #[test]
+    fn fenced_code_preserves_blank_lines_long_lines_and_trailing_newlines() {
+        let body = "let x = 1;\n\n".to_owned() + &"中文🙂".repeat(400) + "\n\nlast();\n";
+        let code = format!("```rust\n{body}```");
+        for overlap in [0, 16] {
+            let chunks = chunk_message_with_options(&code, 128, overlap);
+            assert!(chunks.len() >= 10);
+            let restored = chunks
+                .iter()
+                .map(|chunk| {
+                    assert!(char_len(&chunk.text) <= 128);
+                    let content = without_marker(chunk);
+                    assert_eq!(content.matches("```").count(), 2);
+                    content
+                        .strip_prefix("```rust\n")
+                        .unwrap()
+                        .strip_suffix("\n```")
+                        .unwrap()
+                })
+                .collect::<String>();
+            assert_eq!(restored, body);
         }
     }
 }

@@ -10,8 +10,8 @@ use tracing::{debug, warn};
 use super::{AgentInvocationResult, GatewayChannel, ResolvedAgentSession};
 use crate::runtime::routing::sse_stream::{StreamCancellation, run_cancellable};
 use crate::security::approval_coordinator::{
-    ApprovalNotification, ApprovalRequestMetadata, ChannelApprovalKind, ChannelApprovalScope,
-    PendingChannelApproval,
+    ApprovalCoordinator, ApprovalNotification, ApprovalRequestMetadata, ChannelApprovalKind,
+    ChannelApprovalScope, PendingChannelApproval,
 };
 use crate::security::execution_policy::{ExecutionMode, ResolvedExecutionSecurity};
 
@@ -59,6 +59,12 @@ fn approval_reply_instructions(pending: &PendingChannelApproval) -> String {
         actions.insert(index, format!("allow-rule:{}", pending.request_id));
     }
     format!("Reply with one of: {}.", actions.join(", "))
+}
+
+async fn remove_invocation_approvals(coordinator: &ApprovalCoordinator, request_ids: &[String]) {
+    for request_id in request_ids {
+        coordinator.remove(request_id).await;
+    }
 }
 
 impl GatewayChannel {
@@ -425,6 +431,8 @@ impl GatewayChannel {
             .map_err(|e| anyhow::anyhow!("failed to get session: {e}"))?;
         let rollout_path = session.rollout_path();
 
+        let mut submitted_turn_id = None;
+        let mut invocation_approval_ids = Vec::new();
         let invocation = async {
             // Persist the logical-session → thread/rollout linkage *before* running
             // the turn. The agent runs in a freshly minted thread whose id differs
@@ -451,13 +459,14 @@ impl GatewayChannel {
                 text: prompt.to_owned(),
                 text_elements: Vec::new(),
             };
-            session
+            let turn_id = session
                 .submit(Op::UserInput {
                     items: vec![user_input],
                     final_output_json_schema: None,
                 })
                 .await
                 .map_err(|e| anyhow::anyhow!("failed to submit message: {e}"))?;
+            submitted_turn_id = Some(turn_id);
 
             // Collect assistant output by reading Events from the session.
             let mut reply = String::new();
@@ -588,6 +597,7 @@ impl GatewayChannel {
                                     }
                                 };
                                 let request_id = registered.request_id.clone();
+                                invocation_approval_ids.push(request_id.clone());
                                 pending_approval = Some(PendingApproval {
                                     core_id: approval_id,
                                     request_id: Some(request_id.clone()),
@@ -682,6 +692,7 @@ impl GatewayChannel {
                                     }
                                 };
                                 let request_id = registered.request_id.clone();
+                                invocation_approval_ids.push(request_id.clone());
                                 pending_approval = Some(PendingApproval {
                                     core_id: approval_id,
                                     request_id: Some(request_id.clone()),
@@ -708,15 +719,7 @@ impl GatewayChannel {
                                 break;
                             }
                             EventMsg::Error(err) => {
-                                if cancellable
-                                    || (reply.is_empty() && fallback_agent_reply.is_empty())
-                                {
-                                    self.approval_coordinator()
-                                        .remove_for_core_session(session_id)
-                                        .await;
-                                    return Err(anyhow::anyhow!("agent error: {}", err.message));
-                                }
-                                break;
+                                return Err(anyhow::anyhow!("agent error: {}", err.message));
                             }
                             _ => {
                                 // Skip other events (tool calls, reasoning, etc.).
@@ -724,13 +727,7 @@ impl GatewayChannel {
                         }
                     }
                     Ok(Err(e)) => {
-                        if cancellable || (reply.is_empty() && fallback_agent_reply.is_empty()) {
-                            self.approval_coordinator()
-                                .remove_for_core_session(session_id)
-                                .await;
-                            return Err(anyhow::anyhow!("thread error: {e}"));
-                        }
-                        break;
+                        return Err(anyhow::anyhow!("thread error: {e}"));
                     }
                     Err(_) => {
                         // Timeout.
@@ -749,14 +746,10 @@ impl GatewayChannel {
                                 pending.summary
                             ));
                         }
-                        if cancellable || (reply.is_empty() && fallback_agent_reply.is_empty()) {
-                            warn!(session_id = %session_id, "agent invocation timed out");
-                            self.approval_coordinator()
-                                .remove_for_core_session(session_id)
-                                .await;
-                            return Err(anyhow::anyhow!("agent invocation timed out"));
-                        }
-                        break;
+                        warn!(session_id = %session_id, "agent invocation timed out");
+                        return Err(anyhow::anyhow!(
+                            "agent invocation timed out; response is incomplete"
+                        ));
                     }
                 }
             }
@@ -767,17 +760,12 @@ impl GatewayChannel {
                 }
                 let _ = session.submit(pending.abort_op()).await;
             }
-            self.approval_coordinator()
-                .remove_for_core_session(session_id)
+            remove_invocation_approvals(self.approval_coordinator(), &invocation_approval_ids)
                 .await;
 
             if !saw_delta && !fallback_agent_reply.is_empty() {
                 reply.push_str(&fallback_agent_reply);
                 on_delta(&fallback_agent_reply);
-            }
-
-            if resolved_session.cleanup_after_turn && !cancellable {
-                let _ = self.session_manager.remove_session(&session_id).await;
             }
 
             if reply.is_empty() {
@@ -793,7 +781,7 @@ impl GatewayChannel {
             })
         };
 
-        if let Some(cancellation) = cancellation.as_ref() {
+        let result = if let Some(cancellation) = cancellation.as_ref() {
             run_cancellable(cancellation, invocation, async {
                 // Remove approvals even when cancellation dropped the collector
                 // while it was waiting for a decision. Shutdown aborts the turn,
@@ -822,7 +810,35 @@ impl GatewayChannel {
             .map_err(|failure| anyhow::anyhow!("{failure}"))?
         } else {
             invocation.await
+        };
+
+        // Always clean up errors, including early submission/approval failures.
+        // The queued turn-specific interrupt cannot abort a later turn that has
+        // already replaced this invocation on a shared persistent session.
+        if result.is_err() {
+            if let Some(turn_id) = submitted_turn_id.as_deref() {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    session.interrupt_turn(turn_id),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => {
+                        warn!(%session_id, %error, "failed to interrupt incomplete invocation")
+                    }
+                    Err(_) => warn!(%session_id, "timed out interrupting incomplete invocation"),
+                }
+            }
+            remove_invocation_approvals(self.approval_coordinator(), &invocation_approval_ids)
+                .await;
         }
+        if resolved_session.cleanup_after_turn {
+            // Temporary/forked sessions belong solely to this invocation.
+            let _ = session.submit(Op::Shutdown).await;
+            let _ = self.session_manager.remove_session(&session_id).await;
+        }
+        result
     }
 
     pub(crate) async fn resolve_agent_session(
@@ -1145,5 +1161,196 @@ impl GatewayChannel {
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use savfox_core::config::ConfigBuilder;
+    use savfox_protocol::protocol::AgentStatus;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    use super::*;
+    use crate::channel::GatewayBridgeArgs;
+    use crate::session::{GatewaySessionManager, SessionStore};
+
+    #[tokio::test]
+    async fn partial_output_timeout_is_an_error_and_stops_its_turn() {
+        for persistent in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base_url = format!("http://{}/v1", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                // Drain the request, including potentially large instructions,
+                // before serving a stream that deliberately never completes.
+                let mut request = Vec::new();
+                let mut chunk = [0; 8192];
+                let header_end = loop {
+                    let count = socket.read(&mut chunk).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&chunk[..count]);
+                    if let Some(offset) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n")
+                    {
+                        break offset + 4;
+                    }
+                };
+                let headers = String::from_utf8_lossy(&request[..header_end]);
+                let length: usize = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (key, value) = line.split_once(':')?;
+                        key.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse().unwrap())
+                    })
+                    .unwrap_or(0);
+                while request.len() < header_end + length {
+                    let count = socket.read(&mut chunk).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&chunk[..count]);
+                }
+                let events = [
+                    serde_json::json!({"type":"response.created","response":{"id":"partial-response"}}),
+                    serde_json::json!({"type":"response.output_item.added","item":{"type":"message","role":"assistant","id":"message-1","content":[]}}),
+                    serde_json::json!({"type":"response.output_text.delta","delta":"partial answer"}),
+                ].into_iter().map(|event| format!("event: {}\ndata: {event}\n\n", event["type"].as_str().unwrap())).collect::<String>();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{events}\r\n",
+                    events.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+                // Keep ownership of the connection until the cancelled client
+                // drops it; do not send a completed event or terminal chunk.
+                let _ = socket.read(&mut chunk).await;
+            });
+            let home = tempfile::tempdir().unwrap();
+            for root in [home.path().to_path_buf(), home.path().join("skills")] {
+                std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry"))
+                    .unwrap();
+            }
+            let mut config = ConfigBuilder::default()
+                .savfox_home(home.path().to_path_buf())
+                .build()
+                .await
+                .unwrap();
+            config.cwd = home.path().to_path_buf();
+            config.model = Some("test-model".to_owned());
+            config.model_provider.base_url = Some(base_url);
+            config.model_provider.wire_api = savfox_core::WireApi::Responses;
+            config.model_provider.env_key = None;
+            config.model_provider.requires_openai_auth = false;
+            config.model_provider.supports_websockets = false;
+            config.model_provider.stream_idle_timeout_ms = Some(600_000);
+            config.model_provider.request_max_retries = Some(0);
+            config.model_provider.stream_max_retries = Some(0);
+            config
+                .features
+                .disable(savfox_core::features::Feature::RemoteModels);
+            config
+                .features
+                .disable(savfox_core::features::Feature::ResponsesWebsockets);
+            let store = Arc::new(SessionStore::from_home(home.path()));
+            let gateway = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+                config: Arc::new(config),
+                session_store: store,
+                cli_overrides: vec![],
+                cloud_requirements: Default::default(),
+                websocket_manager: GatewaySessionManager::new(),
+                channel_registry: crate::channels::create_channel_registry(),
+                channel_recovery_registry:
+                    crate::channels::recovery::create_channel_recovery_registry(),
+                channel_recovery_supervisors:
+                    crate::channels::recovery::create_channel_recovery_supervisors(),
+            }));
+            let logical_id = persistent.then(|| uuid::Uuid::now_v7().to_string());
+            let (delta_tx, mut delta_rx) = tokio::sync::mpsc::unbounded_channel();
+            let invoking = gateway.clone();
+            let invocation = tokio::spawn(async move {
+                invoking
+                    .invoke_agent_text_in_session_with_metadata_impl(
+                        "Respond with text",
+                        "default",
+                        logical_id.as_deref(),
+                        move |delta| {
+                            let _ = delta_tx.send(delta.to_owned());
+                        },
+                        None,
+                        false,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+            });
+            let partial = tokio::time::timeout(Duration::from_secs(10), delta_rx.recv())
+                .await
+                .unwrap();
+            assert_eq!(partial.as_deref(), Some("partial answer"));
+            let ids = gateway.session_manager().list_session_ids().await;
+            assert_eq!(ids.len(), 1);
+            let session = gateway.session_manager().get_session(ids[0]).await.unwrap();
+            tokio::time::pause();
+            tokio::time::advance(Duration::from_secs(121)).await;
+            let error = invocation.await.unwrap().unwrap_err();
+            assert!(error.to_string().contains("timed out"), "{error:#}");
+            assert!(!matches!(
+                session.agent_status().await,
+                AgentStatus::Running | AgentStatus::PendingInit
+            ));
+            assert_eq!(
+                gateway.session_manager().list_session_ids().await.len(),
+                usize::from(persistent)
+            );
+            tokio::time::resume();
+            gateway
+                .session_manager()
+                .remove_and_close_all_sessions()
+                .await
+                .unwrap();
+            server.abort();
+        }
+    }
+    #[tokio::test]
+    async fn invocation_cleanup_preserves_later_turn_approvals_on_the_same_session() {
+        use crate::security::execution_policy::ApprovalClientCapabilities;
+
+        let home = tempfile::tempdir().unwrap();
+        let coordinator = ApprovalCoordinator::new(home.path().to_path_buf());
+        let session_id = SessionId::new();
+        let mut approvals = Vec::new();
+        for turn_id in ["old-turn", "next-turn"] {
+            approvals.push(
+                coordinator
+                    .register(
+                        turn_id.to_owned(),
+                        session_id,
+                        ChannelApprovalScope {
+                            channel: "telegram:room".to_owned(),
+                            channel_config_id: None,
+                            account_id: None,
+                            peer_id: "owner".to_owned(),
+                            logical_session_id: "conversation".to_owned(),
+                        },
+                        ChannelApprovalKind::Patch,
+                        ApprovalClientCapabilities::interactive(),
+                        ApprovalRequestMetadata {
+                            agent_id: "test-agent".to_owned(),
+                            policy_fingerprint: "policy".to_owned(),
+                            cwd: home.path().to_path_buf(),
+                            summary: "patch".to_owned(),
+                            command: None,
+                            reason: None,
+                        },
+                    )
+                    .await
+                    .unwrap(),
+            );
+        }
+        remove_invocation_approvals(&coordinator, &[approvals[0].request_id.clone()]).await;
+        assert!(!coordinator.is_pending(&approvals[0].request_id).await);
+        assert!(coordinator.is_pending(&approvals[1].request_id).await);
     }
 }

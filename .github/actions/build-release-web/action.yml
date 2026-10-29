@@ -1,0 +1,25 @@
+name: Build release Web bundle
+description: Build and verify the locked Web assets before any native release binary is compiled
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/ui-sources
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    - uses: Swatinem/rust-cache@v2
+      with:
+        key: release-web-wasm
+    - name: Install matching wasm-bindgen
+      shell: bash
+      run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+    - name: Build and validate Web bundle
+      shell: bash
+      run: |
+        node scripts/build-web.cjs --release
+        node scripts/verify-web-bundle.cjs
+    - uses: actions/upload-artifact@v7
+      with:
+        name: gateway-release-web
+        path: crates/gateway-server/static
+        if-no-files-found: error

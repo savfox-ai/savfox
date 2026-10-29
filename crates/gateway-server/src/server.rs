@@ -207,7 +207,7 @@ macro_rules! protected_http_routes {
             (get, "api/nodes", HttpAuthorization::Scope(TokenScope::OperatorPairing), nodes_handler),
             (get, "api/devices", HttpAuthorization::Scope(TokenScope::OperatorPairing), devices_list_handler),
             (post, "api/devices/pair", HttpAuthorization::Scope(TokenScope::OperatorPairing), devices_pair_handler),
-            (post, "api/devices/<device_id>/revoke", HttpAuthorization::Scope(TokenScope::OperatorPairing), devices_revoke_handler),
+            (post, "api/devices/{device_id}/revoke", HttpAuthorization::Scope(TokenScope::OperatorPairing), devices_revoke_handler),
             (post, "api/config/patch", HttpAuthorization::Scope(TokenScope::OperatorAdmin), config_patch_handler),
             (post, "api/config/apply", HttpAuthorization::Scope(TokenScope::OperatorAdmin), config_apply_handler),
             (post, "api/restart", HttpAuthorization::Scope(TokenScope::OperatorAdmin), restart_handler),
@@ -229,25 +229,25 @@ macro_rules! protected_http_routes {
             (get, "api/exec/approvals", HttpAuthorization::Scope(TokenScope::OperatorApprovalsRead), exec_approval::approvals_list_handler),
             (post, "api/agent", HttpAuthorization::Scope(TokenScope::OperatorWrite), agent_handler),
             (post, "api/agent/wait", HttpAuthorization::Scope(TokenScope::OperatorRead), agent_wait_handler),
-            (get, "api/sessions/<session_id>/history", HttpAuthorization::Scope(TokenScope::OperatorRead), session_history_handler),
+            (get, "api/sessions/{session_id}/history", HttpAuthorization::Scope(TokenScope::OperatorRead), session_history_handler),
             (get, "api/agents", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::agents_list_handler),
             (post, "api/agents", HttpAuthorization::Scope(TokenScope::OperatorAdmin), routing::agents_create_handler),
-            (get, "api/agents/<agent_id>", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::agents_get_handler),
-            (post, "api/agents/<agent_id>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), routing::agents_update_handler),
-            (delete, "api/agents/<agent_id>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), routing::agents_delete_handler),
+            (get, "api/agents/{agent_id}", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::agents_get_handler),
+            (post, "api/agents/{agent_id}", HttpAuthorization::Scope(TokenScope::OperatorAdmin), routing::agents_update_handler),
+            (delete, "api/agents/{agent_id}", HttpAuthorization::Scope(TokenScope::OperatorAdmin), routing::agents_delete_handler),
             (get, "api/sessions/preview", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::sessions_preview_handler),
-            (post, "api/sessions/<session_id>", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::sessions_patch_handler),
-            (post, "api/sessions/<session_id>/reset", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::sessions_reset_handler),
-            (delete, "api/sessions/<session_id>", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::sessions_delete_handler),
+            (post, "api/sessions/{session_id}", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::sessions_patch_handler),
+            (post, "api/sessions/{session_id}/reset", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::sessions_reset_handler),
+            (delete, "api/sessions/{session_id}", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::sessions_delete_handler),
             (get, "api/usage/stats", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::usage_stats_handler),
             (get, "api/usage/timeseries", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::usage_timeseries_handler),
             (get, "api/usage/cost", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::usage_cost_handler),
             (get, "api/cron", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::cron_list_handler),
             (post, "api/cron", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_add_handler),
-            (get, "api/cron/<job_id>", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::cron_get_handler),
-            (post, "api/cron/<job_id>", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_update_handler),
-            (delete, "api/cron/<job_id>", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_delete_handler),
-            (post, "api/cron/<job_id>/run", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_run_handler),
+            (get, "api/cron/{job_id}", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::cron_get_handler),
+            (post, "api/cron/{job_id}", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_update_handler),
+            (delete, "api/cron/{job_id}", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_delete_handler),
+            (post, "api/cron/{job_id}/run", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::cron_run_handler),
             (get, "api/tts/status", HttpAuthorization::Scope(TokenScope::OperatorRead), routing::tts_status_handler),
             (post, "api/tts/enable", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::tts_enable_handler),
             (post, "api/tts/disable", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::tts_disable_handler),
@@ -256,11 +256,11 @@ macro_rules! protected_http_routes {
             (post, "api/voicewake/enable", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::voicewake_enable_handler),
             (post, "api/voicewake/disable", HttpAuthorization::Scope(TokenScope::OperatorWrite), routing::voicewake_disable_handler),
             (post, "api/chat/abort", HttpAuthorization::Scope(TokenScope::Chat), chat_abort_handler),
-            (post, "plugins/<plugin_id>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), plugin_route_handler),
-            (post, "plugins/<plugin_id>/<**plugin_route>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), plugin_route_handler),
+            (post, "plugins/{plugin_id}", HttpAuthorization::Scope(TokenScope::OperatorAdmin), plugin_route_handler),
+            (post, "plugins/{plugin_id}/{**plugin_route}", HttpAuthorization::Scope(TokenScope::OperatorAdmin), plugin_route_handler),
             (post, "hooks/wake", HttpAuthorization::Scope(TokenScope::OperatorAdmin), hooks::wake_handler),
             (post, "hooks/agent", HttpAuthorization::Scope(TokenScope::OperatorAdmin), hooks::agent_hook_handler),
-            (post, "hooks/<mapping_id>", HttpAuthorization::Scope(TokenScope::OperatorAdmin), hooks::custom_hook_handler),
+            (post, "hooks/{mapping_id}", HttpAuthorization::Scope(TokenScope::OperatorAdmin), hooks::custom_hook_handler),
         }
     };
 }
@@ -281,8 +281,8 @@ fn protected_route_matches(template: &str, path: &str) -> bool {
     loop {
         match (template_segments.next(), path_segments.next()) {
             (None, None) => return true,
-            (Some(segment), _) if segment.starts_with("<**") => return true,
-            (Some(segment), Some(_)) if segment.starts_with('<') && segment.ends_with('>') => {}
+            (Some(segment), _) if segment.starts_with("{**") => return true,
+            (Some(segment), Some(_)) if segment.starts_with('{') && segment.ends_with('}') => {}
             (Some(template_segment), Some(path_segment)) if template_segment == path_segment => {}
             _ => return false,
         }
@@ -315,6 +315,18 @@ fn has_http_authorization(info: &TokenInfo, required: HttpAuthorization) -> bool
         HttpAuthorization::AnyAuthenticated => true,
         HttpAuthorization::Scope(scope) => info.has_scope(scope),
     }
+}
+
+fn register_protected_http_routes(mut router: Router) -> Router {
+    macro_rules! register {
+        ($(($method:ident, $path:literal, $authorization:expr, $handler:path),)*) => {
+            $(
+                router = router.push(Router::with_path($path).$method($handler));
+            )*
+        };
+    }
+    protected_http_routes!(register);
+    router
 }
 
 /// Global Salvo hoop: enforce Bearer-auth on every protected endpoint.
@@ -528,18 +540,11 @@ pub(crate) fn build_router(
         // requiring each handler to repeat the boilerplate.
         .hoop(bearer_auth_hoop);
 
-    let mut router = state_router
-        .push(Router::with_path("health").get(health_handler))
-        .push(Router::with_path("ws").goal(ws_handler));
-
-    macro_rules! register_protected_http_routes {
-        ($(($method:ident, $path:literal, $authorization:expr, $handler:path),)*) => {
-            $(
-                router = router.push(Router::with_path($path).$method($handler));
-            )*
-        };
-    }
-    protected_http_routes!(register_protected_http_routes);
+    let mut router = register_protected_http_routes(
+        state_router
+            .push(Router::with_path("health").get(health_handler))
+            .push(Router::with_path("ws").goal(ws_handler)),
+    );
 
     // Webhook endpoints for chat platform channels.
     let webhook_router = Router::with_path("webhooks")
@@ -1354,6 +1359,35 @@ mod tests {
             required_http_authorization("PUT", "/api/sessions/session-1"),
             HttpAuthorization::Scope(TokenScope::OperatorAdmin)
         );
+    }
+
+    #[tokio::test]
+    async fn every_protected_http_route_matches_the_locked_salvo_parser() {
+        let router = super::register_protected_http_routes(Router::new());
+        for &(method, template, _) in super::PROTECTED_HTTP_AUTHORIZATIONS {
+            let path = template
+                .split('/')
+                .map(|segment| {
+                    if segment.starts_with("{**") {
+                        "nested/route"
+                    } else if segment.starts_with('{') && segment.ends_with('}') {
+                        "test-id"
+                    } else {
+                        segment
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("/");
+            let mut request = Request::new();
+            *request.method_mut() =
+                Method::from_bytes(method.to_ascii_uppercase().as_bytes()).expect("route method");
+            request.set_uri(path.parse().expect("route URI"));
+            let mut state = salvo::routing::PathState::from_owned_path(path.clone());
+            assert!(
+                router.detect(&mut request, &mut state).await.is_some(),
+                "{method} {path} ({template})"
+            );
+        }
     }
 
     #[test]

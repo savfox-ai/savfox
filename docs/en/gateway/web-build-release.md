@@ -58,6 +58,12 @@ embeds them at compilation and serves `index.html` for application routes. The
 bootstrap HTML uses absolute URLs so refreshing nested routes works. Unhashed
 assets are served with `no-cache`.
 
+Native release and npm workflows first build one locked Web bundle and share it
+with every platform build. Each builder downloads it into `static` and runs
+`node scripts/verify-web-bundle.cjs` before compiling the binary. The check rejects
+missing or empty entrypoints, CSS, JavaScript and invalid WebAssembly. A native
+release must not be compiled from an empty `static` directory.
+
 For shell-independent builds, run `node scripts/build-web.cjs`; its options are
 `--release`, `--skip-copy`, `--force` and `--bindgen <path>`.
 

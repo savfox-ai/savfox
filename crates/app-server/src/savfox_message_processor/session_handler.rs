@@ -1433,7 +1433,6 @@ impl SavfoxMessageProcessor {
             .insert(subscription_id, conversation_id);
 
         let outgoing_for_task = self.outgoing.clone();
-        let pending_interrupts = self.pending_interrupts.clone();
         let pending_rollbacks = self.pending_rollbacks.clone();
         let turn_summary_store = self.turn_summary_store.clone();
         let fallback_model_provider = self.config.model_provider_id.clone();
@@ -1495,7 +1494,6 @@ impl SavfoxMessageProcessor {
                             conversation_id,
                             conversation.clone(),
                             outgoing_for_task.clone(),
-                            pending_interrupts.clone(),
                             pending_rollbacks.clone(),
                             turn_summary_store.clone(),
                             fallback_model_provider.clone(),

@@ -106,14 +106,7 @@ pub async fn edit_message(
         .body(body.to_string())
         .send()
         .await?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "Mattermost edit error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
-    }
+    response.error_for_status()?;
     Ok(())
 }
 

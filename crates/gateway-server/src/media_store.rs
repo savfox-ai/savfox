@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::ssrf::{SsrfConfig, guarded_fetch};
+use crate::ssrf::{SsrfConfig, guarded_fetch_with_limit};
 
 const DEFAULT_MAX_BYTES: usize = 5 * 1024 * 1024;
 const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60;
@@ -168,7 +168,16 @@ impl MediaStore {
     ) -> Result<MediaEntry, String> {
         let _ = self.prune_expired().await;
 
-        let response = guarded_fetch(url, &self.ssrf)
+        // The MIME is not trustworthy until the bytes have been inspected.
+        // Bound the transfer by the largest configured media allowance first;
+        // store_resolved then applies the detected MIME's stricter allowance.
+        let max_bytes = self
+            .cfg
+            .max_image_bytes
+            .max(self.cfg.max_audio_bytes)
+            .max(self.cfg.max_video_bytes)
+            .max(self.cfg.max_other_bytes);
+        let response = guarded_fetch_with_limit(url, &self.ssrf, max_bytes)
             .await
             .map_err(|err| format!("blocked download URL: {err}"))?;
         if !response.status.is_success() {

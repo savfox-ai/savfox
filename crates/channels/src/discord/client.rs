@@ -137,18 +137,8 @@ pub async fn edit_message(
         .body(body.to_string())
         .send()
         .await?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            target: "savfox::channels::discord",
-            %status,
-            body = %String::from_utf8_lossy(&body),
-            "edit_message failed"
-        );
-    } else {
-        debug!(target: "savfox::channels::discord", "edit_message ok");
-    }
+    response.error_for_status()?;
+    debug!(target: "savfox::channels::discord", "edit_message ok");
     Ok(())
 }
 

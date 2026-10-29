@@ -22,8 +22,7 @@ use savfox_app_server_protocol::{
     SessionTokenUsage, SessionTokenUsageUpdatedNotification, TerminalInteractionNotification,
     ToolRequestUserInputOption, ToolRequestUserInputParams, ToolRequestUserInputQuestion,
     ToolRequestUserInputResponse, Turn, TurnCompletedNotification, TurnDiffUpdatedNotification,
-    TurnError, TurnInterruptResponse, TurnPlanStep, TurnPlanUpdatedNotification, TurnStatus,
-    build_turns_from_event_msgs,
+    TurnError, TurnPlanStep, TurnPlanUpdatedNotification, TurnStatus, build_turns_from_event_msgs,
 };
 use savfox_core::parse_command::shlex_join;
 use savfox_core::protocol::{
@@ -46,8 +45,8 @@ use tracing::error;
 use crate::error_code::{INTERNAL_ERROR_CODE, INVALID_REQUEST_ERROR_CODE};
 use crate::outgoing_message::OutgoingMessageSender;
 use crate::savfox_message_processor::{
-    PendingInterrupts, PendingRollbacks, TurnSummary, TurnSummaryStore,
-    read_event_msgs_from_rollout, read_summary_from_rollout, summary_to_session,
+    PendingRollbacks, TurnSummary, TurnSummaryStore, read_event_msgs_from_rollout,
+    read_summary_from_rollout, summary_to_session,
 };
 
 type JsonValue = serde_json::Value;
@@ -58,7 +57,6 @@ pub(crate) async fn apply_bespoke_event_handling(
     conversation_id: SessionId,
     conversation: Arc<SavfoxSession>,
     outgoing: Arc<OutgoingMessageSender>,
-    pending_interrupts: PendingInterrupts,
     pending_rollbacks: PendingRollbacks,
     turn_summary_store: TurnSummaryStore,
     fallback_model_provider: String,
@@ -866,19 +864,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                 .send_server_notification(ServerNotification::ItemCompleted(notification))
                 .await;
         }
-        // If this is a TurnAborted, reply to any pending interrupt requests.
         EventMsg::TurnAborted(_turn_aborted_event) => {
-            let pending = {
-                let mut map = pending_interrupts.lock().await;
-                map.remove(&conversation_id).unwrap_or_default()
-            };
-            if !pending.is_empty() {
-                for rid in pending {
-                    let response = TurnInterruptResponse {};
-                    outgoing.send_response(rid, response).await;
-                }
-            }
-
             handle_turn_interrupted(
                 conversation_id,
                 event_turn_id,

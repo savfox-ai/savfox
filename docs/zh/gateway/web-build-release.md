@@ -53,6 +53,11 @@ just gateway-release
 回退到 `index.html`。入口 HTML 使用绝对路径，支持刷新嵌套路由；无内容哈希
 的资源使用 `no-cache`。
 
+原生 release 与 npm 工作流会先构建一份锁定依赖的 Web bundle，再供所有平台复用。
+各平台在编译二进制前将产物下载到 `static`，并运行
+`node scripts/verify-web-bundle.cjs`。检查会拒绝缺失或空的入口、CSS、JavaScript
+以及无效 WebAssembly，避免从空 `static` 目录生成缺少网页的发布二进制。
+
 也可以直接运行 `node scripts/build-web.cjs`，选项为 `--release`、`--skip-copy`、
 `--force` 和 `--bindgen <路径>`。
 

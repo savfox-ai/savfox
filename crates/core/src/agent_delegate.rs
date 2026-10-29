@@ -19,7 +19,8 @@ use crate::config::Config;
 use crate::error::SavfoxError;
 use crate::models_manager::manager::ModelsManager;
 use crate::savfox::{
-    SUBMISSION_CHANNEL_CAPACITY, Session, SessionHandle, SessionSpawnResult, TurnContext,
+    SUBMISSION_CHANNEL_CAPACITY, Session, SessionCommand, SessionHandle, SessionSpawnResult,
+    TurnContext,
 };
 
 /// Start an interactive sub-agent session and return IO channels.
@@ -137,10 +138,10 @@ pub(crate) async fn run_savfox_session_one_shot(
             let _ = tx_channel.send(event).await;
             if should_shutdown {
                 let _ = ops_tx
-                    .send(Submission {
+                    .send(SessionCommand::Submission(Box::new(Submission {
                         id: "shutdown".to_owned(),
                         op: Op::Shutdown {},
-                    })
+                    })))
                     .await;
                 child_cancel.cancel();
                 break;
@@ -273,15 +274,17 @@ async fn shutdown_delegate(handle: &SessionHandle) {
 /// Forward ops from a caller to a sub-agent, respecting cancellation.
 async fn forward_ops(
     handle: Arc<SessionHandle>,
-    rx_ops: Receiver<Submission>,
+    rx_ops: Receiver<SessionCommand>,
     cancel_token_ops: CancellationToken,
 ) {
     loop {
-        let op: Op = match rx_ops.recv().or_cancel(&cancel_token_ops).await {
-            Ok(Ok(Submission { id: _, op })) => op,
+        let command = match rx_ops.recv().or_cancel(&cancel_token_ops).await {
+            Ok(Ok(command)) => command,
             Ok(Err(_)) | Err(_) => break,
         };
-        let _ = handle.submit(op).await;
+        if handle.tx_sub.send(command).await.is_err() {
+            break;
+        }
     }
 }
 
@@ -487,7 +490,7 @@ mod tests {
         let received = rx_out.recv().await.expect("prefilled event missing");
         assert_eq!("full", received.id);
         let mut ops = Vec::new();
-        while let Ok(sub) = rx_sub.try_recv() {
+        while let Ok(SessionCommand::Submission(sub)) = rx_sub.try_recv() {
             ops.push(sub.op);
         }
         assert!(

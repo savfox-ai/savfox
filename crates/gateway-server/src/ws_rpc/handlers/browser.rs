@@ -24,6 +24,7 @@ use crate::{voice_store, wizard_store};
 // ── Browser ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_BROWSER_TIMEOUT_MS: u64 = 15_000;
+const MAX_BROWSER_RESPONSE_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BrowserProfileSettings {
@@ -454,7 +455,35 @@ pub(crate) async fn handle_browser_request(
                 }}
                 try {{
                     const resp = await fetch(targetUrl, init);
-                    const text = await resp.text();
+                    const maxBytes = {MAX_BROWSER_RESPONSE_BYTES};
+                    const tooLarge = () => ({{ ok: false, too_large: true, error: `response body exceeds ${{maxBytes}} bytes` }});
+                    if (Number(resp.headers.get("content-length")) > maxBytes) {{
+                        if (resp.body) await resp.body.cancel().catch(() => {{}});
+                        return tooLarge();
+                    }}
+                    const chunks = [];
+                    let size = 0;
+                    if (resp.body) {{
+                        const reader = resp.body.getReader();
+                        try {{
+                            while (true) {{
+                                const {{ done, value }} = await reader.read();
+                                if (done) break;
+                                if (value.byteLength > maxBytes - size) {{
+                                    await reader.cancel().catch(() => {{}});
+                                    return tooLarge();
+                                }}
+                                size += value.byteLength;
+                                chunks.push(value);
+                            }}
+                        }} finally {{
+                            reader.releaseLock();
+                        }}
+                    }}
+                    const bytes = new Uint8Array(size);
+                    let offset = 0;
+                    for (const chunk of chunks) {{ bytes.set(chunk, offset); offset += chunk.byteLength; }}
+                    const text = new TextDecoder().decode(bytes);
                     const headerMap = Object.fromEntries(resp.headers.entries());
                     return {{
                         ok: true,
@@ -472,6 +501,15 @@ pub(crate) async fn handle_browser_request(
 
         let browser_result =
             with_browser_timeout(timeout_ms, "browser request", page.evaluate(&expr)).await?;
+        // A size rejection is definitive. Repeating the request using the
+        // direct transport can repeat POST side effects and cannot make the
+        // oversized response safe.
+        if browser_result.get("too_large").and_then(Value::as_bool) == Some(true) {
+            return Err((
+                INVALID_PARAMS,
+                format!("response body exceeds {MAX_BROWSER_RESPONSE_BYTES} bytes"),
+            ));
+        }
         if browser_result
             .get("ok")
             .and_then(|v| v.as_bool())
@@ -527,9 +565,10 @@ pub(crate) async fn handle_browser_request_direct(params: &Value) -> RpcResult {
     let has_headers = params.get("headers").is_some();
     let has_body = params.get("body").is_some();
     if method == reqwest::Method::GET && !has_headers && !has_body {
-        let resp = crate::ssrf::guarded_fetch(url, &ssrf_cfg)
-            .await
-            .map_err(|e| (INVALID_PARAMS, format!("blocked URL: {e}")))?;
+        let resp =
+            crate::ssrf::guarded_fetch_with_limit(url, &ssrf_cfg, MAX_BROWSER_RESPONSE_BYTES)
+                .await
+                .map_err(|e| (INVALID_PARAMS, format!("blocked URL: {e}")))?;
         let body = String::from_utf8_lossy(&resp.body).into_owned();
         let truncated = body.chars().count() > 100_000;
         let body = if truncated {
@@ -546,15 +585,9 @@ pub(crate) async fn handle_browser_request_direct(params: &Value) -> RpcResult {
         }));
     }
 
-    crate::ssrf::validate_outbound_url(url, &ssrf_cfg)
+    let client = crate::ssrf::build_pinned_client(url, &ssrf_cfg)
         .await
         .map_err(|e| (INVALID_PARAMS, format!("blocked URL: {e}")))?;
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(ssrf_cfg.timeout_ms.max(1)))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| (INTERNAL_ERROR, format!("failed to create http client: {e}")))?;
     let mut req = client.request(method, url);
 
     if let Some(headers) = params.get("headers").and_then(|v| v.as_object()) {
@@ -588,8 +621,7 @@ pub(crate) async fn handle_browser_request_direct(params: &Value) -> RpcResult {
         .get(reqwest::header::LOCATION)
         .and_then(|v| v.to_str().ok())
         .map(ToOwned::to_owned);
-    let body_bytes = response
-        .bytes()
+    let body_bytes = crate::ssrf::read_limited_body(response, MAX_BROWSER_RESPONSE_BYTES)
         .await
         .map_err(|e| (INTERNAL_ERROR, format!("failed reading response body: {e}")))?;
     let body_text = String::from_utf8_lossy(&body_bytes).into_owned();

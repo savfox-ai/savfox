@@ -3,8 +3,8 @@ use std::sync::Arc;
 use savfox_app_server_protocol::{
     AskForApproval, JSONRPCErrorError, RequestId, ReviewDelivery as ApiReviewDelivery,
     ReviewStartParams, ReviewStartResponse, ServerNotification, SessionItem, Turn,
-    TurnInterruptParams, TurnStartParams, TurnStartResponse, TurnStartedNotification, TurnStatus,
-    UserInput as V2UserInput,
+    TurnInterruptParams, TurnInterruptResponse, TurnStartParams, TurnStartResponse,
+    TurnStartedNotification, TurnStatus, UserInput as V2UserInput,
 };
 use savfox_core::protocol::{Op, ReviewDelivery as CoreReviewDelivery, ReviewRequest};
 use savfox_core::{NewSession, SavfoxSession};
@@ -334,9 +334,12 @@ impl SavfoxMessageProcessor {
         request_id: RequestId,
         params: TurnInterruptParams,
     ) {
-        let TurnInterruptParams { session_id, .. } = params;
+        let TurnInterruptParams {
+            session_id,
+            turn_id,
+        } = params;
 
-        let (session_uuid, session) = match self.load_session(&session_id).await {
+        let (_, session) = match self.load_session(&session_id).await {
             Ok(v) => v,
             Err(error) => {
                 self.outgoing.send_error(request_id, error).await;
@@ -344,13 +347,38 @@ impl SavfoxMessageProcessor {
             }
         };
 
-        // Record the pending interrupt so we can reply when TurnAborted arrives.
-        {
-            let mut map = self.pending_interrupts.lock().await;
-            map.entry(session_uuid).or_default().push(request_id);
+        match session.interrupt_turn(&turn_id).await {
+            Ok(true) => {
+                self.outgoing
+                    .send_response(request_id, TurnInterruptResponse {})
+                    .await;
+            }
+            Ok(false) => {
+                self.outgoing
+                    .send_error(
+                        request_id,
+                        JSONRPCErrorError {
+                            code: INVALID_REQUEST_ERROR_CODE,
+                            message: format!(
+                                "turn {turn_id} is not active in session {session_id}"
+                            ),
+                            data: None,
+                        },
+                    )
+                    .await;
+            }
+            Err(err) => {
+                self.outgoing
+                    .send_error(
+                        request_id,
+                        JSONRPCErrorError {
+                            code: INTERNAL_ERROR_CODE,
+                            message: format!("failed to interrupt turn: {err}"),
+                            data: None,
+                        },
+                    )
+                    .await;
+            }
         }
-
-        // Submit the interrupt; we'll respond upon TurnAborted.
-        let _ = session.submit(Op::Interrupt).await;
     }
 }

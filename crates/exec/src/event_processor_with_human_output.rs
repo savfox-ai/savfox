@@ -563,6 +563,7 @@ impl EventProcessor for EventProcessorWithHumanOutput {
             EventMsg::TurnAborted(abort_reason) => match abort_reason.reason {
                 TurnAbortReason::Interrupted => {
                     ts_msg!(self, "task interrupted");
+                    return SavfoxStatus::InitiateShutdown;
                 }
                 TurnAbortReason::Replaced => {
                     ts_msg!(self, "task aborted: replaced by a new task");

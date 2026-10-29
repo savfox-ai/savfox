@@ -20,7 +20,16 @@ Cargo fetches the pinned Arkret SDK, Garth, and bridge Git dependencies itself;
 source builds do not require sibling repository checkouts. For local Arkret
 co-development, see the overrides in [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
-### Verify Installation
+### Release installer
+
+The release installer selects the same target triple used by the native release
+workflow. `SAVFOX_VERSION=0.3.1` (or `v0.3.1`) pins a release; omitting it selects
+the latest release. It downloads the archive and its `.sha256` file and verifies
+the digest before extracting or replacing the installed binary. Missing or
+invalid checksums fail installation. Resolving `latest` requires curl; pinned
+downloads also support wget. Native Windows releases currently support x64.
+
+### Verify the installed binary
 
 ```bash
 savfox --version

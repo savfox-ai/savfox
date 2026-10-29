@@ -1,5 +1,3 @@
-#![cfg(unix)]
-
 use anyhow::Result;
 use app_test_support::{
     McpProcess, create_mock_responses_server_sequence, create_shell_command_sse_response,
@@ -20,9 +18,9 @@ async fn turn_interrupt_aborts_running_turn() -> Result<()> {
     // Use a portable sleep command to keep the turn running.
     #[cfg(target_os = "windows")]
     let shell_command = vec![
-        "powershell".to_string(),
-        "-Command".to_string(),
-        "Start-Sleep -Seconds 10".to_string(),
+        "powershell".to_owned(),
+        "-Command".to_owned(),
+        "Start-Sleep -Seconds 10".to_owned(),
     ];
     #[cfg(not(target_os = "windows"))]
     let shell_command = vec!["sleep".to_owned(), "10".to_owned()];
@@ -83,11 +81,25 @@ async fn turn_interrupt_aborts_running_turn() -> Result<()> {
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     let session_id = session.id.clone();
+    // A delayed request for an older turn must leave the running turn alone.
+    let stale_interrupt_id = mcp
+        .send_turn_interrupt_request(TurnInterruptParams {
+            session_id: session_id.clone(),
+            turn_id: "older-turn".to_owned(),
+        })
+        .await?;
+    let stale_error = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(stale_interrupt_id)),
+    )
+    .await??;
+    assert_eq!(stale_error.error.code, -32600);
+
     // Interrupt the in-progress turn by id (v2 API).
     let interrupt_id = mcp
         .send_turn_interrupt_request(TurnInterruptParams {
             session_id: session_id.clone(),
-            turn_id: turn.id,
+            turn_id: turn.id.clone(),
         })
         .await?;
     let interrupt_resp: JSONRPCResponse = timeout(
@@ -110,6 +122,58 @@ async fn turn_interrupt_aborts_running_turn() -> Result<()> {
     assert_eq!(completed.session_id, session_id);
     assert_eq!(completed.turn.status, TurnStatus::Interrupted);
 
+    // A repeat after cleanup receives an error immediately instead of waiting
+    // for a future, unrelated TurnAborted event.
+    let duplicate_id = mcp
+        .send_turn_interrupt_request(TurnInterruptParams {
+            session_id,
+            turn_id: turn.id,
+        })
+        .await?;
+    let duplicate_error = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(duplicate_id)),
+    )
+    .await??;
+    assert_eq!(duplicate_error.error.code, -32600);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn turn_interrupt_on_idle_session_returns_error_without_waiting_for_an_event() -> Result<()> {
+    let tmp = TempDir::new()?;
+    let savfox_home = tmp.path().join("savfox_home");
+    std::fs::create_dir(&savfox_home)?;
+    let server = create_mock_responses_server_sequence(Vec::new()).await;
+    create_config_toml(&savfox_home, &server.uri())?;
+    let mut mcp = McpProcess::new(&savfox_home).await?;
+    timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
+    let start_id = mcp
+        .send_session_start_request(SessionStartParams {
+            model: Some("mock-model".to_owned()),
+            ..Default::default()
+        })
+        .await?;
+    let response = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(start_id)),
+    )
+    .await??;
+    let SessionStartResponse { session, .. } = to_response::<SessionStartResponse>(response)?;
+    let interrupt_id = mcp
+        .send_turn_interrupt_request(TurnInterruptParams {
+            session_id: session.id,
+            turn_id: "completed-turn".to_owned(),
+        })
+        .await?;
+    let error = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(interrupt_id)),
+    )
+    .await??;
+    assert_eq!(error.error.code, -32600);
+    assert!(error.error.message.contains("not active"));
     Ok(())
 }
 

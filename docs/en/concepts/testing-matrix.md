@@ -25,6 +25,7 @@ Use `just test` when:
 
 CI now has these validation layers:
 - `fmt`: nightly rustfmt, always run.
+- `tooling-tests`: installer fixtures, Web bundle integrity and targeted package mapping.
 - `test-targeted`: Ubuntu targeted domain checks driven by path filters.
 - `test`: Ubuntu full workspace nextest plus doctests for workspace-wide changes, CI workflow changes, crates outside the targeted domains, manual runs, and scheduled runs. New crates fall back to this layer until explicitly assigned to a targeted domain.
 - `test-cross-platform`: Windows and macOS full workspace nextest, manual or scheduled only.
@@ -35,14 +36,25 @@ Regular PRs do not run the full Windows/macOS matrix unless the workflow is manu
 
 | Domain | Primary command | Scope |
 | ------ | --------------- | ----- |
-| Core/runtime | `just test-core` | `savfox-core`, config/model/http/api runtime crates |
+| Core/runtime | `just test-core` | `savfox-core`, config/model/http/api runtime crates; CI also runs `savfox-common` |
 | Protocol/editor | `just test-protocol` | `savfox-protocol`, `savfox-app-server-protocol`, `savfox-app-server`, `savfox-mcp-server` |
-| TUI | `just test-tui` | `savfox-tui` |
+| TUI | `just test-tui` | `savfox-tui`; CI also runs `savfox-ansi-escape` |
 | Gateway | `just test-gateway` | `savfox-gateway-server`, `savfox-gateway-shared`, `savfox-channels` |
 | Channels only | `just test-channels` | `savfox-channels` |
 | Web | `just test-web` | Glory frontend build |
 
 ## Selection rule
+
+`node scripts/check-ci-test-matrix.cjs` compares the workspace package metadata
+with CI's workspace exclusions and targeted test commands. Every excluded crate
+must have its own explicit targeted test package; building it as a dependency
+does not run its unit tests. Web native unit tests run alongside the WASM build.
+
+Gateway regression fixtures exercise the production router, dispatcher, WebSocket
+handshake, configuration validator and persistent session store. They fail when
+the expected behavior fails. Standalone JSON construction examples are not
+integration coverage. Explicitly running ignored live Gateway E2E tests requires
+both `E2E_GATEWAY_URL` and `E2E_GATEWAY_TOKEN`; missing setup fails the test.
 
 Pick the smallest slice that fully covers the changed behavior. If the change crosses a shared boundary, run more than one slice.
 

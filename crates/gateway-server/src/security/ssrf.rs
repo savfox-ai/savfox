@@ -18,6 +18,9 @@ use tracing::warn;
 
 const DEFAULT_MAX_REDIRECTS: usize = 5;
 const DEFAULT_TIMEOUT_MS: u64 = 15_000;
+/// Hard bound for generic outbound downloads; callers with smaller policies
+/// (browser text or media stores) should use `guarded_fetch_with_limit`.
+pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SsrfConfig {
@@ -108,6 +111,8 @@ pub enum SsrfError {
     Timeout(u64),
     #[error("http error: {0}")]
     Http(String),
+    #[error("response body exceeds {limit} bytes")]
+    BodyTooLarge { limit: usize },
 }
 
 #[must_use]
@@ -244,13 +249,28 @@ pub async fn build_pinned_client(
         .ok_or(SsrfError::MissingHost)?;
     let ips = resolve_pinned_hostname(&host, port, cfg).await?;
 
-    let mut builder = reqwest::Client::builder()
+    pinned_client_for_addresses(&host, port, &ips, cfg)
+}
+
+fn pinned_client_for_addresses(
+    host: &str,
+    port: u16,
+    ips: &[IpAddr],
+    cfg: &SsrfConfig,
+) -> Result<reqwest::Client, SsrfError> {
+    let addresses = ips
+        .iter()
+        .map(|ip| SocketAddr::new(*ip, port))
+        .collect::<Vec<_>>();
+    reqwest::Client::builder()
+        // An environment proxy would resolve the destination itself and could
+        // bypass the validated addresses pinned into this client.
+        .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_millis(cfg.timeout_ms.max(1)));
-    for ip in &ips {
-        builder = builder.resolve(&host, SocketAddr::new(*ip, port));
-    }
-    builder.build().map_err(|e| SsrfError::Http(e.to_string()))
+        .timeout(Duration::from_millis(cfg.timeout_ms.max(1)))
+        .resolve_to_addrs(host, &addresses)
+        .build()
+        .map_err(|e| SsrfError::Http(e.to_string()))
 }
 
 pub async fn resolve_pinned_hostname(
@@ -314,6 +334,41 @@ pub async fn validate_outbound_url(url: &str, cfg: &SsrfConfig) -> Result<(), Ss
 }
 
 pub async fn guarded_fetch(url: &str, cfg: &SsrfConfig) -> Result<GuardedFetchResponse, SsrfError> {
+    guarded_fetch_with_limit(url, cfg, DEFAULT_MAX_RESPONSE_BYTES).await
+}
+
+/// Read the response incrementally and reject oversized bodies before copying
+/// them into the retained buffer. Content-Length is only an early rejection;
+/// chunked responses and decompressed bytes are bounded by the same counter.
+pub async fn read_limited_body(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, SsrfError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(SsrfError::BodyTooLarge { limit: max_bytes });
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| SsrfError::Http(e.to_string()))?
+    {
+        if chunk.len() > max_bytes.saturating_sub(body.len()) {
+            return Err(SsrfError::BodyTooLarge { limit: max_bytes });
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+pub async fn guarded_fetch_with_limit(
+    url: &str,
+    cfg: &SsrfConfig,
+    max_bytes: usize,
+) -> Result<GuardedFetchResponse, SsrfError> {
     let timeout = Duration::from_millis(cfg.timeout_ms.max(1));
 
     let mut current = Url::parse(url).map_err(|e| SsrfError::InvalidUrl(e.to_string()))?;
@@ -361,11 +416,9 @@ pub async fn guarded_fetch(url: &str, cfg: &SsrfConfig) -> Result<GuardedFetchRe
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .map(|v| v.to_owned());
-        let body = tokio::time::timeout(timeout, response.bytes())
+        let body = tokio::time::timeout(timeout, read_limited_body(response, max_bytes))
             .await
-            .map_err(|_| SsrfError::Timeout(cfg.timeout_ms))?
-            .map_err(|e| SsrfError::Http(e.to_string()))?
-            .to_vec();
+            .map_err(|_| SsrfError::Timeout(cfg.timeout_ms))??;
         return Ok(GuardedFetchResponse {
             final_url: current.to_string(),
             status,
@@ -378,7 +431,99 @@ pub async fn guarded_fetch(url: &str, cfg: &SsrfConfig) -> Result<GuardedFetchRe
 
 #[cfg(test)]
 mod tests {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
     use super::*;
+
+    async fn response_server(
+        response: &'static [u8],
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<String>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let count = stream.read(&mut buffer).await.expect("request");
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..count]);
+            }
+            stream.write_all(response).await.expect("response");
+            String::from_utf8_lossy(&request).into_owned()
+        });
+        (address, task)
+    }
+
+    #[tokio::test]
+    async fn limited_body_rejects_advertised_and_chunked_oversize_responses() {
+        for raw in [
+            b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\nabcdefghi".as_slice(),
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\nabcd\r\n5\r\nefghi\r\n0\r\n\r\n".as_slice(),
+        ] {
+            let (address, server) = response_server(raw).await;
+            let response = reqwest::Client::builder().no_proxy().build().expect("client")
+                .get(format!("http://{address}/")).send().await.expect("response");
+            let error = read_limited_body(response, 8).await.expect_err("oversize response");
+            assert!(matches!(error, SsrfError::BodyTooLarge { limit: 8 }));
+            server.await.expect("server");
+        }
+    }
+
+    #[tokio::test]
+    async fn limited_body_accepts_exact_limit_without_content_length() {
+        let (address, server) = response_server(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\nabcd\r\n4\r\nefgh\r\n0\r\n\r\n"
+        ).await;
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("client")
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .expect("response");
+        assert_eq!(
+            read_limited_body(response, 8).await.expect("bounded body"),
+            b"abcdefgh"
+        );
+        server.await.expect("server");
+    }
+
+    #[tokio::test]
+    async fn pinned_client_uses_supplied_addresses_for_post_without_second_dns_lookup() {
+        let (address, server) =
+            response_server(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await;
+        // This internal constructor receives the addresses already validated by
+        // build_pinned_client. The deliberately unresolvable name demonstrates
+        // that the connection uses those addresses instead of resolving again.
+        let client = pinned_client_for_addresses(
+            "does-not-exist.invalid",
+            address.port(),
+            &[address.ip()],
+            &SsrfConfig::default(),
+        )
+        .expect("pinned client");
+        let response = client
+            .post(format!("http://does-not-exist.invalid:{}/", address.port()))
+            .header("x-pinning-test", "custom-header")
+            .send()
+            .await
+            .expect("pinned request");
+        assert_eq!(read_limited_body(response, 2).await.expect("body"), b"ok");
+        let request = server.await.expect("server");
+        assert!(request.starts_with("POST / HTTP/1.1"));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("x-pinning-test: custom-header")
+        );
+    }
 
     #[test]
     fn private_ipv4_ranges_are_blocked() {

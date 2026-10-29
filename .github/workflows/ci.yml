@@ -129,6 +129,14 @@ jobs:
         run: python .ci/verify-native-credentials.py
 
   # ─── Formatting ────────────────────────────────────────────────────
+  tooling-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: node --test scripts/ui-sources.test.cjs scripts/install.test.cjs scripts/verify-web-bundle.test.cjs scripts/check-ci-test-matrix.test.cjs scripts/gateway-browser-response.test.cjs
+      - run: node scripts/check-ci-test-matrix.cjs
+
   fmt:
     runs-on: ubuntu-latest
     steps:
@@ -270,6 +278,9 @@ jobs:
       - name: Core matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --no-fail-fast --profile ci -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
+      - name: Common feature tests
+        if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-common --all-features
       - name: Check config schema freshness
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: |
@@ -280,10 +291,13 @@ jobs:
         run: cargo nextest run --no-fail-fast --profile ci -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
       - name: TUI matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.tui == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        run: cargo nextest run --no-fail-fast --profile ci -p savfox-tui
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-tui -p savfox-ansi-escape
       - name: Gateway and channel matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --no-fail-fast --profile ci -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
+      - name: Web native unit tests
+        if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        run: cargo nextest run --no-fail-fast --profile ci -p savfox-gateway-glory
 
   # ─── Code coverage ─────────────────────────────────────────────────
   coverage:
@@ -419,6 +433,8 @@ jobs:
         run: node scripts/build-web.cjs --release
       - name: Verify locked UI source resolution
         run: node --test scripts/ui-sources.test.cjs
+      - name: Verify complete embedded Web bundle
+        run: node scripts/verify-web-bundle.cjs
       - name: Install browser acceptance runtime
         run: |
           npm install --prefix "$RUNNER_TEMP/savfox-web-check" --no-package-lock --ignore-scripts playwright@1.60.0

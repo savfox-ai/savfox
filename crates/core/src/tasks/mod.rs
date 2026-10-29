@@ -17,7 +17,7 @@ use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::protocol::RolloutItem;
 use savfox_protocol::user_input::UserInput;
 use tokio::select;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 use tracing::{Instrument, Span, trace, warn};
@@ -116,6 +116,7 @@ impl Session {
 
         let cancellation_token = CancellationToken::new();
         let done = Arc::new(Notify::new());
+        let (start, ready) = oneshot::channel();
 
         let done_clone = Arc::clone(&done);
         let handle = {
@@ -126,6 +127,11 @@ impl Session {
             let session_span = Span::current();
             tokio::spawn(
                 async move {
+                    // Publish task ownership before even an immediately ready
+                    // task can finish and try to remove itself.
+                    if ready.await.is_err() {
+                        return;
+                    }
                     let ctx_for_finish = Arc::clone(&ctx);
                     let last_agent_message = task_for_run
                         .run(
@@ -165,6 +171,7 @@ impl Session {
             _timer: timer,
         };
         self.register_new_active_task(running_task).await;
+        let _ = start.send(());
     }
 
     pub async fn abort_all_tasks(self: &Arc<Self>, reason: TurnAbortReason) {
@@ -174,26 +181,61 @@ impl Session {
         self.close_unified_exec_processes().await;
     }
 
+    /// Runs on the submission coordinator, which prevents another submission
+    /// from starting a new turn until cancellation and process cleanup finish.
+    pub(crate) async fn interrupt_turn(self: &Arc<Self>, turn_id: &str) -> bool {
+        let tasks = {
+            let mut active = self.active_turn.lock().await;
+            if !active
+                .as_ref()
+                .is_some_and(|turn| turn.tasks.contains_key(turn_id))
+            {
+                return false;
+            }
+            let Some(mut turn) = active.take() else {
+                return false;
+            };
+            turn.clear_pending().await;
+            turn.drain_tasks()
+        };
+        for task in tasks {
+            self.handle_task_abort(task, TurnAbortReason::Interrupted)
+                .await;
+        }
+        self.close_unified_exec_processes().await;
+        true
+    }
+
     pub async fn on_task_finished(
         self: &Arc<Self>,
         turn_context: Arc<TurnContext>,
         last_agent_message: Option<String>,
     ) {
         let mut active = self.active_turn.lock().await;
-        let should_close_processes = if let Some(at) = active.as_mut()
-            && at.remove_task(&turn_context.sub_id)
-        {
-            *active = None;
-            true
-        } else {
-            false
+        // Completion and targeted cancellation race for ownership of the task.
+        // Once cancellation took it, only TurnAborted may finish that turn.
+        let Some(at) = active.as_mut() else {
+            return;
         };
-        drop(active);
+        let Some(finished_task) = at.remove_task(&turn_context.sub_id) else {
+            return;
+        };
+        let should_close_processes = at.tasks.is_empty();
         if should_close_processes {
+            // Keep the turn locked until its processes are gone: a new turn
+            // must not start before this session-wide process cleanup finishes.
+            // terminate_all_processes only takes the process-store lock, never
+            // active_turn, so this ordering cannot recursively lock the turn.
             self.close_unified_exec_processes().await;
+            *active = None;
         }
+        drop(active);
         let event = EventMsg::TurnComplete(TurnCompleteEvent { last_agent_message });
         self.send_event(turn_context.as_ref(), event).await;
+        // The RunningTask owns this task's AbortOnDropHandle. Keep it alive
+        // across cleanup and terminal-event delivery so a pending await above
+        // cannot abort the task that is completing itself.
+        drop(finished_task);
     }
 
     async fn register_new_active_task(&self, task: RunningTask) {

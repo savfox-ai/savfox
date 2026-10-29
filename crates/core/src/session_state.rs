@@ -42,6 +42,12 @@ impl SavfoxSession {
         self.handle.submit(op).await
     }
 
+    /// Cancel the named active turn without affecting a newer turn.
+    /// Returns false when the named turn is no longer active.
+    pub async fn interrupt_turn(&self, turn_id: &str) -> SavfoxResult<bool> {
+        self.handle.interrupt_turn(turn_id).await
+    }
+
     /// Use sparingly: this is intended to be removed soon.
     pub async fn submit_with_id(&self, sub: Submission) -> SavfoxResult<()> {
         self.handle.submit_with_id(sub).await

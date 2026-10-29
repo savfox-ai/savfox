@@ -659,6 +659,77 @@ mod tests {
 
     use super::*;
 
+    struct CompletesOnSignal {
+        finish: Arc<tokio::sync::Notify>,
+        returning: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::tasks::SessionTask for CompletesOnSignal {
+        fn kind(&self) -> crate::state::TaskKind {
+            crate::state::TaskKind::Regular
+        }
+
+        async fn run(
+            self: Arc<Self>,
+            _session: Arc<crate::tasks::SessionTaskContext>,
+            _ctx: Arc<crate::savfox::TurnContext>,
+            _input: Vec<savfox_protocol::user_input::UserInput>,
+            _cancellation_token: tokio_util::sync::CancellationToken,
+        ) -> Option<String> {
+            self.finish.notified().await;
+            self.returning.notify_one();
+            Some("done".to_owned())
+        }
+    }
+
+    // The current-thread scheduler resumes this test only after the finishing
+    // task yields on the deliberately blocked process-store lock.
+    #[tokio::test]
+    async fn task_completion_retains_ownership_until_blocked_cleanup_finishes() {
+        let (session, context, events) = crate::savfox::make_session_and_context_with_rx().await;
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let returning = Arc::new(tokio::sync::Notify::new());
+        session
+            .spawn_task(
+                context,
+                Vec::new(),
+                CompletesOnSignal {
+                    finish: Arc::clone(&finish),
+                    returning: Arc::clone(&returning),
+                },
+            )
+            .await;
+        let processes = session
+            .services
+            .unified_exec_manager
+            .process_store
+            .lock()
+            .await;
+        finish.notify_one();
+        tokio::time::timeout(Duration::from_secs(2), returning.notified())
+            .await
+            .expect("task did not reach completion");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), session.active_turn.lock())
+                .await
+                .is_err(),
+            "a new turn could acquire ownership before the old turn cleaned up its processes"
+        );
+        assert!(events.try_recv().is_err());
+        drop(processes);
+        let event = tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .expect("completing task aborted itself while cleanup was blocked")
+            .expect("terminal event");
+        assert!(matches!(
+            event.msg,
+            crate::protocol::EventMsg::TurnComplete(_)
+        ));
+        assert!(session.active_turn.lock().await.is_none());
+        assert!(events.try_recv().is_err());
+    }
+
     #[test]
     fn unified_exec_env_injects_defaults() {
         let env = apply_unified_exec_env(HashMap::new());

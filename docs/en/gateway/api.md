@@ -10,6 +10,10 @@ Include the token in the `Authorization` header:
 Authorization: Bearer <token>
 ```
 
+See [access and download limits](access-and-download-limits.md) for browser
+administration scopes, private session ownership, persistent UI flags, and
+outbound response size limits.
+
 ## Endpoints
 
 ### Health

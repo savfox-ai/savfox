@@ -140,11 +140,22 @@ pub(crate) use tool_orchestrator::{get_last_assistant_message_from_turn, run_tur
 /// Operates as a queue pair: send submissions and receive events.
 pub struct SessionHandle {
     pub(crate) next_id: AtomicU64,
-    pub(crate) tx_sub: Sender<Submission>,
+    pub(crate) tx_sub: Sender<SessionCommand>,
     pub(crate) rx_event: Receiver<Event>,
     // Last known status of the agent.
     pub(crate) agent_status: watch::Receiver<AgentStatus>,
     pub(crate) session: Arc<Session>,
+}
+
+/// Internal commands share one queue so targeted cancellation cannot overtake
+/// the submission that starts its turn. This is not part of the wire protocol.
+#[derive(Debug)]
+pub(crate) enum SessionCommand {
+    Submission(Box<Submission>),
+    InterruptTurn {
+        turn_id: String,
+        response: oneshot::Sender<bool>,
+    },
 }
 
 /// Result of [`SessionHandle::spawn`] containing the spawned handle and
@@ -197,10 +208,24 @@ impl SessionHandle {
     /// unique IDs for each submission.
     pub async fn submit_with_id(&self, sub: Submission) -> SavfoxResult<()> {
         self.tx_sub
-            .send(sub)
+            .send(SessionCommand::Submission(Box::new(sub)))
             .await
             .map_err(|_| SavfoxError::InternalAgentDied)?;
         Ok(())
+    }
+
+    /// Interrupt only the named active turn. Returns false if it already
+    /// completed or another turn is active; neither case changes that turn.
+    pub async fn interrupt_turn(&self, turn_id: &str) -> SavfoxResult<bool> {
+        let (response, receiver) = oneshot::channel();
+        self.tx_sub
+            .send(SessionCommand::InterruptTurn {
+                turn_id: turn_id.to_owned(),
+                response,
+            })
+            .await
+            .map_err(|_| SavfoxError::InternalAgentDied)?;
+        receiver.await.map_err(|_| SavfoxError::InternalAgentDied)
     }
 
     pub async fn next_event(&self) -> SavfoxResult<Event> {
@@ -2037,6 +2062,126 @@ mod tests {
     struct NeverEndingTask {
         kind: TaskKind,
         listen_to_cancellation_token: bool,
+    }
+
+    struct ImmediateTask;
+
+    #[async_trait::async_trait]
+    impl SessionTask for ImmediateTask {
+        fn kind(&self) -> TaskKind {
+            TaskKind::Regular
+        }
+
+        async fn run(
+            self: Arc<Self>,
+            _session: Arc<SessionTaskContext>,
+            _ctx: Arc<TurnContext>,
+            _input: Vec<UserInput>,
+            _cancellation_token: CancellationToken,
+        ) -> Option<String> {
+            Some("done".to_owned())
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn immediately_finished_task_has_registered_ownership() {
+        let (sess, tc, rx) = make_session_and_context_with_rx().await;
+        for _ in 0..8 {
+            sess.spawn_task(Arc::clone(&tc), Vec::new(), ImmediateTask)
+                .await;
+            let event = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(matches!(event.msg, EventMsg::TurnComplete(_)));
+            assert!(sess.active_turn.lock().await.is_none());
+            assert!(rx.try_recv().is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn targeted_interrupt_rejects_idle_and_stale_turns_and_acknowledges_cleanup() {
+        let (sess, tc, rx_event) = make_session_and_context_with_rx().await;
+        let (tx_sub, rx_sub) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
+        let handle = SessionHandle {
+            next_id: AtomicU64::new(0),
+            tx_sub,
+            rx_event,
+            agent_status: sess.agent_status.subscribe(),
+            session: Arc::clone(&sess),
+        };
+        let coordinator = tokio::spawn(task_coordinator::submission_loop(
+            Arc::clone(&sess),
+            tc.client.config(),
+            rx_sub,
+        ));
+
+        assert!(!handle.interrupt_turn("completed-turn").await.unwrap());
+        sess.spawn_task(
+            Arc::clone(&tc),
+            Vec::new(),
+            NeverEndingTask {
+                kind: TaskKind::Regular,
+                listen_to_cancellation_token: true,
+            },
+        )
+        .await;
+        assert!(!handle.interrupt_turn("older-turn").await.unwrap());
+        assert!(
+            sess.active_turn
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .tasks
+                .contains_key(&tc.sub_id)
+        );
+
+        assert!(handle.interrupt_turn(&tc.sub_id).await.unwrap());
+        let event = tokio::time::timeout(Duration::from_secs(2), handle.next_event())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(event.id, tc.sub_id);
+        assert!(matches!(event.msg, EventMsg::TurnAborted(_)));
+        assert!(sess.active_turn.lock().await.is_none());
+        assert!(!handle.interrupt_turn(&tc.sub_id).await.unwrap());
+
+        // A completion callback that lost ownership cannot add a second terminal event.
+        sess.on_task_finished(Arc::clone(&tc), None).await;
+        assert!(handle.rx_event.try_recv().is_err());
+        handle.submit(Op::Shutdown).await.unwrap();
+        coordinator.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn targeted_interrupt_and_completion_have_one_terminal_owner() {
+        let (sess, tc, rx) = make_session_and_context_with_rx().await;
+        for _ in 0..8 {
+            sess.spawn_task(
+                Arc::clone(&tc),
+                Vec::new(),
+                NeverEndingTask {
+                    kind: TaskKind::Regular,
+                    listen_to_cancellation_token: true,
+                },
+            )
+            .await;
+            let (_, interrupted) = tokio::join!(
+                sess.on_task_finished(Arc::clone(&tc), Some("done".to_owned())),
+                sess.interrupt_turn(&tc.sub_id),
+            );
+            let event = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if interrupted {
+                assert!(matches!(event.msg, EventMsg::TurnAborted(_)));
+            } else {
+                assert!(matches!(event.msg, EventMsg::TurnComplete(_)));
+            }
+            assert!(rx.try_recv().is_err());
+        }
     }
 
     #[async_trait::async_trait]

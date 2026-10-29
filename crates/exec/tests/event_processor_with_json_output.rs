@@ -39,6 +39,25 @@ fn event(id: &str, msg: EventMsg) -> Event {
 }
 
 #[test]
+fn interrupted_turn_emits_a_failed_terminal_event() {
+    let mut ep = EventProcessorWithJsonOutput::new(None);
+    let out = ep.collect_session_events(&event(
+        "interrupted",
+        EventMsg::TurnAborted(savfox_core::protocol::TurnAbortedEvent {
+            reason: savfox_core::protocol::TurnAbortReason::Interrupted,
+        }),
+    ));
+    assert_eq!(
+        out,
+        vec![SessionEvent::TurnFailed(TurnFailedEvent {
+            error: SessionErrorEvent {
+                message: "Turn interrupted".to_owned()
+            },
+        })]
+    );
+}
+
+#[test]
 fn session_configured_produces_session_started_event() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
     let session_id =

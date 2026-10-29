@@ -9858,6 +9858,7 @@ dependencies = [
  "matrix-bot-sdk",
  "mime_guess",
  "nix 0.31.3",
+ "pretty_assertions",
  "rand 0.10.2",
  "regex",
  "reqwest 0.13.5",

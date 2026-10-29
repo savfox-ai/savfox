@@ -688,6 +688,54 @@ pub(crate) fn webchat_router() -> Router {
     Router::with_path("webchat")
         .push(Router::with_path("session").post(create_session_handler))
         .push(Router::with_path("send").post(send_message_handler))
-        .push(Router::with_path("poll/<session_id>").get(poll_handler))
+        .push(Router::with_path("poll/{session_id}").get(poll_handler))
         .push(Router::with_path("widget.js").get(widget_js_handler))
+}
+
+#[cfg(test)]
+mod tests {
+    use salvo::test::{ResponseExt as _, TestClient};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn poll_route_extracts_session_id_and_delivers_only_its_pending_messages() {
+        let session_id = generate_session_id();
+        let token = generate_session_token();
+        let message = WebChatMessage {
+            role: "assistant".to_owned(),
+            content: "pending reply".to_owned(),
+            timestamp_ms: 1,
+            message_id: Some("reply-1".to_owned()),
+        };
+        webchat_store().lock().await.insert(
+            session_id.clone(),
+            WebChatSession {
+                session_id: session_id.clone(),
+                token: token.clone(),
+                user_name: None,
+                metadata: None,
+                messages: Vec::new(),
+                pending_messages: vec![message],
+                created_at_ms: 1,
+                last_active_ms: 1,
+                send_timestamps_ms: Vec::new(),
+            },
+        );
+        let service = Service::new(webchat_router());
+        let mut response = TestClient::get(format!("http://localhost/webchat/poll/{session_id}"))
+            .bearer_auth(&token)
+            .send(&service)
+            .await;
+        assert_eq!(response.status_code, Some(StatusCode::OK));
+        let response: serde_json::Value = response.take_json().await.expect("poll JSON");
+        assert_eq!(response["session_id"], session_id);
+        assert_eq!(response["messages"][0]["content"], "pending reply");
+        let session = webchat_store()
+            .lock()
+            .await
+            .remove(&session_id)
+            .expect("session");
+        assert!(session.pending_messages.is_empty());
+    }
 }

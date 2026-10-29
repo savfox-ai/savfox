@@ -42,9 +42,6 @@ use uuid::Uuid;
 use crate::error_code::{INTERNAL_ERROR_CODE, INVALID_REQUEST_ERROR_CODE};
 use crate::outgoing_message::OutgoingMessageSender;
 
-type PendingInterruptQueue = Vec<RequestId>;
-pub(crate) type PendingInterrupts = Arc<Mutex<HashMap<SessionId, PendingInterruptQueue>>>;
-
 pub(crate) type PendingRollbacks = Arc<Mutex<HashMap<SessionId, RequestId>>>;
 
 /// Per-conversation accumulation of the latest states e.g. error message while a turn runs.
@@ -89,8 +86,6 @@ pub(crate) struct SavfoxMessageProcessor {
     conversation_listeners: HashMap<Uuid, oneshot::Sender<()>>,
     listener_session_ids_by_subscription: HashMap<Uuid, SessionId>,
     active_login: Arc<Mutex<Option<ActiveLogin>>>,
-    // Queue of pending interrupt requests per conversation. We reply when TurnAborted arrives.
-    pending_interrupts: PendingInterrupts,
     // Queue of pending rollback requests per conversation. We reply when SessionRollback arrives.
     pending_rollbacks: PendingRollbacks,
     turn_summary_store: TurnSummaryStore,
@@ -155,7 +150,6 @@ impl SavfoxMessageProcessor {
             conversation_listeners: HashMap::new(),
             listener_session_ids_by_subscription: HashMap::new(),
             active_login: Arc::new(Mutex::new(None)),
-            pending_interrupts: Arc::new(Mutex::new(HashMap::new())),
             pending_rollbacks: Arc::new(Mutex::new(HashMap::new())),
             turn_summary_store: Arc::new(Mutex::new(HashMap::new())),
             pending_fuzzy_searches: Arc::new(Mutex::new(HashMap::new())),

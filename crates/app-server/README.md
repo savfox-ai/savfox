@@ -87,7 +87,7 @@ Example:
 - `session/unarchive` — move an archived rollout file back into the sessions directory; returns the restored `thread` on success.
 - `session/rollback` — drop the last N turns from the agent’s in-memory context and persist a rollback marker in the rollout so future resumes see the pruned history; returns the updated `thread` (with `turns` populated) on success.
 - `turn/start` — add user input to a thread and begin Savfox generation; responds with the initial `turn` object and streams `turn/started`, `item/*`, and `turn/completed` notifications.
-- `turn/interrupt` — request cancellation of an in-flight turn by `(thread_id, turn_id)`; success is an empty `{}` response and the turn finishes with `status: "interrupted"`.
+- `turn/interrupt` — request cancellation of an in-flight turn by `(session_id, turn_id)`; success is an empty `{}` response after cancellation cleanup and the turn finishes with `status: "interrupted"`. An inactive or mismatched turn returns an invalid-request error and leaves any newer turn running.
 - `review/start` — kick off Savfox’s automated reviewer for a thread; responds like `turn/start` and emits `item/started`/`item/completed` notifications with `enteredReviewMode` and `exitedReviewMode` items, plus a final assistant `agentMessage` containing the review.
 - `command/exec` — run a single command under the server sandbox without starting a thread/turn (handy for utilities and validation).
 - `model/list` — list available models (with reasoning effort options).
@@ -325,13 +325,13 @@ You can cancel a running Turn with `turn/interrupt`.
 
 ```json
 { "method": "turn/interrupt", "id": 31, "params": {
-    "threadId": "thr_123",
+    "sessionId": "session_uuid",
     "turnId": "turn_456"
 } }
 { "id": 31, "result": {} }
 ```
 
-The server requests cancellations for running subprocesses, then emits a `turn/completed` event with `status: "interrupted"`. Rely on the `turn/completed` to know when Savfox-side cleanup is done.
+The server cancels the specified active turn and its running subprocesses, then emits a `turn/completed` event with `status: "interrupted"`. The empty response acknowledges that cancellation cleanup has finished. If the specified turn completed before the request was processed, the server returns an invalid-request error immediately; it never cancels another turn in its place.
 
 ### Example: Request a code review
 

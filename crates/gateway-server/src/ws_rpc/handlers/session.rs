@@ -1653,6 +1653,8 @@ pub(crate) async fn handle_sessions_list(
             "id": entry.session_id,
             "scope": entry.session_id,
             "label": label,
+            "pinned": entry.pinned,
+            "archived": entry.archived,
             "subject": entry.subject,
             "sender": entry.sender,
             "identity": entry.identity,

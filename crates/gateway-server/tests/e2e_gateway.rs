@@ -35,18 +35,11 @@ fn gateway_token() -> Option<String> {
     std::env::var("E2E_GATEWAY_TOKEN").ok()
 }
 
-/// Bail out of a test early (with a message to stderr) when the required
-/// environment variables are not set.
+/// Explicitly running these ignored tests requires a live gateway fixture.
 macro_rules! require_gateway {
     () => {{
-        let Some(url) = gateway_url() else {
-            eprintln!("Skipping: E2E_GATEWAY_URL not set");
-            return;
-        };
-        let Some(token) = gateway_token() else {
-            eprintln!("Skipping: E2E_GATEWAY_TOKEN not set");
-            return;
-        };
+        let url = gateway_url().expect("E2E_GATEWAY_URL must point to a running gateway");
+        let token = gateway_token().expect("E2E_GATEWAY_TOKEN must authenticate to the fixture");
         (url, token)
     }};
 }
