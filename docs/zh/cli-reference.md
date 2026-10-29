@@ -192,6 +192,13 @@ savfox features disable <F>  # 禁用特性
 间隔格式为正整数加 `s`、`m`、`h` 或 `d`，也支持 cron 表达式。
 `--payload-type` 支持 `systemEvent`（默认）和 `agentTurn`，以及对应的蛇形命名。
 
+### `sessions`
+
+`savfox sessions delete <ID>` 删除网关会话。
+使用 `savfox sessions export <ID> --format markdown --output session.md` 导出完整的可用用户/助手对话。
+支持 `json`（含元数据的历史文档）、`markdown` 和 `text`；省略 `--output` 时，
+按指定格式输出到标准输出。导出复用 `chat.history`，包含全部可用消息，不受聊天视图默认最近 50 条的限制。
+
 ### `cloud`（别名：`cloud-tasks`）
 
 **实验性功能。** 管理云端任务。

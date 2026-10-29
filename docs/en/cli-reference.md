@@ -204,6 +204,15 @@ Intervals accept a positive integer followed by `s`, `m`, `h`, or `d`; cron
 expressions are also accepted. `--payload-type` accepts `systemEvent` (default)
 or `agentTurn`, and their snake_case equivalents.
 
+### `sessions`
+
+`savfox sessions delete <ID>` removes a gateway session. Export its complete
+available user/assistant transcript with `savfox sessions export <ID> --format
+markdown --output session.md`. Supported formats are `json` (the history
+document, including metadata), `markdown`, and `text`. Without `--output`, the
+selected format is written to stdout. Export uses `chat.history` and includes
+all available messages, beyond the chat view's default last 50 messages.
+
 ### `cloud` (alias: `cloud-tasks`)
 
 **Experimental.** Manage cloud-based tasks.
