@@ -19,6 +19,17 @@ fn extract_stream_reasoning_delta(parsed: &Value) -> Option<&str> {
         .or_else(|| parsed["delta"]["reasoning_content"].as_str())
 }
 
+fn extract_stream_error(parsed: &Value) -> Option<String> {
+    parsed.get("error").map(|error| {
+        error
+            .get("message")
+            .and_then(Value::as_str)
+            .or_else(|| error.as_str())
+            .unwrap_or("Chat stream failed")
+            .to_owned()
+    })
+}
+
 #[derive(Default)]
 struct StreamingUtf8 {
     pending: Vec<u8>,
@@ -245,6 +256,9 @@ pub async fn stream_chat(
             }
 
             if let Ok(parsed) = serde_json::from_str::<Value>(data) {
+                if let Some(error) = extract_stream_error(&parsed) {
+                    return Err(error);
+                }
                 if let Some(delta) = extract_stream_text_delta(&parsed) {
                     on_chunk(delta);
                 }
@@ -304,6 +318,26 @@ pub fn stream_chat_ws(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stream_error_is_reported_instead_of_a_successful_empty_reply() {
+        assert_eq!(
+            super::extract_stream_error(
+                &serde_json::json!({"error":{"type":"stream_error", "code":"slow_consumer", "message":"output queue exhausted"}})
+            ),
+            Some("output queue exhausted".to_owned())
+        );
+        assert_eq!(
+            super::extract_stream_error(&serde_json::json!({"error":"connection failed"})),
+            Some("connection failed".to_owned())
+        );
+        assert!(
+            super::extract_stream_error(
+                &serde_json::json!({"choices":[{"delta":{"content":"hello"}}]})
+            )
+            .is_none()
+        );
+    }
+
     #[test]
     fn utf8_characters_can_span_stream_chunks() {
         let text = "data: {\"delta\":\"你好🌍\"}\n\n";

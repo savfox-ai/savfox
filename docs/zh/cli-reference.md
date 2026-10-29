@@ -1,4 +1,4 @@
-﻿# CLI 参考
+# CLI 参考
 
 ## 全局选项
 
@@ -176,6 +176,28 @@ savfox features              # 列出所有特性标志
 savfox features enable <F>   # 启用特性
 savfox features disable <F>  # 禁用特性
 ```
+
+### `config`
+
+`savfox config get gateway.port` 按点分路径读取持久化配置中的字段。
+`savfox config validate` 校验配置文档，不会把网关版本和连接信息作为配置传入。
+
+通过 WS-RPC 管理网关配置。`savfox config set gateway.port 18882` 使用合并补丁，
+仅修改指定字段并保留其它配置。设置为 JSON `null` 会删除该字段。
+持久化的配置修改需要重启网关才能生效。
+
+### `cron`
+
+使用 `savfox cron add reminder "every 5m" --message "检查进度" --enabled` 创建网关任务。
+间隔格式为正整数加 `s`、`m`、`h` 或 `d`，也支持 cron 表达式。
+`--payload-type` 支持 `systemEvent`（默认）和 `agentTurn`，以及对应的蛇形命名。
+
+### `sessions`
+
+`savfox sessions delete <ID>` 删除网关会话。
+使用 `savfox sessions export <ID> --format markdown --output session.md` 导出完整的可用用户/助手对话。
+支持 `json`（含元数据的历史文档）、`markdown` 和 `text`；省略 `--output` 时，
+按指定格式输出到标准输出。导出复用 `chat.history`，包含全部可用消息，不受聊天视图默认最近 50 条的限制。
 
 ### `cloud`（别名：`cloud-tasks`）
 

@@ -198,6 +198,10 @@ After authentication, use JSON-RPC 2.0 requests to call the gateway methods:
 
 The current protocol version is `1`. Version negotiation occurs during the `Connect` / `Connected` handshake via `min_protocol` and `max_protocol` fields.
 
+Chat execution events, including terminal stdout/stderr, stream blocks, typing, errors and completion payloads, are private to the initiating credential. Other credentials do not receive them, even with an operator role. Reattached clients using the same credential must also retain chat permission; Claude native events retain their operator-write requirement.
+
+Failed WebSocket handshakes release their reserved per-IP connection slot, so malformed HTTP requests cannot consume the concurrent connection limit permanently.
+
 All business requests pass through the JSON-RPC dispatcher's method-scope and
 session-ownership checks. The gateway does not expose the app-server request
 dispatcher over WebSocket.

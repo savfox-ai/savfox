@@ -1,4 +1,4 @@
-﻿# Gateway Configuration Reference
+# Gateway Configuration Reference
 
 The Savfox gateway server is configured through a combination of CLI flags,
 the `[gateway]` section in `config.toml`, and environment variables for channel
@@ -302,3 +302,15 @@ The session store file is located at `{savfox_home}/sessions/sessions.json`.
 ## Local Claude terminal agent
 
 The experimental Rust `claude_stream` mode has separate model/settings configuration, explicit version gating, credential-bound approvals and durable session resume. See [Local Claude Code](claude-code.md) for configuration, permissions, cancellation, compatibility limits and migration from one-shot mode.
+
+### Public webhook authentication
+
+Every `/webhooks/<platform>` callback requires an explicitly enabled saved channel or legacy `[gateway.channels.<platform>]` entry. Unconfigured or disabled channels return 503; a disabled saved channel takes precedence over a legacy enabled entry. Verification credentials must be nonempty. Missing credentials, missing signatures, forged signatures, or altered signed bodies return 401 rather than starting an agent. A gateway bearer token does not substitute for platform webhook authentication.
+
+Existing platform verification formats remain in use (Discord public key, Slack signing secret, Telegram secret token, LINE/WhatsApp signing keys, Zalo `x-zalooa-signature`, and the configured verification tokens for other integrations). Feishu HTTP callbacks require a verification token. WhatsApp's setup GET also requires the configured verify token. Channel polling, long connections and the authenticated Matrix appservice routes retain their transport authentication.
+
+For the local IRC, Signal, DingTalk and legacy `/webhooks/matrix` HTTP bridges, store a distinct `webhook_secret` in each saved channel's `config` object. Alternatively set `IRC_WEBHOOK_SECRET`, `SIGNAL_WEBHOOK_SECRET`, `DINGTALK_WEBHOOK_SECRET` or `MATRIX_WEBHOOK_SECRET` while keeping the channel explicitly enabled. The bridge must send `x-hub-signature-256: sha256=<hex HMAC-SHA256(secret, exact request body)>`. Native Matrix appservice transactions continue to use their existing homeserver token routes.
+
+The MS Teams HTTP bridge requires a body HMAC in `x-ms-signature` using the configured app password, in addition to its Authorization header. An unverified Bot Framework bearer JWT alone is rejected. Deployments forwarding native Teams callbacks must validate them in the bridge and supply this HMAC; direct Bot Framework JWT validation remains unsupported here.
+
+Migration: enable the intended channel, configure its verifier and update any local forwarding bridge to sign the unchanged body before exposing the callback. Previous unsigned callbacks are deliberately rejected, including on loopback. Outbound-only channels do not need an inbound verifier unless their callback is used.

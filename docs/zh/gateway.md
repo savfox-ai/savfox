@@ -1,4 +1,4 @@
-﻿# 网关服务器
+# 网关服务器
 
 网关服务器提供 HTTP/WebSocket 远程访问能力，支持 Web 客户端、聊天平台集成和多设备使用。
 
@@ -63,6 +63,19 @@ curl -X POST http://localhost:18881/api/token/validate \
 | `/v1/chat/completions` | POST | OpenAI 兼容的 Chat API |
 | `/v1/responses` | POST | OpenResponses API |
 | `/tools/invoke` | POST | 工具调用端点 |
+
+### 聊天流式响应限制
+
+聊天补全流最多缓存 64 个数据帧，每帧不超过 16 KiB，另有两个独立终态帧。
+文本和推理增量按 UTF-8 字符边界分片；单次传入的增量超过 1 MiB 时会拒绝。
+客户端断开或耗尽输出缓存后，网关取消该请求的 core 调用，清理其审批注册并关闭
+本次调用专用的 core 会话，不会中断其它并发轮次。调用方的逻辑会话 ID 和持久化历史会保留。
+
+仍连接的客户端会收到 SSE `error` 对象，包含 `type: "stream_error"` 和具体错误码
+（例如 `slow_consumer`），随后收到 `[DONE]`。失败时不会返回表示成功的 `finish_reason: "stop"`。
+
+终端代理继续遵循其配置的进程和会话生命周期：HTTP 断开只停止响应投递，不会终止持久化
+托管终端。其输出使用相同的有界 SSE 缓存和明确失败终态。停止终端执行请使用终端或 WebSocket 控制接口。
 
 ## WebSocket JSON-RPC
 
@@ -234,6 +247,10 @@ secret = "通用 webhook 的 HMAC 共享密钥"
 ## 速率限制
 
 网关内置令牌桶速率限制器以防止滥用。速率限制按令牌粒度应用，可按需配置。
+
+对话执行事件（终端标准输出和错误输出、流式块、输入状态、错误与完成内容）仅发送给发起请求的凭据主体。其他凭据即使具有 Operator 权限也不会接收；同一凭据重新连接的客户端仍须保留 Chat 权限，Claude 原生事件保持写入权限要求。
+
+WebSocket 握手失败时会释放预留的每 IP 连接名额，普通 HTTP 请求或无效升级请求不会永久耗尽并发连接配额。
 
 旧版 `type: request`、`type: response`、`type: approvalResponse` 封装及专属的
 app-server 分发器已经移除，不提供兼容或回退入口。这些帧会收到控制错误，不会

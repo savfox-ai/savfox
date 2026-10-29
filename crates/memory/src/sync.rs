@@ -26,22 +26,22 @@ impl MemoryFileSync {
     pub fn scan_memory_files(&self) -> Result<Vec<MemoryFileEntry>, std::io::Error> {
         let mut entries = Vec::new();
 
-        if !self.memory_dir.exists() {
+        if !self.memory_dir.try_exists()? {
             return Ok(entries);
         }
 
         for entry in WalkDir::new(&self.memory_dir)
             .follow_links(true)
             .into_iter()
-            .filter_map(|e| e.ok())
         {
+            let entry = entry.map_err(std::io::Error::other)?;
             let path = entry.path();
 
             if path.is_file()
                 && let Some(ext) = path.extension()
                 && (ext == "md" || ext == "qmd" || ext == "txt")
-                && let Ok(content) = std::fs::read_to_string(path)
             {
+                let content = std::fs::read_to_string(path)?;
                 let hash = Self::hash_content(&content);
                 entries.push(MemoryFileEntry {
                     path: path.to_path_buf(),
@@ -183,22 +183,22 @@ impl SessionFileSync {
     pub fn scan_session_files(&self) -> Result<Vec<SessionFileEntry>, std::io::Error> {
         let mut entries = Vec::new();
 
-        if !self.sessions_dir.exists() {
+        if !self.sessions_dir.try_exists()? {
             return Ok(entries);
         }
 
         for entry in WalkDir::new(&self.sessions_dir)
             .follow_links(true)
             .into_iter()
-            .filter_map(|e| e.ok())
         {
+            let entry = entry.map_err(std::io::Error::other)?;
             let path = entry.path();
 
             if path.is_file()
                 && let Some(ext) = path.extension()
                 && (ext == "json" || ext == "md")
-                && let Ok(content) = std::fs::read_to_string(path)
             {
+                let content = std::fs::read_to_string(path)?;
                 let hash = MemoryFileSync::hash_content(&content);
                 entries.push(SessionFileEntry {
                     path: path.to_path_buf(),

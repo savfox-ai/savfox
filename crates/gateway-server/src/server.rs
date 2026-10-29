@@ -543,6 +543,7 @@ pub(crate) fn build_router(
 
     // Webhook endpoints for chat platform channels.
     let webhook_router = Router::with_path("webhooks")
+        .hoop(channels::webhook_ingress_guard)
         .push(Router::with_path("discord").post(channels::discord::webhook_handler))
         .push(Router::with_path("dingtalk").post(channels::dingtalk::webhook_handler))
         .push(Router::with_path("telegram").post(channels::telegram::webhook_handler))

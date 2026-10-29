@@ -106,3 +106,15 @@ gateway 支持在运行时通过 API 修改配置，而不一定要重启：
 ## 本地 Claude terminal agent
 
 实验性纯 Rust `claude_stream` 模式使用独立模型/设置、显式版本门槛、按凭证隔离的审批及持久会话恢复。配置、停止、权限边界和旧 one-shot 迁移说明见[本地 Claude Code](claude-code.md)。
+
+### 公共 Webhook 鉴权
+
+所有 `/webhooks/<platform>` 回调必须具有明确启用的已保存 Channel，或旧版 `[gateway.channels.<platform>]` 配置。未配置或已禁用时返回 503；已保存 Channel 的禁用状态优先于旧版启用配置。验证凭据不得为空；缺少凭据或签名、签名错误、签名后修改请求体均返回 401，不会启动 Agent。Gateway Bearer Token 不能代替平台回调鉴权。
+
+现有平台验证格式保持兼容，包括 Discord 公钥、Slack 签名密钥、Telegram Secret Token、LINE/WhatsApp 签名密钥、Zalo 的 `x-zalooa-signature` 以及其他集成的验证 Token。飞书 HTTP 回调必须配置 Verification Token；WhatsApp 初始化验证 GET 也必须配置并匹配 Verify Token。轮询、长连接及经过鉴权的 Matrix Appservice 路由继续采用原有传输层鉴权。
+
+本地 IRC、Signal、钉钉及旧版 `/webhooks/matrix` HTTP 转发桥须在各自已保存 Channel 的 `config` 对象内配置独立的 `webhook_secret`，或配置 `IRC_WEBHOOK_SECRET`、`SIGNAL_WEBHOOK_SECRET`、`DINGTALK_WEBHOOK_SECRET`、`MATRIX_WEBHOOK_SECRET` 环境变量，同时明确启用对应 Channel。转发桥必须发送 `x-hub-signature-256: sha256=<HMAC-SHA256(secret, 原始请求体)的十六进制值>`。原生 Matrix Appservice 事务仍走现有 Homeserver Token 路由。
+
+MS Teams HTTP 转发桥除 Authorization 请求头外，必须使用已配置 App Password 对请求体生成 HMAC，并放入 `x-ms-signature`。仅带未经验证的 Bot Framework JWT 会被拒绝。转发原生 Teams 回调的部署须由转发桥验证后补充此 HMAC；当前端点尚不支持直接验证 Bot Framework JWT。
+
+迁移时须启用目标 Channel、配置验证凭据，并使本地转发桥对未经修改的原始请求体签名后再公开回调。以前的无签名回调会被明确拒绝，回环地址也不例外。只发送出站消息的 Channel 在不使用入站回调时无须配置回调验证器。
