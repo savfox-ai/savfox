@@ -347,7 +347,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         })
         .or_else(|| std::env::var("DISCORD_APPLICATION_PUBLIC_KEY").ok());
     debug!(target: "discord::webhook", configured = public_key.is_some(), "public_key status");
-    if let Some(public_key) = public_key {
+    let Some(public_key) = super::require_inbound_secret(public_key, res, "discord") else {
+        return;
+    };
+    {
         let signature = req
             .headers()
             .get("x-signature-ed25519")

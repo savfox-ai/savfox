@@ -190,7 +190,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         .ok()
         .and_then(|cfg| cfg.channels.webhook.as_ref().and_then(|b| b.secret.clone()))
         .or_else(|| std::env::var("WEBHOOK_SIGNING_SECRET").ok());
-    if let Some(secret) = configured_secret {
+    let Some(secret) = super::require_inbound_secret(configured_secret, res, "webhook") else {
+        return;
+    };
+    {
         let signature = req
             .headers()
             .get("x-signature")
