@@ -186,6 +186,12 @@ savfox features disable <F>  # 禁用特性
 仅修改指定字段并保留其它配置。设置为 JSON `null` 会删除该字段。
 持久化的配置修改需要重启网关才能生效。
 
+### `cron`
+
+使用 `savfox cron add reminder "every 5m" --message "检查进度" --enabled` 创建网关任务。
+间隔格式为正整数加 `s`、`m`、`h` 或 `d`，也支持 cron 表达式。
+`--payload-type` 支持 `systemEvent`（默认）和 `agentTurn`，以及对应的蛇形命名。
+
 ### `cloud`（别名：`cloud-tasks`）
 
 **实验性功能。** 管理云端任务。

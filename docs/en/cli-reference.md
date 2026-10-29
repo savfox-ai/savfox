@@ -197,6 +197,13 @@ savfox config export --format yaml --output config.yaml
 savfox config convert --to yaml --output config.yaml
 ```
 
+### `cron`
+
+Create gateway jobs with `savfox cron add reminder "every 5m" --message "Check progress" --enabled`.
+Intervals accept a positive integer followed by `s`, `m`, `h`, or `d`; cron
+expressions are also accepted. `--payload-type` accepts `systemEvent` (default)
+or `agentTurn`, and their snake_case equivalents.
+
 ### `cloud` (alias: `cloud-tasks`)
 
 **Experimental.** Manage cloud-based tasks.
