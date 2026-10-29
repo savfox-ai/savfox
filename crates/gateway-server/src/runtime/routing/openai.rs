@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
+use futures_util::StreamExt;
 use salvo::prelude::*;
 use salvo::sse::{SseEvent, SseKeepAlive};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
 use tracing::{error, warn};
 
+use super::sse_stream::{MAX_INPUT_DELTA_BYTES, StreamFailure, bounded_stream, text_chunks};
 use crate::auth::GatewayAuth;
 use crate::channel::GatewayChannel;
 use crate::chat_session::{
@@ -550,7 +551,7 @@ async fn handle_streaming(
     prompt: String,
     session_id: Option<String>,
 ) {
-    let (tx, rx) = mpsc::unbounded_channel::<Result<SseEvent, salvo::Error>>();
+    let (tx, stream, cancellation) = bounded_stream();
 
     // Disable all forms of buffering to ensure immediate SSE delivery
     res.headers_mut().insert(
@@ -610,58 +611,76 @@ async fn handle_streaming(
                 finish_reason: None,
             }],
         };
-        if let Ok(json) = serde_json::to_string(&first_chunk) {
-            tracing::info!(
-                "[SSE FIRST] Sending first chunk at {:?}",
-                std::time::Instant::now()
-            );
-            let _ = tx.send(Ok(SseEvent::default().text(json)));
+        match serde_json::to_string(&first_chunk) {
+            Ok(json) => {
+                if !tx.send(json) {
+                    tx.complete(Vec::new());
+                    return;
+                }
+            }
+            Err(error) => {
+                tx.fail(StreamFailure::agent(&error.to_string()));
+                return;
+            }
         }
 
         let cid_for_delta = cid.clone();
         let model_for_delta = m.clone();
         let tx_for_delta = tx.clone();
+        let cancellation_for_delta = cancellation.clone();
         let emit_delta = move |delta_text: &str| {
-            if delta_text.is_empty() {
+            if delta_text.is_empty() || cancellation_for_delta.reason().is_some() {
+                return;
+            }
+            if delta_text.len() > MAX_INPUT_DELTA_BYTES {
+                cancellation_for_delta.cancel(StreamFailure::FrameTooLarge);
                 return;
             }
             for segment in decode_stream_delta(delta_text) {
-                if segment.text.is_empty() {
-                    continue;
-                }
-                tracing::info!(
-                    "[SSE DELTA] Sending delta at {:?}, chars={}",
-                    std::time::Instant::now(),
-                    segment.text.chars().count(),
-                );
-                let (content, reasoning_content) = match segment.kind {
-                    EmbeddedDeltaKind::Text => (Some(segment.text), None),
-                    EmbeddedDeltaKind::Reasoning => (None, Some(segment.text)),
-                };
-                let chunk = ChatCompletionChunk {
-                    id: cid_for_delta.clone(),
-                    object: "chat.completion.chunk",
-                    created,
-                    model: model_for_delta.clone(),
-                    choices: vec![StreamChoice {
-                        index: 0,
-                        delta: DeltaMessage {
-                            role: None,
-                            content,
-                            reasoning_content,
-                        },
-                        finish_reason: None,
-                    }],
-                };
-                if let Ok(json) = serde_json::to_string(&chunk) {
-                    let _ = tx_for_delta.send(Ok(SseEvent::default().text(json)));
+                for text in text_chunks(&segment.text) {
+                    let (content, reasoning_content) = match segment.kind {
+                        EmbeddedDeltaKind::Text => (Some(text.to_owned()), None),
+                        EmbeddedDeltaKind::Reasoning => (None, Some(text.to_owned())),
+                    };
+                    let chunk = ChatCompletionChunk {
+                        id: cid_for_delta.clone(),
+                        object: "chat.completion.chunk",
+                        created,
+                        model: model_for_delta.clone(),
+                        choices: vec![StreamChoice {
+                            index: 0,
+                            delta: DeltaMessage {
+                                role: None,
+                                content,
+                                reasoning_content,
+                            },
+                            finish_reason: None,
+                        }],
+                    };
+                    match serde_json::to_string(&chunk) {
+                        Ok(json) => {
+                            if !tx_for_delta.send(json) {
+                                return;
+                            }
+                        }
+                        Err(error) => {
+                            cancellation_for_delta.cancel(StreamFailure::agent(&error.to_string()));
+                            return;
+                        }
+                    }
                 }
             }
         };
 
         // Stream reply deltas from the agent as they arrive.
         match channel
-            .invoke_agent_text_in_session_stream(&prompt, &m, sid.as_deref(), emit_delta)
+            .invoke_agent_text_in_session_stream(
+                &prompt,
+                &m,
+                sid.as_deref(),
+                emit_delta,
+                cancellation,
+            )
             .await
         {
             Ok(result) => {
@@ -694,38 +713,14 @@ async fn handle_streaming(
                         finish_reason: Some("stop".to_owned()),
                     }],
                 };
-                if let Ok(json) = serde_json::to_string(&done_chunk) {
-                    let _ = tx.send(Ok(SseEvent::default().text(json)));
+                match serde_json::to_string(&done_chunk) {
+                    Ok(json) => tx.complete(vec![json, "[DONE]".to_owned()]),
+                    Err(error) => tx.fail(StreamFailure::agent(&error.to_string())),
                 }
-
-                // [DONE] marker.
-                let _ = tx.send(Ok(SseEvent::default().text("[DONE]")));
             }
             Err(err) => {
                 error!("streaming agent error: {err}");
-                // Surface the failure to the client. Without this the stream
-                // ends with only the opening role chunk followed by `[DONE]`,
-                // which the UI renders as a blank assistant bubble with no clue
-                // that anything went wrong.
-                let error_chunk = ChatCompletionChunk {
-                    id: cid,
-                    object: "chat.completion.chunk",
-                    created,
-                    model: m,
-                    choices: vec![StreamChoice {
-                        index: 0,
-                        delta: DeltaMessage {
-                            role: None,
-                            content: Some(format!("⚠️ Agent error: {err}")),
-                            reasoning_content: None,
-                        },
-                        finish_reason: Some("stop".to_owned()),
-                    }],
-                };
-                if let Ok(json) = serde_json::to_string(&error_chunk) {
-                    let _ = tx.send(Ok(SseEvent::default().text(json)));
-                }
-                let _ = tx.send(Ok(SseEvent::default().text("[DONE]")));
+                tx.fail(StreamFailure::agent(&err.to_string()));
             }
         }
     });
@@ -734,7 +729,19 @@ async fn handle_streaming(
         "[SSE STREAM] Starting SSE stream at {:?}",
         std::time::Instant::now()
     );
-    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+    let stream = stream.flat_map(|frame| {
+        let frames: Vec<Result<SseEvent, salvo::Error>> =
+            match frame {
+                Ok(text) => vec![Ok(SseEvent::default().text(text))],
+                Err(failure) => vec![
+                Ok(SseEvent::default().text(json!({"error": {
+                    "type":"stream_error", "code":failure.code(), "message":failure.to_string()
+                }}).to_string())),
+                Ok(SseEvent::default().text("[DONE]")),
+            ],
+            };
+        futures_util::stream::iter(frames)
+    });
 
     // Use SseKeepAlive to ensure proper SSE formatting and streaming
     SseKeepAlive::new(stream).stream(res);

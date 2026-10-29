@@ -1,4 +1,4 @@
-﻿# CLI 参考
+# CLI 参考
 
 ## 全局选项
 
@@ -176,6 +176,15 @@ savfox features              # 列出所有特性标志
 savfox features enable <F>   # 启用特性
 savfox features disable <F>  # 禁用特性
 ```
+
+### `config`
+
+`savfox config get gateway.port` 按点分路径读取持久化配置中的字段。
+`savfox config validate` 校验配置文档，不会把网关版本和连接信息作为配置传入。
+
+通过 WS-RPC 管理网关配置。`savfox config set gateway.port 18882` 使用合并补丁，
+仅修改指定字段并保留其它配置。设置为 JSON `null` 会删除该字段。
+持久化的配置修改需要重启网关才能生效。
 
 ### `cron`
 

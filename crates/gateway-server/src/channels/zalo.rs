@@ -93,18 +93,11 @@ impl ZaloChannel {
 
     /// Verify the webhook signature using HMAC-SHA256 with the app secret.
     fn verify_signature(app_secret: &str, body: &[u8], signature: &str) -> bool {
-        use hmac::{Hmac, KeyInit, Mac};
-        use sha2::Sha256;
-
-        let mut mac = match Hmac::<Sha256>::new_from_slice(app_secret.as_bytes()) {
-            Ok(mac) => mac,
-            Err(_) => return false,
-        };
-        mac.update(body);
-        let computed = hex::encode(mac.finalize().into_bytes());
-
-        let expected = signature.strip_prefix("mac=").unwrap_or(signature);
-        computed == expected
+        crate::channel::verify_webhook_hmac(
+            app_secret,
+            signature.strip_prefix("mac=").unwrap_or(signature),
+            body,
+        )
     }
 }
 
@@ -211,45 +204,49 @@ impl Channel for ZaloChannel {
 /// `POST /webhooks/zalo` -- Handle Zalo OA webhook events.
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    // Verify webhook signature if app_secret is configured.
+    // Public webhook requests always require a configured secret and signature.
     let config = depot
         .get_typed::<Arc<crate::config::GatewayConfig>>()
         .ok()
         .and_then(|cfg| cfg.channels.zalo.as_ref().cloned());
 
-    if let Some(ref cfg) = config {
-        let signature = req
-            .headers()
-            .get("x-zalooa-signature")
-            .and_then(|v| v.to_str().ok())
-            .map(ToOwned::to_owned);
-
-        if let Some(signature) = signature {
-            // Read raw body bytes for signature verification.
-            let body_bytes = match req.payload().await {
-                Ok(bytes) => bytes.to_vec(),
-                Err(err) => {
-                    warn!("Zalo webhook: failed to read body for signature verification: {err}");
-                    render_error(
-                        res,
-                        StatusCode::BAD_REQUEST,
-                        "invalid_payload",
-                        "failed to read request body",
-                    );
-                    return;
-                }
-            };
-
-            if !ZaloChannel::verify_signature(&cfg.app_secret, &body_bytes, &signature) {
-                render_error(
-                    res,
-                    StatusCode::UNAUTHORIZED,
-                    "invalid_signature",
-                    "Zalo webhook signature verification failed",
-                );
-                return;
-            }
-        }
+    let Some(cfg) = config else {
+        render_error(
+            res,
+            StatusCode::UNAUTHORIZED,
+            "verification_unconfigured",
+            "Zalo webhook verification is not configured",
+        );
+        return;
+    };
+    let Some(secret) = super::require_inbound_secret(Some(cfg.app_secret), res, "zalo") else {
+        return;
+    };
+    let signature = req
+        .headers()
+        .get("x-zalooa-signature")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    let body_bytes = if let Ok(bytes) = req.payload().await {
+        bytes.to_vec()
+    } else {
+        render_error(
+            res,
+            StatusCode::BAD_REQUEST,
+            "invalid_payload",
+            "failed to read request body",
+        );
+        return;
+    };
+    if !ZaloChannel::verify_signature(&secret, &body_bytes, &signature) {
+        render_error(
+            res,
+            StatusCode::UNAUTHORIZED,
+            "invalid_signature",
+            "Zalo webhook signature verification failed",
+        );
+        return;
     }
 
     let Some(body) = super::parse_json_body(req, res, "zalo").await else {

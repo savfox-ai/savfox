@@ -20,6 +20,8 @@ pub(crate) mod signal;
 pub(crate) mod slack;
 pub(crate) mod telegram;
 pub(crate) mod webhook;
+#[cfg(test)]
+mod webhook_security_tests;
 pub(crate) mod wechat;
 pub(crate) mod whatsapp;
 pub(crate) mod zalo;
@@ -172,9 +174,28 @@ pub(crate) async fn ensure_inbound_channel_enabled(
         }
     };
 
+    let legacy_enabled = depot
+        .get_typed::<Arc<crate::config::GatewayConfig>>()
+        .ok()
+        .is_some_and(|cfg| {
+            let channels = &cfg.channels;
+            match platform {
+                "discord" => channels.discord.as_ref().is_some_and(|c| c.enabled),
+                "dingtalk" => channels.dingtalk.as_ref().is_some_and(|c| c.enabled),
+                "telegram" => channels.telegram.as_ref().is_some_and(|c| c.enabled),
+                "slack" => channels.slack.as_ref().is_some_and(|c| c.enabled),
+                "msteams" => channels.msteams.as_ref().is_some_and(|c| c.enabled),
+                "webhook" => channels.webhook.as_ref().is_some_and(|c| c.enabled),
+                "whatsapp" => channels.whatsapp.as_ref().is_some_and(|c| c.enabled),
+                "signal" => channels.signal.as_ref().is_some_and(|c| c.enabled),
+                "zalo" => channels.zalo.as_ref().is_some_and(|c| c.enabled),
+                _ => false,
+            }
+        });
     match saved_channel_enabled_state(&gateway_channel.config().savfox_home, platform).await {
-        Ok(Some(true) | None) => true,
-        Ok(Some(false)) => {
+        Ok(Some(true)) => true,
+        Ok(None) if legacy_enabled => true,
+        Ok(Some(false) | None) => {
             render_error(
                 res,
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -193,6 +214,104 @@ pub(crate) async fn ensure_inbound_channel_enabled(
             );
             false
         }
+    }
+}
+
+/// Missing verification material must never turn a public webhook into an
+/// anonymous agent entry point. Empty secrets are also unsafe HMAC keys.
+pub(crate) fn require_inbound_secret(
+    secret: Option<String>,
+    res: &mut Response,
+    platform: &str,
+) -> Option<String> {
+    let secret = secret.filter(|secret| !secret.trim().is_empty());
+    if secret.is_none() {
+        render_error(
+            res,
+            StatusCode::UNAUTHORIZED,
+            "verification_unconfigured",
+            format!("{platform} webhook verification is not configured"),
+        );
+    }
+    secret
+}
+
+/// Apply the configured/enabled boundary to every registered public callback.
+/// Local bridges without a platform signature use a body HMAC instead.
+#[handler]
+pub(crate) async fn webhook_ingress_guard(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+    ctrl: &mut FlowCtrl,
+) {
+    let platform = req
+        .uri()
+        .path()
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_owned();
+    if !ensure_inbound_channel_enabled(depot, res, &platform).await {
+        ctrl.skip_rest();
+        return;
+    }
+    if !matches!(platform.as_str(), "irc" | "signal" | "dingtalk" | "matrix") {
+        return;
+    }
+    let gateway = depot
+        .get_typed::<Arc<GatewayChannel>>()
+        .expect("enabled check requires gateway");
+    let configs = if let Ok(configs) =
+        savfox_core::config::channel_store::list_channel_configs(&gateway.config().savfox_home)
+            .await
+    {
+        configs
+    } else {
+        render_error(
+            res,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "config_unavailable",
+            "failed to load webhook verification configuration",
+        );
+        ctrl.skip_rest();
+        return;
+    };
+    let secret = configs
+        .iter()
+        .filter(|c| c.enabled && saved_channel_platform_matches(&c.kind, &platform))
+        .find_map(|c| {
+            c.config
+                .get("webhook_secret")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            std::env::var(format!("{}_WEBHOOK_SECRET", platform.to_ascii_uppercase())).ok()
+        });
+    let Some(secret) = require_inbound_secret(secret, res, &platform) else {
+        ctrl.skip_rest();
+        return;
+    };
+    let signature = req
+        .headers()
+        .get("x-hub-signature-256")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    let valid = match req.payload().await {
+        Ok(body) => crate::channel::verify_webhook_hmac(&secret, &signature, body),
+        Err(_) => false,
+    };
+    if !valid {
+        render_error(
+            res,
+            StatusCode::UNAUTHORIZED,
+            "invalid_signature",
+            "missing or invalid webhook signature",
+        );
+        ctrl.skip_rest();
     }
 }
 

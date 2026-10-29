@@ -1,4 +1,4 @@
-﻿# CLI Reference
+# CLI Reference
 
 ## Global Options
 
@@ -182,6 +182,14 @@ savfox features disable <F>  # disable a feature
 ### `config`
 
 Manage gateway-side configuration via WS-RPC.
+
+`savfox config get gateway.port` reads a dot-separated path inside the persisted
+configuration. `savfox config validate` validates that configuration document;
+gateway version and connection metadata are excluded from validation.
+
+`savfox config set gateway.port 18882` updates only the selected field using a
+merge patch, preserving other configuration fields. Setting a field to JSON
+`null` removes it. Restart the gateway for persisted changes to take effect.
 
 ```bash
 savfox config validate
