@@ -46,7 +46,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             (None, None)
         }
     };
-    if let Some(expected) = verification_token {
+    let Some(expected) = super::require_inbound_secret(verification_token, res, "googlechat")
+    else {
+        return;
+    };
+    {
         let provided = req
             .headers()
             .get("x-goog-chat-token")

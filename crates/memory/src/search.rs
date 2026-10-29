@@ -167,7 +167,7 @@ fn create_snippet(content: &str) -> String {
         return content.to_owned();
     }
 
-    let snippet = &content[..SNIPPET_MAX_CHARS];
+    let snippet = &content[..content.floor_char_boundary(SNIPPET_MAX_CHARS)];
 
     if let Some(last_space) = snippet.rfind(' ') {
         format!("{}...", &snippet[..last_space])
@@ -183,4 +183,22 @@ pub enum SearchError {
 
     #[error("Storage error: {0}")]
     StorageError(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snippets_preserve_unicode_boundaries() {
+        assert_eq!(
+            create_snippet(&"中".repeat(234)),
+            format!("{}...", "中".repeat(233))
+        );
+        assert_eq!(
+            create_snippet(&format!("{}😀", "a".repeat(699))),
+            format!("{}...", "a".repeat(699))
+        );
+        assert_eq!(create_snippet(&"中".repeat(233)), "中".repeat(233));
+    }
 }

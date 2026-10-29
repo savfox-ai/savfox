@@ -45,7 +45,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             None
         }
     };
-    if let Some(expected) = verify_token {
+    let Some(expected) = super::require_inbound_secret(verify_token, res, "mattermost") else {
+        return;
+    };
+    {
         let provided = body
             .get("token")
             .or_else(|| body.get("verification_token"))

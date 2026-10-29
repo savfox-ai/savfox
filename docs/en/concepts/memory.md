@@ -1,4 +1,4 @@
-﻿# Memory System
+# Memory System
 
 Savfox uses a 4-layer Markdown memory system that provides persistent context across sessions. Memory entries are plain `.md` files with optional YAML frontmatter, making them easy to read and edit with any text editor.
 
@@ -141,3 +141,15 @@ pinned: true
 - Maximum line length: 100 characters
 EOF
 ```
+
+## Search result previews
+
+Vector-memory search snippets retain at most 700 bytes of complete UTF-8 characters before the ellipsis. Chinese text and emoji remain valid when a long result is shortened.
+
+## Vector index synchronization
+
+Memory and session files are tracked by source, path, and content hash. Unchanged files skip embedding; changed files replace their previous chunks and embeddings in one transaction after all new embeddings succeed. Empty files are tracked too. A complete successful scan removes entries for deleted files while preserving manually added memories. Read or embedding failures keep the last published file revision. Existing indexes are rebuilt per file on their first sync to remove duplicate legacy revisions.
+
+## Vector search resource use
+
+Exact vector search streams IDs and embeddings through a blocking worker, keeping only the best k candidates in a bounded heap. It fetches full content only for selected results in the same database snapshot. Scores remain descending, with equal scores in insertion order; undefined scores rank last. A zero result limit performs no scan. Search still evaluates every stored vector, so CPU cost remains linear in index size and vector dimensions; retained candidates use O(k) memory plus the bounded database row buffer.

@@ -8,6 +8,7 @@ use savfox_protocol::SessionId;
 use tracing::{debug, warn};
 
 use super::{AgentInvocationResult, GatewayChannel, ResolvedAgentSession};
+use crate::runtime::routing::sse_stream::{StreamCancellation, run_cancellable};
 use crate::security::approval_coordinator::{
     ApprovalNotification, ApprovalRequestMetadata, ChannelApprovalKind, ChannelApprovalScope,
     PendingChannelApproval,
@@ -82,6 +83,7 @@ impl GatewayChannel {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
         Ok(result.reply)
@@ -105,6 +107,7 @@ impl GatewayChannel {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
         Ok(result.reply)
@@ -117,12 +120,22 @@ impl GatewayChannel {
         model: &str,
         session_id: Option<&str>,
         on_delta: F,
+        cancellation: StreamCancellation,
     ) -> anyhow::Result<AgentInvocationResult>
     where
         F: FnMut(&str) + Send,
     {
         self.invoke_agent_text_in_session_with_metadata_impl(
-            prompt, model, session_id, on_delta, None, false, None, None, None,
+            prompt,
+            model,
+            session_id,
+            on_delta,
+            None,
+            false,
+            None,
+            None,
+            None,
+            Some(cancellation),
         )
         .await
     }
@@ -140,6 +153,7 @@ impl GatewayChannel {
             |_| {},
             None,
             false,
+            None,
             None,
             None,
             None,
@@ -161,6 +175,7 @@ impl GatewayChannel {
             |_| {},
             None,
             false,
+            None,
             None,
             None,
             None,
@@ -198,6 +213,7 @@ impl GatewayChannel {
             Some(security),
             Some(approval_scope),
             None,
+            None,
         )
         .await
     }
@@ -226,6 +242,7 @@ impl GatewayChannel {
             Some(security),
             Some(approval_scope),
             trusted_developer_context,
+            None,
         )
         .await
     }
@@ -241,6 +258,7 @@ impl GatewayChannel {
         security: Option<ResolvedExecutionSecurity>,
         approval_scope: Option<ChannelApprovalScope>,
         trusted_developer_context: Option<String>,
+        cancellation: Option<StreamCancellation>,
     ) -> anyhow::Result<AgentInvocationResult>
     where
         F: FnMut(&str) + Send,
@@ -253,6 +271,9 @@ impl GatewayChannel {
             .strip_prefix("[user]:")
             .map(|s| s.trim())
             .unwrap_or(prompt.trim());
+        if let Some(failure) = cancellation.as_ref().and_then(StreamCancellation::reason) {
+            return Err(anyhow::anyhow!("{failure}"));
+        }
 
         let (
             mut config,
@@ -371,10 +392,24 @@ impl GatewayChannel {
             .await?
         {
             on_delta(&invocation.result.reply);
+            // Terminal delegates retain their own process/session lifecycle.
+            // Closing HTTP must not terminate a persistent managed terminal.
+            if let Some(failure) = cancellation.as_ref().and_then(StreamCancellation::reason) {
+                return Err(anyhow::anyhow!("{failure}"));
+            }
             return Ok(invocation.result);
         }
 
-        let resolved_session = if concurrent_fork {
+        let cancellable = cancellation.is_some();
+        let resolved_session = if cancellable {
+            // A stream owns this exact core session. Never interrupt a shared
+            // logical session: another HTTP/WS turn may already be using it.
+            let history = match requested_session_id.as_deref() {
+                Some(logical_id) => self.resolve_session_rollout_path(logical_id).await?,
+                None => None,
+            };
+            self.fork_concurrent_session(config, history).await?
+        } else if concurrent_fork {
             self.resolve_agent_session_concurrent(config, requested_session_id.as_deref())
                 .await?
         } else {
@@ -390,369 +425,404 @@ impl GatewayChannel {
             .map_err(|e| anyhow::anyhow!("failed to get session: {e}"))?;
         let rollout_path = session.rollout_path();
 
-        // Persist the logical-session → thread/rollout linkage *before* running
-        // the turn. The agent runs in a freshly minted thread whose id differs
-        // from the caller's logical session id, and the rollout file is named
-        // after the thread id. If we only recorded this linkage on success
-        // (as the HTTP handlers do), a turn that errors or times out would
-        // leave the web session entry with no `session_file`, so `chat.history`
-        // could not locate the rollout and the conversation would vanish on
-        // refresh. Recording it up front keeps history recoverable regardless
-        // of how the turn ends.
-        if let Some(logical_id) = requested_session_id.as_deref() {
-            crate::chat_session::persist_session_thread_link(
-                &self.session_store,
-                &self.config.savfox_home,
-                logical_id,
-                &session_id.to_string(),
-                rollout_path.as_deref(),
-            )
-            .await;
-        }
+        let invocation = async {
+            // Persist the logical-session → thread/rollout linkage *before* running
+            // the turn. The agent runs in a freshly minted thread whose id differs
+            // from the caller's logical session id, and the rollout file is named
+            // after the thread id. If we only recorded this linkage on success
+            // (as the HTTP handlers do), a turn that errors or times out would
+            // leave the web session entry with no `session_file`, so `chat.history`
+            // could not locate the rollout and the conversation would vanish on
+            // refresh. Recording it up front keeps history recoverable regardless
+            // of how the turn ends.
+            if let Some(logical_id) = requested_session_id.as_deref() {
+                crate::chat_session::persist_session_thread_link(
+                    &self.session_store,
+                    &self.config.savfox_home,
+                    logical_id,
+                    &session_id.to_string(),
+                    rollout_path.as_deref(),
+                )
+                .await;
+            }
 
-        // Submit the user message.
-        let user_input = UserInput::Text {
-            text: prompt.to_owned(),
-            text_elements: Vec::new(),
-        };
-        session
-            .submit(Op::UserInput {
-                items: vec![user_input],
-                final_output_json_schema: None,
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("failed to submit message: {e}"))?;
+            // Submit the user message.
+            let user_input = UserInput::Text {
+                text: prompt.to_owned(),
+                text_elements: Vec::new(),
+            };
+            session
+                .submit(Op::UserInput {
+                    items: vec![user_input],
+                    final_output_json_schema: None,
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to submit message: {e}"))?;
 
-        // Collect assistant output by reading Events from the session.
-        let mut reply = String::new();
-        let mut fallback_agent_reply = String::new();
-        let mut saw_delta = false;
-        let mut saw_content_delta_event = false;
-        let mut last_token_usage: Option<savfox_protocol::protocol::TokenUsage> = None;
-        let mut pending_approval: Option<PendingApproval> = None;
-        let normal_timeout = tokio::time::Duration::from_secs(120);
-        let approval_timeout = tokio::time::Duration::from_secs(180);
-        let mut deadline = tokio::time::Instant::now() + normal_timeout;
+            // Collect assistant output by reading Events from the session.
+            let mut reply = String::new();
+            let mut fallback_agent_reply = String::new();
+            let mut saw_delta = false;
+            let mut saw_content_delta_event = false;
+            let mut last_token_usage: Option<savfox_protocol::protocol::TokenUsage> = None;
+            let mut pending_approval: Option<PendingApproval> = None;
+            let normal_timeout = tokio::time::Duration::from_secs(120);
+            let approval_timeout = tokio::time::Duration::from_secs(180);
+            let mut deadline = tokio::time::Instant::now() + normal_timeout;
 
-        loop {
-            match tokio::time::timeout_at(deadline, session.next_event()).await {
-                Ok(Ok(event)) => {
-                    if let Some(pending) = pending_approval.as_ref()
-                        && let Some(request_id) = pending.request_id.as_deref()
-                        && !self.approval_coordinator().is_pending(request_id).await
-                    {
-                        pending_approval = None;
-                        deadline = tokio::time::Instant::now() + normal_timeout;
-                    }
-                    match &event.msg {
-                        EventMsg::TokenCount(token_count) => {
-                            if let Some(info) = &token_count.info {
-                                last_token_usage = Some(info.last_token_usage.clone());
-                            }
+            loop {
+                match tokio::time::timeout_at(deadline, session.next_event()).await {
+                    Ok(Ok(event)) => {
+                        if let Some(pending) = pending_approval.as_ref()
+                            && let Some(request_id) = pending.request_id.as_deref()
+                            && !self.approval_coordinator().is_pending(request_id).await
+                        {
+                            pending_approval = None;
+                            deadline = tokio::time::Instant::now() + normal_timeout;
                         }
-                        EventMsg::AgentMessage(msg) => {
-                            if msg.message.is_empty() {
-                                continue;
-                            }
-                            // Some providers emit only AgentMessage (no deltas).
-                            // Buffer this as a fallback and emit only if no deltas arrived.
-                            if !saw_delta {
-                                fallback_agent_reply.push_str(&msg.message);
-                            }
-                        }
-                        EventMsg::AgentMessageDelta(delta) => {
-                            // If modern content-delta events are present, skip legacy mirrors.
-                            if saw_content_delta_event {
-                                continue;
-                            }
-                            if delta.delta.is_empty() {
-                                continue;
-                            }
-                            saw_delta = true;
-                            reply.push_str(&delta.delta);
-                            on_delta(&delta.delta);
-                        }
-                        EventMsg::AgentMessageContentDelta(delta) => {
-                            if delta.delta.is_empty() {
-                                continue;
-                            }
-                            saw_content_delta_event = true;
-                            saw_delta = true;
-                            reply.push_str(&delta.delta);
-                            on_delta(&delta.delta);
-                        }
-                        EventMsg::ExecApprovalRequest(req) => {
-                            let approval_id = if req.turn_id.trim().is_empty() {
-                                event.id.clone()
-                            } else {
-                                req.turn_id.clone()
-                            };
-                            if execution_mode == ExecutionMode::Unattended {
-                                warn!(
-                                    session_id = %session_id,
-                                    approval_id,
-                                    "denying exec boundary request for unattended entry point"
-                                );
-                                session
-                                    .submit(Op::ExecApproval {
-                                        id: approval_id,
-                                        decision: ReviewDecision::Denied,
-                                    })
-                                    .await
-                                    .map_err(|error| {
-                                        anyhow::anyhow!(
-                                            "failed to deny unattended exec approval: {error}"
-                                        )
-                                    })?;
-                                continue;
-                            }
-
-                            if let Some(previous) = pending_approval.take() {
-                                if let Some(request_id) = previous.request_id.as_deref() {
-                                    self.approval_coordinator().remove(request_id).await;
+                        match &event.msg {
+                            EventMsg::TokenCount(token_count) => {
+                                if let Some(info) = &token_count.info {
+                                    last_token_usage = Some(info.last_token_usage.clone());
                                 }
-                                let _ = session.submit(previous.abort_op()).await;
                             }
-                            let registered = match self
-                                .approval_coordinator()
-                                .register(
-                                    approval_id.clone(),
-                                    session_id,
-                                    approval_scope
-                                        .clone()
-                                        .expect("interactive mode requires approval scope"),
-                                    ChannelApprovalKind::Exec {
-                                        proposed_execpolicy_amendment: req
-                                            .proposed_execpolicy_amendment
-                                            .clone(),
-                                    },
-                                    approval_capabilities,
-                                    ApprovalRequestMetadata {
-                                        agent_id: approval_agent_id.clone(),
-                                        policy_fingerprint: policy_fingerprint.clone(),
-                                        cwd: req.cwd.clone(),
-                                        summary: req.command.join(" "),
-                                        command: Some(req.command.clone()),
-                                        reason: req.reason.clone(),
-                                    },
-                                )
-                                .await
-                            {
-                                Ok(registered) => registered,
-                                Err(error) => {
-                                    let _ = session
+                            EventMsg::AgentMessage(msg) => {
+                                if msg.message.is_empty() {
+                                    continue;
+                                }
+                                // Some providers emit only AgentMessage (no deltas).
+                                // Buffer this as a fallback and emit only if no deltas arrived.
+                                if !saw_delta {
+                                    fallback_agent_reply.push_str(&msg.message);
+                                }
+                            }
+                            EventMsg::AgentMessageDelta(delta) => {
+                                // If modern content-delta events are present, skip legacy mirrors.
+                                if saw_content_delta_event {
+                                    continue;
+                                }
+                                if delta.delta.is_empty() {
+                                    continue;
+                                }
+                                saw_delta = true;
+                                reply.push_str(&delta.delta);
+                                on_delta(&delta.delta);
+                            }
+                            EventMsg::AgentMessageContentDelta(delta) => {
+                                if delta.delta.is_empty() {
+                                    continue;
+                                }
+                                saw_content_delta_event = true;
+                                saw_delta = true;
+                                reply.push_str(&delta.delta);
+                                on_delta(&delta.delta);
+                            }
+                            EventMsg::ExecApprovalRequest(req) => {
+                                let approval_id = if req.turn_id.trim().is_empty() {
+                                    event.id.clone()
+                                } else {
+                                    req.turn_id.clone()
+                                };
+                                if execution_mode == ExecutionMode::Unattended {
+                                    warn!(
+                                        session_id = %session_id,
+                                        approval_id,
+                                        "denying exec boundary request for unattended entry point"
+                                    );
+                                    session
                                         .submit(Op::ExecApproval {
                                             id: approval_id,
                                             decision: ReviewDecision::Denied,
                                         })
-                                        .await;
-                                    return Err(anyhow::anyhow!(
-                                        "failed to register durable exec approval: {error}"
-                                    ));
+                                        .await
+                                        .map_err(|error| {
+                                            anyhow::anyhow!(
+                                                "failed to deny unattended exec approval: {error}"
+                                            )
+                                        })?;
+                                    continue;
                                 }
-                            };
-                            let request_id = registered.request_id.clone();
-                            pending_approval = Some(PendingApproval {
-                                core_id: approval_id,
-                                request_id: Some(request_id.clone()),
-                                kind: PendingApprovalKind::Exec,
-                                summary: format!("exec approval {request_id}"),
-                            });
-                            if let Some(ref mut notify) = on_approval {
-                                let cmd = &registered.envelope.redacted_summary;
-                                let reason = registered
-                                    .envelope
-                                    .reason
-                                    .as_deref()
-                                    .map(|r| format!("\nReason: {r}"))
-                                    .unwrap_or_default();
-                                let instructions = approval_reply_instructions(&registered);
-                                let msg = format!(
-                                    "[Approval Required]\nRequest: {request_id}\nCommand: {cmd}{reason}\n\n{instructions}"
-                                );
-                                notify(registered.notification(msg));
-                                deadline = tokio::time::Instant::now() + approval_timeout;
-                            }
-                        }
-                        EventMsg::ApplyPatchApprovalRequest(req) => {
-                            let approval_id = if req.turn_id.trim().is_empty() {
-                                event.id.clone()
-                            } else {
-                                req.turn_id.clone()
-                            };
-                            if execution_mode == ExecutionMode::Unattended {
-                                warn!(
-                                    session_id = %session_id,
-                                    approval_id,
-                                    "denying patch boundary request for unattended entry point"
-                                );
-                                session
-                                    .submit(Op::PatchApproval {
-                                        id: approval_id,
-                                        decision: ReviewDecision::Denied,
-                                    })
-                                    .await
-                                    .map_err(|error| {
-                                        anyhow::anyhow!(
-                                            "failed to deny unattended patch approval: {error}"
-                                        )
-                                    })?;
-                                continue;
-                            }
 
-                            if let Some(previous) = pending_approval.take() {
-                                if let Some(request_id) = previous.request_id.as_deref() {
-                                    self.approval_coordinator().remove(request_id).await;
+                                if let Some(previous) = pending_approval.take() {
+                                    if let Some(request_id) = previous.request_id.as_deref() {
+                                        self.approval_coordinator().remove(request_id).await;
+                                    }
+                                    let _ = session.submit(previous.abort_op()).await;
                                 }
-                                let _ = session.submit(previous.abort_op()).await;
+                                let registered = match self
+                                    .approval_coordinator()
+                                    .register(
+                                        approval_id.clone(),
+                                        session_id,
+                                        approval_scope
+                                            .clone()
+                                            .expect("interactive mode requires approval scope"),
+                                        ChannelApprovalKind::Exec {
+                                            proposed_execpolicy_amendment: req
+                                                .proposed_execpolicy_amendment
+                                                .clone(),
+                                        },
+                                        approval_capabilities,
+                                        ApprovalRequestMetadata {
+                                            agent_id: approval_agent_id.clone(),
+                                            policy_fingerprint: policy_fingerprint.clone(),
+                                            cwd: req.cwd.clone(),
+                                            summary: req.command.join(" "),
+                                            command: Some(req.command.clone()),
+                                            reason: req.reason.clone(),
+                                        },
+                                    )
+                                    .await
+                                {
+                                    Ok(registered) => registered,
+                                    Err(error) => {
+                                        let _ = session
+                                            .submit(Op::ExecApproval {
+                                                id: approval_id,
+                                                decision: ReviewDecision::Denied,
+                                            })
+                                            .await;
+                                        return Err(anyhow::anyhow!(
+                                            "failed to register durable exec approval: {error}"
+                                        ));
+                                    }
+                                };
+                                let request_id = registered.request_id.clone();
+                                pending_approval = Some(PendingApproval {
+                                    core_id: approval_id,
+                                    request_id: Some(request_id.clone()),
+                                    kind: PendingApprovalKind::Exec,
+                                    summary: format!("exec approval {request_id}"),
+                                });
+                                if let Some(ref mut notify) = on_approval {
+                                    let cmd = &registered.envelope.redacted_summary;
+                                    let reason = registered
+                                        .envelope
+                                        .reason
+                                        .as_deref()
+                                        .map(|r| format!("\nReason: {r}"))
+                                        .unwrap_or_default();
+                                    let instructions = approval_reply_instructions(&registered);
+                                    let msg = format!(
+                                        "[Approval Required]\nRequest: {request_id}\nCommand: {cmd}{reason}\n\n{instructions}"
+                                    );
+                                    notify(registered.notification(msg));
+                                    deadline = tokio::time::Instant::now() + approval_timeout;
+                                }
                             }
-                            let registered = match self
-                                .approval_coordinator()
-                                .register(
-                                    approval_id.clone(),
-                                    session_id,
-                                    approval_scope
-                                        .clone()
-                                        .expect("interactive mode requires approval scope"),
-                                    ChannelApprovalKind::Patch,
-                                    approval_capabilities,
-                                    ApprovalRequestMetadata {
-                                        agent_id: approval_agent_id.clone(),
-                                        policy_fingerprint: policy_fingerprint.clone(),
-                                        cwd: approval_cwd.clone(),
-                                        summary: req
-                                            .changes
-                                            .keys()
-                                            .map(|path| path.display().to_string())
-                                            .collect::<Vec<_>>()
-                                            .join(", "),
-                                        command: None,
-                                        reason: req.reason.clone(),
-                                    },
-                                )
-                                .await
-                            {
-                                Ok(registered) => registered,
-                                Err(error) => {
-                                    let _ = session
+                            EventMsg::ApplyPatchApprovalRequest(req) => {
+                                let approval_id = if req.turn_id.trim().is_empty() {
+                                    event.id.clone()
+                                } else {
+                                    req.turn_id.clone()
+                                };
+                                if execution_mode == ExecutionMode::Unattended {
+                                    warn!(
+                                        session_id = %session_id,
+                                        approval_id,
+                                        "denying patch boundary request for unattended entry point"
+                                    );
+                                    session
                                         .submit(Op::PatchApproval {
                                             id: approval_id,
                                             decision: ReviewDecision::Denied,
                                         })
-                                        .await;
-                                    return Err(anyhow::anyhow!(
-                                        "failed to register durable patch approval: {error}"
-                                    ));
+                                        .await
+                                        .map_err(|error| {
+                                            anyhow::anyhow!(
+                                                "failed to deny unattended patch approval: {error}"
+                                            )
+                                        })?;
+                                    continue;
                                 }
-                            };
-                            let request_id = registered.request_id.clone();
-                            pending_approval = Some(PendingApproval {
-                                core_id: approval_id,
-                                request_id: Some(request_id.clone()),
-                                kind: PendingApprovalKind::Patch,
-                                summary: format!("patch approval {request_id}"),
-                            });
-                            if let Some(ref mut notify) = on_approval {
-                                let files = &registered.envelope.redacted_summary;
-                                let reason = registered
-                                    .envelope
-                                    .reason
-                                    .as_deref()
-                                    .map(|r| format!("\nReason: {r}"))
-                                    .unwrap_or_default();
-                                let instructions = approval_reply_instructions(&registered);
-                                let msg = format!(
-                                    "[Approval Required]\nRequest: {request_id}\nFile changes: {files}{reason}\n\n{instructions}",
-                                );
-                                notify(registered.notification(msg));
-                                deadline = tokio::time::Instant::now() + approval_timeout;
+
+                                if let Some(previous) = pending_approval.take() {
+                                    if let Some(request_id) = previous.request_id.as_deref() {
+                                        self.approval_coordinator().remove(request_id).await;
+                                    }
+                                    let _ = session.submit(previous.abort_op()).await;
+                                }
+                                let registered = match self
+                                    .approval_coordinator()
+                                    .register(
+                                        approval_id.clone(),
+                                        session_id,
+                                        approval_scope
+                                            .clone()
+                                            .expect("interactive mode requires approval scope"),
+                                        ChannelApprovalKind::Patch,
+                                        approval_capabilities,
+                                        ApprovalRequestMetadata {
+                                            agent_id: approval_agent_id.clone(),
+                                            policy_fingerprint: policy_fingerprint.clone(),
+                                            cwd: approval_cwd.clone(),
+                                            summary: req
+                                                .changes
+                                                .keys()
+                                                .map(|path| path.display().to_string())
+                                                .collect::<Vec<_>>()
+                                                .join(", "),
+                                            command: None,
+                                            reason: req.reason.clone(),
+                                        },
+                                    )
+                                    .await
+                                {
+                                    Ok(registered) => registered,
+                                    Err(error) => {
+                                        let _ = session
+                                            .submit(Op::PatchApproval {
+                                                id: approval_id,
+                                                decision: ReviewDecision::Denied,
+                                            })
+                                            .await;
+                                        return Err(anyhow::anyhow!(
+                                            "failed to register durable patch approval: {error}"
+                                        ));
+                                    }
+                                };
+                                let request_id = registered.request_id.clone();
+                                pending_approval = Some(PendingApproval {
+                                    core_id: approval_id,
+                                    request_id: Some(request_id.clone()),
+                                    kind: PendingApprovalKind::Patch,
+                                    summary: format!("patch approval {request_id}"),
+                                });
+                                if let Some(ref mut notify) = on_approval {
+                                    let files = &registered.envelope.redacted_summary;
+                                    let reason = registered
+                                        .envelope
+                                        .reason
+                                        .as_deref()
+                                        .map(|r| format!("\nReason: {r}"))
+                                        .unwrap_or_default();
+                                    let instructions = approval_reply_instructions(&registered);
+                                    let msg = format!(
+                                        "[Approval Required]\nRequest: {request_id}\nFile changes: {files}{reason}\n\n{instructions}",
+                                    );
+                                    notify(registered.notification(msg));
+                                    deadline = tokio::time::Instant::now() + approval_timeout;
+                                }
+                            }
+                            EventMsg::TurnComplete(_) => {
+                                break;
+                            }
+                            EventMsg::Error(err) => {
+                                if cancellable
+                                    || (reply.is_empty() && fallback_agent_reply.is_empty())
+                                {
+                                    self.approval_coordinator()
+                                        .remove_for_core_session(session_id)
+                                        .await;
+                                    return Err(anyhow::anyhow!("agent error: {}", err.message));
+                                }
+                                break;
+                            }
+                            _ => {
+                                // Skip other events (tool calls, reasoning, etc.).
                             }
                         }
-                        EventMsg::TurnComplete(_) => {
-                            break;
+                    }
+                    Ok(Err(e)) => {
+                        if cancellable || (reply.is_empty() && fallback_agent_reply.is_empty()) {
+                            self.approval_coordinator()
+                                .remove_for_core_session(session_id)
+                                .await;
+                            return Err(anyhow::anyhow!("thread error: {e}"));
                         }
-                        EventMsg::Error(err) => {
-                            if reply.is_empty() && fallback_agent_reply.is_empty() {
-                                self.approval_coordinator()
-                                    .remove_for_core_session(session_id)
-                                    .await;
-                                return Err(anyhow::anyhow!("agent error: {}", err.message));
+                        break;
+                    }
+                    Err(_) => {
+                        // Timeout.
+                        if let Some(pending) = pending_approval.take() {
+                            warn!(
+                                session_id = %session_id,
+                                pending_approval = %pending.summary,
+                                "agent invocation timed out while waiting for approval"
+                            );
+                            if let Some(request_id) = pending.request_id.as_deref() {
+                                self.approval_coordinator().remove(request_id).await;
                             }
-                            break;
+                            let _ = session.submit(pending.abort_op()).await;
+                            return Err(anyhow::anyhow!(
+                                "agent invocation timed out while waiting for {}",
+                                pending.summary
+                            ));
                         }
-                        _ => {
-                            // Skip other events (tool calls, reasoning, etc.).
+                        if cancellable || (reply.is_empty() && fallback_agent_reply.is_empty()) {
+                            warn!(session_id = %session_id, "agent invocation timed out");
+                            self.approval_coordinator()
+                                .remove_for_core_session(session_id)
+                                .await;
+                            return Err(anyhow::anyhow!("agent invocation timed out"));
                         }
+                        break;
                     }
-                }
-                Ok(Err(e)) => {
-                    if reply.is_empty() && fallback_agent_reply.is_empty() {
-                        self.approval_coordinator()
-                            .remove_for_core_session(session_id)
-                            .await;
-                        return Err(anyhow::anyhow!("thread error: {e}"));
-                    }
-                    break;
-                }
-                Err(_) => {
-                    // Timeout.
-                    if let Some(pending) = pending_approval.take() {
-                        warn!(
-                            session_id = %session_id,
-                            pending_approval = %pending.summary,
-                            "agent invocation timed out while waiting for approval"
-                        );
-                        if let Some(request_id) = pending.request_id.as_deref() {
-                            self.approval_coordinator().remove(request_id).await;
-                        }
-                        let _ = session.submit(pending.abort_op()).await;
-                        return Err(anyhow::anyhow!(
-                            "agent invocation timed out while waiting for {}",
-                            pending.summary
-                        ));
-                    }
-                    if reply.is_empty() && fallback_agent_reply.is_empty() {
-                        warn!(session_id = %session_id, "agent invocation timed out");
-                        self.approval_coordinator()
-                            .remove_for_core_session(session_id)
-                            .await;
-                        return Err(anyhow::anyhow!("agent invocation timed out"));
-                    }
-                    break;
                 }
             }
-        }
 
-        if let Some(pending) = pending_approval.take() {
-            if let Some(request_id) = pending.request_id.as_deref() {
-                self.approval_coordinator().remove(request_id).await;
+            if let Some(pending) = pending_approval.take() {
+                if let Some(request_id) = pending.request_id.as_deref() {
+                    self.approval_coordinator().remove(request_id).await;
+                }
+                let _ = session.submit(pending.abort_op()).await;
             }
-            let _ = session.submit(pending.abort_op()).await;
-        }
-        self.approval_coordinator()
-            .remove_for_core_session(session_id)
-            .await;
+            self.approval_coordinator()
+                .remove_for_core_session(session_id)
+                .await;
 
-        if !saw_delta && !fallback_agent_reply.is_empty() {
-            reply.push_str(&fallback_agent_reply);
-            on_delta(&fallback_agent_reply);
-        }
+            if !saw_delta && !fallback_agent_reply.is_empty() {
+                reply.push_str(&fallback_agent_reply);
+                on_delta(&fallback_agent_reply);
+            }
 
-        if resolved_session.cleanup_after_turn {
-            let _ = self.session_manager.remove_session(&session_id).await;
-        }
+            if resolved_session.cleanup_after_turn && !cancellable {
+                let _ = self.session_manager.remove_session(&session_id).await;
+            }
 
-        if reply.is_empty() {
-            reply = "(no response from agent)".to_owned();
-        }
+            if reply.is_empty() {
+                reply = "(no response from agent)".to_owned();
+            }
 
-        Ok(AgentInvocationResult {
-            reply,
-            session_id: requested_session_id.unwrap_or_else(|| session_id.to_string()),
-            thread_id: session_id.to_string(),
-            rollout_path,
-            last_token_usage,
-        })
+            Ok(AgentInvocationResult {
+                reply,
+                session_id: requested_session_id.unwrap_or_else(|| session_id.to_string()),
+                thread_id: session_id.to_string(),
+                rollout_path,
+                last_token_usage,
+            })
+        };
+
+        if let Some(cancellation) = cancellation.as_ref() {
+            run_cancellable(cancellation, invocation, async {
+                // Remove approvals even when cancellation dropped the collector
+                // while it was waiting for a decision. Shutdown aborts the turn,
+                // terminates its processes and flushes the rollout recorder.
+                self.approval_coordinator()
+                    .remove_for_core_session(session_id)
+                    .await;
+                if session.submit(Op::Shutdown).await.is_ok() {
+                    let shutdown = async {
+                        while let Ok(event) = session.next_event().await {
+                            if matches!(event.msg, EventMsg::ShutdownComplete) {
+                                break;
+                            }
+                        }
+                    };
+                    if tokio::time::timeout(std::time::Duration::from_secs(5), shutdown)
+                        .await
+                        .is_err()
+                    {
+                        warn!(%session_id, "timed out waiting for SSE invocation shutdown");
+                    }
+                }
+                let _ = self.session_manager.remove_session(&session_id).await;
+            })
+            .await
+            .map_err(|failure| anyhow::anyhow!("{failure}"))?
+        } else {
+            invocation.await
+        }
     }
 
     pub(crate) async fn resolve_agent_session(
