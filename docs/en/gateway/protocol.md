@@ -200,3 +200,7 @@ After authentication, use `Request` messages to call any of the 90+ RPC methods:
 ## Protocol Version
 
 The current protocol version is `1`. Version negotiation occurs during the `Connect` / `Connected` handshake via `min_protocol` and `max_protocol` fields.
+
+Chat execution events, including terminal stdout/stderr, stream blocks, typing, errors and completion payloads, are private to the initiating credential. Other credentials do not receive them, even with an operator role. Reattached clients using the same credential must also retain chat permission; Claude native events retain their operator-write requirement.
+
+Failed WebSocket handshakes release their reserved per-IP connection slot, so malformed HTTP requests cannot consume the concurrent connection limit permanently.

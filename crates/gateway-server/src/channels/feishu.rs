@@ -180,6 +180,9 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
+    if super::require_inbound_secret(config.verification_token.clone(), res, "feishu").is_none() {
+        return;
+    }
     let event_req = match request_to_event_req(req).await {
         Ok(event_req) => event_req,
         Err(err) => {

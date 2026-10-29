@@ -135,7 +135,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             std::env::var("SLACK_SIGNING_SECRET").ok()
         }
     };
-    if let Some(secret) = signing_secret {
+    let Some(secret) = super::require_inbound_secret(signing_secret, res, "slack") else {
+        return;
+    };
+    {
         let signature = req
             .headers()
             .get("x-slack-signature")

@@ -1,26 +1,15 @@
 use std::sync::Arc;
 
-use hmac::{Hmac, KeyInit, Mac};
 use salvo::prelude::*;
 use savfox_channels::whatsapp::{parse_start_meta, parse_webhook_payload};
 use serde_json::{Value, json};
-use sha2::Sha256;
 use tracing::{info, warn};
 
 use super::{ensure_inbound_channel_enabled, obtain_channel_and_store, render_error, runtime};
 use crate::protocol::ChannelAction;
 
 fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature: &str) -> bool {
-    let expected = signature.strip_prefix("sha256=").unwrap_or(signature);
-
-    let mut mac = match Hmac::<Sha256>::new_from_slice(app_secret.as_bytes()) {
-        Ok(m) => m,
-        Err(_) => return false,
-    };
-    mac.update(body);
-    let computed = hex::encode(mac.finalize().into_bytes());
-
-    computed == expected
+    crate::channel::verify_webhook_hmac(app_secret, signature, body)
 }
 
 fn to_runtime_start_meta(
@@ -71,9 +60,10 @@ pub(crate) async fn webhook_verification_handler(
         return;
     }
 
-    if let Some(expected) = verify_token
-        && token != expected
-    {
+    let Some(expected) = super::require_inbound_secret(verify_token, res, "whatsapp") else {
+        return;
+    };
+    if token != expected {
         res.status_code(StatusCode::FORBIDDEN);
         res.render(Text::Json(
             json!({"error": "verification failed"}).to_string(),
@@ -122,7 +112,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    if let Some(secret) = app_secret {
+    let Some(secret) = super::require_inbound_secret(app_secret, res, "whatsapp") else {
+        return;
+    };
+    {
         let signature = req
             .headers()
             .get("x-hub-signature-256")

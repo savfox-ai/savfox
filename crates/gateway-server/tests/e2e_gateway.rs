@@ -867,3 +867,57 @@ async fn multi_client_concurrent_connection_test() {
     }
     assert_eq!(completed, 8, "all concurrent clients should complete");
 }
+
+/// Measure real status RPC round trips without invoking a model provider.
+/// Missing setup and zero samples are errors, rather than successful skips.
+#[tokio::test]
+#[ignore]
+async fn rpc_latency_benchmark() {
+    let url = gateway_url().expect("benchmark requires E2E_GATEWAY_URL");
+    let token = gateway_token().expect("benchmark requires E2E_GATEWAY_TOKEN");
+    let samples = std::env::var("SAVFOX_RPC_BENCH_SAMPLES")
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .expect("invalid benchmark sample count")
+        })
+        .unwrap_or(200);
+    assert!(samples > 0, "benchmark requires at least one sample");
+
+    let mut ws = ws_connect_with_query_token(&url, &token).await;
+    for id in 0..10 {
+        ws_rpc_call(&mut ws, id, "status", json!({})).await;
+    }
+
+    let mut latency_ms = Vec::with_capacity(samples);
+    let started = std::time::Instant::now();
+    for sample in 0..samples {
+        let request_started = std::time::Instant::now();
+        ws_rpc_call(&mut ws, sample as u64 + 10, "status", json!({})).await;
+        latency_ms.push(request_started.elapsed().as_secs_f64() * 1000.0);
+    }
+    let elapsed = started.elapsed();
+    latency_ms.sort_by(f64::total_cmp);
+    let percentile = |percent: usize| latency_ms[(samples * percent).div_ceil(100) - 1];
+    let report = json!({
+        "method": "status",
+        "concurrency": 1,
+        "samples": samples,
+        "elapsed_seconds": elapsed.as_secs_f64(),
+        "requests_per_second": samples as f64 / elapsed.as_secs_f64(),
+        "latency_ms": {
+            "p50": percentile(50),
+            "p95": percentile(95),
+            "p99": percentile(99),
+            "max": latency_ms[samples - 1],
+        },
+    });
+    let serialized = serde_json::to_string_pretty(&report).expect("serialize benchmark");
+    if let Ok(path) = std::env::var("SAVFOX_RPC_BENCH_OUTPUT") {
+        tokio::fs::write(path, &serialized)
+            .await
+            .expect("write benchmark report");
+    }
+    println!("{serialized}");
+    ws.close(None).await.expect("close benchmark websocket");
+}

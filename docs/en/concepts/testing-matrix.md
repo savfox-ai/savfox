@@ -26,7 +26,7 @@ Use `just test` when:
 CI now has these validation layers:
 - `fmt`: nightly rustfmt, always run.
 - `test-targeted`: Ubuntu targeted domain checks driven by path filters.
-- `test`: Ubuntu full workspace nextest plus doctests for workspace-wide changes, manual runs, and scheduled runs.
+- `test`: Ubuntu full workspace nextest plus doctests for workspace-wide changes, CI workflow changes, crates outside the targeted domains, manual runs, and scheduled runs. New crates fall back to this layer until explicitly assigned to a targeted domain.
 - `test-cross-platform`: Windows and macOS full workspace nextest, manual or scheduled only.
 
 Regular PRs do not run the full Windows/macOS matrix unless the workflow is manually dispatched.
@@ -45,6 +45,17 @@ Regular PRs do not run the full Windows/macOS matrix unless the workflow is manu
 ## Selection rule
 
 Pick the smallest slice that fully covers the changed behavior. If the change crosses a shared boundary, run more than one slice.
+
+## RPC latency baseline
+
+Run `bash scripts/bench-rpc.sh` against its isolated local gateway. It measures
+200 sequential `status` round trips after 10 warm-up requests, without invoking a
+model. Set `SAVFOX_RPC_BENCH_SAMPLES` to change the positive sample count.
+The JSON report includes throughput and p50/p95/p99/max latency and is saved to
+`$SAVFOX_HOME/rpc-benchmark.json` (or `.e2e-savfox-home/rpc-benchmark.json`), unless
+`SAVFOX_RPC_BENCH_OUTPUT` selects another existing directory. Missing setup,
+missing benchmark tests and zero samples fail the run. Use the same build profile
+and machine when comparing reports; this is a latency baseline, not a load test.
 
 ## Review expectation
 

@@ -1,4 +1,4 @@
-﻿# CLI Reference
+# CLI Reference
 
 ## Global Options
 
@@ -183,11 +183,26 @@ savfox features disable <F>  # disable a feature
 
 Manage gateway-side configuration via WS-RPC.
 
+`savfox config get gateway.port` reads a dot-separated path inside the persisted
+configuration. `savfox config validate` validates that configuration document;
+gateway version and connection metadata are excluded from validation.
+
+`savfox config set gateway.port 18882` updates only the selected field using a
+merge patch, preserving other configuration fields. Setting a field to JSON
+`null` removes it. Restart the gateway for persisted changes to take effect.
+
 ```bash
 savfox config validate
 savfox config export --format yaml --output config.yaml
 savfox config convert --to yaml --output config.yaml
 ```
+
+### `cron`
+
+Create gateway jobs with `savfox cron add reminder "every 5m" --message "Check progress" --enabled`.
+Intervals accept a positive integer followed by `s`, `m`, `h`, or `d`; cron
+expressions are also accepted. `--payload-type` accepts `systemEvent` (default)
+or `agentTurn`, and their snake_case equivalents.
 
 ### `sessions`
 
