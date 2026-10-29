@@ -66,6 +66,25 @@ curl -X POST http://localhost:18881/api/token/validate \
 | `/v1/responses` | POST | OpenResponses API |
 | `/tools/invoke` | POST | Tool invocation endpoint |
 
+### Chat completion streaming limits
+
+Streaming chat completions buffer at most 64 data frames, each no larger than
+16 KiB, plus two terminal frames. Text and reasoning deltas are split on UTF-8
+boundaries; an individual incoming delta larger than 1 MiB is rejected. If the
+client disconnects or exhausts the output buffer, the gateway cancels that
+request's core invocation, removes its approval registrations and shuts down
+its dedicated core session. Other concurrent turns are not interrupted. The
+caller's logical session ID and persisted history remain available.
+
+A connected client receives an SSE `error` object with `type: "stream_error"`
+and a specific code (for example, `slow_consumer`), followed by `[DONE]`.
+Failures do not emit a successful `finish_reason: "stop"`.
+
+Terminal delegates retain their configured process and session lifecycle:
+disconnecting HTTP detaches delivery but does not terminate a persistent
+managed terminal. Their output uses the same bounded SSE buffer and explicit
+failure result. Use the terminal/WebSocket controls to stop terminal execution.
+
 ## WebSocket JSON-RPC
 
 Connect to the WebSocket endpoint for real-time bidirectional communication:

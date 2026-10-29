@@ -3,6 +3,7 @@ pub mod cron;
 pub mod openai;
 pub mod openresponses;
 pub mod sessions;
+pub(crate) mod sse_stream;
 pub mod tts;
 pub mod usage;
 pub mod voicewake;

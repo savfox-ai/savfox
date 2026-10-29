@@ -116,3 +116,13 @@ curl http://localhost:18881/api/sessions/<id>/history -H "Authorization: Bearer 
 {"jsonrpc": "2.0", "id": 2, "method": "sessions.delete", "params": {"session_id": "..."}}
 {"jsonrpc": "2.0", "id": 3, "method": "sessions.reset", "params": {"session_id": "..."}}
 ```
+
+### Concurrent metadata updates
+
+Gateway session metadata updates are serialized with cache refreshes and durable
+sidecar writes. Token increments and field updates use an atomic update of the
+current entry, so concurrent turns preserve each other's counters. Full entry
+replacements reject stale or competing equal versions; callers changing only
+some fields should use the store's update operation. Persistence remains scoped
+to one gateway process; sharing one home between multiple gateway writers is not
+supported by this in-process coordination.

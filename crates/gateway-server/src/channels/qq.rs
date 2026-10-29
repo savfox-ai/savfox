@@ -43,7 +43,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             std::env::var("QQ_VERIFY_TOKEN").ok()
         }
     };
-    if let Some(expected) = verify_token {
+    let Some(expected) = super::require_inbound_secret(verify_token, res, "qq") else {
+        return;
+    };
+    {
         let provided = req
             .headers()
             .get("x-qq-token")

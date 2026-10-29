@@ -382,10 +382,9 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    // HMAC-SHA256 signature verification.
-    // The Bot Framework sends an Authorization header with a Bearer JWT token.
-    // For webhook-based bots, we verify using the app password as HMAC secret
-    // if the `Authorization` header is present.
+    // This HTTP bridge authenticates the body with the app password as an
+    // HMAC key. A bearer header alone is not proof of Bot Framework identity;
+    // direct Bot Framework JWT validation is not implemented here.
     let app_password = depot
         .get_typed::<Arc<GatewayConfig>>()
         .ok()
@@ -396,7 +395,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .map(|b| b.app_password.clone())
         })
         .or_else(|| std::env::var("MSTEAMS_APP_PASSWORD").ok());
-    if let Some(secret) = app_password {
+    let Some(secret) = super::require_inbound_secret(app_password, res, "msteams") else {
+        return;
+    };
+    {
         let auth_header = req
             .headers()
             .get("authorization")
@@ -413,15 +415,13 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
 
-        // Verify HMAC-SHA256 if a custom signature header is present.
+        // Require the bridge signature, including when a bearer header is present.
         let hmac_signature = req
             .headers()
             .get("x-ms-signature")
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default();
-        if !hmac_signature.is_empty()
-            && !crate::channel::verify_webhook_hmac(&secret, hmac_signature, raw_body.as_ref())
-        {
+        if !crate::channel::verify_webhook_hmac(&secret, hmac_signature, raw_body.as_ref()) {
             render_error(
                 res,
                 StatusCode::UNAUTHORIZED,

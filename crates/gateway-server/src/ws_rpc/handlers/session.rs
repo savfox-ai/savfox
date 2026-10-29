@@ -56,15 +56,31 @@ fn next_stream_block_id(request_id: &str, block_kind: &str, counter: &mut u64) -
     format!("{request_id}:{block_kind}:{counter}")
 }
 
+/// Events carry private execution output and are delivered only to the
+/// initiating credential's clients that retain chat permission.
+#[derive(Clone)]
+struct ChatEventSink {
+    manager: Arc<GatewaySessionManager>,
+    owner: String,
+}
+
+impl ChatEventSink {
+    async fn send(&self, event: &str, payload: Value) {
+        self.manager
+            .send_to_owner(&self.owner, crate::auth::TokenScope::Chat, event, payload)
+            .await;
+    }
+}
+
 async fn emit_stream_block_start(
-    session_mgr: &Arc<GatewaySessionManager>,
+    session_mgr: &ChatEventSink,
     request_id: &str,
     session_id: &str,
     block_id: &str,
     block_kind: &str,
 ) {
     session_mgr
-        .broadcast_to_all(
+        .send(
             "agent.stream.block",
             json!({
                 "request_id": request_id,
@@ -78,7 +94,7 @@ async fn emit_stream_block_start(
 }
 
 async fn emit_stream_block_delta(
-    session_mgr: &Arc<GatewaySessionManager>,
+    session_mgr: &ChatEventSink,
     request_id: &str,
     session_id: &str,
     block_id: &str,
@@ -86,7 +102,7 @@ async fn emit_stream_block_delta(
     delta: &str,
 ) {
     session_mgr
-        .broadcast_to_all(
+        .send(
             "agent.stream.block",
             json!({
                 "request_id": request_id,
@@ -101,7 +117,7 @@ async fn emit_stream_block_delta(
 }
 
 async fn emit_stream_block_progress(
-    session_mgr: &Arc<GatewaySessionManager>,
+    session_mgr: &ChatEventSink,
     request_id: &str,
     session_id: &str,
     block_id: &str,
@@ -110,7 +126,7 @@ async fn emit_stream_block_progress(
     status: &str,
 ) {
     session_mgr
-        .broadcast_to_all(
+        .send(
             "agent.stream.progress",
             json!({
                 "request_id": request_id,
@@ -125,7 +141,7 @@ async fn emit_stream_block_progress(
 }
 
 async fn emit_stream_block_end(
-    session_mgr: &Arc<GatewaySessionManager>,
+    session_mgr: &ChatEventSink,
     request_id: &str,
     session_id: &str,
     block_id: &str,
@@ -133,7 +149,7 @@ async fn emit_stream_block_end(
     status: &str,
 ) {
     session_mgr
-        .broadcast_to_all(
+        .send(
             "agent.stream.block",
             json!({
                 "request_id": request_id,
@@ -148,13 +164,13 @@ async fn emit_stream_block_end(
 }
 
 async fn emit_typing_heartbeat(
-    session_mgr: &Arc<GatewaySessionManager>,
+    session_mgr: &ChatEventSink,
     request_id: &str,
     session_id: &str,
     agent_id: &str,
 ) {
     session_mgr
-        .broadcast_to_all(
+        .send(
             "typing.start",
             json!({
                 "request_id": request_id,
@@ -168,13 +184,13 @@ async fn emit_typing_heartbeat(
 }
 
 async fn emit_typing_stop(
-    session_mgr: &Arc<GatewaySessionManager>,
+    session_mgr: &ChatEventSink,
     request_id: &str,
     session_id: &str,
     agent_id: &str,
 ) {
     session_mgr
-        .broadcast_to_all(
+        .send(
             "typing.stop",
             json!({
                 "request_id": request_id,
@@ -286,6 +302,16 @@ pub(crate) async fn handle_chat_send(
         DirectiveKind, fuzzy_match_model_name, parse_directives, parse_model_target,
     };
 
+    let session_mgr = &ChatEventSink {
+        manager: Arc::clone(session_mgr),
+        owner: principal
+            .ok_or((
+                INVALID_REQUEST,
+                "authenticated chat connection required".to_owned(),
+            ))?
+            .to_owned(),
+    };
+
     let message = parameters
         .get("message")
         .and_then(|v| v.as_str())
@@ -357,7 +383,7 @@ pub(crate) async fn handle_chat_send(
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
 
         session_mgr
-            .broadcast_to_all(
+            .send(
                 "agent.stream",
                 json!({
                     "request_id": request_id,
@@ -369,7 +395,7 @@ pub(crate) async fn handle_chat_send(
             )
             .await;
         session_mgr
-            .broadcast_to_all(
+            .send(
                 "agent.complete",
                 json!({
                     "request_id": request_id,
@@ -483,7 +509,7 @@ pub(crate) async fn handle_chat_send(
         if delegate.is_claude_stream() {
             return handle_claude_send(
                 channel,
-                session_mgr,
+                &session_mgr.manager,
                 session_store,
                 principal,
                 &request_id,
@@ -502,7 +528,7 @@ pub(crate) async fn handle_chat_send(
         let terminal_model_for_start = format!("terminal/{agent}");
 
         session_mgr
-            .broadcast_to_all(
+            .send(
                 "agent.stream",
                 json!({
                     "request_id": request_id,
@@ -522,7 +548,7 @@ pub(crate) async fn handle_chat_send(
         let stream_request_id = request_id.clone();
         let stream_session_id = logical_session_id.clone();
         let stream_thread_id = thread_id.clone();
-        let stream_session_mgr = Arc::clone(session_mgr);
+        let stream_session_mgr = (*session_mgr).clone();
         let stream_task = tokio::spawn(async move {
             while let Some(event) = terminal_stream_rx.recv().await {
                 if let Some((topic, payload)) = terminal_event_stream_payload(
@@ -534,7 +560,7 @@ pub(crate) async fn handle_chat_send(
                     false,
                     "",
                 ) {
-                    stream_session_mgr.broadcast_to_all(topic, payload).await;
+                    stream_session_mgr.send(topic, payload).await;
                 }
             }
         });
@@ -558,7 +584,7 @@ pub(crate) async fn handle_chat_send(
                 let _ = stream_task.await;
                 let message = "terminal delegate disappeared during invocation".to_owned();
                 session_mgr
-                    .broadcast_to_all(
+                    .send(
                         "agent.error",
                         json!({
                             "request_id": request_id,
@@ -574,7 +600,7 @@ pub(crate) async fn handle_chat_send(
                 let _ = stream_task.await;
                 let message = format!("terminal delegate error: {err}");
                 session_mgr
-                    .broadcast_to_all(
+                    .send(
                         "agent.error",
                         json!({
                             "request_id": request_id,
@@ -605,12 +631,12 @@ pub(crate) async fn handle_chat_send(
                 terminal.stderr_truncated,
                 &terminal_log_dir,
             ) {
-                session_mgr.broadcast_to_all(topic, payload).await;
+                session_mgr.send(topic, payload).await;
             }
         }
 
         session_mgr
-            .broadcast_to_all(
+            .send(
                 "agent.stream",
                 json!({
                     "request_id": request_id,
@@ -678,7 +704,7 @@ pub(crate) async fn handle_chat_send(
         .await;
 
         session_mgr
-            .broadcast_to_all(
+            .send(
                 "agent.complete",
                 json!({
                     "request_id": request_id,
@@ -803,7 +829,7 @@ pub(crate) async fn handle_chat_send(
     let session_id = logical_session_id.clone();
 
     session_mgr
-        .broadcast_to_all(
+        .send(
             "agent.stream",
             json!({
                 "request_id": request_id,
@@ -879,7 +905,7 @@ pub(crate) async fn handle_chat_send(
                         reply.push_str(&msg.message);
 
                         session_mgr
-                            .broadcast_to_all(
+                            .send(
                                 "agent.stream",
                                 json!({
                                     "request_id": request_id,
@@ -933,7 +959,7 @@ pub(crate) async fn handle_chat_send(
                     EventMsg::AgentMessageDelta(delta) if !delta.delta.is_empty() => {
                         reply.push_str(&delta.delta);
                         session_mgr
-                            .broadcast_to_all(
+                            .send(
                                 "agent.stream",
                                 json!({
                                     "request_id": request_id,
@@ -1000,7 +1026,7 @@ pub(crate) async fn handle_chat_send(
                         }
 
                         session_mgr
-                            .broadcast_to_all(
+                            .send(
                                 "agent.stream",
                                 json!({
                                     "request_id": request_id,
@@ -1040,7 +1066,7 @@ pub(crate) async fn handle_chat_send(
                     }
                     EventMsg::AgentReasoningRawContentDelta(delta) if !delta.delta.is_empty() => {
                         session_mgr
-                            .broadcast_to_all(
+                            .send(
                                 "agent.stream",
                                 json!({
                                     "request_id": request_id,
@@ -1057,7 +1083,7 @@ pub(crate) async fn handle_chat_send(
                         tool_blocks.insert(begin.call_id.clone(), block_id.clone());
 
                         session_mgr
-                            .broadcast_to_all(
+                            .send(
                                 "agent.stream.block",
                                 json!({
                                     "request_id": request_id,
@@ -1083,7 +1109,7 @@ pub(crate) async fn handle_chat_send(
                         .await;
 
                         session_mgr
-                            .broadcast_to_all(
+                            .send(
                                 "tool.call",
                                 json!({
                                     "request_id": request_id,
@@ -1131,7 +1157,7 @@ pub(crate) async fn handle_chat_send(
                         .await;
 
                         session_mgr
-                            .broadcast_to_all(
+                            .send(
                                 "tool.result",
                                 json!({
                                     "request_id": request_id,
@@ -1149,7 +1175,7 @@ pub(crate) async fn handle_chat_send(
                     EventMsg::TurnAborted(reason) => {
                         aborted = true;
                         session_mgr
-                            .broadcast_to_all(
+                            .send(
                                 "agent.error",
                                 json!({
                                     "request_id": request_id,
@@ -1163,7 +1189,7 @@ pub(crate) async fn handle_chat_send(
                     EventMsg::TurnComplete(_) => break,
                     EventMsg::Error(err) => {
                         session_mgr
-                            .broadcast_to_all(
+                            .send(
                                 "agent.error",
                                 json!({
                                     "request_id": request_id,
@@ -1183,7 +1209,7 @@ pub(crate) async fn handle_chat_send(
             }
             Ok(Err(err)) => {
                 session_mgr
-                    .broadcast_to_all(
+                    .send(
                         "agent.error",
                         json!({
                             "request_id": request_id,
@@ -1206,7 +1232,7 @@ pub(crate) async fn handle_chat_send(
                 }
 
                 session_mgr
-                    .broadcast_to_all(
+                    .send(
                         "agent.error",
                         json!({
                             "request_id": request_id,
@@ -1300,7 +1326,7 @@ pub(crate) async fn handle_chat_send(
     .await;
 
     session_mgr
-        .broadcast_to_all(
+        .send(
             "agent.complete",
             json!({
                 "request_id": request_id,
@@ -2693,6 +2719,126 @@ pub(crate) async fn handle_events_list() -> RpcResult {
 #[cfg(test)]
 mod tests {
     use super::{TerminalAgentEvent, terminal_event_stream_payload};
+
+    #[tokio::test]
+    async fn terminal_chat_output_reaches_only_authorized_owner_connections() {
+        use std::sync::Arc;
+
+        use savfox_core::config::ConfigBuilder;
+        use serde_json::json;
+        use tokio::sync::mpsc;
+
+        use crate::auth::{TokenInfo, TokenScope};
+        use crate::channel::{GatewayBridgeArgs, GatewayChannel};
+        use crate::session::{ClientSession, GatewaySessionManager, SessionStore};
+
+        let home = tempfile::tempdir().unwrap();
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let mut config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        config.cwd = home.path().to_path_buf();
+        #[cfg(windows)]
+        let (command, args) = (
+            "powershell",
+            vec![
+                "-NoProfile",
+                "-Command",
+                "$text = [Console]::In.ReadToEnd(); Write-Output $text; [Console]::Error.WriteLine('private-stderr')",
+            ],
+        );
+        #[cfg(not(windows))]
+        let (command, args) = ("sh", vec!["-c", "cat; printf private-stderr >&2"]);
+        std::fs::create_dir_all(home.path().join("agents")).unwrap();
+        std::fs::write(home.path().join("agents/private-cli.json"), json!({
+            "id":"private-cli", "name":"Private CLI", "kind":"terminal",
+            "terminal":{"enabled":true,"command":command,"args":args,"stdin":"{{prompt}}","timeout_secs":10}
+        }).to_string()).unwrap();
+        let manager = Arc::new(GatewaySessionManager::new());
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let mut receivers = Vec::new();
+        for (owner, scope) in [
+            ("owner", TokenScope::Chat),
+            ("owner", TokenScope::Chat),
+            ("owner", TokenScope::Viewer),
+            ("other", TokenScope::Operator),
+        ] {
+            let (sender, receiver) = mpsc::channel(128);
+            let mut session = ClientSession::new(
+                savfox_protocol::SessionId::new(),
+                TokenInfo {
+                    label: "same-label".to_owned(),
+                    scopes: vec![scope],
+                },
+                sender,
+            );
+            session.principal = owner.to_owned();
+            manager.add_session(session).await;
+            receivers.push(receiver);
+        }
+        let (outgoing_tx, _outgoing_rx) = mpsc::channel(32);
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: store.clone(),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            feedback: savfox_feedback::SavfoxFeedback::new(),
+            savfox_linux_sandbox_exe: None,
+            websocket_manager: (*manager).clone(),
+            outgoing_tx,
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let response = Box::pin(super::handle_chat_send(
+            &json!({"agent":"private-cli","message":"private-output"}),
+            &channel,
+            &manager,
+            &store,
+            Some("owner"),
+        ))
+        .await
+        .unwrap();
+        assert!(
+            response["raw_response"]
+                .as_str()
+                .unwrap()
+                .contains("private-output")
+        );
+        for receiver in &mut receivers[..2] {
+            let mut events = Vec::new();
+            while let Ok(event) = receiver.try_recv() {
+                events.push(serde_json::to_value(event).unwrap());
+            }
+            assert!(
+                events
+                    .iter()
+                    .any(|event| event["event"] == "agent.complete")
+            );
+            assert!(events.iter().any(|event| {
+                event["payload"]["delta"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("private-output"))
+            }));
+            assert!(events.iter().any(|event| {
+                event["payload"]["delta"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("private-stderr"))
+            }));
+        }
+        for receiver in &mut receivers[2..] {
+            assert!(
+                receiver.try_recv().is_err(),
+                "other credentials and owner clients without chat scope must receive no execution events"
+            );
+        }
+    }
 
     fn terminal_stream_order(events: &[TerminalAgentEvent]) -> Vec<String> {
         let mut order = vec!["started".to_owned()];
