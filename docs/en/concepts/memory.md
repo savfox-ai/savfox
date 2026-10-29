@@ -142,6 +142,10 @@ pinned: true
 EOF
 ```
 
+## Search result previews
+
+Vector-memory search snippets retain at most 700 bytes of complete UTF-8 characters before the ellipsis. Chinese text and emoji remain valid when a long result is shortened.
+
 ## Vector index synchronization
 
 Memory and session files are tracked by source, path, and content hash. Unchanged files skip embedding; changed files replace their previous chunks and embeddings in one transaction after all new embeddings succeed. Empty files are tracked too. A complete successful scan removes entries for deleted files while preserving manually added memories. Read or embedding failures keep the last published file revision. Existing indexes are rebuilt per file on their first sync to remove duplicate legacy revisions.

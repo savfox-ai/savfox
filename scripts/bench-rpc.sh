@@ -15,7 +15,6 @@ echo "============================================"
 echo " Savfox RPC Benchmark Runner"
 echo "============================================"
 echo "  Port:  $TEST_PORT"
-echo "  Token: $TEST_TOKEN"
 echo "  Home:  $TEST_HOME"
 echo ""
 
@@ -62,9 +61,17 @@ echo ""
 
 export E2E_GATEWAY_URL="http://localhost:$TEST_PORT"
 export E2E_GATEWAY_TOKEN="$TEST_TOKEN"
+export SAVFOX_RPC_BENCH_OUTPUT="${SAVFOX_RPC_BENCH_OUTPUT:-$TEST_HOME/rpc-benchmark.json}"
 
 echo "Running RPC latency benchmark..."
 echo "--------------------------------------------"
-cargo test -p savfox-gateway-server --test e2e_gateway rpc_latency_benchmark -- --ignored --nocapture
+# Rust's test harness exits successfully when a filter matches zero tests.
+# Verify the exact test exists before accepting a successful benchmark run.
+TEST_LIST=$(cargo test -p savfox-gateway-server --test e2e_gateway -- --list)
+if ! printf '%s\n' "$TEST_LIST" | grep -qx 'rpc_latency_benchmark: test'; then
+    echo "ERROR: rpc_latency_benchmark is missing; no benchmark was run."
+    exit 1
+fi
+cargo test -p savfox-gateway-server --test e2e_gateway rpc_latency_benchmark -- --exact --ignored --nocapture
 echo "--------------------------------------------"
-echo "RPC benchmark completed."
+echo "RPC benchmark completed. Report: $SAVFOX_RPC_BENCH_OUTPUT"
