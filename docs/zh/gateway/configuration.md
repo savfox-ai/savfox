@@ -107,7 +107,6 @@ gateway 支持在运行时通过 API 修改配置，而不一定要重启：
 
 实验性纯 Rust `claude_stream` 模式使用独立模型/设置、显式版本门槛、按凭证隔离的审批及持久会话恢复。配置、停止、权限边界和旧 one-shot 迁移说明见[本地 Claude Code](claude-code.md)。
 
-
 ### 公共 Webhook 鉴权
 
 所有 `/webhooks/<platform>` 回调必须具有明确启用的已保存 Channel，或旧版 `[gateway.channels.<platform>]` 配置。未配置或已禁用时返回 503；已保存 Channel 的禁用状态优先于旧版启用配置。验证凭据不得为空；缺少凭据或签名、签名错误、签名后修改请求体均返回 401，不会启动 Agent。Gateway Bearer Token 不能代替平台回调鉴权。

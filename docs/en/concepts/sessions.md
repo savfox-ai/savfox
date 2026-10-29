@@ -1,4 +1,4 @@
-﻿# Sessions
+# Sessions
 
 Sessions track the state of a conversation between a user and the Savfox agent. Each session maintains message history, token usage, and delivery context.
 

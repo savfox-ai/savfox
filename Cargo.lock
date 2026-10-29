@@ -9870,7 +9870,6 @@ dependencies = [
  "savfox-common",
  "savfox-core",
  "savfox-exec-policy",
- "savfox-feedback",
  "savfox-gateway-shared",
  "savfox-http-client",
  "savfox-keyring-store",

@@ -1,7 +1,7 @@
 # WebSocket Protocol
 
 The gateway WebSocket protocol uses typed control envelopes for authentication and
-event streaming, and also accepts JSON-RPC 2.0 requests after authentication.
+event streaming. Business requests use JSON-RPC 2.0 after authentication.
 Connect to `ws://localhost:18881/ws` (or `wss://` with TLS).
 
 ## Message Types
@@ -78,38 +78,26 @@ Sent after successful authentication.
 }
 ```
 
-### Request (Client to Server)
+### JSON-RPC Request (Client to Server)
 
-A JSON-RPC request wrapped in the gateway envelope.
-
-The authenticated connection also accepts the equivalent bare JSON-RPC form:
+Send requests directly with `jsonrpc: "2.0"`:
 
 ```json
 {"params":{"message":"Hello, agent"},"method":"chat.send","id":"req-1","jsonrpc":"2.0"}
 ```
 
-Bare requests receive JSON-RPC responses with `jsonrpc`, `id`, and `result` or
-`error`. Typed requests below retain their typed response envelope.
+Requests receive JSON-RPC responses with `jsonrpc`, `id`, and `result` or `error`.
+The `jsonrpc` value must be exactly `"2.0"`.
 
-```json
-{
-  "type": "request",
-  "id": "req-1",
-  "method": "chat.send",
-  "params": { "message": "Hello, agent" }
-}
-```
-
-### Response (Server to Client)
+### JSON-RPC Response (Server to Client)
 
 The result of a Request.
 
 ```json
 {
-  "type": "response",
+  "jsonrpc": "2.0",
   "id": "req-1",
-  "ok": true,
-  "payload": { "message": "Hello! How can I help?" }
+  "result": { "message": "Hello! How can I help?" }
 }
 ```
 
@@ -117,9 +105,8 @@ Error response:
 
 ```json
 {
-  "type": "response",
+  "jsonrpc": "2.0",
   "id": "req-1",
-  "ok": false,
   "error": { "code": -32601, "message": "method not found" }
 }
 ```
@@ -139,31 +126,41 @@ Server-push notification. Events are not tied to a specific request.
 
 The `seq` field is an optional monotonic sequence number for ordering.
 
-### Subscribe / Unsubscribe
+### Event Subscriptions
 
-Subscribe to events for a specific thread:
-
-```json
-{ "type": "subscribe", "thread_id": "thread-abc" }
-{ "type": "unsubscribe", "thread_id": "thread-abc" }
-```
-
-### SubscribeLogs / UnsubscribeLogs
-
-Stream server logs in real time:
+Use JSON-RPC for event subscription requests:
 
 ```json
-{ "type": "subscribeLogs", "level": "info" }
-{ "type": "unsubscribeLogs" }
+{ "jsonrpc": "2.0", "id": 2, "method": "events.subscribe", "params": { "events": ["agent.*"] } }
+{ "jsonrpc": "2.0", "id": 3, "method": "events.unsubscribe", "params": { "events": ["agent.*"] } }
 ```
 
-### ApprovalResponse
+Subscriptions are currently advisory; clients must also filter received event
+names. Request recent server logs with `logs.tail`:
+
+```json
+{ "jsonrpc": "2.0", "id": 4, "method": "logs.tail", "params": {} }
+```
+
+### Execution Approvals
 
 Respond to an execution approval request:
 
 ```json
-{ "type": "approvalResponse", "request_id": "approval-123", "approved": true }
+{ "jsonrpc": "2.0", "id": 5, "method": "exec.approval.resolve", "params": { "request_id": "approval-123", "nonce": "single-use-nonce", "decision": "approve-once" } }
 ```
+
+The authenticated client must have approval-resolution permission and satisfy
+the approval's owner and single-use nonce checks.
+
+### Removed Request Envelopes
+
+The old `type: "request"`, `type: "response"`, and `type: "approvalResponse"`
+envelopes are not supported. They receive a control error without dispatching a
+method or resolving an approval. There is no fallback to app-server protocol
+methods. Use the gateway's JSON-RPC methods for configuration, account login,
+sessions and approvals. Authentication, event and ping/pong controls retain their
+typed envelopes.
 
 ### Error
 
@@ -175,7 +172,7 @@ Generic error envelope:
 
 ## JSON-RPC Methods
 
-After authentication, use `Request` messages to call any of the 90+ RPC methods:
+After authentication, use JSON-RPC 2.0 requests to call the gateway methods:
 
 | Group | Methods |
 |-------|---------|
@@ -194,7 +191,7 @@ After authentication, use `Request` messages to call any of the 90+ RPC methods:
 2. Server sends `ConnectChallenge`.
 3. Client sends `Connect` with token.
 4. Server validates and sends `Connected` with session ID.
-5. Client sends `Request` messages; server replies with `Response` and pushes `Event` messages.
+5. Client sends JSON-RPC 2.0 requests; server replies with JSON-RPC results/errors and pushes typed `Event` messages.
 6. Either side may close the connection at any time.
 
 ## Protocol Version
@@ -204,3 +201,7 @@ The current protocol version is `1`. Version negotiation occurs during the `Conn
 Chat execution events, including terminal stdout/stderr, stream blocks, typing, errors and completion payloads, are private to the initiating credential. Other credentials do not receive them, even with an operator role. Reattached clients using the same credential must also retain chat permission; Claude native events retain their operator-write requirement.
 
 Failed WebSocket handshakes release their reserved per-IP connection slot, so malformed HTTP requests cannot consume the concurrent connection limit permanently.
+
+All business requests pass through the JSON-RPC dispatcher's method-scope and
+session-ownership checks. The gateway does not expose the app-server request
+dispatcher over WebSocket.

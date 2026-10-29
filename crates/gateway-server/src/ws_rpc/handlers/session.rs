@@ -2718,6 +2718,8 @@ pub(crate) async fn handle_events_list() -> RpcResult {
 
 #[cfg(test)]
 mod tests {
+    use tokio::sync::mpsc;
+
     use super::{TerminalAgentEvent, terminal_event_stream_payload};
 
     #[tokio::test]
@@ -2726,7 +2728,6 @@ mod tests {
 
         use savfox_core::config::ConfigBuilder;
         use serde_json::json;
-        use tokio::sync::mpsc;
 
         use crate::auth::{TokenInfo, TokenScope};
         use crate::channel::{GatewayBridgeArgs, GatewayChannel};
@@ -2780,16 +2781,12 @@ mod tests {
             manager.add_session(session).await;
             receivers.push(receiver);
         }
-        let (outgoing_tx, _outgoing_rx) = mpsc::channel(32);
         let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
             config: Arc::new(config),
             session_store: store.clone(),
             cli_overrides: vec![],
             cloud_requirements: Default::default(),
-            feedback: savfox_feedback::SavfoxFeedback::new(),
-            savfox_linux_sandbox_exe: None,
             websocket_manager: (*manager).clone(),
-            outgoing_tx,
             channel_registry: crate::channels::create_channel_registry(),
             channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
             ),

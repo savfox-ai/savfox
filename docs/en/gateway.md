@@ -1,4 +1,4 @@
-﻿# Gateway Server
+# Gateway Server
 
 The gateway server provides remote HTTP/WebSocket access to Savfox, enabling web clients, chat platform integrations, and multi-device usage.
 

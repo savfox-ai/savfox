@@ -2,24 +2,17 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use savfox_app_server_protocol::RequestId;
-use savfox_core::config::{Config, ConfigService};
-use savfox_core::config_loader::{CloudRequirementsLoader, LoaderOverrides};
+use savfox_core::config::Config;
+use savfox_core::config_loader::CloudRequirementsLoader;
 use savfox_core::{AuthManager, SessionManager};
-use savfox_feedback::SavfoxFeedback;
-use savfox_login_oauth::ShutdownHandle;
 use savfox_protocol::SessionId;
-use serde_json::Value;
-use tokio::sync::{Mutex, RwLock, broadcast, mpsc, oneshot};
+use tokio::sync::{Mutex, RwLock, broadcast};
 use toml::Value as TomlValue;
-use uuid::Uuid;
 
 use crate::security::approval_coordinator::ApprovalCoordinator;
 use crate::session::{GatewaySessionManager, SessionStore};
 
-mod auth;
 mod credential_manager;
-mod router;
 mod session_bridge;
 
 // Re-export all public items so external `use crate::channel::X` continues to work.
@@ -28,42 +21,18 @@ pub(crate) use credential_manager::{
     verify_telegram_webhook_secret, verify_webhook_hmac,
 };
 
-const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
-const INTERNAL_ERROR_CODE: i64 = -32603;
-const METHOD_NOT_FOUND_ERROR_CODE: i64 = -32601;
-
-/// Outgoing message from the channel to a WebSocket client.
-#[derive(Debug, Clone)]
-pub(crate) enum BridgeOutgoing {
-    Response {
-        id: RequestId,
-        result: Value,
-    },
-    Error {
-        id: RequestId,
-        error: savfox_app_server_protocol::JSONRPCErrorError,
-    },
-    Notification {
-        method: String,
-        params: Option<Value>,
-    },
-    ServerRequest(savfox_app_server_protocol::ServerRequest),
-}
-
-/// Handles bidirectional message routing between gateway WebSocket clients
-/// and the Savfox core engine (SessionManager).
+/// Shared agent execution, provider credentials and channel-delivery state used
+/// by the gateway's authenticated handlers.
 ///
 /// ## Lock ordering convention
 ///
 /// When acquiring multiple locks, always follow this order to prevent deadlock:
 ///
 /// 1. `runtime_channel_secrets` (RwLock)
-/// 2. `pending_requests` (Mutex)
-/// 3. `active_login` (Mutex)
-/// 4. `logical_session_threads` (Mutex)
-/// 5. `approval_coordinator` (Mutex)
-/// 6. `GatewaySessionManager::sessions` (RwLock) — accessed via `websocket_manager`
-/// 7. `SessionStore::cache` (RwLock) — accessed via `session_store`
+/// 2. `logical_session_threads` (Mutex)
+/// 3. `approval_coordinator` (Mutex)
+/// 4. `GatewaySessionManager::sessions` (RwLock) — accessed via `websocket_manager`
+/// 5. `SessionStore::cache` (RwLock) — accessed via `session_store`
 ///
 /// Never acquire a higher-numbered lock while holding a lower-numbered one.
 pub(crate) struct GatewayChannel {
@@ -73,14 +42,7 @@ pub(crate) struct GatewayChannel {
     config: Arc<Config>,
     cli_overrides: Vec<(String, TomlValue)>,
     cloud_requirements: CloudRequirementsLoader,
-    config_service: ConfigService,
-    feedback: SavfoxFeedback,
-    savfox_linux_sandbox_exe: Option<PathBuf>,
     websocket_manager: GatewaySessionManager,
-    /// Pending server->client requests awaiting a response.
-    pending_requests: Arc<Mutex<HashMap<RequestId, oneshot::Sender<Value>>>>,
-    /// Outbound message channel.
-    outgoing_tx: mpsc::Sender<BridgeOutgoing>,
     /// HTTP client for outbound platform API calls.
     http_client: reqwest::Client,
     /// Runtime channel credentials hot-reloaded from config patch/apply.
@@ -91,8 +53,6 @@ pub(crate) struct GatewayChannel {
     channel_recovery_registry: crate::channels::recovery::ChannelRecoveryRegistry,
     /// Restart supervisors for persistent channel instances.
     channel_recovery_supervisors: crate::channels::recovery::ChannelRecoverySupervisors,
-    /// Active login attempt (browser OAuth or device code).
-    active_login: Arc<Mutex<Option<ActiveLogin>>>,
     /// Logical gateway session IDs mapped to active core session IDs.
     logical_session_threads: Arc<Mutex<HashMap<String, SessionId>>>,
     /// Active Channel approvals mapped to their exact Core session/turn.
@@ -119,12 +79,6 @@ fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-/// Tracks an active login attempt for cancellation.
-struct ActiveLogin {
-    shutdown_handle: ShutdownHandle,
-    login_id: Uuid,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct AgentInvocationResult {
     pub(crate) reply: String,
@@ -145,10 +99,7 @@ pub(crate) struct GatewayBridgeArgs {
     pub(crate) session_store: Arc<SessionStore>,
     pub(crate) cli_overrides: Vec<(String, TomlValue)>,
     pub(crate) cloud_requirements: CloudRequirementsLoader,
-    pub(crate) feedback: SavfoxFeedback,
-    pub(crate) savfox_linux_sandbox_exe: Option<PathBuf>,
     pub(crate) websocket_manager: GatewaySessionManager,
-    pub(crate) outgoing_tx: mpsc::Sender<BridgeOutgoing>,
     pub(crate) channel_registry: crate::channels::ChannelRegistry,
     pub(crate) channel_recovery_registry: crate::channels::recovery::ChannelRecoveryRegistry,
     pub(crate) channel_recovery_supervisors: crate::channels::recovery::ChannelRecoverySupervisors,
@@ -168,13 +119,6 @@ impl GatewayChannel {
             savfox_protocol::protocol::SessionSource::VSCode, /* Gateway acts similarly to
                                                                * app-server */
         ));
-
-        let config_service = ConfigService::new(
-            args.config.savfox_home.clone(),
-            args.cli_overrides.clone(),
-            LoaderOverrides::default(),
-            args.cloud_requirements.clone(),
-        );
 
         let http_client = savfox_http_client::custom_ca::build_reqwest_client_with_custom_ca(
             reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)),
@@ -196,18 +140,12 @@ impl GatewayChannel {
             config: args.config,
             cli_overrides: args.cli_overrides,
             cloud_requirements: args.cloud_requirements,
-            config_service,
-            feedback: args.feedback,
-            savfox_linux_sandbox_exe: args.savfox_linux_sandbox_exe,
             websocket_manager: args.websocket_manager,
-            pending_requests: Arc::new(Mutex::new(HashMap::new())),
-            outgoing_tx: args.outgoing_tx,
             http_client,
             runtime_channel_secrets: Arc::new(RwLock::new(RuntimeBridgeSecrets::default())),
             channel_registry: args.channel_registry,
             channel_recovery_registry: args.channel_recovery_registry,
             channel_recovery_supervisors: args.channel_recovery_supervisors,
-            active_login: Arc::new(Mutex::new(None)),
             logical_session_threads: Arc::new(Mutex::new(HashMap::new())),
             approval_coordinator,
             claude_runtime,

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use salvo::prelude::*;
 use salvo::websocket::{Message, WebSocket, WebSocketUpgrade};
-use savfox_app_server_protocol::{JSONRPCRequest, RequestId};
 use savfox_protocol::SessionId;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -378,14 +377,9 @@ async fn handle_ws_connection(
                     Err(_) => continue, // Skip non-text frames.
                 };
 
-                // M18: branch on the discriminator without reparsing.
-                // JSON-RPC messages start with `{"jsonrpc"`; GatewayMessages
-                // start with `{"type"`. The substring scan is O(n) over the
-                // first ~64 bytes — much cheaper than the previous approach
-                // of fully parsing into `serde_json::Value` just to peek at
-                // the field name. Returning true does not guarantee a
-                // well-formed message; `dispatch_rpc` runs the typed parse
-                // and surfaces parse errors as JSON-RPC error responses.
+                // Business RPC has one dispatcher, regardless of root field
+                // order. Typed envelopes are only connection controls and
+                // server events; they cannot dispatch business methods.
                 if looks_like_jsonrpc(text) {
                     if rpc_tasks.len() >= MAX_IN_FLIGHT_RPC {
                         let id = serde_json::from_str::<Value>(text).ok()
@@ -424,17 +418,22 @@ async fn handle_ws_connection(
                             session_id = %session_id,
                             "failed to parse WebSocket message: {err}"
                         );
+                        let err = GatewayMessage::Error {
+                            id: None,
+                            code: 400,
+                            message: "unsupported WebSocket control frame; use JSON-RPC 2.0 for requests".to_owned(),
+                        };
+                        if send_message(&mut ws, &err).await.is_err() { break; }
                         continue;
                     }
                 };
 
                 let session_id_str = session_id.to_string();
-                Box::pin(handle_client_message(
+                handle_client_message(
                     &session_id_str,
                     gateway_msg,
                     &session_mgr,
-                    &channel,
-                )).await;
+                ).await;
             }
         }
     }
@@ -453,53 +452,11 @@ async fn handle_client_message(
     session_id: &str,
     msg: GatewayMessage,
     session_mgr: &GatewaySessionManager,
-    channel: &GatewayChannel,
 ) {
-    match msg {
-        GatewayMessage::Request { id, method, params } => {
-            let request = JSONRPCRequest {
-                id: RequestId::String(id),
-                method,
-                params,
-            };
-            channel.process_request(session_id, request).await;
-        }
-
-        GatewayMessage::Response {
-            id,
-            ok: _,
-            payload,
-            error: _,
-        } => {
-            let result = payload.unwrap_or(Value::Null);
-            channel
-                .process_client_response(RequestId::String(id), result)
-                .await;
-        }
-
-        GatewayMessage::ApprovalResponse {
-            request_id,
-            approved,
-        } => {
-            let result = serde_json::json!({ "approved": approved });
-            channel
-                .process_client_response(RequestId::String(request_id), result)
-                .await;
-        }
-
-        GatewayMessage::Ping => {
-            let _ = session_mgr
-                .send_to_session(session_id, GatewayMessage::Pong)
-                .await;
-        }
-
-        // Ignore messages that don't need handling from the server side.
-        GatewayMessage::Connect { .. }
-        | GatewayMessage::ConnectChallenge { .. }
-        | GatewayMessage::Connected { .. }
-        | GatewayMessage::Event { .. }
-        | GatewayMessage::Error { .. }
-        | GatewayMessage::Pong => {}
+    if matches!(msg, GatewayMessage::Ping) {
+        let _ = session_mgr
+            .send_to_session(session_id, GatewayMessage::Pong)
+            .await;
     }
 }
 
@@ -585,7 +542,6 @@ mod terminal_ws_tests {
     use salvo::prelude::*;
     use savfox_core::config::ConfigBuilder;
     use serde_json::{Value, json};
-    use tokio::sync::mpsc;
     use tokio_tungstenite::tungstenite::Message;
 
     use crate::auth::GatewayAuth;
@@ -628,16 +584,12 @@ mod terminal_ws_tests {
             .unwrap();
         let sessions = Arc::new(GatewaySessionManager::new());
         let store = Arc::new(SessionStore::from_home(home.path()));
-        let (outgoing_tx, _outgoing_rx) = mpsc::channel(16);
         let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
             config: Arc::new(config),
             session_store: store.clone(),
             cli_overrides: vec![],
             cloud_requirements: Default::default(),
-            feedback: savfox_feedback::SavfoxFeedback::new(),
-            savfox_linux_sandbox_exe: None,
             websocket_manager: (*sessions).clone(),
-            outgoing_tx,
             channel_registry: crate::channels::create_channel_registry(),
             channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
             ),
@@ -682,6 +634,142 @@ mod terminal_ws_tests {
         task.await.unwrap();
     }
 
+    #[tokio::test]
+    async fn websocket_rejects_legacy_envelopes_and_keeps_jsonrpc_authorization() {
+        use salvo::conn::Acceptor;
+
+        use crate::auth::{TokenInfo, TokenScope};
+
+        let home = tempfile::tempdir().expect("test home");
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry"))
+                .expect("offline registry placeholder");
+        }
+        let config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .expect("config");
+        let auth = Arc::new(GatewayAuth::new(std::collections::HashMap::from([
+            (
+                "viewer".to_owned(),
+                TokenInfo {
+                    label: "viewer".to_owned(),
+                    scopes: vec![TokenScope::Viewer],
+                },
+            ),
+            (
+                "operator".to_owned(),
+                TokenInfo {
+                    label: "operator".to_owned(),
+                    scopes: vec![TokenScope::Operator],
+                },
+            ),
+        ])));
+        let sessions = Arc::new(GatewaySessionManager::new());
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: Arc::clone(&store),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            websocket_manager: (*sessions).clone(),
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let gateway_config = GatewayConfig::default();
+        let router = crate::server::build_router(
+            auth,
+            sessions,
+            channel,
+            &gateway_config,
+            store,
+            Arc::new(CronService::from_home(home.path())),
+            home.path().to_path_buf(),
+        );
+        let acceptor = TcpListener::new("127.0.0.1:0").bind().await;
+        let address = acceptor.holdings()[0]
+            .local_addr
+            .clone()
+            .into_std()
+            .expect("TCP address");
+        let server = Server::new(acceptor);
+        let shutdown = server.handle();
+        let server_task = tokio::spawn(async move { server.serve(router).await });
+        for token in ["viewer", "operator"] {
+            let (mut ws, _) =
+                tokio_tungstenite::connect_async(format!("ws://{address}/ws?token={token}"))
+                    .await
+                    .expect("connect");
+            assert_eq!(receive(&mut ws).await["type"], "connected");
+            for frame in [
+                json!({"type":"request","id":"legacy-write","method":"config/value/write",
+                    "params":{"keyPath":"model","value":{"provider":"openai","slug":"legacy-model"},"mergeStrategy":"replace"}}),
+                json!({"type":"response","id":"legacy-response","ok":true,"payload":{"approved":true}}),
+                json!({"type":"approvalResponse","request_id":"legacy-approval","approved":true}),
+            ] {
+                ws.send(Message::text(frame.to_string()))
+                    .await
+                    .expect("legacy frame");
+                let error = receive(&mut ws).await;
+                assert_eq!(error["type"], "error", "{error}");
+                assert_eq!(error["code"], 400, "{error}");
+            }
+            assert!(
+                !home.path().join("config.toml").exists(),
+                "legacy frames must not mutate config"
+            );
+            ws.send(Message::text(r#"{"type":"ping"}"#))
+                .await
+                .expect("ping");
+            assert_eq!(receive(&mut ws).await["type"], "pong");
+            send(&mut ws, 1, "status", json!({})).await;
+            let status = receive(&mut ws).await;
+            assert_eq!(status["jsonrpc"], "2.0");
+            assert_eq!(status["id"], 1);
+            assert!(status.get("result").is_some(), "{status}");
+            for version in [json!("1.0"), Value::Null] {
+                let frame = json!({"jsonrpc":version,"id":2,"method":"config.patch","params":{"patch":{"rpc_only_test":true}}});
+                ws.send(Message::text(frame.to_string()))
+                    .await
+                    .expect("invalid version");
+                let error = receive(&mut ws).await;
+                assert_eq!(error["id"], 2);
+                assert_eq!(error["error"]["code"], -32600, "{error}");
+            }
+            send(
+                &mut ws,
+                3,
+                "config.patch",
+                json!({"patch":{"rpc_only_test":true}}),
+            )
+            .await;
+            let reply = receive(&mut ws).await;
+            assert_eq!(reply["id"], 3);
+            if token == "viewer" {
+                assert_eq!(reply["error"]["code"], -32001, "{reply}");
+                assert!(!home.path().join("config.toml").exists());
+            } else {
+                assert_eq!(reply["result"]["status"], "patched", "{reply}");
+                assert!(
+                    tokio::fs::read_to_string(home.path().join("config.toml"))
+                        .await
+                        .expect("updated config")
+                        .contains("rpc_only_test = true")
+                );
+            }
+            ws.close(None).await.expect("close");
+        }
+        shutdown.stop_graceful(Duration::from_secs(1));
+        tokio::time::timeout(Duration::from_secs(3), server_task)
+            .await
+            .expect("server shutdown timeout")
+            .expect("server task");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[cfg(unix)]
     async fn claude_approval_survives_reattach_and_rejects_other_credentials() {
@@ -719,16 +807,12 @@ mod terminal_ws_tests {
         ])));
         let sessions = Arc::new(GatewaySessionManager::new());
         let store = Arc::new(SessionStore::from_home(home.path()));
-        let (outgoing_tx, _outgoing_rx) = mpsc::channel(128);
         let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
             config: Arc::new(config),
             session_store: store.clone(),
             cli_overrides: vec![],
             cloud_requirements: Default::default(),
-            feedback: savfox_feedback::SavfoxFeedback::new(),
-            savfox_linux_sandbox_exe: None,
             websocket_manager: (*sessions).clone(),
-            outgoing_tx,
             channel_registry: crate::channels::create_channel_registry(),
             channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
             ),
@@ -1036,16 +1120,12 @@ mod terminal_ws_tests {
         let auth = Arc::new(GatewayAuth::single_token("terminal-test-token".to_owned()));
         let sessions = Arc::new(GatewaySessionManager::new());
         let store = Arc::new(SessionStore::from_home(home.path()));
-        let (outgoing_tx, _outgoing_rx) = mpsc::channel(128);
         let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
             config,
             session_store: Arc::clone(&store),
             cli_overrides: vec![],
             cloud_requirements: Default::default(),
-            feedback: savfox_feedback::SavfoxFeedback::new(),
-            savfox_linux_sandbox_exe: None,
             websocket_manager: (*sessions).clone(),
-            outgoing_tx,
             channel_registry: crate::channels::create_channel_registry(),
             channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
             ),

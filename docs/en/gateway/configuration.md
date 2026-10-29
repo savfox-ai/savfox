@@ -1,4 +1,4 @@
-﻿# Gateway Configuration Reference
+# Gateway Configuration Reference
 
 The Savfox gateway server is configured through a combination of CLI flags,
 the `[gateway]` section in `config.toml`, and environment variables for channel
@@ -302,7 +302,6 @@ The session store file is located at `{savfox_home}/sessions/sessions.json`.
 ## Local Claude terminal agent
 
 The experimental Rust `claude_stream` mode has separate model/settings configuration, explicit version gating, credential-bound approvals and durable session resume. See [Local Claude Code](claude-code.md) for configuration, permissions, cancellation, compatibility limits and migration from one-shot mode.
-
 
 ### Public webhook authentication
 

@@ -6,7 +6,6 @@ use salvo::test::TestClient;
 use savfox_core::config::ConfigBuilder;
 use serde_json::json;
 use sha2::Sha256;
-use tokio::sync::mpsc;
 
 use crate::auth::GatewayAuth;
 use crate::channel::{GatewayBridgeArgs, GatewayChannel};
@@ -45,16 +44,12 @@ async fn service(home: &std::path::Path, gateway: &GatewayConfig) -> Service {
         .unwrap();
     let sessions = Arc::new(GatewaySessionManager::new());
     let store = Arc::new(SessionStore::from_home(home));
-    let (outgoing_tx, _outgoing_rx) = mpsc::channel(32);
     let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
         config: Arc::new(config),
         session_store: store.clone(),
         cli_overrides: vec![],
         cloud_requirements: Default::default(),
-        feedback: savfox_feedback::SavfoxFeedback::new(),
-        savfox_linux_sandbox_exe: None,
         websocket_manager: (*sessions).clone(),
-        outgoing_tx,
         channel_registry: super::create_channel_registry(),
         channel_recovery_registry: super::recovery::create_channel_recovery_registry(),
         channel_recovery_supervisors: super::recovery::create_channel_recovery_supervisors(),

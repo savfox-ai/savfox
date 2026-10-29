@@ -32,17 +32,12 @@ pub async fn start_native_arkret_public_replies(
             .await?,
     );
     let private_sessions = Arc::new(SessionStore::from_home(&home));
-    let (outgoing_tx, _outgoing_rx) =
-        tokio::sync::mpsc::channel::<crate::channel::BridgeOutgoing>(128);
     let private_channel = Arc::new(GatewayChannel::new(crate::channel::GatewayBridgeArgs {
         config: Arc::clone(&config),
         session_store: Arc::clone(&private_sessions),
         cli_overrides: Vec::new(),
         cloud_requirements: savfox_core::config_loader::CloudRequirementsLoader::default(),
-        feedback: savfox_feedback::SavfoxFeedback::new(),
-        savfox_linux_sandbox_exe: None,
         websocket_manager: crate::session::GatewaySessionManager::new(),
-        outgoing_tx,
         channel_registry: crate::channels::create_channel_registry(),
         channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(),
         channel_recovery_supervisors:

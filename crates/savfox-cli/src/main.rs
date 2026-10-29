@@ -660,7 +660,7 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
             } else {
                 // Start the gateway server.
                 let gateway_config = gateway_cli.into_config();
-                savfox_gateway_server::run_main(gateway_config, savfox_linux_sandbox_exe).await?;
+                savfox_gateway_server::run_main(gateway_config).await?;
             }
         }
         Some(Subcommand::Acp(cmd)) => {

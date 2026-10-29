@@ -41,9 +41,7 @@ use std::sync::Arc;
 use savfox_common::service_runtime::env_filter_from_default;
 use savfox_core::config::{Config, ConfigBuilder};
 use savfox_core::config_loader::CloudRequirementsLoader;
-use savfox_feedback::SavfoxFeedback;
 use savfox_utils::home_dir::GATEWAY_SUBDIR;
-use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -116,7 +114,7 @@ pub use voice::{stt, talk_mode, voice_wake};
 pub(crate) use voice::{tts_deepgram, tts_edge, tts_service, voice_store};
 
 use crate::auth::GatewayAuth;
-use crate::channel::{BridgeOutgoing, GatewayBridgeArgs, GatewayChannel};
+use crate::channel::{GatewayBridgeArgs, GatewayChannel};
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
 use crate::session::{GatewaySessionManager, SessionStore};
@@ -125,10 +123,7 @@ use crate::session::{GatewaySessionManager, SessionStore};
 ///
 /// This mirrors the pattern from `savfox_app_server::run_main` but sets up
 /// an HTTP/WebSocket server instead of reading from stdin/stdout.
-pub async fn run_main(
-    gateway_config: GatewayConfig,
-    savfox_linux_sandbox_exe: Option<PathBuf>,
-) -> IoResult<()> {
+pub async fn run_main(gateway_config: GatewayConfig) -> IoResult<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     // Install tracing subscriber with a reloadable filter so the log level
@@ -180,7 +175,6 @@ pub async fn run_main(
     // Install effective operator limits before handlers or background tasks use them.
     server::init_global_rate_limiter(&gateway_config);
     let config = Arc::new(config);
-    let feedback = SavfoxFeedback::new();
 
     info!(savfox_home = %config.savfox_home.display(), "configuration loaded");
 
@@ -238,18 +232,12 @@ pub async fn run_main(
     let session_store = Arc::new(SessionStore::from_home(&config.savfox_home));
     info!("session store initialized");
 
-    // Create the channel outgoing channel.
-    let (outgoing_tx, _outgoing_rx) = mpsc::channel::<BridgeOutgoing>(128);
-
     let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
         config: Arc::clone(&config),
         session_store: Arc::clone(&session_store),
         cli_overrides: Vec::new(),
         cloud_requirements,
-        feedback,
-        savfox_linux_sandbox_exe,
         websocket_manager: (*session_mgr).clone(),
-        outgoing_tx,
         channel_registry: channel_registry.clone(),
         channel_recovery_registry,
         channel_recovery_supervisors,
