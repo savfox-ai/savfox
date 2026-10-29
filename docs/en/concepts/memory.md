@@ -1,4 +1,4 @@
-﻿# Memory System
+# Memory System
 
 Savfox uses a 4-layer Markdown memory system that provides persistent context across sessions. Memory entries are plain `.md` files with optional YAML frontmatter, making them easy to read and edit with any text editor.
 
@@ -141,3 +141,7 @@ pinned: true
 - Maximum line length: 100 characters
 EOF
 ```
+
+## Search result previews
+
+Vector-memory search snippets retain at most 700 bytes of complete UTF-8 characters before the ellipsis. Chinese text and emoji remain valid when a long result is shortened.
