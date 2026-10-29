@@ -64,6 +64,19 @@ curl -X POST http://localhost:18881/api/token/validate \
 | `/v1/responses` | POST | OpenResponses API |
 | `/tools/invoke` | POST | 工具调用端点 |
 
+### 聊天流式响应限制
+
+聊天补全流最多缓存 64 个数据帧，每帧不超过 16 KiB，另有两个独立终态帧。
+文本和推理增量按 UTF-8 字符边界分片；单次传入的增量超过 1 MiB 时会拒绝。
+客户端断开或耗尽输出缓存后，网关取消该请求的 core 调用，清理其审批注册并关闭
+本次调用专用的 core 会话，不会中断其它并发轮次。调用方的逻辑会话 ID 和持久化历史会保留。
+
+仍连接的客户端会收到 SSE `error` 对象，包含 `type: "stream_error"` 和具体错误码
+（例如 `slow_consumer`），随后收到 `[DONE]`。失败时不会返回表示成功的 `finish_reason: "stop"`。
+
+终端代理继续遵循其配置的进程和会话生命周期：HTTP 断开只停止响应投递，不会终止持久化
+托管终端。其输出使用相同的有界 SSE 缓存和明确失败终态。停止终端执行请使用终端或 WebSocket 控制接口。
+
 ## WebSocket JSON-RPC
 
 连接 WebSocket 端点进行实时双向通信：
