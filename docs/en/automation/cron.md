@@ -1,4 +1,4 @@
-﻿# Cron Service
+# Cron Service
 
 The gateway includes a built-in cron service for scheduling recurring tasks.
 
@@ -76,3 +76,7 @@ savfox gateway cron list
 savfox gateway cron create --name "daily" --schedule "0 9 * * *" --prompt "Good morning"
 savfox gateway cron delete <job-id>
 ```
+
+## Failure isolation and previews
+
+Payload panics are recorded as failed runs and use the normal error backoff. The scheduler releases the job's running marker and continues processing later jobs. Run previews retain at most 200 bytes of complete UTF-8 characters before the ellipsis, including Chinese text and emoji.

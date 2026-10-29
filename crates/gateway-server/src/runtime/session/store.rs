@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use savfox_core::rollout::list::read_session_meta_line;
 use savfox_protocol::SessionId;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{info, warn};
 
 // ─── Session Overrides ─────────────────────────────────────────────────────
@@ -560,6 +560,9 @@ struct StoreCache {
 pub struct SessionStore {
     config: SessionStoreConfig,
     cache: RwLock<Option<StoreCache>>,
+    /// Serializes refreshes, mutations and their durable writes. Readers can
+    /// still access the cache while a mutation is being persisted.
+    mutation: Mutex<()>,
 }
 
 impl SessionStore {
@@ -569,6 +572,7 @@ impl SessionStore {
         Self {
             config,
             cache: RwLock::new(None),
+            mutation: Mutex::new(()),
         }
     }
 
@@ -780,6 +784,11 @@ impl SessionStore {
             return;
         }
 
+        let _mutation = self.mutation.lock().await;
+        if self.is_cache_valid().await {
+            return;
+        }
+
         let entries = self.load_from_disk().await;
 
         let mut cache = self.cache.write().await;
@@ -844,7 +853,7 @@ impl SessionStore {
         let mut entry = SessionEntry::new();
         entry.session_id = session_id.to_owned();
         self.upsert(entry.clone()).await;
-        Some(entry)
+        self.get(session_id).await
     }
 
     /// Get or create a session entry for a routing id, generating a UUID v7 session_id.
@@ -855,17 +864,17 @@ impl SessionStore {
         let mut entry = SessionEntry::new();
         entry.routing_id = Some(routing_id.to_owned());
         self.upsert(entry.clone()).await;
-        entry
+        self.get(&entry.session_id).await.unwrap_or(entry)
     }
 
     /// Insert or update a session entry.
     ///
-    /// Uses optimistic locking: if the cache already holds a newer version
-    /// of the same session, the incoming entry is merged rather than
-    /// blindly overwriting it (the entry with the higher `version` wins for
-    /// conflicting fields, while additive counters like token usage are
-    /// always accumulated).
+    /// Rejects stale replacements, including equal-version competing writes.
+    /// Use [`Self::update`] for atomic field changes and additive counters;
+    /// replacing a previously read entry cannot merge concurrent changes.
     pub async fn upsert(&self, mut entry: SessionEntry) {
+        self.refresh_cache().await;
+        let _mutation = self.mutation.lock().await;
         entry.migrate_legacy_thread_namespaces();
         let key = entry.session_id.clone();
         entry.version += 1;
@@ -875,7 +884,7 @@ impl SessionStore {
             let mut cache = self.cache.write().await;
             if let Some(cache) = cache.as_mut() {
                 if let Some(existing) = cache.entries.get(&key)
-                    && existing.version > entry.version
+                    && existing.version >= entry.version
                 {
                     warn!(
                         session_id = %key,
@@ -901,6 +910,7 @@ impl SessionStore {
 
     /// Replace all entries atomically and persist to disk.
     pub async fn replace_all(&self, entries: HashMap<String, SessionEntry>) -> std::io::Result<()> {
+        let _mutation = self.mutation.lock().await;
         {
             let mut cache = self.cache.write().await;
             *cache = Some(StoreCache {
@@ -919,10 +929,15 @@ impl SessionStore {
         F: FnOnce(&mut SessionEntry),
     {
         self.refresh_cache().await;
-        let mut entry = self.get(session_id).await?;
-        f(&mut entry);
-        entry.touch();
-        self.upsert(entry.clone()).await;
+        let _mutation = self.mutation.lock().await;
+        let entry = {
+            let mut cache = self.cache.write().await;
+            let entry = cache.as_mut()?.entries.get_mut(session_id)?;
+            f(entry);
+            entry.touch();
+            entry.clone()
+        };
+        self.persist_cache().await;
         Some(entry)
     }
 
@@ -931,6 +946,8 @@ impl SessionStore {
         if !is_uuid_v7(session_id) {
             return false;
         }
+        self.refresh_cache().await;
+        let _mutation = self.mutation.lock().await;
         let (removed, session_file) = {
             let mut cache = self.cache.write().await;
             if let Some(cache) = cache.as_mut() {
@@ -995,6 +1012,7 @@ impl SessionStore {
     /// Prune stale entries and cap total count.
     pub async fn prune_report(&self) -> SessionPruneResult {
         self.refresh_cache().await;
+        let _mutation = self.mutation.lock().await;
 
         let (pruned, stale_keys, removed_session_ids) = {
             let mut cache = self.cache.write().await;
@@ -1124,11 +1142,74 @@ pub struct SessionPruneResult {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use tempfile::tempdir;
 
     use super::{SessionEntry, SessionStore};
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_updates_preserve_counters_and_persist_latest_state() {
+        let home = tempdir().expect("tempdir");
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let entry = store
+            .get_or_create_for_routing_id("concurrent-updates")
+            .await;
+        let active = Arc::new(AtomicUsize::new(0));
+        let start = Arc::new(tokio::sync::Barrier::new(33));
+        let mut updates = tokio::task::JoinSet::new();
+        for _ in 0..32 {
+            let store = Arc::clone(&store);
+            let active = Arc::clone(&active);
+            let start = Arc::clone(&start);
+            let id = entry.session_id.clone();
+            updates.spawn(async move {
+                start.wait().await;
+                store
+                    .update(&id, |entry| {
+                        assert_eq!(active.fetch_add(1, Ordering::SeqCst), 0);
+                        // Widen the window in which the old clone/modify/upsert
+                        // implementation ran competing closures concurrently.
+                        std::thread::sleep(Duration::from_millis(2));
+                        entry.add_tokens(2, 3);
+                        active.fetch_sub(1, Ordering::SeqCst);
+                    })
+                    .await
+                    .expect("updated entry");
+            });
+        }
+        start.wait().await;
+        while let Some(result) = updates.join_next().await {
+            result.expect("update task");
+        }
+        let current = store.get(&entry.session_id).await.expect("cached entry");
+        assert_eq!(current.input_tokens, 64);
+        assert_eq!(current.output_tokens, 96);
+        assert_eq!(current.total_tokens, 160);
+        let reloaded = SessionStore::from_home(home.path());
+        let durable = reloaded
+            .get(&entry.session_id)
+            .await
+            .expect("durable entry");
+        assert_eq!(durable.version, current.version);
+        assert_eq!(durable.total_tokens, current.total_tokens);
+    }
+
+    #[tokio::test]
+    async fn equal_version_replacement_does_not_overwrite_a_competing_update() {
+        let home = tempdir().expect("tempdir");
+        let store = SessionStore::from_home(home.path());
+        let mut first = store.get_or_create_for_routing_id("stale-writes").await;
+        let mut stale = first.clone();
+        first.label = Some("first".to_owned());
+        stale.label = Some("stale".to_owned());
+        store.upsert(first).await;
+        store.upsert(stale.clone()).await;
+        let stored = store.get(&stale.session_id).await.expect("stored entry");
+        assert_eq!(stored.label.as_deref(), Some("first"));
+    }
 
     #[tokio::test]
     async fn persists_routing_ids_across_store_reloads() {

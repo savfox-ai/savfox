@@ -40,17 +40,25 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          predicate-quantifier: some-with-excludes
           filters: |
             rust:
               - 'crates/**'
               - '.config/nextest.toml'
+              - '.github/workflows/ci.yml'
               - 'Cargo.toml'
               - 'Cargo.lock'
             workspace:
               - '.config/nextest.toml'
+              - '.github/workflows/ci.yml'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/actions/ui-sources/**'
+              # Crates outside the targeted domains must run their own tests,
+              # including newly added crates. Building them as dependencies is
+              # not sufficient: Cargo does not run dependency unit tests.
+              - 'crates/**'
+              - '!crates/{core,config,model,http-client,api-client,common,protocol,app-server,app-server-protocol,mcp-server,tui,ansi-escape,gateway-server,gateway-shared,channels,gateway-glory}/**'
             core:
               - 'crates/core/**'
               - 'crates/config/**'
