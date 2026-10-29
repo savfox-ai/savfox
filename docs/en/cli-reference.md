@@ -183,6 +183,10 @@ savfox features disable <F>  # disable a feature
 
 Manage gateway-side configuration via WS-RPC.
 
+`savfox config get gateway.port` reads a dot-separated path inside the persisted
+configuration. `savfox config validate` validates that configuration document;
+gateway version and connection metadata are excluded from validation.
+
 ```bash
 savfox config validate
 savfox config export --format yaml --output config.yaml

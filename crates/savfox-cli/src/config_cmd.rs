@@ -91,7 +91,7 @@ pub async fn run(cmd: ConfigCommand) -> Result<(), Box<dyn std::error::Error>> {
 
             if let Some(key_path) = path {
                 // Navigate into the result by dot-separated path.
-                let extracted = extract_path(&result, &key_path);
+                let extracted = extract_path(config_document(&result)?, &key_path);
                 ws_rpc_client::print_json(&extracted);
             } else {
                 ws_rpc_client::print_json(&result);
@@ -116,9 +116,14 @@ pub async fn run(cmd: ConfigCommand) -> Result<(), Box<dyn std::error::Error>> {
                 .await
                 .map_err(|e| format!("config.get failed: {e}"))?;
 
-            let result = ws_rpc_client::rpc_call(gateway_url, token, "config.validate", config)
-                .await
-                .map_err(|e| format!("config.validate failed: {e}"))?;
+            let result = ws_rpc_client::rpc_call(
+                gateway_url,
+                token,
+                "config.validate",
+                config_document(&config)?.clone(),
+            )
+            .await
+            .map_err(|e| format!("config.validate failed: {e}"))?;
             ws_rpc_client::print_json(&result);
         }
 
@@ -198,6 +203,14 @@ pub async fn run(cmd: ConfigCommand) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Extract the persisted document from the gateway response envelope.
+fn config_document(response: &serde_json::Value) -> Result<&serde_json::Value, &'static str> {
+    response
+        .get("config")
+        .filter(|value| value.is_object())
+        .ok_or("config.get result missing configuration object")
+}
+
 /// Parse a string value as JSON; if that fails, treat it as a plain string.
 fn parse_value(s: &str) -> serde_json::Value {
     serde_json::from_str(s).unwrap_or_else(|_| json!(s))
@@ -224,4 +237,77 @@ fn extract_path(value: &serde_json::Value, path: &str) -> serde_json::Value {
         }
     }
     current.clone()
+}
+
+#[cfg(test)]
+mod response_tests {
+    use futures_util::{SinkExt, StreamExt};
+    use pretty_assertions::assert_eq;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn configuration_paths_are_relative_to_the_document() {
+        let response = json!({"version":"test", "config":{"gateway":{"port":18881}}});
+        assert_eq!(
+            super::extract_path(
+                super::config_document(&response).expect("extract the config response document"),
+                "gateway.port",
+            ),
+            json!(18881)
+        );
+        assert!(super::config_document(&json!({"version":"test"})).is_err());
+        assert!(super::config_document(&json!({"config":null})).is_err());
+    }
+
+    #[tokio::test]
+    async fn validation_sends_the_configuration_without_response_metadata() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the mock config gateway");
+        let address = listener
+            .local_addr()
+            .expect("read the mock gateway address");
+        let server = tokio::spawn(async move {
+            for method in ["config.get", "config.validate"] {
+                let (stream, _) = listener.accept().await.expect("accept the CLI connection");
+                let mut socket = tokio_tungstenite::accept_async(stream)
+                    .await
+                    .expect("complete the mock WebSocket handshake");
+                let frame = socket
+                    .next()
+                    .await
+                    .expect("receive a config request frame")
+                    .expect("read the config request frame");
+                let request: Value = serde_json::from_str(
+                    frame
+                        .to_text()
+                        .expect("config request must be a text frame"),
+                )
+                .expect("decode the config JSON-RPC request");
+                assert_eq!(request["method"], method);
+                let result = if method == "config.get" {
+                    json!({"version":"test", "config":{"gateway":{"port":0}}})
+                } else {
+                    assert_eq!(request["params"], json!({"gateway":{"port":0}}));
+                    json!({"valid":false,"errors":[{"field":"gateway.port"}]})
+                };
+                socket
+                    .send(tokio_tungstenite::tungstenite::Message::Text(
+                        json!({"jsonrpc":"2.0", "id":request["id"], "result":result})
+                            .to_string()
+                            .into(),
+                    ))
+                    .await
+                    .expect("send the config gateway response");
+            }
+        });
+        super::run(super::ConfigCommand {
+            action: super::ConfigAction::Validate,
+            gateway_url: format!("http://{address}"),
+            token: "test-token".into(),
+        })
+        .await
+        .expect("validate the configuration through the gateway");
+        server.await.expect("join the mock config gateway");
+    }
 }
