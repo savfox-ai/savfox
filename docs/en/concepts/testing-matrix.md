@@ -26,7 +26,7 @@ Use `just test` when:
 CI now has these validation layers:
 - `fmt`: nightly rustfmt, always run.
 - `test-targeted`: Ubuntu targeted domain checks driven by path filters.
-- `test`: Ubuntu full workspace nextest plus doctests for workspace-wide changes, manual runs, and scheduled runs.
+- `test`: Ubuntu full workspace nextest plus doctests for workspace-wide changes, CI workflow changes, crates outside the targeted domains, manual runs, and scheduled runs. New crates fall back to this layer until explicitly assigned to a targeted domain.
 - `test-cross-platform`: Windows and macOS full workspace nextest, manual or scheduled only.
 
 Regular PRs do not run the full Windows/macOS matrix unless the workflow is manually dispatched.
