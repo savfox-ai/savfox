@@ -46,6 +46,17 @@ Regular PRs do not run the full Windows/macOS matrix unless the workflow is manu
 
 Pick the smallest slice that fully covers the changed behavior. If the change crosses a shared boundary, run more than one slice.
 
+## RPC latency baseline
+
+Run `bash scripts/bench-rpc.sh` against its isolated local gateway. It measures
+200 sequential `status` round trips after 10 warm-up requests, without invoking a
+model. Set `SAVFOX_RPC_BENCH_SAMPLES` to change the positive sample count.
+The JSON report includes throughput and p50/p95/p99/max latency and is saved to
+`$SAVFOX_HOME/rpc-benchmark.json` (or `.e2e-savfox-home/rpc-benchmark.json`), unless
+`SAVFOX_RPC_BENCH_OUTPUT` selects another existing directory. Missing setup,
+missing benchmark tests and zero samples fail the run. Use the same build profile
+and machine when comparing reports; this is a latency baseline, not a load test.
+
 ## Review expectation
 
 PRs should list the chosen test slice, even when the contributor intentionally skips execution and leaves follow-up validation to CI.
