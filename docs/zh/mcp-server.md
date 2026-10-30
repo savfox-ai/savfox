@@ -14,6 +14,8 @@ savfox mcp-server
 
 这会启动一个通过 stdio 使用 JSON-RPC 2.0 通信的 MCP 服务器。服务器从 stdin 读取请求，将响应写入 stdout。
 
+Savfox 作为 MCP 服务器或连接外部 MCP 服务器时，继续使用 `initialize` 和 `notifications/initialized` 初始化流程。升级 MCP SDK 不会启用 2026 年的免握手协议或 `server/discover`；SDK 默认请求该协议时，会限制为仍支持初始化流程的最新版本。
+
 ## 配置 MCP 客户端
 
 要在 MCP 客户端中使用 Savfox 作为工具，需要将其添加到客户端的 MCP 服务器配置中。

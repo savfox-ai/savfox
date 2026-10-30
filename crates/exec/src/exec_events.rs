@@ -256,7 +256,7 @@ pub struct CollabToolCallItem {
 /// Result payload produced by an MCP tool invocation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct McpToolCallItemResult {
-    // NOTE: `rmcp::model::Content` (and its `RawContent` variants) would be a
+    // NOTE: `rmcp::model::ContentBlock` would be a
     // more precise Rust representation of MCP content blocks. We intentionally
     // use `serde_json::Value` here because this crate exports JSON schema + TS
     // types (`schemars`/`ts-rs`), and the rmcp model types aren't set up to be

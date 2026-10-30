@@ -236,10 +236,10 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             })
             .unwrap_or_default()
     });
-    let channel_cards = each(
-        channel_rows,
-        |(id, value)| format!("{id}-{}", record_key(value)),
-        move |entry, _| {
+    let channel_cards = each(channel_rows)
+        .key(|(id, value)| format!("{id}-{}", record_key(value)))
+        .children(move |each_row| {
+            let entry = each_row.value;
             let (id, value) = entry.get_untracked();
             let label = string(&value, &["channel_name", "name", "platform"]);
             let name = if label.is_empty() { id } else { label };
@@ -266,30 +266,32 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                     })
                     .content(""),
             ))
-        },
-    );
+        });
     let listed_models = model_data.map(|value| {
         array(value, &["models"])
             .into_iter()
             .take(6)
             .collect::<Vec<_>>()
     });
-    let model_rows = each(listed_models, record_key, move |model, _| {
-        let model = model.get_untracked();
-        row().class("ov-model-row").fill((
-            col().class("ov-model-name").fill((
+    let model_rows = each(listed_models)
+        .key(record_key)
+        .children(move |each_row| {
+            let model = each_row.value;
+            let model = model.get_untracked();
+            row().class("ov-model-row").fill((
+                col().class("ov-model-name").fill((
+                    text()
+                        .class("ov-model-id")
+                        .content(string(&model, &["name", "model_slug", "id"])),
+                    text()
+                        .class("ov-model-provider-badge")
+                        .content(string(&model, &["provider_name", "provider"])),
+                )),
                 text()
-                    .class("ov-model-id")
-                    .content(string(&model, &["name", "model_slug", "id"])),
-                text()
-                    .class("ov-model-provider-badge")
-                    .content(string(&model, &["provider_name", "provider"])),
-            )),
-            text()
-                .class("status-ok")
-                .content(ui::label_for(locale, "Available")),
-        ))
-    });
+                    .class("status-ok")
+                    .content(ui::label_for(locale, "Available")),
+            ))
+        });
     let refresh_resources = [
         gateway.clone(),
         channels.clone(),
@@ -361,7 +363,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
 fn hero_stat(
     locale: Cage<crate::i18n::Locale>,
     label: &str,
-    value: impl Into<Lotus<String>>,
+    value: impl Into<Vary<String>>,
 ) -> Box<dyn Widget> {
     Box::new(
         col().class("ov-hero__stat").fill((
@@ -375,7 +377,7 @@ fn hero_stat(
 fn stat(
     locale: Cage<crate::i18n::Locale>,
     label: &str,
-    value: impl Into<Lotus<String>>,
+    value: impl Into<Vary<String>>,
 ) -> Box<dyn Widget> {
     Box::new(
         col().class("stat-card").fill((

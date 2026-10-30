@@ -485,6 +485,7 @@ pub async fn load_arkret_applet_configs(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use savfox_core::config::channel_store::ChannelConfig;
     use serde_json::json;

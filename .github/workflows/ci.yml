@@ -114,7 +114,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - uses: Swatinem/rust-cache@v2
@@ -164,7 +164,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
   # ─── Tests ─────────────────────────────────────────────────────────
   test:
@@ -179,7 +179,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2.85.3
+      - uses: taiki-e/install-action@v2.88.0
         with:
           tool: cargo-nextest
       - uses: facebook/install-dotslash@v2
@@ -218,7 +218,7 @@ jobs:
         with:
           cache-on-failure: true
           key: ${{ matrix.os }}
-      - uses: taiki-e/install-action@v2.85.3
+      - uses: taiki-e/install-action@v2.88.0
         with:
           tool: cargo-nextest
       - uses: facebook/install-dotslash@v2
@@ -246,7 +246,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2.85.3
+      - uses: taiki-e/install-action@v2.88.0
         with:
           tool: cargo-nextest
       - uses: actions/download-artifact@v8
@@ -295,6 +295,9 @@ jobs:
       - name: Gateway and channel matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --no-fail-fast --profile ci -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
+      - name: Gateway and channel optional feature tests
+        if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        run: cargo nextest run --locked --no-fail-fast --profile ci -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels --all-features
       - name: Web native unit tests
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --no-fail-fast --profile ci -p savfox-gateway-glory
@@ -362,14 +365,14 @@ jobs:
         run: cargo install cargo-audit --locked
       - name: Run advisory audit
         run: |
-          # The ignored libcrux-kem advisories apply only to hpke-rs's unused
-          # optional backend. Fail if any feature or target starts using it.
+          # OpenMLS uses the RustCrypto KEM backend. Keep hpke-rs's optional
+          # libcrux-kem backend inactive across every feature and target.
           tree=$(cargo tree --workspace --all-features --target all --edges normal,build,dev -i libcrux-kem)
           if [ -n "$tree" ]; then
-            echo "::error::libcrux-kem is active; remove its audit exceptions and upgrade the HPKE backend"
+            echo "::error::libcrux-kem became active; review the HPKE backend and its advisories"
             exit 1
           fi
-          cargo audit
+          cargo audit --deny warnings
 
   # ─── License compliance report ────────────────────────────────────
   licenses:
@@ -437,7 +440,7 @@ jobs:
         run: node scripts/verify-web-bundle.cjs
       - name: Install browser acceptance runtime
         run: |
-          npm install --prefix "$RUNNER_TEMP/savfox-web-check" --no-package-lock --ignore-scripts playwright@1.60.0
+          npm install --prefix "$RUNNER_TEMP/savfox-web-check" --no-package-lock --ignore-scripts playwright@1.64.1
           node "$RUNNER_TEMP/savfox-web-check/node_modules/playwright/cli.js" install --with-deps chromium
       - name: Browser workflow acceptance
         env:

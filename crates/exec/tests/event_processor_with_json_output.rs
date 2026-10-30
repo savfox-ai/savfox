@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use pretty_assertions::assert_eq;
-use rmcp::model::Content;
+use rmcp::model::ContentBlock as Content;
 use savfox_core::protocol::{
     AgentMessageEvent, AgentReasoningEvent, AgentStatus, AskForApproval,
     CollabAgentSpawnBeginEvent, CollabAgentSpawnEndEvent, CollabWaitingEndEvent, ErrorEvent, Event,

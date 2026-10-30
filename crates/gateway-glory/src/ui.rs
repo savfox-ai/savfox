@@ -8,10 +8,10 @@ use crate::api::ws::WsRpc;
 use crate::i18n::{self, Locale};
 mod page_strings;
 
-pub fn label(ctx: &AppContext, source: impl Into<String>) -> Lotus<String> {
+pub fn label(ctx: &AppContext, source: impl Into<String>) -> Vary<String> {
     label_for(ctx.locale, source)
 }
-pub fn label_for(locale: Cage<Locale>, source: impl Into<String>) -> Lotus<String> {
+pub fn label_for(locale: Cage<Locale>, source: impl Into<String>) -> Vary<String> {
     let source = source.into();
     locale
         .map(move |locale| page_strings::translate(*locale, &source))
@@ -103,8 +103,8 @@ pub fn set<T: 'static>(cage: Cage<T>, value: T) {
 }
 
 pub fn page(
-    title: impl Into<Lotus<String>>,
-    description: impl Into<Lotus<String>>,
+    title: impl Into<Vary<String>>,
+    description: impl Into<Vary<String>>,
     children: Vec<Box<dyn Widget>>,
 ) -> Box<dyn Widget> {
     Box::new(
@@ -149,11 +149,11 @@ pub fn localized_page(
 }
 
 pub fn field(
-    label: impl Into<Lotus<String>>,
+    label: impl Into<Vary<String>>,
     value: Cage<String>,
     multiline: bool,
 ) -> Box<dyn Widget> {
-    let label: Lotus<String> = label.into();
+    let label: Vary<String> = label.into();
     Box::new(
         col()
             .class(value.map(|value| {
@@ -178,10 +178,7 @@ pub fn field(
     )
 }
 
-pub fn action(
-    label: impl Into<Lotus<String>>,
-    callback: impl FnMut() + 'static,
-) -> Box<dyn Widget> {
+pub fn action(label: impl Into<Vary<String>>, callback: impl FnMut() + 'static) -> Box<dyn Widget> {
     Box::new(
         sapid::button()
             .unstyled()
@@ -213,7 +210,7 @@ pub fn json_text(ctx: &AppContext, value: Cage<Value>) -> Box<dyn Widget> {
 /// A mounted panel preserves the controls' state across disclosure changes.
 pub fn details(
     key: &str,
-    label: impl Into<Lotus<String>>,
+    label: impl Into<Vary<String>>,
     content: Box<dyn Widget>,
 ) -> Box<dyn Widget> {
     let mut content = Some(content);

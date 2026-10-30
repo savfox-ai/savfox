@@ -510,35 +510,36 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     let mut children = vec![
         status(ctx, &config),
         status(ctx, &schema),
-        Box::new(each(
-            sections,
-            |(key, ..)| key.clone(),
-            move |item, _| {
-                let (_, key, _, root_schema) = item.get_untracked();
-                let schema = root_schema["properties"][&key].clone();
-                let current = draft
-                    .get_untracked()
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let object = schema_primary_type(&schema).as_deref() == Some("object")
-                    || current.is_object();
-                let body = field(
-                    &context,
-                    draft,
-                    vec![key.clone()],
-                    &schema,
-                    &root_schema,
-                    field_error,
-                    0,
-                );
-                if object {
-                    body
-                } else {
-                    card(ui::label(&context, key), vec![body])
-                }
-            },
-        )),
+        Box::new(
+            each(sections)
+                .key(|(key, ..)| key.clone())
+                .children(move |each_row| {
+                    let item = each_row.value;
+                    let (_, key, _, root_schema) = item.get_untracked();
+                    let schema = root_schema["properties"][&key].clone();
+                    let current = draft
+                        .get_untracked()
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    let object = schema_primary_type(&schema).as_deref() == Some("object")
+                        || current.is_object();
+                    let body = field(
+                        &context,
+                        draft,
+                        vec![key.clone()],
+                        &schema,
+                        &root_schema,
+                        field_error,
+                        0,
+                    );
+                    if object {
+                        body
+                    } else {
+                        card(ui::label(&context, key), vec![body])
+                    }
+                }),
+        ),
     ];
     children.push(ui::details(
         "config-review",
@@ -714,10 +715,10 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         )),
         col().class("config-nav").fill((
             all,
-            each(
-                section_names,
-                |name| name.clone(),
-                move |name, _| {
+            each(section_names)
+                .key(|name| name.clone())
+                .children(move |each_row| {
+                    let name = each_row.value;
                     let key = name.get_untracked();
                     let read = key.clone();
                     let label = key.replace('_', " ");
@@ -735,8 +736,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                             ui::set(section, Some(key.clone()));
                             crate::utils::deep_link::replace_url(&format!("/config/{key}"));
                         })
-                },
-            ),
+                }),
         )),
     ));
     Box::new(

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParam, CallToolResult, ClientNotification, ClientRequest, ErrorCode, ErrorData,
+    CallToolRequestParams, CallToolResult, ClientNotification, ClientRequest, ErrorCode, ErrorData,
     Implementation, InitializeResult, JsonRpcError, JsonRpcNotification, JsonRpcRequest,
     JsonRpcResponse, RequestId, ServerCapabilities,
 };
@@ -169,6 +169,7 @@ impl MessageProcessor {
             ClientNotification::CustomNotification(_) => {
                 tracing::warn!("ignoring custom client notification");
             }
+            _ => tracing::warn!("ignoring unsupported client notification"),
         }
     }
 
@@ -179,9 +180,13 @@ impl MessageProcessor {
     async fn handle_initialize(
         &mut self,
         id: RequestId,
-        params: rmcp::model::InitializeRequestParam,
+        mut params: rmcp::model::InitializeRequestParams,
     ) {
         tracing::info!("initialize -> params: {:?}", params);
+
+        if !params.protocol_version.has_initialize() {
+            params.protocol_version = rmcp::model::ProtocolVersion::LATEST_WITH_INITIALIZE;
+        }
 
         if self.initialized {
             self.outgoing
@@ -289,7 +294,7 @@ impl MessageProcessor {
     async fn handle_list_tools(
         &self,
         id: RequestId,
-        params: Option<rmcp::model::PaginatedRequestParam>,
+        params: Option<rmcp::model::PaginatedRequestParams>,
     ) {
         tracing::trace!("tools/list -> {params:?}");
         let result = rmcp::model::ListToolsResult {
@@ -299,14 +304,15 @@ impl MessageProcessor {
                 create_tool_for_savfox_tool_call_reply_param(),
             ],
             next_cursor: None,
+            ..Default::default()
         };
 
         self.outgoing.send_response(id, result).await;
     }
 
-    async fn handle_call_tool(&self, id: RequestId, params: CallToolRequestParam) {
+    async fn handle_call_tool(&self, id: RequestId, params: CallToolRequestParams) {
         tracing::info!("tools/call -> params: {:?}", params);
-        let CallToolRequestParam {
+        let CallToolRequestParams {
             name, arguments, ..
         } = params;
 
@@ -317,7 +323,7 @@ impl MessageProcessor {
                     .await
             }
             _ => {
-                let result = CallToolResult::error(vec![rmcp::model::Content::text(format!(
+                let result = CallToolResult::error(vec![rmcp::model::ContentBlock::text(format!(
                     "Unknown tool '{name}'"
                 ))]);
                 self.outgoing.send_response(id, result).await;
@@ -339,7 +345,7 @@ impl MessageProcessor {
                 {
                     Ok(cfg) => cfg,
                     Err(e) => {
-                        let result = CallToolResult::error(vec![rmcp::model::Content::text(
+                        let result = CallToolResult::error(vec![rmcp::model::ContentBlock::text(
                             format!("Failed to load Savfox configuration from overrides: {e}"),
                         )]);
                         self.outgoing.send_response(id, result).await;
@@ -347,15 +353,15 @@ impl MessageProcessor {
                     }
                 },
                 Err(e) => {
-                    let result = CallToolResult::error(vec![rmcp::model::Content::text(format!(
-                        "Failed to parse configuration for Savfox tool: {e}"
-                    ))]);
+                    let result = CallToolResult::error(vec![rmcp::model::ContentBlock::text(
+                        format!("Failed to parse configuration for Savfox tool: {e}"),
+                    )]);
                     self.outgoing.send_response(id, result).await;
                     return;
                 }
             }
         } else {
-            let result = CallToolResult::error(vec![rmcp::model::Content::text(
+            let result = CallToolResult::error(vec![rmcp::model::ContentBlock::text(
                 "Missing arguments for savfox tool-call; the `prompt` field is required.",
             )]);
             self.outgoing.send_response(id, result).await;
@@ -399,9 +405,9 @@ impl MessageProcessor {
                 Ok(params) => params,
                 Err(e) => {
                     tracing::error!("Failed to parse Savfox tool call reply parameters: {e}");
-                    let result = CallToolResult::error(vec![rmcp::model::Content::text(format!(
-                        "Failed to parse configuration for Savfox tool: {e}"
-                    ))]);
+                    let result = CallToolResult::error(vec![rmcp::model::ContentBlock::text(
+                        format!("Failed to parse configuration for Savfox tool: {e}"),
+                    )]);
                     self.outgoing.send_response(request_id, result).await;
                     return;
                 }
@@ -410,7 +416,7 @@ impl MessageProcessor {
             tracing::error!(
                 "Missing arguments for savfox-reply tool-call; the `session_id` and `prompt` fields are required."
             );
-            let result = CallToolResult::error(vec![rmcp::model::Content::text(
+            let result = CallToolResult::error(vec![rmcp::model::ContentBlock::text(
                 "Missing arguments for savfox-reply tool-call; the `session_id` and `prompt` fields are required.",
             )]);
             self.outgoing.send_response(request_id, result).await;
@@ -421,7 +427,7 @@ impl MessageProcessor {
             Ok(id) => id,
             Err(e) => {
                 tracing::error!("Failed to parse session_id: {e}");
-                let result = CallToolResult::error(vec![rmcp::model::Content::text(format!(
+                let result = CallToolResult::error(vec![rmcp::model::ContentBlock::text(format!(
                     "Failed to parse session_id: {e}"
                 ))]);
                 self.outgoing.send_response(request_id, result).await;
@@ -471,7 +477,12 @@ impl MessageProcessor {
     // ---------------------------------------------------------------------
 
     async fn handle_cancelled_notification(&self, params: rmcp::model::CancelledNotificationParam) {
-        let request_id = params.request_id;
+        let Some(request_id) = params.request_id else {
+            // The SDK permits cancellation without an id. This server tracks
+            // legacy requests by id and cannot cancel an unidentified request.
+            tracing::debug!("Ignoring MCP cancellation without a request id");
+            return;
+        };
         // Create a stable string form early for logging and submission id.
         let request_id_string = request_id.to_string();
 

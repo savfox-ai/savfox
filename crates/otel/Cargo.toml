@@ -38,7 +38,7 @@ opentelemetry-otlp = { workspace = true, features = [
     "trace",
     "reqwest-blocking-client",
     "reqwest-rustls",
-    "tls",
+    "tls-ring",
     "tls-roots",
 ]}
 opentelemetry-semantic-conventions = { workspace = true }

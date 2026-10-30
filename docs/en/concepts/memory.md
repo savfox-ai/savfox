@@ -153,3 +153,7 @@ Memory and session files are tracked by source, path, and content hash. Unchange
 ## Vector search resource use
 
 Exact vector search streams IDs and embeddings through a blocking worker, keeping only the best k candidates in a bounded heap. It fetches full content only for selected results in the same database snapshot. Scores remain descending, with equal scores in insertion order; undefined scores rank last. A zero result limit performs no scan. Search still evaluates every stored vector, so CPU cost remains linear in index size and vector dimensions; retained candidates use O(k) memory plus the bounded database row buffer.
+
+## QMD document round trips
+
+The `.qmd` store recognizes YAML frontmatter only between complete `---` lines, with LF or CRLF line endings. The closing delimiter may end at EOF. Loading a document or updating only its metadata preserves the body's whitespace, line endings, and Markdown dividers without accumulating blank lines. A document without an opening delimiter is preserved as plain content; `---word` is not a delimiter. An opening delimiter without a complete closing line is reported as missing frontmatter.

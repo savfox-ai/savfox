@@ -68,15 +68,16 @@ pub async fn start_native_arkret_public_replies(
             let channels = tokio::select! {
                 biased;
                 _ = &mut stop_rx => break,
-                result = async { tick.tick().await; load_arkret_channel_configs(&receiver.home).await } => match result {
-                Ok(value) => value,
-                Err(_) => {
-                    // Invalid/unbound material revokes every previous child;
-                    // retaining an old consumer would ignore an explicit unbind.
-                    accounts.abort_and_wait().await;
-                    continue;
+                result = async { tick.tick().await; load_arkret_channel_configs(&receiver.home).await } => {
+                    if let Ok(value) = result {
+                        value
+                    } else {
+                        // Invalid/unbound material revokes every previous child;
+                        // retaining an old consumer would ignore an explicit unbind.
+                        accounts.abort_and_wait().await;
+                        continue;
+                    }
                 }
-            }
             };
             if stop_rx.try_recv().is_ok() {
                 break;
@@ -522,7 +523,9 @@ impl NativeReceiver {
             NativeReplyPreparation::StartedUnknown => return Ok(()),
             NativeReplyPreparation::Accepted { .. }
             | NativeReplyPreparation::SuppressedBeforeBootstrap => return Ok(()),
-            NativeReplyPreparation::OutputRetained { text, submission } => (text, submission),
+            NativeReplyPreparation::OutputRetained { text, submission } => {
+                (text, submission.map(|submission| *submission))
+            }
             NativeReplyPreparation::Ready => {
                 let defaults = savfox_core::default_client::native_reply_default_headers()?;
                 let http=savfox_core::default_client::try_build_native_reply_reqwest_client_with_headers(defaults.clone())?;
@@ -839,7 +842,7 @@ pub(crate) async fn native_save_onboarding(
             &crypto.load()?,
             store.cursor_scopes()?,
             account,
-            &service,
+            service.as_ref(),
         )?;
         if scopes.is_empty() {
             continue;

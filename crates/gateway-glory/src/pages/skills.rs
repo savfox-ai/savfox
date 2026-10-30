@@ -120,10 +120,9 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             .map(|(i, value)| (format!("{i}-{}", record_key(&value)), value))
             .collect::<Vec<_>>()
     });
-    children.push(Box::new(each(
-        items,
-        |(key, _)| key.clone(),
-        move |item, _| {
+    children.push(Box::new(each(items).key(|(key, _)| key.clone()).children(
+        move |each_row| {
+            let item = each_row.value;
             let skill = item.get_untracked().1;
             let name = string(&skill, &["name"]);
             let enabled = skill["enabled"].as_bool().unwrap_or(true);

@@ -106,7 +106,6 @@ impl ArkretRealmCryptoPolicy {
         self.content_encryption_floor == ArkretContentEncryptionFloor::E2eeRequired
     }
 
-    #[must_use]
     pub fn group_id_for_realm(&self) -> anyhow::Result<String> {
         let scope = ScopeRef::Realm {
             realm_id: RealmId::new(self.realm_id.clone())?,
@@ -191,8 +190,8 @@ pub struct ArkretMlsWelcomeConsumeBinding {
     /// The SDK refuses to export a group state record until every occupied
     /// leaf is bound ("MLS member attribution is unavailable until accepted
     /// transition bindings are installed"), and a staged Welcome replayed
-    /// later - by the Commit recovery path or by the first inbound ciphertext
-    /// - has no other way to recover that authority. Re-installing these
+    /// later (by the Commit recovery path or by the first inbound ciphertext)
+    /// has no other way to recover that authority. Re-installing these
     /// re-validates each entry against the actual RFC 9420 leaf, so the
     /// record is a cache of an authority decision, never a substitute for one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -420,7 +419,7 @@ fn crypto_scope_lock(scope_id: &str) -> Arc<ReentrantMutex<()>> {
 // existing ReentrantMutex excludes other threads in this process.
 thread_local! {
     static CRYPTO_OS_LOCKS: std::cell::RefCell<BTreeMap<PathBuf, (std::fs::File, usize)>> =
-        std::cell::RefCell::new(BTreeMap::new());
+        const { std::cell::RefCell::new(BTreeMap::new()) };
 }
 struct CryptoMutationGuard<'a> {
     _process: parking_lot::ReentrantMutexGuard<'a, ()>,
@@ -708,7 +707,7 @@ impl FileArkretCryptoStore {
             let mut digest = sha2::Sha256::new();
             digest.update(b"savfox-arkret-unit-test-wrapping-key");
             digest.update(self.scope_id.as_bytes());
-            return Ok(digest.finalize().into());
+            Ok(digest.finalize().into())
         }
         #[cfg(not(test))]
         {
@@ -743,11 +742,12 @@ impl FileArkretCryptoStore {
     fn encrypt_wrapped_state(&self, plaintext: &[u8]) -> anyhow::Result<WrappedCryptoStateFile> {
         let mut key = self.wrapping_key()?;
         let nonce_bytes = rand::random::<[u8; 24]>();
+        let nonce = XNonce::from(nonce_bytes);
         let cipher = XChaCha20Poly1305::new_from_slice(&key)
             .map_err(|_| anyhow::anyhow!("initialize Arkret crypto-state wrapper"))?;
         let ciphertext = cipher
             .encrypt(
-                XNonce::from_slice(&nonce_bytes),
+                &nonce,
                 Payload {
                     msg: plaintext,
                     aad: &self.wrapping_aad(),
@@ -772,7 +772,8 @@ impl FileArkretCryptoStore {
         let nonce = URL_SAFE_NO_PAD
             .decode(&wrapped.nonce)
             .context("decode Arkret crypto-state nonce")?;
-        anyhow::ensure!(nonce.len() == 24, "invalid Arkret crypto-state nonce");
+        let nonce = XNonce::try_from(nonce.as_slice())
+            .map_err(|_| anyhow::anyhow!("invalid Arkret crypto-state nonce"))?;
         let ciphertext = URL_SAFE_NO_PAD
             .decode(&wrapped.ciphertext)
             .context("decode Arkret crypto-state ciphertext")?;
@@ -781,7 +782,7 @@ impl FileArkretCryptoStore {
             .map_err(|_| anyhow::anyhow!("initialize Arkret crypto-state wrapper"))?;
         let plaintext = cipher
             .decrypt(
-                XNonce::from_slice(&nonce),
+                &nonce,
                 Payload {
                     msg: &ciphertext,
                     aad: &self.wrapping_aad(),
@@ -2881,8 +2882,8 @@ fn new_mls_identity(
 #[cfg(test)]
 fn test_account(principal_id: &str) -> AccountId {
     AccountId::new(
-        DidCoreId::new(principal_id.to_owned()).unwrap(),
-        DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+        DidCoreId::new(principal_id.to_owned()).expect("valid fixture principal"),
+        DidCoreId::new("ak:did_core:web:station.example").expect("valid fixture station"),
     )
 }
 
@@ -3150,6 +3151,7 @@ fn safe_file_stem(scope_id: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use std::sync::LazyLock;
 
@@ -3176,6 +3178,12 @@ mod tests {
     static FIXTURE_EVENT_9: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x59));
     static FIXTURE_EVENT_13: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x5d));
     static FIXTURE_EVENT_14: LazyLock<EventId> = LazyLock::new(|| fixture_event_id(0x5e));
+
+    #[test]
+    fn wrapping_cipher_retains_key_zeroization_on_drop() {
+        fn assert_zeroizes_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        assert_zeroizes_on_drop::<XChaCha20Poly1305>();
+    }
 
     #[test]
     fn crypto_state_is_wrapped_at_rest_and_rejects_stale_generation() {
@@ -3445,7 +3453,7 @@ mod tests {
                 .unwrap(),
             Some(bound.commit().event_ref.clone())
         );
-        let mut wrong_commit = bound.clone();
+        let mut wrong_commit = bound;
         match &mut wrong_commit.view {
             arkret::CommittedEventView::Full(full) => {
                 full.commit.event_ref = FIXTURE_EVENT_13.clone()
@@ -3514,7 +3522,7 @@ mod tests {
         };
         let entry = CurrentState::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding {
-                pair_key: payload.pair_key.clone(),
+                pair_key: payload.pair_key,
             },
             source_stream_ref: arkret::CommitStreamRef::Realm {
                 realm_id: FIXTURE_REALM_B.clone(),
@@ -3530,7 +3538,7 @@ mod tests {
                 .record_verified_direct_conversation_current_entries(
                     &FIXTURE_REALM_B,
                     &actor,
-                    &[entry.clone()]
+                    std::slice::from_ref(&entry)
                 )
                 .unwrap(),
             1
@@ -3560,7 +3568,7 @@ mod tests {
             .record_verified_direct_conversation_current_entries(
                 &FIXTURE_REALM_B,
                 &actor,
-                &[entry.clone()],
+                std::slice::from_ref(&entry),
             )
             .unwrap();
         assert_eq!(store.load().unwrap().generation, generation);
@@ -3603,7 +3611,7 @@ mod tests {
                 .record_verified_direct_conversation_current_entries(
                     &FIXTURE_REALM,
                     &actor,
-                    &[entry.clone()]
+                    std::slice::from_ref(&entry)
                 )
                 .is_err()
         );
@@ -3613,7 +3621,7 @@ mod tests {
                 .record_verified_direct_conversation_current_entries(
                     &FIXTURE_REALM_B,
                     &outsider,
-                    &[entry.clone()]
+                    std::slice::from_ref(&entry)
                 )
                 .is_err()
         );
@@ -3838,7 +3846,7 @@ mod tests {
             .ensure_agent_mls_key_package(
                 &test_account(principal),
                 &key_ref,
-                &verification_method,
+                verification_method,
                 authorized_event_ref,
             )
             .unwrap();
@@ -3860,7 +3868,7 @@ mod tests {
             .ensure_agent_mls_key_package(
                 &test_account(principal),
                 &rotated_key_ref,
-                &verification_method,
+                verification_method,
                 authorized_event_ref,
             )
             .unwrap();
@@ -4064,7 +4072,7 @@ mod tests {
         let group_id = effective_scope.canonical_mls_group_id().unwrap();
         EncryptedPayload {
             scheme: EncryptedPayloadScheme::MlsRfc9420,
-            group_id: group_id.clone(),
+            group_id,
             epoch: 3,
             content_type: "application/vnd.arkret.content+json".to_owned(),
             ciphertext: "abc".to_owned(),
@@ -4520,7 +4528,7 @@ mod tests {
                 actor_id: alice_actor.clone(),
                 leaf_signature_key_base64url: creator_leaf.signature_key,
                 endpoint: MlsWelcomeRecipientEndpoint::Device {
-                    device_id: alice_device.clone(),
+                    device_id: alice_device,
                 },
                 authorization_event_ref: FIXTURE_EVENT_9.clone(),
             },
@@ -4635,7 +4643,7 @@ mod tests {
                 verification_method: bob_method,
             },
             keypackage_claim_ref: add.welcome.keypackage_claim_ref.clone(),
-            ciphertext_base64url: add.welcome.ciphertext_base64url.clone(),
+            ciphertext_base64url: add.welcome.ciphertext_base64url,
             producer_proof: signature(DetachedSignatureContext::MlsWelcomeDelivery),
         };
         let mut bob_group =
@@ -4805,7 +4813,7 @@ mod tests {
         let next_base = arkret::MlsGroupValue {
             effective_scope: scope.clone(),
             genesis_event_ref: FIXTURE_EVENT_1.clone(),
-            cipher_suite: base.cipher_suite.clone(),
+            cipher_suite: base.cipher_suite,
             current_mls_commit_event_ref: historical_predecessor.event.event_id.clone(),
             epoch: base_epoch,
             current_key_access_revision: 0,
@@ -4839,11 +4847,11 @@ mod tests {
         let next_add = bob_group
             .add_member_with_governance_binding(&charlie_package, &next_binding)
             .unwrap();
-        let mut next_accepted = accepted.clone();
+        let mut next_accepted = accepted;
         next_accepted.event.event_id = FIXTURE_EVENT_14.clone();
         next_accepted.event.actor_id = ActorId::account(arkret::AccountId::new(
             DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
-            station.clone(),
+            station,
         ));
         next_accepted.event.payload = serde_json::from_value(
             serde_json::to_value(
@@ -4934,7 +4942,7 @@ mod tests {
         };
         next_attestation.authorization_event_ref = FIXTURE_EVENT_13.clone();
         next_attestation.claim_receipt.claim_request_id =
-            Base64UrlString::new(arkret::base64url_encode(&rand::random::<[u8; 16]>())).unwrap();
+            Base64UrlString::new(arkret::base64url_encode(rand::random::<[u8; 16]>())).unwrap();
         next_attestation.claim_receipt.request.claim_request_id =
             next_attestation.claim_receipt.claim_request_id.clone();
         next_attestation.claim_receipt.request.target_agent_id =
@@ -5068,8 +5076,8 @@ mod tests {
                         )
                         .unwrap();
                         let mut value = serde_json::to_value(&payload).unwrap();
-                        value["governance_binding"]["key_access_revision"] = serde_json::json!(1);
-                        value["covers_key_access_revision"] = serde_json::json!(1);
+                        value["governance_binding"]["key_access_revision"] = serde_json::json!("1");
+                        value["covers_key_access_revision"] = serde_json::json!("1");
                         let payload: MlsCommitPayload = serde_json::from_value(value).unwrap();
                         payload.validate().unwrap();
                         predecessor.event.payload =
@@ -5179,9 +5187,14 @@ mod tests {
             let installed_state = serde_json::to_value(durable.load().unwrap()).unwrap();
             let mut wrong_gce = next_accepted.clone();
             let mut payload = serde_json::to_value(&wrong_gce.event.payload).unwrap();
-            payload["governance_binding"]["key_access_revision"] = serde_json::json!(1);
-            payload["covers_key_access_revision"] = serde_json::json!(1);
-            wrong_gce.event.payload = serde_json::from_value(payload).unwrap();
+            payload["governance_binding"]["key_access_revision"] = serde_json::json!("1");
+            payload["covers_key_access_revision"] = serde_json::json!("1");
+            // Keep this a valid wire payload so rejection exercises the
+            // authenticated GroupContext rather than decimal-string parsing.
+            let payload: MlsCommitPayload = serde_json::from_value(payload).unwrap();
+            payload.validate().unwrap();
+            wrong_gce.event.payload =
+                serde_json::from_value(serde_json::to_value(payload).unwrap()).unwrap();
             assert!(
                 durable
                     .install_historical_mls_commit_with_roster(
@@ -5429,7 +5442,7 @@ mod tests {
                 verification_method: bob_method,
             },
             keypackage_claim_ref: add.welcome.keypackage_claim_ref.clone(),
-            ciphertext_base64url: add.welcome.ciphertext_base64url.clone(),
+            ciphertext_base64url: add.welcome.ciphertext_base64url,
             producer_proof: signature(DetachedSignatureContext::MlsWelcomeDelivery),
         };
         let mut bob_group =
@@ -5525,7 +5538,7 @@ mod tests {
                     .is_err()
             );
         }
-        let mut altered = ciphertext.clone();
+        let mut altered = ciphertext;
         altered.pre_encryption_header.content_type = MessageMetadata::MLS_CONTENT_TYPE.to_owned();
         altered.content_type = MessageMetadata::MLS_CONTENT_TYPE.to_owned();
         altered.payload_digest = EncryptedPayload::payload_digest_for_header(
@@ -5609,7 +5622,7 @@ mod tests {
                 mls_group_id: alice_group.group_id(),
                 target_commit_event_ref: FIXTURE_EVENT_6.clone(),
                 target_epoch: 2,
-                caller_actor_id: delivery.recipient_actor_id.clone(),
+                caller_actor_id: delivery.recipient_actor_id,
                 cursor: None,
             },
             pages: Vec::new(),
@@ -5768,7 +5781,7 @@ mod tests {
                     "realm": {
                         "content_encryption_floor": "e2ee_required",
                         "encryption_profile": "mls",
-                        "mls_group_id": canonical_group_id.clone()
+                        "mls_group_id": canonical_group_id
                     }
                 }
             }
@@ -6159,7 +6172,7 @@ mod tests {
         let mut wrong_principal = claim.clone();
         wrong_principal.principal_id = DidCoreId::new("ak:did_core:web:other.example").unwrap();
         assert!(mls_key_package_record_from_claim(&wrong_principal).is_err());
-        let mut invalid_keypackage = claim.clone();
+        let mut invalid_keypackage = claim;
         invalid_keypackage.keypackage = "AQ".to_owned();
         assert!(mls_key_package_record_from_claim(&invalid_keypackage).is_err());
 
@@ -6260,6 +6273,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod native_crypto_process_tests {
     use super::*;
     const CHILD: &str =

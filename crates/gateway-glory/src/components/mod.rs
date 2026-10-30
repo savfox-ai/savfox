@@ -154,7 +154,7 @@ fn command_palette(ctx: &AppContext, open: Cage<bool>) -> Box<dyn Widget> {
     let locale = ctx.locale;
     let locales = ctx.scope.bond(move || vec![locale.get().code().to_owned()]);
     let context = ctx.clone();
-    Box::new(each(locales, Clone::clone, move |_, _| {
+    Box::new(each(locales).key(Clone::clone).children(move |_| {
         let context = context.clone();
         widget(move |scope| command_palette_content(&context.with_scope(scope), open).build(scope))
     }))

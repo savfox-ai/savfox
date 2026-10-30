@@ -18,7 +18,7 @@ use opentelemetry_otlp::{
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::logs::SdkLoggerProvider;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_sdk::trace::{BatchSpanProcessor, SdkTracerProvider, Tracer};
+use opentelemetry_sdk::trace::{BatchSpanProcessor, SdkTracer, SdkTracerProvider};
 use opentelemetry_semantic_conventions as semconv;
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, warn};
@@ -39,7 +39,7 @@ thread_local! {
 pub struct OtelProvider {
     pub logger: Option<SdkLoggerProvider>,
     pub tracer_provider: Option<SdkTracerProvider>,
-    pub tracer: Option<Tracer>,
+    pub tracer: Option<SdkTracer>,
     pub metrics: Option<MetricsClient>,
 }
 

@@ -1,5 +1,5 @@
 use std::collections::{HashSet, VecDeque};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -122,6 +122,8 @@ impl LayerMtime {
 #[derive(Clone)]
 pub struct NetworkProxyState {
     state: Arc<RwLock<ConfigState>>,
+    #[cfg(test)]
+    dns_answers: Option<Arc<std::collections::HashMap<String, Vec<IpAddr>>>>,
 }
 
 impl std::fmt::Debug for NetworkProxyState {
@@ -132,12 +134,49 @@ impl std::fmt::Debug for NetworkProxyState {
     }
 }
 
+impl rama_core::extensions::Extension for NetworkProxyState {}
+
 impl NetworkProxyState {
     pub async fn new() -> Result<Self> {
         let cfg_state = build_config_state().await?;
         Ok(Self {
             state: Arc::new(RwLock::new(cfg_state)),
+            #[cfg(test)]
+            dns_answers: None,
         })
+    }
+
+    /// Replace only the DNS transport in tests; the actual public-IP check,
+    /// allow/deny matching and checked-address propagation still run normally.
+    #[cfg(test)]
+    pub(crate) fn with_dns_answers(mut self, answers: &[(&str, &[&str])]) -> Self {
+        self.dns_answers = Some(Arc::new(
+            answers
+                .iter()
+                .map(|(host, ips)| {
+                    (
+                        (*host).to_owned(),
+                        ips.iter()
+                            .map(|ip| ip.parse().expect("valid fixture IP"))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        ));
+        self
+    }
+
+    async fn resolve_addresses(&self, host: &str, port: u16) -> Option<Vec<SocketAddr>> {
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            return Some(vec![SocketAddr::new(ip, port)]);
+        }
+        #[cfg(test)]
+        if let Some(answers) = &self.dns_answers {
+            return answers
+                .get(host)
+                .map(|ips| ips.iter().map(|ip| SocketAddr::new(*ip, port)).collect());
+        }
+        resolve_addresses(host, port).await
     }
 
     pub async fn current_cfg(&self) -> Result<NetworkProxyConfig> {
@@ -190,10 +229,25 @@ impl NetworkProxyState {
     }
 
     pub async fn host_blocked(&self, host: &str, port: u16) -> Result<HostBlockDecision> {
+        self.host_blocked_with_addresses(host, port)
+            .await
+            .map(|(decision, _)| decision)
+    }
+
+    pub(crate) async fn host_blocked_with_addresses(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> Result<(HostBlockDecision, Option<Vec<SocketAddr>>)> {
         self.reload_if_needed().await?;
         let host = match Host::parse(host) {
             Ok(host) => host,
-            Err(_) => return Ok(HostBlockDecision::Blocked(HostBlockReason::NotAllowed)),
+            Err(_) => {
+                return Ok((
+                    HostBlockDecision::Blocked(HostBlockReason::NotAllowed),
+                    None,
+                ));
+            }
         };
         let (deny_set, allow_set, allow_local_binding, allowed_domains_empty, allowed_domains) = {
             let guard = self.state.read().await;
@@ -213,16 +267,17 @@ impl NetworkProxyState {
         //  2) local/private networking is opt-in (defense-in-depth)
         //  3) allowlist is enforced when configured
         if deny_set.is_match(host_str) {
-            return Ok(HostBlockDecision::Blocked(HostBlockReason::Denied));
+            return Ok((HostBlockDecision::Blocked(HostBlockReason::Denied), None));
         }
 
         let is_allowlisted = allow_set.is_match(host_str);
+        let mut resolved_addresses = None;
         if !allow_local_binding {
             // If the intent is "prevent access to local/internal networks", we must not rely solely
             // on string checks like `localhost` / `127.0.0.1`. Attackers can use DNS rebinding or
             // public suffix services that map hostnames onto private IPs.
             //
-            // We therefore do a best-effort DNS + IP classification check before allowing the
+            // We therefore resolve DNS and classify every returned IP before allowing the
             // request. Explicit local/loopback literals are allowed only when explicitly
             // allowlisted; hostnames that resolve to local/private IPs are blocked even if
             // allowlisted.
@@ -242,17 +297,37 @@ impl NetworkProxyState {
 
             if local_literal {
                 if !is_explicit_local_allowlisted(&allowed_domains, &host) {
-                    return Ok(HostBlockDecision::Blocked(HostBlockReason::NotAllowedLocal));
+                    return Ok((
+                        HostBlockDecision::Blocked(HostBlockReason::NotAllowedLocal),
+                        None,
+                    ));
                 }
-            } else if host_resolves_to_non_public_ip(host_str, port).await {
-                return Ok(HostBlockDecision::Blocked(HostBlockReason::NotAllowedLocal));
+            } else {
+                resolved_addresses =
+                    self.resolve_addresses(host_str, port)
+                        .await
+                        .filter(|addresses| {
+                            !addresses.is_empty()
+                                && addresses
+                                    .iter()
+                                    .all(|address| !is_non_public_ip(address.ip()))
+                        });
+                if resolved_addresses.is_none() {
+                    return Ok((
+                        HostBlockDecision::Blocked(HostBlockReason::NotAllowedLocal),
+                        None,
+                    ));
+                }
             }
         }
 
         if allowed_domains_empty || !is_allowlisted {
-            Ok(HostBlockDecision::Blocked(HostBlockReason::NotAllowed))
+            Ok((
+                HostBlockDecision::Blocked(HostBlockReason::NotAllowed),
+                resolved_addresses,
+            ))
         } else {
-            Ok(HostBlockDecision::Allowed)
+            Ok((HostBlockDecision::Allowed, resolved_addresses))
         }
     }
 
@@ -384,36 +459,26 @@ pub(crate) fn unix_socket_permissions_supported() -> bool {
     cfg!(target_os = "macos")
 }
 
-async fn host_resolves_to_non_public_ip(host: &str, port: u16) -> bool {
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return is_non_public_ip(ip);
-    }
-
-    // Block the request if this DNS lookup fails. We resolve the hostname again when we connect,
-    // so a failed check here does not prove the destination is public.
+async fn resolve_addresses(host: &str, port: u16) -> Option<Vec<SocketAddr>> {
+    // Fail closed on lookup failure and retain the exact checked addresses.
+    // Connectors must use these candidates rather than resolving the name again.
     let addrs = match timeout(DNS_LOOKUP_TIMEOUT, lookup_host((host, port))).await {
         Ok(Ok(addrs)) => addrs,
         Ok(Err(err)) => {
             debug!(
                 "blocking host because DNS lookup failed during local/private IP check (host={host}, port={port}): {err}"
             );
-            return true;
+            return None;
         }
         Err(_) => {
             debug!(
                 "blocking host because DNS lookup timed out during local/private IP check (host={host}, port={port})"
             );
-            return true;
+            return None;
         }
     };
 
-    for addr in addrs {
-        if is_non_public_ip(addr.ip()) {
-            return true;
-        }
-    }
-
-    false
+    Some(addrs.collect())
 }
 
 fn log_policy_changes(previous: &NetworkProxyConfig, next: &NetworkProxyConfig) {
@@ -513,6 +578,7 @@ pub(crate) fn network_proxy_state_for_policy(
 
     NetworkProxyState {
         state: Arc::new(RwLock::new(state)),
+        dns_answers: None,
     }
 }
 
@@ -544,7 +610,8 @@ mod tests {
         let state = network_proxy_state_for_policy(NetworkPolicy {
             allowed_domains: vec!["example.com".to_owned()],
             ..NetworkPolicy::default()
-        });
+        })
+        .with_dns_answers(&[("example.com", &["8.8.8.8"])]);
 
         assert_eq!(
             state.host_blocked("example.com", 80).await.unwrap(),
@@ -563,7 +630,11 @@ mod tests {
         let state = network_proxy_state_for_policy(NetworkPolicy {
             allowed_domains: vec!["*.openai.com".to_owned()],
             ..NetworkPolicy::default()
-        });
+        })
+        .with_dns_answers(&[
+            ("api.openai.com", &["8.8.8.8"]),
+            ("openai.com", &["8.8.4.4"]),
+        ]);
 
         assert_eq!(
             state.host_blocked("api.openai.com", 80).await.unwrap(),
@@ -572,6 +643,62 @@ mod tests {
         assert_eq!(
             state.host_blocked("openai.com", 80).await.unwrap(),
             HostBlockDecision::Blocked(HostBlockReason::NotAllowed)
+        );
+    }
+
+    #[tokio::test]
+    async fn dns_answers_are_checked_and_retained_even_for_allowlisted_domains() {
+        let policy = NetworkPolicy {
+            allowed_domains: vec!["checked.example".to_owned()],
+            ..NetworkPolicy::default()
+        };
+        let state = network_proxy_state_for_policy(policy.clone())
+            .with_dns_answers(&[("checked.example", &["8.8.8.8", "1.1.1.1"])]);
+        assert_eq!(
+            state
+                .host_blocked_with_addresses("checked.example", 8443)
+                .await
+                .unwrap(),
+            (
+                HostBlockDecision::Allowed,
+                Some(vec![
+                    "8.8.8.8:8443".parse().unwrap(),
+                    "1.1.1.1:8443".parse().unwrap(),
+                ])
+            )
+        );
+
+        for addresses in [
+            vec![],
+            vec!["127.0.0.1"],
+            vec!["8.8.8.8", "10.0.0.1"],
+            vec!["1.1.1.1", "::1"],
+        ] {
+            let state = network_proxy_state_for_policy(policy.clone())
+                .with_dns_answers(&[("checked.example", &addresses)]);
+            assert_eq!(
+                state
+                    .host_blocked_with_addresses("checked.example", 8443)
+                    .await
+                    .unwrap(),
+                (
+                    HostBlockDecision::Blocked(HostBlockReason::NotAllowedLocal),
+                    None
+                ),
+                "empty answers or even one non-public candidate must fail closed"
+            );
+        }
+
+        let failed_lookup = network_proxy_state_for_policy(policy).with_dns_answers(&[]);
+        assert_eq!(
+            failed_lookup
+                .host_blocked_with_addresses("checked.example", 8443)
+                .await
+                .unwrap(),
+            (
+                HostBlockDecision::Blocked(HostBlockReason::NotAllowedLocal),
+                None
+            )
         );
     }
 

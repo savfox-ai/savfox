@@ -536,7 +536,7 @@ INSERT INTO session_dynamic_tools (
     }
 }
 
-fn push_log_filters<'a>(builder: &mut QueryBuilder<'a, Sqlite>, query: &'a LogQuery) {
+fn push_log_filters(builder: &mut QueryBuilder<Sqlite>, query: &LogQuery) {
     if let Some(level_upper) = query.level_upper.as_ref() {
         builder
             .push(" AND UPPER(level) = ")
@@ -574,11 +574,7 @@ fn push_log_filters<'a>(builder: &mut QueryBuilder<'a, Sqlite>, query: &'a LogQu
     }
 }
 
-fn push_like_filters<'a>(
-    builder: &mut QueryBuilder<'a, Sqlite>,
-    column: &str,
-    filters: &'a [String],
-) {
+fn push_like_filters(builder: &mut QueryBuilder<Sqlite>, column: &str, filters: &[String]) {
     if filters.is_empty() {
         return;
     }
@@ -622,11 +618,11 @@ async fn open_sqlite(path: &Path) -> anyhow::Result<SqlitePool> {
     Ok(pool)
 }
 
-fn push_session_filters<'a>(
-    builder: &mut QueryBuilder<'a, Sqlite>,
+fn push_session_filters(
+    builder: &mut QueryBuilder<Sqlite>,
     archived_only: bool,
-    allowed_sources: &'a [String],
-    model_providers: Option<&'a [String]>,
+    allowed_sources: &[String],
+    model_providers: Option<&[String]>,
     anchor: Option<&crate::Anchor>,
     sort_key: SortKey,
 ) {
@@ -676,7 +672,7 @@ fn push_session_filters<'a>(
 }
 
 fn push_session_order_and_limit(
-    builder: &mut QueryBuilder<'_, Sqlite>,
+    builder: &mut QueryBuilder<Sqlite>,
     sort_key: SortKey,
     limit: usize,
 ) {
@@ -689,4 +685,79 @@ fn push_session_order_and_limit(
     builder.push(" DESC, id DESC");
     builder.push(" LIMIT ");
     builder.push_bind(limit as i64);
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn sqlite_migrations_and_bound_log_filters_survive_reopening() {
+        let home = tempfile::tempdir().expect("temporary state home");
+        let state = StateRuntime::init(home.path().to_path_buf(), "openai".to_owned(), None)
+            .await
+            .expect("initialize and migrate database");
+        let literal_filter = "module' OR 1=1 --";
+        let literal_session = "session' OR 1=1 --";
+        let matching = LogEntry {
+            ts: 10,
+            ts_nanos: 20,
+            level: "warn".to_owned(),
+            target: "upgrade-test".to_owned(),
+            message: Some("完整日志 'quoted'".to_owned()),
+            session_id: Some(literal_session.to_owned()),
+            module_path: Some(literal_filter.to_owned()),
+            file: Some("bound.rs".to_owned()),
+            line: Some(7),
+        };
+        let mut other = matching.clone();
+        other.module_path = Some("other".to_owned());
+        other.session_id = Some("other".to_owned());
+        let mut sessionless = matching.clone();
+        sessionless.session_id = None;
+        state
+            .insert_logs(&[matching, other, sessionless])
+            .await
+            .expect("insert batch");
+        let filter = LogQuery {
+            level_upper: Some("WARN".to_owned()),
+            from_ts: Some(10),
+            to_ts: Some(30),
+            module_like: vec![literal_filter.to_owned()],
+            file_like: vec!["bound".to_owned()],
+            session_ids: vec![literal_session.to_owned()],
+            limit: Some(5),
+            ..Default::default()
+        };
+        let rows = state.query_logs(&filter).await.expect("query bound values");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].message.as_deref(), Some("完整日志 'quoted'"));
+        assert_eq!(
+            state.max_log_id(&filter).await.expect("max matching id"),
+            rows[0].id
+        );
+        state.pool.close().await;
+        drop(state);
+
+        let reopened = StateRuntime::init(home.path().to_path_buf(), "openai".to_owned(), None)
+            .await
+            .expect("reopen migrated database");
+        let rows = reopened
+            .query_logs(&filter)
+            .await
+            .expect("query persisted values");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].session_id.as_deref(), Some(literal_session));
+        assert_eq!(
+            reopened
+                .query_logs(&LogQuery::default())
+                .await
+                .expect("all rows")
+                .len(),
+            3
+        );
+        reopened.pool.close().await;
+    }
 }

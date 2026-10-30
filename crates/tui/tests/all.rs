@@ -1,6 +1,7 @@
 // Single integration test binary that aggregates all test modules.
 // The submodules live in `tests/suite/`.
 #[cfg(feature = "vt100-tests")]
+#[path = "common/test_backend.rs"]
 mod test_backend;
 
 #[allow(unused_imports)]

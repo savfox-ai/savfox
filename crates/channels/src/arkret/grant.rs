@@ -325,8 +325,7 @@ mod tests {
             arkret::signatures::SignEventOptions::new(),
         )
         .expect("signed grant");
-        let event = serde_json::to_value(authored.event()).expect("grant Event value");
-        event
+        serde_json::to_value(authored.event()).expect("grant Event value")
     }
 
     #[tokio::test]

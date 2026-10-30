@@ -100,7 +100,7 @@ pub fn refresh(ctx: &AppContext, state: &Query) -> Box<dyn Widget> {
             .on_press(move || state.refresh()),
     )
 }
-pub fn card(title: impl Into<Lotus<String>>, children: Vec<Box<dyn Widget>>) -> Box<dyn Widget> {
+pub fn card(title: impl Into<Vary<String>>, children: Vec<Box<dyn Widget>>) -> Box<dyn Widget> {
     Box::new(
         col().class("card").fill((
             text()
@@ -111,10 +111,10 @@ pub fn card(title: impl Into<Lotus<String>>, children: Vec<Box<dyn Widget>>) -> 
         )),
     )
 }
-pub fn paragraph(value: impl Into<Lotus<String>>) -> Box<dyn Widget> {
+pub fn paragraph(value: impl Into<Vary<String>>) -> Box<dyn Widget> {
     Box::new(text().content(value.into()))
 }
-pub fn toggle(label: impl Into<Lotus<String>>, value: Cage<bool>) -> Box<dyn Widget> {
+pub fn toggle(label: impl Into<Vary<String>>, value: Cage<bool>) -> Box<dyn Widget> {
     Box::new(
         sapid::checkbox()
             .class("form-checkbox")
@@ -193,23 +193,26 @@ pub fn select_source(
     ctx: &AppContext,
     label: &str,
     value: Cage<String>,
-    options: impl Into<Lotus<Vec<(String, String)>>>,
+    options: impl Into<Vary<Vec<(String, String)>>>,
 ) -> Box<dyn Widget> {
     let source = options.into();
     let label = label.to_owned();
     let locale = ctx.locale;
     let rows = ctx.scope.bond(move || vec![source.get()]);
-    Box::new(each(
-        rows,
-        |options| {
-            options
-                .iter()
-                .map(|(key, label)| format!("{key}:{label}"))
-                .collect::<Vec<_>>()
-                .join("|")
-        },
-        move |options, _| select_for(locale, &label, value, options.get_untracked()),
-    ))
+    Box::new(
+        each(rows)
+            .key(|options| {
+                options
+                    .iter()
+                    .map(|(key, label)| format!("{key}:{label}"))
+                    .collect::<Vec<_>>()
+                    .join("|")
+            })
+            .children(move |each_row| {
+                let options = each_row.value;
+                select_for(locale, &label, value, options.get_untracked())
+            }),
+    )
 }
 
 pub fn select_for(
@@ -220,35 +223,36 @@ pub fn select_for(
 ) -> Box<dyn Widget> {
     let label = label.to_owned();
     let options = std::rc::Rc::new(options);
-    Box::new(each(
-        locale.map(|locale| vec![*locale]),
-        |locale| locale.code().to_owned(),
-        move |current, _| {
-            let label = label.clone();
-            let options = options.clone();
-            widget(move |scope| {
-                let locale = current.get_untracked();
-                let mut options = options
-                    .iter()
-                    .map(|(key, label)| (key.clone(), ui::translate(locale, label)))
-                    .collect::<Vec<_>>();
-                let saved = value.get_untracked();
-                if !options.iter().any(|(key, _)| *key == saved) {
-                    options.push((
-                        saved.clone(),
-                        if saved.is_empty() {
-                            ui::translate(locale, "Unspecified")
-                        } else {
-                            saved
-                        },
-                    ));
-                }
-                let mut control = select(&ui::translate(locale, &label), value, options);
-                control.build(scope)?;
-                scope.retain(control)
-            })
-        },
-    ))
+    Box::new(
+        each(locale.map(|locale| vec![*locale]))
+            .key(|locale| locale.code().to_owned())
+            .children(move |each_row| {
+                let current = each_row.value;
+                let label = label.clone();
+                let options = options.clone();
+                widget(move |scope| {
+                    let locale = current.get_untracked();
+                    let mut options = options
+                        .iter()
+                        .map(|(key, label)| (key.clone(), ui::translate(locale, label)))
+                        .collect::<Vec<_>>();
+                    let saved = value.get_untracked();
+                    if !options.iter().any(|(key, _)| *key == saved) {
+                        options.push((
+                            saved.clone(),
+                            if saved.is_empty() {
+                                ui::translate(locale, "Unspecified")
+                            } else {
+                                saved
+                            },
+                        ));
+                    }
+                    let mut control = select(&ui::translate(locale, &label), value, options);
+                    control.build(scope)?;
+                    scope.retain(control)
+                })
+            }),
+    )
 }
 pub fn choice_for(
     locale: Cage<crate::i18n::Locale>,
@@ -267,7 +271,7 @@ pub fn choice_for(
     )
 }
 
-pub fn secret(label: impl Into<Lotus<String>>, value: Cage<String>) -> Box<dyn Widget> {
+pub fn secret(label: impl Into<Vary<String>>, value: Cage<String>) -> Box<dyn Widget> {
     Box::new(
         sapid::password_input()
             .unstyled()
@@ -317,28 +321,29 @@ pub fn records(
     let context = ctx.clone();
     let render = std::rc::Rc::new(render);
     let empty_locale = ctx.locale;
-    Box::new(col().class("record-list").fill((
-        text().class("empty-state").content(ctx.scope.bond(move || {
-            if items.get().is_empty() {
-                ui::translate(empty_locale.get(), "No entries")
-            } else {
-                String::new()
-            }
-        })),
-        each(
-            items,
-            |(key, _)| key.clone(),
-            move |item, _| {
-                let context = context.clone();
-                let render = render.clone();
-                widget(move |scope| {
-                    let mut content = render(item.get_untracked().1, context.with_scope(scope));
-                    content.build(scope)?;
-                    scope.retain(content)
-                })
-            },
-        ),
-    )))
+    Box::new(
+        col().class("record-list").fill((
+            text().class("empty-state").content(ctx.scope.bond(move || {
+                if items.get().is_empty() {
+                    ui::translate(empty_locale.get(), "No entries")
+                } else {
+                    String::new()
+                }
+            })),
+            each(items)
+                .key(|(key, _)| key.clone())
+                .children(move |each_row| {
+                    let item = each_row.value;
+                    let context = context.clone();
+                    let render = render.clone();
+                    widget(move |scope| {
+                        let mut content = render(item.get_untracked().1, context.with_scope(scope));
+                        content.build(scope)?;
+                        scope.retain(content)
+                    })
+                }),
+        )),
+    )
 }
 pub fn metadata(value: &Value, fields: &[(&str, &str)]) -> Box<dyn Widget> {
     let rows = fields
@@ -414,6 +419,88 @@ pub fn record_key(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn snapshot_app() -> (App, glory::ssr::Renderer) {
+        let mut output = None;
+        let app = App::new(|runtime| {
+            let renderer = glory::ssr::Renderer::new(runtime);
+            output = Some(renderer.clone());
+            renderer
+        });
+        (app, output.expect("created SSR renderer"))
+    }
+
+    #[test]
+    fn records_refresh_same_id_reorder_and_remove_without_stale_rows() {
+        let (app, output) = snapshot_app();
+        let context = AppContext::new(app.scope());
+        let state = Query {
+            value: context.scope.cage(serde_json::json!({"items": [
+                {"id": "one", "name": "first version"},
+                {"id": "two", "name": "second record"}
+            ]})),
+            error: context.scope.cage(String::new()),
+            busy: context.scope.cage(false),
+            revision: context.scope.cage(0),
+        };
+        app.mount(records(&context, &state, &["items"], |value, _| {
+            paragraph(value["name"].as_str().unwrap().to_owned())
+        }))
+        .unwrap();
+        assert!(output.snapshot().unwrap().contains("first version"));
+
+        ui::set(
+            state.value,
+            serde_json::json!({"items": [
+                {"id": "two", "name": "second record"},
+                {"id": "one", "name": "updated version"}
+            ]}),
+        );
+        app.flush().unwrap();
+        let html = output.snapshot().unwrap();
+        assert!(!html.contains("first version"));
+        assert_eq!(html.matches("updated version").count(), 1);
+        assert!(html.find("second record").unwrap() < html.find("updated version").unwrap());
+
+        ui::set(state.value, serde_json::json!({"items": []}));
+        ui::set(context.locale, crate::i18n::Locale::ZhCn);
+        app.flush().unwrap();
+        let html = output.snapshot().unwrap();
+        assert!(!html.contains("second record"));
+        assert!(!html.contains("updated version"));
+        assert!(html.contains("暂无记录"));
+    }
+
+    #[test]
+    fn select_source_updates_options_and_translates_after_locale_change() {
+        let (app, output) = snapshot_app();
+        let context = AppContext::new(app.scope());
+        let value = context.scope.cage("enabled".to_owned());
+        let options = context
+            .scope
+            .cage(vec![("enabled".to_owned(), "Enabled".to_owned())]);
+        app.mount(select_source(&context, "Name", value, options))
+            .unwrap();
+        let html = output.snapshot().unwrap();
+        assert!(html.contains("Enabled"));
+        assert!(!html.contains("Disabled"));
+
+        ui::set(
+            options,
+            vec![
+                ("enabled".to_owned(), "Enabled".to_owned()),
+                ("disabled".to_owned(), "Disabled".to_owned()),
+            ],
+        );
+        ui::set(context.locale, crate::i18n::Locale::ZhCn);
+        app.flush().unwrap();
+        let html = output.snapshot().unwrap();
+        assert!(html.contains("名称"));
+        assert!(html.contains("已启用"));
+        assert!(html.contains("已禁用"));
+        assert_eq!(value.get(), "enabled");
+    }
+
     #[test]
     fn select_maps_empty_and_long_values_to_bounded_keys() {
         for initial in [

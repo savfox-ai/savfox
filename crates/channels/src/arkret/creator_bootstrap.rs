@@ -16,14 +16,13 @@ impl FileArkretCryptoStore {
         let mut scopes = Vec::new();
         for key in state.creator_bootstrap_records.keys() {
             let scope: ScopeRef = serde_json::from_str(key)?;
-            if let Some(record) = self.creator_bootstrap_record(&scope)? {
-                if record.quarantine_diagnostic().is_none()
-                    && record.superseded_winner().is_none()
-                    && record.rejection().is_none()
-                    && record.ready_receipt().is_none()
-                {
-                    scopes.push(scope);
-                }
+            if let Some(record) = self.creator_bootstrap_record(&scope)?
+                && record.quarantine_diagnostic().is_none()
+                && record.superseded_winner().is_none()
+                && record.rejection().is_none()
+                && record.ready_receipt().is_none()
+            {
+                scopes.push(scope);
             }
         }
         Ok(scopes)
@@ -197,16 +196,15 @@ impl FileArkretCryptoStore {
             }
         }
         state.creator_bootstrap_ready.remove(&key);
-        if next.quarantine_diagnostic().is_some()
+        if (next.quarantine_diagnostic().is_some()
             || next.superseded_winner().is_some()
-            || next.rejection().is_some()
+            || next.rejection().is_some())
+            && let Some(queued) = expected.queued_genesis()
         {
-            if let Some(queued) = expected.queued_genesis() {
-                // Quarantine retains the queue original in its diagnostic, never retries it.
-                state
-                    .creator_bootstrap_queue
-                    .remove(queued.signed_genesis().event_id());
-            }
+            // Quarantine retains the queue original in its diagnostic, never retries it.
+            state
+                .creator_bootstrap_queue
+                .remove(queued.signed_genesis().event_id());
         }
         state
             .creator_bootstrap_records
@@ -325,699 +323,6 @@ impl FileArkretCryptoStore {
         client.check_session()?;
         self.save(&mut state)?;
         Ok(true)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody;
-
-    use super::*;
-
-    fn intent(circle: bool) -> MlsCreatorBootstrapIntent {
-        let actor = ActorId::account(AccountId::new(
-            DidCoreId::new("ak:did_core:web:creator.example").unwrap(),
-            DidCoreId::new("ak:did_core:web:station.example").unwrap(),
-        ));
-        let payload = if circle {
-            serde_json::json!({})
-        } else {
-            let origin = arkret::RealmGenesis::new(
-                arkret::RealmPurpose::Collaboration,
-                arkret::GenesisSalt::new(arkret::base64url_encode([5; 32])).unwrap(),
-                arkret::TrustDomainId::new("ak:trust_domain:example.net").unwrap(),
-                arkret::SecurityClass::Standard,
-                DidCoreId::new("ak:did_core:web:station.example").unwrap(),
-                arkret::JoinRule::Closed,
-                arkret::HistoryAccess::SinceJoin,
-                arkret::Discoverability::InviteOnly,
-                None,
-                None,
-            )
-            .unwrap();
-            serde_json::to_value(arkret::RealmCreatePayload::new(origin)).unwrap()
-        };
-        let parent =
-            RealmId::from_event_id(&EventId::from_digest(arkret::DigestSuite::Sha256, [4; 32]));
-        let event = arkret_wire::test_support::raw_event_for_actor_at(
-            if circle {
-                "ak.circle.create"
-            } else {
-                "ak.realm.create"
-            },
-            if circle {
-                ScopeRef::Realm {
-                    realm_id: parent.clone(),
-                }
-            } else {
-                ScopeRef::RealmGenesis
-            },
-            actor.clone(),
-            payload,
-            arkret::canonical::normalize_timestamp_canonical(Utc::now()),
-        )
-        .unwrap();
-        let mut authored =
-            arkret::AuthoredEvent::finalize_with_digest_suite(event, arkret::DigestSuite::Sha256)
-                .unwrap();
-        let method = arkret::DidUrl::new("did:web:creator.example#runtime").unwrap();
-        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(
-            ed25519_dalek::SigningKey::from_bytes(&[11; 32]),
-            method.as_str(),
-        );
-        super::super::super::outbound::sign_outbound_event(&mut authored, &signer).unwrap();
-        let scope = if circle {
-            ScopeRef::Circle {
-                realm_id: parent,
-                circle_id: arkret::CircleId::from_event_id(authored.event_id()),
-            }
-        } else {
-            ScopeRef::Realm {
-                realm_id: authored.realm_id.clone(),
-            }
-        };
-        MlsCreatorBootstrapIntent::new_with_endpoint(
-            actor,
-            scope.clone(),
-            DeviceId::new("ak:device:0198ff00-0000-7000-8000-000000000001").unwrap(),
-            method.clone(),
-            arkret::MlsWelcomeRecipientEndpoint::AgentRuntime {
-                verification_method: method,
-            },
-            arkret::MlsGovernanceBindingPayload::new(scope, None, 0, 0, 0).unwrap(),
-            SelfAuthoritySubmitRequestBody::Event(arkret::EventAdmissionSubmission::new(
-                authored.event().clone(),
-            )),
-        )
-        .unwrap()
-    }
-
-    struct LocalSession(
-        std::sync::Mutex<arkret::http_client::own_station_results::OwnStationSessionSnapshot>,
-    );
-    impl arkret::http_client::own_station_results::OwnStationSessionSource for LocalSession {
-        fn snapshot(
-            &self,
-        ) -> arkret::http_client::Result<
-            arkret::http_client::own_station_results::OwnStationSessionSnapshot,
-        > {
-            Ok(self.0.lock().unwrap().clone())
-        }
-    }
-
-    fn local_session(intent: &MlsCreatorBootstrapIntent) -> OwnStationStateClient {
-        let account = intent.owner_actor_id().as_account_id().unwrap().clone();
-        let binding = arkret::StationConnectionBinding {
-            service_id: account.station_id.clone(),
-            base_url: "https://station.example/".into(),
-            trust_domain: arkret::TrustDomainId::new("ak:trust_domain:example.net").unwrap(),
-            authentication_metadata: arkret::AuthenticationMetadata::minimal(),
-        };
-        let snapshot = arkret::http_client::own_station_results::OwnStationSessionSnapshot::new(
-            binding.clone(),
-            account.clone(),
-            account.station_id,
-            arkret_wire::SessionGrantId::from_issuance_digest([1; 32]),
-            1,
-            "local-transaction-fixture".into(),
-        )
-        .unwrap();
-        let raw =
-            arkret::http_client::ClientBuilder::new(url::Url::parse(&binding.base_url).unwrap())
-                .auth(arkret::http_client::Auth::Bearer(
-                    "local-transaction-fixture".into(),
-                ))
-                .build()
-                .unwrap();
-        OwnStationStateClient::new(
-            raw,
-            binding,
-            Arc::new(LocalSession(std::sync::Mutex::new(snapshot))),
-        )
-        .unwrap()
-    }
-
-    fn local_acceptance(
-        intent: &MlsCreatorBootstrapIntent,
-    ) -> (
-        MlsCreatorBootstrapAcceptedCreate,
-        arkret::RealmStateSnapshot,
-        MlsCreatorBootstrapGovernanceEvidence,
-    ) {
-        // Synthetic host-verified inputs isolate local CAS/RFC recovery. These
-        // detached signatures do not claim an actual Station accepted anything.
-        let SelfAuthoritySubmitRequestBody::Event(create) = intent.signed_scope_create_unit()
-        else {
-            unreachable!()
-        };
-        let now = create.event.created_at;
-        let signature = |context| arkret::DetachedObjectSignature {
-            context,
-            signature_algorithm: arkret::DetachedSignatureAlgorithm::Ed25519,
-            verification_method: arkret::DidUrl::new("did:web:station.example#key").unwrap(),
-            signed_digest: arkret::Hash::new(arkret::canonical::sha256_digest(b"local-fixture"))
-                .unwrap(),
-            created_at: now,
-            signature: arkret::Base64UrlString::new("AA").unwrap(),
-        };
-        let commit = arkret::RealmCommit {
-            commit_id: arkret::RealmCommitId::from_digest([1; 32]),
-            realm_id: create.event.realm_id.clone(),
-            stream_ref: arkret::CommitStreamRef::Realm {
-                realm_id: create.event.realm_id.clone(),
-            },
-            stream_position: 0,
-            previous_commit_ref: None,
-            event_ref: create.event.event_id.clone(),
-            governance_generation: 0,
-            authority_ref: arkret::RealmCommitAuthorityRef::GenesisOrChangeEvent(
-                create.event.event_id.clone(),
-            ),
-            committed_at: now,
-            producer_signer_fact_digest: None,
-            signature: signature(arkret::DetachedSignatureContext::RealmCommit),
-        };
-        let head = arkret::CommitStreamHead {
-            stream_ref: commit.stream_ref.clone(),
-            stream_position: 0,
-            commit_id: commit.commit_id.clone(),
-        };
-        let root = arkret::RealmAuthorityBundle {
-            realm_id: commit.realm_id.clone(),
-            genesis_event: create.event.clone(),
-            genesis_commit: commit.clone(),
-            authority_transitions: Vec::new(),
-            current_generation: 0,
-            current_service_id: intent
-                .owner_actor_id()
-                .as_account_id()
-                .unwrap()
-                .station_id
-                .clone(),
-            current_route_record: serde_json::json!({}),
-            realm_stream_head: head.clone(),
-            bundle_issued_at: now,
-            current_assertion: arkret::RealmAuthorityCurrentAssertion {
-                realm_id: commit.realm_id.clone(),
-                current_generation: 0,
-                current_service_id: intent
-                    .owner_actor_id()
-                    .as_account_id()
-                    .unwrap()
-                    .station_id
-                    .clone(),
-                last_handoff_ref: None,
-                realm_stream_head: head.clone(),
-                nonce: arkret::Base64UrlString::new(arkret::base64url_encode([0; 32])).unwrap(),
-                expires_at: now + chrono::TimeDelta::minutes(5),
-                signature: signature(
-                    arkret::DetachedSignatureContext::RealmAuthorityCurrentAssertion,
-                ),
-            },
-        };
-        let accepted = MlsCreatorBootstrapAcceptedCreate::new(
-            intent,
-            create.event.clone(),
-            commit.clone(),
-            arkret::DigestSuite::Sha256,
-            root,
-        )
-        .unwrap();
-        let absence = arkret::RealmStateSnapshot {
-            purpose: arkret::RealmSnapshotPurpose::FullRecovery,
-            history_basis: None,
-            snapshot_id: arkret::RealmSnapshotId::from_digest([3; 32]),
-            realm_id: commit.realm_id.clone(),
-            governance_generation: 0,
-            visible_stream_heads: vec![head],
-            current_state_entries: Vec::new(),
-            retention_and_history_floor: arkret::RetentionAndHistoryFloor {
-                history_access: arkret::HistoryAccess::SinceJoin,
-                stream_floors: vec![arkret::StreamHistoryFloor {
-                    stream_ref: commit.stream_ref.clone(),
-                    oldest_position: 0,
-                }],
-            },
-            created_at: now,
-            signature: signature(arkret::DetachedSignatureContext::RealmSnapshot),
-        };
-        let authority = MlsCreatorBootstrapAgentAuthority::from_current_signer_query(
-            intent,
-            arkret::SignerKeyResolution::CurrentResolved {
-                selector: arkret::SignerKeyQuerySelector::CurrentAdmission {
-                    sender: arkret::CurrentSignerKeyQuerySender::Agent {
-                        actor: intent.owner_actor_id().clone(),
-                        verification_method: intent.creator_signer_method().clone(),
-                    },
-                },
-                key: arkret::ResolvedSignerKey {
-                    public_key_base64url: arkret::Base64UrlString::new(arkret::base64url_encode(
-                        ed25519_dalek::SigningKey::from_bytes(&[11; 32])
-                            .verifying_key()
-                            .to_bytes(),
-                    ))
-                    .unwrap(),
-                    authorization_ref: arkret::CommittedEventRef {
-                        event_id: create.event.event_id.clone(),
-                        commit_id: commit.commit_id.clone(),
-                        stream_ref: commit.stream_ref,
-                        stream_position: 0,
-                    },
-                    revision: arkret::CurrentRevision {
-                        commit_id: commit.commit_id,
-                        stream_position: 0,
-                    },
-                    governance_generation: 0,
-                },
-            },
-            now,
-        )
-        .unwrap();
-        let evidence = MlsCreatorBootstrapGovernanceEvidence::new_with_endpoint_authority(
-            intent,
-            accepted.clone(),
-            absence.clone(),
-            MlsCreatorBootstrapEndpointAuthority::Agent(authority),
-        )
-        .unwrap();
-        (accepted, absence, evidence)
-    }
-
-    #[test]
-    fn runtime_creator_atomic_steps_reopen_original_bytes_and_publish_one_ready_cut() {
-        let home = tempfile::tempdir().unwrap();
-        let store = FileArkretCryptoStore::for_account(home.path(), "creator-cas", "runtime");
-        let intent = intent(false);
-        let client = local_session(&intent);
-        let (create, absence, evidence) = local_acceptance(&intent);
-        store.begin_creator_bootstrap(intent.clone()).unwrap();
-        let read = || {
-            FileArkretCryptoStore::for_account(home.path(), "creator-cas", "runtime")
-                .creator_bootstrap_record(intent.effective_scope())
-                .unwrap()
-                .unwrap()
-        };
-        let first = read();
-        let mut next = first.clone();
-        next.accept_realm(create.clone(), absence.clone()).unwrap();
-        assert!(
-            store
-                .commit_creator_step(&first, &next, &client, None)
-                .unwrap()
-        );
-        let accepted = read();
-        next.pin_governance(evidence.clone()).unwrap();
-        assert!(
-            store
-                .commit_creator_step(&accepted, &next, &client, None)
-                .unwrap()
-        );
-        assert!(
-            !store
-                .commit_creator_step(&first, &accepted, &client, None)
-                .unwrap()
-        );
-        let pinned = read();
-        let key = ed25519_dalek::SigningKey::from_bytes(&[11; 32]);
-        let identity = ArkretMlsIdentity::new_agent(
-            intent.owner_actor_id().clone(),
-            intent.creator_signer_method().clone(),
-            evidence
-                .creator_authority()
-                .authorization_event_ref()
-                .clone(),
-            ArkretMlsSigner::from_ed25519_signing_key(key.clone()),
-        )
-        .unwrap();
-        let mut group = identity
-            .create_group_with_governance_binding(
-                intent.effective_scope(),
-                evidence.governance_binding(),
-            )
-            .unwrap();
-        group
-            .install_local_creator_binding(intent.owner_actor_id().clone(), None)
-            .unwrap();
-        let checks = creator_checks(&group, &intent).unwrap();
-        let payload = arkret::MlsGenesisPayload {
-            cipher_suite: arkret::NonEmptyString::new(checks.cipher_suite.clone()).unwrap(),
-            group_info_ref: arkret::BlobRef::new(format!(
-                "ak:blob:{}",
-                arkret::canonical::sha256_digest(&checks.group_info_bytes)
-            ))
-            .unwrap(),
-            ratchet_tree_ref: arkret::BlobRef::new(format!(
-                "ak:blob:{}",
-                arkret::canonical::sha256_digest(&checks.ratchet_tree_bytes)
-            ))
-            .unwrap(),
-            creator_leaf_authority: checks.creator_leaf_authority.clone(),
-            governance_binding: evidence.governance_binding().clone(),
-            created_at: create.accepted_event().created_at,
-        };
-        let unsigned = arkret::TypedEventDraft::<arkret::event_spec::MlsGenesis>::new(
-            intent.effective_scope().clone(),
-            intent.owner_actor_id().clone(),
-            payload,
-        )
-        .unwrap()
-        .into_intent(create.accepted_event().created_at)
-        .unwrap()
-        .author_with_digest_suite(arkret::DigestSuite::Sha256)
-        .unwrap();
-        let private = serde_json::to_vec(&group.export_state_record().unwrap()).unwrap();
-        let wrapped = serde_json::to_vec(&store.encrypt_wrapped_state(&private).unwrap()).unwrap();
-        let unit = MlsCreatorBootstrapEpochZero::new(
-            &intent,
-            &evidence,
-            wrapped,
-            checks.group_info_bytes,
-            checks.ratchet_tree_bytes,
-            unsigned.clone(),
-        )
-        .unwrap();
-        next.persist_epoch_zero(unit).unwrap();
-        assert!(
-            store
-                .commit_creator_step(&pinned, &next, &client, None)
-                .unwrap()
-        );
-        let epoch0 = read();
-        let mut signed = unsigned;
-        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(
-            key.clone(),
-            intent.creator_signer_method().as_str(),
-        );
-        super::super::super::outbound::sign_outbound_event(&mut signed, &signer).unwrap();
-        next.queue_genesis(signed.clone()).unwrap();
-        assert!(
-            store
-                .commit_creator_step(&epoch0, &next, &client, None)
-                .unwrap()
-        );
-        let queued = read();
-        verify_frozen_creator_producer(&queued, &key).unwrap();
-        let original = arkret::canonical::canonical_json_bytes(signed.event()).unwrap();
-        assert_eq!(
-            store
-                .load()
-                .unwrap()
-                .creator_bootstrap_queue
-                .get(signed.event_id()),
-            Some(&original)
-        );
-        let mut commit = create.covering_commit().clone();
-        commit.stream_position += 1;
-        commit.previous_commit_ref = Some(commit.commit_id.clone());
-        commit.event_ref = signed.event_id().clone();
-        next.accept_genesis(
-            MlsCreatorBootstrapAcceptedGenesis::new(
-                &intent,
-                queued.queued_genesis().unwrap(),
-                arkret::CommittedEventFullView {
-                    event: signed.event().clone(),
-                    commit,
-                },
-                create.authority_root().unwrap().clone(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let current = arkret::MlsGroupValue {
-            effective_scope: intent.effective_scope().clone(),
-            genesis_event_ref: signed.event_id().clone(),
-            cipher_suite: arkret::NonEmptyString::new(
-                group.group_ciphersuite_canonical_id().unwrap(),
-            )
-            .unwrap(),
-            current_mls_commit_event_ref: signed.event_id().clone(),
-            epoch: 0,
-            current_key_access_revision: 0,
-            covered_key_access_revision: 0,
-            public_tree_ref: arkret::BlobRef::new(format!(
-                "ak:blob:{}",
-                arkret::canonical::sha256_digest(
-                    &queued.epoch_zero().unwrap().ratchet_tree_bytes()
-                )
-            ))
-            .unwrap(),
-        };
-        let mut accepted_cut = absence;
-        accepted_cut
-            .current_state_entries
-            .push(CurrentState::Value {
-                selector: arkret::CurrentSelector::MlsGroup {
-                    scope_ref: intent.effective_scope().clone(),
-                },
-                source_stream_ref: arkret::CommitStreamRef::from_scope(
-                    intent.effective_scope(),
-                    None,
-                )
-                .unwrap(),
-                revision: arkret::CurrentRevision {
-                    commit_id: next
-                        .accepted_genesis()
-                        .unwrap()
-                        .accepted()
-                        .commit
-                        .commit_id
-                        .clone(),
-                    stream_position: next
-                        .accepted_genesis()
-                        .unwrap()
-                        .accepted()
-                        .commit
-                        .stream_position,
-                },
-                value: serde_json::to_value(&current).unwrap(),
-            });
-        assert!(
-            store
-                .commit_creator_step_at_cut(&queued, &next, &client, None, Some(&accepted_cut))
-                .unwrap()
-        );
-        assert_eq!(
-            store.load().unwrap().mls_station_currents[intent.mls_group_id().as_str()][&0],
-            current
-        );
-        let accepted = read();
-        let (private, checks) = store.restore_creator_group(&accepted).unwrap();
-        next.converge_artifacts(MlsCreatorBootstrapArtifacts::new(&accepted, checks).unwrap())
-            .unwrap();
-        assert!(
-            store
-                .commit_creator_step(&accepted, &next, &client, Some(private))
-                .unwrap()
-        );
-        let converged = read();
-        assert!(
-            store
-                .require_creator_ready(intent.effective_scope())
-                .is_err()
-        );
-        assert!(store.publish_creator_ready(&converged, &client).unwrap());
-        let ready = read();
-        assert_eq!(
-            ready.ready_receipt().unwrap().ready_commit_position(),
-            store.load().unwrap().generation
-        );
-        store
-            .require_creator_ready(intent.effective_scope())
-            .unwrap();
-        let before = std::fs::read(store.path()).unwrap();
-        assert!(!store.publish_creator_ready(&converged, &client).unwrap());
-        assert_eq!(std::fs::read(store.path()).unwrap(), before);
-        assert!(matches!(
-            store
-                .encrypt_content_block_for_scope(
-                    intent.effective_scope(),
-                    &serde_json::to_value(ContentBlock::text("actual encrypted write")).unwrap()
-                )
-                .unwrap(),
-            ArkretEncryptOutcome::Encrypted(_)
-        ));
-        store
-            .require_creator_ready(intent.effective_scope())
-            .unwrap();
-        assert_eq!(read(), ready);
-        let healthy = store.load().unwrap();
-        for failure in 0..4 {
-            let mut state = healthy.clone();
-            let mut invalid = current.clone();
-            match failure {
-                0 => invalid.current_key_access_revision = 1,
-                1 => invalid.epoch = 1,
-                2 => {
-                    invalid.public_tree_ref = arkret::BlobRef::new(format!(
-                        "ak:blob:{}",
-                        arkret::canonical::sha256_digest(b"another tree")
-                    ))
-                    .unwrap()
-                }
-                _ => {
-                    invalid.current_mls_commit_event_ref = create.accepted_event().event_id.clone()
-                }
-            }
-            state
-                .mls_station_currents
-                .get_mut(intent.mls_group_id().as_str())
-                .unwrap()
-                .insert(invalid.epoch, invalid);
-            // Represents a later accepted current arriving through the native reader.
-            // Ready receipt alone cannot authorize the now stale private state.
-            let mut live = store.load().unwrap();
-            live.mls_station_currents = state.mls_station_currents;
-            store.save(&mut live).unwrap();
-            let before = std::fs::read(store.path()).unwrap();
-            assert!(
-                store
-                    .require_creator_ready(intent.effective_scope())
-                    .is_err(),
-                "failure {failure}"
-            );
-            assert!(
-                store
-                    .encrypt_content_block_for_scope(
-                        intent.effective_scope(),
-                        &serde_json::to_value(ContentBlock::text("must stay closed")).unwrap()
-                    )
-                    .is_err()
-            );
-            assert_eq!(std::fs::read(store.path()).unwrap(), before);
-        }
-    }
-
-    #[test]
-    fn runtime_creator_reopens_the_same_intent_and_blocks_plaintext_in_both_scopes() {
-        for circle in [false, true] {
-            let home = tempfile::tempdir().unwrap();
-            let store = FileArkretCryptoStore::for_account(home.path(), "creator", "runtime");
-            let intent = intent(circle);
-            store.begin_creator_bootstrap(intent.clone()).unwrap();
-            let before = std::fs::read(store.path()).unwrap();
-            store.begin_creator_bootstrap(intent.clone()).unwrap();
-            assert_eq!(std::fs::read(store.path()).unwrap(), before);
-            let reopened = FileArkretCryptoStore::for_account(home.path(), "creator", "runtime");
-            let record = reopened
-                .creator_bootstrap_record(intent.effective_scope())
-                .unwrap()
-                .unwrap();
-            assert_eq!(record.intent(), &intent);
-            assert!(
-                reopened
-                    .require_creator_ready(intent.effective_scope())
-                    .is_err()
-            );
-            assert!(
-                reopened
-                    .encrypt_content_block_for_scope(
-                        intent.effective_scope(),
-                        &serde_json::to_value(ContentBlock::text("private")).unwrap()
-                    )
-                    .is_err()
-            );
-            assert_eq!(
-                reopened.pending_creator_bootstrap_scopes().unwrap(),
-                vec![intent.effective_scope().clone()]
-            );
-            let mut other = serde_json::to_value(&intent).unwrap();
-            other["creator_device_id"] =
-                serde_json::json!("ak:device:0198ff00-0000-7000-8000-000000000002");
-            let other = serde_json::from_value(other).unwrap();
-            assert!(reopened.begin_creator_bootstrap(other).is_err());
-            assert_eq!(std::fs::read(store.path()).unwrap(), before);
-        }
-    }
-
-    #[test]
-    fn runtime_creator_restores_real_agent_private_state_and_binds_public_scope_and_leaf() {
-        for circle in [false, true] {
-            let intent = intent(circle);
-            let identity = ArkretMlsIdentity::new_agent(
-                intent.owner_actor_id().clone(),
-                intent.creator_signer_method().clone(),
-                intent.scope_create_event_id().clone(),
-                ArkretMlsSigner::from_ed25519_signing_key(ed25519_dalek::SigningKey::from_bytes(
-                    &[11; 32],
-                )),
-            )
-            .unwrap();
-            let mut group = identity
-                .create_group_with_governance_binding(
-                    intent.effective_scope(),
-                    intent.proposal().proposed_group_genesis_binding(),
-                )
-                .unwrap();
-            group
-                .install_local_creator_binding(intent.owner_actor_id().clone(), None)
-                .unwrap();
-            let before = creator_checks(&group, &intent).unwrap();
-            let home = tempfile::tempdir().unwrap();
-            let store =
-                FileArkretCryptoStore::for_account(home.path(), "creator-private", "runtime");
-            let bytes = serde_json::to_vec(&group.export_state_record().unwrap()).unwrap();
-            let protected = store.encrypt_wrapped_state(&bytes).unwrap();
-            let reopened =
-                FileArkretCryptoStore::for_account(home.path(), "creator-private", "runtime");
-            let record: CurrentMlsGroupStateRecord =
-                serde_json::from_slice(&reopened.decrypt_wrapped_state(&protected).unwrap())
-                    .unwrap();
-            let restored = ArkretMlsGroup::restore_from_state_record(&record).unwrap();
-            assert_eq!(creator_checks(&restored, &intent).unwrap(), before);
-            assert_eq!(
-                before.creator_leaf_authority.endpoint,
-                *intent.creator_endpoint()
-            );
-            let mut tampered = protected;
-            tampered.ciphertext.push('A');
-            assert!(reopened.decrypt_wrapped_state(&tampered).is_err());
-        }
-    }
-
-    #[test]
-    fn runtime_creator_quarantines_authenticated_damage_without_erasing_the_original() {
-        let home = tempfile::tempdir().unwrap();
-        let store = FileArkretCryptoStore::for_account(home.path(), "creator-damage", "runtime");
-        let intent = intent(false);
-        store.begin_creator_bootstrap(intent.clone()).unwrap();
-        let mut state = store.load().unwrap();
-        let key = scope_key(intent.effective_scope()).unwrap();
-        state.creator_bootstrap_records.get_mut(&key).unwrap()["unexpected"] =
-            serde_json::json!("retained-diagnostic");
-        store.save(&mut state).unwrap();
-        let record = store
-            .creator_bootstrap_record(intent.effective_scope())
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            record.quarantine_diagnostic().unwrap().recovery_record()["unexpected"],
-            "retained-diagnostic"
-        );
-        assert!(store.pending_creator_bootstrap_scopes().unwrap().is_empty());
-        assert!(
-            store
-                .require_creator_ready(intent.effective_scope())
-                .is_err()
-        );
-        let before = std::fs::read(store.path()).unwrap();
-        assert_eq!(
-            store
-                .creator_bootstrap_record(intent.effective_scope())
-                .unwrap()
-                .unwrap(),
-            record
-        );
-        assert_eq!(std::fs::read(store.path()).unwrap(), before);
-    }
-
-    #[test]
-    fn runtime_creator_does_not_reconstruct_material_from_an_empty_existing_vault() {
-        let home = tempfile::tempdir().unwrap();
-        let store = FileArkretCryptoStore::for_account(home.path(), "creator-empty", "runtime");
-        std::fs::create_dir_all(store.path().parent().unwrap()).unwrap();
-        std::fs::write(store.path(), []).unwrap();
-        assert!(store.begin_creator_bootstrap(intent(false)).is_err());
-        assert!(std::fs::read(store.path()).unwrap().is_empty());
     }
 }
 
@@ -1314,13 +619,11 @@ impl ArkretHttpClient {
                 },
                 digest_suite: arkret::DigestSuite::Sha256,
             };
-            if record.epoch_zero().is_some() {
-                if let Err(error) = store.restore_creator_group(&record) {
-                    store.quarantine_creator(&record, client, error.to_string())?;
-                    anyhow::bail!(
-                        "creator private recovery quarantined; original material retained"
-                    );
-                }
+            if record.epoch_zero().is_some()
+                && let Err(error) = store.restore_creator_group(&record)
+            {
+                store.quarantine_creator(&record, client, error.to_string())?;
+                anyhow::bail!("creator private recovery quarantined; original material retained");
             }
             if record.state() == State::Ready {
                 store.require_creator_ready(scope)?;
@@ -1772,5 +1075,697 @@ impl FileArkretCryptoStore {
             "creator ready receipt, artifact and send gate disagree"
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody;
+
+    use super::*;
+
+    fn intent(circle: bool) -> MlsCreatorBootstrapIntent {
+        let actor = ActorId::account(AccountId::new(
+            DidCoreId::new("ak:did_core:web:creator.example").unwrap(),
+            DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+        ));
+        let payload = if circle {
+            serde_json::json!({})
+        } else {
+            let origin = arkret::RealmGenesis::new(
+                arkret::RealmPurpose::Collaboration,
+                arkret::GenesisSalt::new(arkret::base64url_encode([5; 32])).unwrap(),
+                arkret::TrustDomainId::new("ak:trust_domain:example.net").unwrap(),
+                arkret::SecurityClass::Standard,
+                DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+                arkret::JoinRule::Closed,
+                arkret::HistoryAccess::SinceJoin,
+                arkret::Discoverability::InviteOnly,
+                None,
+                None,
+            )
+            .unwrap();
+            serde_json::to_value(arkret::RealmCreatePayload::new(origin)).unwrap()
+        };
+        let parent =
+            RealmId::from_event_id(&EventId::from_digest(arkret::DigestSuite::Sha256, [4; 32]));
+        let event = arkret_wire::test_support::raw_event_for_actor_at(
+            if circle {
+                "ak.circle.create"
+            } else {
+                "ak.realm.create"
+            },
+            if circle {
+                ScopeRef::Realm {
+                    realm_id: parent.clone(),
+                }
+            } else {
+                ScopeRef::RealmGenesis
+            },
+            actor.clone(),
+            payload,
+            arkret::canonical::normalize_timestamp_canonical(Utc::now()),
+        )
+        .unwrap();
+        let mut authored =
+            arkret::AuthoredEvent::finalize_with_digest_suite(event, arkret::DigestSuite::Sha256)
+                .unwrap();
+        let method = arkret::DidUrl::new("did:web:creator.example#runtime").unwrap();
+        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(
+            ed25519_dalek::SigningKey::from_bytes(&[11; 32]),
+            method.as_str(),
+        );
+        super::super::super::outbound::sign_outbound_event(&mut authored, &signer).unwrap();
+        let scope = if circle {
+            ScopeRef::Circle {
+                realm_id: parent,
+                circle_id: arkret::CircleId::from_event_id(authored.event_id()),
+            }
+        } else {
+            ScopeRef::Realm {
+                realm_id: authored.realm_id.clone(),
+            }
+        };
+        MlsCreatorBootstrapIntent::new_with_endpoint(
+            actor,
+            scope.clone(),
+            DeviceId::new("ak:device:0198ff00-0000-7000-8000-000000000001").unwrap(),
+            method.clone(),
+            arkret::MlsWelcomeRecipientEndpoint::AgentRuntime {
+                verification_method: method,
+            },
+            arkret::MlsGovernanceBindingPayload::new(scope, None, 0, 0, 0).unwrap(),
+            SelfAuthoritySubmitRequestBody::Event(arkret::EventAdmissionSubmission::new(
+                authored.event().clone(),
+            )),
+        )
+        .unwrap()
+    }
+
+    struct LocalSession(
+        std::sync::Mutex<arkret::http_client::own_station_results::OwnStationSessionSnapshot>,
+    );
+    impl arkret::http_client::own_station_results::OwnStationSessionSource for LocalSession {
+        fn snapshot(
+            &self,
+        ) -> arkret::http_client::Result<
+            arkret::http_client::own_station_results::OwnStationSessionSnapshot,
+        > {
+            Ok(self.0.lock().unwrap().clone())
+        }
+    }
+
+    fn local_session(intent: &MlsCreatorBootstrapIntent) -> OwnStationStateClient {
+        let account = intent.owner_actor_id().as_account_id().unwrap().clone();
+        let binding = arkret::StationConnectionBinding {
+            service_id: account.station_id.clone(),
+            base_url: "https://station.example/".into(),
+            trust_domain: arkret::TrustDomainId::new("ak:trust_domain:example.net").unwrap(),
+            authentication_metadata: arkret::AuthenticationMetadata::minimal(),
+        };
+        let snapshot = arkret::http_client::own_station_results::OwnStationSessionSnapshot::new(
+            binding.clone(),
+            account.clone(),
+            account.station_id,
+            arkret_wire::SessionGrantId::from_issuance_digest([1; 32]),
+            1,
+            "local-transaction-fixture".into(),
+        )
+        .unwrap();
+        let raw =
+            arkret::http_client::ClientBuilder::new(url::Url::parse(&binding.base_url).unwrap())
+                .auth(arkret::http_client::Auth::Bearer(
+                    "local-transaction-fixture".into(),
+                ))
+                .build()
+                .unwrap();
+        OwnStationStateClient::new(
+            raw,
+            binding,
+            Arc::new(LocalSession(std::sync::Mutex::new(snapshot))),
+        )
+        .unwrap()
+    }
+
+    fn local_acceptance(
+        intent: &MlsCreatorBootstrapIntent,
+    ) -> (
+        MlsCreatorBootstrapAcceptedCreate,
+        arkret::RealmStateSnapshot,
+        MlsCreatorBootstrapGovernanceEvidence,
+    ) {
+        // Synthetic host-verified inputs isolate local CAS/RFC recovery. These
+        // detached signatures do not claim an actual Station accepted anything.
+        let SelfAuthoritySubmitRequestBody::Event(create) = intent.signed_scope_create_unit()
+        else {
+            unreachable!()
+        };
+        let now = create.event.created_at;
+        let signature = |context| arkret::DetachedObjectSignature {
+            context,
+            signature_algorithm: arkret::DetachedSignatureAlgorithm::Ed25519,
+            verification_method: arkret::DidUrl::new("did:web:station.example#key").unwrap(),
+            signed_digest: arkret::Hash::new(arkret::canonical::sha256_digest(b"local-fixture"))
+                .unwrap(),
+            created_at: now,
+            signature: arkret::Base64UrlString::new("AA").unwrap(),
+        };
+        let commit = arkret::RealmCommit {
+            commit_id: arkret::RealmCommitId::from_digest([1; 32]),
+            realm_id: create.event.realm_id.clone(),
+            stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: create.event.realm_id.clone(),
+            },
+            stream_position: 0,
+            previous_commit_ref: None,
+            event_ref: create.event.event_id.clone(),
+            governance_generation: 0,
+            authority_ref: arkret::RealmCommitAuthorityRef::GenesisOrChangeEvent(
+                create.event.event_id.clone(),
+            ),
+            committed_at: now,
+            producer_signer_fact_digest: None,
+            signature: signature(arkret::DetachedSignatureContext::RealmCommit),
+        };
+        let head = arkret::CommitStreamHead {
+            stream_ref: commit.stream_ref.clone(),
+            stream_position: 0,
+            commit_id: commit.commit_id.clone(),
+        };
+        let root = arkret::RealmAuthorityBundle {
+            realm_id: commit.realm_id.clone(),
+            genesis_event: create.event.clone(),
+            genesis_commit: commit.clone(),
+            authority_transitions: Vec::new(),
+            current_generation: 0,
+            current_service_id: intent
+                .owner_actor_id()
+                .as_account_id()
+                .unwrap()
+                .station_id
+                .clone(),
+            current_route_record: serde_json::json!({}),
+            realm_stream_head: head.clone(),
+            bundle_issued_at: now,
+            current_assertion: arkret::RealmAuthorityCurrentAssertion {
+                realm_id: commit.realm_id.clone(),
+                current_generation: 0,
+                current_service_id: intent
+                    .owner_actor_id()
+                    .as_account_id()
+                    .unwrap()
+                    .station_id
+                    .clone(),
+                last_handoff_ref: None,
+                realm_stream_head: head.clone(),
+                nonce: arkret::Base64UrlString::new(arkret::base64url_encode([0; 32])).unwrap(),
+                expires_at: now + chrono::TimeDelta::minutes(5),
+                signature: signature(
+                    arkret::DetachedSignatureContext::RealmAuthorityCurrentAssertion,
+                ),
+            },
+        };
+        let accepted = MlsCreatorBootstrapAcceptedCreate::new(
+            intent,
+            create.event.clone(),
+            commit.clone(),
+            arkret::DigestSuite::Sha256,
+            root,
+        )
+        .unwrap();
+        let absence = arkret::RealmStateSnapshot {
+            purpose: arkret::RealmSnapshotPurpose::FullRecovery,
+            history_basis: None,
+            snapshot_id: arkret::RealmSnapshotId::from_digest([3; 32]),
+            realm_id: commit.realm_id.clone(),
+            governance_generation: 0,
+            visible_stream_heads: vec![head],
+            current_state_entries: Vec::new(),
+            retention_and_history_floor: arkret::RetentionAndHistoryFloor {
+                history_access: arkret::HistoryAccess::SinceJoin,
+                stream_floors: vec![arkret::StreamHistoryFloor {
+                    stream_ref: commit.stream_ref.clone(),
+                    oldest_position: 0,
+                }],
+            },
+            created_at: now,
+            signature: signature(arkret::DetachedSignatureContext::RealmSnapshot),
+        };
+        let authority = MlsCreatorBootstrapAgentAuthority::from_current_signer_query(
+            intent,
+            arkret::SignerKeyResolution::CurrentResolved {
+                selector: arkret::SignerKeyQuerySelector::CurrentAdmission {
+                    sender: arkret::CurrentSignerKeyQuerySender::Agent {
+                        actor: intent.owner_actor_id().clone(),
+                        verification_method: intent.creator_signer_method().clone(),
+                    },
+                },
+                key: arkret::ResolvedSignerKey {
+                    public_key_base64url: arkret::Base64UrlString::new(arkret::base64url_encode(
+                        ed25519_dalek::SigningKey::from_bytes(&[11; 32])
+                            .verifying_key()
+                            .to_bytes(),
+                    ))
+                    .unwrap(),
+                    authorization_ref: arkret::CommittedEventRef {
+                        event_id: create.event.event_id.clone(),
+                        commit_id: commit.commit_id.clone(),
+                        stream_ref: commit.stream_ref,
+                        stream_position: 0,
+                    },
+                    revision: arkret::CurrentRevision {
+                        commit_id: commit.commit_id,
+                        stream_position: 0,
+                    },
+                    governance_generation: 0,
+                },
+            },
+            now,
+        )
+        .unwrap();
+        let evidence = MlsCreatorBootstrapGovernanceEvidence::new_with_endpoint_authority(
+            intent,
+            accepted.clone(),
+            absence.clone(),
+            MlsCreatorBootstrapEndpointAuthority::Agent(authority),
+        )
+        .unwrap();
+        (accepted, absence, evidence)
+    }
+
+    #[test]
+    fn runtime_creator_atomic_steps_reopen_original_bytes_and_publish_one_ready_cut() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "creator-cas", "runtime");
+        let intent = intent(false);
+        let client = local_session(&intent);
+        let (create, absence, evidence) = local_acceptance(&intent);
+        store.begin_creator_bootstrap(intent.clone()).unwrap();
+        let read = || {
+            FileArkretCryptoStore::for_account(home.path(), "creator-cas", "runtime")
+                .creator_bootstrap_record(intent.effective_scope())
+                .unwrap()
+                .unwrap()
+        };
+        let first = read();
+        let mut next = first.clone();
+        next.accept_realm(create.clone(), absence.clone()).unwrap();
+        assert!(
+            store
+                .commit_creator_step(&first, &next, &client, None)
+                .unwrap()
+        );
+        let accepted = read();
+        next.pin_governance(evidence.clone()).unwrap();
+        assert!(
+            store
+                .commit_creator_step(&accepted, &next, &client, None)
+                .unwrap()
+        );
+        assert!(
+            !store
+                .commit_creator_step(&first, &accepted, &client, None)
+                .unwrap()
+        );
+        let pinned = read();
+        let key = ed25519_dalek::SigningKey::from_bytes(&[11; 32]);
+        let identity = ArkretMlsIdentity::new_agent(
+            intent.owner_actor_id().clone(),
+            intent.creator_signer_method().clone(),
+            evidence
+                .creator_authority()
+                .authorization_event_ref()
+                .clone(),
+            ArkretMlsSigner::from_ed25519_signing_key(key.clone()),
+        )
+        .unwrap();
+        let mut group = identity
+            .create_group_with_governance_binding(
+                intent.effective_scope(),
+                evidence.governance_binding(),
+            )
+            .unwrap();
+        group
+            .install_local_creator_binding(intent.owner_actor_id().clone(), None)
+            .unwrap();
+        let checks = creator_checks(&group, &intent).unwrap();
+        let payload = arkret::MlsGenesisPayload {
+            cipher_suite: arkret::NonEmptyString::new(checks.cipher_suite.clone()).unwrap(),
+            group_info_ref: arkret::BlobRef::new(format!(
+                "ak:blob:{}",
+                arkret::canonical::sha256_digest(&checks.group_info_bytes)
+            ))
+            .unwrap(),
+            ratchet_tree_ref: arkret::BlobRef::new(format!(
+                "ak:blob:{}",
+                arkret::canonical::sha256_digest(&checks.ratchet_tree_bytes)
+            ))
+            .unwrap(),
+            creator_leaf_authority: checks.creator_leaf_authority.clone(),
+            governance_binding: evidence.governance_binding().clone(),
+            created_at: create.accepted_event().created_at,
+        };
+        let unsigned = arkret::TypedEventDraft::<arkret::event_spec::MlsGenesis>::new(
+            intent.effective_scope().clone(),
+            intent.owner_actor_id().clone(),
+            payload,
+        )
+        .unwrap()
+        .into_intent(create.accepted_event().created_at)
+        .unwrap()
+        .author_with_digest_suite(arkret::DigestSuite::Sha256)
+        .unwrap();
+        let private = serde_json::to_vec(&group.export_state_record().unwrap()).unwrap();
+        let wrapped = serde_json::to_vec(&store.encrypt_wrapped_state(&private).unwrap()).unwrap();
+        let unit = MlsCreatorBootstrapEpochZero::new(
+            &intent,
+            &evidence,
+            wrapped,
+            checks.group_info_bytes,
+            checks.ratchet_tree_bytes,
+            unsigned.clone(),
+        )
+        .unwrap();
+        next.persist_epoch_zero(unit).unwrap();
+        assert!(
+            store
+                .commit_creator_step(&pinned, &next, &client, None)
+                .unwrap()
+        );
+        let epoch0 = read();
+        let mut signed = unsigned;
+        let signer = arkret::signatures::Ed25519DetachedJwsSigner::new(
+            key.clone(),
+            intent.creator_signer_method().as_str(),
+        );
+        super::super::super::outbound::sign_outbound_event(&mut signed, &signer).unwrap();
+        next.queue_genesis(signed.clone()).unwrap();
+        assert!(
+            store
+                .commit_creator_step(&epoch0, &next, &client, None)
+                .unwrap()
+        );
+        let queued = read();
+        verify_frozen_creator_producer(&queued, &key).unwrap();
+        let original = arkret::canonical::canonical_json_bytes(signed.event()).unwrap();
+        assert_eq!(
+            store
+                .load()
+                .unwrap()
+                .creator_bootstrap_queue
+                .get(signed.event_id()),
+            Some(&original)
+        );
+        let mut commit = create.covering_commit().clone();
+        commit.stream_position += 1;
+        commit.previous_commit_ref = Some(commit.commit_id.clone());
+        commit.event_ref = signed.event_id().clone();
+        next.accept_genesis(
+            MlsCreatorBootstrapAcceptedGenesis::new(
+                &intent,
+                queued.queued_genesis().unwrap(),
+                arkret::CommittedEventFullView {
+                    event: signed.event().clone(),
+                    commit,
+                },
+                create.authority_root().unwrap().clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let current = arkret::MlsGroupValue {
+            effective_scope: intent.effective_scope().clone(),
+            genesis_event_ref: signed.event_id().clone(),
+            cipher_suite: arkret::NonEmptyString::new(
+                group.group_ciphersuite_canonical_id().unwrap(),
+            )
+            .unwrap(),
+            current_mls_commit_event_ref: signed.event_id().clone(),
+            epoch: 0,
+            current_key_access_revision: 0,
+            covered_key_access_revision: 0,
+            public_tree_ref: arkret::BlobRef::new(format!(
+                "ak:blob:{}",
+                arkret::canonical::sha256_digest(queued.epoch_zero().unwrap().ratchet_tree_bytes())
+            ))
+            .unwrap(),
+        };
+        let mut accepted_cut = absence;
+        accepted_cut
+            .current_state_entries
+            .push(CurrentState::Value {
+                selector: arkret::CurrentSelector::MlsGroup {
+                    scope_ref: intent.effective_scope().clone(),
+                },
+                source_stream_ref: arkret::CommitStreamRef::from_scope(
+                    intent.effective_scope(),
+                    None,
+                )
+                .unwrap(),
+                revision: arkret::CurrentRevision {
+                    commit_id: next
+                        .accepted_genesis()
+                        .unwrap()
+                        .accepted()
+                        .commit
+                        .commit_id
+                        .clone(),
+                    stream_position: next
+                        .accepted_genesis()
+                        .unwrap()
+                        .accepted()
+                        .commit
+                        .stream_position,
+                },
+                value: serde_json::to_value(&current).unwrap(),
+            });
+        assert!(
+            store
+                .commit_creator_step_at_cut(&queued, &next, &client, None, Some(&accepted_cut))
+                .unwrap()
+        );
+        assert_eq!(
+            store.load().unwrap().mls_station_currents[intent.mls_group_id().as_str()][&0],
+            current
+        );
+        let accepted = read();
+        let (private, checks) = store.restore_creator_group(&accepted).unwrap();
+        next.converge_artifacts(MlsCreatorBootstrapArtifacts::new(&accepted, checks).unwrap())
+            .unwrap();
+        assert!(
+            store
+                .commit_creator_step(&accepted, &next, &client, Some(private))
+                .unwrap()
+        );
+        let converged = read();
+        assert!(
+            store
+                .require_creator_ready(intent.effective_scope())
+                .is_err()
+        );
+        assert!(store.publish_creator_ready(&converged, &client).unwrap());
+        let ready = read();
+        assert_eq!(
+            ready.ready_receipt().unwrap().ready_commit_position(),
+            store.load().unwrap().generation
+        );
+        store
+            .require_creator_ready(intent.effective_scope())
+            .unwrap();
+        let before = std::fs::read(store.path()).unwrap();
+        assert!(!store.publish_creator_ready(&converged, &client).unwrap());
+        assert_eq!(std::fs::read(store.path()).unwrap(), before);
+        assert!(matches!(
+            store
+                .encrypt_content_block_for_scope(
+                    intent.effective_scope(),
+                    &serde_json::to_value(ContentBlock::text("actual encrypted write")).unwrap()
+                )
+                .unwrap(),
+            ArkretEncryptOutcome::Encrypted(_)
+        ));
+        store
+            .require_creator_ready(intent.effective_scope())
+            .unwrap();
+        assert_eq!(read(), ready);
+        let healthy = store.load().unwrap();
+        for failure in 0..4 {
+            let mut state = healthy.clone();
+            let mut invalid = current.clone();
+            match failure {
+                0 => invalid.current_key_access_revision = 1,
+                1 => invalid.epoch = 1,
+                2 => {
+                    invalid.public_tree_ref = arkret::BlobRef::new(format!(
+                        "ak:blob:{}",
+                        arkret::canonical::sha256_digest(b"another tree")
+                    ))
+                    .unwrap()
+                }
+                _ => {
+                    invalid.current_mls_commit_event_ref = create.accepted_event().event_id.clone()
+                }
+            }
+            state
+                .mls_station_currents
+                .get_mut(intent.mls_group_id().as_str())
+                .unwrap()
+                .insert(invalid.epoch, invalid);
+            // Represents a later accepted current arriving through the native reader.
+            // Ready receipt alone cannot authorize the now stale private state.
+            let mut live = store.load().unwrap();
+            live.mls_station_currents = state.mls_station_currents;
+            store.save(&mut live).unwrap();
+            let before = std::fs::read(store.path()).unwrap();
+            assert!(
+                store
+                    .require_creator_ready(intent.effective_scope())
+                    .is_err(),
+                "failure {failure}"
+            );
+            assert!(
+                store
+                    .encrypt_content_block_for_scope(
+                        intent.effective_scope(),
+                        &serde_json::to_value(ContentBlock::text("must stay closed")).unwrap()
+                    )
+                    .is_err()
+            );
+            assert_eq!(std::fs::read(store.path()).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn runtime_creator_reopens_the_same_intent_and_blocks_plaintext_in_both_scopes() {
+        for circle in [false, true] {
+            let home = tempfile::tempdir().unwrap();
+            let store = FileArkretCryptoStore::for_account(home.path(), "creator", "runtime");
+            let intent = intent(circle);
+            store.begin_creator_bootstrap(intent.clone()).unwrap();
+            let before = std::fs::read(store.path()).unwrap();
+            store.begin_creator_bootstrap(intent.clone()).unwrap();
+            assert_eq!(std::fs::read(store.path()).unwrap(), before);
+            let reopened = FileArkretCryptoStore::for_account(home.path(), "creator", "runtime");
+            let record = reopened
+                .creator_bootstrap_record(intent.effective_scope())
+                .unwrap()
+                .unwrap();
+            assert_eq!(record.intent(), &intent);
+            assert!(
+                reopened
+                    .require_creator_ready(intent.effective_scope())
+                    .is_err()
+            );
+            assert!(
+                reopened
+                    .encrypt_content_block_for_scope(
+                        intent.effective_scope(),
+                        &serde_json::to_value(ContentBlock::text("private")).unwrap()
+                    )
+                    .is_err()
+            );
+            assert_eq!(
+                reopened.pending_creator_bootstrap_scopes().unwrap(),
+                vec![intent.effective_scope().clone()]
+            );
+            let mut other = serde_json::to_value(&intent).unwrap();
+            other["creator_device_id"] =
+                serde_json::json!("ak:device:0198ff00-0000-7000-8000-000000000002");
+            let other = serde_json::from_value(other).unwrap();
+            assert!(reopened.begin_creator_bootstrap(other).is_err());
+            assert_eq!(std::fs::read(store.path()).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn runtime_creator_restores_real_agent_private_state_and_binds_public_scope_and_leaf() {
+        for circle in [false, true] {
+            let intent = intent(circle);
+            let identity = ArkretMlsIdentity::new_agent(
+                intent.owner_actor_id().clone(),
+                intent.creator_signer_method().clone(),
+                intent.scope_create_event_id().clone(),
+                ArkretMlsSigner::from_ed25519_signing_key(ed25519_dalek::SigningKey::from_bytes(
+                    &[11; 32],
+                )),
+            )
+            .unwrap();
+            let mut group = identity
+                .create_group_with_governance_binding(
+                    intent.effective_scope(),
+                    intent.proposal().proposed_group_genesis_binding(),
+                )
+                .unwrap();
+            group
+                .install_local_creator_binding(intent.owner_actor_id().clone(), None)
+                .unwrap();
+            let before = creator_checks(&group, &intent).unwrap();
+            let home = tempfile::tempdir().unwrap();
+            let store =
+                FileArkretCryptoStore::for_account(home.path(), "creator-private", "runtime");
+            let bytes = serde_json::to_vec(&group.export_state_record().unwrap()).unwrap();
+            let protected = store.encrypt_wrapped_state(&bytes).unwrap();
+            let reopened =
+                FileArkretCryptoStore::for_account(home.path(), "creator-private", "runtime");
+            let record: CurrentMlsGroupStateRecord =
+                serde_json::from_slice(&reopened.decrypt_wrapped_state(&protected).unwrap())
+                    .unwrap();
+            let restored = ArkretMlsGroup::restore_from_state_record(&record).unwrap();
+            assert_eq!(creator_checks(&restored, &intent).unwrap(), before);
+            assert_eq!(
+                before.creator_leaf_authority.endpoint,
+                *intent.creator_endpoint()
+            );
+            let mut tampered = protected;
+            tampered.ciphertext.push('A');
+            assert!(reopened.decrypt_wrapped_state(&tampered).is_err());
+        }
+    }
+
+    #[test]
+    fn runtime_creator_quarantines_authenticated_damage_without_erasing_the_original() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "creator-damage", "runtime");
+        let intent = intent(false);
+        store.begin_creator_bootstrap(intent.clone()).unwrap();
+        let mut state = store.load().unwrap();
+        let key = scope_key(intent.effective_scope()).unwrap();
+        state.creator_bootstrap_records.get_mut(&key).unwrap()["unexpected"] =
+            serde_json::json!("retained-diagnostic");
+        store.save(&mut state).unwrap();
+        let record = store
+            .creator_bootstrap_record(intent.effective_scope())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            record.quarantine_diagnostic().unwrap().recovery_record()["unexpected"],
+            "retained-diagnostic"
+        );
+        assert!(store.pending_creator_bootstrap_scopes().unwrap().is_empty());
+        assert!(
+            store
+                .require_creator_ready(intent.effective_scope())
+                .is_err()
+        );
+        let before = std::fs::read(store.path()).unwrap();
+        assert_eq!(
+            store
+                .creator_bootstrap_record(intent.effective_scope())
+                .unwrap()
+                .unwrap(),
+            record
+        );
+        assert_eq!(std::fs::read(store.path()).unwrap(), before);
+    }
+
+    #[test]
+    fn runtime_creator_does_not_reconstruct_material_from_an_empty_existing_vault() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "creator-empty", "runtime");
+        std::fs::create_dir_all(store.path().parent().unwrap()).unwrap();
+        std::fs::write(store.path(), []).unwrap();
+        assert!(store.begin_creator_bootstrap(intent(false)).is_err());
+        assert!(std::fs::read(store.path()).unwrap().is_empty());
     }
 }

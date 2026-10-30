@@ -71,7 +71,7 @@ impl OutgoingMessageSender {
     }
 
     pub(crate) async fn send_response<T: Serialize>(&self, id: RequestId, response: T) {
-        let result = match serde_json::to_value(response) {
+        let mut result = match serde_json::to_value(response) {
             Ok(result) => result,
             Err(err) => {
                 self.send_error(
@@ -82,6 +82,13 @@ impl OutgoingMessageSender {
                 return;
             }
         };
+
+        // This server implements the initialize lifecycle. New SDK result
+        // constructors add a discriminator reserved for the 2026 lifecycle;
+        // keep replies compatible with the negotiated legacy protocol.
+        if let Value::Object(result) = &mut result {
+            result.remove("resultType");
+        }
 
         let outgoing_message = OutgoingMessage::Response(OutgoingResponse { id, result });
         let _ = self.sender.send(outgoing_message);
@@ -226,6 +233,25 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use super::*;
+
+    #[tokio::test]
+    async fn legacy_response_omits_new_sdk_result_discriminator() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let outgoing = OutgoingMessageSender::new(sender);
+        let response = rmcp::model::CallToolResult::structured(json!({"answer":42}));
+        assert!(
+            serde_json::to_value(&response)
+                .unwrap()
+                .get("resultType")
+                .is_some()
+        );
+        outgoing.send_response(RequestId::Number(1), response).await;
+        let OutgoingMessage::Response(response) = receiver.recv().await.unwrap() else {
+            panic!("expected response");
+        };
+        assert!(response.result.get("resultType").is_none());
+        assert_eq!(response.result["structuredContent"], json!({"answer":42}));
+    }
 
     #[test]
     fn outgoing_request_serializes_as_jsonrpc_request() {

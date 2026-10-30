@@ -1,9 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use rmcp::model::{
-    CreateElicitationRequestParams, CreateElicitationResult, ElicitationAction, ElicitationSchema,
-};
+use rmcp::model::{ElicitRequestParams, ElicitResult, ElicitationAction, ElicitationSchema};
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer};
 use savfox_core::sandboxing::SandboxPermissions;
@@ -56,7 +54,7 @@ impl McpEscalationPolicy {
         argv: &[String],
         workdir: &Path,
         context: RequestContext<RoleServer>,
-    ) -> Result<CreateElicitationResult, McpError> {
+    ) -> Result<ElicitResult, McpError> {
         let args = shlex::try_join(argv.iter().skip(1).map(String::as_str)).unwrap_or_default();
         let command = if args.is_empty() {
             file.display().to_string()
@@ -67,7 +65,7 @@ impl McpEscalationPolicy {
             .pause_for(async {
                 context
                     .peer
-                    .create_elicitation(CreateElicitationRequestParams::FormElicitationParams {
+                    .create_elicitation(ElicitRequestParams::FormElicitationParams {
                         meta: None,
                         message: format!(
                             "Allow agent to run `{command}` in `{}`?",
@@ -136,6 +134,9 @@ impl EscalationPolicy for McpEscalationPolicy {
                     },
                     ElicitationAction::Cancel => EscalateAction::Deny {
                         reason: Some("User cancelled execution".to_owned()),
+                    },
+                    _ => EscalateAction::Deny {
+                        reason: Some("Unsupported elicitation response".to_owned()),
                     },
                 }
             }

@@ -132,7 +132,8 @@ fn resolve_bin_from_env(key: &str, value: OsString) -> Result<PathBuf, CargoBinE
         let runfiles = runfiles::Runfiles::create().map_err(|err| CargoBinError::CurrentExe {
             source: std::io::Error::other(err),
         })?;
-        if let Some(resolved) = runfiles::rlocation!(runfiles, &raw)
+        if let Some(resolved) =
+            runfiles.rlocation_from(&raw, option_env!("REPOSITORY_NAME").unwrap_or_default())
             && resolved.exists()
         {
             return Ok(resolved);
@@ -191,8 +192,10 @@ pub fn resolve_bazel_runfile(
         }
     };
     let runfile_path = normalize_runfile_path(&runfile_path);
-    if let Some(resolved) = runfiles::rlocation!(runfiles, &runfile_path)
-        && resolved.exists()
+    if let Some(resolved) = runfiles.rlocation_from(
+        &runfile_path,
+        option_env!("REPOSITORY_NAME").unwrap_or_default(),
+    ) && resolved.exists()
     {
         return Ok(resolved);
     }
@@ -220,12 +223,17 @@ pub fn repo_root() -> io::Result<PathBuf> {
                     "SAVFOX_REPO_ROOT_MARKER was not set at compile time",
                 )
             })?;
-        runfiles::rlocation!(runfiles, &marker_path).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "repo_root.marker not available in runfiles",
+        runfiles
+            .rlocation_from(
+                &marker_path,
+                option_env!("REPOSITORY_NAME").unwrap_or_default(),
             )
-        })?
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "repo_root.marker not available in runfiles",
+                )
+            })?
     } else {
         resolve_cargo_runfile(Path::new("cargo-bin/repo_root.marker"))?
     };

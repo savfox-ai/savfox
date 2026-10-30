@@ -7,7 +7,8 @@ use app_test_support::{ChatGptAuthFixture, McpProcess, to_response, write_chatgp
 use pretty_assertions::assert_eq;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    JsonObject, ListToolsResult, Meta, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+    JsonObject, ListToolsResult, MetaObject, ServerCapabilities, ServerConfig, Tool,
+    ToolAnnotations,
 };
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
@@ -257,24 +258,18 @@ impl AppListMcpServer {
 }
 
 impl ServerHandler for AppListMcpServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
     }
 
     fn list_tools(
         &self,
-        _request: Option<rmcp::model::PaginatedRequestParam>,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
     ) -> impl std::future::Future<Output = Result<ListToolsResult, rmcp::ErrorData>> + Send + '_
     {
         let tools = self.tools.clone();
-        async move {
-            Ok(ListToolsResult {
-                tools: (*tools).clone(),
-                next_cursor: None,
-                meta: None,
-            })
-        }
+        async move { Ok(ListToolsResult::with_all_items((*tools).clone())) }
     }
 }
 
@@ -353,7 +348,7 @@ fn connector_tool(connector_id: &str, connector_name: &str) -> Result<Tool> {
     );
     tool.annotations = Some(ToolAnnotations::new().read_only(true));
 
-    let mut meta = Meta::new();
+    let mut meta = MetaObject::new();
     meta.0
         .insert("connector_id".to_owned(), json!(connector_id));
     meta.0

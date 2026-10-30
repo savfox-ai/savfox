@@ -330,7 +330,8 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
             super::command_palette(ctx, palette),
             col()
                 .class("route-outlet")
-                .fill(each(routes, Clone::clone, move |route, _| {
+                .fill(each(routes).key(Clone::clone).children(move |each_row| {
+                    let route = each_row.value;
                     let context = routed.clone();
                     widget(move |scope| {
                         crate::pages::render(&context.with_scope(scope), &route.get_untracked())

@@ -370,7 +370,9 @@ impl SidecarExchangeStore {
             "Sidecar request does not match its accepted Event reference"
         );
         anyhow::ensure!(
-            request_context.source_track_ref.realm_id == *scope.realm_id_opt().unwrap()
+            scope
+                .realm_id_opt()
+                .is_some_and(|realm_id| request_context.source_track_ref.realm_id == *realm_id)
                 && request_context.source_track_ref.strand_id.as_str() == source_strand_id,
             "Sidecar request source differs from its accepted native scope"
         );
@@ -855,6 +857,7 @@ pub fn build_user_facing_response_metadata(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use std::sync::LazyLock;
 
@@ -879,7 +882,6 @@ mod tests {
 
     static REQUEST_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x31));
     static OTHER_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x32));
-    static SIBLING_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x33));
     static CONTROL_EVENT_ID: LazyLock<arkret::EventId> = LazyLock::new(|| fixture_event_id(0x41));
     static OTHER_CONTROL_EVENT_ID: LazyLock<arkret::EventId> =
         LazyLock::new(|| fixture_event_id(0x42));

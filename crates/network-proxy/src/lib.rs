@@ -32,6 +32,7 @@
 
 mod admin;
 mod config;
+mod connector;
 mod http_proxy;
 mod network_policy;
 mod policy;

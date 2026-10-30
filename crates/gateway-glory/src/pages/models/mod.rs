@@ -45,10 +45,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     });
     let context = ctx.clone();
     let state_rows = state.clone();
-    let sections = each(
-        groups,
-        |(key, ..)| key.clone(),
-        move |group, _| {
+    let sections = each(groups).key(|(key, ..)| key.clone()).children(move |each_row| { let group = each_row.value;
             let (_, account, models) = group.get_untracked();
             let first = models.first().cloned().unwrap_or(Value::Null);
             let provider = string(&first, &["provider_name", "provider"]);
@@ -89,8 +86,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
    ))) as Box<dyn Widget>
   }).collect::<Vec<_>>())
  ))
-        },
-    );
+         });
     ui::localized_page(
         ctx,
         "nav.models",

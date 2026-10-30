@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use rama_core::error::ErrorExt as _;
 use rama_core::rt::Executor;
 use rama_core::service::service_fn;
 use rama_http::{Body, Request, Response, StatusCode};
@@ -18,11 +19,11 @@ use crate::state::NetworkProxyState;
 pub async fn run_admin_api(state: Arc<NetworkProxyState>, addr: SocketAddr) -> Result<()> {
     // Debug-only admin API (health/config/patterns/blocked + mode/reload). Policy is config-driven
     // and constraint-enforced; this endpoint should not become a second policy/approval plane.
-    let listener = TcpListener::build()
-        .bind(addr)
+    let listener = TcpListener::build(Executor::new())
+        .bind_address(addr)
         .await
         // See `http_proxy.rs` for details on why we wrap `BoxError` before converting to anyhow.
-        .map_err(rama_core::error::OpaqueError::from)
+        .map_err(|err| err.into_opaque_error())
         .map_err(anyhow::Error::from)
         .with_context(|| format!("bind admin API: {addr}"))?;
 
@@ -43,7 +44,7 @@ async fn handle_admin_request(
     const MODE_BODY_LIMIT: usize = 8 * 1024;
 
     let method = req.method().clone();
-    let path = req.uri().path().to_owned();
+    let path = req.uri().path_or_root().into_owned();
     let response = match (method.as_str(), path.as_str()) {
         ("GET", "/health") => Response::new(Body::from("ok")),
         ("GET", "/config") => match state.current_cfg().await {

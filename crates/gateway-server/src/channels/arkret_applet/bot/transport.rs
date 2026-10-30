@@ -42,13 +42,13 @@ impl BotTransport {
     pub(super) fn close(&self) {
         self.open.store(false, Ordering::Release);
     }
-    fn check(&self) -> Result<(), TransportError> {
+    fn check(&self) -> Result<(), ()> {
         check(&self.recipient, &self.active, &self.open)
     }
     pub(super) async fn retain_output(&self, text: &str) -> anyhow::Result<()> {
-        self.check()?;
+        self.check().map_err(|()| denied())?;
         self.recipient.validate_current().await?;
-        self.check()?;
+        self.check().map_err(|()| denied())?;
         let claim = self.claim.lock().await;
         self.runtime
             .retain_native_reply_output(claim.as_ref().context("Bot provider claim missing")?, text)
@@ -72,11 +72,11 @@ fn check(
     recipient: &NativeContentRecipient,
     active: &AtomicBool,
     open: &AtomicBool,
-) -> Result<(), TransportError> {
+) -> Result<(), ()> {
     if !active.load(Ordering::Acquire) || !open.load(Ordering::Acquire) {
-        return Err(denied());
+        return Err(());
     }
-    recipient.check_incarnation().map_err(|_| denied())
+    recipient.check_incarnation().map_err(|_| ())
 }
 struct CloseOnDrop(Arc<AtomicBool>, bool);
 impl Drop for CloseOnDrop {
@@ -93,7 +93,7 @@ impl HttpTransport for BotTransport {
         Err(denied())
     }
     async fn stream(&self, request: Request) -> Result<StreamResponse, TransportError> {
-        self.check()?;
+        self.check().map_err(|()| denied())?;
         if self.used.swap(true, Ordering::AcqRel)
             || request.compression != RequestCompression::None
             || request.method != reqwest::Method::POST
@@ -154,7 +154,7 @@ impl HttpTransport for BotTransport {
             .validate_current()
             .await
             .map_err(|_| denied())?;
-        self.check()?;
+        self.check().map_err(|()| denied())?;
         let claim = self
             .runtime
             .claim_native_reply(&self.ticket, &frozen)
@@ -162,7 +162,7 @@ impl HttpTransport for BotTransport {
             .map_err(|_| denied())?
             .ok_or_else(denied)?;
         *self.claim.lock().await = Some(claim);
-        self.check()?;
+        self.check().map_err(|()| denied())?;
         let recipient = self.recipient.clone();
         let active = self.active.clone();
         let open = self.open.clone();
@@ -192,7 +192,7 @@ impl HttpTransport for BotTransport {
             .execute_native_request(built)
             .await
             .map_err(|_| network())?;
-        self.check()?;
+        self.check().map_err(|()| denied())?;
         let status = response.status();
         if !status.is_success() {
             return Err(TransportError::Http {

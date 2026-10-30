@@ -26,7 +26,9 @@ Use `just test` when:
 CI now has these validation layers:
 - `fmt`: nightly rustfmt, always run.
 - `tooling-tests`: installer fixtures, Web bundle integrity and targeted package mapping.
-- `test-targeted`: Ubuntu targeted domain checks driven by path filters.
+- `clippy`: Ubuntu workspace lint checks with `--all-targets --all-features`, including optional integrations.
+- `audit`: `cargo audit --deny warnings` rejects new advisory warnings as well as vulnerabilities. Narrow, reviewed maintenance exceptions remain in `.cargo/audit.toml`.
+- `test-targeted`: Ubuntu targeted domain checks driven by path filters. Gateway/shared/channel tests run with both default features and `--all-features`, including Arkret. The optional-feature run uses the same Gateway/channel/Web/workspace change conditions as the default run.
 - `test`: Ubuntu full workspace nextest plus doctests for workspace-wide changes, CI workflow changes, crates outside the targeted domains, manual runs, and scheduled runs. New crates fall back to this layer until explicitly assigned to a targeted domain.
 - `test-cross-platform`: Windows and macOS full workspace nextest, manual or scheduled only.
 
@@ -49,6 +51,11 @@ Regular PRs do not run the full Windows/macOS matrix unless the workflow is manu
 with CI's workspace exclusions and targeted test commands. Every excluded crate
 must have its own explicit targeted test package; building it as a dependency
 does not run its unit tests. Web native unit tests run alongside the WASM build.
+The checker also requires an audit that denies warnings, all-feature workspace Clippy and explicit all-feature
+tests for each Gateway/shared/channel package exposing the `arkret` feature.
+These optional checks run on Ubuntu; target-specific Windows keystore
+dependencies remain guarded by their Cargo target conditions. This supplements
+the default-feature suite rather than replacing it or the cross-platform runs.
 
 Gateway regression fixtures exercise the production router, dispatcher, WebSocket
 handshake, configuration validator and persistent session store. They fail when

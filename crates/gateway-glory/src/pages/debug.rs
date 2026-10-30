@@ -142,8 +142,8 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
     children.push(card(
         ui::label_for(locale, "Call history"),
         vec![
-            Box::new(each(
-                history.map(|entries| {
+            Box::new(
+                each(history.map(|entries| {
                     entries
                         .iter()
                         .enumerate()
@@ -154,9 +154,10 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                             )
                         })
                         .collect::<Vec<_>>()
-                }),
-                |(key, _)| key.clone(),
-                move |item, _| {
+                }))
+                .key(|(key, _)| key.clone())
+                .children(move |each_row| {
+                    let item = each_row.value;
                     let (_, entry) = item.get_untracked();
                     let title = format!(
                         "{} · {}",
@@ -175,8 +176,8 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                             }),
                         ],
                     )
-                },
-            )),
+                }),
+            ),
             ui::action(ui::label_for(locale, "Clear history"), move || {
                 save_history(&[]);
                 ui::set(history, Vec::new());

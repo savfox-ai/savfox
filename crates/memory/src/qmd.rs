@@ -201,23 +201,23 @@ pub enum QmdError {
 }
 
 fn parse_frontmatter(content: &str) -> Result<(QmdFrontmatter, String), QmdError> {
-    let content = content.trim_start();
-
-    if !content.starts_with("---") {
+    let is_delimiter = |line: &str| matches!(line, "---\n" | "---\r\n" | "---");
+    let mut lines = content.split_inclusive('\n');
+    let Some(opening_line) = lines.next().filter(|line| is_delimiter(line)) else {
         return Ok((QmdFrontmatter::default(), content.to_owned()));
+    };
+    let mut offset = opening_line.len();
+    for line in lines {
+        if is_delimiter(line) {
+            let frontmatter = serde_saphyr::from_str(&content[opening_line.len()..offset])
+                .map_err(|e| QmdError::ParseError(e.to_string()))?;
+            // Consume exactly the delimiter line, including its LF or CRLF.
+            // All subsequent body bytes belong to the document.
+            return Ok((frontmatter, content[offset + line.len()..].to_owned()));
+        }
+        offset += line.len();
     }
-
-    let end_marker = content[3..]
-        .find("\n---")
-        .ok_or(QmdError::MissingFrontmatter)?;
-
-    let frontmatter_str = &content[4..end_marker + 3];
-    let body = &content[end_marker + 7..];
-
-    let frontmatter: QmdFrontmatter =
-        serde_saphyr::from_str(frontmatter_str).map_err(|e| QmdError::ParseError(e.to_string()))?;
-
-    Ok((frontmatter, body.to_owned()))
+    Err(QmdError::MissingFrontmatter)
 }
 
 #[must_use]
@@ -240,4 +240,97 @@ pub fn format_qmd_for_embedding(qmd: &QmdFile) -> String {
     parts.push(qmd.content.clone());
 
     parts.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn qmd_delimiters_consume_the_whole_line_and_preserve_body_bytes() {
+        let home = tempfile::tempdir().expect("temporary QMD directory");
+        let manager = QmdManager::new(home.path().to_path_buf());
+        for (index, newline) in ["\n", "\r\n"].into_iter().enumerate() {
+            let body = format!("{newline}  中文{newline}---{newline}---word{newline}");
+            let document = format!(
+                "---{newline}title: example{newline}---word: literal{newline}---{newline}{body}"
+            );
+            let path = home.path().join(format!("line-endings-{index}.qmd"));
+            std::fs::write(&path, document).expect("write QMD fixture");
+            let loaded = manager.load_qmd_file(&path).expect("load QMD");
+            assert_eq!(loaded.content, body);
+            assert_eq!(loaded.frontmatter.extra["---word"], "literal");
+            for _ in 0..3 {
+                let updated = manager
+                    .update_qmd_file(&path, None, None)
+                    .expect("rewrite metadata without changing body");
+                assert_eq!(updated.content, body);
+            }
+            let (_, empty_body) =
+                parse_frontmatter(&format!("---{newline}title: example{newline}---"))
+                    .expect("closing delimiter at end of file");
+            assert_eq!(empty_body, "");
+        }
+    }
+
+    #[test]
+    fn qmd_without_an_opening_delimiter_preserves_all_content() {
+        for content in ["", "---word\ntext\n", " \n---\ntext\n", "\r\n  text\r\n"] {
+            let (frontmatter, body) = parse_frontmatter(content).expect("plain document");
+            assert!(frontmatter.title.is_none());
+            assert_eq!(body, content);
+        }
+    }
+
+    #[test]
+    fn qmd_requires_a_complete_closing_delimiter_line() {
+        for content in ["---", "---\n", "---\r\n", "---\ntitle: example\n---word\n"] {
+            assert!(matches!(
+                parse_frontmatter(content),
+                Err(QmdError::MissingFrontmatter)
+            ));
+        }
+    }
+
+    #[test]
+    fn qmd_yaml_round_trip_preserves_strings_extensions_and_markdown_body() {
+        let home = tempfile::tempdir().expect("temporary QMD directory");
+        let manager = QmdManager::new(home.path().to_path_buf());
+        let frontmatter = QmdFrontmatter {
+            title: Some("on".to_owned()),
+            tags: vec!["yes".to_owned(), "2026-10-30".to_owned(), "中文".to_owned()],
+            extra: HashMap::from([
+                ("numeric-looking".to_owned(), serde_json::json!("00123")),
+                ("boolean-looking".to_owned(), serde_json::json!("off")),
+                ("nested".to_owned(), serde_json::json!({"enabled": true})),
+            ]),
+            ..Default::default()
+        };
+        let expected = serde_json::to_value(&frontmatter).expect("frontmatter value");
+        let body = "第一段\n---\nMarkdown divider stays in the body.\n";
+        let created = manager
+            .create_qmd_file("round-trip", frontmatter, body)
+            .expect("create QMD");
+        assert_eq!(
+            serde_json::to_value(&created.frontmatter).expect("loaded value"),
+            expected
+        );
+        assert_eq!(created.content, body);
+
+        let mut changed = created.frontmatter;
+        changed.pinned = true;
+        changed.archived = true;
+        manager
+            .update_qmd_file(&created.path, Some(changed), Some("Updated 内容\n"))
+            .expect("update QMD");
+        let reloaded = QmdManager::new(home.path().to_path_buf())
+            .load_qmd_file(&created.path)
+            .expect("reopen QMD");
+        assert!(reloaded.frontmatter.pinned);
+        assert!(reloaded.frontmatter.archived);
+        assert_eq!(reloaded.frontmatter.title.as_deref(), Some("on"));
+        assert_eq!(reloaded.frontmatter.extra["numeric-looking"], "00123");
+        assert_eq!(reloaded.frontmatter.extra["boolean-looking"], "off");
+        assert_eq!(reloaded.content, "Updated 内容\n");
+    }
 }

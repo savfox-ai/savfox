@@ -34,7 +34,8 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                     ))
                 },
             ),
-            each(node_rows, record_key, move |item, _| {
+            each(node_rows).key(record_key).children(move |each_row| {
+                let item = each_row.value;
                 let node = item.get_untracked();
                 let id = string(&node, &["id", "node_id"]);
                 let context = list_context.clone();

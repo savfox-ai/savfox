@@ -107,7 +107,7 @@ fn push_segment(lines: &mut Vec<Line<'static>>, segment: &str, style: Option<Sty
 pub(crate) fn highlight_bash_to_lines(script: &str) -> Vec<Line<'static>> {
     let mut highlighter = Highlighter::new();
     let iterator =
-        match highlighter.highlight(highlight_config(), script.as_bytes(), None, |_| None) {
+        match highlighter.highlight(highlight_config(), script.as_bytes(), None, None, |_| None) {
             Ok(iter) => iter,
             Err(_) => return vec![script.to_owned().into()],
         };

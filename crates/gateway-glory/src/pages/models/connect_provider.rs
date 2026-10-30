@@ -107,30 +107,31 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 }),
         ));
     }
-    children.push(Box::new(each(
-        models,
-        |model| string(model, &["id"]),
-        move |model, _| {
-            let model = model.get_untracked();
-            let id = string(&model, &["id"]);
-            let id_value = id.clone();
-            let checked = enabled.map(move |items| items.contains(&id_value));
-            Box::new(
-                sapid::checkbox()
-                    .label(string(&model, &["name", "id"]))
-                    .checked(checked)
-                    .on_checked_change(move |checked| {
-                        let mut items = enabled.get();
-                        if checked {
-                            items.insert(id.clone());
-                        } else {
-                            items.remove(&id);
-                        }
-                        ui::set(enabled, items);
-                    }),
-            ) as Box<dyn Widget>
-        },
-    )));
+    children.push(Box::new(
+        each(models)
+            .key(|model| string(model, &["id"]))
+            .children(move |each_row| {
+                let model = each_row.value;
+                let model = model.get_untracked();
+                let id = string(&model, &["id"]);
+                let id_value = id.clone();
+                let checked = enabled.map(move |items| items.contains(&id_value));
+                Box::new(
+                    sapid::checkbox()
+                        .label(string(&model, &["name", "id"]))
+                        .checked(checked)
+                        .on_checked_change(move |checked| {
+                            let mut items = enabled.get();
+                            if checked {
+                                items.insert(id.clone());
+                            } else {
+                                items.remove(&id);
+                            }
+                            ui::set(enabled, items);
+                        }),
+                ) as Box<dyn Widget>
+            }),
+    ));
     children.push(ui::field(
         ui::label_for(locale, "Manual model ID (for endpoints without discovery)"),
         manual_model,

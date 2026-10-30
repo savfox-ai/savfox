@@ -11,8 +11,7 @@ use maplit::hashset;
 use pretty_assertions::assert_eq;
 use rmcp::ServiceExt;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, CreateElicitationRequestParams, EmptyResult,
-    ServerResult, object,
+    CallToolRequestParams, CallToolResult, ElicitRequestParams, EmptyResult, ServerResult, object,
 };
 use savfox_exec_server::ExecResult;
 use serde_json::json;
@@ -56,7 +55,7 @@ prefix_rule(
         git_path,
         project_root_path.display()
     );
-    let elicitation_requests: Arc<Mutex<Vec<CreateElicitationRequestParams>>> = Default::default();
+    let elicitation_requests: Arc<Mutex<Vec<ElicitRequestParams>>> = Default::default();
     let client = InteractiveClient {
         elicitations_to_accept: hashset! { expected_elicitation_message.clone() },
         elicitation_requests: elicitation_requests.clone(),
@@ -128,10 +127,9 @@ prefix_rule(
         .unwrap()
         .iter()
         .map(|r| match r {
-            CreateElicitationRequestParams::FormElicitationParams { message, .. } => {
-                message.clone()
-            }
-            CreateElicitationRequestParams::UrlElicitationParams { message, .. } => message.clone(),
+            ElicitRequestParams::FormElicitationParams { message, .. } => message.clone(),
+            ElicitRequestParams::UrlElicitationParams { message, .. } => message.clone(),
+            _ => panic!("unsupported elicitation request"),
         })
         .collect::<Vec<_>>();
     assert_eq!(vec![expected_elicitation_message], elicitation_messages);

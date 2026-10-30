@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rmcp::model::{CallToolResult, Content, RequestId};
+use rmcp::model::{CallToolResult, ContentBlock as Content, RequestId};
 use savfox_core::config::Config as SavfoxConfig;
 use savfox_core::protocol::{
     AgentMessageEvent, ApplyPatchApprovalRequestEvent, Event, EventMsg, ExecApprovalRequestEvent,

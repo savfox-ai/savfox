@@ -108,19 +108,20 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             .map(|(i, value)| (format!("{i}-{}", record_key(&value)), value))
             .collect::<Vec<_>>()
     });
-    voice_children.push(Box::new(each(
-        voice_items,
-        |(key, _)| key.clone(),
-        move |item, _| {
-            let value = item.get_untracked().1;
-            let name = value
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| string(&value, &["id", "name"]));
-            let selected = name.clone();
-            ui::action(name, move || ui::set(voice, selected.clone()))
-        },
-    )));
+    voice_children.push(Box::new(
+        each(voice_items)
+            .key(|(key, _)| key.clone())
+            .children(move |each_row| {
+                let item = each_row.value;
+                let value = item.get_untracked().1;
+                let name = value
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| string(&value, &["id", "name"]));
+                let selected = name.clone();
+                ui::action(name, move || ui::set(voice, selected.clone()))
+            }),
+    ));
     voice_children.push(ui::field(ui::label_for(locale, "Voice"), voice, false));
     let context = ctx.clone();
     let settings_state = state.clone();

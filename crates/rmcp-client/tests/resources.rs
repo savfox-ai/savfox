@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use rmcp::model::{
-    AnnotateAble, ClientCapabilities, Implementation, InitializeRequestParams,
-    ListResourceTemplatesResult, ProtocolVersion, ReadResourceRequestParams, ResourceContents,
+    ClientCapabilities, Implementation, InitializeRequestParams, ProtocolVersion,
+    ReadResourceRequestParams, Resource, ResourceContents, ResourceTemplate,
 };
 use savfox_rmcp_client::{ElicitationAction, ElicitationResponse, RmcpClient};
 use savfox_utils::cargo_bin::CargoBinError;
@@ -26,6 +26,41 @@ fn init_params() -> InitializeRequestParams {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn default_sdk_version_still_uses_the_initialize_lifecycle() -> anyhow::Result<()> {
+    let client =
+        RmcpClient::new_stdio_client(stdio_server_bin()?.into(), Vec::new(), None, &[], None)
+            .await?;
+    let params = InitializeRequestParams::new(
+        ClientCapabilities::default(),
+        Implementation::new("savfox-test", "test"),
+    );
+    assert!(
+        !params.protocol_version.has_initialize(),
+        "the SDK default should exercise the handshake-free revision"
+    );
+    let initialized = client
+        .initialize(
+            params,
+            Some(Duration::from_secs(5)),
+            Box::new(|_, _| {
+                async { Ok(ElicitationResponse::new(ElicitationAction::Cancel)) }.boxed()
+            }),
+        )
+        .await?;
+    assert!(initialized.protocol_version.has_initialize());
+    assert!(initialized.capabilities.tools.is_some());
+    assert!(!initialized.server_info.name.is_empty());
+    assert!(
+        !client
+            .list_tools(None, Some(Duration::from_secs(5)))
+            .await?
+            .tools
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
     let client = RmcpClient::new_stdio_client(
         stdio_server_bin()?.into(),
@@ -42,11 +77,7 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
             Some(Duration::from_secs(5)),
             Box::new(|_, _| {
                 async {
-                    Ok(ElicitationResponse {
-                        action: ElicitationAction::Accept,
-                        content: Some(json!({})),
-                        meta: None,
-                    })
+                    Ok(ElicitationResponse::new(ElicitationAction::Accept).with_content(json!({})))
                 }
                 .boxed()
             }),
@@ -63,40 +94,22 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
         .expect("memo resource present");
     assert_eq!(
         memo,
-        &rmcp::model::RawResource {
-            uri: RESOURCE_URI.to_owned(),
-            name: "example-note".to_owned(),
-            title: Some("Example Note".to_owned()),
-            description: Some("A sample MCP resource exposed for integration tests.".to_owned()),
-            mime_type: Some("text/plain".to_owned()),
-            size: None,
-            icons: None,
-            meta: None,
-        }
-        .no_annotation()
+        &Resource::new(RESOURCE_URI, "example-note")
+            .with_title("Example Note")
+            .with_description("A sample MCP resource exposed for integration tests.")
+            .with_mime_type("text/plain")
     );
     let templates = client
         .list_resource_templates(None, Some(Duration::from_secs(5)))
         .await?;
     assert_eq!(
-        templates,
-        ListResourceTemplatesResult {
-            meta: None,
-            next_cursor: None,
-            resource_templates: vec![
-                rmcp::model::RawResourceTemplate {
-                    uri_template: "memo://savfox/{slug}".to_owned(),
-                    name: "savfox-memo".to_owned(),
-                    title: Some("Savfox Memo".to_owned()),
-                    description: Some(
-                        "Template for memo://savfox/{slug} resources used in tests.".to_owned(),
-                    ),
-                    mime_type: Some("text/plain".to_owned()),
-                    icons: None,
-                }
-                .no_annotation()
-            ],
-        }
+        templates.resource_templates,
+        vec![
+            ResourceTemplate::new("memo://savfox/{slug}", "savfox-memo")
+                .with_title("Savfox Memo")
+                .with_description("Template for memo://savfox/{slug} resources used in tests.")
+                .with_mime_type("text/plain")
+        ]
     );
 
     let read = client

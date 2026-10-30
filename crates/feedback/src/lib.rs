@@ -226,7 +226,6 @@ impl SavfoxLogSnapshot {
         use std::collections::BTreeMap;
         use std::fs;
         use std::str::FromStr;
-        use std::sync::Arc;
 
         use sentry::protocol::{Attachment, Envelope, EnvelopeItem, Event, Level};
         use sentry::transports::DefaultTransportFactory;
@@ -234,11 +233,10 @@ impl SavfoxLogSnapshot {
         use sentry::{Client, ClientOptions};
 
         // Build Sentry client
-        let client = Client::from_config(ClientOptions {
-            dsn: Some(Dsn::from_str(SENTRY_DSN).map_err(|e| anyhow!("invalid DSN: {e}"))?),
-            transport: Some(Arc::new(DefaultTransportFactory {})),
-            ..Default::default()
-        });
+        let mut client_options = ClientOptions::new().transport(DefaultTransportFactory {});
+        client_options.dsn =
+            Some(Dsn::from_str(SENTRY_DSN).map_err(|e| anyhow!("invalid DSN: {e}"))?);
+        let client = Client::from_config(client_options);
 
         let cli_version = env!("CARGO_PKG_VERSION");
         let mut tags = BTreeMap::from([
@@ -296,7 +294,7 @@ impl SavfoxLogSnapshot {
                 ..Default::default()
             }]);
         }
-        envelope.add_item(EnvelopeItem::Event(event));
+        envelope.add_item(EnvelopeItem::Event(Box::new(event)));
 
         if include_logs {
             envelope.add_item(EnvelopeItem::Attachment(Attachment {

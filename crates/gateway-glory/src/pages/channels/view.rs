@@ -214,7 +214,7 @@ fn channel_copy(ctx: &AppContext, en: &'static str, zh: &'static str) -> glory::
 }
 
 fn channel_button(
-    label: impl Into<glory::Lotus<String>>,
+    label: impl Into<glory::Vary<String>>,
     class: &str,
     mut action: impl FnMut() + 'static,
 ) -> Box<dyn Widget> {
@@ -356,17 +356,16 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
     });
     let card_ctx = ctx.clone();
     let card_state = state.clone();
-    let rows = each(
-        cards,
-        |entry| entry.id.clone(),
-        move |entry, _| {
+    let rows = each(cards)
+        .key(|entry| entry.id.clone())
+        .children(move |each_row| {
+            let entry = each_row.value;
             let context = card_ctx.clone();
             let state = card_state.clone();
             glory::prelude::widget(move |scope| {
                 channel_card(&context.with_scope(scope), &state, entry).build(scope)
             })
-        },
-    );
+        });
     let empty = ctx.scope.bond(move || cards.get().is_empty());
     let empty_label = channel_copy(
         ctx,
@@ -1016,10 +1015,10 @@ fn matrix_tools(ctx: &AppContext, status: Cage<Value>, error: Cage<String>) -> B
     reload_matrix_invites(ctx, invites, error);
     let refresh_ctx = ctx.clone();
     let row_ctx = ctx.clone();
-    let rows = each(
-        invites,
-        |invite| format!("{}:{}", invite["config_id"], invite["room_id"]),
-        move |invite, _| {
+    let rows = each(invites)
+        .key(|invite| format!("{}:{}", invite["config_id"], invite["room_id"]))
+        .children(move |each_row| {
+            let invite = each_row.value;
             let snapshot = invite.get_untracked();
             let room = snapshot["room_id"].as_str().unwrap_or_default().to_owned();
             let config = snapshot["config_id"]
@@ -1051,8 +1050,7 @@ fn matrix_tools(ctx: &AppContext, status: Cage<Value>, error: Cage<String>) -> B
                 text().content(format!("{label} · {room}")),
                 row().class("actions").fill(buttons),
             ))
-        },
-    );
+        });
     let yaml = status.map(|status| {
         status
             .get("registration")
@@ -1361,9 +1359,8 @@ fn editor(ctx: &AppContext, selector: Option<String>) -> Box<dyn Widget> {
             .unwrap_or_default()
     });
     let field_ctx = ctx.clone();
-    let fields_view = each(
-        visible,
-        move |(kind, field)| {
+    let fields_view = each(visible)
+        .key(move |(kind, field)| {
             let snapshot = values.get();
             let mode = match kind.as_str() {
                 "arkret" => current_arkret_mode(kind, &snapshot),
@@ -1371,8 +1368,9 @@ fn editor(ctx: &AppContext, selector: Option<String>) -> Box<dyn Widget> {
                 _ => String::new(),
             };
             format!("{kind}.{mode}.{}", field.key)
-        },
-        move |entry, _| {
+        })
+        .children(move |each_row| {
+            let entry = each_row.value;
             let (kind, descriptor) = entry.get_untracked();
             let snapshot = values.get();
             let label = field_display_label(&kind, &descriptor, &snapshot);
@@ -1438,8 +1436,7 @@ fn editor(ctx: &AppContext, selector: Option<String>) -> Box<dyn Widget> {
                     .class("field-help")
                     .content(field_display_placeholder(&kind, &descriptor, &snapshot)),
             ))
-        },
-    );
+        });
     let name = ctx.scope.bond(move || {
         values
             .get()
@@ -1481,11 +1478,12 @@ fn editor(ctx: &AppContext, selector: Option<String>) -> Box<dyn Widget> {
             }
         });
     let router_ctx = ctx.clone();
-    let routers = each(
-        kind.map(|kind| vec![kind.clone()]),
-        |kind| kind.clone(),
-        move |kind, _| router_fields(&router_ctx, values, &kind.get_untracked()),
-    );
+    let routers = each(kind.map(|kind| vec![kind.clone()]))
+        .key(|kind| kind.clone())
+        .children(move |each_row| {
+            let kind = each_row.value;
+            router_fields(&router_ctx, values, &kind.get_untracked())
+        });
     let arkret_ctx = ctx.clone();
     let generation = pairing_generation.clone();
     let pairing = when(kind.map(|kind| kind == "arkret"), move || {

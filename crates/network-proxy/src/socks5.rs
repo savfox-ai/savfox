@@ -3,26 +3,26 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use rama_core::error::BoxError;
+use rama_core::error::{BoxError, ErrorExt as _};
 use rama_core::extensions::ExtensionsRef;
 use rama_core::layer::AddInputExtensionLayer;
+use rama_core::rt::Executor;
 use rama_core::service::service_fn;
 use rama_core::{Layer, Service};
-use rama_net::client::EstablishedClientConnection;
+use rama_net::client::{ConnectRequest, EstablishedClientConnection};
 use rama_net::stream::SocketInfo;
 use rama_socks5::Socks5Acceptor;
 use rama_socks5::server::udp::{RelayRequest, RelayResponse};
 use rama_socks5::server::{DefaultConnector, DefaultUdpRelay};
 use rama_tcp::TcpStream;
-use rama_tcp::client::Request as TcpRequest;
-use rama_tcp::client::service::TcpConnector;
 use rama_tcp::server::TcpListener;
 use tracing::{error, info, warn};
 
 use crate::config::NetworkMode;
+use crate::connector::PolicyConnector;
 use crate::network_policy::{
     NetworkDecision, NetworkPolicyDecider, NetworkPolicyRequest, NetworkPolicyRequestArgs,
-    NetworkProtocol, evaluate_host_policy,
+    NetworkProtocol, evaluate_host_policy, evaluate_host_policy_with_target,
 };
 use crate::policy::normalize_host;
 use crate::reasons::{REASON_METHOD_NOT_ALLOWED, REASON_PROXY_DISABLED};
@@ -34,11 +34,11 @@ pub async fn run_socks5(
     policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
     enable_socks5_udp: bool,
 ) -> Result<()> {
-    let listener = TcpListener::build()
-        .bind(addr)
+    let listener = TcpListener::build(Executor::new())
+        .bind_address(addr)
         .await
         // See `http_proxy.rs` for details on why we wrap `BoxError` before converting to anyhow.
-        .map_err(rama_core::error::OpaqueError::from)
+        .map_err(|err| err.into_opaque_error())
         .map_err(anyhow::Error::from)
         .with_context(|| format!("bind SOCKS5 proxy: {addr}"))?;
 
@@ -54,10 +54,10 @@ pub async fn run_socks5(
         }
     }
 
-    let tcp_connector = TcpConnector::default();
+    let tcp_connector = PolicyConnector;
     let policy_tcp_connector = service_fn({
         let policy_decider = policy_decider.clone();
-        move |req: TcpRequest| {
+        move |req: ConnectRequest| {
             let tcp_connector = tcp_connector.clone();
             let policy_decider = policy_decider.clone();
             async move { handle_socks5_tcp(req, tcp_connector, policy_decider).await }
@@ -65,7 +65,7 @@ pub async fn run_socks5(
     });
 
     let socks_connector = DefaultConnector::default().with_connector(policy_tcp_connector);
-    let base = Socks5Acceptor::new().with_connector(socks_connector);
+    let base = Socks5Acceptor::new(Executor::new()).with_connector(socks_connector);
 
     if enable_socks5_udp {
         let udp_state = state.clone();
@@ -79,25 +79,24 @@ pub async fn run_socks5(
         }));
         let socks_acceptor = base.with_udp_associator(udp_relay);
         listener
-            .serve(AddInputExtensionLayer::new(state).into_layer(socks_acceptor))
+            .serve(AddInputExtensionLayer::new_arc(state).into_layer(socks_acceptor))
             .await;
     } else {
         listener
-            .serve(AddInputExtensionLayer::new(state).into_layer(base))
+            .serve(AddInputExtensionLayer::new_arc(state).into_layer(base))
             .await;
     }
     Ok(())
 }
 
 async fn handle_socks5_tcp(
-    req: TcpRequest,
-    tcp_connector: TcpConnector,
+    req: ConnectRequest,
+    tcp_connector: PolicyConnector,
     policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
-) -> Result<EstablishedClientConnection<TcpStream, TcpRequest>, BoxError> {
+) -> Result<EstablishedClientConnection<TcpStream, ConnectRequest>, BoxError> {
     let app_state = req
         .extensions()
-        .get::<Arc<NetworkProxyState>>()
-        .cloned()
+        .get_arc::<NetworkProxyState>()
         .ok_or_else(|| io::Error::other("missing state"))?;
 
     let host = normalize_host(&req.authority.host.to_string());
@@ -108,7 +107,7 @@ async fn handle_socks5_tcp(
 
     let client = req
         .extensions()
-        .get::<SocketInfo>()
+        .get_ref::<SocketInfo>()
         .map(|info| info.peer_addr().to_string());
 
     match app_state.enabled().await {
@@ -169,8 +168,8 @@ async fn handle_socks5_tcp(
         exec_policy_hint: None,
     });
 
-    match evaluate_host_policy(&app_state, policy_decider.as_ref(), &request).await {
-        Ok(NetworkDecision::Deny { reason }) => {
+    match evaluate_host_policy_with_target(&app_state, policy_decider.as_ref(), &request).await {
+        Ok((NetworkDecision::Deny { reason }, _)) => {
             let _ = app_state
                 .record_blocked(BlockedRequest::new(BlockedRequestArgs {
                     host: host.clone(),
@@ -185,7 +184,10 @@ async fn handle_socks5_tcp(
             warn!("SOCKS blocked (client={client}, host={host}, reason={reason})");
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "blocked").into());
         }
-        Ok(NetworkDecision::Allow) => {
+        Ok((NetworkDecision::Allow, target)) => {
+            if let Some(target) = target {
+                req.extensions().insert(target);
+            }
             let client = client.as_deref().unwrap_or_default();
             info!("SOCKS allowed (client={client}, host={host}, port={port})");
         }
@@ -195,7 +197,7 @@ async fn handle_socks5_tcp(
         }
     }
 
-    tcp_connector.serve(req).await
+    tcp_connector.serve(req).await.map_err(Into::into)
 }
 
 async fn inspect_socks5_udp(
@@ -217,7 +219,7 @@ async fn inspect_socks5_udp(
     }
 
     let client = extensions
-        .get::<SocketInfo>()
+        .get_ref::<SocketInfo>()
         .map(|info| info.peer_addr().to_string());
 
     match state.enabled().await {
@@ -307,5 +309,55 @@ async fn inspect_socks5_udp(
             error!("failed to evaluate UDP host: {err}");
             Err(io::Error::other("proxy error"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    use super::*;
+    use crate::config::NetworkPolicy;
+    use crate::connector::ValidatedTarget;
+    use crate::runtime::network_proxy_state_for_policy;
+
+    #[tokio::test]
+    async fn socks5_tcp_keeps_approved_candidates_in_the_connection_input() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            socket.write_all(b"pinned socks").await.unwrap();
+        });
+        let state = Arc::new(network_proxy_state_for_policy(NetworkPolicy {
+            allowed_domains: vec!["checked.invalid".to_owned()],
+            allow_local_binding: true,
+            ..Default::default()
+        }));
+        state.set_network_mode(NetworkMode::Full).await.unwrap();
+        let request = ConnectRequest::new(
+            format!("checked.invalid:{}", address.port())
+                .parse()
+                .unwrap(),
+        );
+        request.extensions.insert_arc(state);
+        request.extensions.insert(ValidatedTarget {
+            host: "checked.invalid".to_owned(),
+            port: address.port(),
+            addresses: vec![address],
+        });
+        let mut connected = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            handle_socks5_tcp(request, PolicyConnector, None),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .conn;
+        let mut bytes = [0; 12];
+        connected.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"pinned socks");
+        server.await.unwrap();
     }
 }

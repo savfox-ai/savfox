@@ -69,6 +69,7 @@ impl savfox_keyring_store::KeyringStore for ArkretKeyringStore {
 }
 
 #[cfg(all(test, target_os = "windows"))]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use savfox_keyring_store::KeyringStore as _;
 

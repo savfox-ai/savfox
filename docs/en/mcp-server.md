@@ -14,6 +14,8 @@ savfox mcp-server
 
 This starts an MCP server that communicates over stdio using JSON-RPC 2.0. The server reads requests from stdin and writes responses to stdout.
 
+Savfox continues to use the `initialize` and `notifications/initialized` lifecycle when serving MCP or connecting to external MCP servers. Upgrading the MCP SDK does not enable the handshake-free 2026 protocol or `server/discover`; SDK defaults that request that protocol are constrained to the latest revision with initialization.
+
 ## Configuring MCP Clients
 
 To use Savfox as a tool in an MCP client, add it to the client's MCP server configuration.

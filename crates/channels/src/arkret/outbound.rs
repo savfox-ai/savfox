@@ -121,6 +121,7 @@ pub fn sign_outbound_event_with_key(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use arkret::signatures::Ed25519DetachedJwsSigner;
     use arkret::{DidCoreId, EventId, RealmId, SidecarId};
@@ -229,7 +230,7 @@ mod tests {
         request.thread_root_id = Some(reply.clone());
         let event = build_message_create_event(&request).unwrap();
         assert_eq!(event.payload["reply_to_id"], reply.to_string());
-        assert!(event.payload.get("thread_root_id").is_none());
+        assert!(!event.payload.contains_key("thread_root_id"));
     }
 
     #[test]

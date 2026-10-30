@@ -4420,7 +4420,7 @@ mod tests {
         )
         .unwrap();
         let reference = evidence.signer_evidence_ref().unwrap();
-        config.config["signerResolutionEvidenceRef"] = json!(reference.clone());
+        config.config["signerResolutionEvidenceRef"] = json!(reference);
         config.config["currentSignerEvidence"] = json!(arkret::KeyStateCurrentSignerEvidence {
             signer_resolution_evidence_ref: reference,
             authenticated_signer_evidence: evidence,

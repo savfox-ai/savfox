@@ -2346,7 +2346,7 @@ impl From<CoreAgentStatus> for CollabAgentState {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v1/")]
 pub struct McpToolCallResult {
-    // NOTE: `rmcp::model::Content` (and its `RawContent` variants) would be a more precise Rust
+    // NOTE: `rmcp::model::ContentBlock` would be a more precise Rust
     // representation of MCP content blocks. We intentionally use `serde_json::Value` here because
     // this crate exports JSON schema + TS types (`schemars`/`ts-rs`), and the rmcp model types
     // aren't set up to be schema/TS friendly (and would introduce heavier coupling to rmcp's Rust

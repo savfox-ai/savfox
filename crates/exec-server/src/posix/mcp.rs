@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CustomRequest, CustomResult, *};
+use rmcp::model::{ContentBlock as Content, CustomRequest, CustomResult, *};
 use rmcp::service::{RequestContext, RunningService};
 use rmcp::transport::stdio;
 use rmcp::{
@@ -146,7 +146,7 @@ impl rmcp::model::ConstString for SavfoxSandboxStateUpdateMethod {
 
 #[tool_handler]
 impl ServerHandler for ExecTool {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         let mut experimental_capabilities = ExperimentalCapabilities::new();
         let mut sandbox_state_capability = JsonObject::new();
         sandbox_state_capability.insert(
@@ -157,7 +157,7 @@ impl ServerHandler for ExecTool {
             MCP_SANDBOX_STATE_CAPABILITY.to_owned(),
             sandbox_state_capability,
         );
-        ServerInfo::new(
+        ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_experimental_with(experimental_capabilities)

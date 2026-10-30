@@ -188,10 +188,10 @@ pub(super) fn render(
                         ))
                     })
                 },
-                each(
-                    entries,
-                    |entry| entry.display_id(),
-                    move |entry, _| {
+                each(entries)
+                    .key(|entry| entry.display_id())
+                    .children(move |each_row| {
+                        let entry = each_row.value;
                         let id = entry.get_untracked().display_id();
                         let ctx = list_ctx.clone();
                         let state = list_state.clone();
@@ -283,8 +283,7 @@ pub(super) fn render(
                                     }
                                 }),
                         ))
-                    },
-                ),
+                    }),
             )),
         ));
     let show = state.show_thinking;
@@ -312,10 +311,10 @@ pub(super) fn render(
                 ))
             })
         },
-        each(
-            message_items,
-            |value| value.0,
-            move |item, _| {
+        each(message_items)
+            .key(|value| value.0)
+            .children(move |each_row| {
+                let item = each_row.value;
                 widget(move |scope| {
                     let message = item.map(|(_, message)| message.clone());
                     let content = scope.bond(move || vec![message.get().content]);
@@ -343,36 +342,34 @@ pub(super) fn render(
                                         String::new()
                                     }
                                 })),
-                            each(
-                                content,
-                                |value| value.clone(),
-                                move |content, _| markdown(&content.get_untracked()),
-                            ),
-                            each(
-                                scope.bond(move || {
-                                    message
-                                        .get()
-                                        .attachments
-                                        .into_iter()
-                                        .filter(|attachment| {
-                                            attachment.mime_type.starts_with("image/")
-                                        })
-                                        .enumerate()
-                                        .collect::<Vec<_>>()
+                            each(content)
+                                .key(|value| value.clone())
+                                .children(move |each_row| {
+                                    let content = each_row.value;
+                                    markdown(&content.get_untracked())
                                 }),
-                                |entry| entry.0,
-                                move |entry, _| {
-                                    let attachment = entry.get_untracked().1;
-                                    let source = format!(
-                                        "data:{};base64,{}",
-                                        attachment.mime_type, attachment.data_base64
-                                    );
-                                    image()
-                                        .source(source)
-                                        .alt(attachment.filename)
-                                        .class("chat-message-attachment")
-                                },
-                            ),
+                            each(scope.bond(move || {
+                                message
+                                    .get()
+                                    .attachments
+                                    .into_iter()
+                                    .filter(|attachment| attachment.mime_type.starts_with("image/"))
+                                    .enumerate()
+                                    .collect::<Vec<_>>()
+                            }))
+                            .key(|entry| entry.0)
+                            .children(move |each_row| {
+                                let entry = each_row.value;
+                                let attachment = entry.get_untracked().1;
+                                let source = format!(
+                                    "data:{};base64,{}",
+                                    attachment.mime_type, attachment.data_base64
+                                );
+                                image()
+                                    .source(source)
+                                    .alt(attachment.filename)
+                                    .class("chat-message-attachment")
+                            }),
                             text().class("terminal-events").content(scope.bond(move || {
                                 message
                                     .get()
@@ -387,8 +384,7 @@ pub(super) fn render(
                         ))
                         .build(scope)
                 })
-            },
-        ),
+            }),
     ));
     let export_state = state.clone();
     let clear_state = state.clone();
@@ -512,18 +508,16 @@ pub(super) fn render(
     let composer_agents = agents.clone();
     let composer_sessions = sessions.clone();
     let composer_locales = scope.bond(move || vec![locale.get().code().to_owned()]);
-    let prompt = each(
-        composer_locales,
-        |value| value.clone(),
-        move |_, _| {
+    let prompt = each(composer_locales)
+        .key(|value| value.clone())
+        .children(move |_| {
             composer(
                 &composer_ctx,
                 &composer_state,
                 &composer_agents,
                 &composer_sessions,
             )
-        },
-    );
+        });
     let agent_catalog = agents.value;
     let active_agent = state.agent;
     let agent_name = scope.bond(move || {
@@ -649,82 +643,83 @@ fn catalog_picker(
         .scope
         .bond(move || vec![(locale.get().code().to_owned(), catalog.get())]);
     let context = ctx.clone();
-    Box::new(each(
-        data,
-        |value| format!("{}:{}", value.0, value.1),
-        move |source, _| {
-            let data = source.get_untracked().1;
-            let locale = context.locale.get_untracked();
-            let mut options = vec![(
-                if matches!(kind, PickerKind::Filter) {
-                    String::new()
-                } else {
-                    "default".into()
-                },
-                words(
-                    locale,
+    Box::new(
+        each(data)
+            .key(|value| format!("{}:{}", value.0, value.1))
+            .children(move |each_row| {
+                let source = each_row.value;
+                let data = source.get_untracked().1;
+                let locale = context.locale.get_untracked();
+                let mut options = vec![(
                     if matches!(kind, PickerKind::Filter) {
-                        "All agents"
+                        String::new()
                     } else {
-                        "Default"
+                        "default".into()
                     },
-                    if matches!(kind, PickerKind::Filter) {
-                        "全部智能体"
+                    words(
+                        locale,
+                        if matches!(kind, PickerKind::Filter) {
+                            "All agents"
+                        } else {
+                            "Default"
+                        },
+                        if matches!(kind, PickerKind::Filter) {
+                            "全部智能体"
+                        } else {
+                            "默认"
+                        },
+                    ),
+                )];
+                let prefs = crate::utils::model_visibility::load_model_preferences();
+                for entry in common::array(
+                    &data,
+                    if matches!(kind, PickerKind::Model) {
+                        &["models"]
                     } else {
-                        "默认"
+                        &["agents"]
                     },
-                ),
-            )];
-            let prefs = crate::utils::model_visibility::load_model_preferences();
-            for entry in common::array(
-                &data,
-                if matches!(kind, PickerKind::Model) {
-                    &["models"]
-                } else {
-                    &["agents"]
-                },
-            ) {
-                if matches!(kind, PickerKind::Model)
-                    && !crate::utils::model_visibility::is_model_visible(
-                        &prefs,
-                        &crate::pages::models::visibility_key(&entry),
-                    )
-                {
-                    continue;
+                ) {
+                    if matches!(kind, PickerKind::Model)
+                        && !crate::utils::model_visibility::is_model_visible(
+                            &prefs,
+                            &crate::pages::models::visibility_key(&entry),
+                        )
+                    {
+                        continue;
+                    }
+                    let id = common::item_id(&entry);
+                    if matches!(kind, PickerKind::Agent) && id == "default" {
+                        options[0].1 = common::string(&entry, &["name", "id"]);
+                    }
+                    if id.is_empty() || options.iter().any(|(value, _)| *value == id) {
+                        continue;
+                    }
+                    let name = common::string(&entry, &["name", "id"]);
+                    options.push((id, name));
                 }
-                let id = common::item_id(&entry);
-                if matches!(kind, PickerKind::Agent) && id == "default" {
-                    options[0].1 = common::string(&entry, &["name", "id"]);
+                let current = selected.get_untracked();
+                if !options.iter().any(|(value, _)| *value == current) {
+                    options.push((current.clone(), current));
                 }
-                if id.is_empty() || options.iter().any(|(value, _)| *value == id) {
-                    continue;
-                }
-                let name = common::string(&entry, &["name", "id"]);
-                options.push((id, name));
-            }
-            let current = selected.get_untracked();
-            if !options.iter().any(|(value, _)| *value == current) {
-                options.push((current.clone(), current));
-            }
-            picker(
-                &context,
-                match kind {
-                    PickerKind::Filter => "Agent filter",
-                    PickerKind::Agent => "Agent",
-                    PickerKind::Model => "Model",
-                },
-                match kind {
-                    PickerKind::Filter => "智能体筛选",
-                    PickerKind::Agent => "智能体",
-                    PickerKind::Model => "模型",
-                },
-                selected,
-                options,
-                matches!(kind, PickerKind::Model),
-                session,
-            )
-        },
-    ))
+                picker(
+                    &context,
+                    match kind {
+                        PickerKind::Filter => "Agent filter",
+                        PickerKind::Agent => "Agent",
+                        PickerKind::Model => "Model",
+                    },
+                    match kind {
+                        PickerKind::Filter => "智能体筛选",
+                        PickerKind::Agent => "智能体",
+                        PickerKind::Model => "模型",
+                    },
+                    selected,
+                    options,
+                    matches!(kind, PickerKind::Model),
+                    session,
+                )
+            }),
+    )
 }
 
 fn localized_choice(
@@ -736,26 +731,26 @@ fn localized_choice(
 ) -> Box<dyn Widget> {
     let locale = ctx.locale;
     let context = ctx.clone();
-    Box::new(each(
-        ctx.scope.bond(move || vec![locale.get().code().to_owned()]),
-        |value| value.clone(),
-        move |_, _| {
-            picker(
-                &context,
-                en,
-                zh,
-                selected,
-                options
-                    .iter()
-                    .map(|(value, en, zh)| {
-                        (value.to_string(), words(locale.get_untracked(), en, zh))
-                    })
-                    .collect(),
-                false,
-                None,
-            )
-        },
-    ))
+    Box::new(
+        each(ctx.scope.bond(move || vec![locale.get().code().to_owned()]))
+            .key(|value| value.clone())
+            .children(move |_| {
+                picker(
+                    &context,
+                    en,
+                    zh,
+                    selected,
+                    options
+                        .iter()
+                        .map(|(value, en, zh)| {
+                            (value.to_string(), words(locale.get_untracked(), en, zh))
+                        })
+                        .collect(),
+                    false,
+                    None,
+                )
+            }),
+    )
 }
 
 fn picker(

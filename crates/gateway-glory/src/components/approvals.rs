@@ -55,16 +55,19 @@ pub fn center(ctx: &AppContext) -> Box<dyn Widget> {
         ui::flush();
     });
     let list_ctx = ctx.clone();
-    Box::new(col().class("approval-center").fill(each(
-        pending,
-        |value| format!("{}:{}", identity(value), value["nonce"]),
-        move |request, _| {
-            let ctx = list_ctx.clone();
-            widget(move |scope| {
-                card(&ctx.with_scope(scope), request.get_untracked(), pending).build(scope)
-            })
-        },
-    )))
+    Box::new(
+        col().class("approval-center").fill(
+            each(pending)
+                .key(|value| format!("{}:{}", identity(value), value["nonce"]))
+                .children(move |each_row| {
+                    let request = each_row.value;
+                    let ctx = list_ctx.clone();
+                    widget(move |scope| {
+                        card(&ctx.with_scope(scope), request.get_untracked(), pending).build(scope)
+                    })
+                }),
+        ),
+    )
 }
 
 fn card(ctx: &AppContext, request: Value, pending: Cage<Vec<Value>>) -> Box<dyn Widget> {

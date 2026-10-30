@@ -152,6 +152,7 @@ pub fn install_verified_leaf_authority(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use arkret::mls::{ArkretMlsIdentity, ArkretMlsSigner};
     use arkret::{AccountId, DeviceId, DidCoreId, RealmId, ScopeRef};
@@ -172,7 +173,7 @@ mod tests {
             )),
         )
         .unwrap();
-        let endpoint = identity.endpoint_identity().clone();
+        let endpoint = identity.endpoint_identity();
         let group = identity
             .create_group(&ScopeRef::Realm {
                 realm_id: RealmId::new("ak:realm:AXGA0fM2a_L3afx2ffIvrX5YVKbExabYEkxTUwvKu9HR")

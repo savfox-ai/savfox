@@ -1,56 +1,16 @@
 [advisories]
-# rsa: Marvin Attack (timing side-channel) — transitive dep via oauth2/reqwest,
-# no direct exposure in our usage. Track upstream for a patched release.
+# Only existing informational maintenance notices are accepted here. Do not
+# suppress security vulnerabilities: the upgraded lockfile has no outstanding
+# RustSec vulnerabilities when audited without this configuration.
 ignore = [
-    # hpke-rs 0.7 records its optional libcrux backend in Cargo.lock, but
-    # OpenMLS uses RustCrypto. CI checks that libcrux-kem remains unreachable
-    # with all workspace features and target platforms enabled.
-    "RUSTSEC-2026-0330",
-    "RUSTSEC-2026-0331",
-    "RUSTSEC-2023-0071",  # rsa: Marvin Attack
-    "RUSTSEC-2026-0049",  # rustls-webpki: CPU-intensive certificate verification
-    # hickory-proto: transitive via rama 0.3.0-alpha.4 in savfox-network-proxy.
-    # RUSTSEC-2026-0118 has no fixed upgrade; RUSTSEC-2026-0119 requires
-    # hickory >=0.26.1, which is not reachable until rama updates.
-    "RUSTSEC-2026-0118",
-    "RUSTSEC-2026-0119",
-    # rustls-webpki 0.102.x: transitive via serenity 0.12.5 -> tokio-tungstenite
-    # 0.21 -> rustls 0.22. serenity 0.12.5 is current, so this is blocked
-    # until serenity moves to a newer tungstenite/rustls stack.
-    "RUSTSEC-2026-0098",
-    "RUSTSEC-2026-0099",
-    "RUSTSEC-2026-0104",
-    # rmcp 1.3.0 DNS rebinding advisory. Track upgrade to >=1.4.0 separately
-    # because rmcp is shared across core, exec, TUI, MCP server, and tests.
-    "RUSTSEC-2026-0189",
-    # bcrypt 0.19.0 is used for gateway token password verification. Track
-    # upgrade to bcrypt >=0.19.2 separately; current CI keeps auditing visible.
-    "RUSTSEC-2026-0199",
-    # crossbeam-epoch is transitive. Track upgrade to >=0.9.20 with its parent
-    # dependency once the full workspace dependency update is staged.
-    "RUSTSEC-2026-0204",
-    # libcrux-chacha20poly1305 is transitive and only triggered through
-    # upstream crypto stacks. Track upgrade to >=0.0.8 with those parents.
-    "RUSTSEC-2026-0124",
-    # lopdf is currently 0.40.0. Track upgrade to >=0.42.0 separately because
-    # the PDF parsing API and dependency graph need focused validation.
-    "RUSTSEC-2026-0187",
-    # quick-xml 0.39.2 is transitive in the current graph. Track upgrade to
-    # >=0.41.0 with its parent dependency.
-    "RUSTSEC-2026-0194",
-    "RUSTSEC-2026-0195",
-    # quinn-proto advisory currently has no patched release in RustSec.
-    "RUSTSEC-2026-0185",
-    # Current informational warnings. Keep them explicit so new warnings still
-    # fail CI and force review.
+    # Starlark 0.13 / starlark_map still use fxhash 0.2.1. The Starlark 0.14
+    # upgrade is blocked by its blake3 pin conflicting with the Arkret SDK.
     "RUSTSEC-2025-0057",
+    # Starlark 0.13 still uses paste 1.0.15; this is a build-time macro notice.
     "RUSTSEC-2024-0436",
+    # proc-macro-error2 2.0.1 is retained through aquamarine -> teloxide and
+    # hax-lib-macros -> hax-lib. Both are upstream build-time macro paths.
     "RUSTSEC-2026-0173",
-    "RUSTSEC-2025-0134",
-    "RUSTSEC-2026-0192",
+    # Starlark 0.13 / starlark_syntax still use derivative 2.2.0 (proc macro).
     "RUSTSEC-2024-0388",
-    "RUSTSEC-2026-0190",
-    "RUSTSEC-2026-0186",
-    "RUSTSEC-2026-0097",
-    "RUSTSEC-2026-0205",
 ]

@@ -284,7 +284,7 @@ impl ArkretChannelConfig {
         let account = ArkretAccountConfig {
             mode: ArkretAccountMode::Agent,
             id: account_id,
-            principal_id: principal_id.clone(),
+            principal_id,
             actor_account_id,
             device_id,
             key_ref: raw.get("keyRef").and_then(ArkretKeyRef::from_value),
@@ -1051,6 +1051,7 @@ pub fn build_arkret_runtime_key_status_request_json(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod strict_tests {
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD_NO_PAD;
@@ -1664,7 +1665,7 @@ mod strict_tests {
             local_digest,
             arkret::canonical::digest(
                 arkret::canonical::DigestSuite::Sha256,
-                &validated.raw_public_key
+                validated.raw_public_key
             ),
             "the local digest must be SHA-256 over the decoded 32-byte Ed25519 key"
         );

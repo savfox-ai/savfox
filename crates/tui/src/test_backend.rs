@@ -2,6 +2,7 @@ use std::fmt::{self};
 use std::io::{
     Write, {self},
 };
+use std::num::NonZeroU16;
 
 use ratatui::backend::{Backend, ClearType, WindowSize};
 use ratatui::buffer::Cell;
@@ -15,7 +16,7 @@ use ratatui::prelude::CrosstermBackend;
 /// which write to stdout regardless of the writer. This includes:
 /// - getting the terminal size
 /// - getting the cursor position
-pub struct VT100Backend {
+pub(crate) struct VT100Backend {
     crossterm_backend: CrosstermBackend<vt100::Parser>,
 }
 
@@ -27,16 +28,23 @@ impl fmt::Debug for VT100Backend {
 
 impl VT100Backend {
     /// Creates a new `TestBackend` with the specified width and height.
+    ///
+    /// # Panics
+    /// Panics if either dimension is zero, which vt100 cannot represent.
     #[must_use]
-    pub fn new(width: u16, height: u16) -> Self {
+    pub(crate) fn new(width: u16, height: u16) -> Self {
         crossterm::style::force_color_output(true);
         Self {
-            crossterm_backend: CrosstermBackend::new(vt100::Parser::new(height, width, 0)),
+            crossterm_backend: CrosstermBackend::new(vt100::Parser::new(
+                NonZeroU16::new(height).expect("terminal height must be nonzero"),
+                NonZeroU16::new(width).expect("terminal width must be nonzero"),
+                0,
+            )),
         }
     }
 
     #[must_use]
-    pub fn vt100(&self) -> &vt100::Parser {
+    pub(crate) fn vt100(&self) -> &vt100::Parser {
         self.crossterm_backend.writer()
     }
 }
@@ -100,12 +108,12 @@ impl Backend for VT100Backend {
 
     fn size(&self) -> io::Result<Size> {
         let (rows, cols) = self.vt100().screen().size();
-        Ok(Size::new(cols, rows))
+        Ok(Size::new(cols.get(), rows.get()))
     }
 
     fn window_size(&mut self) -> io::Result<WindowSize> {
         Ok(WindowSize {
-            columns_rows: self.vt100().screen().size().into(),
+            columns_rows: self.size()?,
             // Arbitrary size, we don't rely on this in testing.
             pixels: Size {
                 width: 640,
@@ -128,5 +136,44 @@ impl Backend for VT100Backend {
         scroll_by: u16,
     ) -> io::Result<()> {
         self.crossterm_backend.scroll_region_down(region, scroll_by)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn terminal_dimensions_preserve_column_and_row_order() {
+        let mut backend = VT100Backend::new(80, 24);
+        let expected = Size::new(80, 24);
+        assert_eq!(Backend::size(&backend).expect("terminal size"), expected);
+        assert_eq!(
+            backend.window_size().expect("window size").columns_rows,
+            expected
+        );
+        let (rows, cols) = backend.vt100().screen().size();
+        assert_eq!((cols.get(), rows.get()), (80, 24));
+    }
+
+    #[test]
+    fn smallest_terminal_accepts_text() {
+        let mut backend = VT100Backend::new(1, 1);
+        backend.write_all(b"x").expect("terminal write");
+        assert_eq!(backend.vt100().screen().contents(), "x");
+    }
+
+    #[test]
+    #[should_panic(expected = "terminal width must be nonzero")]
+    fn zero_width_is_rejected() {
+        let _ = VT100Backend::new(0, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "terminal height must be nonzero")]
+    fn zero_height_is_rejected() {
+        let _ = VT100Backend::new(1, 0);
     }
 }

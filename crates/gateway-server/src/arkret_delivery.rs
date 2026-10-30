@@ -391,7 +391,7 @@ pub(crate) enum NativeReplyPreparation {
     StartedUnknown,
     OutputRetained {
         text: String,
-        submission: Option<garth::FrozenMessageSubmission>,
+        submission: Option<Box<garth::FrozenMessageSubmission>>,
     },
     Accepted {
         receipt: arkret::CommittedEventRef,
@@ -1097,7 +1097,7 @@ impl ArkretExecutionBindingStore {
                 );
                 *water = slot.source.stream_position;
                 ledger.entries.insert(
-                    key.clone(),
+                    key,
                     NativeReplyEntry {
                         slot: slot.clone(),
                         input_digest: input_digest.clone(),
@@ -1124,7 +1124,7 @@ impl ArkretExecutionBindingStore {
                         .output
                         .clone()
                         .ok_or_else(|| anyhow::anyhow!("native output missing"))?,
-                    submission: entry.submission.clone(),
+                    submission: entry.submission.clone().map(Box::new),
                 },
                 NativeReplyState::Accepted => {
                     let commit = entry
@@ -2980,7 +2980,7 @@ mod tests {
         body.as_object_mut().unwrap().remove("commit_id");
         body.as_object_mut().unwrap().remove("signature");
         commit.commit_id = arkret::RealmCommitId::from_digest(arkret::canonical::sha256_bytes(
-            &arkret::canonical::canonical_json_bytes(&body).unwrap(),
+            arkret::canonical::canonical_json_bytes(&body).unwrap(),
         ));
         let unsigned = arkret::canonical::unsigned_value(&commit, &["signature"]).unwrap();
         commit.signature = arkret::signatures::detached_object::sign_detached_object(
@@ -3093,8 +3093,8 @@ mod tests {
             .ensure_binding(
                 "session-one",
                 target.clone(),
-                &arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [34; 32])
-                    .to_string(),
+                arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [34; 32])
+                    .as_ref(),
                 "ak:did_core:web:controller.example",
                 "ak:did_core:web:agent.example",
                 ArkretDeliveryMode::TaskDelivery,

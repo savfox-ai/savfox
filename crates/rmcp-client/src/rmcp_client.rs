@@ -11,11 +11,10 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use reqwest::header::HeaderMap;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ClientNotification, ClientRequest,
-    CreateElicitationRequestParams, CreateElicitationResult, CustomNotification, CustomRequest,
-    Extensions, InitializeRequestParams, InitializeResult, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
-    ReadResourceResult, RequestId, ServerResult, Tool,
+    CallToolRequestParams, CallToolResult, ClientNotification, ClientRequest, CustomNotification,
+    CustomRequest, ElicitRequestParams, ElicitResult, InitializeRequestParams, InitializeResult,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+    ProtocolVersion, ReadResourceRequestParams, ReadResourceResult, RequestId, ServerResult, Tool,
 };
 use rmcp::service::{
     RoleClient, RunningService, {self},
@@ -59,8 +58,8 @@ enum ClientState {
     },
 }
 
-pub type Elicitation = CreateElicitationRequestParams;
-pub type ElicitationResponse = CreateElicitationResult;
+pub type Elicitation = ElicitRequestParams;
+pub type ElicitationResponse = ElicitResult;
 
 /// Interface for sending elicitation requests to the UI and awaiting a response.
 pub type SendElicitation = Box<
@@ -199,11 +198,16 @@ impl RmcpClient {
     /// https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle#initialization
     pub async fn initialize(
         &self,
-        params: InitializeRequestParams,
+        mut params: InitializeRequestParams,
         timeout: Option<Duration>,
         send_elicitation: SendElicitation,
     ) -> Result<InitializeResult> {
-        let client_handler = LoggingClientHandler::new(params.clone(), send_elicitation);
+        // This API deliberately uses the initialize lifecycle. The SDK's
+        // default now names the newer, handshake-free protocol instead.
+        if !params.protocol_version.has_initialize() {
+            params.protocol_version = ProtocolVersion::LATEST_WITH_INITIALIZE;
+        }
+        let client_handler = LoggingClientHandler::new(params, send_elicitation);
 
         let (transport, oauth_persistor) = {
             let mut guard = self.state.lock().await;
@@ -244,7 +248,15 @@ impl RmcpClient {
             .peer()
             .peer_info()
             .ok_or_else(|| anyhow!("handshake succeeded but server info was missing"))?;
-        let initialize_result = (*initialize_result_rmcp).clone();
+        let server_info = initialize_result_rmcp.server_info.clone().ok_or_else(|| {
+            anyhow!("initialize handshake did not return server implementation info")
+        })?;
+        let mut initialize_result =
+            InitializeResult::new(initialize_result_rmcp.capabilities.clone())
+                .with_protocol_version(initialize_result_rmcp.protocol_version.clone())
+                .with_server_info(server_info);
+        initialize_result.instructions = initialize_result_rmcp.instructions.clone();
+        initialize_result.meta = initialize_result_rmcp.meta.clone();
 
         {
             let mut guard = self.state.lock().await;
@@ -308,7 +320,7 @@ impl RmcpClient {
         })
     }
 
-    fn meta_string(meta: Option<&rmcp::model::Meta>, key: &str) -> Option<String> {
+    fn meta_string(meta: Option<&rmcp::model::MetaObject>, key: &str) -> Option<String> {
         meta.and_then(|meta| meta.get(key))
             .and_then(Value::as_str)
             .map(str::trim)
@@ -391,11 +403,9 @@ impl RmcpClient {
     ) -> Result<()> {
         let service: Arc<RunningService<RoleClient, LoggingClientHandler>> = self.service().await?;
         service
-            .send_notification(ClientNotification::CustomNotification(CustomNotification {
-                method: method.to_owned(),
-                params,
-                extensions: Extensions::new(),
-            }))
+            .send_notification(ClientNotification::CustomNotification(
+                CustomNotification::new(method, params),
+            ))
             .await?;
         Ok(())
     }

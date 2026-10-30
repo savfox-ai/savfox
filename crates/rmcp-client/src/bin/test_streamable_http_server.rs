@@ -9,16 +9,16 @@ use std::sync::Arc;
 use rmcp::ErrorData as McpError;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, JsonObject, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, PaginatedRequestParams, RawResource, RawResourceTemplate,
-    ReadResourceRequestParams, ReadResourceResult, Resource, ResourceContents, ResourceTemplate,
-    ServerCapabilities, ServerInfo, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, JsonObject,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
+    ResourceContents, ResourceTemplate, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use salvo::affix_state;
 use salvo::http::StatusCode;
-use salvo::http::header::{AUTHORIZATION, CONTENT_TYPE};
+use salvo::http::header::{AUTHORIZATION, CONTENT_TYPE, HOST};
 use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::json;
@@ -67,31 +67,17 @@ impl TestToolServer {
     }
 
     fn memo_resource() -> Resource {
-        let raw = RawResource {
-            uri: MEMO_URI.to_owned(),
-            name: "example-note".to_owned(),
-            title: Some("Example Note".to_owned()),
-            description: Some("A sample MCP resource exposed for integration tests.".to_owned()),
-            mime_type: Some("text/plain".to_owned()),
-            size: None,
-            icons: None,
-            meta: None,
-        };
-        Resource::new(raw, None)
+        Resource::new(MEMO_URI, "example-note")
+            .with_title("Example Note")
+            .with_description("A sample MCP resource exposed for integration tests.")
+            .with_mime_type("text/plain")
     }
 
     fn memo_template() -> ResourceTemplate {
-        let raw = RawResourceTemplate {
-            uri_template: "memo://savfox/{slug}".to_owned(),
-            name: "savfox-memo".to_owned(),
-            title: Some("Savfox Memo".to_owned()),
-            description: Some(
-                "Template for memo://savfox/{slug} resources used in tests.".to_owned(),
-            ),
-            mime_type: Some("text/plain".to_owned()),
-            icons: None,
-        };
-        ResourceTemplate::new(raw, None)
+        ResourceTemplate::new("memo://savfox/{slug}", "savfox-memo")
+            .with_title("Savfox Memo")
+            .with_description("Template for memo://savfox/{slug} resources used in tests.")
+            .with_mime_type("text/plain")
     }
 
     fn memo_text() -> &'static str {
@@ -107,8 +93,8 @@ struct EchoArgs {
 }
 
 impl ServerHandler for TestToolServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_tool_list_changed()
@@ -123,13 +109,7 @@ impl ServerHandler for TestToolServer {
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
     ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
         let tools = self.tools.clone();
-        async move {
-            Ok(ListToolsResult {
-                tools: (*tools).clone(),
-                next_cursor: None,
-                meta: None,
-            })
-        }
+        async move { Ok(ListToolsResult::with_all_items((*tools).clone())) }
     }
 
     fn list_resources(
@@ -138,13 +118,7 @@ impl ServerHandler for TestToolServer {
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
     ) -> impl std::future::Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
         let resources = self.resources.clone();
-        async move {
-            Ok(ListResourcesResult {
-                resources: (*resources).clone(),
-                next_cursor: None,
-                meta: None,
-            })
-        }
+        async move { Ok(ListResourcesResult::with_all_items((*resources).clone())) }
     }
 
     async fn list_resource_templates(
@@ -152,22 +126,21 @@ impl ServerHandler for TestToolServer {
         _request: Option<PaginatedRequestParams>,
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
     ) -> Result<ListResourceTemplatesResult, McpError> {
-        Ok(ListResourceTemplatesResult {
-            resource_templates: (*self.resource_templates).clone(),
-            next_cursor: None,
-            meta: None,
-        })
+        Ok(ListResourceTemplatesResult::with_all_items(
+            (*self.resource_templates).clone(),
+        ))
     }
 
     async fn read_resource(
         &self,
         ReadResourceRequestParams { uri, .. }: ReadResourceRequestParams,
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
-    ) -> Result<ReadResourceResult, McpError> {
+    ) -> Result<ReadResourceResponse, McpError> {
         if uri == MEMO_URI {
             Ok(ReadResourceResult::new(vec![
                 ResourceContents::text(Self::memo_text(), uri).with_mime_type("text/plain"),
-            ]))
+            ])
+            .into())
         } else {
             Err(McpError::resource_not_found(
                 "resource_not_found",
@@ -180,7 +153,7 @@ impl ServerHandler for TestToolServer {
         &self,
         request: CallToolRequestParams,
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
+    ) -> Result<CallToolResponse, McpError> {
         match request.name.as_ref() {
             "echo" => {
                 let args: EchoArgs = match request.arguments {
@@ -202,7 +175,7 @@ impl ServerHandler for TestToolServer {
                     "env": env_snapshot.get("MCP_TEST_VALUE"),
                 });
 
-                Ok(CallToolResult::structured(structured_content))
+                Ok(CallToolResult::structured(structured_content).into())
             }
             other => Err(McpError::invalid_params(
                 format!("unknown tool: {other}"),
@@ -226,10 +199,17 @@ async fn oauth_metadata(req: &mut Request, res: &mut Response) {
         .uri()
         .authority()
         .map(|a| a.to_string())
+        .or_else(|| {
+            req.headers()
+                .get(HOST)
+                .and_then(|host| host.to_str().ok())
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| "127.0.0.1:3920".to_owned());
     let metadata_base = format!("http://{bind_addr}");
     #[expect(clippy::expect_used)]
     let body = serde_json::to_vec(&json!({
+        "issuer": format!("{metadata_base}/mcp"),
         "authorization_endpoint": format!("{metadata_base}/oauth/authorize"),
         "token_endpoint": format!("{metadata_base}/oauth/token"),
         "scopes_supported": [""],

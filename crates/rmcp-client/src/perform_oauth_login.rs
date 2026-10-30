@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::ClientBuilder;
-use rmcp::transport::auth::OAuthState;
+use rmcp::transport::auth::{AuthorizationRequest, OAuthState};
 use tiny_http::{Response, Server};
 use tokio::sync::oneshot;
 use tokio::time::timeout;
@@ -285,9 +285,12 @@ impl OauthLoginFlow {
         let http_client = apply_default_headers(ClientBuilder::new(), &default_headers).build()?;
 
         let mut oauth_state = OAuthState::new(server_url, Some(http_client)).await?;
-        let scope_refs: Vec<&str> = scopes.iter().map(String::as_str).collect();
         oauth_state
-            .start_authorization(&scope_refs, &redirect_uri, Some("Savfox"))
+            .start_authorization(
+                AuthorizationRequest::new(redirect_uri)
+                    .with_scopes(scopes.iter().cloned())
+                    .with_client_name("Savfox"),
+            )
             .await?;
         let auth_url = oauth_state.get_authorization_url().await?;
         let timeout_secs = timeout_secs.unwrap_or(DEFAULT_OAUTH_TIMEOUT_SECS).max(1);

@@ -492,6 +492,15 @@ async fn persist_generated_token(
     Ok(path)
 }
 
+#[cfg(feature = "arkret")]
+pub use channels::arkret::native_reply::{
+    FrozenNativeProviderRequest, NativeAgentCredentials, NativePublicReplyGuard,
+    NativePublicReplyHandle, NativePublicReplyHost, NativeReplySource,
+    start_native_arkret_public_replies,
+};
+#[cfg(feature = "arkret")]
+pub use channels::arkret_applet::bot::NativeRealmBotReplies;
+
 #[cfg(test)]
 mod tests {
     use super::{load_persisted_token, persist_generated_token, token_fingerprint};
@@ -569,12 +578,3 @@ mod tests {
         );
     }
 }
-
-#[cfg(feature = "arkret")]
-pub use channels::arkret::native_reply::{
-    FrozenNativeProviderRequest, NativeAgentCredentials, NativePublicReplyGuard,
-    NativePublicReplyHandle, NativePublicReplyHost, NativeReplySource,
-    start_native_arkret_public_replies,
-};
-#[cfg(feature = "arkret")]
-pub use channels::arkret_applet::bot::NativeRealmBotReplies;

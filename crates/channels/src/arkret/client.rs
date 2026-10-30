@@ -154,7 +154,7 @@ fn mint_agent_session_refresh_proof(
     let signature = Base64UrlString::new(arkret::base64url_encode(
         signing_key.sign(&signing_bytes).to_bytes(),
     ))
-    .map_err(|error| garth::Error::Protocol(error.to_string()))?;
+    .map_err(|error| garth::Error::Protocol(error.to_owned()))?;
     unsigned
         .attach_signature(signature)
         .map_err(|error| garth::Error::Protocol(error.to_string()))
@@ -1113,6 +1113,7 @@ impl std::error::Error for AgentSessionExchangeError {
 /// Preserve the machine-readable Account Authority reason through `anyhow`
 /// context so lifecycle-aware callers (notably explicit unbind) can distinguish
 /// an irreversibly dead authorization from a transient authentication failure.
+#[must_use]
 pub fn agent_session_exchange_reason(error: &anyhow::Error) -> Option<&str> {
     error
         .chain()
@@ -1124,6 +1125,7 @@ pub fn agent_session_exchange_reason(error: &anyhow::Error) -> Option<&str> {
 /// to the exact authorization Event, so these outcomes also make its pool
 /// permanently unclaimable. A paused Agent is deliberately excluded because
 /// resuming can make the same authorization usable again.
+#[must_use]
 pub fn agent_session_reason_is_irreversibly_terminal(reason: &str) -> bool {
     matches!(
         reason,
@@ -1435,6 +1437,7 @@ fn agent_client_builder(base_url: Url) -> anyhow::Result<ClientBuilder> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD_NO_PAD;
@@ -1789,7 +1792,10 @@ mod tests {
                 panic!("Agent issue required")
             };
             request.validate().unwrap();
-            assert_eq!(request.agent_scope_request.realm_ids, [realm.clone()]);
+            assert_eq!(
+                request.agent_scope_request.realm_ids.as_slice(),
+                std::slice::from_ref(&realm)
+            );
             assert!(request.agent_scope_request.strand_ids.is_empty());
             assert_eq!(request.requested_scope, before);
             assert_eq!(

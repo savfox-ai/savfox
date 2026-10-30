@@ -82,7 +82,8 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             status(ctx, &state),
             col()
                 .class("logs-list")
-                .fill(each(filtered, record_key, move |item, _| {
+                .fill(each(filtered).key(record_key).children(move |each_row| {
+                    let item = each_row.value;
                     let entry = item.get_untracked();
                     let severity = string(&entry, &["level"]).to_lowercase();
                     let timestamp = string(&entry, &["timestamp", "time"]);

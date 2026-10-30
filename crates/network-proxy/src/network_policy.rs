@@ -114,17 +114,40 @@ pub(crate) async fn evaluate_host_policy(
     decider: Option<&Arc<dyn NetworkPolicyDecider>>,
     request: &NetworkPolicyRequest,
 ) -> Result<NetworkDecision> {
-    match state.host_blocked(&request.host, request.port).await? {
-        HostBlockDecision::Allowed => Ok(NetworkDecision::Allow),
+    evaluate_host_policy_with_target(state, decider, request)
+        .await
+        .map(|(decision, _)| decision)
+}
+
+pub(crate) async fn evaluate_host_policy_with_target(
+    state: &NetworkProxyState,
+    decider: Option<&Arc<dyn NetworkPolicyDecider>>,
+    request: &NetworkPolicyRequest,
+) -> Result<(NetworkDecision, Option<crate::connector::ValidatedTarget>)> {
+    let (blocked, addresses) = state
+        .host_blocked_with_addresses(&request.host, request.port)
+        .await?;
+    let decision = match blocked {
+        HostBlockDecision::Allowed => NetworkDecision::Allow,
         HostBlockDecision::Blocked(HostBlockReason::NotAllowed) => {
             if let Some(decider) = decider {
-                Ok(decider.decide(request.clone()).await)
+                decider.decide(request.clone()).await
             } else {
-                Ok(NetworkDecision::deny(HostBlockReason::NotAllowed.as_str()))
+                NetworkDecision::deny(HostBlockReason::NotAllowed.as_str())
             }
         }
-        HostBlockDecision::Blocked(reason) => Ok(NetworkDecision::deny(reason.as_str())),
-    }
+        HostBlockDecision::Blocked(reason) => NetworkDecision::deny(reason.as_str()),
+    };
+    let target = if decision == NetworkDecision::Allow {
+        addresses.map(|addresses| crate::connector::ValidatedTarget {
+            host: request.host.clone(),
+            port: request.port,
+            addresses,
+        })
+    } else {
+        None
+    };
+    Ok((decision, target))
 }
 
 #[cfg(test)]
@@ -141,7 +164,8 @@ mod tests {
 
     #[tokio::test]
     async fn evaluate_host_policy_invokes_decider_for_not_allowed() {
-        let state = network_proxy_state_for_policy(NetworkPolicy::default());
+        let state = network_proxy_state_for_policy(NetworkPolicy::default())
+            .with_dns_answers(&[("example.com", &["8.8.8.8"])]);
         let calls = Arc::new(AtomicUsize::new(0));
         let decider: Arc<dyn NetworkPolicyDecider> = Arc::new({
             let calls = calls.clone();
@@ -211,10 +235,11 @@ mod tests {
     #[tokio::test]
     async fn evaluate_host_policy_skips_decider_for_not_allowed_local() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["example.com".to_owned()],
+            allowed_domains: vec!["private.example".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
-        });
+        })
+        .with_dns_answers(&[("private.example", &["8.8.8.8", "10.0.0.1"])]);
         let calls = Arc::new(AtomicUsize::new(0));
         let decider: Arc<dyn NetworkPolicyDecider> = Arc::new({
             let calls = calls.clone();
@@ -224,25 +249,27 @@ mod tests {
             }
         });
 
-        let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
-            protocol: NetworkProtocol::Http,
-            host: "127.0.0.1".to_owned(),
-            port: 80,
-            client_addr: None,
-            method: Some("GET".to_owned()),
-            command: None,
-            exec_policy_hint: None,
-        });
+        for host in ["127.0.0.1", "private.example"] {
+            let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
+                protocol: NetworkProtocol::Http,
+                host: host.to_owned(),
+                port: 80,
+                client_addr: None,
+                method: Some("GET".to_owned()),
+                command: None,
+                exec_policy_hint: None,
+            });
 
-        let decision = evaluate_host_policy(&state, Some(&decider), &request)
-            .await
-            .unwrap();
-        assert_eq!(
-            decision,
-            NetworkDecision::Deny {
-                reason: REASON_NOT_ALLOWED_LOCAL.to_owned()
-            }
-        );
+            let decision = evaluate_host_policy(&state, Some(&decider), &request)
+                .await
+                .unwrap();
+            assert_eq!(
+                decision,
+                NetworkDecision::Deny {
+                    reason: REASON_NOT_ALLOWED_LOCAL.to_owned()
+                }
+            );
+        }
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
@@ -255,7 +282,8 @@ mod tests {
         let state = network_proxy_state_for_policy(NetworkPolicy {
             allowed_domains: vec!["example.com".to_owned()],
             ..NetworkPolicy::default()
-        });
+        })
+        .with_dns_answers(&[("example.com", &["8.8.8.8"])]);
         let calls = Arc::new(AtomicUsize::new(0));
         let decider: Arc<dyn NetworkPolicyDecider> = Arc::new({
             let calls = calls.clone();
@@ -361,6 +389,43 @@ mod tests {
                 assert_eq!(reason, crate::reasons::REASON_POLICY_DENIED);
             }
             _ => panic!("expected Deny"),
+        }
+    }
+    #[tokio::test]
+    async fn allowlist_and_decider_keep_the_public_ip_candidates_for_the_connector() {
+        for use_decider in [false, true] {
+            let state = network_proxy_state_for_policy(NetworkPolicy {
+                allowed_domains: if use_decider {
+                    vec![]
+                } else {
+                    vec!["8.8.8.8".to_owned()]
+                },
+                allow_local_binding: false,
+                ..Default::default()
+            });
+            let decider: Arc<dyn NetworkPolicyDecider> =
+                Arc::new(|_: NetworkPolicyRequest| async { NetworkDecision::Allow });
+            let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
+                protocol: NetworkProtocol::HttpsConnect,
+                host: "8.8.8.8".to_owned(),
+                port: 443,
+                client_addr: None,
+                method: None,
+                command: None,
+                exec_policy_hint: None,
+            });
+            let (decision, target) =
+                evaluate_host_policy_with_target(&state, use_decider.then_some(&decider), &request)
+                    .await
+                    .unwrap();
+            assert_eq!(decision, NetworkDecision::Allow);
+            let target = target.expect("approved public address must be retained");
+            assert_eq!(target.host, "8.8.8.8");
+            assert_eq!(target.port, 443);
+            assert_eq!(
+                target.addresses,
+                vec!["8.8.8.8:443".parse::<std::net::SocketAddr>().unwrap()]
+            );
         }
     }
 }

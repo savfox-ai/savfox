@@ -1559,7 +1559,7 @@ mod tests {
 
     use anyhow::{Result, anyhow, bail};
     use pretty_assertions::assert_eq;
-    use rmcp::model::Content;
+    use rmcp::model::ContentBlock as Content;
     use savfox_app_server_protocol::TurnPlanStepStatus;
     use savfox_core::protocol::{
         CreditsSnapshot, McpInvocation, RateLimitSnapshot, RateLimitWindow, TokenUsage,

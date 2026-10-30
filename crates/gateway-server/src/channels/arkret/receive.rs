@@ -334,18 +334,18 @@ struct ScopeReadBudget {
 impl ScopeReadBudget {
     async fn run<T>(
         &mut self,
-        service: &Option<arkret::DidCoreId>,
+        service: Option<&arkret::DidCoreId>,
         operation: ScopeReadOperation,
         now: tokio::time::Instant,
         read: impl std::future::Future<Output = anyhow::Result<T>>,
     ) -> anyhow::Result<T> {
-        let key = (service.clone(), operation);
+        let key = (service.cloned(), operation);
         // A failed stream scan does not turn successful current observations
         // or other proof reads into retries of that failed request.
         if self.failed_reads.contains(&key) {
             let attempts = self
                 .attempts
-                .entry((service.clone(), key.1.endpoint()))
+                .entry((service.cloned(), key.1.endpoint()))
                 .or_default();
             while attempts
                 .front()
@@ -421,17 +421,16 @@ impl RecoveryProgress {
                     "recovery scan forks its retained Commit head"
                 );
             }
-            if let arkret::CommittedEventView::Full(full) = item {
-                if full.commit.stream_position <= self.expected_head.stream_position
-                    && targets.remove(&full.event.event_id)
-                {
-                    self.events.push(ClientEvent::Committed(
-                        garth::CommittedDelta::from_committed_event_view(
-                            self.expected_head.stream_ref.realm_id().clone(),
-                            item.clone(),
-                        )?,
-                    ));
-                }
+            if let arkret::CommittedEventView::Full(full) = item
+                && full.commit.stream_position <= self.expected_head.stream_position
+                && targets.remove(&full.event.event_id)
+            {
+                self.events.push(ClientEvent::Committed(
+                    garth::CommittedDelta::from_committed_event_view(
+                        self.expected_head.stream_ref.realm_id().clone(),
+                        item.clone(),
+                    )?,
+                ));
             }
         }
         if let Some(last) = rows.last() {
@@ -522,7 +521,7 @@ async fn recover_pending_content(
         &state,
         account_store.cursor_scopes()?,
         &actor,
-        &account_subscription_service_id(channel, account)?,
+        account_subscription_service_id(channel, account)?.as_ref(),
         &account_mls_endpoint(account)?,
     )?;
     for (group_id, epochs) in &state.mls_station_currents {
@@ -602,7 +601,7 @@ async fn recover_pending_content(
                     };
                     let anchor = read_budget
                         .run(
-                            &scope_service(&scope),
+                            scope_service(&scope).as_ref(),
                             ScopeReadOperation::RecoveryAnchor(stream_ref.clone()),
                             tokio::time::Instant::now(),
                             async { Ok(own.scan_commit_stream(&request).await?) },
@@ -654,7 +653,7 @@ async fn recover_pending_content(
                     };
                     let snapshot_response = read_budget
                         .run(
-                            &scope_service(&scope),
+                            scope_service(&scope).as_ref(),
                             ScopeReadOperation::SnapshotHead(request.realm_id.clone()),
                             tokio::time::Instant::now(),
                             async { Ok(own.snapshot_head(&request.realm_id).await?) },
@@ -674,7 +673,7 @@ async fn recover_pending_content(
                     }
                     let response = read_budget
                         .run(
-                            &scope_service(&scope),
+                            scope_service(&scope).as_ref(),
                             ScopeReadOperation::RecoveryScan(stream_ref.clone()),
                             tokio::time::Instant::now(),
                             async { Ok(own.scan_commit_stream(&request).await?) },
@@ -684,7 +683,7 @@ async fn recover_pending_content(
                     // under the same own-Station session as the retained head.
                     let after_response = read_budget
                         .run(
-                            &scope_service(&scope),
+                            scope_service(&scope).as_ref(),
                             ScopeReadOperation::SnapshotHead(request.realm_id.clone()),
                             tokio::time::Instant::now(),
                             async { Ok(own.snapshot_head(&request.realm_id).await?) },
@@ -847,7 +846,7 @@ fn installed_scan_scopes(
     state: &savfox_channels::arkret::ArkretCryptoStateFile,
     cursors: Vec<garth::CursorScope>,
     actor: &arkret::ActorId,
-    service: &Option<arkret::DidCoreId>,
+    service: Option<&arkret::DidCoreId>,
     endpoint: &arkret::MlsEndpointIdentity,
 ) -> anyhow::Result<std::collections::BTreeSet<arkret::CommitStreamRef>> {
     let mut scopes = std::collections::BTreeSet::new();
@@ -859,7 +858,7 @@ fn installed_scan_scopes(
         else {
             continue;
         };
-        if &service_id != service {
+        if service_id.as_ref() != service {
             continue;
         }
         let scope = match &stream_ref {
@@ -953,7 +952,7 @@ mod installed_scope_tests {
         let checkpoint = ScopeReadOperation::Checkpoint(stream_ref.clone());
         assert!(
             budget
-                .run::<()>(&service, checkpoint.clone(), now, async {
+                .run::<()>(service.as_ref(), checkpoint.clone(), now, async {
                     anyhow::bail!("stream temporarily not readable")
                 },)
                 .await
@@ -962,7 +961,7 @@ mod installed_scope_tests {
         for _ in 0..=arkret::SPEC_MAX_RETRIES {
             let current = budget
                 .run(
-                    &service,
+                    service.as_ref(),
                     ScopeReadOperation::SnapshotHead(stream_ref.realm_id().clone()),
                     now,
                     async { Ok(()) },
@@ -975,12 +974,12 @@ mod installed_scope_tests {
         }
         assert!(budget.attempts.is_empty());
         budget
-            .run(&service, checkpoint, now, async { Ok(()) })
+            .run(service.as_ref(), checkpoint, now, async { Ok(()) })
             .await
             .unwrap();
         budget
             .run(
-                &service,
+                service.as_ref(),
                 ScopeReadOperation::ForwardScan(stream_ref),
                 now,
                 async { Ok(()) },
@@ -1026,7 +1025,7 @@ mod installed_scope_tests {
         for operation in &operations {
             assert!(
                 budget
-                    .run::<()>(&service, operation.clone(), now, async {
+                    .run::<()>(service.as_ref(), operation.clone(), now, async {
                         anyhow::bail!("initial read failed")
                     })
                     .await
@@ -1037,7 +1036,7 @@ mod installed_scope_tests {
             assert!(
                 budget
                     .run::<()>(
-                        &service,
+                        service.as_ref(),
                         operations[index as usize % 2].clone(),
                         now,
                         async {
@@ -1050,7 +1049,7 @@ mod installed_scope_tests {
             );
         }
         let error = budget
-            .run::<()>(&service, operations[1].clone(), now, async {
+            .run::<()>(service.as_ref(), operations[1].clone(), now, async {
                 panic!("another failed scope bypassed the endpoint retry window")
             })
             .await
@@ -1058,7 +1057,7 @@ mod installed_scope_tests {
         assert!(error.is::<ScopeReadDeferred>());
         budget
             .run(
-                &service,
+                service.as_ref(),
                 ScopeReadOperation::Checkpoint(shared),
                 now,
                 async {
@@ -1072,7 +1071,7 @@ mod installed_scope_tests {
         assert_eq!(budget.attempts[&(service.clone(), endpoint)].len(), 5);
         assert_eq!(budget.failed_reads.len(), 2);
         let error = budget
-            .run::<()>(&service, operations[0].clone(), now, async {
+            .run::<()>(service.as_ref(), operations[0].clone(), now, async {
                 panic!("a successful proof read reset the shared retry window")
             })
             .await
@@ -1080,7 +1079,7 @@ mod installed_scope_tests {
         assert!(error.is::<ScopeReadDeferred>());
         budget
             .run(
-                &service,
+                service.as_ref(),
                 operations[0].clone(),
                 now + arkret::SPEC_RETRY_WINDOW,
                 async {
@@ -1094,7 +1093,7 @@ mod installed_scope_tests {
         assert_eq!(budget.attempts[&(service.clone(), endpoint)].len(), 1);
         budget
             .run(
-                &service,
+                service.as_ref(),
                 operations[0].clone(),
                 now + arkret::SPEC_RETRY_WINDOW,
                 async { Ok(()) },
@@ -1392,14 +1391,14 @@ mod installed_scope_tests {
         };
         // Later appends cannot enter a request ending at the captured cap.
         assert_eq!(
-            own_station_scan_limit(&stream, &[head.clone()], 27).unwrap(),
+            own_station_scan_limit(&stream, std::slice::from_ref(&head), 27).unwrap(),
             1
         );
         assert_eq!(
-            own_station_scan_limit(&stream, &[head.clone()], 28).unwrap(),
+            own_station_scan_limit(&stream, std::slice::from_ref(&head), 28).unwrap(),
             0
         );
-        assert!(own_station_scan_limit(&stream, &[head.clone()], 29).is_err());
+        assert!(own_station_scan_limit(&stream, std::slice::from_ref(&head), 29).is_err());
         assert!(own_station_scan_limit(&stream, &[], 27).is_err());
         assert!(own_station_scan_limit(&stream, &[head.clone(), head.clone()], 27).is_err());
         let mut distant = head;
@@ -1527,29 +1526,17 @@ mod installed_scope_tests {
         }
         assert!(state.mls_station_currents.is_empty());
         assert_eq!(
-            installed_scan_scopes(
-                &state,
-                cursors.clone(),
-                &actor,
-                &Some(service.clone()),
-                &endpoint
-            )
-            .unwrap(),
+            installed_scan_scopes(&state, cursors.clone(), &actor, Some(&service), &endpoint)
+                .unwrap(),
             streams
         );
         assert!(
-            installed_scan_scopes(
-                &state,
-                Vec::new(),
-                &actor,
-                &Some(service.clone()),
-                &endpoint
-            )
-            .unwrap()
-            .is_empty()
+            installed_scan_scopes(&state, Vec::new(), &actor, Some(&service), &endpoint)
+                .unwrap()
+                .is_empty()
         );
         assert!(
-            installed_scan_scopes(&state, cursors.clone(), &actor, &None, &endpoint)
+            installed_scan_scopes(&state, cursors.clone(), &actor, None, &endpoint)
                 .unwrap()
                 .is_empty()
         );
@@ -1562,13 +1549,13 @@ mod installed_scope_tests {
                 &state,
                 cursors.clone(),
                 &other_actor,
-                &Some(service.clone()),
+                Some(&service),
                 &endpoint
             )
             .unwrap()
             .is_empty()
         );
-        let mut replaced = endpoint.clone();
+        let mut replaced = endpoint;
         if let arkret::MlsEndpointIdentity::AgentRuntime {
             agent_key_authorize_event_id,
             ..
@@ -1577,7 +1564,7 @@ mod installed_scope_tests {
             *agent_key_authorize_event_id = id(10);
         }
         assert!(
-            installed_scan_scopes(&state, cursors, &actor, &Some(service), &replaced)
+            installed_scan_scopes(&state, cursors, &actor, Some(&service), &replaced)
                 .unwrap()
                 .is_empty()
         );
@@ -1592,7 +1579,7 @@ async fn restore_visible_checkpoint(
         arkret::RealmId,
         arkret::RealmStateSnapshot,
     >,
-    service: &Option<arkret::DidCoreId>,
+    service: Option<&arkret::DidCoreId>,
     read_budget: &mut ScopeReadBudget,
 ) -> anyhow::Result<u16> {
     replica.install_bound_snapshot(snapshot)?;
@@ -1641,7 +1628,7 @@ async fn scan_installed_scopes(
         &state,
         account_store.cursor_scopes()?,
         &actor,
-        &service_id,
+        service_id.as_ref(),
         &endpoint,
     )?;
     for stream_ref in scopes {
@@ -1669,7 +1656,7 @@ async fn scan_installed_scopes(
                     .context("installed Agent scope has no durable checkpoint")?;
                 let snapshot_response = read_budget
                     .run(
-                        &scope_service(&scope),
+                        scope_service(&scope).as_ref(),
                         ScopeReadOperation::SnapshotHead(realm_id.clone()),
                         tokio::time::Instant::now(),
                         async { Ok(own.snapshot_head(&realm_id).await?) },
@@ -1680,7 +1667,7 @@ async fn scan_installed_scopes(
                     &mut replica,
                     &previous.head,
                     &snapshot_response,
-                    &scope_service(&scope),
+                    scope_service(&scope).as_ref(),
                     read_budget,
                 )
                 .await?;
@@ -1713,7 +1700,7 @@ async fn scan_installed_scopes(
                 };
                 let response = read_budget
                     .run(
-                        &scope_service(&scope),
+                        scope_service(&scope).as_ref(),
                         ScopeReadOperation::ForwardScan(stream_ref.clone()),
                         tokio::time::Instant::now(),
                         async { Ok(own.scan_commit_stream(&request).await?) },
@@ -1724,7 +1711,7 @@ async fn scan_installed_scopes(
                 // own-Station session binding as the page and durable head.
                 let after_response = read_budget
                     .run(
-                        &scope_service(&scope),
+                        scope_service(&scope).as_ref(),
                         ScopeReadOperation::SnapshotHead(realm_id.clone()),
                         tokio::time::Instant::now(),
                         async { Ok(own.snapshot_head(&realm_id).await?) },
@@ -1881,7 +1868,7 @@ mod recovery_tests {
             arkret::canonical::canonical::unsigned_value(commit, &["commit_id", "signature"])
                 .unwrap();
         commit.commit_id = arkret::RealmCommitId::from_digest(arkret::canonical::sha256_bytes(
-            &arkret::canonical::canonical_json_bytes(&body).unwrap(),
+            arkret::canonical::canonical_json_bytes(&body).unwrap(),
         ));
         commit.signature = arkret::signatures::detached_object::sign_detached_object(
             &arkret::canonical::canonical::unsigned_value(commit, &["signature"]).unwrap(),
@@ -2082,7 +2069,7 @@ mod recovery_tests {
                 .unwrap();
         snapshot.snapshot_id =
             arkret::RealmSnapshotId::from_digest(arkret::canonical::sha256_bytes(
-                &arkret::canonical::canonical_json_bytes(&body).unwrap(),
+                arkret::canonical::canonical_json_bytes(&body).unwrap(),
             ));
         snapshot.signature = arkret::signatures::detached_object::sign_detached_object(
             &arkret::canonical::canonical::unsigned_value(&snapshot, &["signature"]).unwrap(),
@@ -2127,7 +2114,7 @@ mod recovery_tests {
             garth::own_station_results::OwnStationReplica::new(event.realm_id.clone());
         let hidden = own.snapshot_head(&event.realm_id).await.unwrap();
         let error =
-            restore_visible_checkpoint(&own, &mut replica, &previous, &hidden, &None, &mut budget)
+            restore_visible_checkpoint(&own, &mut replica, &previous, &hidden, None, &mut budget)
                 .await
                 .unwrap_err();
         assert!(error.is::<ScopeVisibilityPending>());
@@ -2135,16 +2122,9 @@ mod recovery_tests {
         assert!(budget.attempts.is_empty());
         let visible = own.snapshot_head(&event.realm_id).await.unwrap();
         assert_eq!(
-            restore_visible_checkpoint(
-                &own,
-                &mut replica,
-                &previous,
-                &visible,
-                &None,
-                &mut budget,
-            )
-            .await
-            .unwrap(),
+            restore_visible_checkpoint(&own, &mut replica, &previous, &visible, None, &mut budget,)
+                .await
+                .unwrap(),
             0
         );
         assert_eq!(replica.head(&previous.stream_ref), Some(&previous));
@@ -2173,7 +2153,7 @@ mod recovery_tests {
             &mut replica,
             &previous,
             &snapshot,
-            &None,
+            None,
             &mut ScopeReadBudget::default(),
         )
         .await
@@ -2211,7 +2191,7 @@ mod recovery_tests {
             &mut replica,
             &previous,
             &snapshot,
-            &None,
+            None,
             &mut ScopeReadBudget::default(),
         )
         .await
@@ -2649,7 +2629,7 @@ pub(super) fn native_installed_shared_scopes(
     state: &savfox_channels::arkret::ArkretCryptoStateFile,
     cursors: Vec<garth::CursorScope>,
     account: &ArkretAccountConfig,
-    service: &Option<arkret::DidCoreId>,
+    service: Option<&arkret::DidCoreId>,
 ) -> anyhow::Result<std::collections::BTreeSet<arkret::CommitStreamRef>> {
     let actor = arkret::ActorId::account(account.actor_account_id.clone());
     let endpoint = account_mls_endpoint(account)?;

@@ -161,10 +161,11 @@ what it can reasonably guarantee.
 - Local/private network protection: when `allow_local_binding = false`, the proxy blocks loopback
   and common private/link-local ranges. Explicit allowlisting of local IP literals (or `localhost`)
   is required to permit them; hostnames that resolve to local/private IPs are still blocked even if
-  allowlisted (best-effort DNS lookup).
+  allowlisted. DNS lookup failures fail closed. Validated addresses are pinned through the HTTP,
+  CONNECT, and SOCKS5 TCP connector stacks, so a connection does not resolve a checked domain again.
 - Limited mode enforcement:
   - only `GET`, `HEAD`, and `OPTIONS` are allowed
-  - HTTPS `CONNECT` remains a tunnel; limited-mode method enforcement does not apply to HTTPS
+  - HTTPS `CONNECT` and SOCKS5 are blocked; full mode is required for tunneling
 - Listener safety defaults:
   - the admin API is unauthenticated; non-loopback binds are clamped unless explicitly enabled via
     `dangerously_allow_non_loopback_admin`
@@ -175,6 +176,7 @@ what it can reasonably guarantee.
 - `enabled` is enforced at runtime; when false the proxy no-ops and does not bind listeners.
 Limitations:
 
-- DNS rebinding is hard to fully prevent without pinning the resolved IP(s) all the way down to the
-  transport layer. If your threat model includes hostile DNS, enforce network egress at a lower
-  layer too (e.g., firewall / VPC / corporate proxy policies).
+- An upstream proxy configured by the operator is a separate trusted hop. Its own address can be
+  resolved separately; origin-side DNS and access enforcement remain the upstream proxy's
+  responsibility. Direct connections retain the original authority for HTTP and TLS while dialing
+  only the checked candidate addresses.

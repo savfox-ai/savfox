@@ -110,33 +110,36 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         card(
             ui::label_for(locale, "Hourly distribution"),
             vec![
-                Box::new(row().class("heatmap-grid").fill(each(
-                    value.map(|v| {
-                        let rows = v["hourly_distribution"]
-                            .as_array()
-                            .cloned()
-                            .unwrap_or_default();
-                        let max = rows
-                            .iter()
-                            .filter_map(Value::as_u64)
-                            .max()
-                            .unwrap_or(0)
-                            .max(1);
-                        (0..24)
-                            .map(|i| (i, rows.get(i).and_then(Value::as_u64).unwrap_or(0), max))
-                            .collect::<Vec<_>>()
-                    }),
-                    |(hour, count, _)| format!("{hour}-{count}"),
-                    move |item, _| {
-                        let (_, count, max) = item.get_untracked();
-                        text()
-                            .class(format!(
-                                "heatmap-cell heatmap-cell--{}",
-                                if count == 0 { 0 } else { 1 + (count * 4 / max) }
-                            ))
-                            .content(count.to_string())
-                    },
-                ))),
+                Box::new(
+                    row().class("heatmap-grid").fill(
+                        each(value.map(|v| {
+                            let rows = v["hourly_distribution"]
+                                .as_array()
+                                .cloned()
+                                .unwrap_or_default();
+                            let max = rows
+                                .iter()
+                                .filter_map(Value::as_u64)
+                                .max()
+                                .unwrap_or(0)
+                                .max(1);
+                            (0..24)
+                                .map(|i| (i, rows.get(i).and_then(Value::as_u64).unwrap_or(0), max))
+                                .collect::<Vec<_>>()
+                        }))
+                        .key(|(hour, count, _)| format!("{hour}-{count}"))
+                        .children(move |each_row| {
+                            let item = each_row.value;
+                            let (_, count, max) = item.get_untracked();
+                            text()
+                                .class(format!(
+                                    "heatmap-cell heatmap-cell--{}",
+                                    if count == 0 { 0 } else { 1 + (count * 4 / max) }
+                                ))
+                                .content(count.to_string())
+                        }),
+                    ),
+                ),
                 Box::new(row().class("heatmap-labels").fill((
                     text().content("0:00"),
                     text().content("6:00"),
@@ -160,16 +163,17 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
     });
     children.push(card(
         ui::label_for(locale, "By model"),
-        vec![Box::new(each(
-            breakdown,
-            |(model, counts)| format!("{model}-{}-{}-{}", counts.0, counts.1, counts.2),
-            move |item, _| {
-                let (model, (input, output, cost)) = item.get_untracked();
-                paragraph(format!(
-                    "{model} · {input} input / {output} output tokens · ${cost:.4}"
-                ))
-            },
-        ))],
+        vec![Box::new(
+            each(breakdown)
+                .key(|(model, counts)| format!("{model}-{}-{}-{}", counts.0, counts.1, counts.2))
+                .children(move |each_row| {
+                    let item = each_row.value;
+                    let (model, (input, output, cost)) = item.get_untracked();
+                    paragraph(format!(
+                        "{model} · {input} input / {output} output tokens · ${cost:.4}"
+                    ))
+                }),
+        )],
     ));
     children.push(card(
         ui::label_for(locale, "Daily usage"),

@@ -560,7 +560,15 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
     #[cfg(feature = "arkret")]
     let arkret_binding = if platform == "arkret" {
-        match (
+        if let (
+            Some(config_id),
+            Some(account_id),
+            Some(realm_id),
+            Some(strand_id),
+            Some(event_id),
+            Some(sender_did),
+            Some(stream_ref),
+        ) = (
             start_meta.saved_channel_config_id.as_deref(),
             start_meta.account_id.as_deref(),
             start_meta.remote_realm_id.as_deref(),
@@ -569,46 +577,35 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             start_meta.peer_id.as_deref(),
             start_meta.remote_stream_ref.as_ref(),
         ) {
-            (
-                Some(config_id),
-                Some(account_id),
-                Some(realm_id),
-                Some(strand_id),
-                Some(event_id),
-                Some(sender_did),
-                Some(stream_ref),
-            ) => {
-                let store = crate::arkret_delivery::ArkretExecutionBindingStore::new(
-                    &gateway_channel.config().savfox_home,
-                );
-                let mode = crate::arkret_delivery::ArkretDeliveryMode::from_config(
-                    start_meta.delivery_mode.as_deref(),
-                );
-                match store
-                    .ensure_binding(
-                        &tracked.session_id,
-                        crate::arkret_delivery::RemoteConversationKey {
-                            channel_config_id: config_id.to_owned(),
-                            account_id: account_id.to_owned(),
-                            realm_id: realm_id.to_owned(),
-                            strand_id: strand_id.to_owned(),
-                            stream_ref: stream_ref.clone(),
-                        },
-                        event_id,
-                        sender_did,
-                        start_meta
-                            .remote_agent_did
-                            .as_deref()
-                            .unwrap_or("arkret-agent"),
-                        mode,
-                    )
-                    .await
-                {
-                    Ok((binding, created)) => {
-                        if created
-                            && mode == crate::arkret_delivery::ArkretDeliveryMode::TaskDelivery
-                        {
-                            let accepted = crate::arkret_delivery::PublishCheckpointRequest {
+            let store = crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                &gateway_channel.config().savfox_home,
+            );
+            let mode = crate::arkret_delivery::ArkretDeliveryMode::from_config(
+                start_meta.delivery_mode.as_deref(),
+            );
+            match store
+                .ensure_binding(
+                    &tracked.session_id,
+                    crate::arkret_delivery::RemoteConversationKey {
+                        channel_config_id: config_id.to_owned(),
+                        account_id: account_id.to_owned(),
+                        realm_id: realm_id.to_owned(),
+                        strand_id: strand_id.to_owned(),
+                        stream_ref: stream_ref.clone(),
+                    },
+                    event_id,
+                    sender_did,
+                    start_meta
+                        .remote_agent_did
+                        .as_deref()
+                        .unwrap_or("arkret-agent"),
+                    mode,
+                )
+                .await
+            {
+                Ok((binding, created)) => {
+                    if created && mode == crate::arkret_delivery::ArkretDeliveryMode::TaskDelivery {
+                        let accepted = crate::arkret_delivery::PublishCheckpointRequest {
                                 kind: crate::arkret_delivery::DeliveryCheckpointKind::Accepted,
                                 title: "Task accepted".to_owned(),
                                 summary: "The Arkret instruction has been bound to a private Savfox execution session.".to_owned(),
@@ -617,28 +614,26 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                                 next_actions: vec!["Savfox will publish again only at an explicit delivery checkpoint.".to_owned()],
                                 initiated_by: "policy",
                             };
-                            if let Err(error) = crate::arkret_delivery::publish_checkpoint(
-                                &gateway_channel.config().savfox_home,
-                                &binding,
-                                accepted,
-                            )
-                            .await
-                            {
-                                warn!(binding_id = %binding.binding_id, "Arkret Accepted checkpoint remains queued after send failure: {error:#}");
-                            }
+                        if let Err(error) = crate::arkret_delivery::publish_checkpoint(
+                            &gateway_channel.config().savfox_home,
+                            &binding,
+                            accepted,
+                        )
+                        .await
+                        {
+                            warn!(binding_id = %binding.binding_id, "Arkret Accepted checkpoint remains queued after send failure: {error:#}");
                         }
-                        Some(binding)
                     }
-                    Err(error) => {
-                        warn!(session_id = %tracked.session_id, "failed to establish Arkret execution binding: {error:#}");
-                        return;
-                    }
+                    Some(binding)
+                }
+                Err(error) => {
+                    warn!(session_id = %tracked.session_id, "failed to establish Arkret execution binding: {error:#}");
+                    return;
                 }
             }
-            _ => {
-                warn!(session_id = %tracked.session_id, "Arkret inbound event is missing its complete trusted conversation envelope");
-                return;
-            }
+        } else {
+            warn!(session_id = %tracked.session_id, "Arkret inbound event is missing its complete trusted conversation envelope");
+            return;
         }
     } else {
         None

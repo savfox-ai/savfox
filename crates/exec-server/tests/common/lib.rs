@@ -4,8 +4,8 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use rmcp::model::{
-    ClientCapabilities, ClientInfo, ClientRequest, CreateElicitationRequestParams,
-    CreateElicitationResult, CustomRequest, ElicitationAction, Implementation, ServerResult,
+    ClientCapabilities, ClientConfig, ClientRequest, CustomRequest, ElicitRequestParams,
+    ElicitResult, ElicitationAction, Implementation, ServerResult,
 };
 use rmcp::service::RunningService;
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
@@ -130,46 +130,38 @@ where
 
 pub struct InteractiveClient {
     pub elicitations_to_accept: HashSet<String>,
-    pub elicitation_requests: Arc<Mutex<Vec<CreateElicitationRequestParams>>>,
+    pub elicitation_requests: Arc<Mutex<Vec<ElicitRequestParams>>>,
 }
 
 impl ClientHandler for InteractiveClient {
-    fn get_info(&self) -> ClientInfo {
+    fn get_info(&self) -> ClientConfig {
         let capabilities = ClientCapabilities::builder().enable_elicitation().build();
-        ClientInfo::new(capabilities, Implementation::from_build_env())
+        ClientConfig::new(capabilities, Implementation::from_build_env())
     }
 
     fn create_elicitation(
         &self,
-        request: CreateElicitationRequestParams,
+        request: ElicitRequestParams,
         _context: rmcp::service::RequestContext<RoleClient>,
-    ) -> impl std::future::Future<Output = Result<CreateElicitationResult, McpError>> + Send + '_
-    {
+    ) -> impl std::future::Future<Output = Result<ElicitResult, McpError>> + Send + '_ {
         self.elicitation_requests
             .lock()
             .unwrap()
             .push(request.clone());
 
-        let message = match &request {
-            CreateElicitationRequestParams::FormElicitationParams { message, .. }
-            | CreateElicitationRequestParams::UrlElicitationParams { message, .. } => {
-                message.clone()
+        let accept = match &request {
+            ElicitRequestParams::FormElicitationParams { message, .. }
+            | ElicitRequestParams::UrlElicitationParams { message, .. } => {
+                self.elicitations_to_accept.contains(message)
             }
+            _ => false,
         };
-        let accept = self.elicitations_to_accept.contains(&message);
         async move {
             if accept {
-                Ok(CreateElicitationResult {
-                    action: ElicitationAction::Accept,
-                    content: Some(json!({ "approve": true })),
-                    meta: None,
-                })
+                Ok(ElicitResult::new(ElicitationAction::Accept)
+                    .with_content(json!({ "approve": true })))
             } else {
-                Ok(CreateElicitationResult {
-                    action: ElicitationAction::Decline,
-                    content: None,
-                    meta: None,
-                })
+                Ok(ElicitResult::new(ElicitationAction::Decline))
             }
         }
     }

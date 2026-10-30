@@ -3,35 +3,38 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use rama_core::error::{BoxError, ErrorExt as _, OpaqueError};
-use rama_core::extensions::{ExtensionsMut, ExtensionsRef};
+use rama_core::error::extra::OpaqueError;
+use rama_core::error::{BoxError, ErrorExt as _};
+use rama_core::extensions::ExtensionsRef;
+use rama_core::io::BridgeIo;
 use rama_core::layer::AddInputExtensionLayer;
 use rama_core::rt::Executor;
 use rama_core::service::service_fn;
 use rama_core::{Layer, Service};
 use rama_http::layer::remove_header::{RemoveRequestHeaderLayer, RemoveResponseHeaderLayer};
+use rama_http::layer::upgrade::{UpgradeLayer, UpgradeResponse, Upgraded};
 use rama_http::matcher::MethodMatcher;
 use rama_http::{Body, HeaderValue, Request, Response, StatusCode};
 use rama_http_backend::client::proxy::layer::HttpProxyConnector;
 use rama_http_backend::server::HttpServer;
-use rama_http_backend::server::layer::upgrade::{UpgradeLayer, Upgraded};
-use rama_net::Protocol;
 use rama_net::address::ProxyAddress;
-use rama_net::client::{ConnectorService, EstablishedClientConnection};
-use rama_net::http::RequestContext;
-use rama_net::proxy::{ProxyRequest, ProxyTarget, StreamForwardService};
+use rama_net::client::{
+    ConnectRequest, ConnectorService, ConnectorTarget, EstablishedClientConnection, ProxyRoute,
+};
+use rama_net::proxy::IoForwardService;
 use rama_net::stream::SocketInfo;
-use rama_tcp::client::Request as TcpRequest;
-use rama_tcp::client::service::TcpConnector;
+use rama_net::{ConnectorTargetInputExt, Protocol};
 use rama_tcp::server::TcpListener;
-use rama_tls_boring::client::{TlsConnectorDataBuilder, TlsConnectorLayer};
+use rama_tls::client::TlsClientConfig;
+use rama_tls_boring::client::TlsConnectorLayer;
 use serde::Serialize;
 use tracing::{error, info, warn};
 
 use crate::config::NetworkMode;
+use crate::connector::PolicyConnector;
 use crate::network_policy::{
     NetworkDecision, NetworkPolicyDecider, NetworkPolicyRequest, NetworkPolicyRequestArgs,
-    NetworkProtocol, evaluate_host_policy,
+    NetworkProtocol, evaluate_host_policy_with_target,
 };
 use crate::policy::normalize_host;
 use crate::reasons::{REASON_METHOD_NOT_ALLOWED, REASON_NOT_ALLOWED, REASON_PROXY_DISABLED};
@@ -45,20 +48,21 @@ pub async fn run_http_proxy(
     addr: SocketAddr,
     policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
 ) -> Result<()> {
-    let listener = TcpListener::build()
-        .bind(addr)
+    let listener = TcpListener::build(Executor::new())
+        .bind_address(addr)
         .await
         // Rama's `BoxError` is a `Box<dyn Error + Send + Sync>` without an explicit `'static`
         // lifetime bound, which means it doesn't satisfy `anyhow::Context`'s `StdError` constraint.
         // Wrap it in Rama's `OpaqueError` so we can preserve the original error as a source and
         // still use `anyhow` for chaining.
-        .map_err(rama_core::error::OpaqueError::from)
+        .map_err(|err| err.into_opaque_error())
         .map_err(anyhow::Error::from)
         .with_context(|| format!("bind HTTP proxy: {addr}"))?;
 
     let http_service = HttpServer::auto(Executor::new()).service(
         (
-            UpgradeLayer::new(
+            UpgradeLayer::new_with_services(
+                Executor::new(),
                 MethodMatcher::CONNECT,
                 service_fn({
                     let policy_decider = policy_decider.clone();
@@ -78,7 +82,7 @@ pub async fn run_http_proxy(
     info!("HTTP proxy listening on {addr}");
 
     listener
-        .serve(AddInputExtensionLayer::new(state).into_layer(http_service))
+        .serve(AddInputExtensionLayer::new_arc(state).into_layer(http_service))
         .await;
     Ok(())
 }
@@ -87,20 +91,18 @@ pub async fn run_http_proxy(
 #[allow(clippy::result_large_err)]
 async fn http_connect_accept(
     policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
-    mut req: Request,
-) -> Result<(Response, Request), Response> {
+    req: Request,
+) -> Result<UpgradeResponse<Request, Response>, Response> {
     let app_state = req
         .extensions()
-        .get::<Arc<NetworkProxyState>>()
-        .cloned()
+        .get_arc::<NetworkProxyState>()
         .ok_or_else(|| text_response(StatusCode::INTERNAL_SERVER_ERROR, "missing state"))?;
 
-    let authority = match RequestContext::try_from(&req).map(|ctx| ctx.host_with_port()) {
-        Ok(authority) => authority,
-        Err(err) => {
-            warn!("CONNECT missing authority: {err}");
-            return Err(text_response(StatusCode::BAD_REQUEST, "missing authority"));
-        }
+    let authority = if let Some(authority) = req.connector_target() {
+        authority
+    } else {
+        warn!("CONNECT missing authority");
+        return Err(text_response(StatusCode::BAD_REQUEST, "missing authority"));
     };
 
     let host = normalize_host(&authority.host.to_string());
@@ -137,8 +139,8 @@ async fn http_connect_accept(
         exec_policy_hint: None,
     });
 
-    match evaluate_host_policy(&app_state, policy_decider.as_ref(), &request).await {
-        Ok(NetworkDecision::Deny { reason }) => {
+    match evaluate_host_policy_with_target(&app_state, policy_decider.as_ref(), &request).await {
+        Ok((NetworkDecision::Deny { reason }, _)) => {
             let _ = app_state
                 .record_blocked(BlockedRequest::new(BlockedRequestArgs {
                     host: host.clone(),
@@ -153,7 +155,10 @@ async fn http_connect_accept(
             warn!("CONNECT blocked (client={client}, host={host}, reason={reason})");
             return Err(blocked_text(&reason));
         }
-        Ok(NetworkDecision::Allow) => {
+        Ok((NetworkDecision::Allow, target)) => {
+            if let Some(target) = target {
+                req.extensions().insert(target);
+            }
             let client = client.as_deref().unwrap_or_default();
             info!("CONNECT allowed (client={client}, host={host})");
         }
@@ -184,40 +189,46 @@ async fn http_connect_accept(
         return Err(blocked_text(REASON_METHOD_NOT_ALLOWED));
     }
 
-    req.extensions_mut().insert(ProxyTarget(authority));
-    req.extensions_mut().insert(mode);
-
-    Ok((
+    let response = UpgradeResponse::new(
+        req,
         Response::builder()
             .status(StatusCode::OK)
             .body(Body::empty())
             .unwrap_or_else(|_| Response::new(Body::empty())),
-        req,
-    ))
+    )
+    .with_extension(ConnectorTarget(authority));
+    // Rama 0.4 keeps request extensions separate from upgraded transport
+    // extensions. Transfer only the state and checked target needed here.
+    response.extensions.insert_arc(app_state);
+    if let Some(target) = response
+        .request
+        .extensions()
+        .get_ref::<crate::connector::ValidatedTarget>()
+    {
+        response.extensions.insert(target.clone());
+    }
+    Ok(response)
 }
 
 async fn http_connect_proxy(upgraded: Upgraded) -> Result<(), Infallible> {
-    if upgraded.extensions().get::<ProxyTarget>().is_none() {
+    if upgraded.extensions().get_ref::<ConnectorTarget>().is_none() {
         warn!("CONNECT missing proxy target");
         return Ok(());
     }
 
-    let allow_upstream_proxy = if let Some(state) = upgraded
-        .extensions()
-        .get::<Arc<NetworkProxyState>>()
-        .cloned()
-    {
-        match state.allow_upstream_proxy().await {
-            Ok(allowed) => allowed,
-            Err(err) => {
-                error!("failed to read upstream proxy setting: {err}");
-                false
+    let allow_upstream_proxy =
+        if let Some(state) = upgraded.extensions().get_arc::<NetworkProxyState>() {
+            match state.allow_upstream_proxy().await {
+                Ok(allowed) => allowed,
+                Err(err) => {
+                    error!("failed to read upstream proxy setting: {err}");
+                    false
+                }
             }
-        }
-    } else {
-        error!("missing app state");
-        false
-    };
+        } else {
+            error!("missing app state");
+            false
+        };
 
     let proxy = if allow_upstream_proxy {
         proxy_for_connect()
@@ -237,48 +248,43 @@ async fn forward_connect_tunnel(
 ) -> Result<(), BoxError> {
     let authority = upgraded
         .extensions()
-        .get::<ProxyTarget>()
+        .get_ref::<ConnectorTarget>()
         .map(|target| target.0.clone())
-        .ok_or_else(|| OpaqueError::from_display("missing forward authority").into_boxed())?;
-
-    let mut extensions = upgraded.extensions().clone();
-    if let Some(proxy) = proxy {
-        extensions.insert(proxy);
-    }
-
-    let req = TcpRequest::new_with_extensions(authority.clone(), extensions)
-        .with_protocol(Protocol::HTTPS);
-    let proxy_connector = HttpProxyConnector::optional(TcpConnector::new());
-    let tls_config = TlsConnectorDataBuilder::new_http_auto().into_shared_builder();
-    let connector = TlsConnectorLayer::tunnel(None)
-        .with_connector_data(tls_config)
-        .into_layer(proxy_connector);
-    let EstablishedClientConnection { conn: target, .. } =
-        connector.connect(req).await.map_err(|err| {
-            OpaqueError::from_boxed(err)
-                .with_context(|| format!("establish CONNECT tunnel to {authority}"))
-                .into_boxed()
+        .ok_or_else(|| {
+            OpaqueError::from_static_str("missing forward authority").into_box_error()
         })?;
 
-    let proxy_req = ProxyRequest {
-        source: upgraded,
-        target,
-    };
-    StreamForwardService::default()
-        .serve(proxy_req)
+    let extensions = upgraded.extensions().clone();
+    if let Some(proxy) = proxy {
+        extensions.insert(ProxyRoute::Proxy(proxy));
+    }
+
+    let req = ConnectRequest::new_with_extensions(authority.clone(), extensions)
+        .with_application_protocol(Protocol::HTTPS);
+    let transport = PolicyConnector;
+    // TLS to an HTTPS upstream proxy precedes its HTTP CONNECT handshake.
+    // The destination's TLS remains end-to-end inside the returned tunnel.
+    let proxy_transport = TlsConnectorLayer::tunnel(None)
+        .with_base_config(TlsClientConfig::default_http().with_alpn_http_1())
+        .into_layer(transport);
+    let connector = HttpProxyConnector::optional(proxy_transport);
+    let EstablishedClientConnection { conn: target, .. } = connector
+        .connect(req)
         .await
-        .map_err(|err| {
-            OpaqueError::from_boxed(err.into())
-                .with_context(|| format!("forward CONNECT tunnel to {authority}"))
-                .into_boxed()
-        })
+        .map_err(|err| err.with_context(|| format!("establish CONNECT tunnel to {authority}")))?;
+
+    IoForwardService::default()
+        .serve(BridgeIo(upgraded, target))
+        .await
+        .map(|_| ())
+        .map_err(|err| err.with_context(|| format!("forward CONNECT tunnel to {authority}")))
 }
 
 async fn http_plain_proxy(
     policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
     req: Request,
 ) -> Result<Response, Infallible> {
-    let app_state = if let Some(state) = req.extensions().get::<Arc<NetworkProxyState>>().cloned() {
+    let app_state = if let Some(state) = req.extensions().get_arc::<NetworkProxyState>() {
         state
     } else {
         error!("missing app state");
@@ -372,12 +378,11 @@ async fn http_plain_proxy(
         };
     }
 
-    let authority = match RequestContext::try_from(&req).map(|ctx| ctx.host_with_port()) {
-        Ok(authority) => authority,
-        Err(err) => {
-            warn!("missing host: {err}");
-            return Ok(text_response(StatusCode::BAD_REQUEST, "missing host"));
-        }
+    let authority = if let Some(authority) = req.connector_target() {
+        authority
+    } else {
+        warn!("missing host");
+        return Ok(text_response(StatusCode::BAD_REQUEST, "missing host"));
     };
     let host = normalize_host(&authority.host.to_string());
     let port = authority.port;
@@ -413,8 +418,8 @@ async fn http_plain_proxy(
         exec_policy_hint: None,
     });
 
-    match evaluate_host_policy(&app_state, policy_decider.as_ref(), &request).await {
-        Ok(NetworkDecision::Deny { reason }) => {
+    match evaluate_host_policy_with_target(&app_state, policy_decider.as_ref(), &request).await {
+        Ok((NetworkDecision::Deny { reason }, _)) => {
             let _ = app_state
                 .record_blocked(BlockedRequest::new(BlockedRequestArgs {
                     host: host.clone(),
@@ -429,7 +434,11 @@ async fn http_plain_proxy(
             warn!("request blocked (client={client}, host={host}, reason={reason})");
             return Ok(json_blocked(&host, &reason));
         }
-        Ok(NetworkDecision::Allow) => {}
+        Ok((NetworkDecision::Allow, target)) => {
+            if let Some(target) = target {
+                req.extensions().insert(target);
+            }
+        }
         Err(err) => {
             error!("failed to evaluate host for {host}: {err}");
             return Ok(text_response(StatusCode::INTERNAL_SERVER_ERROR, "error"));
@@ -488,11 +497,7 @@ async fn proxy_via_unix_socket(req: Request, socket_path: &str) -> Result<Respon
         let client = UpstreamClient::unix_socket(socket_path);
 
         let (mut parts, body) = req.into_parts();
-        let path = parts
-            .uri
-            .path_and_query()
-            .map(rama_http::uri::PathAndQuery::as_str)
-            .unwrap_or("/");
+        let path = parts.uri.request_target().into_owned();
         parts.uri = path
             .parse()
             .with_context(|| format!("invalid unix socket request path: {path}"))?;
@@ -512,7 +517,7 @@ async fn proxy_via_unix_socket(req: Request, socket_path: &str) -> Result<Respon
 fn client_addr<T: ExtensionsRef>(input: &T) -> Option<String> {
     input
         .extensions()
-        .get::<SocketInfo>()
+        .get_ref::<SocketInfo>()
         .map(|info| info.peer_addr().to_string())
 }
 
@@ -590,18 +595,19 @@ mod tests {
     async fn http_connect_accept_blocks_in_limited_mode() {
         let policy = NetworkPolicy {
             allowed_domains: vec!["example.com".to_owned()],
+            allow_local_binding: true,
             ..Default::default()
         };
         let state = Arc::new(network_proxy_state_for_policy(policy));
         state.set_network_mode(NetworkMode::Limited).await.unwrap();
 
-        let mut req = Request::builder()
+        let req = Request::builder()
             .method(Method::CONNECT)
             .uri("https://example.com:443")
             .header("host", "example.com:443")
             .body(Body::empty())
             .unwrap();
-        req.extensions_mut().insert(state);
+        req.extensions().insert_arc(state);
 
         let response = http_connect_accept(None, req).await.unwrap_err();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -609,5 +615,91 @@ mod tests {
             response.headers().get("x-proxy-error").unwrap(),
             "blocked-by-method-policy"
         );
+    }
+    #[tokio::test]
+    async fn http_connect_upgrade_carries_only_checked_target_and_state() {
+        let policy = NetworkPolicy {
+            allowed_domains: vec!["8.8.8.8".to_owned()],
+            ..Default::default()
+        };
+        let state = Arc::new(network_proxy_state_for_policy(policy));
+        state.set_network_mode(NetworkMode::Full).await.unwrap();
+        let req = Request::builder()
+            .method(Method::CONNECT)
+            .uri(rama_net::uri::Uri::parse_authority_form("8.8.8.8:443").unwrap())
+            .body(Body::empty())
+            .unwrap();
+        req.extensions().insert_arc(state.clone());
+        let accepted = http_connect_accept(None, req).await.unwrap();
+        assert_eq!(accepted.response.status(), StatusCode::OK);
+        assert_eq!(
+            accepted
+                .extensions
+                .get_ref::<ConnectorTarget>()
+                .unwrap()
+                .0
+                .to_string(),
+            "8.8.8.8:443"
+        );
+        assert!(Arc::ptr_eq(
+            &accepted.extensions.get_arc::<NetworkProxyState>().unwrap(),
+            &state
+        ));
+        let checked = accepted
+            .extensions
+            .get_ref::<crate::connector::ValidatedTarget>()
+            .unwrap();
+        assert_eq!(checked.host, "8.8.8.8");
+        assert_eq!(
+            checked.addresses,
+            vec!["8.8.8.8:443".parse::<std::net::SocketAddr>().unwrap()]
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_tunnel_uses_pinned_addresses_and_preserves_end_to_end_bytes() {
+        use rama_core::ServiceInput;
+        use rama_core::bytes::Bytes;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let echo = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut data = [0; 12];
+            socket.read_exact(&mut data).await.unwrap();
+            assert_eq!(&data, b"opaque bytes");
+            socket.write_all(&data).await.unwrap();
+            socket.shutdown().await.unwrap();
+        });
+        let (mut client, input) = tokio::io::duplex(128);
+        let input = ServiceInput::new(input);
+        input.extensions.insert(ConnectorTarget(
+            format!("checked.invalid:{port}").parse().unwrap(),
+        ));
+        input.extensions.insert(crate::connector::ValidatedTarget {
+            host: "checked.invalid".to_owned(),
+            port,
+            addresses: vec![format!("127.0.0.1:{port}").parse().unwrap()],
+        });
+        let upgraded = Upgraded::new(input, Bytes::new());
+        let forwarding = tokio::spawn(forward_connect_tunnel(upgraded, None));
+        client.write_all(b"opaque bytes").await.unwrap();
+        let mut response = [0; 12];
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            client.read_exact(&mut response),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(&response, b"opaque bytes");
+        client.shutdown().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), forwarding)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        echo.await.unwrap();
     }
 }

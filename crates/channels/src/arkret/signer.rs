@@ -298,7 +298,7 @@ fn test_keyring_seeds()
 pub(super) fn install_test_keyring_seed(service: &str, account: &str, seed: &[u8; 32]) {
     test_keyring_seeds()
         .lock()
-        .unwrap()
+        .expect("test keyring seed lock")
         .insert((service.to_owned(), account.to_owned()), seed.to_vec());
 }
 
@@ -314,7 +314,7 @@ fn load_seed_bytes(key_ref: &ArkretKeyRef) -> anyhow::Result<Vec<u8>> {
             #[cfg(test)]
             if let Some(seed) = test_keyring_seeds()
                 .lock()
-                .unwrap()
+                .expect("test keyring seed lock")
                 .get(&(service.clone(), account.clone()))
             {
                 return Ok(seed.clone());
@@ -375,6 +375,7 @@ fn decode_base64_no_pad(text: &str, source: &str) -> anyhow::Result<Vec<u8>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use arkret::PayloadSigner;
     use base64::engine::general_purpose::STANDARD_NO_PAD;

@@ -1,19 +1,23 @@
-use rama_core::error::{BoxError, ErrorContext as _, OpaqueError};
-use rama_core::extensions::{ExtensionsMut, ExtensionsRef};
+use rama_core::error::ErrorContext as _;
+use rama_core::error::extra::OpaqueError;
+use rama_core::extensions::ExtensionsRef;
+use rama_core::rt::Executor;
 use rama_core::service::BoxService;
 use rama_core::{Layer, Service};
 use rama_http::layer::version_adapter::RequestVersionAdapter;
 use rama_http::{Body, Request, Response};
 use rama_http_backend::client::proxy::layer::HttpProxyConnectorLayer;
 use rama_http_backend::client::{HttpClientService, HttpConnector};
+use rama_net::ProtocolInputExt;
 use rama_net::address::ProxyAddress;
-use rama_net::client::EstablishedClientConnection;
-use rama_net::http::RequestContext;
-use rama_tcp::client::service::TcpConnector;
-use rama_tls_boring::client::{TlsConnectorDataBuilder, TlsConnectorLayer};
+use rama_net::client::{ConnectionError, EstablishedClientConnection, ProxyRoute};
+use rama_tls::client::TlsClientConfig;
+use rama_tls_boring::client::TlsConnectorLayer;
 #[cfg(target_os = "macos")]
 use rama_unix::client::UnixConnector;
 use tracing::warn;
+
+use crate::connector::PolicyConnector;
 
 #[derive(Clone, Default)]
 struct ProxyConfig {
@@ -31,8 +35,9 @@ impl ProxyConfig {
     }
 
     fn proxy_for_request(&self, req: &Request) -> Option<ProxyAddress> {
-        let is_secure = RequestContext::try_from(req)
-            .map(|ctx| ctx.protocol.is_secure())
+        let is_secure = req
+            .protocol()
+            .map(|protocol| protocol.is_secure())
             .unwrap_or(false);
         self.proxy_for_protocol(is_secure)
     }
@@ -87,7 +92,7 @@ pub(crate) struct UpstreamClient {
     connector: BoxService<
         Request<Body>,
         EstablishedClientConnection<HttpClientService<Body>, Request<Body>>,
-        BoxError,
+        ConnectionError,
     >,
     proxy_config: ProxyConfig,
 }
@@ -123,45 +128,47 @@ impl Service<Request<Body>> for UpstreamClient {
     type Output = Response;
     type Error = OpaqueError;
 
-    async fn serve(&self, mut req: Request<Body>) -> Result<Self::Output, Self::Error> {
+    async fn serve(&self, req: Request<Body>) -> Result<Self::Output, Self::Error> {
         if let Some(proxy) = self.proxy_config.proxy_for_request(&req) {
-            req.extensions_mut().insert(proxy);
+            req.extensions().insert(ProxyRoute::Proxy(proxy));
         }
 
         let uri = req.uri().clone();
         let EstablishedClientConnection {
-            input: mut req,
+            input: req,
             conn: http_connection,
         } = self
             .connector
             .serve(req)
             .await
-            .map_err(OpaqueError::from_boxed)?;
+            .map_err(|err| err.into_opaque_error())?;
 
-        req.extensions_mut()
-            .extend(http_connection.extensions().clone());
+        req.extensions().extend(http_connection.extensions());
 
         http_connection
             .serve(req)
             .await
-            .map_err(OpaqueError::from_boxed)
             .with_context(|| format!("http request failure for uri: {uri}"))
+            .into_opaque_error()
     }
 }
 
 fn build_http_connector() -> BoxService<
     Request<Body>,
     EstablishedClientConnection<HttpClientService<Body>, Request<Body>>,
-    BoxError,
+    ConnectionError,
 > {
-    let transport = TcpConnector::default();
-    let proxy = HttpProxyConnectorLayer::optional().into_layer(transport);
-    let tls_config = TlsConnectorDataBuilder::new_http_auto().into_shared_builder();
+    let transport = PolicyConnector;
+    let proxy_transport = TlsConnectorLayer::tunnel(None)
+        .with_base_config(TlsClientConfig::default_http().with_alpn_http_1())
+        .into_layer(transport);
+    let proxy = HttpProxyConnectorLayer::optional().into_layer(proxy_transport);
+    let tls_config = TlsClientConfig::default_http();
     let tls = TlsConnectorLayer::auto()
-        .with_connector_data(tls_config)
+        .with_base_config(tls_config)
         .into_layer(proxy);
     let tls = RequestVersionAdapter::new(tls);
-    let connector = HttpConnector::new(tls);
+    let connector = HttpConnector::new(tls, Executor::new());
     connector.boxed()
 }
 
@@ -171,9 +178,128 @@ fn build_unix_connector(
 ) -> BoxService<
     Request<Body>,
     EstablishedClientConnection<HttpClientService<Body>, Request<Body>>,
-    BoxError,
+    ConnectionError,
 > {
     let transport = UnixConnector::fixed(path);
-    let connector = HttpConnector::new(transport);
+    let connector = HttpConnector::new(transport, Executor::new());
     connector.boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+    use rama_http::BodyExtractExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    use super::*;
+
+    async fn response_server() -> (u16, tokio::task::JoinHandle<String>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            loop {
+                let count = socket.read(&mut buffer).await.unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await
+                .unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        (port, task)
+    }
+
+    #[tokio::test]
+    async fn direct_http_client_resolves_a_domain_and_forwards_origin_form() {
+        let (port, server) = response_server().await;
+        let request = Request::builder()
+            .uri(format!("http://localhost:{port}/health?full=1"))
+            .body(Body::empty())
+            .unwrap();
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            UpstreamClient::direct().serve(request),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(response.status(), rama_http::StatusCode::OK);
+        assert_eq!(response.try_into_string().await.unwrap(), "ok");
+        assert!(
+            server
+                .await
+                .unwrap()
+                .starts_with("GET /health?full=1 HTTP/1.1\r\n")
+        );
+    }
+
+    #[tokio::test]
+    async fn http_upstream_proxy_uses_the_selected_route_without_resolving_the_origin() {
+        let (port, server) = response_server().await;
+        let client = UpstreamClient::new(ProxyConfig {
+            http: Some(format!("http://127.0.0.1:{port}").parse().unwrap()),
+            ..Default::default()
+        });
+        let request = Request::builder()
+            .uri("http://unresolvable.invalid/through-proxy")
+            .body(Body::empty())
+            .unwrap();
+        request
+            .extensions()
+            .insert(crate::connector::ValidatedTarget {
+                host: "unresolvable.invalid".to_owned(),
+                port: 80,
+                addresses: vec!["8.8.8.8:80".parse().unwrap()],
+            });
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(5), client.serve(request))
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(response.try_into_string().await.unwrap(), "ok");
+        assert!(
+            server
+                .await
+                .unwrap()
+                .starts_with("GET http://unresolvable.invalid/through-proxy HTTP/1.1\r\n")
+        );
+    }
+    #[tokio::test]
+    async fn http_client_preserves_the_authority_while_dialing_checked_addresses() {
+        let (port, server) = response_server().await;
+        let request = Request::builder()
+            .uri(format!("http://checked.invalid:{port}/pinned"))
+            .body(Body::empty())
+            .unwrap();
+        request
+            .extensions()
+            .insert(crate::connector::ValidatedTarget {
+                host: "checked.invalid".to_owned(),
+                port,
+                addresses: vec![format!("127.0.0.1:{port}").parse().unwrap()],
+            });
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            UpstreamClient::direct().serve(request),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(response.try_into_string().await.unwrap(), "ok");
+        let forwarded = server.await.unwrap();
+        assert!(forwarded.starts_with("GET /pinned HTTP/1.1\r\n"));
+        assert!(
+            forwarded
+                .to_ascii_lowercase()
+                .contains(&format!("host: checked.invalid:{port}\r\n"))
+        );
+    }
 }

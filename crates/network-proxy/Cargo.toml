@@ -32,11 +32,13 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt"] }
 url = { workspace = true }
 rama-core = { workspace = true }
+rama-dns = { workspace = true }
 rama-http = { workspace = true }
 rama-http-backend = { workspace = true, features = ["tls"] }
-rama-net = { workspace = true, features = ["http", "tls"] }
+rama-net = { workspace = true, features = ["http"] }
 rama-socks5 = { workspace = true }
-rama-tcp = { workspace = true, features = ["http"] }
+rama-tcp = { workspace = true }
+rama-tls = { workspace = true, features = ["http"] }
 rama-tls-boring = { workspace = true, features = ["http"] }
 
 [dev-dependencies]

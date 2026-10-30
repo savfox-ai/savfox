@@ -629,35 +629,16 @@ where
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
-    use rmcp::model::AnnotateAble;
     use serde_json::json;
 
     use super::*;
 
     fn resource(uri: &str, name: &str) -> Resource {
-        rmcp::model::RawResource {
-            uri: uri.to_owned(),
-            name: name.to_owned(),
-            title: None,
-            description: None,
-            mime_type: None,
-            size: None,
-            icons: None,
-            meta: None,
-        }
-        .no_annotation()
+        Resource::new(uri, name)
     }
 
     fn template(uri_template: &str, name: &str) -> ResourceTemplate {
-        rmcp::model::RawResourceTemplate {
-            uri_template: uri_template.to_owned(),
-            name: name.to_owned(),
-            title: None,
-            description: None,
-            mime_type: None,
-            icons: None,
-        }
-        .no_annotation()
+        ResourceTemplate::new(uri_template, name)
     }
 
     #[test]
@@ -676,6 +657,7 @@ mod tests {
             meta: None,
             next_cursor: Some("cursor-1".to_owned()),
             resources: vec![resource("memo://id", "memo")],
+            ..Default::default()
         };
         let payload = ListResourcesPayload::from_single_server("srv".to_owned(), result);
         let value = serde_json::to_value(&payload).expect("serialize payload");

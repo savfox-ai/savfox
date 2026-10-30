@@ -215,7 +215,8 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         status(ctx, &state),
         col()
             .class("agent-list-scroll")
-            .fill(each(job_rows, record_key, move |item, _| {
+            .fill(each(job_rows).key(record_key).children(move |each_row| {
+                let item = each_row.value;
                 let job = item.get_untracked();
                 let id = string(&job, &["id"]);
                 let target = id.clone();

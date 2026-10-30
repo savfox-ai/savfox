@@ -85,6 +85,7 @@ pub(super) fn safe_file_stem(scope_id: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use garth::{ClientEvent, CursorStore, DurableInboxStore};
 

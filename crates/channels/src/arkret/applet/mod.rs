@@ -5,6 +5,7 @@
 //!
 //! * [`config`] — `ArkretAppletConfig` + parser + namespace block.
 //! * [`namespace`] — aliases for SDK namespace DTOs and their canonical matcher.
+//!
 //! Group Events and Signals are consumed by authenticated managed Devices;
 //! the Applet management endpoint only accepts signed authoring completions.
 //!

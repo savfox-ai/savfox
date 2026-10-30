@@ -665,10 +665,10 @@ mod tests {
     impl RecordingReporter {
         fn wait_for_complete(&self, timeout: Duration) -> bool {
             let completes = self.complete_times.lock().unwrap();
-            if !completes.is_empty() {
-                return true;
-            }
-            let (completes, _) = self.complete_cv.wait_timeout(completes, timeout).unwrap();
+            let (completes, _) = self
+                .complete_cv
+                .wait_timeout_while(completes, timeout, |completes| completes.is_empty())
+                .unwrap();
             !completes.is_empty()
         }
         fn clear(&self) {
@@ -682,11 +682,25 @@ mod tests {
 
         fn wait_for_updates_at_least(&self, min_len: usize, timeout: Duration) -> bool {
             let updates = self.updates.lock().unwrap();
-            if updates.len() >= min_len {
-                return true;
-            }
-            let (updates, _) = self.update_cv.wait_timeout(updates, timeout).unwrap();
+            let (updates, _) = self
+                .update_cv
+                .wait_timeout_while(updates, timeout, |updates| updates.len() < min_len)
+                .unwrap();
             updates.len() >= min_len
+        }
+
+        fn wait_for_query_matches(&self, query: &str, timeout: Duration) -> bool {
+            let has_matches = |updates: &[FileSearchSnapshot]| {
+                updates
+                    .iter()
+                    .any(|snapshot| snapshot.query == query && !snapshot.matches.is_empty())
+            };
+            let updates = self.updates.lock().unwrap();
+            let (updates, _) = self
+                .update_cv
+                .wait_timeout_while(updates, timeout, |updates| !has_matches(updates))
+                .unwrap();
+            has_matches(&updates)
         }
 
         fn snapshot(&self) -> FileSearchSnapshot {
@@ -833,18 +847,21 @@ mod tests {
             vec![root_b.path().to_path_buf()],
             FileSearchOptions::default(),
             reporter_b.clone(),
-            Some(cancel_flag),
+            Some(cancel_flag.clone()),
         )
         .expect("session_b");
 
         session_a.update_query("file-0");
         session_b.update_query("file-1");
+        assert!(reporter_b.wait_for_query_matches("file-1", Duration::from_secs(5)));
 
-        thread::sleep(Duration::from_millis(5));
         drop(session_a);
+        assert!(!cancel_flag.load(Ordering::Relaxed));
 
-        let completed = reporter_b.wait_for_complete(Duration::from_secs(5));
-        assert_eq!(completed, true);
+        // A fresh query proves the sibling is still processing work, even if
+        // its original walk and query had already completed before the drop.
+        session_b.update_query("file-2");
+        assert!(reporter_b.wait_for_query_matches("file-2", Duration::from_secs(5)));
     }
 
     #[test]

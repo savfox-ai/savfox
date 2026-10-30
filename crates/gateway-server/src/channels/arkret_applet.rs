@@ -320,12 +320,11 @@ fn is_native_resource_path(path: &str) -> bool {
 /// Try only the configured native publication surfaces, never a remote resolver.
 #[handler]
 async fn applet_native_resource(req: &mut Request, res: &mut Response) {
-    let states = match applet_registry().lock() {
-        Ok(registry) => registry.values().cloned().collect::<Vec<_>>(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let states = if let Ok(registry) = applet_registry().lock() {
+        registry.values().cloned().collect::<Vec<_>>()
+    } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
     let mut found = None;
     let mut unavailable = false;

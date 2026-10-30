@@ -822,7 +822,7 @@ async fn refresh_account_presence(
         record_presence_failure(channel, account, "missing runtime verificationMethod");
         return;
     };
-    let client = match ArkretHttpClient::from_provider(&provider, &crypto_store).await {
+    let client = match ArkretHttpClient::from_provider(provider, crypto_store).await {
         Ok(client) => client,
         Err(error) => {
             record_presence_failure(
@@ -879,7 +879,7 @@ async fn refresh_account_presence(
         };
         let client = &content;
         let eligible_head =
-            match verified_realm_presence_head(&client, crypto_store, account, &realm_id).await {
+            match verified_realm_presence_head(client, crypto_store, account, &realm_id).await {
                 Ok(Some(head)) => head,
                 Ok(None) => continue,
                 Err(error) => {
@@ -891,7 +891,7 @@ async fn refresh_account_presence(
                     continue;
                 }
             };
-        let authority_head = match verified_presence_authority_head(&client, &realm_id).await {
+        let authority_head = match verified_presence_authority_head(client, &realm_id).await {
             Ok(head) => head,
             Err(error) => {
                 record_presence_failure(
@@ -1279,7 +1279,7 @@ fn queued_message_matches_runtime(
     if event.kind == "ak.message.create"
         && (matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. })
             || crypto_store.realm_requires_e2ee(event.realm_id.as_str())?)
-        && event.payload.get("encrypted_content").is_none()
+        && !event.payload.contains_key("encrypted_content")
     {
         return Ok(false);
     }
@@ -1517,7 +1517,6 @@ async fn process_durable_account_inbox(
                 Ok(true) => {}
                 Ok(false) => {
                     blocked_scopes.insert(delivery.scope.clone());
-                    continue;
                 }
                 Err(error) => {
                     warn!(channel_id = %channel.id, account_id = %account.id,
@@ -2269,7 +2268,7 @@ async fn drain_account_device_messages_from_cursor(
                     .clear(scope)
                     .await
                     .map_err(anyhow::Error::from),
-                Err(err) => Err(anyhow::Error::from(err)),
+                Err(err) => Err(err),
             } {
                 warn!(
                     channel_id = %channel.id,
@@ -2303,7 +2302,7 @@ async fn drain_account_device_messages_from_cursor(
                         .save(scope, next_cursor.clone())
                         .await
                         .map_err(anyhow::Error::from),
-                    Err(err) => Err(anyhow::Error::from(err)),
+                    Err(err) => Err(err),
                 } {
                     warn!(
                         channel_id = %channel.id,
@@ -3064,28 +3063,27 @@ async fn handle_parsed_account_events(
                     .expect("inbound message has an existing scope"),
             }
         });
-        if inbound_mode == AccountInboundMode::Hydrate {
-            if let Some(conversation) = conversation {
-                crate::arkret_delivery::ArkretExecutionBindingStore::new(
-                    &gateway_channel.config().savfox_home,
-                )
-                .hydrate_event(
-                    conversation,
-                    crate::arkret_delivery::RemoteContextEvent {
-                        event_id: event.event_id.clone(),
-                        sender_did: event.sender_did.clone(),
-                        sender_kind: if event.sender_did.eq_ignore_ascii_case(&account.principal_id)
-                        {
-                            "agent".to_owned()
-                        } else {
-                            "human".to_owned()
-                        },
-                        body: event.body.clone(),
-                        received_at: Utc::now(),
+        if inbound_mode == AccountInboundMode::Hydrate
+            && let Some(conversation) = conversation
+        {
+            crate::arkret_delivery::ArkretExecutionBindingStore::new(
+                &gateway_channel.config().savfox_home,
+            )
+            .hydrate_event(
+                conversation,
+                crate::arkret_delivery::RemoteContextEvent {
+                    event_id: event.event_id.clone(),
+                    sender_did: event.sender_did.clone(),
+                    sender_kind: if event.sender_did.eq_ignore_ascii_case(&account.principal_id) {
+                        "agent".to_owned()
+                    } else {
+                        "human".to_owned()
                     },
-                )
-                .await?;
-            }
+                    body: event.body.clone(),
+                    received_at: Utc::now(),
+                },
+            )
+            .await?;
         }
         if event
             .sender_did
@@ -3327,7 +3325,7 @@ async fn dispatch_authorized_agent_event(
     let strand_id = event.strand_id.clone();
     let thread_id = event.thread_root_id.clone();
     let event_id = event.event_id.clone();
-    let is_mentioned = inbound_agent_is_mentioned(&event, &account);
+    let is_mentioned = inbound_agent_is_mentioned(&event, account);
     let mentioned_account_ids = event.mentioned_account_ids.clone();
     let sidecar_exchange = event.sidecar_exchange.clone();
     let chat_type = event.chat_type;
@@ -5092,7 +5090,7 @@ mod tests {
             direct(&[public.clone(), row(serde_json::to_value(&value).unwrap())]).unwrap(),
             Some(head.clone()),
         );
-        assert!(direct(&[public.clone()]).unwrap().is_none());
+        assert!(direct(std::slice::from_ref(&public)).unwrap().is_none());
         assert!(direct(&[]).unwrap().is_none());
         let mut foreign = account.controller_account_id.clone();
         foreign.station_id = DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
@@ -5182,17 +5180,33 @@ mod tests {
                 },
                 selection: arkret::ParticipationBits::ALL,
                 version: 1,
-                next_replace_input: arkret::ParticipationNextReplaceInput {
+                next_replace_input: Some(arkret::ParticipationNextReplaceInput {
                     expected_version: 1,
-                },
+                }),
             }],
         };
         assert!(observed_reply_allowed(&event, &account, &observation));
         let mut tightened = observation.clone();
         tightened.entries[0].selection = arkret::ParticipationBits::NONE;
         tightened.entries[0].version = 2;
-        tightened.entries[0].next_replace_input.expected_version = 2;
+        tightened.entries[0]
+            .next_replace_input
+            .as_mut()
+            .unwrap()
+            .expected_version = 2;
         assert!(!observed_reply_allowed(&event, &account, &tightened));
+        // A participation record at the final version remains readable even
+        // though the SDK omits the input for a subsequent replacement. Reply
+        // permission must still follow its selection, not replace availability.
+        let mut exhausted = observation.clone();
+        exhausted.entries[0].version = i64::MAX as u64;
+        exhausted.entries[0].next_replace_input = None;
+        let wire = serde_json::to_value(&exhausted.entries[0]).unwrap();
+        assert!(wire.get("next_replace_input").is_none());
+        exhausted.entries[0] = serde_json::from_value(wire).unwrap();
+        assert!(observed_reply_allowed(&event, &account, &exhausted));
+        exhausted.entries[0].selection = arkret::ParticipationBits::NONE;
+        assert!(!observed_reply_allowed(&event, &account, &exhausted));
         let mut missing = observation.clone();
         missing.entries.clear();
         assert!(!observed_reply_allowed(&event, &account, &missing));
@@ -5796,7 +5810,7 @@ mod tests {
 
         state.granted_scope.clear();
         assert!(!refreshed_grant_matches_account(&state, &account, read));
-        state.granted_scope = granted_operations.clone();
+        state.granted_scope = granted_operations;
         state.device_id =
             Some(DeviceId::new("ak:device:01904100-0000-7000-8000-000000000099").unwrap());
         assert!(!refreshed_grant_matches_account(&state, &account, read));
@@ -5984,7 +5998,7 @@ mod tests {
             err.to_string().contains("no local MLS group state"),
             "unexpected error: {err:#}"
         );
-        assert!(event.payload.get("encrypted_metadata").is_none());
+        assert!(!event.payload.contains_key("encrypted_metadata"));
         assert!(
             !serde_json::to_string(&event.payload)
                 .unwrap()

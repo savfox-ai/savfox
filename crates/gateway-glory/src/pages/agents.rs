@@ -1322,7 +1322,8 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         status(ctx, &state),
         col()
             .class("agent-list-scroll")
-            .fill(each(rows, record_key, move |item, _| {
+            .fill(each(rows).key(record_key).children(move |each_row| {
+                let item = each_row.value;
                 let agent = item.get_untracked();
                 let id = string(&agent, &["id", "name"]);
                 let target = id.clone();

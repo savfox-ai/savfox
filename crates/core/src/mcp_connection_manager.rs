@@ -184,8 +184,15 @@ impl ElicitationRequestManager {
                                 }
                             },
                             message: match &elicitation {
-                                rmcp::model::CreateElicitationRequestParams::FormElicitationParams { message, .. } => message.clone(),
-                                rmcp::model::CreateElicitationRequestParams::UrlElicitationParams { message, .. } => message.clone(),
+                                rmcp::model::ElicitRequestParams::FormElicitationParams {
+                                    message,
+                                    ..
+                                } => message.clone(),
+                                rmcp::model::ElicitRequestParams::UrlElicitationParams {
+                                    message,
+                                    ..
+                                } => message.clone(),
+                                _ => "MCP server requested unsupported elicitation".to_owned(),
                             },
                         }),
                     })
