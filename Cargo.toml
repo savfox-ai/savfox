@@ -78,7 +78,8 @@ aead = "0.6"
 aes-gcm = "0.11"
 # Starlark 0.14 pins blake3 1.8.2, conflicting with Arkret's required 1.8.7.
 # Keep the compatible 0.13/allocative 0.3.4 pair until upstream relaxes that pin.
-allocative = "=0.3.6"
+# allocative 0.3.6 targets hashbrown 0.16; Starlark 0.13 still needs its 0.14 impls.
+allocative = "=0.3.4"
 ansi-to-tui = "8.0.1"
 anyhow = "1"
 arc-swap = "1.9.3"
