@@ -3857,7 +3857,7 @@ dependencies = [
 [[package]]
 name = "glory"
 version = "0.6.0"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#ef41aebb276d5bb8a8ea22c555ca6415b5531195"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e06bda4db278fc3d981331d6811c284c5a4559db"
 dependencies = [
  "glory-core",
  "glory-html",
@@ -3871,7 +3871,7 @@ dependencies = [
 [[package]]
 name = "glory-core"
 version = "0.6.0"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#ef41aebb276d5bb8a8ea22c555ca6415b5531195"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e06bda4db278fc3d981331d6811c284c5a4559db"
 dependencies = [
  "glory-render",
 ]
@@ -3879,7 +3879,7 @@ dependencies = [
 [[package]]
 name = "glory-html"
 version = "0.6.0"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#ef41aebb276d5bb8a8ea22c555ca6415b5531195"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e06bda4db278fc3d981331d6811c284c5a4559db"
 dependencies = [
  "glory-render",
  "glory-style",
@@ -3888,7 +3888,7 @@ dependencies = [
 [[package]]
 name = "glory-render"
 version = "0.6.0"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#ef41aebb276d5bb8a8ea22c555ca6415b5531195"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e06bda4db278fc3d981331d6811c284c5a4559db"
 dependencies = [
  "glory-style",
 ]
@@ -3896,7 +3896,7 @@ dependencies = [
 [[package]]
 name = "glory-ssr"
 version = "0.6.0"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#ef41aebb276d5bb8a8ea22c555ca6415b5531195"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e06bda4db278fc3d981331d6811c284c5a4559db"
 dependencies = [
  "glory-core",
  "glory-html",
@@ -3907,12 +3907,12 @@ dependencies = [
 [[package]]
 name = "glory-style"
 version = "0.6.0"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#ef41aebb276d5bb8a8ea22c555ca6415b5531195"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e06bda4db278fc3d981331d6811c284c5a4559db"
 
 [[package]]
 name = "glory-ui"
 version = "0.6.0"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#ef41aebb276d5bb8a8ea22c555ca6415b5531195"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e06bda4db278fc3d981331d6811c284c5a4559db"
 dependencies = [
  "glory-core",
  "glory-render",
@@ -3922,7 +3922,7 @@ dependencies = [
 [[package]]
 name = "glory-web"
 version = "0.6.0"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#ef41aebb276d5bb8a8ea22c555ca6415b5531195"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e06bda4db278fc3d981331d6811c284c5a4559db"
 dependencies = [
  "futures-util",
  "glory-core",
@@ -9450,7 +9450,7 @@ dependencies = [
 [[package]]
 name = "sapid"
 version = "0.6.0"
-source = "git+https://github.com/sapid-ui/sapid.git?branch=main#7826a6bc26b7b80a373340946dd2391875686bc9"
+source = "git+https://github.com/sapid-ui/sapid.git?branch=main#9d3b297b3fafacb3a59b11cddb7d3c9e833aaca9"
 dependencies = [
  "glory",
  "libm",
