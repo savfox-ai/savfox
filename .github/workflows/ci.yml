@@ -235,8 +235,8 @@ jobs:
   test-targeted:
     runs-on: ubuntu-latest
     # Standalone package builds use different feature sets and can recompile
-    # shared crates. Give clean runners the same budget as the workspace suite.
-    timeout-minutes: 60
+    # shared crates. Budget for all matrices and post-job cache finalization.
+    timeout-minutes: 90
     needs: [changes, web]
     if: always() && (needs.web.result == 'success' || needs.web.result == 'skipped') && (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     steps:
