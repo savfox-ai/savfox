@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { resolvedUiSources } = require('./ui-sources.cjs');
+const { resolvedUiSources, configuredBuildRoot } = require('./ui-sources.cjs');
 const root = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 const has = name => args.some(arg => arg.toLowerCase() === name.toLowerCase());
@@ -15,8 +15,11 @@ const profile = release ? 'release' : 'debug';
 const web = path.join(root, 'crates/gateway-glory');
 const destination = path.join(root, 'crates/gateway-server/static');
 const env = { ...process.env };
-let cache;
-if (process.platform === 'win32') {
+let cache = configuredBuildRoot(env);
+if (cache) {
+  env.CARGO_HOME = process.platform === 'win32' ? 'D:/BuildCache/cargo' : path.join(cache, 'cargo');
+  env.CARGO_TARGET_DIR = path.join(cache, 'target');
+} else if (process.platform === 'win32') {
   cache = 'D:/BuildCache/savfox-glory';
   env.CARGO_HOME = 'D:/BuildCache/cargo';
   env.CARGO_TARGET_DIR = path.join(cache, 'target');
