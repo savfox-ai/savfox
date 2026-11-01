@@ -3,20 +3,23 @@
 # Stage 1: Build the Glory + Sapid web UI (WASM)
 # ---------------------------------------------------------------------------
 FROM rust:bookworm AS web-builder
-ARG WASM_BINDGEN_VERSION=0.2.129
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        clang lld git jq && \
+        clang lld git jq python3 && \
     rm -rf /var/lib/apt/lists/*
 
-RUN rustup target add wasm32-unknown-unknown && \
-    cargo install wasm-bindgen-cli --version "${WASM_BINDGEN_VERSION}" --locked
+RUN rustup target add wasm32-unknown-unknown
 
 WORKDIR /work/savfox-ai/savfox
 COPY .cargo/ .cargo/
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
+
+# The CLI must match the actual root lock copied above, not a second version constant.
+RUN version="$(python3 -c 'import pathlib,re,sys,tomllib; rows=[p["version"] for p in tomllib.loads(pathlib.Path("Cargo.lock").read_text())["package"] if p["name"]=="wasm-bindgen"]; (len(rows)==1 and isinstance(rows[0],str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?",rows[0])) or sys.exit("Cargo.lock must select exactly one valid wasm-bindgen version"); print(rows[0],end="")')" && \
+    cargo install wasm-bindgen-cli --version "=$version" --locked && \
+    test "$(wasm-bindgen --version)" = "wasm-bindgen $version"
 
 RUN cargo build --locked --release -p savfox-gateway-glory --lib --target wasm32-unknown-unknown && \
     mkdir -p /web/wasm /web/assets && \
