@@ -24,26 +24,22 @@ const GROUPS: &[NavGroup] = &[
             ("/channels", "nav.channels", "radio"),
             ("/cron", "nav.cron_jobs", "clock"),
             ("/skills", "nav.skills", "star"),
+            ("/speech", "nav.speech", "volume"),
         ],
     ),
     (
-        "nav.media",
+        "nav.observe",
         &[
-            ("/tts", "nav.tts", "volume"),
-            ("/voice", "nav.voice", "mic"),
+            ("/logs", "nav.logs", "logs"),
+            ("/usage", "nav.usage", "chart"),
         ],
     ),
     (
         "nav.system",
         &[
             ("/config", "nav.config", "settings"),
-            ("/instances", "nav.instances", "server"),
-            ("/logs", "nav.logs", "logs"),
-            ("/usage", "nav.usage", "chart"),
+            ("/devices", "nav.devices", "network"),
             ("/approvals", "nav.approvals", "shield"),
-            ("/nodes", "nav.nodes", "network"),
-            ("/debug", "nav.debug", "bug"),
-            ("/device-pair", "nav.device_pair", "device"),
             ("/settings", "nav.settings", "settings"),
         ],
     ),
@@ -154,6 +150,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
     });
     ctx.scope.effect(move || apply_theme(&theme.get()));
     install_system_theme(ctx, theme);
+    watch_theme(ctx, theme);
     install_palette_focus(ctx, palette);
     install_viewport(ctx, sidebar, more);
     install_shortcuts(ctx, palette, sidebar, more);
@@ -550,7 +547,13 @@ fn apply_theme(value: &str) {
             value
         };
         if let Some(storage) = window.local_storage().ok().flatten() {
+            let previous = storage.get_item("savfox_theme").ok().flatten();
             let _ = storage.set_item("savfox_theme", value);
+            if previous.as_deref() != Some(value) {
+                if let Ok(event) = web_sys::Event::new("savfox:preferences") {
+                    let _ = window.dispatch_event(&event);
+                }
+            }
         }
         if let Some(document) = window.document() {
             if let Some(root) = document.document_element() {
@@ -567,6 +570,31 @@ fn apply_theme(value: &str) {
 
 pub(super) fn initialize_theme() {
     apply_theme(&saved_theme());
+}
+
+pub(super) fn watch_theme(ctx: &AppContext, theme: Cage<String>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen::closure::Closure;
+        if let Some(window) = web_sys::window() {
+            let callback =
+                Closure::wrap(Box::new(move || set(theme, saved_theme())) as Box<dyn FnMut()>);
+            let _ = window.add_event_listener_with_callback(
+                "savfox:preferences",
+                callback.as_ref().unchecked_ref(),
+            );
+            let _ = ctx.scope.on_cleanup(move || {
+                let _ = window.remove_event_listener_with_callback(
+                    "savfox:preferences",
+                    callback.as_ref().unchecked_ref(),
+                );
+                drop(callback);
+            });
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (ctx, theme);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -808,7 +836,7 @@ mod tests {
     fn deep_links_expand_the_original_navigation_group() {
         assert_eq!(super::active_group("/sessions?session_id=one"), 0);
         assert_eq!(super::active_group("/agents/alice/files"), 1);
-        assert_eq!(super::active_group("/voice"), 2);
+        assert_eq!(super::active_group("/logs"), 2);
         assert_eq!(super::active_group("/config/gateway"), 3);
     }
 

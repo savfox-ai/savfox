@@ -63,13 +63,14 @@ pub fn render(ctx: &AppContext, key: Cage<String>) -> Box<dyn Widget> {
         ui::error_text(ctx, state.error),
         Box::new(text().content(state.status)),
     ];
+    let mut sign_in_actions: Vec<Box<dyn Widget>> = Vec::new();
     for (label, kind) in [
         ("Sign in with ChatGPT", "chatgpt"),
         ("Sign in with device code", "deviceCode"),
     ] {
         let context = ctx.clone();
         let lease = worker.clone();
-        children.push(Box::new(
+        sign_in_actions.push(Box::new(
             sapid::button()
                 .label(label)
                 .enabled(
@@ -79,6 +80,7 @@ pub fn render(ctx: &AppContext, key: Cage<String>) -> Box<dyn Widget> {
                 .on_press(move || start(&context, state, kind, lease.clone())),
         ));
     }
+    children.push(Box::new(row().class("actions").fill(sign_in_actions)));
     children.push(Box::new(text().class("pairing-code").content(state.code)));
     let url = state.url;
     children.push(Box::new(when(
@@ -92,21 +94,20 @@ pub fn render(ctx: &AppContext, key: Cage<String>) -> Box<dyn Widget> {
     )));
     let context = ctx.clone();
     let lease = worker.clone();
-    children.push(ui::action(
-        ui::label_for(locale, "Check sign-in status"),
-        move || {
-            let context_async = context.clone();
-            let lease = lease.clone();
-            context.spawn(async move {
-                check(&context_async, state, &lease).await;
-            });
-        },
-    ));
+    let check_status = ui::action(ui::label_for(locale, "Check sign-in status"), move || {
+        let context_async = context.clone();
+        let lease = lease.clone();
+        context.spawn(async move {
+            check(&context_async, state, &lease).await;
+        });
+    });
     let context = ctx.clone();
     let lease = worker.clone();
-    children.push(ui::action(
-        ui::label_for(locale, "Cancel sign-in"),
-        move || cancel(&context, state, &lease),
+    let cancel_sign_in = ui::action(ui::label_for(locale, "Cancel sign-in"), move || {
+        cancel(&context, state, &lease)
+    });
+    children.push(Box::new(
+        row().class("actions").fill((check_status, cancel_sign_in)),
     ));
     children.push(secret(ui::label_for(locale, "OpenAI account API key"), key));
     let context = ctx.clone();
@@ -159,7 +160,11 @@ pub fn render(ctx: &AppContext, key: Cage<String>) -> Box<dyn Widget> {
             cancel_worker(rpc, id);
         }
     });
-    card(ui::label_for(locale, "OpenAI account"), children)
+    Box::new(
+        col()
+            .class("account-login")
+            .fill(card(ui::label_for(locale, "OpenAI account"), children)),
+    )
 }
 fn start(ctx: &AppContext, state: Login, kind: &'static str, worker: Rc<Worker>) {
     if state.busy.get() || !state.id.get().is_empty() {

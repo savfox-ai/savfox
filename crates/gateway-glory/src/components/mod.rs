@@ -4,6 +4,10 @@ pub mod markdown_renderer;
 mod semantic_markdown;
 mod shell;
 
+pub(crate) fn watch_theme(ctx: &crate::ui::AppContext, theme: glory::Cage<String>) {
+    shell::watch_theme(ctx, theme);
+}
+
 use glory::prelude::*;
 
 use crate::api::client::validate_token;

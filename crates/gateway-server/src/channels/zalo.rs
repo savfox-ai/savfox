@@ -205,21 +205,10 @@ impl Channel for ZaloChannel {
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     // Public webhook requests always require a configured secret and signature.
-    let config = depot
-        .get_typed::<Arc<crate::config::GatewayConfig>>()
-        .ok()
-        .and_then(|cfg| cfg.channels.zalo.as_ref().cloned());
-
-    let Some(cfg) = config else {
-        render_error(
-            res,
-            StatusCode::UNAUTHORIZED,
-            "verification_unconfigured",
-            "Zalo webhook verification is not configured",
-        );
-        return;
-    };
-    let Some(secret) = super::require_inbound_secret(Some(cfg.app_secret), res, "zalo") else {
+    let configured = super::saved_channel_secret(depot, "zalo", "app_secret")
+        .await
+        .or_else(|| std::env::var("ZALO_APP_SECRET").ok());
+    let Some(secret) = super::require_inbound_secret(configured, res, "zalo") else {
         return;
     };
     let signature = req

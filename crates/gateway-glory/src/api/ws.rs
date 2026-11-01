@@ -387,6 +387,9 @@ impl WsRpc {
                     && let Some((method, params)) = notification(&frame)
                 {
                     // Server-push notification (has `method` but no `id`).
+                    if matches!(method.as_str(), "system.disconnected" | "system.kicked") {
+                        inner.manual_disconnect.set(true);
+                    }
                     let handlers = inner.notification_handlers.borrow().get(&method).cloned();
                     if let Some(list) = handlers {
                         let last = list.len().saturating_sub(1);

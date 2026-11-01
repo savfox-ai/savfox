@@ -358,6 +358,15 @@ impl std::fmt::Display for Scope {
 /// - Everything else -> `Read`
 #[must_use]
 pub fn required_scope(method: &str) -> Scope {
+    if method == "system.connections" {
+        return Scope::Read;
+    }
+    if matches!(
+        method,
+        "system.disconnect" | "system-disconnect" | "system.kick" | "system-kick"
+    ) {
+        return Scope::Admin;
+    }
     // ── Admin: config / gateway ──────────────────────────────────────
     if method.starts_with("config.") || method.starts_with("gateway.") {
         return Scope::Admin;

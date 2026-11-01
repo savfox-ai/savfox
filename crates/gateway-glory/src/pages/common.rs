@@ -272,13 +272,16 @@ pub fn choice_for(
 }
 
 pub fn secret(label: impl Into<Vary<String>>, value: Cage<String>) -> Box<dyn Widget> {
+    let label = label.into();
     Box::new(
-        sapid::password_input()
-            .unstyled()
-            .class("form-input")
-            .name(label.into())
-            .value(value)
-            .on_value_change(move |next| ui::set(value, next)),
+        col().class("form-group form-field").fill((
+            text().class("form-label").content(label.clone()),
+            sapid::password_input()
+                .class("form-input")
+                .name(label)
+                .value(value)
+                .on_value_change(move |next| ui::set(value, next)),
+        )),
     )
 }
 pub fn item_id(value: &Value) -> String {

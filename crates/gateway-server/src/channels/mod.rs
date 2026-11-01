@@ -174,27 +174,8 @@ pub(crate) async fn ensure_inbound_channel_enabled(
         }
     };
 
-    let legacy_enabled = depot
-        .get_typed::<Arc<crate::config::GatewayConfig>>()
-        .ok()
-        .is_some_and(|cfg| {
-            let channels = &cfg.channels;
-            match platform {
-                "discord" => channels.discord.as_ref().is_some_and(|c| c.enabled),
-                "dingtalk" => channels.dingtalk.as_ref().is_some_and(|c| c.enabled),
-                "telegram" => channels.telegram.as_ref().is_some_and(|c| c.enabled),
-                "slack" => channels.slack.as_ref().is_some_and(|c| c.enabled),
-                "msteams" => channels.msteams.as_ref().is_some_and(|c| c.enabled),
-                "webhook" => channels.webhook.as_ref().is_some_and(|c| c.enabled),
-                "whatsapp" => channels.whatsapp.as_ref().is_some_and(|c| c.enabled),
-                "signal" => channels.signal.as_ref().is_some_and(|c| c.enabled),
-                "zalo" => channels.zalo.as_ref().is_some_and(|c| c.enabled),
-                _ => false,
-            }
-        });
     match saved_channel_enabled_state(&gateway_channel.config().savfox_home, platform).await {
         Ok(Some(true)) => true,
-        Ok(None) if legacy_enabled => true,
         Ok(Some(false) | None) => {
             render_error(
                 res,
@@ -219,6 +200,29 @@ pub(crate) async fn ensure_inbound_channel_enabled(
 
 /// Missing verification material must never turn a public webhook into an
 /// anonymous agent entry point. Empty secrets are also unsafe HMAC keys.
+pub(crate) async fn saved_channel_secret(
+    depot: &Depot,
+    platform: &str,
+    key: &str,
+) -> Option<String> {
+    let gateway = depot.get_typed::<Arc<GatewayChannel>>().ok()?;
+    let configs =
+        savfox_core::config::channel_store::list_channel_configs(&gateway.config().savfox_home)
+            .await
+            .ok()?;
+    configs
+        .into_iter()
+        .filter(|config| config.enabled && saved_channel_platform_matches(&config.kind, platform))
+        .find_map(|config| {
+            config
+                .config
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_owned)
+        })
+}
+
 pub(crate) fn require_inbound_secret(
     secret: Option<String>,
     res: &mut Response,

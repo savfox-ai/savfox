@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use salvo::prelude::*;
 use savfox_channels::http::check_response;
@@ -7,7 +5,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::{Channel, RichMessage, obtain_channel_and_store, render_error, runtime};
-use crate::config::{GatewayConfig, WebhookChannelConfig};
+use crate::config::WebhookChannelConfig;
 use crate::protocol::ChannelAction;
 
 /// Generic webhook channel for custom integrations.
@@ -185,10 +183,8 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let configured_secret = depot
-        .get_typed::<Arc<GatewayConfig>>()
-        .ok()
-        .and_then(|cfg| cfg.channels.webhook.as_ref().and_then(|b| b.secret.clone()))
+    let configured_secret = super::saved_channel_secret(depot, "webhook", "secret")
+        .await
         .or_else(|| std::env::var("WEBHOOK_SIGNING_SECRET").ok());
     let Some(secret) = super::require_inbound_secret(configured_secret, res, "webhook") else {
         return;

@@ -52,20 +52,20 @@ Returns the current gateway configuration (sensitive fields redacted).
 POST /api/config/patch
 ```
 
-Apply a partial configuration update. Body is a JSON object with the fields to change:
+Save a validated partial configuration update. The `config` member is a JSON merge patch; `null` deletes a field. Optional `revision` prevents overwriting another client.
 
 ```bash
 curl -X POST http://localhost:18881/api/config/patch \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"gateway": {"port": 9090}}'
+  -d '{"config":{"gateway":{"port":9090}}}'
 ```
 
 ```
 POST /api/config/apply
 ```
 
-Apply configuration changes that require a restart (e.g., port or TLS changes). The server reloads affected subsystems.
+Save a complete `config` document, replacing removed fields. This shares validation, revision checks, backup and atomic replacement with the WebSocket API. A changed document returns `status: saved`, `restart_required: true`, `revision` and `config`; restart the gateway explicitly to activate it. No live subsystem reload is claimed.
 
 ### Token Validation
 

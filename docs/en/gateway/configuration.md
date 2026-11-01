@@ -27,171 +27,49 @@ savfox gateway [OPTIONS] [SUBCOMMAND]
 
 Use `--host 0.0.0.0` to listen on all interfaces.
 
-## config.toml reference
+## System configuration and management pages
 
-The `[gateway]` section in `~/.savfox/config.toml`:
+System configuration (`/config`) starts with a configuration overview, followed by
+Gateway and security, Execution and tools, Sessions and context, Runtime environment,
+and Advanced configuration. Search matches field names, translated labels and descriptions.
+The schema comes from the runtime's `ConfigToml` and `GatewayConfig` types, not a
+separate list of hypothetical settings. Unsupported old fields are excluded and
+removed on the next save; they are not migrated to a second configuration location.
+
+Models/accounts, agents, channels, skills and scheduled jobs have dedicated management
+pages and service-owned stores. Channel credentials belong in the Channels page and
+`channels/*.json`; the old `[gateway.channels]` and `[gateway.bridges]` inputs are removed.
+Speech synthesis and talk/wake settings share `/speech`; nodes, live WebSocket clients
+and pairing share `/devices`. `/settings` contains preferences for the current browser;
+server logging controls are on the Logs page. Advanced configuration links to manual RPC
+and diagnostics instead of placing another item in the primary navigation.
 
 ```toml
 [gateway]
 host = "127.0.0.1"
 port = 18881
-# token = "your-static-token"  # Auto-generated if omitted
+# token is persisted/generated when omitted
 # tls_cert = "/path/to/cert.pem"
 # tls_key = "/path/to/key.pem"
+trust_x_forwarded_for = false
 
-[gateway.channels.discord]
-enabled = true
-bot_token = "your-discord-bot-token"
-mode = "stream"
-# application_id = "123456789"
-# application_public_key = "hex-encoded-ed25519-public-key"
-# guild_id = "123456789"
+[gateway.rate_limit]
+max_requests = 100
+window_secs = 60
+max_connections_per_ip = 10
 
-[gateway.channels.telegram]
+[gateway.response_footer]
 enabled = true
-bot_token = "123456:ABCdefGhIjKlMnOpQrStUvWxYz"
-# webhook_secret_token = "optional-secret"
-
-[gateway.channels.slack]
-enabled = true
-bot_token = "xoxb-your-slack-bot-token"
-signing_secret = "your-signing-secret"
-
-[gateway.channels.msteams]
-enabled = true
-app_id = "your-microsoft-app-id"
-app_password = "your-microsoft-app-password"
-# tenant_id = "optional-tenant-id"
-
-[gateway.channels.webhook]
-enabled = true
-# callback_url = "https://example.com/webhook"
-# secret = "shared-hmac-secret"
-
-[gateway.channels.whatsapp]
-enabled = true
-phone_number_id = "your-phone-number-id"
-access_token = "your-whatsapp-access-token"
-# verify_token = "webhook-verify-token"
-# app_secret = "webhook-signature-secret"
-
-[gateway.channels.signal]
-enabled = true
-# phone_number = "+1234567890"
-# rpc_url = "http://localhost:8080/api/v1/rpc"
-
-[gateway.channels.imessage]
-enabled = true
-api_url = "http://localhost:1234"
-password = "bluebubbles-server-password"
-# poll_interval_secs = 5
-
-[gateway.channels.zalo]
-enabled = true
-app_id = "your-zalo-app-id"
-app_secret = "your-zalo-app-secret"
-access_token = "your-zalo-access-token"
-# webhook_verify_token = "optional-verify-token"
+max_length = 240
 ```
 
-## Field reference
-
-### `[gateway]`
-
-| Field      | Type            | Default       | Description                          |
-|------------|-----------------|---------------|--------------------------------------|
-| `host`     | `IpAddr`        | `127.0.0.1`   | Bind address                         |
-| `port`     | `u16`           | `18881`       | Listen port                          |
-| `token`    | `Option<String>`| `None` (auto) | Static bearer token                  |
-| `tls_cert` | `Option<String>`| `None`        | PEM certificate path                 |
-| `tls_key`  | `Option<String>`| `None`        | PEM private key path                 |
-| `channels`  | `ChannelsConfig` | `{}`          | Chat platform channel configurations  |
-
-### `[gateway.channels.discord]`
-
-| Field                    | Type            | Required | Description                    |
-|--------------------------|-----------------|----------|--------------------------------|
-| `enabled`                | `bool`          | Yes      | Enable the Discord channel      |
-| `bot_token`              | `String`        | Yes      | Discord bot token              |
-| `mode`                   | `Option<String>`| No       | Inbound mode: `stream` (default) or `webhook` |
-| `application_id`         | `Option<String>`| No       | Discord application ID         |
-| `application_public_key` | `Option<String>`| No       | Ed25519 public key for signature verification |
-| `guild_id`               | `Option<String>`| No       | Restrict the stream listener to a specific guild |
-
-### `[gateway.channels.telegram]`
-
-| Field                  | Type            | Required | Description                      |
-|------------------------|-----------------|----------|----------------------------------|
-| `enabled`              | `bool`          | Yes      | Enable the Telegram channel       |
-| `bot_token`            | `String`        | Yes      | Telegram Bot API token           |
-| `webhook_secret_token` | `Option<String>`| No       | Secret for webhook verification  |
-
-### `[gateway.channels.slack]`
-
-| Field            | Type     | Required | Description                          |
-|------------------|----------|----------|--------------------------------------|
-| `enabled`        | `bool`   | Yes      | Enable the Slack channel              |
-| `bot_token`      | `String` | Yes      | Slack bot OAuth token (`xoxb-...`)   |
-| `signing_secret` | `String` | Yes      | Slack app signing secret             |
-
-### `[gateway.channels.msteams]`
-
-| Field          | Type            | Required | Description                        |
-|----------------|-----------------|----------|------------------------------------|
-| `enabled`      | `bool`          | Yes      | Enable the MS Teams channel         |
-| `app_id`       | `String`        | Yes      | Microsoft Bot registration App ID  |
-| `app_password` | `String`        | Yes      | Microsoft App Password (secret)    |
-| `tenant_id`    | `Option<String>`| No       | Tenant ID for single-tenant bots   |
-
-### `[gateway.channels.webhook]`
-
-| Field          | Type            | Required | Description                          |
-|----------------|-----------------|----------|--------------------------------------|
-| `enabled`      | `bool`          | Yes      | Enable the generic webhook channel    |
-| `callback_url` | `Option<String>`| No       | URL for outbound events              |
-| `secret`       | `Option<String>`| No       | HMAC-SHA256 shared secret            |
-
-### `[gateway.channels.whatsapp]`
-
-| Field             | Type            | Required | Description                       |
-|-------------------|-----------------|----------|-----------------------------------|
-| `enabled`         | `bool`          | Yes      | Enable the WhatsApp channel        |
-| `phone_number_id` | `String`       | Yes      | WhatsApp Business phone number ID |
-| `access_token`    | `String`        | Yes      | WhatsApp Business access token    |
-| `verify_token`    | `Option<String>`| No       | Webhook verification token        |
-| `app_secret`      | `Option<String>`| No       | App secret for signature verification |
-
-### `[gateway.channels.signal]`
-
-| Field          | Type            | Required | Description                        |
-|----------------|-----------------|----------|------------------------------------|
-| `enabled`      | `bool`          | Yes      | Enable the Signal channel           |
-| `phone_number` | `Option<String>`| No       | Signal account phone number        |
-| `rpc_url`      | `Option<String>`| No       | signal-cli JSON-RPC URL            |
-
-### `[gateway.channels.imessage]`
-
-| Field                | Type            | Required | Description                    |
-|----------------------|-----------------|----------|--------------------------------|
-| `enabled`            | `bool`          | Yes      | Enable the iMessage channel     |
-| `api_url`            | `String`        | Yes      | BlueBubbles server URL         |
-| `password`           | `String`        | Yes      | BlueBubbles server password    |
-| `poll_interval_secs` | `Option<u64>`   | No       | Polling interval (default: 5s) |
-
-### `[gateway.channels.zalo]`
-
-| Field                  | Type            | Required | Description                     |
-|------------------------|-----------------|----------|---------------------------------|
-| `enabled`              | `bool`          | Yes      | Enable the Zalo OA channel       |
-| `app_id`               | `String`        | Yes      | Zalo OA App ID                  |
-| `app_secret`           | `String`        | Yes      | App secret for signature checks |
-| `access_token`         | `String`        | Yes      | OA access token                 |
-| `webhook_verify_token` | `Option<String>`| No       | Webhook handshake token         |
+Explicit CLI listener/credential arguments take precedence over file values. Omitted
+arguments use file values, then defaults. Configure both TLS paths together.
 
 ## Environment variables
 
 Channel credentials can also be set via environment variables. These are used as
-fallbacks when config.toml values are not present:
+fallbacks when the saved channel credentials are not present:
 
 | Variable                      | Channel      | Description                    |
 |-------------------------------|-------------|--------------------------------|
@@ -209,63 +87,46 @@ fallbacks when config.toml values are not present:
 | `IRC_BRIDGE_URL`             | IRC         | Channel HTTP URL (default: `http://127.0.0.1:6667`) |
 | `ZALO_OA_ACCESS_TOKEN`       | Zalo        | OA access token                |
 
-## Runtime configuration updates
+## Saving and activation
 
-Configuration can be modified at runtime without restarting the gateway:
+Optional settings distinguish inherited defaults from explicit enabled/disabled values. An absent option is not displayed as disabled.
 
-### Via REST API
+The editor maintains one draft. JSON edits update that draft directly; invalid JSON
+blocks saving. Discard restores the loaded document. Reload asks before discarding
+unsaved changes. The advanced JSON editor also serves as the import surface: paste
+a complete document, review the changes, and save once. Removing a field in this
+document removes it from the saved configuration.
 
-```bash
-# Merge-patch (only modifies specified fields)
-curl -X POST http://localhost:18881/api/config/patch \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "config": {
-      "gateway": {
-        "channels": {
-          "discord": {
-            "bot_token": "new-token"
-          }
-        }
-      }
-    },
-    "note": "Updated Discord token"
-  }'
-
-# Full replace
-curl -X POST http://localhost:18881/api/config/apply \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "config": { ... },
-    "note": "Full config replacement"
-  }'
-```
-
-### Via WS-RPC
+`config.get` returns `config`, `revision` and `removed_fields`. Save with:
 
 ```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "config.patch",
-  "params": {
-    "config": {
-      "gateway": {
-        "channels": {
-          "telegram": {
-            "bot_token": "new-token"
-          }
-        }
-      }
-    }
-  }
-}
+{"jsonrpc":"2.0","id":1,"method":"config.set","params":{"config":{"gateway":{"port":18881}},"revision":"revision-from-config.get"}}
 ```
 
-Runtime updates to channel credentials are hot-reloaded without requiring a
-gateway restart. The config.toml file is updated on disk for persistence.
+Writes validate supported fields and types, reject stale revisions, preserve the
+previous file in `config.toml.bak`, and atomically replace `config.toml` once.
+The response contains `status`, `config`, `revision` and `restart_required`.
+Experimental feature flags and low-frequency core settings remain available in the advanced document instead of expanding into hundreds of default controls.
+
+A successful write returns `saved` and `restart_required: true`; an unchanged
+document returns `unchanged` and does not rewrite the file. Restart the gateway to
+activate system configuration. Neither `config.apply` nor `config.reload` pretends
+to hot-reconfigure the running server. Service-specific actions, such as changing
+the current logging level, use their own APIs.
+
+`config.patch` takes `{ "patch": { ... }, "revision": "..." }` and uses JSON merge
+patch semantics (`null` deletes). HTTP `POST /api/config/patch` takes `config` as its
+patch body; HTTP `POST /api/config/apply` takes a full `config` document. Both share
+the same validation, backup, revision and atomic-write path as WebSocket saves.
+
+Export downloads the saved, redacted system configuration through `config.export`.
+It does not export unsaved edits or make a complete backup of accounts, channels,
+speech settings, jobs, sessions or secrets.
+
+`system.connections` is a read-only list of live clients with `session_id`, `name`,
+`connected_at` and `is_current`. `system.disconnect` requires administrator scope and
+`{ "session_id": "..." }`; it notifies and closes that WebSocket. The browser stops
+automatic reconnect after an explicit operator disconnect; reload to connect again.
 
 ## TLS configuration
 
@@ -283,7 +144,7 @@ Or via CLI:
 savfox gateway --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
 ```
 
-Both fields must be set together. Setting only one will be ignored.
+Both fields must be set together. A configuration containing only one is rejected.
 
 ## Session store configuration
 
@@ -305,7 +166,7 @@ The experimental Rust `claude_stream` mode has separate model/settings configura
 
 ### Public webhook authentication
 
-Every `/webhooks/<platform>` callback requires an explicitly enabled saved channel or legacy `[gateway.channels.<platform>]` entry. Unconfigured or disabled channels return 503; a disabled saved channel takes precedence over a legacy enabled entry. Verification credentials must be nonempty. Missing credentials, missing signatures, forged signatures, or altered signed bodies return 401 rather than starting an agent. A gateway bearer token does not substitute for platform webhook authentication.
+Every `/webhooks/<platform>` callback requires an explicitly enabled saved channel. Unconfigured or disabled channels return 503. Verification credentials must be nonempty. Missing credentials, missing signatures, forged signatures, or altered signed bodies return 401 rather than starting an agent. A gateway bearer token does not substitute for platform webhook authentication.
 
 Existing platform verification formats remain in use (Discord public key, Slack signing secret, Telegram secret token, LINE/WhatsApp signing keys, Zalo `x-zalooa-signature`, and the configured verification tokens for other integrations). Feishu HTTP callbacks require a verification token. WhatsApp's setup GET also requires the configured verify token. Channel polling, long connections and the authenticated Matrix appservice routes retain their transport authentication.
 

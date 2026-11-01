@@ -76,10 +76,20 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                     row()
                         .class("logs-level-toggles")
                         .fill(levels.into_iter().collect::<Vec<_>>()),
-                    ui::field(ui::label_for(locale, "Search logs"), filter, false),
+                    sapid::text_field()
+                        .class("logs-search")
+                        .name(ui::label_for(locale, "Search logs"))
+                        .placeholder(ui::label_for(locale, "Search logs"))
+                        .value(filter)
+                        .on_value_change(move |value| ui::set(filter, value)),
                 )),
             )),
             status(ctx, &state),
+            ui::details(
+                "logging-controls",
+                ui::label_for(locale, "Server logging"),
+                logging_controls(ctx),
+            ),
             col()
                 .class("logs-list")
                 .fill(each(filtered).key(record_key).children(move |each_row| {
@@ -111,5 +121,57 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                         ))
                 })),
         )),
+    )
+}
+
+fn logging_controls(ctx: &AppContext) -> Box<dyn Widget> {
+    let locale = ctx.locale;
+    let state = query(ctx, "log.get_level", None);
+    let level = ctx.scope.cage("info".to_owned());
+    let filter = ctx.scope.cage(String::new());
+    let value = state.value;
+    ctx.scope.effect(move || {
+        if let Some(value) = value.get()["level"].as_str() {
+            ui::set(level, value.to_owned());
+        }
+    });
+    let context = ctx.clone();
+    let log_state = state.clone();
+    let save_log = ui::action(ui::label_for(locale, "Apply logging"), move || {
+        let value = if filter.get().trim().is_empty() {
+            level.get()
+        } else {
+            filter.get()
+        };
+        mutate(
+            &context,
+            &log_state,
+            "log.set_level",
+            serde_json::json!({"level":value}),
+        );
+    });
+    card(
+        ui::label_for(locale, "Logging"),
+        vec![
+            status(ctx, &state),
+            choice_for(
+                locale,
+                "Log level",
+                level,
+                &[
+                    ("error", "Error"),
+                    ("warn", "Warning"),
+                    ("info", "Info"),
+                    ("debug", "Debug"),
+                    ("trace", "Trace"),
+                ],
+            ),
+            ui::field(
+                ui::label_for(locale, "Custom RUST_LOG filter"),
+                filter,
+                false,
+            ),
+            save_log,
+        ],
     )
 }

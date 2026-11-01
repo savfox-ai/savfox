@@ -19,6 +19,7 @@ use crate::home_paths::heartbeat_config_path as gateway_heartbeat_config_path;
 use crate::session::{GatewaySessionManager, SessionStore};
 
 mod handlers;
+pub(crate) use handlers::config::{handle_config_get, save_config};
 mod types;
 mod utils;
 use self::handlers::channel_management::{
@@ -319,6 +320,7 @@ pub(crate) async fn dispatch_rpc(
         }
 
         // ── Config ──────────────────────────────────────────────────────
+        "system.connections" => Box::pin(handle_system_connections(_session_id, session_mgr)),
         "config.get" => Box::pin(handle_config_get(channel)),
         "config.set" => Box::pin(handle_config_set(&params, channel)),
         "config.apply" => Box::pin(handle_config_apply(&params, channel)),
@@ -917,9 +919,8 @@ mod tests {
     use super::{
         canonical_channel_platform, cron_job_summary_value, cron_param_job_id,
         cron_run_summary_value, cron_status_summary_value, default_agent_config_from_source,
-        enrich_model_reasoning_metadata, normalize_agent_config, normalize_config_model_fields,
-        normalized_agent_name_key, saved_channel_config_ready, saved_channel_state,
-        started_saved_channel_count,
+        enrich_model_reasoning_metadata, normalize_agent_config, normalized_agent_name_key,
+        saved_channel_config_ready, saved_channel_state, started_saved_channel_count,
     };
 
     fn named_channel_config(
@@ -949,103 +950,6 @@ mod tests {
         config: serde_json::Value,
     ) -> savfox_core::config::channel_store::ChannelConfig {
         named_channel_config(&format!("{kind}-test"), kind, enabled, config)
-    }
-
-    #[test]
-    fn expands_top_level_model_string_into_full_object() {
-        let mut config = json!({
-            "model": "zhipuai-coding-plan/glm-5"
-        });
-
-        normalize_config_model_fields(&mut config);
-
-        assert_eq!(config["model"]["id"], json!("zhipuai-coding-plan/glm-5"));
-        assert_eq!(config["model"]["code"], json!("glm-5"));
-        assert_eq!(config["model"]["name"], json!("Glm 5"));
-        assert_eq!(
-            config["model"]["provider"]["id"],
-            json!("zhipuai-coding-plan")
-        );
-        assert_eq!(
-            config["model"]["provider"]["name"],
-            json!("Zhipuai Coding Plan")
-        );
-        assert_eq!(
-            config["model"]["provider"]["base_url"],
-            json!("https://open.bigmodel.cn/api/coding/paas/v4")
-        );
-    }
-
-    #[test]
-    fn expands_profile_model_with_provider_string() {
-        let mut config = json!({
-            "profiles": {
-                "dev": {
-                    "model": {
-                        "provider": "anthropic",
-                        "code": "claude-sonnet-4"
-                    }
-                }
-            }
-        });
-
-        normalize_config_model_fields(&mut config);
-
-        assert_eq!(
-            config["profiles"]["dev"]["model"]["id"],
-            json!("anthropic/claude-sonnet-4")
-        );
-        assert_eq!(
-            config["profiles"]["dev"]["model"]["code"],
-            json!("claude-sonnet-4")
-        );
-        assert_eq!(
-            config["profiles"]["dev"]["model"]["name"],
-            json!("Claude Sonnet 4")
-        );
-        assert_eq!(
-            config["profiles"]["dev"]["model"]["provider"]["id"],
-            json!("anthropic")
-        );
-        assert_eq!(
-            config["profiles"]["dev"]["model"]["provider"]["name"],
-            json!("Anthropic")
-        );
-        assert_eq!(
-            config["profiles"]["dev"]["model"]["provider"]["base_url"],
-            json!("https://api.anthropic.com")
-        );
-    }
-
-    #[test]
-    fn keeps_bare_model_string_unchanged() {
-        let mut config = json!({
-            "model": "gpt-5.1"
-        });
-
-        normalize_config_model_fields(&mut config);
-
-        assert_eq!(config["model"], json!("gpt-5.1"));
-    }
-
-    #[test]
-    fn keeps_explicit_provider_base_url_when_present() {
-        let mut config = json!({
-            "model": {
-                "provider": {
-                    "id": "anthropic",
-                    "base_url": "https://example.invalid/anthropic"
-                },
-                "code": "claude-sonnet-4"
-            }
-        });
-
-        normalize_config_model_fields(&mut config);
-
-        assert_eq!(
-            config["model"]["provider"]["base_url"],
-            json!("https://example.invalid/anthropic")
-        );
     }
 
     #[test]

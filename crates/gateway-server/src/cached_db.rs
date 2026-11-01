@@ -37,8 +37,10 @@ pub(crate) async fn get_pool(savfox_home: &Path) -> Result<SqlitePool, String> {
     tokio::fs::create_dir_all(&db_dir)
         .await
         .map_err(|e| format!("create gateway dir: {e}"))?;
-    let url = format!("sqlite:{}?mode=rwc", db_path.display());
-    let pool = SqlitePool::connect(&url)
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true);
+    let pool = SqlitePool::connect_with(options)
         .await
         .map_err(|e| format!("sqlite connect: {e}"))?;
     run_migrations(&pool).await?;
@@ -46,6 +48,24 @@ pub(crate) async fn get_pool(savfox_home: &Path) -> Result<SqlitePool, String> {
     let mut guard = pools.lock().await;
     guard.insert(db_path, pool.clone());
     Ok(pool)
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+    #[tokio::test]
+    async fn cache_filename_is_a_native_path_including_spaces_and_uri_characters() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("cache # 设置");
+        let pool = get_pool(&path).await.unwrap();
+        assert!(
+            path.join(GATEWAY_SUBDIR)
+                .join("cached_data.sqlite")
+                .is_file()
+        );
+        assert_eq!(get_current_version(&pool).await.unwrap(), SCHEMA_VERSION);
+        pool.close().await;
+    }
 }
 
 /// Read the current schema version from the database (0 if table doesn't exist).

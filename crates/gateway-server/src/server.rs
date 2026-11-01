@@ -11,14 +11,13 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::auth::{GatewayAuth, TokenInfo, TokenScope};
-use crate::channel::{GatewayChannel, RuntimeBridgeSecrets};
+use crate::channel::GatewayChannel;
 use crate::chat_session::{
     abort_first_active_candidate, persist_chat_session_metadata, provider_from_model,
     resolve_abort_candidate_ids, validate_uuid_v7_session_id,
 };
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
-use crate::home_paths::config_toml_path as gateway_config_toml_path;
 use crate::otel::{self, GatewayMetrics};
 use crate::plugin::{self, PluginState};
 use crate::routing::{openai, openresponses};
@@ -738,37 +737,20 @@ async fn logs_handler(req: &mut Request, res: &mut Response) {
 /// `GET /api/config`  - Gateway configuration (sanitized, no secrets).
 #[handler]
 async fn config_handler(depot: &mut Depot, res: &mut Response) {
-    let session_mgr = if let Ok(mgr) = depot.get_typed::<Arc<GatewaySessionManager>>() {
-        mgr.clone()
-    } else {
+    let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
-
-    let count = session_mgr.session_count().await;
-
-    // Return sanitized config  - no tokens/secrets
-    let body = json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "connected_clients": count,
-        "channels": {
-            "discord": "configured",
-            "telegram": "configured",
-            "slack": "configured",
-            "webhook": "configured",
-        },
-        "endpoints": {
-            "ws": "/ws",
-            "health": "/health",
-            "status": "/api/status",
-            "config": "/api/config",
-            "message": "/api/message",
-            "sessions": "/api/sessions",
-            "token_validate": "/api/token/validate",
-        },
-    });
-
-    res.render(Text::Json(body.to_string()));
+    match crate::ws_rpc::handle_config_get(channel).await {
+        Ok(mut value) => {
+            crate::redaction::redact_json_in_place(&mut value);
+            res.render(Json(value));
+        }
+        Err((_, message)) => {
+            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+            res.render(Json(json!({"error":message})));
+        }
+    }
 }
 
 /// `POST /api/token/validate`  - Validate a bearer token.
@@ -1007,165 +989,6 @@ async fn devices_revoke_handler(req: &mut Request, res: &mut Response) {
     }
 }
 
-fn merge_json_patch(target: &mut Value, patch: &Value) {
-    match (target, patch) {
-        (Value::Object(target_map), Value::Object(patch_map)) => {
-            for (key, patch_value) in patch_map {
-                if patch_value.is_null() {
-                    target_map.remove(key);
-                    continue;
-                }
-                match target_map.get_mut(key) {
-                    Some(existing) => merge_json_patch(existing, patch_value),
-                    None => {
-                        target_map.insert(key.clone(), patch_value.clone());
-                    }
-                }
-            }
-        }
-        (target_slot, patch_value) => {
-            *target_slot = patch_value.clone();
-        }
-    }
-}
-
-fn config_toml_path(channel: &GatewayChannel) -> std::path::PathBuf {
-    gateway_config_toml_path(&channel.config().savfox_home)
-}
-
-async fn read_config_json(path: &std::path::Path) -> Result<Value, String> {
-    // Load .env file if present alongside config
-    if let Some(parent) = path.parent() {
-        let env_path = parent.join(".env");
-        if env_path.exists() {
-            let _ = dotenvy::from_path(&env_path);
-        }
-    }
-
-    let content = tokio::fs::read_to_string(path).await.unwrap_or_default();
-    if content.trim().is_empty() {
-        return Ok(json!({}));
-    }
-    let parsed_toml = content
-        .parse::<toml::Value>()
-        .map_err(|err| format!("failed to parse existing config.toml: {err}"))?;
-    let mut value = serde_json::to_value(parsed_toml)
-        .map_err(|err| format!("failed to convert existing TOML to JSON: {err}"))?;
-
-    // Apply environment variable substitution
-    substitute_env_vars(&mut value)
-        .map_err(|err| format!("failed to substitute environment variables: {err}"))?;
-
-    Ok(value)
-}
-
-/// Recursively substitute `$ENV_VAR`, `${VAR}`, `${VAR:-default}`, and
-/// `${VAR:?error}` in JSON string values.
-fn substitute_env_vars(value: &mut Value) -> Result<(), String> {
-    match value {
-        Value::String(s) if s.contains('$') => {
-            *s = expand_env_string(s)?;
-        }
-        Value::String(_) => {}
-        Value::Object(map) => {
-            for v in map.values_mut() {
-                substitute_env_vars(v)?;
-            }
-        }
-        Value::Array(arr) => {
-            for v in arr.iter_mut() {
-                substitute_env_vars(v)?;
-            }
-        }
-        _ => {}
-    }
-
-    Ok(())
-}
-
-/// Expand env vars in a string.
-///
-/// Supported forms:
-/// - `$VAR`
-/// - `${VAR}`
-/// - `${VAR:-default}`
-/// - `${VAR:?error message}`
-fn expand_env_string(input: &str) -> Result<String, String> {
-    let mut result = String::with_capacity(input.len());
-    let chars: Vec<char> = input.chars().collect();
-    let mut i = 0;
-
-    while i < chars.len() {
-        if chars[i] == '$' && i + 1 < chars.len() {
-            if chars[i + 1] == '{' {
-                // ${VAR}, ${VAR:-default}, or ${VAR:?error}
-                if let Some(close) = chars[i + 2..].iter().position(|&c| c == '}') {
-                    let inner: String = chars[i + 2..i + 2 + close].iter().collect();
-                    let (var_name, default_val, required_err) = if let Some(pos) = inner.find(":-")
-                    {
-                        (&inner[..pos], Some(&inner[pos + 2..]), None)
-                    } else if let Some(pos) = inner.find(":?") {
-                        (&inner[..pos], None, Some(&inner[pos + 2..]))
-                    } else {
-                        (inner.as_str(), None, None)
-                    };
-
-                    let var_name = var_name.trim();
-                    if var_name.is_empty() {
-                        let orig: String = chars[i..i + 2 + close + 1].iter().collect();
-                        result.push_str(&orig);
-                    } else {
-                        let resolved = std::env::var(var_name).ok().filter(|v| !v.is_empty());
-                        match resolved {
-                            Some(val) => result.push_str(&val),
-                            None => {
-                                if let Some(def) = default_val {
-                                    result.push_str(def);
-                                } else if let Some(err_msg) = required_err {
-                                    let message = if err_msg.trim().is_empty() {
-                                        format!(
-                                            "required environment variable '{var_name}' is missing"
-                                        )
-                                    } else {
-                                        err_msg.to_owned()
-                                    };
-                                    return Err(message);
-                                } else {
-                                    // `${VAR}` expands to empty when unset.
-                                    result.push_str("");
-                                }
-                            }
-                        }
-                    }
-                    i += 2 + close + 1;
-                    continue;
-                }
-            } else if chars[i + 1].is_ascii_alphabetic() || chars[i + 1] == '_' {
-                // $VAR_NAME
-                let start = i + 1;
-                let mut end = start;
-                while end < chars.len() && (chars[end].is_ascii_alphanumeric() || chars[end] == '_')
-                {
-                    end += 1;
-                }
-                let var_name: String = chars[start..end].iter().collect();
-                if let Ok(val) = std::env::var(&var_name) {
-                    result.push_str(&val)
-                } else {
-                    let orig: String = chars[i..end].iter().collect();
-                    result.push_str(&orig);
-                }
-                i = end;
-                continue;
-            }
-        }
-        result.push(chars[i]);
-        i += 1;
-    }
-
-    Ok(result)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -1178,12 +1001,11 @@ mod tests {
     #[cfg(windows)]
     use salvo::prelude::{Listener, Server};
     use salvo::prelude::{Request, Response, Router, StatusCode};
-    use serde_json::json;
 
     use super::{
-        GatewayAuth, HttpAuthorization, TokenInfo, TokenScope, bearer_auth_hoop, expand_env_string,
+        GatewayAuth, HttpAuthorization, TokenInfo, TokenScope, bearer_auth_hoop,
         has_http_authorization, is_protected_api_path, is_public_anonymous_path,
-        required_http_authorization, substitute_env_vars,
+        required_http_authorization,
     };
 
     #[cfg(windows)]
@@ -1573,112 +1395,6 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn expand_env_string_default_fallback_when_unset() {
-        let input = "${SAVFOX_TEST_UNSET_DEFAULT_3D2D8040:-fallback-value}";
-        let output = expand_env_string(input).expect("default fallback should not fail");
-        assert_eq!(output, "fallback-value");
-    }
-
-    #[test]
-    fn expand_env_string_required_errors_when_unset() {
-        let input = "${SAVFOX_TEST_UNSET_REQUIRED_6B3B9F69:?required env missing}";
-        let err = expand_env_string(input).expect_err("required var should fail");
-        assert_eq!(err, "required env missing");
-    }
-
-    #[test]
-    fn substitute_env_vars_recurses_and_propagates_error() {
-        let mut value = json!({
-            "model": "${SAVFOX_TEST_UNSET_MODEL_2D8E45A7:-gpt-4o-mini}",
-            "token": "${SAVFOX_TEST_UNSET_TOKEN_1C9F5E12:?token required}",
-            "nested": ["${SAVFOX_TEST_UNSET_OTHER_9F6B4A22:-ok}"]
-        });
-
-        let err = substitute_env_vars(&mut value).expect_err("required env should fail");
-        assert_eq!(err, "token required");
-        assert_eq!(value["model"], "gpt-4o-mini");
-    }
-}
-
-async fn write_config_json(path: &std::path::Path, config: &Value) -> Result<(), String> {
-    let toml_value = savfox_utils::json_to_toml::json_to_toml(config.clone());
-    let toml_str = toml::to_string(&toml_value)
-        .map_err(|err| format!("failed to serialize config as TOML: {err}"))?;
-    tokio::fs::write(path, toml_str)
-        .await
-        .map_err(|err| format!("failed to write config.toml: {err}"))
-}
-
-fn json_path_str<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
-    let mut cur = value;
-    for seg in path {
-        cur = cur.get(*seg)?;
-    }
-    cur.as_str()
-}
-
-fn json_path_str_any<'a>(value: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
-    paths.iter().find_map(|path| json_path_str(value, path))
-}
-
-fn runtime_channel_secrets_from_config(config: &Value) -> RuntimeBridgeSecrets {
-    RuntimeBridgeSecrets {
-        discord_bot_token: json_path_str_any(
-            config,
-            &[
-                &["gateway", "channels", "discord", "bot_token"],
-                &["gateway", "bridges", "discord", "bot_token"],
-            ],
-        )
-        .map(ToOwned::to_owned),
-        telegram_bot_token: json_path_str_any(
-            config,
-            &[
-                &["gateway", "channels", "telegram", "bot_token"],
-                &["gateway", "bridges", "telegram", "bot_token"],
-            ],
-        )
-        .map(ToOwned::to_owned),
-        slack_bot_token: json_path_str_any(
-            config,
-            &[
-                &["gateway", "channels", "slack", "bot_token"],
-                &["gateway", "bridges", "slack", "bot_token"],
-            ],
-        )
-        .map(ToOwned::to_owned),
-        slack_signing_secret: json_path_str_any(
-            config,
-            &[
-                &["gateway", "channels", "slack", "signing_secret"],
-                &["gateway", "bridges", "slack", "signing_secret"],
-            ],
-        )
-        .map(ToOwned::to_owned),
-        webhook_secret: json_path_str_any(
-            config,
-            &[
-                &["gateway", "channels", "webhook", "secret"],
-                &["gateway", "bridges", "webhook", "secret"],
-            ],
-        )
-        .map(ToOwned::to_owned),
-    }
-}
-
-fn count_runtime_secrets(secrets: &RuntimeBridgeSecrets) -> usize {
-    [
-        secrets.discord_bot_token.as_ref(),
-        secrets.telegram_bot_token.as_ref(),
-        secrets.slack_bot_token.as_ref(),
-        secrets.slack_signing_secret.as_ref(),
-        secrets.webhook_secret.as_ref(),
-    ]
-    .iter()
-    .filter(|v| v.is_some())
-    .count()
 }
 
 /// `POST /api/config/patch`  - Merge-patch the gateway configuration.
@@ -1702,106 +1418,43 @@ async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         }
     };
 
-    let patch_config = body
-        .get("config")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-    let note = body
-        .get("note")
-        .and_then(|v| v.as_str())
-        .unwrap_or("(no note)");
-
-    let path = config_toml_path(&channel);
-    let mut current = match read_config_json(&path).await {
-        Ok(v) => v,
-        Err(err) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Text::Json(json!({"error": err}).to_string()));
-            return;
-        }
-    };
-    merge_json_patch(&mut current, &patch_config);
-    if let Err(err) = write_config_json(&path, &current).await {
-        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-        res.render(Text::Json(json!({"error": err}).to_string()));
-        return;
-    }
-
-    let runtime_secrets = runtime_channel_secrets_from_config(&current);
-    let runtime_updates = count_runtime_secrets(&runtime_secrets);
-    channel.set_runtime_channel_secrets(runtime_secrets).await;
-
-    res.render(Text::Json(
-        json!({
-            "status": "ok",
-            "note": note,
-            "message": "config.patch applied",
-            "config_path": path.to_string_lossy(),
-            "runtime_secrets_applied": runtime_updates,
-        })
-        .to_string(),
-    ));
+    let params = json!({"patch":body.get("config").cloned().unwrap_or(Value::Null),"revision":body.get("revision").cloned().unwrap_or(Value::Null)});
+    render_config_save(
+        crate::ws_rpc::save_config(&params, &channel, true).await,
+        res,
+    );
 }
 
-/// `POST /api/config/apply`  - Replace the gateway configuration entirely.
+/// Replace configuration once; runtime changes require an explicit restart.
 #[handler]
 async fn config_apply_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = if let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() {
-        channel.clone()
-    } else {
+    let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
-
-    let body = match req.parse_json::<serde_json::Value>().await {
-        Ok(v) => v,
-        Err(err) => {
+    let body = match req.parse_json::<Value>().await {
+        Ok(body) => body,
+        Err(error) => {
             res.status_code(StatusCode::BAD_REQUEST);
-            res.render(Text::Json(
-                json!({"error": format!("invalid body: {err}")}).to_string(),
-            ));
+            res.render(Json(json!({"error":error.to_string()})));
             return;
         }
     };
+    render_config_save(crate::ws_rpc::save_config(&body, channel, false).await, res);
+}
 
-    let new_config = body
-        .get("config")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-    let note = body
-        .get("note")
-        .and_then(|v| v.as_str())
-        .unwrap_or("(no note)");
-
-    if !new_config.is_object() {
-        res.status_code(StatusCode::BAD_REQUEST);
-        res.render(Text::Json(
-            json!({"error": "'config' must be a JSON object"}).to_string(),
-        ));
-        return;
+fn render_config_save(result: Result<Value, (i64, String)>, res: &mut Response) {
+    match result {
+        Ok(value) => res.render(Json(value)),
+        Err((code, message)) => {
+            res.status_code(if code == -32603 {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::BAD_REQUEST
+            });
+            res.render(Json(json!({"error":message})));
+        }
     }
-
-    let path = config_toml_path(&channel);
-    if let Err(err) = write_config_json(&path, &new_config).await {
-        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-        res.render(Text::Json(json!({"error": err}).to_string()));
-        return;
-    }
-
-    let runtime_secrets = runtime_channel_secrets_from_config(&new_config);
-    let runtime_updates = count_runtime_secrets(&runtime_secrets);
-    channel.set_runtime_channel_secrets(runtime_secrets).await;
-
-    res.render(Text::Json(
-        json!({
-            "status": "ok",
-            "note": note,
-            "message": "config.apply replaced configuration",
-            "config_path": path.to_string_lossy(),
-            "runtime_secrets_applied": runtime_updates,
-        })
-        .to_string(),
-    ));
 }
 
 /// `POST /api/restart`  - Request a gateway restart.

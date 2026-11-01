@@ -10086,6 +10086,7 @@ dependencies = [
  "savfox-protocol",
  "savfox-skill-registry",
  "savfox-utils",
+ "schemars 1.2.3",
  "serde",
  "serde-saphyr 2.0.0",
  "serde_json",

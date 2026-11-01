@@ -12,7 +12,7 @@ const base = process.env.SAVFOX_VISUAL_BASE || 'http://127.0.0.1:18080';
 const tokenFile = process.env.SAVFOX_VISUAL_TOKEN_FILE || path.join(os.homedir(), '.savfox/gateway/token');
 const reference = process.env.SAVFOX_VISUAL_REFERENCE || path.resolve(cache, '../reference/screenshots');
 const token = fs.readFileSync(tokenFile, 'utf8').trim();
-const allRoutes = [['sessions', '/sessions'], ['dashboard', '/'], ['agents', '/agents'], ['channels', '/channels'], ['models', '/models'], ['config', '/config'], ['cron', '/cron'], ['skills', '/skills'], ['tts', '/tts'], ['voice', '/voice'], ['instances', '/instances'], ['logs', '/logs'], ['usage', '/usage'], ['approvals', '/approvals'], ['nodes', '/nodes'], ['debug', '/debug'], ['device-pair', '/device-pair'], ['settings', '/settings']];
+const allRoutes = [['sessions', '/sessions'], ['dashboard', '/'], ['agents', '/agents'], ['channels', '/channels'], ['models', '/models'], ['config', '/config'], ['config-execution','/config/execution'], ['config-context','/config/context'], ['config-advanced','/config/advanced'], ['cron', '/cron'], ['skills', '/skills'], ['tts', '/speech'], ['voice', '/speech/wake'], ['instances', '/devices/connections'], ['logs', '/logs'], ['usage', '/usage'], ['approvals', '/approvals'], ['nodes', '/devices'], ['debug', '/config/diagnostics'], ['device-pair', '/devices/pair'], ['settings', '/settings'], ['agents-new', '/agents/new'], ['provider-connect', '/models/connect-provider'], ['channels-add', '/channels/add'], ['cron-new', '/cron/new']];
 const requestedRoutes = process.env.SAVFOX_VISUAL_ROUTES?.split(',').map(value => value.trim()).filter(Boolean);
 const routes = requestedRoutes ? allRoutes.filter(([name]) => requestedRoutes.includes(name)) : allRoutes;
 if (!routes.length || requestedRoutes?.some(name => !allRoutes.some(([known]) => known === name))) throw new Error('SAVFOX_VISUAL_ROUTES must contain known route names');
@@ -22,7 +22,7 @@ const viewports = viewportSpecs ? viewportSpecs.split(',').map(spec => {
   if (!match) throw new Error('SAVFOX_VISUAL_VIEWPORTS must contain WIDTHxHEIGHT pairs');
   return [Number(match[1]), Number(match[2])];
 }) : [[1440, 900], [390, 844]];
-const report = { base, source: 'actual frontend with read-only Gateway requests', pages: [], resizes: [], popups: [], errors: [] };
+const report = { base, source: 'actual frontend with read-only Gateway requests', pages: [], scrolls: [], resizes: [], popups: [], skipped: [], errors: [] };
 let browser;
 let page;
 
@@ -62,7 +62,7 @@ function inspectLayout() {
   const over = (foreground, background) => foreground.slice(0, 3).map((value, i) => value * foreground[3] + background[i] * (1 - foreground[3])).concat(1);
   const luminance = color => color.slice(0, 3).map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((sum, value, i) => sum + value * [.2126, .7152, .0722][i], 0);
   const rootBackground = rgba(getComputedStyle(document.body).getPropertyValue('--bg-primary').trim() || getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim() || '#ffffff');
-  const labels = [...document.querySelectorAll('label,.field-label,.form-label,.session-list-filter__label,.chat-input-model-badge__label,.page-title,.panel-header__title,.session-main-title,.page-description,.section-description,.nav-link .nav-label,.sapid-combobox-option,.sapid-select-option,.sapid-collapsible>button,.skill-card__name,.skill-card__description,.skill-card__source')].filter(visible).filter(node => node.textContent.trim()).slice(0, 100).map(node => {
+  const labels = [...document.querySelectorAll('label,.field-label,.form-label,.field-help,.sapid-field-label,.sapid-field-description,.sapid-fieldset-legend,.session-list-filter__label,.chat-input-model-badge__label,.page-title,.panel-header__title,.session-main-title,.page-description,.section-description,.nav-link .nav-label,.sapid-combobox-option,.sapid-select-option,.sapid-collapsible>button,.skill-card__name,.skill-card__description,.skill-card__source')].filter(visible).filter(node => node.textContent.trim()).slice(0, 100).map(node => {
     let background = rootBackground;
     const ancestors = [];
     for (let current = node; current; current = current.parentElement) ancestors.push(current);
@@ -93,6 +93,12 @@ function inspectLayout() {
       const rect = control.getBoundingClientRect();
       return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, height: rect.height };
     })),
+    passwordGroups: [...document.querySelectorAll('.sapid-password-group')].filter(visible).map(group => {
+      const input = group.querySelector('input');
+      const toggle = group.querySelector('.sapid-password-toggle');
+      const a = input.getBoundingClientRect(), b = toggle.getBoundingClientRect(), bounds = group.getBoundingClientRect();
+      return { inputHeight: a.height, toggleHeight: b.height, inputWidth: a.width, toggleUnstyled: toggle.classList.contains('sapid-unstyled'), aligned: Math.abs(a.y - b.y) <= 1, contained: a.x >= bounds.x - 1 && b.right <= bounds.right + 1 && a.right <= b.x };
+    }),
     forcedCase: [...document.querySelectorAll('h1,h2,h3,button,label,a,[data-gly-kind="text"]')]
       .filter(visible)
       .filter(node => node.textContent.trim() && getComputedStyle(node).textTransform !== 'none')
@@ -128,6 +134,10 @@ function verify(item) {
       if (b.x >= a.right && Math.abs(a.bottom - b.bottom) > 1) problems.push('inline form controls are not aligned');
       if (Math.min(a.right,b.right) - Math.max(a.x,b.x) > 1 && Math.min(a.bottom,b.bottom) - Math.max(a.y,b.y) > 1) problems.push('inline form controls overlap');
     }
+  }
+  for (const group of metrics.passwordGroups) {
+    if (!group.aligned || !group.contained || Math.abs(group.inputHeight - group.toggleHeight) > 1 || group.inputWidth < 40) problems.push('password input and visibility action are misaligned or clipped');
+    if (group.toggleUnstyled) problems.push('password visibility action bypasses the shared control skin');
   }
   if (metrics.forcedCase.length) problems.push('visible text is forced into another case: ' + JSON.stringify(metrics.forcedCase));
   if (metrics.textActions.some(action => action.shadow !== 'none' || action.background !== 'none')) problems.push('text action inherits a button surface or shadow');
@@ -221,6 +231,23 @@ function htmlEscape(value) { return String(value).replace(/[&<>"']/g, c => ({ '&
           report.pages.push(item);
           report.errors.push(...item.problems.map(error => ({ name, theme, width, error })));
           console.log(`${theme} ${width} ${route}: ${item.problems.length ? item.problems.join('; ') : 'PASS'}`);
+          if (name !== 'sessions') {
+            const scrollPane = page.locator(name.startsWith('config') ? '.config-scroll' : name === 'agents-new' ? '.split-view__detail' : ['tts','voice','instances','nodes','device-pair'].includes(name) ? '.hub-content' : '.main-content').first();
+            const range = await scrollPane.evaluate(node => node.scrollHeight - node.clientHeight);
+            if (range > 100) {
+              for (const [position, fraction] of [['middle', .5], ['bottom', 1]]) {
+                await scrollPane.evaluate((node, fraction) => { node.scrollTop = (node.scrollHeight - node.clientHeight) * fraction; }, fraction);
+                await page.waitForTimeout(80);
+                const scrolled = { name, route, theme, width, height, scrollPosition: position, file: `${name}-${position}-${size}-${theme}.png`, metrics: await page.evaluate(inspectLayout) };
+                await page.screenshot({ path: path.join(cache, scrolled.file), fullPage: false });
+                scrolled.problems = verify(scrolled);
+                report.scrolls.push(scrolled);
+                report.errors.push(...scrolled.problems.map(error => ({ name, theme, width, scrollPosition: position, error })));
+                console.log(`${theme} ${width} ${route} ${position}: ${scrolled.problems.length ? scrolled.problems.join('; ') : 'PASS'}`);
+              }
+              await scrollPane.evaluate(node => { node.scrollTop = 0; });
+            }
+          }
           if (name === 'sessions') {
             await page.locator('.session-search-input').focus();
             const focused = { name, route, theme, width, height, file: 'sessions-search-focus-' + size + '-' + theme + '.png', sessionRows: item.sessionRows, metrics: await page.evaluate(inspectLayout), searchFocus: true };
@@ -272,6 +299,10 @@ function htmlEscape(value) { return String(value).replace(/[&<>"']/g, c => ({ '&
           }
           if (name === 'skills') {
             const disclosure = page.locator('.skill-card .sapid-collapsible>button').first();
+            if (!await disclosure.count()) {
+              report.skipped.push({ name, theme, width, check: 'skill disclosure', reason: 'No skill cards returned by the running gateway' });
+              continue;
+            }
             await disclosure.click();
             await page.locator('.skill-card .sapid-collapsible>button[aria-expanded="true"]').first().waitFor();
             await page.locator('.skill-card .sapid-collapsible-panel').first().waitFor({ state: 'visible' });
@@ -297,7 +328,7 @@ function htmlEscape(value) { return String(value).replace(/[&<>"']/g, c => ({ '&
   } finally {
     if (browser) await browser.close();
     fs.writeFileSync(path.join(cache, 'report.json'), JSON.stringify(report, null, 2));
-    const rows = [...report.pages, ...report.resizes, ...report.popups].map(item => {
+    const rows = [...report.pages, ...report.scrolls, ...report.resizes, ...report.popups].map(item => {
       const old = path.join(reference, `${item.name}-${item.width}-dark.png`);
       let referenceImage = '';
       if (item.theme === 'dark' && fs.existsSync(old)) {
@@ -305,10 +336,11 @@ function htmlEscape(value) { return String(value).replace(/[&<>"']/g, c => ({ '&
         fs.copyFileSync(old, path.join(cache, copied));
         referenceImage = `<figure><figcaption>Dioxus 03b07b4db</figcaption><img src="${copied}"></figure>`;
       }
-      return `<section><h2>${htmlEscape(`${item.name} · ${item.width} · ${item.theme}${item.file.includes('resized') ? ' · live resize' : item.modelPicker ? ' · model options' : item.disclosure ? ' · More disclosure' : ''}`)}</h2><p>${htmlEscape(item.problems.join('; ') || 'Layout and readability checks passed')}</p><div class="comparison">${referenceImage}<figure><figcaption>Glory + Sapid</figcaption><img src="${item.file}"></figure></div></section>`;
+      return `<section><h2>${htmlEscape(`${item.name} · ${item.width} · ${item.theme}${item.scrollPosition ? ' · ' + item.scrollPosition : item.file.includes('resized') ? ' · live resize' : item.modelPicker ? ' · model options' : item.disclosure ? ' · More disclosure' : ''}`)}</h2><p>${htmlEscape(item.problems.join('; ') || 'Layout and readability checks passed')}</p><div class="comparison">${referenceImage}<figure><figcaption>Glory + Sapid</figcaption><img src="${item.file}"></figure></div></section>`;
     }).join('\n');
-    fs.writeFileSync(path.join(cache, 'index.html'), `<!doctype html><meta charset="utf-8"><title>Savfox visual comparison</title><style>body{font:14px system-ui;background:#18151a;color:#eee;margin:24px}.comparison{display:flex;gap:12px;align-items:start}figure{margin:0;min-width:0;flex:1}figcaption{padding:8px}img{max-width:100%;border:1px solid #60515b}section{margin-bottom:36px}p{color:#e6b3b3}</style><h1>Savfox visual comparison</h1><p>${report.pages.length} captures · ${report.resizes.length} live resizes · ${report.popups.length} expanded controls · ${report.errors.length} issues</p>${rows}`);
-    console.log(JSON.stringify({ routes: routes.length, pages: report.pages.length, liveResizes: report.resizes.length, modelPickers: report.popups.filter(item => item.modelPicker).length, skillDisclosures: report.popups.filter(item => item.disclosure).length, issues: report.errors.length, report: path.join(cache, 'index.html') }, null, 2));
+    const skipped = report.skipped.map(item => `<li>${htmlEscape(`${item.name} · ${item.width} · ${item.theme}: ${item.check} — ${item.reason}`)}</li>`).join('');
+    fs.writeFileSync(path.join(cache, 'index.html'), `<!doctype html><meta charset="utf-8"><title>Savfox visual comparison</title><style>body{font:14px system-ui;background:#18151a;color:#eee;margin:24px}.comparison{display:flex;gap:12px;align-items:start}figure{margin:0;min-width:0;flex:1}figcaption{padding:8px}img{max-width:100%;border:1px solid #60515b}section{margin-bottom:36px}p{color:#e6b3b3}</style><h1>Savfox visual comparison</h1><p>${report.pages.length} captures · ${report.scrolls.length} scrolled views · ${report.resizes.length} live resizes · ${report.popups.length} expanded controls · ${report.errors.length} issues · ${report.skipped.length} skipped checks</p>${skipped ? `<ul>${skipped}</ul>` : ''}${rows}`);
+    console.log(JSON.stringify({ routes: routes.length, pages: report.pages.length, scrolledViews: report.scrolls.length, liveResizes: report.resizes.length, modelPickers: report.popups.filter(item => item.modelPicker).length, skillDisclosures: report.popups.filter(item => item.disclosure).length, skipped: report.skipped.length, issues: report.errors.length, report: path.join(cache, 'index.html') }, null, 2));
     if (report.errors.length) process.exitCode = 1;
   }
 })();

@@ -8,7 +8,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     let state = query(ctx, "node.list", None);
     let devices = query(ctx, "device.pair.list", None);
     let detail = path
-        .strip_prefix("/nodes/")
+        .strip_prefix("/devices/nodes/")
         .filter(|id| !id.is_empty())
         .map(str::to_owned);
     let row_state = state.clone();
@@ -44,7 +44,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                         .unstyled()
                         .class("btn-plain agent-select")
                         .label(string(&node, &["name", "id"]))
-                        .on_press(move || context.navigate(&format!("/nodes/{id}"))),
+                        .on_press(move || context.navigate(&format!("/devices/nodes/{id}"))),
                     text()
                         .class("list-item__subtitle")
                         .content(string(&node, &["status", "platform"])),
@@ -53,7 +53,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         )),
         col()
             .class("nodes-pair-action")
-            .fill(nav(ctx, "Pair device", "/device-pair")),
+            .fill(nav(ctx, "Pair device", "/devices/pair")),
     ));
     let selected_node = detail.clone();
     let mut children = Vec::new();
@@ -70,7 +70,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             return Box::new(group()) as Box<dyn Widget>;
         }
         let name = context.scope.cage(string(&node, &["name"]));
-        let mut actions = vec![nav(&context, "Details", format!("/nodes/{id}"))];
+        let mut actions = vec![nav(&context, "Details", format!("/devices/nodes/{id}"))];
         for (label, method) in [
             ("Rotate token", "device.token.rotate"),
             ("Revoke token", "device.token.revoke"),

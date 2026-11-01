@@ -99,6 +99,13 @@ label activation; keep Sapid styling enabled instead of drawing replacement
 controls in page CSS. Shared control sizing and palette belong in
 `glory-bridge.css`; page styles should only arrange those controls.
 
+Password fields keep Sapid styling enabled and include a visible field label.
+The input-group control takes the remaining row width while its visibility
+button keeps the same height as the input. Fieldset surfaces, legends and help
+text use the application theme in both light and dark modes. Action rows wrap
+at narrow widths instead of stacking by default; configuration navigation reserves
+the active border width so selecting a section does not shift its label.
+
 The shared button skin applies to styled Sapid buttons and explicit `.btn`
 actions. Unstyled widgets keep their own appearance; text actions use the shared
 `.btn-plain` baseline instead of page-specific background/shadow resets. Display
@@ -112,9 +119,12 @@ Visual acceptance also runs against a real, already running gateway with
 printing it and only navigates/read-loads pages. Set `SAVFOX_VISUAL_BASE`,
 `SAVFOX_VISUAL_TOKEN_FILE`, and `SAVFOX_VISUAL_REFERENCE` when needed. Screenshots
 and an HTML comparison report are written to `D:/BuildCache/savfox-glory/visual-review`.
-The audit covers all 18 navigation pages at desktop/mobile sizes in both themes, label
-contrast, visible icons, form clipping, independent session scrolling, composer
-bounds, and resizing without reloading. Compare the actual screenshots with the
+The audit covers 25 routes, including creation and provider/channel configuration
+forms, at desktop/mobile sizes in both themes. It checks label/help contrast,
+visible icons, form clipping, password control alignment, independent session
+scrolling, composer bounds, and resizing without reloading. Long pages are also
+captured halfway down and at the bottom. Checks requiring absent gateway records
+are listed as skipped in the report. Compare the actual screenshots with the
 pre-migration Dioxus reference as well as checking the assertions. The shell keeps
 the original 56px header, 260px navigation, and 320px desktop session list; the
 mobile editor must stop above the bottom navigation.

@@ -1,5 +1,4 @@
 use glory::prelude::*;
-use serde_json::json;
 
 use super::common::*;
 use crate::i18n::{self, Locale};
@@ -13,20 +12,22 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
     let model = ctx.scope.cage(preference("savfox_default_model", ""));
     let gateway = ctx.scope.cage(preference("savfox_gateway_url", ""));
     let language = ctx.scope.cage(ctx.locale.get().code().to_owned());
-    let filter = ctx.scope.cage(String::new());
     let saved = ctx.scope.cage(String::new());
-    let state = query(ctx, "log.get_level", None);
+    crate::components::watch_theme(ctx, theme);
+    ctx.scope
+        .effect(move || ui::set(language, locale.get().code().to_owned()));
     let models = query(ctx, "models.list", None);
-    let level = ctx.scope.cage("info".to_owned());
-    let value = state.value;
-    ctx.scope.effect(move || {
-        let value = value.get();
-        if let Some(value) = value["level"].as_str() {
-            ui::set(level, value.to_owned());
-        }
-    });
     let context = ctx.clone();
     let save = ui::action(ui::label_for(locale, "Save preferences"), move || {
+        let url = gateway.get();
+        if !url.is_empty() && !(url.starts_with("ws://") || url.starts_with("wss://")) {
+            ui::set(
+                saved,
+                ui::translate(locale.get(), "Gateway URL must start with ws:// or wss://"),
+            );
+            return;
+        }
+        let connection_changed = url != preference("savfox_gateway_url", "");
         for (key, value) in [
             ("savfox_theme", theme.get()),
             ("savfox_notifications", notifications.get().to_string()),
@@ -43,21 +44,16 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         if notifications.get() {
             crate::utils::notifications::request_notification_permission();
         }
-        ui::set(saved, "Preferences saved".to_owned());
-    });
-    let context = ctx.clone();
-    let log_state = state.clone();
-    let save_log = ui::action(ui::label_for(locale, "Apply logging"), move || {
-        let value = if filter.get().trim().is_empty() {
-            level.get()
-        } else {
-            filter.get()
-        };
-        mutate(
-            &context,
-            &log_state,
-            "log.set_level",
-            json!({"level":value}),
+        ui::set(
+            saved,
+            ui::translate(
+                locale,
+                if connection_changed {
+                    "Preferences saved. Reload the page to reconnect to the new gateway."
+                } else {
+                    "Preferences saved"
+                },
+            ),
         );
     });
     let model_items = models.value.map(|v| {
@@ -69,7 +65,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
     ui::localized_page(
         ctx,
         "nav.settings",
-        "Appearance, language, defaults and local connection settings",
+        "Preferences for this browser. Server policies are managed in System configuration.",
         vec![
             Box::new(text().content(saved)),
             card(
@@ -101,32 +97,13 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                         gateway,
                         false,
                     ),
-                    select_source(ctx, "Default model", model, model_items),
+                    select_source(
+                        ctx,
+                        "Default model for new chats (this browser)",
+                        model,
+                        model_items,
+                    ),
                     save,
-                ],
-            ),
-            card(
-                ui::label_for(locale, "Logging"),
-                vec![
-                    status(ctx, &state),
-                    choice_for(
-                        locale,
-                        "Log level",
-                        level,
-                        &[
-                            ("error", "Error"),
-                            ("warn", "Warning"),
-                            ("info", "Info"),
-                            ("debug", "Debug"),
-                            ("trace", "Trace"),
-                        ],
-                    ),
-                    ui::field(
-                        ui::label_for(locale, "Custom RUST_LOG filter"),
-                        filter,
-                        false,
-                    ),
-                    save_log,
                 ],
             ),
         ],
@@ -156,12 +133,10 @@ fn save_preference(key: &str, value: &str) {
 }
 fn apply_theme(theme: &str) {
     #[cfg(target_arch = "wasm32")]
-    if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-        if let Some(root) = document.document_element() {
-            let _ = root.set_attribute("data-theme", theme);
-        }
-        if let Some(body) = document.body() {
-            let _ = body.set_attribute("data-theme", theme);
+    if let Some(window) = web_sys::window() {
+        let _ = theme;
+        if let Ok(event) = web_sys::Event::new("savfox:preferences") {
+            let _ = window.dispatch_event(&event);
         }
     }
     #[cfg(not(target_arch = "wasm32"))]

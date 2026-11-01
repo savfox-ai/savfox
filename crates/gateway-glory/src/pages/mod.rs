@@ -7,6 +7,7 @@ pub mod config;
 pub mod cron;
 pub mod debug;
 pub mod device_pair;
+mod hubs;
 pub mod instances;
 pub mod logs;
 pub mod models;
@@ -31,19 +32,16 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         p if p == "/agents" || p.starts_with("/agents/") => agents::render(ctx, path),
         p if p == "/channels" || p.starts_with("/channels/") => channels::render(ctx, path),
         p if p == "/models" || p.starts_with("/models/") => models::render(ctx, path),
+        "/config/diagnostics" => debug::render(ctx),
         p if p == "/config" || p.starts_with("/config/") => config::render(ctx, path),
         p if p == "/cron" || p.starts_with("/cron/") => cron::render(ctx, path),
-        p if p == "/nodes" || p.starts_with("/nodes/") => nodes::render(ctx, path),
+        p if p == "/devices" || p.starts_with("/devices/") => hubs::devices(ctx, path),
+        p if p == "/speech" || p.starts_with("/speech/") => hubs::speech(ctx, path),
         "/approvals" => approvals::render(ctx),
-        "/debug" => debug::render(ctx),
-        "/device-pair" => device_pair::render(ctx),
-        "/instances" => instances::render(ctx),
         "/logs" => logs::render(ctx),
         "/settings" => settings::render(ctx),
         "/skills" => skills::render(ctx),
-        "/tts" => tts::render(ctx),
         "/usage" => usage::render(ctx),
-        "/voice" => voice::render(ctx),
         _ => crate::ui::page(
             ui::label_for(locale, "Page not found"),
             ui::label_for(locale, "The requested page does not exist."),
@@ -76,18 +74,18 @@ mod tests {
             "/cron",
             "/cron/new",
             "/cron/example",
-            "/nodes",
-            "/nodes/example",
+            "/devices",
+            "/devices/nodes/example",
             "/approvals",
-            "/debug",
-            "/device-pair",
-            "/instances",
+            "/config/diagnostics",
+            "/devices/pair",
+            "/devices/connections",
             "/logs",
             "/settings",
             "/skills",
-            "/tts",
+            "/speech",
             "/usage",
-            "/voice",
+            "/speech/wake",
             "/not-found",
         ];
         for path in paths {

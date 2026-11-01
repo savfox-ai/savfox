@@ -54,8 +54,8 @@ fn form_text(
     };
     Box::new(
         col()
-            .class("form-field")
-            .fill((text().content(label), control)),
+            .class("form-group form-field")
+            .fill((text().class("form-label").content(label), control)),
     )
 }
 
@@ -82,29 +82,32 @@ fn form_select(
             .map(|index| format!("option-{index}"))
     });
     Box::new(
-        crate::ui::select_control(crate::pages::common::select_key(&key))
-            .label(label)
-            .value(selected)
-            .options(
-                options
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, (value, label))| {
-                        sapid::select_option(format!("option-{index}"), label).value(value)
-                    }),
-            )
-            .on_value_change(move |value| {
-                let value = value
-                    .as_deref()
-                    .and_then(|key| key.strip_prefix("option-"))
-                    .and_then(|index| index.parse::<usize>().ok())
-                    .and_then(|index| option_values.get(index))
-                    .cloned()
-                    .unwrap_or_default();
-                update(values, |values| {
-                    values.insert(key.clone(), value);
-                })
-            }),
+        col().class("form-group form-field").fill((
+            text().class("form-label").content(label.to_owned()),
+            crate::ui::select_control(crate::pages::common::select_key(&key))
+                .label(label)
+                .value(selected)
+                .options(
+                    options
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, (value, label))| {
+                            sapid::select_option(format!("option-{index}"), label).value(value)
+                        }),
+                )
+                .on_value_change(move |value| {
+                    let value = value
+                        .as_deref()
+                        .and_then(|key| key.strip_prefix("option-"))
+                        .and_then(|index| index.parse::<usize>().ok())
+                        .and_then(|index| option_values.get(index))
+                        .cloned()
+                        .unwrap_or_default();
+                    update(values, |values| {
+                        values.insert(key.clone(), value);
+                    })
+                }),
+        )),
     )
 }
 
@@ -1444,39 +1447,45 @@ fn editor(ctx: &AppContext, selector: Option<String>) -> Box<dyn Widget> {
             .cloned()
             .unwrap_or_default()
     });
-    let name_control = sapid::text_field()
-        .name("Channel name")
-        .value(name)
-        .on_value_change(move |value| {
-            update(values, |values| {
-                values.insert(channel_name_key(&kind.get()), value);
-            })
-        });
-    let kind_control = crate::ui::select_control("channel-type")
-        .label("Messaging platform")
-        .value(kind.map(|kind| Some(kind.clone())))
-        .enabled(selector.is_none())
-        .options(get_channel_types().iter().map(|platform| {
-            sapid::select_option(platform.id.clone(), platform.name.clone())
-                .value(platform.id.clone())
-        }))
-        .on_value_change(move |selected| {
-            if let Some(selected) = selected
-                && let Some(platform) = get_channel_types()
-                    .iter()
-                    .find(|platform| platform.id == selected)
-            {
-                ui::set(
-                    values,
-                    new_channel_form_values(
-                        &selected,
-                        &platform.config_fields,
-                        platform.name.clone(),
-                    ),
-                );
-                ui::set(kind, selected);
-            }
-        });
+    let name_control = col().class("form-group form-field").fill((
+        text().class("form-label").content("Channel name"),
+        sapid::text_field()
+            .name("Channel name")
+            .value(name)
+            .on_value_change(move |value| {
+                update(values, |values| {
+                    values.insert(channel_name_key(&kind.get()), value);
+                })
+            }),
+    ));
+    let kind_control = col().class("form-group form-field").fill((
+        text().class("form-label").content("Messaging platform"),
+        crate::ui::select_control("channel-type")
+            .label("Messaging platform")
+            .value(kind.map(|kind| Some(kind.clone())))
+            .enabled(selector.is_none())
+            .options(get_channel_types().iter().map(|platform| {
+                sapid::select_option(platform.id.clone(), platform.name.clone())
+                    .value(platform.id.clone())
+            }))
+            .on_value_change(move |selected| {
+                if let Some(selected) = selected
+                    && let Some(platform) = get_channel_types()
+                        .iter()
+                        .find(|platform| platform.id == selected)
+                {
+                    ui::set(
+                        values,
+                        new_channel_form_values(
+                            &selected,
+                            &platform.config_fields,
+                            platform.name.clone(),
+                        ),
+                    );
+                    ui::set(kind, selected);
+                }
+            }),
+    ));
     let router_ctx = ctx.clone();
     let routers = each(kind.map(|kind| vec![kind.clone()]))
         .key(|kind| kind.clone())

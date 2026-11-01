@@ -24,10 +24,10 @@ models = "Models"
 channels = "Channels"
 cron_jobs = "Cron Jobs"
 skills = "Skills"
-tts = "TTS"
-voice = "Voice"
-config = "Config"
-instances = "Instances"
+tts = "Speech synthesis"
+voice = "Talk and wake word"
+config = "System configuration"
+instances = "Connected clients"
 logs = "Logs"
 usage = "Usage"
 approvals = "Approvals"
@@ -39,7 +39,16 @@ navigation = "Navigation"
 connect_provider = "Connect Provider"
 command_palette = "Command Palette"
 skip_to_content = "Skip to main content"
-settings = "Settings"
+settings = "Personal preferences"
+
+
+observe = "Observability"
+
+speech = "Speech"
+
+devices = "Devices and connections"
+
+advanced = "Advanced tools"
 
 [header]
 ai_assistant = "AI ASSISTANT"

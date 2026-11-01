@@ -3,13 +3,15 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Default gateway listen port.
 pub const DEFAULT_PORT: u16 = 18881;
 
 /// Gateway-specific configuration that can be set via config.toml `[gateway]` or CLI flags.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct GatewayConfig {
     /// Host address to bind to.
     #[serde(default = "default_host")]
@@ -17,6 +19,7 @@ pub struct GatewayConfig {
 
     /// Port to listen on.
     #[serde(default = "default_port")]
+    #[schemars(range(min = 1, max = 65535))]
     pub port: u16,
 
     /// Static bearer token for authentication. If `None`, a previously generated token is
@@ -32,9 +35,9 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub tls_key: Option<String>,
 
-    /// Channel configuration for chat platforms.
-    #[serde(default, alias = "bridges")]
-    pub channels: ChannelsConfig,
+    /// Explicit command-line values take precedence over persisted settings.
+    #[serde(skip)]
+    pub cli_overrides: std::collections::HashSet<&'static str>,
 
     /// Response footer rendering configuration.
     #[serde(default)]
@@ -59,7 +62,8 @@ pub struct GatewayConfig {
 /// Operator-tunable rate-limit knobs. Mirrors
 /// [`crate::security::rate_limit::RateLimitConfig`] but uses serde-friendly
 /// scalar fields instead of `Duration`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RateLimitTomlConfig {
     /// Maximum requests per `window_secs` per remote IP for the
     /// bearer-auth hoop. Default 100.
@@ -104,7 +108,7 @@ impl Default for GatewayConfig {
             token: None,
             tls_cert: None,
             tls_key: None,
-            channels: ChannelsConfig::default(),
+            cli_overrides: Default::default(),
             response_footer: ResponseFooterConfig::default(),
             rate_limit: RateLimitTomlConfig::default(),
             trust_x_forwarded_for: false,
@@ -119,11 +123,19 @@ impl GatewayConfig {
         effective: &toml::Value,
     ) -> std::io::Result<Self> {
         if let Some(value) = effective.get("gateway") {
-            let configured: Self = value
-                .clone()
-                .try_into()
+            let mut document = serde_json::json!({"gateway":value});
+            super::catalog::clean(&mut document);
+            let configured: Self = serde_json::from_value(document["gateway"].clone())
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-            self.channels = configured.channels;
+            if !self.cli_overrides.contains("host") && self.host == default_host() {
+                self.host = configured.host;
+            }
+            if !self.cli_overrides.contains("port") && self.port == default_port() {
+                self.port = configured.port;
+            }
+            self.token = self.token.or(configured.token);
+            self.tls_cert = self.tls_cert.or(configured.tls_cert);
+            self.tls_key = self.tls_key.or(configured.tls_key);
             self.response_footer = configured.response_footer;
             self.rate_limit = configured.rate_limit;
             self.trust_x_forwarded_for = configured.trust_x_forwarded_for;
@@ -140,41 +152,8 @@ fn default_port() -> u16 {
     DEFAULT_PORT
 }
 
-/// Chat-platform bridge configuration.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ChannelsConfig {
-    #[serde(default)]
-    pub discord: Option<DiscordChannelConfig>,
-
-    #[serde(default)]
-    pub dingtalk: Option<DingtalkChannelConfig>,
-
-    #[serde(default)]
-    pub telegram: Option<TelegramChannelConfig>,
-
-    #[serde(default)]
-    pub slack: Option<SlackChannelConfig>,
-
-    #[serde(default)]
-    pub msteams: Option<MsTeamsChannelConfig>,
-
-    #[serde(default)]
-    pub webhook: Option<WebhookChannelConfig>,
-
-    #[serde(default)]
-    pub whatsapp: Option<WhatsAppChannelConfig>,
-
-    #[serde(default)]
-    pub signal: Option<SignalChannelConfig>,
-
-    #[serde(default)]
-    pub imessage: Option<IMessageChannelConfig>,
-
-    #[serde(default)]
-    pub zalo: Option<ZaloChannelConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ResponseFooterConfig {
     /// Global switch for appending response footers.
     #[serde(default = "default_response_footer_enabled")]
@@ -364,12 +343,12 @@ pub struct ZaloChannelConfig {
 #[derive(Debug, Parser)]
 pub struct GatewayCommand {
     /// Host address to bind to (default: 127.0.0.1). Use 0.0.0.0 for all interfaces.
-    #[arg(long, default_value = "127.0.0.1")]
-    pub host: IpAddr,
+    #[arg(long)]
+    pub host: Option<IpAddr>,
 
     /// Port to listen on.
-    #[arg(long, default_value_t = DEFAULT_PORT)]
-    pub port: u16,
+    #[arg(long)]
+    pub port: Option<u16>,
 
     /// Bearer token for authentication. Reused from disk or generated if omitted.
     #[arg(long)]
@@ -548,13 +527,20 @@ impl GatewayCommand {
     /// Merge CLI flags into a `GatewayConfig`, with CLI taking precedence.
     #[must_use]
     pub fn into_config(self) -> GatewayConfig {
+        let mut cli_overrides = std::collections::HashSet::new();
+        if self.host.is_some() {
+            cli_overrides.insert("host");
+        }
+        if self.port.is_some() {
+            cli_overrides.insert("port");
+        }
         GatewayConfig {
-            host: self.host,
-            port: self.port,
+            host: self.host.unwrap_or_else(default_host),
+            port: self.port.unwrap_or_else(default_port),
             token: self.token,
             tls_cert: self.tls_cert,
             tls_key: self.tls_key,
-            channels: ChannelsConfig::default(),
+            cli_overrides,
             response_footer: ResponseFooterConfig::default(),
             rate_limit: RateLimitTomlConfig::default(),
             trust_x_forwarded_for: false,
@@ -579,13 +565,11 @@ trust_x_forwarded_for = true
 enabled = false
 [gateway.rate_limit]
 max_requests = 17
-[gateway.channels.webhook]
-enabled = true
-callback_url = "https://example.org/callback"
 "#,
         )
         .expect("valid TOML");
         let original = GatewayConfig {
+            cli_overrides: ["host"].into_iter().collect(),
             port: 19001,
             token: Some("cli-token".to_owned()),
             tls_cert: Some("cli-cert.pem".to_owned()),
@@ -604,13 +588,21 @@ callback_url = "https://example.org/callback"
         assert_eq!(configured.rate_limit.max_requests, 17);
         assert_eq!(configured.rate_limit.window_secs, 60);
         assert!(configured.trust_x_forwarded_for);
-        assert!(
-            configured
-                .channels
-                .webhook
-                .expect("configured channel")
-                .enabled
-        );
+    }
+
+    #[test]
+    fn persisted_listener_settings_are_used_and_explicit_cli_defaults_win() {
+        let effective: toml::Value =
+            toml::from_str("[gateway]\nhost='0.0.0.0'\nport=19000").unwrap();
+        let configured = GatewayConfig::default()
+            .with_runtime_settings(&effective)
+            .unwrap();
+        assert_eq!(configured.host, "0.0.0.0".parse::<IpAddr>().unwrap());
+        assert_eq!(configured.port, 19000);
+        let cli = GatewayCommand::parse_from(["gateway", "--host", "127.0.0.1", "--port", "18881"]);
+        let configured = cli.into_config().with_runtime_settings(&effective).unwrap();
+        assert_eq!(configured.host, default_host());
+        assert_eq!(configured.port, DEFAULT_PORT);
     }
 
     #[test]

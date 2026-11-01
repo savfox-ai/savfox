@@ -5,6 +5,83 @@ pub fn translate(locale: Locale, source: &str) -> String {
         return source.to_owned();
     }
     match source {
+        "Use default" => "使用默认值".into(),
+        "Diagnostics and manual RPC" => "诊断与手动 RPC".into(),
+        "Search results" => "搜索结果".into(),
+        "Resource management" => "管理功能".into(),
+        "Configuration document" => "配置文档".into(),
+        "Gateway URL must start with ws:// or wss://" => {
+            "网关地址必须以 ws:// 或 wss:// 开头".into()
+        }
+        "Preferences saved. Reload the page to reconnect to the new gateway." => {
+            "偏好已保存，重新加载页面以连接新的网关。".into()
+        }
+
+        "System configuration" => "系统配置".into(),
+        "Configuration overview" => "配置概览".into(),
+        "Gateway and security" => "网关与安全".into(),
+        "Execution and tools" => "执行与工具".into(),
+        "Sessions and context" => "会话与上下文".into(),
+        "Runtime environment" => "运行环境".into(),
+        "Advanced configuration" => "高级配置".into(),
+        "Search configuration fields" => "搜索配置字段".into(),
+        "Reload configuration" => "重新加载配置".into(),
+        "Discard changes" => "放弃修改".into(),
+        "Export system configuration" => "导出系统配置".into(),
+        "System configuration JSON" => "系统配置 JSON".into(),
+        "Unsaved configuration changes" => "配置有未保存的修改".into(),
+        "No unsaved changes" => "没有未保存的修改".into(),
+        "Review changes" => "查看修改".into(),
+        "No matching configuration fields" => "没有匹配的配置字段".into(),
+        "No configuration changes." => "配置没有变化。".into(),
+        "Configuration saved. Restart the gateway to activate changes." => {
+            "配置已保存，重启网关后生效。".into()
+        }
+        "Configuration changes take effect after restarting the gateway." => {
+            "系统配置修改在重启网关后生效。".into()
+        }
+        "Obsolete fields will be removed when saving" => "保存时将删除以下旧字段".into(),
+        "Global runtime policies live here. Use the dedicated management pages for accounts, agents, channels, skills and scheduled jobs." => {
+            "这里管理全局运行策略。账号、智能体、渠道、技能和定时任务请在对应页面管理。".into()
+        }
+        "Edit the system configuration document. Accounts, channels, speech and scheduled jobs are managed on their own pages. This is not a complete backup." => {
+            "直接编辑系统配置文档。账号、渠道、语音和定时任务由各自页面管理；此文档不包含完整备份。"
+                .into()
+        }
+        "Preferences for this browser. Server policies are managed in System configuration." => {
+            "仅影响当前浏览器。服务器运行策略请前往系统配置。".into()
+        }
+        "Default model for new chats (this browser)" => "新会话默认模型（当前浏览器）".into(),
+        "Models and accounts" => "模型与账号".into(),
+        "Personal preferences" => "个人偏好".into(),
+        "Speech" => "语音".into(),
+        "Speech synthesis" => "语音合成".into(),
+        "Talk and wake word" => "对话与唤醒".into(),
+        "Connection ID" => "连接 ID".into(),
+        "Connected at" => "连接时间".into(),
+        "This browser" => "当前浏览器".into(),
+        "Remote client" => "其他客户端".into(),
+        "Clients connected to the gateway" => "当前连接到网关的客户端".into(),
+        "Disconnect" => "断开连接".into(),
+        "Disconnect this client?" => "断开此客户端的连接？".into(),
+        "Sign out" => "退出登录".into(),
+        "Nodes" => "节点".into(),
+        "No nodes connected" => "暂无已连接节点".into(),
+        "Pair device" => "设备配对".into(),
+        "Server logging" => "服务器日志设置".into(),
+        "Advanced tools" => "高级工具".into(),
+        "Approval policy" => "执行审批策略".into(),
+        "Sandbox mode" => "沙箱模式".into(),
+        "Sandbox workspace write" => "工作区写入沙箱".into(),
+        "Shell environment policy" => "Shell 环境策略".into(),
+        "Mcp servers" => "MCP 服务".into(),
+        "Mcp oauth credentials store" => "MCP OAuth 凭据存储".into(),
+        "Mcp oauth callback port" => "MCP OAuth 回调端口".into(),
+        "Model context window" => "模型上下文窗口".into(),
+        "Model auto compact token limit" => "上下文自动压缩阈值".into(),
+        "Tool output token limit" => "工具输出 Token 上限".into(),
+        "Max sessions" => "并发会话上限".into(),
+        "Check for update on startup" => "启动时检查更新".into(),
         "Logs" => "日志".into(),
         "Usage Analytics" => "用量分析".into(),
         "Cron Jobs" => "定时任务".into(),
@@ -50,14 +127,12 @@ pub fn translate(locale: Locale, source: &str) -> String {
         "Review security findings" => "查看安全检查结果".into(),
         "Settings" => "设置".into(),
         "Search settings" => "搜索设置".into(),
-        "All settings" => "全部设置".into(),
         "All sections" => "所有配置节".into(),
         "Select an agent or create a new one" => "选择一个智能体，或创建新的智能体".into(),
         "More" => "更多".into(),
         "Global default model" => "全局默认模型".into(),
         "Temperature" => "温度".into(),
         "Save configuration" => "保存配置".into(),
-        "Save and apply" => "保存并应用".into(),
         "No critical issues" => "无严重问题".into(),
         "Version" => "版本".into(),
         "Total cost" => "总费用".into(),
@@ -227,7 +302,6 @@ pub fn translate(locale: Locale, source: &str) -> String {
         "JSON import" => "导入 JSON".to_owned(),
         "Configuration JSON" => "配置 JSON".to_owned(),
         "Import into form" => "导入到表单".to_owned(),
-        "Update field" => "更新字段".to_owned(),
         "Configuration" => "配置".to_owned(),
         "Appearance" => "外观".to_owned(),
         "Theme" => "主题".to_owned(),

@@ -381,6 +381,7 @@ async fn handle_ws_connection(
                 // order. Typed envelopes are only connection controls and
                 // server events; they cannot dispatch business methods.
                 if looks_like_jsonrpc(text) {
+                    if session_mgr.get_session(&session_id).await.is_none() { break; }
                     if rpc_tasks.len() >= MAX_IN_FLIGHT_RPC {
                         let id = serde_json::from_str::<Value>(text).ok()
                             .and_then(|request| request.get("id").cloned()).unwrap_or(Value::Null);
@@ -732,7 +733,7 @@ mod terminal_ws_tests {
             assert_eq!(status["id"], 1);
             assert!(status.get("result").is_some(), "{status}");
             for version in [json!("1.0"), Value::Null] {
-                let frame = json!({"jsonrpc":version,"id":2,"method":"config.patch","params":{"patch":{"rpc_only_test":true}}});
+                let frame = json!({"jsonrpc":version,"id":2,"method":"config.patch","params":{"patch":{"model_context_window":64000}}});
                 ws.send(Message::text(frame.to_string()))
                     .await
                     .expect("invalid version");
@@ -744,7 +745,7 @@ mod terminal_ws_tests {
                 &mut ws,
                 3,
                 "config.patch",
-                json!({"patch":{"rpc_only_test":true}}),
+                json!({"patch":{"model_context_window":64000}}),
             )
             .await;
             let reply = receive(&mut ws).await;
@@ -753,12 +754,50 @@ mod terminal_ws_tests {
                 assert_eq!(reply["error"]["code"], -32001, "{reply}");
                 assert!(!home.path().join("config.toml").exists());
             } else {
-                assert_eq!(reply["result"]["status"], "patched", "{reply}");
+                assert_eq!(reply["result"]["status"], "saved", "{reply}");
                 assert!(
                     tokio::fs::read_to_string(home.path().join("config.toml"))
                         .await
                         .expect("updated config")
-                        .contains("rpc_only_test = true")
+                        .contains("model_context_window = 64000")
+                );
+            }
+            if token != "viewer" {
+                let (mut victim, _) =
+                    tokio_tungstenite::connect_async(format!("ws://{address}/ws?token=viewer"))
+                        .await
+                        .unwrap();
+                let connected = receive(&mut victim).await;
+                let victim_id = connected["session_id"].as_str().unwrap();
+                send(&mut ws, 4, "system.connections", json!({})).await;
+                let listed = receive(&mut ws).await;
+                assert_eq!(listed["result"]["entries"].as_array().unwrap().len(), 2);
+                send(
+                    &mut ws,
+                    5,
+                    "system.disconnect",
+                    json!({"session_id":victim_id}),
+                )
+                .await;
+                assert_eq!(receive(&mut ws).await["result"]["disconnected"], true);
+                assert_eq!(receive(&mut victim).await["event"], "system.disconnected");
+                let closed = tokio::time::timeout(Duration::from_secs(3), victim.next())
+                    .await
+                    .expect("disconnected socket must close");
+                assert!(
+                    closed.is_none()
+                        || closed.as_ref().is_some_and(|message| message
+                            .as_ref()
+                            .map(|m| m.is_close())
+                            .unwrap_or(true))
+                );
+                send(&mut ws, 6, "system.connections", json!({})).await;
+                assert_eq!(
+                    receive(&mut ws).await["result"]["entries"]
+                        .as_array()
+                        .unwrap()
+                        .len(),
+                    1
                 );
             }
             ws.close(None).await.expect("close");

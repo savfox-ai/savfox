@@ -288,7 +288,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                         .content(string(&model, &["provider_name", "provider"])),
                 )),
                 text()
-                    .class("status-ok")
+                    .class("ov-model-status status-ok")
                     .content(ui::label_for(locale, "Available")),
             ))
         });
@@ -312,7 +312,11 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             vec![
                 status(ctx, &channels),
                 Box::new(col().class("ov-channel-grid").fill(channel_cards)),
-                nav(ctx, "Manage channels", "/channels"),
+                Box::new(row().class("ov-card-footer").fill(nav(
+                    ctx,
+                    "Manage channels",
+                    "/channels",
+                ))),
             ],
         ),
         card(
@@ -320,14 +324,17 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             vec![
                 status(ctx, &models),
                 Box::new(col().class("ov-model-list").fill(model_rows)),
-                nav(ctx, "Models", "/models"),
+                Box::new(
+                    row()
+                        .class("ov-card-footer")
+                        .fill(nav(ctx, "Models", "/models")),
+                ),
             ],
         ),
         card(
             ui::label_for(locale, "Security audit"),
             vec![
                 status(ctx, &report),
-                refresh(ctx, &report),
                 records(ctx, &report, &["findings"], move |finding, _| {
                     metadata_for(
                         locale,
@@ -339,6 +346,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                         ],
                     )
                 }),
+                Box::new(row().class("ov-card-footer").fill(refresh(ctx, &report))),
             ],
         ),
     ));

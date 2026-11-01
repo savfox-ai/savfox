@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use super::{Channel, RichMessage, obtain_channel_and_store, render_error, runtime};
-use crate::config::{GatewayConfig, MsTeamsChannelConfig};
+use crate::config::MsTeamsChannelConfig;
 use crate::protocol::ChannelAction;
 
 /// Bot Framework OAuth2 token endpoint.
@@ -385,15 +385,8 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     // This HTTP bridge authenticates the body with the app password as an
     // HMAC key. A bearer header alone is not proof of Bot Framework identity;
     // direct Bot Framework JWT validation is not implemented here.
-    let app_password = depot
-        .get_typed::<Arc<GatewayConfig>>()
-        .ok()
-        .and_then(|cfg| {
-            cfg.channels
-                .msteams
-                .as_ref()
-                .map(|b| b.app_password.clone())
-        })
+    let app_password = super::saved_channel_secret(depot, "msteams", "app_password")
+        .await
         .or_else(|| std::env::var("MSTEAMS_APP_PASSWORD").ok());
     let Some(secret) = super::require_inbound_secret(app_password, res, "msteams") else {
         return;

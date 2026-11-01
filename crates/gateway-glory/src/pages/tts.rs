@@ -76,31 +76,26 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             )
         })],
     ));
-    let mut voice_children = Vec::new();
-    voice_children.push(ui::field(
-        ui::label_for(locale, "Provider"),
-        provider,
-        false,
-    ));
+    let provider_field = ui::field(ui::label_for(locale, "Provider"), provider, false);
     let context = ctx.clone();
     let error = state.error;
-    voice_children.push(ui::action(
-        ui::label_for(locale, "List voices"),
-        move || {
-            let context_async = context.clone();
-            let provider = provider.get();
-            context.spawn(async move {
-                match context_async
-                    .rpc
-                    .call::<Value>("tts.voices", Some(json!({"provider":provider})))
-                    .await
-                {
-                    Ok(value) => ui::set(voice_data, value),
-                    Err(message) => ui::set(error, message),
-                }
-            });
-        },
-    ));
+    let list_voices = ui::action(ui::label_for(locale, "List voices"), move || {
+        let context_async = context.clone();
+        let provider = provider.get();
+        context.spawn(async move {
+            match context_async
+                .rpc
+                .call::<Value>("tts.voices", Some(json!({"provider":provider})))
+                .await
+            {
+                Ok(value) => ui::set(voice_data, value),
+                Err(message) => ui::set(error, message),
+            }
+        });
+    });
+    let mut voice_children: Vec<Box<dyn Widget>> = vec![Box::new(
+        row().class("form-row").fill((provider_field, list_voices)),
+    )];
     let voice_items = voice_data.map(|value| {
         array(value, &["voices"])
             .into_iter()
@@ -109,23 +104,27 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             .collect::<Vec<_>>()
     });
     voice_children.push(Box::new(
-        each(voice_items)
-            .key(|(key, _)| key.clone())
-            .children(move |each_row| {
-                let item = each_row.value;
-                let value = item.get_untracked().1;
-                let name = value
-                    .as_str()
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| string(&value, &["id", "name"]));
-                let selected = name.clone();
-                ui::action(name, move || ui::set(voice, selected.clone()))
-            }),
+        row()
+            .class("actions")
+            .fill(
+                each(voice_items)
+                    .key(|(key, _)| key.clone())
+                    .children(move |each_row| {
+                        let item = each_row.value;
+                        let value = item.get_untracked().1;
+                        let name = value
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| string(&value, &["id", "name"]));
+                        let selected = name.clone();
+                        ui::action(name, move || ui::set(voice, selected.clone()))
+                    }),
+            ),
     ));
-    voice_children.push(ui::field(ui::label_for(locale, "Voice"), voice, false));
+    let voice_field = ui::field(ui::label_for(locale, "Voice"), voice, false);
     let context = ctx.clone();
     let settings_state = state.clone();
-    voice_children.push(ui::action(
+    let apply_voice = ui::action(
         ui::label_for(locale, "Apply provider and voice"),
         move || {
             let context_async = context.clone();
@@ -152,6 +151,9 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 ui::set(state.busy, false);
             });
         },
+    );
+    voice_children.push(Box::new(
+        row().class("form-row").fill((voice_field, apply_voice)),
     ));
     children.push(card(ui::label_for(locale, "Voice"), voice_children));
     let settings_children = vec![

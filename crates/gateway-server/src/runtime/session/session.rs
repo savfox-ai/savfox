@@ -14,6 +14,7 @@ use crate::protocol::GatewayMessage;
 pub struct ClientSession {
     /// Unique session identifier.
     pub id: SessionId,
+    pub connected_at: String,
     /// Authentication info for this session.
     pub token_info: TokenInfo,
     /// Server-derived credential identity; labels are not unique identities.
@@ -39,6 +40,7 @@ impl ClientSession {
     pub fn new(id: SessionId, token_info: TokenInfo, sender: mpsc::Sender<GatewayMessage>) -> Self {
         Self {
             id,
+            connected_at: chrono::Utc::now().to_rfc3339(),
             token_info,
             principal: id.to_string(),
             subscriptions: HashSet::new(),

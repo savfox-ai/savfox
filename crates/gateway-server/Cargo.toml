@@ -67,6 +67,7 @@ rustls = { workspace = true, features = ["aws-lc-rs"] }
 salvo = { workspace = true, features = ["rfc9457"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+schemars = { workspace = true }
 serde-saphyr = { workspace = true }
 sqlx = { workspace = true }
 sha2 = { workspace = true }

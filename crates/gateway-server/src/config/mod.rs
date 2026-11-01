@@ -1,3 +1,4 @@
+pub(crate) mod catalog;
 pub mod config;
 pub mod reload;
 pub mod validator;

@@ -13,7 +13,6 @@ use tracing::{debug, info, warn};
 use super::{obtain_channel_and_store, render_error, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::channel::{GatewayChannel, verify_discord_signature};
-use crate::config::GatewayConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
@@ -336,15 +335,8 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let public_key = depot
-        .get_typed::<Arc<GatewayConfig>>()
-        .ok()
-        .and_then(|cfg| {
-            cfg.channels
-                .discord
-                .as_ref()
-                .and_then(|b| b.application_public_key.clone())
-        })
+    let public_key = super::saved_channel_secret(depot, "discord", "application_public_key")
+        .await
         .or_else(|| std::env::var("DISCORD_APPLICATION_PUBLIC_KEY").ok());
     debug!(target: "discord::webhook", configured = public_key.is_some(), "public_key status");
     let Some(public_key) = super::require_inbound_secret(public_key, res, "discord") else {

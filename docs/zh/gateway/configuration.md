@@ -23,59 +23,39 @@ savfox gateway [OPTIONS] [SUBCOMMAND]
 | `--tls-cert` | 无 | TLS 证书路径 |
 | `--tls-key` | 无 | TLS 私钥路径 |
 
-## `config.toml`
+## 系统配置与管理入口
 
-典型配置如下：
+`/config` 默认展示配置概览，分为网关与安全、执行与工具、会话与上下文、运行环境及
+高级配置。搜索覆盖字段名、中文标签和说明。Schema 由运行时的 `ConfigToml` 和
+`GatewayConfig` 类型生成。无效旧字段不再显示，保存时直接删除，不向其他配置位置迁移。
+
+模型与账号、智能体、渠道、技能和定时任务使用各自管理页及存储。渠道凭据保存在
+渠道页和 `channels/*.json`；不再读取 `[gateway.channels]`、`[gateway.bridges]`。
+语音合成、对话与唤醒统一到 `/speech`；节点、在线连接与配对统一到 `/devices`。
+`/settings` 只管理当前浏览器的个人偏好，服务器日志设置移到日志页。
+高级配置提供诊断与手动 RPC 入口，不再占用主导航。
 
 ```toml
 [gateway]
 host = "127.0.0.1"
 port = 18881
+trust_x_forwarded_for = false
+# token 未设置时复用或生成
+# tls_cert = "/path/to/cert.pem"
+# tls_key = "/path/to/key.pem"
 
-[gateway.channels.discord]
-enabled = true
-bot_token = "your-discord-bot-token"
+[gateway.rate_limit]
+max_requests = 100
+window_secs = 60
+max_connections_per_ip = 10
 
-[gateway.channels.telegram]
+[gateway.response_footer]
 enabled = true
-bot_token = "123456:ABC..."
-
-[gateway.channels.slack]
-enabled = true
-bot_token = "xoxb-your-token"
-signing_secret = "your-signing-secret"
+max_length = 240
 ```
 
-## `[gateway]` 常见字段
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `host` | `IpAddr` | 绑定地址 |
-| `port` | `u16` | 监听端口 |
-| `token` | `Option<String>` | 静态认证 token |
-| `tls_cert` | `Option<String>` | TLS 证书路径 |
-| `tls_key` | `Option<String>` | TLS 私钥路径 |
-| `channels` | `ChannelsConfig` | 各聊天渠道配置 |
-
-## 渠道配置
-
-常见渠道包括：
-
-- Discord
-- Telegram
-- Slack
-- Microsoft Teams
-- Webhook
-- WhatsApp
-- Signal
-- iMessage
-- Zalo
-
-这些渠道通常至少包含：
-
-- `enabled`
-- 平台凭据（如 `bot_token` / `access_token`）
-- 可选的 webhook / 签名验证字段
+显式 CLI 参数优先于文件；未提供参数时读取文件，再使用默认值。TLS 证书与私钥必须
+一起设置，缺少其中之一会拒绝保存。
 
 ## 环境变量
 
@@ -87,12 +67,34 @@ signing_secret = "your-signing-secret"
 - `MATRIX_HOMESERVER`
 - `MATRIX_ACCESS_TOKEN`
 
-## 运行时更新
+## 保存与生效
 
-gateway 支持在运行时通过 API 修改配置，而不一定要重启：
+可选配置明确区分“使用默认值”与显式启用、禁用，不再把尚未配置的字段显示为已禁用。
 
-- merge patch：只修改指定字段
-- full apply：整体替换配置
+编辑器只有一份草稿。JSON 修改直接更新草稿，格式错误时禁止保存，不再需要点击
+“Update field”。放弃修改恢复加载的文档；重新加载前会确认是否丢弃未保存内容。
+高级 JSON 编辑器同时承担导入功能：粘贴完整文档、检查差异、保存一次即可。
+从该文档删除字段会同时从配置文件删除字段。
+
+`config.get` 返回 `config`、`revision`、`removed_fields`。`config.set` 接受完整
+`config` 和读取时的 `revision`，校验有效字段与类型、拒绝并发覆盖、先备份原文件
+到 `config.toml.bak`，再原子替换 `config.toml`。成功返回 `status: saved` 和
+`restart_required: true`；没有变化则返回 `unchanged`，不重新写入。
+实验功能开关及低频核心选项保留在高级文档，不再自动展开成大量默认控件。
+
+系统配置在重启网关后生效，`config.apply` 与 `config.reload` 不再声称即时生效。
+即时操作（例如调整当前进程日志级别）由对应功能 API 负责。
+
+`config.patch` 的参数为 `{ "patch": { ... }, "revision": "..." }`，采用 JSON merge
+patch 语义，`null` 删除字段。HTTP `/api/config/patch` 的 `config` 是补丁，
+HTTP `/api/config/apply` 的 `config` 是完整文档；两者共用上述保存、备份与校验路径。
+
+导出通过 `config.export` 下载已保存、已脱敏的系统配置，不包含未保存草稿，
+也不是账号、渠道、语音、任务、会话及密钥的完整备份。
+
+`system.connections` 只读取在线连接，返回 `session_id`、`name`、`connected_at` 和
+`is_current`。管理员使用 `system.disconnect` 与 `{ "session_id": "..." }` 通知并关闭
+对应 WebSocket。浏览器收到主动断开通知后停止自动重连，重新加载页面可再次连接。
 
 ## 建议
 
@@ -109,7 +111,7 @@ gateway 支持在运行时通过 API 修改配置，而不一定要重启：
 
 ### 公共 Webhook 鉴权
 
-所有 `/webhooks/<platform>` 回调必须具有明确启用的已保存 Channel，或旧版 `[gateway.channels.<platform>]` 配置。未配置或已禁用时返回 503；已保存 Channel 的禁用状态优先于旧版启用配置。验证凭据不得为空；缺少凭据或签名、签名错误、签名后修改请求体均返回 401，不会启动 Agent。Gateway Bearer Token 不能代替平台回调鉴权。
+所有 `/webhooks/<platform>` 回调必须具有明确启用的已保存 Channel。未配置或已禁用时返回 503。验证凭据不得为空；缺少凭据或签名、签名错误、签名后修改请求体均返回 401，不会启动 Agent。Gateway Bearer Token 不能代替平台回调鉴权。
 
 现有平台验证格式保持兼容，包括 Discord 公钥、Slack 签名密钥、Telegram Secret Token、LINE/WhatsApp 签名密钥、Zalo 的 `x-zalooa-signature` 以及其他集成的验证 Token。飞书 HTTP 回调必须配置 Verification Token；WhatsApp 初始化验证 GET 也必须配置并匹配 Verify Token。轮询、长连接及经过鉴权的 Matrix Appservice 路由继续采用原有传输层鉴权。
 

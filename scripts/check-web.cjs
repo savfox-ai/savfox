@@ -39,6 +39,9 @@ const terminalAppend = text => terminalEntries.push({ sequence: terminalEntries.
 const redactedChannelSecret = '__SAVFOX_CHANNEL_SECRET_REDACTED__';
 const channel = { id: 'discord-test', kind: 'discord', name: 'Browser Discord', enabled: true, config: { bot_token: redactedChannelSecret, mode: 'stream' } };
 let channelRunning = true;
+let fixtureConfig = { model: { provider: 'openai', slug: 'test-model' }, gateway: { port: 18881 }, model_context_window: 32000 };
+let configVersion = 1;
+let fixtureClients = [{session_id:'fixture-client-session',name:'Fixture client',connected_at:'2026-11-01T00:00:00Z',is_current:false}];
 let voiceSettings = { enabled: false, keyword: "hey savfox" };
 let skillEnabled = true;
 const model = { id: 'openai/test-model', name: 'Test model', provider: 'openai', model_slug: 'test-model' };
@@ -106,18 +109,21 @@ function fixture(method, params) {
     case 'channels.nostr.profile.import': return { status: 'imported' };
     case 'channels.nostr.profile.export': return { profile: { name: 'Fixture profile', public_key: 'npub-fixture' } };
     case 'channels.nostr.relays.set': return { status: 'saved', relays: params.relays };
-    case 'config.get': return { config: { model: { provider: 'openai', slug: 'test-model' }, gateway: { port: 18881 } }, hash: 'fixture' };
-    case 'config.schema': return { schema: { type: 'object', properties: { gateway: { type: 'object', properties: { port: { type: 'integer' } } } } } };
+    case 'config.get': return { config: structuredClone(fixtureConfig), revision: String(configVersion), removed_fields: [] };
+    case 'config.set': { assert.equal(params.revision,String(configVersion)); fixtureConfig=structuredClone(params.config); configVersion++; return {status:'saved',config:structuredClone(fixtureConfig),revision:String(configVersion),restart_required:true}; }
+    case 'config.export': return {content:JSON.stringify(fixtureConfig),redacted:true};
+    case 'config.schema': return { schema: { type: 'object', properties: { gateway: { type: 'object', properties: { port: { type: 'integer' }, response_footer:{type:'object',properties:{enabled:{type:'boolean',default:true}}}, rate_limit:{type:'object',properties:{max_requests:{type:'integer'}}} } }, model_context_window:{type:'integer'},check_for_update_on_startup:{anyOf:[{type:'boolean'},{type:'null'}]},mcp_servers:{type:'object',additionalProperties:{type:'object'}},model:{type:'object'} } } };
     case 'cron.list': return { jobs: [] };
     case 'cron.status': return { enabled: true };
     case 'cron.runs': return { runs: [] };
     case 'node.list': return { nodes: [] };
     case 'node.describe': return { id: 'browser-node', name: 'Browser node' };
     case 'device.pair.list': return { requests: [] };
-    case 'system-presence': return { entries: [] };
+    case 'system.connections': return {entries:fixtureClients};
+    case 'system.disconnect': {assert.equal(params.session_id,'fixture-client-session');assert.equal(params.host,undefined);fixtureClients=[];return {disconnected:true};}
     case 'logs.tail': return { lines: ['fixture log entry'], cursor: 1 };
     case 'skills.status': return { skills: [] };
-    case 'skills.bins': return { bins: [{ name: 'Fixture skill', installed: true, enabled: skillEnabled, description: 'Installed test skill' }] };
+    case 'skills.bins': return { bins: [{ name: 'Fixture skill', installed: true, enabled: skillEnabled, primary_env: 'SAVFOX_FIXTURE_KEY', description: 'Installed test skill' }] };
     case 'skills.update': skillEnabled = params.enabled; return { ok: true };
     case 'security.audit': return { findings: [], summary: { critical: 0 } };
     case 'security.rules.list': return { rules: [] };
@@ -233,17 +239,17 @@ const server = http.createServer((request, response) => {
         await assertLiveNavigation(route);
       }
     }
-    await clickNavigationPart('.sidebar-nav a[href="/instances"]', '.nav-label');
-    await assertLiveNavigation('/instances');
+    await clickNavigationPart('.sidebar-nav a[href="/devices"]', '.nav-label');
+    await assertLiveNavigation('/devices');
     await clickNavigationPart('.sidebar-nav a[href="/logs"]', '.shell-icon');
     await assertLiveNavigation('/logs');
     await page.goBack();
-    await assertLiveNavigation('/instances');
+    await assertLiveNavigation('/devices');
     await page.goForward();
     await assertLiveNavigation('/logs');
-    await page.locator('.sidebar-nav a[href="/instances"]').focus();
+    await page.locator('.sidebar-nav a[href="/devices"]').focus();
     await page.keyboard.press('Enter');
-    await assertLiveNavigation('/instances');
+    await assertLiveNavigation('/devices');
     for (const part of ['.nav-label', '.shell-icon']) {
       const popupOpened = page.context().waitForEvent('page');
       await clickNavigationPart('.sidebar-nav a[href="/logs"]', part, { modifiers: ['Control'] });
@@ -251,7 +257,7 @@ const server = http.createServer((request, response) => {
       await popup.waitForURL(base + '/logs');
       assert.equal(new URL(popup.url()).pathname, '/logs');
       await popup.close();
-      await assertLiveNavigation('/instances');
+      await assertLiveNavigation('/devices');
     }
     await page.locator('.hamburger-btn').click();
     await clickNavigationPart('.sidebar-rail a[href="/logs"]', '.shell-icon');
@@ -262,15 +268,15 @@ const server = http.createServer((request, response) => {
     await clickNavigationPart('.bottom-tab-bar a[href="/agents"]', '.shell-icon');
     await assertLiveNavigation('/agents');
     await page.locator('.bottom-tab-bar__more').click();
-    await clickNavigationPart('.more-sheet a[href="/instances"]', '.nav-label');
-    await assertLiveNavigation('/instances');
+    await clickNavigationPart('.more-sheet a[href="/devices"]', '.nav-label');
+    await assertLiveNavigation('/devices');
     await page.locator('.bottom-tab-bar__more').click();
     await clickNavigationPart('.more-sheet a[href="/logs"]', '.shell-icon');
     await assertLiveNavigation('/logs');
     await page.setViewportSize({ width: 1440, height: 1000 });
     page.off('request', recordNavigationDocument);
     report.checks.push('all navigation labels/icons preserve the document and WebSocket; history, keyboard, new tabs, rail and mobile menus');
-    for (const route of ['/agents', '/agents/new', '/agents/browser-agent', '/agents/browser-agent/files', '/agents/browser-agent/tools', '/agents/browser-agent/skills', '/models', '/models/connect-provider', '/channels', '/channels/add', '/channels/edit/discord-test', '/channels/health/discord-test', '/channels/arkret', '/channels/whatsapp', '/channels/matrix', '/channels/nostr', '/cron', '/cron/new', '/config', '/config/gateway', '/instances', '/logs', '/usage', '/approvals', '/nodes', '/nodes/browser-node', '/debug', '/skills', '/tts', '/voice', '/device-pair', '/settings', '/sessions?session_id=browser-session']) {
+    for (const route of ['/agents', '/agents/new', '/agents/browser-agent', '/agents/browser-agent/files', '/agents/browser-agent/tools', '/agents/browser-agent/skills', '/models', '/models/connect-provider', '/channels', '/channels/add', '/channels/edit/discord-test', '/channels/health/discord-test', '/channels/arkret', '/channels/whatsapp', '/channels/matrix', '/channels/nostr', '/cron', '/cron/new', '/config', '/config/gateway', '/config/execution', '/config/context', '/config/advanced', '/devices/connections', '/logs', '/usage', '/approvals', '/devices', '/devices/nodes/browser-node', '/config/diagnostics', '/skills', '/speech', '/speech/wake', '/devices/pair', '/settings', '/sessions?session_id=browser-session']) {
       await page.goto(base + route);
       await page.locator('.top-header__health--ok').waitFor();
       await page.locator('.page-title').first().waitFor();
@@ -278,7 +284,54 @@ const server = http.createServer((request, response) => {
       report.routes.push(route);
       console.log(`Checked ${route}`);
     }
-    await page.goto(base + '/voice');
+    await page.goto(base + '/config/gateway');
+    assert.equal(await page.getByRole('button',{name:'All settings',exact:true}).count(),0);
+    const saveConfiguration=page.getByRole('button',{name:'Save configuration',exact:true});
+    assert.equal(await saveConfiguration.isDisabled(),true);
+    await page.getByLabel('Port',{exact:true}).fill('18882');
+    await saveConfiguration.click();
+    await waitForCall(call=>call.method==='config.set' && call.params.config.gateway.port===18882);
+    await page.getByText('Configuration saved. Restart the gateway to activate changes.',{exact:true}).waitFor();
+    assert.equal(await saveConfiguration.isDisabled(),true);
+    assert.equal(calls.some(call=>call.method==='config.patch'||call.method==='config.apply'),false,'Saving must send one replacement, without a second apply');
+    await page.getByRole('button',{name:'Advanced configuration',exact:true}).click();
+    const rawConfig=page.getByLabel('System configuration JSON',{exact:true});
+    await rawConfig.fill('{ invalid json');
+    assert.equal(await saveConfiguration.isDisabled(),true);
+    const imported=structuredClone(fixtureConfig); delete imported.model_context_window; imported.gateway.port=18883;
+    await rawConfig.fill(JSON.stringify(imported));
+    await saveConfiguration.click();
+    await waitForCall(call=>call.method==='config.set' && call.params.config.gateway.port===18883 && !('model_context_window' in call.params.config));
+    await page.reload();
+    await rawConfig.waitFor();
+    await page.waitForFunction(()=>{try{return JSON.parse(document.querySelector('textarea[aria-label="System configuration JSON"]')?.value || '{}').gateway?.port===18883;}catch{return false;}});
+    assert.equal(JSON.parse(await rawConfig.inputValue()).gateway.port,18883);
+    await page.getByRole('button',{name:'Execution and tools',exact:true}).click();
+    const mcp=page.getByLabel('Mcp servers',{exact:true});
+    await mcp.fill('{"fixture":{"command":"server"}}');
+    await saveConfiguration.click();
+    await waitForCall(call=>call.method==='config.set' && call.params.config.mcp_servers?.fixture?.command==='server');
+    await page.getByRole('button',{name:'Runtime environment',exact:true}).click();
+    const inherited=page.getByRole('combobox',{name:'Check for update on startup',exact:true});
+    assert((await inherited.innerText()).includes('Use default'),'Unset optional boolean must not be displayed as disabled');
+    await inherited.click(); await page.getByRole('option',{name:'Enabled',exact:true}).click();
+    await saveConfiguration.click();
+    await waitForCall(call=>call.method==='config.set' && call.params.config.check_for_update_on_startup===true);
+    await inherited.click(); await page.getByRole('option',{name:'Use default',exact:true}).click();
+    await saveConfiguration.click();
+    await waitForCall(call=>call.method==='config.set' && call.params.revision==='5' && !('check_for_update_on_startup' in call.params.config));
+    await page.getByRole('button',{name:'Gateway and security',exact:true}).click();
+    assert.equal(await page.getByRole('checkbox',{name:'Enabled',exact:true}).isChecked(),true,'A missing setting must display its actual schema default');
+    await page.getByLabel('Search configuration fields',{exact:true}).fill('port');
+    await page.getByLabel('Port',{exact:true}).waitFor();
+    await page.goto(base + '/devices/connections');
+    await page.getByText('Fixture client',{exact:true}).waitFor();
+    page.once('dialog',dialog=>dialog.accept());
+    await page.getByRole('button',{name:'Disconnect',exact:true}).click();
+    await waitForCall(call=>call.method==='system.disconnect' && call.params.session_id==='fixture-client-session');
+    await page.getByText('Fixture client',{exact:true}).waitFor({state:'hidden'});
+    report.checks.push('configuration save once, restart feedback, JSON validation/import/deletion, persistent reload, field search and client disconnect identity');
+    await page.goto(base + '/speech/wake');
     const wake = page.getByRole('checkbox', { name: 'Wake word enabled', exact: true });
     await wake.waitFor();
     assert.equal(await wake.evaluate(input => input.closest('.sapid-checkbox')?.classList.contains('sapid-unstyled')), false, 'Checkbox must retain Sapid styling');
@@ -310,6 +363,25 @@ const server = http.createServer((request, response) => {
     await page.waitForFunction(() => document.querySelector('.skill-card .sapid-switch input')?.checked === false);
     await waitForCall(call => call.method === 'skills.update' && call.params.name === 'Fixture skill' && call.params.enabled === false);
     report.checks.push('Sapid checkbox label/keyboard activation and save RPC; semantic model/skill switches and persistence');
+    await page.locator('.skill-card .sapid-collapsible>button').click();
+    const credential = page.getByLabel('SAVFOX_FIXTURE_KEY', { exact: true });
+    await credential.waitFor({ state: 'visible' });
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await credential.scrollIntoViewIfNeeded();
+      const layout = await credential.evaluate(input => {
+        const group = input.closest('.sapid-password-group');
+        const toggle = group.querySelector('button');
+        const card = input.closest('.skill-card').getBoundingClientRect();
+        const a = input.getBoundingClientRect(), b = toggle.getBoundingClientRect();
+        const save = input.closest('.actions').querySelector(':scope > button').getBoundingClientRect();
+        return { aligned: Math.abs(a.y - b.y) <= 1 && Math.abs(a.height - b.height) <= 1, contained: a.width >= 40 && a.x >= card.x && b.right <= card.right && save.right <= card.right, overflow: document.documentElement.scrollWidth > innerWidth + 1 };
+      });
+      assert(layout.aligned && layout.contained && !layout.overflow, `Expanded skill credentials must fit and align at ${width}px: ${JSON.stringify(layout)}`);
+      await page.screenshot({ path: path.join(cache, `skills-credentials-${width}.png`) });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    report.checks.push('expanded skill credentials and visibility action fit desktop/mobile layouts');
     await page.goto(base + '/usage');
     await page.locator('.top-header__health--ok').waitFor();
     const period = page.getByRole('combobox', { name: 'Period', exact: true });

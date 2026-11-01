@@ -52,12 +52,13 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             widget(move |scope| super::login::render(&context.with_scope(scope), key).build(scope))
         },
     )));
+    let mut discovery_actions: Vec<Box<dyn Widget>> = Vec::new();
     for (label, method) in [
         ("Test connection", "models.test"),
         ("Discover models", "models.list"),
     ] {
         let context = ctx.clone();
-        children.push(Box::new(
+        discovery_actions.push(Box::new(
             sapid::button()
                 .label(label)
                 .loading(busy)
@@ -107,6 +108,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 }),
         ));
     }
+    children.push(Box::new(row().class("actions").fill(discovery_actions)));
     children.push(Box::new(
         each(models)
             .key(|model| string(model, &["id"]))

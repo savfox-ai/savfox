@@ -1319,50 +1319,19 @@ pub(crate) async fn handle_providers_health(_channel: &GatewayChannel) -> RpcRes
 // ─── Config Reload / Validate / Migrate handlers ────────────────────────────
 
 pub(crate) async fn handle_config_reload(channel: &GatewayChannel) -> RpcResult {
-    let config_path = primary_config_toml_path(channel);
-    let service = crate::config::reload::ConfigReloadService::new(config_path);
-
-    // Load current config first so diff works
-    let _ = service.load().await;
-
-    // Reload from disk and compute diff
-    let event = service
-        .reload()
+    let mut config = super::config::load_config_value(channel)
         .await
-        .map_err(|e| (INTERNAL_ERROR, format!("config reload failed: {e}")))?;
-
-    // Validate the new config  - only block on actual errors, not warnings
-    let new_config = service.get().await;
-    let validation = crate::config::validator::validate_config(&new_config);
-    let hard_errors: Vec<_> = validation
-        .errors
-        .iter()
-        .filter(|e| matches!(e.severity, crate::config::validator::Severity::Error))
-        .collect();
-    if !hard_errors.is_empty() {
-        return Err((
-            INTERNAL_ERROR,
-            format!(
-                "config validation failed after reload: {}",
-                hard_errors
-                    .iter()
-                    .map(|e| format!("{}: {}", e.field, e.message))
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            ),
-        ));
-    }
-
-    Ok(json!({
-        "status": "reloaded",
-        "changed_keys": event.changed_keys,
-        "timestamp": event.timestamp,
-    }))
+        .map_err(|error| (INTERNAL_ERROR, error))?;
+    let removed = crate::config::catalog::clean(&mut config);
+    crate::config::catalog::validate(&config).map_err(|error| (INVALID_PARAMS, error))?;
+    Ok(json!({"status":"loaded", "restart_required":true,"config":config,"removed_fields":removed}))
 }
 
 pub(crate) async fn handle_config_validate(params: &Value, _channel: &GatewayChannel) -> RpcResult {
-    let result = crate::config::validator::validate_config(params);
-    Ok(json!({ "valid": result.errors.is_empty(), "errors": result.errors }))
+    match crate::config::catalog::validate(params.get("config").unwrap_or(params)) {
+        Ok(()) => Ok(json!({"valid":true,"errors":[]})),
+        Err(error) => Ok(json!({"valid":false,"errors":[{"message":error}]})),
+    }
 }
 
 // ─── STT handlers ───────────────────────────────────────────────────────────

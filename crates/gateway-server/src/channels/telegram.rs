@@ -12,7 +12,6 @@ use tracing::{debug, info, warn};
 use super::{render_error, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::channel::{GatewayChannel, verify_telegram_webhook_secret};
-use crate::config::GatewayConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
@@ -261,15 +260,8 @@ pub(crate) fn telegram_sink(
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     debug!("Webhook request received");
 
-    let expected_secret = depot
-        .get_typed::<Arc<GatewayConfig>>()
-        .ok()
-        .and_then(|cfg| {
-            cfg.channels
-                .telegram
-                .as_ref()
-                .and_then(|b| b.webhook_secret_token.clone())
-        })
+    let expected_secret = super::saved_channel_secret(depot, "telegram", "webhook_secret_token")
+        .await
         .or_else(|| std::env::var("TELEGRAM_WEBHOOK_SECRET_TOKEN").ok());
     let Some(expected_secret) = super::require_inbound_secret(expected_secret, res, "telegram")
     else {

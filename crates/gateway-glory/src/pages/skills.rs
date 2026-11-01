@@ -236,24 +236,31 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             )
         },
     )));
-    children.push(Box::new(text().content(ctx.scope.bond(move || {
-        format!(
-            "Page {} of {} · {} skills",
-            page.get(),
-            bins.get()["total_pages"].as_u64().unwrap_or(1),
-            bins.get()["total"].as_u64().unwrap_or(0)
-        )
-    }))));
-    children.push(ui::action(
-        ui::label_for(locale, "Previous page"),
-        move || ui::set(page, page.get().saturating_sub(1).max(1)),
+    children.push(Box::new(
+        row().class("skills-pagination").fill((
+            text()
+                .class("page-caption")
+                .content(ctx.scope.bond(move || {
+                    format!(
+                        "Page {} of {} · {} skills",
+                        page.get(),
+                        bins.get()["total_pages"].as_u64().unwrap_or(1),
+                        bins.get()["total"].as_u64().unwrap_or(0)
+                    )
+                })),
+            row().class("actions").fill((
+                ui::action(ui::label_for(locale, "Previous page"), move || {
+                    ui::set(page, page.get().saturating_sub(1).max(1));
+                }),
+                ui::action(ui::label_for(locale, "Next page"), move || {
+                    let total = bins.get()["total_pages"].as_u64().unwrap_or(1);
+                    if page.get() < total {
+                        ui::set(page, page.get() + 1);
+                    }
+                }),
+            )),
+        )),
     ));
-    children.push(ui::action(ui::label_for(locale, "Next page"), move || {
-        let total = bins.get()["total_pages"].as_u64().unwrap_or(1);
-        if page.get() < total {
-            ui::set(page, page.get() + 1);
-        }
-    }));
     ui::localized_page(
         ctx,
         "nav.skills",

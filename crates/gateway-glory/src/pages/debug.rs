@@ -42,7 +42,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         "status",
         "models.list",
         "sessions.list",
-        "system-presence",
+        "system.connections",
         "config.get",
     ]
     .iter()

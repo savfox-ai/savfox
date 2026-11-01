@@ -71,7 +71,7 @@ fn save_channel(home: &std::path::Path, platform: &str, enabled: bool, secret: O
         home.join("channels").join(format!("{platform}.json")),
         json!({
             "id":platform,"kind":platform,"name":platform,"enabled":enabled,
-            "config":{"webhook_secret":secret}
+            "config":{"webhook_secret":secret,"secret":secret,"app_secret":secret,"app_password":secret,"app_id":"app","access_token":"token"}
         })
         .to_string(),
     )
@@ -125,13 +125,10 @@ async fn public_webhook_routes_require_enabled_channel_and_verification_material
 #[tokio::test]
 async fn signed_webhook_routes_reject_missing_forged_and_tampered_signatures() {
     let home = tempfile::tempdir().unwrap();
-    let gateway: GatewayConfig = serde_json::from_value(json!({"channels":{
-        "webhook":{"enabled":true,"secret":"test-secret"},
-        "zalo":{"enabled":true,"app_id":"app","app_secret":"test-secret","access_token":"token"},
-        "signal":{"enabled":true},
-        "msteams":{"enabled":true,"app_id":"app","app_password":"test-secret"}
-    }}))
-    .unwrap();
+    let gateway = GatewayConfig::default();
+    for platform in ["webhook", "zalo", "signal", "msteams"] {
+        save_channel(home.path(), platform, true, Some("test-secret"));
+    }
     let service = service(home.path(), &gateway).await;
     let forged_bearer = TestClient::post("http://localhost/webhooks/msteams")
         .add_header("content-type", "application/json", true)

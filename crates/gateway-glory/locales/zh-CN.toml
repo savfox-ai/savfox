@@ -25,9 +25,9 @@ channels = "频道"
 cron_jobs = "定时任务"
 skills = "技能"
 tts = "语音合成"
-voice = "语音"
-config = "配置"
-instances = "实例"
+voice = "对话与唤醒"
+config = "系统配置"
+instances = "在线连接"
 logs = "日志"
 usage = "用量"
 approvals = "审批"
@@ -39,7 +39,16 @@ navigation = "导航"
 connect_provider = "接入提供商"
 command_palette = "命令面板"
 skip_to_content = "跳转到主要内容"
-settings = "设置"
+settings = "个人偏好"
+
+
+observe = "运行监控"
+
+speech = "语音"
+
+devices = "设备与连接"
+
+advanced = "高级工具"
 
 [header]
 ai_assistant = "AI 助手"

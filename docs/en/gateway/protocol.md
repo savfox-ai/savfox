@@ -179,11 +179,11 @@ After authentication, use JSON-RPC 2.0 requests to call the gateway methods:
 | Agent | `agent`, `agent.identity`, `agent.wait` |
 | Chat | `chat.send`, `chat.history`, `chat.abort` |
 | Sessions | `sessions.list`, `sessions.preview`, `sessions.patch`, `sessions.reset`, `sessions.delete` |
-| Config | `config.get`, `config.set`, `config.apply`, `config.patch` |
+| Config | `config.get`, `config.set`, `config.apply`, `config.patch`, `config.schema`, `config.export`, `config.validate` |
 | Cron | `cron.list`, `cron.add`, `cron.update`, `cron.remove`, `cron.run`, `cron.runs` |
 | Models | `models.list` |
 | Memory | `memory.list`, `memory.get`, `memory.create`, `memory.update`, `memory.delete`, `memory.search`, `memory.promote`, `memory.layers` |
-| System | `connect`, `health`, `status`, `wake`, `send` |
+| System | `connect`, `health`, `status`, `wake`, `send`, `system.connections`, `system.disconnect` |
 
 ## Connection Lifecycle
 

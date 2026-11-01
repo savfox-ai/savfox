@@ -3,9 +3,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
-use super::browser::handle_config_snapshot;
-use super::model::model_test_default_base_url;
+use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, RpcResult};
 use crate::channel::GatewayChannel;
 use crate::home_paths::{config_backup_path, config_candidates, config_toml_path};
 
@@ -29,263 +27,6 @@ pub(crate) fn humanize_hyphenated_id(raw: &str) -> String {
         .map(to_title_case_segment)
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-fn non_empty_trimmed(text: &str) -> Option<String> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_owned())
-    }
-}
-
-fn normalized_provider_object(provider_id: &str, base_url: Option<&str>) -> Value {
-    let resolved_base_url = base_url
-        .and_then(non_empty_trimmed)
-        .or_else(|| model_test_default_base_url(provider_id));
-
-    json!({
-        "id": provider_id,
-        "name": humanize_hyphenated_id(provider_id),
-        "base_url": resolved_base_url,
-    })
-}
-
-fn normalized_model_object(
-    provider_id: &str,
-    model_slug: &str,
-    provider_base_url: Option<&str>,
-) -> Value {
-    json!({
-        "id": format!("{provider_id}/{model_slug}"),
-        "code": model_slug,
-        "name": humanize_hyphenated_id(model_slug),
-        "provider": normalized_provider_object(provider_id, provider_base_url),
-    })
-}
-
-fn extract_provider_id(provider_value: &Value) -> Option<String> {
-    match provider_value {
-        Value::String(provider_id) => non_empty_trimmed(provider_id),
-        Value::Object(provider) => provider
-            .get("id")
-            .and_then(Value::as_str)
-            .and_then(non_empty_trimmed),
-        _ => None,
-    }
-}
-
-fn extract_provider_base_url(provider_value: &Value) -> Option<String> {
-    match provider_value {
-        Value::Object(provider) => provider
-            .get("base_url")
-            .and_then(Value::as_str)
-            .and_then(non_empty_trimmed),
-        _ => None,
-    }
-}
-
-fn normalize_provider_value(provider_value: &mut Value) {
-    if let Some(provider_id) = extract_provider_id(provider_value) {
-        let provider_base_url = extract_provider_base_url(provider_value);
-        *provider_value = normalized_provider_object(&provider_id, provider_base_url.as_deref());
-    }
-}
-
-fn normalize_model_value(model_value: &mut Value) {
-    match model_value {
-        Value::String(model_id) => {
-            if let Some((provider_id, model_slug)) =
-                savfox_core::parse_provider_prefixed_model(model_id.as_str())
-            {
-                *model_value = normalized_model_object(provider_id, model_slug, None);
-            }
-        }
-        Value::Object(model) => {
-            let id = model
-                .get("id")
-                .and_then(Value::as_str)
-                .and_then(non_empty_trimmed);
-            let parsed_from_id = id
-                .as_deref()
-                .and_then(savfox_core::parse_provider_prefixed_model)
-                .map(|(provider_id, model_slug)| (provider_id.to_owned(), model_slug.to_owned()));
-            let provider_base_url = model.get("provider").and_then(extract_provider_base_url);
-
-            let provider_id = model
-                .get("provider")
-                .and_then(extract_provider_id)
-                .or_else(|| {
-                    parsed_from_id
-                        .as_ref()
-                        .map(|(provider, _)| provider.clone())
-                });
-            let model_slug = model
-                .get("code")
-                .and_then(Value::as_str)
-                .and_then(non_empty_trimmed)
-                .or_else(|| {
-                    model
-                        .get("model_slug")
-                        .and_then(Value::as_str)
-                        .and_then(non_empty_trimmed)
-                })
-                .or_else(|| parsed_from_id.as_ref().map(|(_, code)| code.clone()));
-
-            if let (Some(provider_id), Some(model_slug)) = (provider_id, model_slug) {
-                *model_value = normalized_model_object(
-                    &provider_id,
-                    &model_slug,
-                    provider_base_url.as_deref(),
-                );
-                return;
-            }
-
-            if let Some(provider_value) = model.get_mut("provider") {
-                normalize_provider_value(provider_value);
-            }
-        }
-        _ => {}
-    }
-}
-
-pub(crate) fn normalize_config_model_fields(config: &mut Value) {
-    if let Some(model_value) = config.get_mut("model") {
-        normalize_model_value(model_value);
-    }
-
-    let Some(profiles) = config.get_mut("profiles").and_then(Value::as_object_mut) else {
-        return;
-    };
-
-    for profile in profiles.values_mut() {
-        if let Some(profile_map) = profile.as_object_mut()
-            && let Some(model_value) = profile_map.get_mut("model")
-        {
-            normalize_model_value(model_value);
-        }
-    }
-}
-
-fn normalize_model_reasoning_key(config: &mut Value) {
-    let Some(model) = config.get_mut("model").and_then(Value::as_object_mut) else {
-        return;
-    };
-
-    if model.get("reasoning_effort").is_none()
-        && let Some(reasoning_level) = model.get("reasoning_level").cloned()
-    {
-        model.insert("reasoning_effort".to_owned(), reasoning_level);
-    }
-    model.remove("reasoning_level");
-}
-
-enum DetachedBridgeConfig {
-    Upsert(Value),
-    Delete,
-}
-
-fn take_detached_matrix_channel_config(config: &mut Value) -> Option<DetachedBridgeConfig> {
-    let root = config.as_object_mut()?;
-    let gateway = root.get_mut("gateway")?.as_object_mut()?;
-
-    // Try both "channels" and the legacy "bridges" alias
-    let container_key = if gateway.contains_key("channels") {
-        "channels"
-    } else if gateway.contains_key("bridges") {
-        "bridges"
-    } else {
-        return None;
-    };
-
-    let (matrix_value, remove_container) = {
-        let container = gateway.get_mut(container_key)?.as_object_mut()?;
-        let matrix = container.remove("matrix")?;
-        (matrix, container.is_empty())
-    };
-    if remove_container {
-        gateway.remove(container_key);
-    }
-    let remove_gateway = gateway.is_empty();
-    if remove_gateway {
-        root.remove("gateway");
-    }
-
-    if matrix_value.is_null() {
-        Some(DetachedBridgeConfig::Delete)
-    } else {
-        Some(DetachedBridgeConfig::Upsert(matrix_value))
-    }
-}
-
-async fn persist_detached_matrix_channel_config(
-    channel: &Arc<GatewayChannel>,
-    detached: DetachedBridgeConfig,
-) -> Result<(), (i64, String)> {
-    use savfox_core::config::channel_store;
-
-    match detached {
-        DetachedBridgeConfig::Delete => {
-            // Legacy config patch only represented one matrix channel; map delete to that canonical
-            // ID.
-            let _ = channel_store::delete_channel_config(
-                &channel.config().savfox_home,
-                "matrix-matrix",
-            )
-            .await
-            .map_err(|e| {
-                (
-                    INTERNAL_ERROR,
-                    format!("failed to delete matrix channel config: {e}"),
-                )
-            })?;
-            let _ = channel_store::delete_channel_config(&channel.config().savfox_home, "matrix")
-                .await
-                .map_err(|e| {
-                    (
-                        INTERNAL_ERROR,
-                        format!("failed to delete matrix channel config: {e}"),
-                    )
-                })?;
-        }
-        DetachedBridgeConfig::Upsert(Value::Object(matrix_config)) => {
-            let patch = Value::Object(matrix_config);
-            channel_store::merge_channel_config(
-                &channel.config().savfox_home,
-                "matrix",
-                "Matrix",
-                &patch,
-            )
-            .await
-            .map_err(|e| {
-                (
-                    INTERNAL_ERROR,
-                    format!("failed to persist matrix channel config: {e}"),
-                )
-            })?;
-        }
-        DetachedBridgeConfig::Upsert(_) => {
-            return Err((
-                INVALID_PARAMS,
-                "gateway.channels.matrix must be an object or null".to_owned(),
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-pub(crate) async fn sanitize_config_before_write(
-    config: &mut Value,
-    channel: &Arc<GatewayChannel>,
-) -> Result<(), (i64, String)> {
-    normalize_model_reasoning_key(config);
-    if let Some(detached_matrix) = take_detached_matrix_channel_config(config) {
-        persist_detached_matrix_channel_config(channel, detached_matrix).await?;
-    }
-
-    Ok(())
 }
 
 fn deep_merge_patch(target: &mut Value, patch: &Value) {
@@ -312,8 +53,11 @@ fn deep_merge_patch(target: &mut Value, patch: &Value) {
 pub(crate) async fn handle_config_get(channel: &Arc<GatewayChannel>) -> RpcResult {
     let session_count = channel.websocket_manager().session_count().await;
 
-    let mut config_value = load_config_value_or_empty(channel).await;
-    normalize_config_model_fields(&mut config_value);
+    let mut config_value = load_config_value(channel)
+        .await
+        .map_err(|error| (INTERNAL_ERROR, error))?;
+    let revision = config_revision(&config_value);
+    let removed = crate::config::catalog::clean(&mut config_value);
 
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -325,6 +69,8 @@ pub(crate) async fn handle_config_get(channel: &Arc<GatewayChannel>) -> RpcResul
             "responses": "/v1/responses",
             "tools_invoke": "/tools/invoke",
         },
+        "revision": revision,
+        "removed_fields": removed,
         "config": config_value,
     }))
 }
@@ -340,14 +86,21 @@ pub(crate) fn primary_config_toml_path(channel: &GatewayChannel) -> PathBuf {
 }
 
 pub(crate) async fn load_config_value_or_empty(channel: &GatewayChannel) -> Value {
-    let mut config = load_config_intermediate(channel)
+    load_config_value(channel)
         .await
-        .map(|doc| doc.value)
-        .unwrap_or_else(|_| Value::Object(serde_json::Map::new()));
-    if !config.is_object() {
-        config = Value::Object(serde_json::Map::new());
-    }
-    config
+        .unwrap_or_else(|_| json!({}))
+}
+
+pub(crate) async fn load_config_value(channel: &GatewayChannel) -> Result<Value, String> {
+    let path = primary_config_toml_path(channel);
+    let text = match tokio::fs::read_to_string(&path).await {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(json!({})),
+        Err(error) => return Err(format!("Failed to read configuration: {error}")),
+    };
+    let value: toml::Value =
+        toml::from_str(&text).map_err(|error| format!("Invalid configuration TOML: {error}"))?;
+    serde_json::to_value(value).map_err(|error| error.to_string())
 }
 
 pub(crate) async fn write_config_toml(
@@ -358,7 +111,7 @@ pub(crate) async fn write_config_toml(
     let toml_value = savfox_utils::json_to_toml::json_to_toml(config.clone());
     let content = toml::to_string_pretty(&toml_value)
         .map_err(|e| format!("TOML serialization failed: {e}"))?;
-    tokio::fs::write(&path, content)
+    savfox_utils::fs::write_atomically_async(&path, content.into_bytes(), Some(0o600))
         .await
         .map_err(|e| format!("failed to write config: {e}"))
 }
@@ -393,6 +146,7 @@ pub(crate) async fn handle_config_export(
         ));
     }
 
+    crate::config::catalog::clean(&mut doc.value);
     if redacted {
         crate::redaction::redact_json_in_place(&mut doc.value);
     }
@@ -452,76 +206,209 @@ fn preserve_toml_leading_comments_for_yaml(source_toml: &str, yaml: &str) -> Str
     result
 }
 
-pub(crate) async fn handle_config_set(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
-    let config = params.get("config");
-    let Some(config_value) = config else {
-        return Err((INVALID_REQUEST, "missing 'config' parameter".to_owned()));
-    };
+fn config_revision(config: &Value) -> String {
+    use sha2::Digest;
+    fn canonical(value: &Value) -> Value {
+        match value {
+            Value::Object(object) => {
+                let mut keys = object.keys().collect::<Vec<_>>();
+                keys.sort();
+                Value::Object(
+                    keys.into_iter()
+                        .map(|key| (key.clone(), canonical(&object[key])))
+                        .collect(),
+                )
+            }
+            Value::Array(items) => Value::Array(items.iter().map(canonical).collect()),
+            value => value.clone(),
+        }
+    }
+    hex::encode(sha2::Sha256::digest(
+        canonical(config).to_string().as_bytes(),
+    ))
+}
 
-    let mut sanitized = config_value.clone();
-    sanitize_config_before_write(&mut sanitized, channel).await?;
-    write_config_toml(channel, &sanitized)
+/// Serialize writes across HTTP and WebSocket clients. Validate and back up the
+/// previous document before the single atomic replacement.
+pub(crate) async fn save_config(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+    patch: bool,
+) -> RpcResult {
+    static WRITES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = WRITES.lock().await;
+    let previous = load_config_value(channel)
+        .await
+        .map_err(|error| (INTERNAL_ERROR, error))?;
+    if let Some(expected) = params.get("revision").and_then(Value::as_str)
+        && expected != config_revision(&previous)
+    {
+        return Err((
+            INVALID_PARAMS,
+            "Configuration changed on the server. Reload before saving.".into(),
+        ));
+    }
+    let mut document = if patch {
+        let mut document = previous.clone();
+        crate::config::catalog::clean(&mut document);
+        let changes = params
+            .get("patch")
+            .ok_or((INVALID_PARAMS, "missing patch".into()))?;
+        if !changes.is_object() {
+            return Err((INVALID_PARAMS, "Patch must be an object".into()));
+        }
+        deep_merge_patch(&mut document, changes);
+        document
+    } else {
+        params
+            .get("config")
+            .cloned()
+            .ok_or((INVALID_PARAMS, "missing config".into()))?
+    };
+    // Existing obsolete fields are removed, but new unsupported input is rejected.
+    crate::config::catalog::validate(&document).map_err(|e| (INVALID_PARAMS, e))?;
+    // TOML has no null values; optional JSON nulls mean removal.
+    remove_nulls(&mut document);
+    if document == previous {
+        return Ok(
+            json!({"status":"unchanged", "restart_required":false, "revision":config_revision(&document), "config":document}),
+        );
+    }
+    let path = primary_config_toml_path(channel);
+    if path.exists() {
+        tokio::fs::copy(&path, config_backup_path(&channel.config().savfox_home))
+            .await
+            .map_err(|e| {
+                (
+                    INTERNAL_ERROR,
+                    format!("failed to back up configuration: {e}"),
+                )
+            })?;
+    }
+    write_config_toml(channel, &document)
         .await
         .map_err(|e| (INTERNAL_ERROR, e))?;
+    Ok(
+        json!({"status":"saved", "restart_required":true, "revision":config_revision(&document), "config":document}),
+    )
+}
 
-    Ok(json!({ "status": "ok" }))
+fn remove_nulls(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.retain(|_, v| !v.is_null());
+            for v in object.values_mut() {
+                remove_nulls(v);
+            }
+        }
+        Value::Array(items) => {
+            for v in items {
+                remove_nulls(v);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod save_tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+    use crate::channel::GatewayBridgeArgs;
+    use crate::session::{GatewaySessionManager, SessionStore};
+
+    #[tokio::test]
+    async fn save_validates_revision_replaces_deletions_and_backs_up_previous_document() {
+        let home = tempfile::tempdir().unwrap();
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let config = savfox_core::config::ConfigBuilder::default()
+            .savfox_home(home.path().to_owned())
+            .build()
+            .await
+            .unwrap();
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: Arc::new(SessionStore::from_home(home.path())),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            websocket_manager: GatewaySessionManager::new(),
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let original = "model_context_window = 32000\n[auth.cooldowns]\nbilling_max_hours = 1\n[gateway]\nport = 18881\n";
+        std::fs::write(home.path().join("config.toml"), original).unwrap();
+        let loaded = handle_config_get(&channel).await.unwrap();
+        assert_eq!(loaded["removed_fields"], json!(["auth"]));
+        let revision = loaded["revision"].clone();
+        let document = json!({"gateway":{"port":18882}});
+        let saved = save_config(
+            &json!({"config":document,"revision":revision}),
+            &channel,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved["restart_required"], true);
+        assert_eq!(
+            std::fs::read_to_string(home.path().join("config.toml.bak")).unwrap(),
+            original
+        );
+        assert_eq!(load_config_value_or_empty(&channel).await, document);
+        assert!(
+            save_config(
+                &json!({"config":{"gateway":{"port":18883}},"revision":revision}),
+                &channel,
+                false
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            save_config(&json!({"config":{"auth":{}}}), &channel, false)
+                .await
+                .is_err()
+        );
+        assert_eq!(load_config_value_or_empty(&channel).await, document);
+        assert_eq!(
+            std::fs::read_to_string(home.path().join("config.toml.bak")).unwrap(),
+            original
+        );
+        let unchanged = save_config(
+            &json!({"config":document,"revision":saved["revision"]}),
+            &channel,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(unchanged["status"], "unchanged");
+        assert_eq!(unchanged["restart_required"], false);
+    }
+}
+
+pub(crate) async fn handle_config_set(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
+    save_config(params, channel, false).await
 }
 
 pub(crate) async fn handle_config_apply(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let config = params.get("config");
-    let Some(config_value) = config else {
-        return Err((INVALID_REQUEST, "missing 'config' parameter".to_owned()));
-    };
-
-    let mut sanitized = config_value.clone();
-    sanitize_config_before_write(&mut sanitized, channel).await?;
-    let config_path = primary_config_toml_path(channel);
-
-    // Auto-snapshot before applying (#33)
-    let _ = handle_config_snapshot(channel).await;
-
-    // Create a backup before applying.
-    if config_path.exists() {
-        let backup = config_backup_path(&channel.config().savfox_home);
-        let _ = tokio::fs::copy(&config_path, &backup).await;
-    }
-
-    write_config_toml(channel, &sanitized)
-        .await
-        .map_err(|e| (INTERNAL_ERROR, e))?;
-
-    Ok(json!({
-        "status": "applied",
-        "note": "restart required for changes to take effect",
-    }))
+    save_config(params, channel, false).await
 }
 
 pub(crate) async fn handle_config_patch(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let patch = params.get("patch");
-    let Some(patch_value) = patch else {
-        return Err((INVALID_REQUEST, "missing 'patch' parameter".to_owned()));
-    };
-
-    let mut config = load_config_value_or_empty(channel).await;
-
-    // Merge patch fields (deep merge, null deletes keys).
-    if patch_value.is_object() {
-        deep_merge_patch(&mut config, patch_value);
-    }
-
-    sanitize_config_before_write(&mut config, channel).await?;
-    write_config_toml(channel, &config)
-        .await
-        .map_err(|e| (INTERNAL_ERROR, e))?;
-
-    Ok(json!({ "status": "patched" }))
+    save_config(params, channel, true).await
 }
+
 // ── Hooks Event Bus (#31) ───────────────────────────────────────────────────
 
 fn hooks_config_path(channel: &GatewayChannel) -> std::path::PathBuf {
