@@ -30,7 +30,7 @@ Use `--host 0.0.0.0` to listen on all interfaces.
 ## System configuration and management pages
 
 System configuration (`/config`) starts with a configuration overview, followed by
-Gateway and security, Execution and tools, Sessions and context, Runtime environment,
+Gateway and security, Interface and notifications, Execution and tools, Sessions and context, Runtime environment,
 and Advanced configuration. Search matches field names, translated labels and descriptions.
 The schema comes from the runtime's `ConfigToml` and `GatewayConfig` types, not a
 separate list of hypothetical settings. Unsupported old fields are excluded and
@@ -40,8 +40,11 @@ Models/accounts, agents, channels, skills and scheduled jobs have dedicated mana
 pages and service-owned stores. Channel credentials belong in the Channels page and
 `channels/*.json`; the old `[gateway.channels]` and `[gateway.bridges]` inputs are removed.
 Speech synthesis and talk/wake settings share `/speech`; nodes, live WebSocket clients
-and pairing share `/devices`. `/settings` contains preferences for the current browser;
-server logging controls are on the Logs page. Advanced configuration links to manual RPC
+and pairing share `/devices`. Browser options are grouped within System configuration:
+theme, language and desktop notifications under Interface and notifications, the WebSocket
+address under Gateway and security, and the default model for new chats under Sessions
+and context. There is no separate preferences page or `/settings` route.
+Server logging controls are on the Logs page. Advanced configuration links to manual RPC
 and diagnostics instead of placing another item in the primary navigation.
 
 ```toml
@@ -91,7 +94,13 @@ fallbacks when the saved channel credentials are not present:
 
 Optional settings distinguish inherited defaults from explicit enabled/disabled values. An absent option is not displayed as disabled.
 
-The editor maintains one draft. JSON edits update that draft directly; invalid JSON
+The editor uses one Save configuration action for server and browser drafts.
+Browser options are explicitly marked as affecting only this browser and apply when saved.
+Saving only browser options does not write server configuration or require a gateway restart.
+Discard, reload, search and the change review cover both scopes. Browser options are excluded
+from the advanced server JSON document and its export.
+
+The editor maintains one server draft. JSON edits update that draft directly; invalid JSON
 blocks saving. Discard restores the loaded document. Reload asks before discarding
 unsaved changes. The advanced JSON editor also serves as the import surface: paste
 a complete document, review the changes, and save once. Removing a field in this

@@ -112,6 +112,7 @@ fn diff_values(
     }
 }
 
+mod browser;
 mod editor;
 
 pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {

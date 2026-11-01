@@ -4,6 +4,7 @@ type Errors = Cage<HashMap<String, String>>;
 
 const GROUPS: &[(&str, &str, &[&str])] = &[
     ("gateway", "Gateway and security", &["gateway"]),
+    ("interface", "Interface and notifications", &[]),
     (
         "execution",
         "Execution and tools",
@@ -96,7 +97,7 @@ fn resolve(schema: &Value, root: &Value, current: &Value) -> Value {
     schema
 }
 
-fn matches_search(
+pub(super) fn matches_search(
     key: &str,
     schema: &Value,
     root: &Value,
@@ -126,6 +127,10 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     let locale = ctx.locale;
     let config = query(ctx, "config.get", None);
     let schema = query(ctx, "config.schema", None);
+    let models = query(ctx, "models.list", None).value;
+    let browser_draft = ctx.scope.cage(super::browser::load(locale.get()));
+    let browser_baseline = ctx.scope.cage(browser_draft.get());
+    super::browser::synchronize(ctx, browser_draft, browser_baseline);
     let draft = ctx.scope.cage(json!({}));
     let baseline = ctx.scope.cage(json!({}));
     let revision = ctx.scope.cage(String::new());
@@ -165,7 +170,9 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             initialized.get()
                 && !busy.get()
                 && errors.get().is_empty()
+                && super::browser::validation_error(&browser_draft.get()).is_none()
                 && (draft.get() != baseline.get()
+                    || browser_draft.get() != browser_baseline.get()
                     || source.get()["removed_fields"]
                         .as_array()
                         .is_some_and(|v| !v.is_empty()))
@@ -177,17 +184,22 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             let context_async = context.clone();
             let document = draft.get();
             let expected = revision.get();
+            let server_changed = document != baseline.get()
+                || source.get()["removed_fields"].as_array().is_some_and(|fields| !fields.is_empty());
+            let browser_document = browser_draft.get();
+            let browser_changed = browser_document != browser_baseline.get();
+            let connection_changed = super::browser::connection_changed(&browser_document, &browser_baseline.get());
             ui::set(busy, true);
             ui::set(error, String::new());
             context.spawn(async move {
-                match context_async
+                let result = if server_changed { context_async
                     .rpc
                     .call::<Value>(
                         "config.set",
                         Some(json!({"config":document,"revision":expected})),
                     )
-                    .await
-                {
+                    .await } else { Ok(json!({"config":document,"revision":expected,"restart_required":false})) };
+                match result {
                     Ok(value) => {
                         let saved = value.get("config").cloned().unwrap_or(document);
                         ui::set(source,json!({"config":saved.clone(),"revision":value["revision"].clone(),"removed_fields":[]}));
@@ -197,17 +209,25 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                             revision,
                             value["revision"].as_str().unwrap_or_default().to_owned(),
                         );
-                        ui::set(
-                            message,
-                            ui::translate(
-                                locale.get(),
-                                if value["restart_required"].as_bool().unwrap_or(false) {
-                                    "Configuration saved. Restart the gateway to activate changes."
-                                } else {
-                                    "No configuration changes."
-                                },
-                            ),
-                        );
+                        if browser_changed {
+                            if let Err(message) = super::browser::save(&context_async, &browser_document) {
+                                ui::set(error, ui::translate(locale.get(), &message));
+                                ui::set(busy, false);
+                                return;
+                            }
+                            ui::set(browser_baseline, browser_document);
+                        }
+                        let mut notices = Vec::new();
+                        if value["restart_required"].as_bool().unwrap_or(false) {
+                            notices.push(ui::translate(locale.get(), "Configuration saved. Restart the gateway to activate changes."));
+                        }
+                        if browser_changed {
+                            notices.push(ui::translate(locale.get(), if connection_changed {
+                                "Browser settings saved. Reload the page to connect to the new gateway."
+                            } else { "Browser settings saved." }));
+                        }
+                        if notices.is_empty() { notices.push(ui::translate(locale.get(), "No configuration changes.")); }
+                        ui::set(message, notices.join(" "));
                     }
                     Err(message) => ui::set(error, message),
                 }
@@ -216,7 +236,9 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         });
     let reload = config.clone();
     let refresh = ui::action(ui::label_for(locale, "Reload configuration"), move || {
-        if (draft.get() != baseline.get() || !errors.get().is_empty())
+        if (draft.get() != baseline.get()
+            || browser_draft.get() != browser_baseline.get()
+            || !errors.get().is_empty())
             && !confirmed("Discard unsaved configuration changes?")
         {
             return;
@@ -224,10 +246,14 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         ui::set(initialized, false);
         ui::set(errors, HashMap::new());
         ui::set(message, String::new());
+        let loaded_browser = super::browser::load(locale.get());
+        ui::set(browser_draft, loaded_browser.clone());
+        ui::set(browser_baseline, loaded_browser);
         reload.refresh();
     });
     let revert = ui::action(ui::label_for(locale, "Discard changes"), move || {
         ui::set(draft, baseline.get());
+        ui::set(browser_draft, browser_baseline.get());
         ui::set(errors, HashMap::new());
         ui::set(message, String::new());
     });
@@ -286,16 +312,17 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     let view_context = ctx.clone();
     let schema_value = schema.value;
     let content = each(ctx.scope.bond(move || {
-        vec![(selected.get(), search.get().to_lowercase(), schema_value.get(), locale.get(), initialized.get())]
+        vec![(selected.get(), search.get().to_lowercase(), schema_value.get(), locale.get(), initialized.get(), models.get())]
     }))
-    .key(|(section, search, schema, locale, ready)| {
+    .key(|(section, search, schema, locale, ready, models)| {
         use std::hash::{Hash, Hasher};
         let mut hash = std::hash::DefaultHasher::new();
         schema.to_string().hash(&mut hash);
+        models.to_string().hash(&mut hash);
         format!("{section}-{search}-{}-{}-{ready}",hash.finish(),locale.code())
     })
     .children(move |each_row| {
-        let (section, search, payload, _, ready) = each_row.value.get_untracked();
+        let (section, search, payload, _, ready, models) = each_row.value.get_untracked();
         let root = payload["schema"].clone();
         let context = view_context.clone();
         widget(move |scope| {
@@ -311,14 +338,15 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             } else if section == "overview" && search.is_empty() {
                 overview(&context,source)
             } else {
-                let fields = root["properties"].as_object().into_iter().flat_map(|p|p.iter())
+                let mut fields = super::browser::fields(&context, &section, &search, browser_draft, errors, &models);
+                fields.extend(root["properties"].as_object().into_iter().flat_map(|p|p.iter())
                     .filter(|(key,schema)| {
                         let in_group = GROUPS.iter().filter(|(id,..)| !search.is_empty() || *id == section)
                             .any(|(_,_,fields)| fields.contains(&key.as_str()));
                         in_group && matches_search(key,schema,&root,&search,locale.get())
                     })
                     .map(|(key,schema)|field(&context,draft,vec![key.clone()],schema,&root,errors,0))
-                    .collect::<Vec<_>>();
+                    .collect::<Vec<_>>());
                 if fields.is_empty() {paragraph(ui::label_for(locale,"No matching configuration fields"))}
                 else {Box::new(col().class("config-fields").fill(fields))}
             };
@@ -375,7 +403,7 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                         status(ctx, &schema),
                         text().class("form-help").content(ui::label_for(
                             locale,
-                            "Configuration changes take effect after restarting the gateway.",
+                            "Server configuration takes effect after restarting the gateway. Browser options apply when saved.",
                         )),
                         text().class("form-status").content(message),
                         text()
@@ -383,7 +411,7 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                             .content(ctx.scope.bond(move || {
                                 ui::translate(
                                     locale.get(),
-                                    if draft.get() != baseline.get() {
+                                    if draft.get() != baseline.get() || browser_draft.get() != browser_baseline.get() {
                                         "Unsaved configuration changes"
                                     } else {
                                         "No unsaved changes"
@@ -410,7 +438,11 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                                         .unwrap_or_default()
                                         .into_iter()
                                         .collect();
-                                    compute_deep_diff(&original, &current)
+                                    let mut diff = compute_deep_diff(&original, &current);
+                                    let original_browser = browser_baseline.get().as_object().cloned().unwrap_or_default().into_iter().collect();
+                                    let current_browser = browser_draft.get().as_object().cloned().unwrap_or_default().into_iter().collect();
+                                    diff.extend(compute_deep_diff(&original_browser, &current_browser));
+                                    diff
                                         .iter()
                                         .map(|e| format!("{:?}: {}", e.kind, e.path))
                                         .collect::<Vec<_>>()
@@ -442,7 +474,6 @@ fn overview(ctx: &AppContext, source: Cage<Value>) -> Box<dyn Widget> {
                         ("Skills", "/skills"),
                         ("Cron Jobs", "/cron"),
                         ("Speech", "/speech"),
-                        ("Personal preferences", "/settings"),
                     ]
                     .into_iter()
                     .map(|(label, path)| nav(ctx, label, path))
@@ -590,9 +621,15 @@ pub(super) fn field(
             .map(|(i, v)| {
                 sapid::select_option(
                     format!("option-{i}"),
-                    v.as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| v.to_string()),
+                    ui::translate(
+                        ctx.locale.get(),
+                        &v.as_str()
+                            .and_then(|key| schema["x-enum-labels"].get(key))
+                            .and_then(Value::as_str)
+                            .or_else(|| v.as_str())
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| v.to_string()),
+                    ),
                 )
                 .value(v.to_string())
             })

@@ -15,7 +15,6 @@ pub const NAVIGATION: &[(&str, &str)] = &[
     ("/devices", "nav.devices"),
     ("/config/advanced", "nav.advanced"),
     ("/config/diagnostics", "nav.debug"),
-    ("/settings", "nav.settings"),
 ];
 
 pub fn current_path() -> String {

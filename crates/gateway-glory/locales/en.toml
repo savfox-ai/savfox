@@ -39,7 +39,6 @@ navigation = "Navigation"
 connect_provider = "Connect Provider"
 command_palette = "Command Palette"
 skip_to_content = "Skip to main content"
-settings = "Personal preferences"
 
 
 observe = "Observability"

@@ -39,7 +39,6 @@ navigation = "导航"
 connect_provider = "接入提供商"
 command_palette = "命令面板"
 skip_to_content = "跳转到主要内容"
-settings = "个人偏好"
 
 
 observe = "运行监控"

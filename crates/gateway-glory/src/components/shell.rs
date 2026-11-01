@@ -40,7 +40,6 @@ const GROUPS: &[NavGroup] = &[
             ("/config", "nav.config", "settings"),
             ("/devices", "nav.devices", "network"),
             ("/approvals", "nav.approvals", "shield"),
-            ("/settings", "nav.settings", "settings"),
         ],
     ),
 ];

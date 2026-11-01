@@ -13,7 +13,6 @@ pub mod logs;
 pub mod models;
 pub mod nodes;
 pub mod overview;
-pub mod settings;
 pub mod skills;
 pub mod tts;
 pub mod usage;
@@ -39,7 +38,6 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         p if p == "/speech" || p.starts_with("/speech/") => hubs::speech(ctx, path),
         "/approvals" => approvals::render(ctx),
         "/logs" => logs::render(ctx),
-        "/settings" => settings::render(ctx),
         "/skills" => skills::render(ctx),
         "/usage" => usage::render(ctx),
         _ => crate::ui::page(
@@ -81,7 +79,8 @@ mod tests {
             "/devices/pair",
             "/devices/connections",
             "/logs",
-            "/settings",
+            "/config/interface",
+            "/config/context",
             "/skills",
             "/speech",
             "/usage",

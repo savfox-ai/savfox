@@ -6,15 +6,28 @@ pub fn translate(locale: Locale, source: &str) -> String {
     }
     match source {
         "Use default" => "使用默认值".into(),
+        "Interface and notifications" => "界面与通知".into(),
+        "Use global default model" => "使用全局默认模型".into(),
+        "These options affect only this browser and take effect when saved." => {
+            "这些选项仅影响当前浏览器，保存后生效。".into()
+        }
+        "Server configuration takes effect after restarting the gateway. Browser options apply when saved." => {
+            "服务器配置在重启网关后生效；浏览器选项保存后生效。".into()
+        }
+        "Browser settings saved." => "浏览器选项已保存。".into(),
+        "Browser settings saved. Reload the page to connect to the new gateway." => {
+            "浏览器选项已保存，重新加载页面以连接新的网关。".into()
+        }
+        "Browser storage is unavailable. Settings were not saved." => {
+            "浏览器存储不可用，选项未保存。".into()
+        }
+        "Browser settings could not be saved." => "无法保存浏览器选项。".into(),
         "Diagnostics and manual RPC" => "诊断与手动 RPC".into(),
         "Search results" => "搜索结果".into(),
         "Resource management" => "管理功能".into(),
         "Configuration document" => "配置文档".into(),
         "Gateway URL must start with ws:// or wss://" => {
             "网关地址必须以 ws:// 或 wss:// 开头".into()
-        }
-        "Preferences saved. Reload the page to reconnect to the new gateway." => {
-            "偏好已保存，重新加载页面以连接新的网关。".into()
         }
 
         "System configuration" => "系统配置".into(),
@@ -37,9 +50,6 @@ pub fn translate(locale: Locale, source: &str) -> String {
         "Configuration saved. Restart the gateway to activate changes." => {
             "配置已保存，重启网关后生效。".into()
         }
-        "Configuration changes take effect after restarting the gateway." => {
-            "系统配置修改在重启网关后生效。".into()
-        }
         "Obsolete fields will be removed when saving" => "保存时将删除以下旧字段".into(),
         "Global runtime policies live here. Use the dedicated management pages for accounts, agents, channels, skills and scheduled jobs." => {
             "这里管理全局运行策略。账号、智能体、渠道、技能和定时任务请在对应页面管理。".into()
@@ -48,12 +58,8 @@ pub fn translate(locale: Locale, source: &str) -> String {
             "直接编辑系统配置文档。账号、渠道、语音和定时任务由各自页面管理；此文档不包含完整备份。"
                 .into()
         }
-        "Preferences for this browser. Server policies are managed in System configuration." => {
-            "仅影响当前浏览器。服务器运行策略请前往系统配置。".into()
-        }
         "Default model for new chats (this browser)" => "新会话默认模型（当前浏览器）".into(),
         "Models and accounts" => "模型与账号".into(),
-        "Personal preferences" => "个人偏好".into(),
         "Speech" => "语音".into(),
         "Speech synthesis" => "语音合成".into(),
         "Talk and wake word" => "对话与唤醒".into(),
@@ -160,9 +166,6 @@ pub fn translate(locale: Locale, source: &str) -> String {
         }
         "Schema-guided editing with a change preview before saving" => {
             "根据配置结构编辑，保存前检查变更".to_owned()
-        }
-        "Appearance, language, defaults and local connection settings" => {
-            "外观、语言、默认选项与连接设置".to_owned()
         }
         "Connect provider" => "接入服务商".to_owned(),
         "Search models" => "搜索模型".to_owned(),
@@ -311,12 +314,10 @@ pub fn translate(locale: Locale, source: &str) -> String {
         "Language" => "语言".to_owned(),
         "English" => "English".to_owned(),
         "Desktop notifications" => "桌面通知".to_owned(),
-        "Connection and defaults" => "连接与默认选项".to_owned(),
         "Gateway WebSocket URL (empty uses this host)" => {
             "网关 WebSocket 地址（留空使用当前站点）".to_owned()
         }
         "Default model" => "默认模型".to_owned(),
-        "Save preferences" => "保存偏好设置".to_owned(),
         "Logging" => "日志设置".to_owned(),
         "Log level" => "日志级别".to_owned(),
         "Custom RUST_LOG filter" => "自定义 RUST_LOG 过滤器".to_owned(),
