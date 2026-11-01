@@ -5,14 +5,14 @@ const https = require('node:https');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { configuredBuildRoot } = require('./ui-sources.cjs');
+const { cargoTargetDirectory } = require('./cargo-target.cjs');
 
 const root = path.resolve(__dirname, '..');
 const port = Number(process.argv[2] || '18080');
 const backend = new URL(process.env.SAVFOX_DEV_BACKEND || 'http://127.0.0.1:18881');
 if (!['http:', 'https:'].includes(backend.protocol)) throw new Error('SAVFOX_DEV_BACKEND must use http:// or https://');
 const transport = backend.protocol === 'https:' ? https : http;
-const buildRoot = configuredBuildRoot(process.env) || (process.platform === 'win32' ? 'D:/BuildCache/savfox-glory' : '/mnt/d/BuildCache/savfox-glory');
+const buildRoot = path.join(cargoTargetDirectory(root), 'web-build');
 const output = path.join(buildRoot, 'web/debug');
 const clients = new Set();
 const sockets = new Set();

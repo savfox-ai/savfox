@@ -54,8 +54,7 @@ Build the web frontend and start the gateway server with [just](https://github.c
 The Glory + Sapid frontend uses upstream Git `main` dependencies pinned in
 `Cargo.lock`; shared local checkouts are not required. Install Node.js, the Rust WASM target
 and wasm-bindgen CLI matching `Cargo.lock`; see the
-[web build guide](docs/en/gateway/web-build-release.md). Local build output and
-caches live in `D:/BuildCache/savfox-glory`.
+[web build guide](docs/en/gateway/web-build-release.md). Build output is resolved through Cargo metadata, and the scripts inherit the calling environment.
 
 ```bash
 # Build frontend + start gateway (debug, default port 18881)

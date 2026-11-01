@@ -8,7 +8,7 @@ const test = require('node:test');
 const root = path.resolve(__dirname, '..');
 const bash = process.env.SAVFOX_TEST_BASH || (process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash');
 const source = fs.readFileSync(path.join(root, 'install.sh'), 'utf8').replace(/^\uFEFF/, '').replaceAll('\r', '');
-const tempRoot = process.platform === 'win32' ? 'D:/BuildCache/savfox-quality-fixes/tmp' : os.tmpdir();
+const tempRoot = os.tmpdir();
 fs.mkdirSync(tempRoot, { recursive: true });
 const sourceDir = fs.mkdtempSync(path.join(tempRoot, 'savfox-installer-source-'));
 const sourcePath = path.join(sourceDir, 'install.sh');

@@ -18,10 +18,7 @@ patch 将它统一到同一份 Glory Git 依赖，无本地路径回退。
 `wasm-bindgen` 版本一致的 `wasm-bindgen-cli`。可通过 `WASM_BINDGEN` 环境变量
 或 `-Bindgen <路径>` 指定 CLI，构建脚本会校验版本。
 
-Windows 编译产物、Cargo 下载缓存、临时文件、指纹和前端 bundle 都使用
-`D:/BuildCache`。WSL 必须使用已确认挂载到 D 盘的 `/mnt/d`。
-脚本在编译前通过 `cargo metadata --no-deps --format-version 1` 核对实际 target
-目录。远端 CI 使用 runner 存储。脚本不会启动 Docker。
+构建继承调用环境中的 Cargo 和临时目录设置，通过 cargo metadata 获取实际 target 目录。前端产物和指纹写入该目录下的 web-build 子目录。脚本不会启动 Docker。
 
 ## 本地流程
 
@@ -44,7 +41,7 @@ just gateway-release
 带 `--locked` 的 Cargo 和 wasm-bindgen，从 `cargo metadata` 实际解析的 Git
 依赖中复制对应 Sapid CSS 与应用资源，
 将完整 bundle 同步到 `crates/gateway-server/static`。
-中间产物位于 `D:/BuildCache/savfox-glory/web/<profile>`。
+中间产物位于 `<cargo-target>/web-build/web/<profile>`。
 `-SkipCopy` 仅构建中间 bundle；`-Force` 强制构建与同步。
 内容指纹覆盖应用、翻译、共享模型、锁文件、Glory、Sapid、样式和构建工具。
 构建失败时不会替换 gateway 已有静态 bundle。
@@ -102,7 +99,7 @@ Glory 的浏览器测试目录。CI 独立执行此验收。
 脚本读取本地 gateway token，不输出密钥，只导航和读取页面。可通过
 `SAVFOX_VISUAL_BASE`、`SAVFOX_VISUAL_TOKEN_FILE`、`SAVFOX_VISUAL_REFERENCE`
 指定地址、token 文件和旧版截图目录。截图与 HTML 对照报告输出到
-`D:/BuildCache/savfox-glory/visual-review`。检查覆盖 25 个路由，包含新建页面及服务商、
+`artifacts/web-visual`。检查覆盖 25 个路由，包含新建页面及服务商、
 渠道配置表单，验证桌面/手机、深浅主题、标签与帮助文字对比度、图标、表单裁切、
 密码框与按钮对齐、会话列表独立滚动、输入框边界及不刷新切换窗口尺寸。长页面还会
 检查滚动至中部与底部的显示；依赖真实记录但当前没有数据的检查会在报告中标记为跳过。
@@ -115,8 +112,7 @@ Docker 使用同一锁定 Git 依赖，并从 Cargo 包复制 Sapid CSS，无需
 docker buildx build -t savfox .
 ```
 
-本地执行前必须核实 builder 的实际数据存储位于 D 盘或远端；现有 Docker
-Desktop 的 C 盘虚拟磁盘不满足要求。CI 在远端 runner 上构建。
+Docker 使用当前引擎的存储配置，前端构建不重定向 Docker 存储。CI 在远端 runner 上构建。
 
 
 可组合 `SAVFOX_VISUAL_ROUTES=sessions` 与

@@ -37,45 +37,7 @@ function resolvedUiSources(metadata, lockfile) {
 }
 
 
-// Same opt-in name as Glory's official project CLI. Defaults remain owned by
-// each caller, including the existing remote-CI output layout.
-function configuredBuildRoot(env = process.env, options = {}) {
-  if (!Object.hasOwn(env, 'GLORY_BUILD_ROOT')) return null;
-  const raw = env.GLORY_BUILD_ROOT;
-  if (typeof raw !== 'string' || !raw || raw.trim() !== raw || raw.replaceAll('\\', '/').split('/').includes('..')) {
-    throw new Error('GLORY_BUILD_ROOT must be a nonempty absolute approved path without parent traversal');
-  }
-  const platform = options.platform || process.platform;
-  const io = options.fs || fs;
-  const spawn = options.spawnSync || require('node:child_process').spawnSync;
-  const paths = platform === 'win32' ? path.win32 : path.posix;
-  const portable = value => value.replaceAll('\\', '/').replace(/^\/\/\?\//, '').toLowerCase();
-  const approved = value => platform === 'win32'
-    ? portable(value).startsWith('d:/buildcache/')
-    : portable(value).startsWith('/mnt/d/buildcache/');
-  if (!paths.isAbsolute(raw) || !approved(raw)) throw new Error('GLORY_BUILD_ROOT must stay under D:/BuildCache or verified /mnt/d/BuildCache');
-  if (platform !== 'win32') {
-    const mount = spawn('findmnt', ['-no', 'SOURCE,FSTYPE,OPTIONS', '-T', '/mnt/d'], { encoding: 'utf8' });
-    if (mount.error || mount.status !== 0 || !/(?:^|\s|=)D:(?:[\\/]|\s|$)/i.test(mount.stdout || '')) {
-      throw new Error('GLORY_BUILD_ROOT requires a verified Windows D: mount');
-    }
-  }
-  const selected = paths.normalize(raw);
-  let ancestor = selected;
-  while (!io.existsSync(ancestor)) {
-    const parent = paths.dirname(ancestor);
-    if (parent === ancestor) throw new Error('GLORY_BUILD_ROOT has no existing ancestor');
-    ancestor = parent;
-  }
-  const resolved = io.realpathSync(ancestor);
-  // Validate the destination before creating any directory; a D:-named
-  // junction whose real target is C: (or another unapproved root) is refused.
-  const realRoot = paths.resolve(resolved, paths.relative(ancestor, selected));
-  if (!approved(realRoot)) throw new Error('GLORY_BUILD_ROOT resolves outside the approved D: cache root');
-  return platform === 'win32' ? realRoot.replace(/^\\\\\?\\/, '') : realRoot;
-}
-
-module.exports = { lockedUiSources, resolvedUiSources, configuredBuildRoot };
+module.exports = { lockedUiSources, resolvedUiSources };
 
 if (require.main === module) {
   const root = path.resolve(__dirname, '..');

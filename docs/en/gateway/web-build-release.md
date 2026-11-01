@@ -21,10 +21,7 @@ Install the Rust `wasm32-unknown-unknown` target and a `wasm-bindgen-cli` versio
 matching the `wasm-bindgen` entry in `Cargo.lock`. Set `WASM_BINDGEN` or pass
 `-Bindgen <path>` to select a CLI. The build validates the version before bundling.
 
-Windows compilation, Cargo downloads, temporary files, stamps and frontend
-bundles use `D:/BuildCache`. WSL uses a verified `/mnt/d` mount. The script checks
-`cargo metadata --no-deps --format-version 1` against `CARGO_TARGET_DIR` before
-compilation. Remote CI uses runner storage. It does not start Docker.
+Builds inherit Cargo and temporary-file settings. The script asks cargo metadata for the actual target directory before compilation. Generated bundles and stamps stay under its web-build subdirectory. It does not start Docker.
 
 ## Local workflows
 
@@ -48,7 +45,7 @@ available.
 It runs Cargo with `--locked` and wasm-bindgen, copies Sapid CSS from the exact
 Git package selected by `cargo metadata` and copies application
 assets, and publishes a complete bundle to `crates/gateway-server/static`. The
-intermediate bundle is in `D:/BuildCache/savfox-glory/web/<profile>`. `-SkipCopy`
+intermediate bundle is in `<cargo-target>/web-build/web/<profile>`. `-SkipCopy`
 builds only that bundle; `-Force` rebuilds and resyncs it. Content fingerprints
 include the application, locales, shared types, workspace lockfile, Glory, Sapid,
 stylesheet and build tooling. A failed build never replaces the gateway bundle.
@@ -118,7 +115,7 @@ Visual acceptance also runs against a real, already running gateway with
 `node scripts/check-web-visual.cjs`. It reads the local gateway token without
 printing it and only navigates/read-loads pages. Set `SAVFOX_VISUAL_BASE`,
 `SAVFOX_VISUAL_TOKEN_FILE`, and `SAVFOX_VISUAL_REFERENCE` when needed. Screenshots
-and an HTML comparison report are written to `D:/BuildCache/savfox-glory/visual-review`.
+and an HTML comparison report are written to `artifacts/web-visual`.
 The audit covers 25 routes, including creation and provider/channel configuration
 forms, at desktop/mobile sizes in both themes. It checks label/help contrast,
 visible icons, form clipping, password control alignment, independent session
@@ -136,9 +133,7 @@ Cargo package. No additional source contexts are required:
 docker buildx build -t savfox .
 ```
 
-Before running this locally, verify the Docker builder actually stores data on
-D: or a remote host. Docker Desktop's existing C: virtual disk does not satisfy
-that rule. CI builds Docker on remote runners.
+Docker uses the configured engine storage. The frontend build does not redirect Docker storage. CI builds Docker on remote runners.
 
 
 Use `SAVFOX_VISUAL_VIEWPORTS=1440x900,1120x900,800x560,390x560` with

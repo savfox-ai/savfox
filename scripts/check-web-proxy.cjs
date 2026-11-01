@@ -7,9 +7,10 @@ const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
+const { cargoTargetDirectory } = require('./cargo-target.cjs');
 
 const root = path.resolve(__dirname, '..');
-const cache = process.platform === 'win32' ? 'D:/BuildCache/savfox-glory' : '/mnt/d/BuildCache/savfox-glory';
+const cache = path.join(cargoTargetDirectory(root), 'web-build');
 const output = path.join(cache, 'web/debug');
 const evidence = path.join(cache, 'proxy-check');
 const authorization = 'Bearer local-proxy-test-token';

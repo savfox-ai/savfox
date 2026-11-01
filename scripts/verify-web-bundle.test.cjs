@@ -6,7 +6,7 @@ const test = require('node:test');
 const { requiredFiles, verifyWebBundle } = require('./verify-web-bundle.cjs');
 
 function fixture(callback) {
-  const parent = process.platform === 'win32' ? 'D:/BuildCache/savfox-quality-fixes/tmp' : os.tmpdir();
+  const parent = os.tmpdir();
   fs.mkdirSync(parent, { recursive: true });
   const dir = fs.mkdtempSync(path.join(parent, 'savfox-web-bundle-'));
   try {
