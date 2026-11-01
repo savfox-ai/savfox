@@ -50,24 +50,6 @@ pub(crate) async fn get_pool(savfox_home: &Path) -> Result<SqlitePool, String> {
     Ok(pool)
 }
 
-#[cfg(test)]
-mod path_tests {
-    use super::*;
-    #[tokio::test]
-    async fn cache_filename_is_a_native_path_including_spaces_and_uri_characters() {
-        let home = tempfile::tempdir().unwrap();
-        let path = home.path().join("cache # 设置");
-        let pool = get_pool(&path).await.unwrap();
-        assert!(
-            path.join(GATEWAY_SUBDIR)
-                .join("cached_data.sqlite")
-                .is_file()
-        );
-        assert_eq!(get_current_version(&pool).await.unwrap(), SCHEMA_VERSION);
-        pool.close().await;
-    }
-}
-
 /// Read the current schema version from the database (0 if table doesn't exist).
 async fn get_current_version(pool: &SqlitePool) -> Result<u32, String> {
     // Ensure version table exists.
@@ -168,4 +150,22 @@ async fn migration_v1(pool: &SqlitePool) -> Result<(), String> {
     .map_err(|e| format!("create skill_env table: {e}"))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+    #[tokio::test]
+    async fn cache_filename_is_a_native_path_including_spaces_and_uri_characters() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("cache # 设置");
+        let pool = get_pool(&path).await.unwrap();
+        assert!(
+            path.join(GATEWAY_SUBDIR)
+                .join("cached_data.sqlite")
+                .is_file()
+        );
+        assert_eq!(get_current_version(&pool).await.unwrap(), SCHEMA_VERSION);
+        pool.close().await;
+    }
 }

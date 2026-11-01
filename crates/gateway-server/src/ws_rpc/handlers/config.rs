@@ -310,87 +310,6 @@ fn remove_nulls(value: &mut Value) {
     }
 }
 
-#[cfg(test)]
-mod save_tests {
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-    use crate::channel::GatewayBridgeArgs;
-    use crate::session::{GatewaySessionManager, SessionStore};
-
-    #[tokio::test]
-    async fn save_validates_revision_replaces_deletions_and_backs_up_previous_document() {
-        let home = tempfile::tempdir().unwrap();
-        for root in [home.path().to_path_buf(), home.path().join("skills")] {
-            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
-        }
-        let config = savfox_core::config::ConfigBuilder::default()
-            .savfox_home(home.path().to_owned())
-            .build()
-            .await
-            .unwrap();
-        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
-            config: Arc::new(config),
-            session_store: Arc::new(SessionStore::from_home(home.path())),
-            cli_overrides: vec![],
-            cloud_requirements: Default::default(),
-            websocket_manager: GatewaySessionManager::new(),
-            channel_registry: crate::channels::create_channel_registry(),
-            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
-            ),
-            channel_recovery_supervisors:
-                crate::channels::recovery::create_channel_recovery_supervisors(),
-        }));
-        let original = "model_context_window = 32000\n[auth.cooldowns]\nbilling_max_hours = 1\n[gateway]\nport = 18881\n";
-        std::fs::write(home.path().join("config.toml"), original).unwrap();
-        let loaded = handle_config_get(&channel).await.unwrap();
-        assert_eq!(loaded["removed_fields"], json!(["auth"]));
-        let revision = loaded["revision"].clone();
-        let document = json!({"gateway":{"port":18882}});
-        let saved = save_config(
-            &json!({"config":document,"revision":revision}),
-            &channel,
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(saved["restart_required"], true);
-        assert_eq!(
-            std::fs::read_to_string(home.path().join("config.toml.bak")).unwrap(),
-            original
-        );
-        assert_eq!(load_config_value_or_empty(&channel).await, document);
-        assert!(
-            save_config(
-                &json!({"config":{"gateway":{"port":18883}},"revision":revision}),
-                &channel,
-                false
-            )
-            .await
-            .is_err()
-        );
-        assert!(
-            save_config(&json!({"config":{"auth":{}}}), &channel, false)
-                .await
-                .is_err()
-        );
-        assert_eq!(load_config_value_or_empty(&channel).await, document);
-        assert_eq!(
-            std::fs::read_to_string(home.path().join("config.toml.bak")).unwrap(),
-            original
-        );
-        let unchanged = save_config(
-            &json!({"config":document,"revision":saved["revision"]}),
-            &channel,
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(unchanged["status"], "unchanged");
-        assert_eq!(unchanged["restart_required"], false);
-    }
-}
-
 pub(crate) async fn handle_config_set(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
     save_config(params, channel, false).await
 }
@@ -659,4 +578,85 @@ pub(crate) async fn handle_config_convert(params: &Value, channel: &GatewayChann
         "to_format": to_format,
         "content": output,
     }))
+}
+
+#[cfg(test)]
+mod save_tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+    use crate::channel::GatewayBridgeArgs;
+    use crate::session::{GatewaySessionManager, SessionStore};
+
+    #[tokio::test]
+    async fn save_validates_revision_replaces_deletions_and_backs_up_previous_document() {
+        let home = tempfile::tempdir().unwrap();
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let config = savfox_core::config::ConfigBuilder::default()
+            .savfox_home(home.path().to_owned())
+            .build()
+            .await
+            .unwrap();
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: Arc::new(SessionStore::from_home(home.path())),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            websocket_manager: GatewaySessionManager::new(),
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let original = "model_context_window = 32000\n[auth.cooldowns]\nbilling_max_hours = 1\n[gateway]\nport = 18881\n";
+        std::fs::write(home.path().join("config.toml"), original).unwrap();
+        let loaded = handle_config_get(&channel).await.unwrap();
+        assert_eq!(loaded["removed_fields"], json!(["auth"]));
+        let revision = loaded["revision"].clone();
+        let document = json!({"gateway":{"port":18882}});
+        let saved = save_config(
+            &json!({"config":document,"revision":revision}),
+            &channel,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved["restart_required"], true);
+        assert_eq!(
+            std::fs::read_to_string(home.path().join("config.toml.bak")).unwrap(),
+            original
+        );
+        assert_eq!(load_config_value_or_empty(&channel).await, document);
+        assert!(
+            save_config(
+                &json!({"config":{"gateway":{"port":18883}},"revision":revision}),
+                &channel,
+                false
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            save_config(&json!({"config":{"auth":{}}}), &channel, false)
+                .await
+                .is_err()
+        );
+        assert_eq!(load_config_value_or_empty(&channel).await, document);
+        assert_eq!(
+            std::fs::read_to_string(home.path().join("config.toml.bak")).unwrap(),
+            original
+        );
+        let unchanged = save_config(
+            &json!({"config":document,"revision":saved["revision"]}),
+            &channel,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(unchanged["status"], "unchanged");
+        assert_eq!(unchanged["restart_required"], false);
+    }
 }
