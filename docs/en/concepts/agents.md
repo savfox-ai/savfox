@@ -310,6 +310,23 @@ completion messages; read can return the transcript since a sequence number or
 wait for text with a timeout. Mutating PTY methods require Admin scope, while
 `read` and `list` require Read scope.
 
+The session Options panel shows terminal controls only after a session exists
+and its agent has `managed_pty` mode or an explicit `interactive_command`.
+Opening the panel checks for an existing process without starting one. Start
+the terminal explicitly, then send input to that configured process, inspect
+the incrementally updated text transcript, interrupt it, or close it. Closing
+the options panel stops output polling and leaves the process running. Native
+agents and protocol adapters without an interactive command show an explanation
+instead of a command input.
+
+Reasoning display has three labeled choices: Hidden, After reply, and Live.
+This controls returned reasoning in the conversation; the composer separately
+sets reasoning effort. Session context queries display their own results.
+Arkret checkpoint publishing is available only on task-delivery-bound sessions:
+write a public summary, inspect the rendered preview, then confirm publication.
+Editing the summary invalidates its preview, and publishing requires a fresh
+preview before another publication.
+
 The Codex preset uses `app_server` mode and runs `codex app-server --listen
 stdio://`. Install Codex and authenticate it before using this runtime. The
 gateway performs the initialization handshake, starts a thread, streams agent

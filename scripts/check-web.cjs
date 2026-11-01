@@ -29,6 +29,13 @@ async function waitForCall(predicate) {
 let agentName = 'Browser agent';
 let signInComplete = false;
 const agent = () => ({ id: 'browser-agent', name: agentName, kind: 'native', native: { provider: 'openai', model: 'test-model' } });
+const terminalAgent = { id: 'terminal-agent', name: 'Fixture terminal', kind: 'terminal', terminal: { mode: 'managed_pty', command: 'fixture-shell' } };
+const arkretDelivery = { bindingId: 'fixture-binding', mode: 'task_delivery', state: 'active', conversation: { channelConfigId: 'fixture-channel', accountId: 'fixture-account', realmId: 'fixture-realm', strandId: 'fixture-strand' }, sourceSenderDid: 'did:fixture:source', agentSenderDid: 'did:fixture:agent', pendingOutbox: 0, publishedCheckpoints: 0, hydratedEvents: 0, hydrationTruncated: false };
+let terminalRunning = false;
+let terminalFailNextWrite = false;
+let terminalEntries = [];
+const terminalMetadata = () => ({ key: { agent_id: 'terminal-agent', session_id: 'terminal-session' }, completion: terminalRunning ? 'running' : 'explicit_close', command: 'fixture-shell' });
+const terminalAppend = text => terminalEntries.push({ sequence: terminalEntries.length + 1, text, stream: 'stdout' });
 const redactedChannelSecret = '__SAVFOX_CHANNEL_SECRET_REDACTED__';
 const channel = { id: 'discord-test', kind: 'discord', name: 'Browser Discord', enabled: true, config: { bot_token: redactedChannelSecret, mode: 'stream' } };
 let channelRunning = true;
@@ -38,7 +45,7 @@ const model = { id: 'openai/test-model', name: 'Test model', provider: 'openai',
 function fixture(method, params) {
   switch (method) {
     case 'status': return { version: 'test', uptime_ms: 1000, connected_clients: 1 };
-    case 'agents.list': return { agents: [agent()] };
+    case 'agents.list': return { agents: [agent(), terminalAgent] };
     case 'agents.get': return agent();
     case 'agents.create': agentName = params.name; return { id: params.id };
     case 'agents.update': agentName = params.name || agentName; return { ok: true };
@@ -49,11 +56,27 @@ function fixture(method, params) {
     case 'account/login/start': signInComplete = false; return params.type === 'apiKey' ? { type: 'apiKey' } : { loginId: 'fixture-login', authUrl: 'https://example.test/sign-in', verificationUrl: 'https://example.test/device', userCode: 'TEST-CODE' };
     case 'account/read': return { account: signInComplete ? { type: 'chatgpt', email: 'browser@example.test', planType: 'test' } : null };
     case 'account/login/cancel': return { cancelled: true };
-    case 'sessions.list': return { entries: [{ session_id: 'browser-session', label: 'Browser conversation', agent_id: 'default', message_count: 1 }] };
+    case 'sessions.list': return { entries: [{ session_id: 'browser-session', label: 'Browser conversation', agent_id: 'browser-agent', message_count: 1 }, { session_id: 'terminal-session', label: 'Terminal conversation', agent_id: 'terminal-agent', message_count: 1 }, { session_id: 'delivery-session', label: 'Delivery conversation', agent_id: 'browser-agent', arkret_delivery: arkretDelivery, message_count: 1 }] };
     case 'sessions.patch': return { session_id: params.session_id || 'browser-new-session' };
     case 'chat.history': return { messages: [{ role: 'user', content: 'Earlier message', attachments: [{ filename: 'fixture-preview.png', mime_type: 'image/png', data_base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFtwAAAAASUVORK5CYII=' }] }, { role: 'assistant', content: 'History restored\n\n**Fixture strong**\n\n- Fixture list item\n\n```js\nconst answer = 42;\n```' }] };
     case 'sessions.ambient.get': return { session_id: params.session_id, messages: [] };
-    case 'sessions.idle_reply.get': return { enabled: false };
+    case 'sessions.idle_reply.get': return { pending: null, recent_sent_count: 0 };
+    case 'sessions.arkret.delivery.preview': return { rendered: `Reviewed checkpoint: ${params.summary}`, senderDid: 'did:fixture:agent', previousRendered: null };
+    case 'sessions.arkret.delivery.publish': return { remoteEventId: 'fixture-published-event' };
+    case 'agent.terminal.pty.list': return { sessions: terminalRunning ? [terminalMetadata()] : [] };
+    case 'agent.terminal.pty.start':
+      assert.equal(params.agent, 'terminal-agent'); assert.equal(params.session_id, 'terminal-session');
+      terminalRunning = true; terminalEntries = []; terminalAppend('Fixture terminal ready\n');
+      return { started: true, metadata: terminalMetadata(), transcript: terminalEntries };
+    case 'agent.terminal.pty.read':
+      assert(terminalRunning, 'Cannot read a terminal before it starts');
+      return { metadata: terminalMetadata(), entries: terminalEntries.filter(entry => entry.sequence > (params.since_sequence || 0)) };
+    case 'agent.terminal.pty.write':
+      assert(terminalRunning, 'Cannot write a terminal before it starts');
+      assert.equal(params.agent, 'terminal-agent'); assert.equal(params.session_id, 'terminal-session');
+      terminalAppend(params.kind === 'interrupt' ? 'Interrupted\n' : `Executed: ${params.text}\n`);
+      return { written: true, metadata: terminalMetadata() };
+    case 'agent.terminal.pty.close': terminalRunning = false; return { closed: true, metadata: terminalMetadata() };
     case 'channels.config.list': return [channel];
     case 'channels.config.get': return { config: params.channel === channel.id || params.channel === channel.kind ? channel : null };
     case 'channels.status': {
@@ -153,6 +176,11 @@ const server = http.createServer((request, response) => {
         }
         if (!frame.method) return;
         calls.push({ method: frame.method, params: frame.params });
+        if (frame.method === 'agent.terminal.pty.write' && terminalFailNextWrite) {
+          terminalFailNextWrite = false;
+          socket.send(JSON.stringify({ jsonrpc: '2.0', id: frame.id, error: { code: -32603, message: 'Fixture terminal write failed' } }));
+          return;
+        }
         socket.send(JSON.stringify({ jsonrpc: '2.0', id: frame.id, result: fixture(frame.method, frame.params || {}) }));
       });
       socket.send(JSON.stringify({ type: 'connectChallenge', nonce: 'browser-challenge' }));
@@ -169,7 +197,79 @@ const server = http.createServer((request, response) => {
     await page.getByRole('link', { name: 'Agents', exact: true }).click();
     await page.locator('.page-title').filter({ hasText: 'Agents' }).waitFor();
     assert.equal(await page.evaluate(() => window.__savfoxBrowserSentinel), 'same-document');
-    report.checks.push('sidebar navigation preserves the live app and WebSocket');
+    const navigationConnections = connections;
+    const navigationDocuments = [];
+    const recordNavigationDocument = request => {
+      if (request.resourceType() === 'document') navigationDocuments.push(request.url());
+    };
+    page.on('request', recordNavigationDocument);
+    // Click the link at its actual text/icon coordinates. A centered click can
+    // miss both children and conceal a native document navigation regression.
+    async function clickNavigationPart(selector, part, options = {}) {
+      const link = page.locator(selector);
+      await link.scrollIntoViewIfNeeded();
+      const linkBox = await link.boundingBox();
+      const partBox = await link.locator(part).boundingBox();
+      assert(linkBox && partBox, `Missing navigation target ${selector} ${part}`);
+      await link.click({
+        position: { x: partBox.x - linkBox.x + partBox.width / 2, y: partBox.y - linkBox.y + partBox.height / 2 },
+        ...options,
+      });
+    }
+    async function assertLiveNavigation(route) {
+      await page.waitForURL(base + route);
+      await page.locator('.page-title').first().waitFor();
+      assert.equal(await page.evaluate(() => window.__savfoxBrowserSentinel), 'same-document', `Reload navigating to ${route}`);
+      assert.equal(connections, navigationConnections, `WebSocket reconnected navigating to ${route}`);
+      assert.deepEqual(navigationDocuments, [], 'Internal links must not request a new document');
+    }
+    for (const header of await page.locator('.sidebar-nav .nav-group-header').all()) {
+      if (await header.getAttribute('aria-expanded') === 'false') await header.click();
+    }
+    const navigationRoutes = await page.locator('.sidebar-nav a').evaluateAll(links => links.map(link => link.getAttribute('href')));
+    for (const route of navigationRoutes) {
+      for (const part of ['.nav-label', '.shell-icon']) {
+        await clickNavigationPart(`.sidebar-nav a[href="${route}"]`, part);
+        await assertLiveNavigation(route);
+      }
+    }
+    await clickNavigationPart('.sidebar-nav a[href="/instances"]', '.nav-label');
+    await assertLiveNavigation('/instances');
+    await clickNavigationPart('.sidebar-nav a[href="/logs"]', '.shell-icon');
+    await assertLiveNavigation('/logs');
+    await page.goBack();
+    await assertLiveNavigation('/instances');
+    await page.goForward();
+    await assertLiveNavigation('/logs');
+    await page.locator('.sidebar-nav a[href="/instances"]').focus();
+    await page.keyboard.press('Enter');
+    await assertLiveNavigation('/instances');
+    for (const part of ['.nav-label', '.shell-icon']) {
+      const popupOpened = page.context().waitForEvent('page');
+      await clickNavigationPart('.sidebar-nav a[href="/logs"]', part, { modifiers: ['Control'] });
+      const popup = await popupOpened;
+      await popup.waitForURL(base + '/logs');
+      assert.equal(new URL(popup.url()).pathname, '/logs');
+      await popup.close();
+      await assertLiveNavigation('/instances');
+    }
+    await page.locator('.hamburger-btn').click();
+    await clickNavigationPart('.sidebar-rail a[href="/logs"]', '.shell-icon');
+    await assertLiveNavigation('/logs');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await clickNavigationPart('.bottom-tab-bar a[href="/sessions"]', '.nav-label');
+    await assertLiveNavigation('/sessions');
+    await clickNavigationPart('.bottom-tab-bar a[href="/agents"]', '.shell-icon');
+    await assertLiveNavigation('/agents');
+    await page.locator('.bottom-tab-bar__more').click();
+    await clickNavigationPart('.more-sheet a[href="/instances"]', '.nav-label');
+    await assertLiveNavigation('/instances');
+    await page.locator('.bottom-tab-bar__more').click();
+    await clickNavigationPart('.more-sheet a[href="/logs"]', '.shell-icon');
+    await assertLiveNavigation('/logs');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    page.off('request', recordNavigationDocument);
+    report.checks.push('all navigation labels/icons preserve the document and WebSocket; history, keyboard, new tabs, rail and mobile menus');
     for (const route of ['/agents', '/agents/new', '/agents/browser-agent', '/agents/browser-agent/files', '/agents/browser-agent/tools', '/agents/browser-agent/skills', '/models', '/models/connect-provider', '/channels', '/channels/add', '/channels/edit/discord-test', '/channels/health/discord-test', '/channels/arkret', '/channels/whatsapp', '/channels/matrix', '/channels/nostr', '/cron', '/cron/new', '/config', '/config/gateway', '/instances', '/logs', '/usage', '/approvals', '/nodes', '/nodes/browser-node', '/debug', '/skills', '/tts', '/voice', '/device-pair', '/settings', '/sessions?session_id=browser-session']) {
       await page.goto(base + route);
       await page.locator('.top-header__health--ok').waitFor();
@@ -252,6 +352,85 @@ const server = http.createServer((request, response) => {
     assert((await historyImage.getAttribute('src')).startsWith('data:image/png;base64,'), 'History image must retain its MIME type and encoded data');
     await page.screenshot({ path: path.join(cache, 'history.png'), fullPage: false });
     report.checks.push('nested route refresh; rich Markdown history; image attachment preview');
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Reasoning display', exact: true }).waitFor();
+    assert.equal(await page.locator('.session-terminal-body').isVisible(), false, 'Native agents must not offer terminal execution');
+    await page.getByText('This session uses a native agent and has no interactive terminal.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'View ambient context', exact: true }).click();
+    await page.getByText('No buffered context messages.', { exact: true }).waitFor();
+    assert.deepEqual(calls.findLast(call => call.method === 'sessions.ambient.get').params, { session_id: 'browser-session' });
+    await page.getByRole('button', { name: 'View idle reply', exact: true }).click();
+    await page.getByText('No pending idle reply.', { exact: false }).waitFor();
+    assert.equal(await page.locator('.session-delivery-body').isVisible(), false, 'Unbound sessions must not offer publication');
+    await page.goto(base + '/sessions');
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    assert.equal(await page.locator('.session-terminal-body').isVisible(), false);
+    assert.equal(await page.getByRole('button', { name: 'View ambient context', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'View idle reply', exact: true }).isDisabled(), true);
+    assert.equal(await page.locator('.session-main > .error-message').innerText(), '');
+    await page.screenshot({ path: path.join(cache, 'session-options-draft.png'), fullPage: false });
+    await page.goto(base + '/sessions?session_id=terminal-session');
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    const terminalStart = page.getByRole('button', { name: 'Start terminal', exact: true });
+    await page.waitForFunction(() => ![...document.querySelectorAll('.session-option-button')].find(el => el.textContent === 'Start terminal')?.disabled);
+    assert.equal(await page.getByRole('button', { name: 'Send line', exact: true }).isDisabled(), true);
+    await terminalStart.click();
+    await page.locator('.session-terminal-output').filter({ hasText: 'Fixture terminal ready' }).waitFor();
+    const terminalInput = page.getByRole('textbox', { name: 'Terminal input', exact: true });
+    await terminalInput.fill('ls');
+    await page.getByRole('button', { name: 'Send line', exact: true }).click();
+    await page.locator('.session-terminal-output').filter({ hasText: 'Executed: ls' }).waitFor();
+    assert.equal(await terminalInput.inputValue(), '');
+    assert(calls.some(call => call.method === 'agent.terminal.pty.write' && call.params.kind === 'line' && call.params.text === 'ls' && call.params.agent === 'terminal-agent' && call.params.session_id === 'terminal-session'));
+    terminalFailNextWrite = true;
+    await terminalInput.fill('pwd');
+    await page.getByRole('button', { name: 'Send line', exact: true }).click();
+    await page.locator('.session-option-card--terminal .error-message').filter({ hasText: 'Fixture terminal write failed' }).waitFor();
+    assert.equal(await terminalInput.inputValue(), 'pwd', 'A failed write must preserve terminal input');
+    await page.getByRole('button', { name: 'Send line', exact: true }).click();
+    await page.locator('.session-terminal-output').filter({ hasText: 'Executed: pwd' }).waitFor();
+    await page.getByRole('button', { name: 'Interrupt', exact: true }).click();
+    await page.locator('.session-terminal-output').filter({ hasText: 'Interrupted' }).waitFor();
+    assert.equal((await page.locator('.session-terminal-output').innerText()).split('Fixture terminal ready').length - 1, 1, 'Incremental reads must not duplicate output');
+    await page.screenshot({ path: path.join(cache, 'session-options-terminal.png'), fullPage: false });
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    const readsAfterClosing = calls.filter(call => call.method === 'agent.terminal.pty.read').length;
+    await page.waitForTimeout(1300);
+    assert.equal(calls.filter(call => call.method === 'agent.terminal.pty.read').length, readsAfterClosing, 'Closing options must retire terminal polling');
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await page.locator('.session-terminal-output').filter({ hasText: 'Executed: pwd' }).waitFor();
+    page.once('dialog', dialog => dialog.accept());
+    await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
+    await page.locator('.session-terminal-status').filter({ hasText: 'Not running' }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Send line', exact: true }).isDisabled(), true);
+    await page.goto(base + '/sessions?session_id=delivery-session');
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    const publicSummary = page.getByRole('textbox', { name: 'Public checkpoint summary', exact: true });
+    await publicSummary.waitFor();
+    const publishCheckpoint = page.getByRole('button', { name: 'Publish checkpoint', exact: true });
+    assert.equal(await publishCheckpoint.isDisabled(), true);
+    await publicSummary.fill('First reviewed progress');
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    assert.equal(await publicSummary.inputValue(), 'First reviewed progress', 'Closing options must preserve the public summary draft');
+    await page.getByRole('button', { name: 'Preview checkpoint', exact: true }).click();
+    await page.locator('.session-delivery-preview').filter({ hasText: 'Reviewed checkpoint: First reviewed progress' }).waitFor();
+    assert.equal(await publishCheckpoint.isDisabled(), false);
+    await publicSummary.fill('Updated reviewed progress');
+    await page.getByText('Summary changed. Preview again before publishing.', { exact: true }).waitFor();
+    assert.equal(await publishCheckpoint.isDisabled(), true);
+    await page.getByRole('button', { name: 'Preview checkpoint', exact: true }).click();
+    await page.locator('.session-delivery-preview').filter({ hasText: 'Reviewed checkpoint: Updated reviewed progress' }).waitFor();
+    page.once('dialog', dialog => dialog.accept());
+    await publishCheckpoint.click();
+    await page.getByText('Checkpoint published.', { exact: true }).waitFor();
+    assert.equal(await publishCheckpoint.isDisabled(), true, 'Repeated publication requires a fresh preview');
+    assert.equal(calls.findLast(call => call.method === 'sessions.arkret.delivery.publish').params.summary, 'Updated reviewed progress');
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, 'Session options must fit the viewport');
+    }
+    report.checks.push('labeled reasoning settings; session and agent prerequisites; managed terminal lifecycle, incremental output, local errors and polling cleanup; reviewed Arkret publication');
     await page.goto(base + '/sessions');
     await page.locator('.top-header__health--ok').waitFor();
     await page.locator('.chat-composer textarea').fill('Browser streaming test');
@@ -286,6 +465,16 @@ const server = http.createServer((request, response) => {
     await page.getByText('Streamed browser reply', { exact: true }).waitFor();
     assert(calls.some(call => call.method === 'http.chat' && call.params.session_id === 'browser-new-session'));
     report.checks.push('new session creation, prompt send, SSE reasoning and response');
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    const reasoningDisplay = page.getByRole('combobox', { name: 'Reasoning display', exact: true });
+    await reasoningDisplay.click();
+    await page.getByRole('option', { name: 'Hidden', exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('.message-thinking')].every(el => !el.textContent));
+    await reasoningDisplay.click();
+    await page.getByRole('option', { name: 'After reply', exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('.message-thinking')].some(el => el.textContent.includes('Thinking fixture')));
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    report.checks.push('reasoning display toggles completed streamed content without losing it');
     currentSocket.send(JSON.stringify({ type: 'event', event: 'exec.approval.requested', payload: { request_id: 'fixture-approval', nonce: 'fixture-nonce', command: 'test command', session_id: 'browser-new-session' } }));
     await page.getByRole('button', { name: 'Approve once', exact: true }).click();
     await page.getByText('Execution approval required', { exact: true }).waitFor({ state: 'hidden' });

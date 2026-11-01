@@ -3,6 +3,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result;
 
+#[path = "options.rs"]
+mod options;
 #[path = "workspace.rs"]
 mod workspace;
 
@@ -17,7 +19,7 @@ use crate::api::client::stream_chat;
 use crate::api::types::{AgentEntry, ChatAttachment, ChatMessage, SessionsResponse};
 use crate::components::markdown_renderer::markdown;
 use crate::pages::common::{self, Query};
-use crate::ui::{AppContext, action, error_text, field, json_text, set};
+use crate::ui::{AppContext, error_text, set};
 
 #[derive(Clone)]
 struct Conversation {
@@ -28,15 +30,13 @@ struct Conversation {
     model: Cage<String>,
     thinking: Cage<String>,
     reasoning: Cage<String>,
-    verbose: Cage<String>,
     busy: Cage<bool>,
     history_busy: Cage<bool>,
     error: Cage<String>,
     request: Cage<String>,
     abort: Rc<RefCell<Option<web_sys::AbortController>>>,
-    show_thinking: Cage<bool>,
     terminal_input: Cage<String>,
-    details: Cage<Value>,
+    checkpoint_summary: Cage<String>,
 }
 
 pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
@@ -51,16 +51,14 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                 .unwrap_or_else(|| preference("savfox_default_model", "default")),
         ),
         thinking: scope.cage("medium".into()),
-        reasoning: scope.cage("on".into()),
-        verbose: scope.cage("on".into()),
+        reasoning: scope.cage("stream".into()),
         busy: scope.cage(false),
         history_busy: scope.cage(false),
         error: scope.cage(String::new()),
         request: scope.cage(String::new()),
         abort: Rc::new(RefCell::new(None)),
-        show_thinking: scope.cage(true),
         terminal_input: scope.cage(String::new()),
-        details: scope.cage(Value::Null),
+        checkpoint_summary: scope.cage(String::new()),
     };
     let sessions = common::query(ctx, "sessions.list", None);
     let agents = common::query(ctx, "agents.list", None);
@@ -299,7 +297,7 @@ async fn send(
     let model = state.model.get();
     let label = savfox_gateway_shared::derive_session_label(Some(&prompt), None, None)
         .unwrap_or_else(|| "New session".into());
-    let mut patch = json!({"label":label,"model":model,"overrides":{"model":model,"thinking":state.thinking.get(),"reasoning":state.reasoning.get(),"verbose":state.verbose.get()}});
+    let mut patch = json!({"label":label,"model":model,"overrides":{"model":model,"thinking":state.thinking.get(),"reasoning":state.reasoning.get()}});
     if session.is_empty() {
         patch["agent"] = json!(agent);
     } else {
@@ -372,11 +370,7 @@ async fn send(
         let controller = web_sys::AbortController::new().map_err(|error| format!("{error:?}"))?;
         *state.abort.borrow_mut() = Some(controller.clone());
         let messages = state.messages;
-        let reasoning_mode = state.reasoning.get();
         let mut reasoning = move |chunk: &str| {
-            if reasoning_mode == "off" {
-                return;
-            }
             let _ = messages.try_revise(|items| {
                 if let Some(message) = items.last_mut() {
                     message.thinking.get_or_insert_default().push_str(chunk);
@@ -455,109 +449,6 @@ async fn read_attachments(
         });
     }
     Ok(attachments)
-}
-
-fn terminal_controls(ctx: &AppContext, state: &Conversation) -> Box<dyn Widget> {
-    let mut controls = vec![field(
-        workspace::label(ctx, "Terminal input", "终端输入"),
-        state.terminal_input,
-        true,
-    )];
-    for (label, method, kind) in [
-        ("Read output", "agent.terminal.pty.read", "read"),
-        ("Send line", "agent.terminal.pty.write", "line"),
-        ("Interrupt", "agent.terminal.pty.write", "interrupt"),
-        ("Close terminal", "agent.terminal.pty.close", "close"),
-    ] {
-        let ctx = ctx.clone();
-        let state = state.clone();
-        let translated = match label {
-            "Read output" => "读取输出",
-            "Send line" => "发送一行",
-            "Interrupt" => "中断",
-            "Close terminal" => "关闭终端",
-            "Ambient context" => "环境上下文",
-            "Idle fallback" => "空闲回复",
-            "Preview Arkret checkpoint" => "预览 Arkret 检查点",
-            "Publish Arkret checkpoint" => "发布 Arkret 检查点",
-            _ => label,
-        };
-        controls.push(action(workspace::label(&ctx,label,translated),move ||{
-            let session=state.session.get();if session.is_empty(){set(state.error,"Choose a session first".into());return;}
-            let task_ctx=ctx.clone();let state=state.clone();
-            ctx.spawn(async move {
-                match task_ctx.rpc.call::<Value>(method,Some(json!({"agent":state.agent.get(),"session_id":session,"kind":kind,"text":state.terminal_input.get()}))).await {
-                    Ok(value)=>{set(state.details,value);if kind=="line"{set(state.terminal_input,String::new());}}
-                    Err(error)=>set(state.error,error),
-                }
-            });
-        }));
-    }
-    crate::ui::details(
-        "session-terminal",
-        workspace::label(ctx, "Terminal controls", "终端控制"),
-        Box::new(col().class("terminal-controls").fill(controls)),
-    )
-}
-
-fn delivery_controls(ctx: &AppContext, state: &Conversation) -> Box<dyn Widget> {
-    let summary = ctx.scope.cage(String::new());
-    let preview = ctx.scope.cage(Value::Null);
-    let mut controls = vec![field(
-        workspace::label(ctx, "Public checkpoint summary", "公开检查点摘要"),
-        summary,
-        true,
-    )];
-    for (label, method) in [
-        ("Ambient context", "sessions.ambient.get"),
-        ("Idle fallback", "sessions.idle_reply.get"),
-        (
-            "Preview Arkret checkpoint",
-            "sessions.arkret.delivery.preview",
-        ),
-        (
-            "Publish Arkret checkpoint",
-            "sessions.arkret.delivery.publish",
-        ),
-    ] {
-        let ctx = ctx.clone();
-        let state = state.clone();
-        let translated = match label {
-            "Read output" => "读取输出",
-            "Send line" => "发送一行",
-            "Interrupt" => "中断",
-            "Close terminal" => "关闭终端",
-            "Ambient context" => "环境上下文",
-            "Idle fallback" => "空闲回复",
-            "Preview Arkret checkpoint" => "预览 Arkret 检查点",
-            "Publish Arkret checkpoint" => "发布 Arkret 检查点",
-            _ => label,
-        };
-        controls.push(action(workspace::label(&ctx,label,translated),move ||{
-            let session=state.session.get();if session.is_empty(){set(state.error,"Choose a session first".into());return;}
-            let ctx_task=ctx.clone();let state=state.clone();
-            let params=json!({"session_id":session,"kind":"progress","title":"Progress update","summary":summary.get(),"verification":[],"next_actions":[]});
-            if method.ends_with(".publish") {
-                if preview.get()["params"]!=params {set(state.error,"Preview the current checkpoint summary before publishing".into());return;}
-                if !confirm("Publish the reviewed checkpoint to Arkret?"){return;}
-            }
-            ctx.spawn(async move {
-                match ctx_task.rpc.call::<Value>(method,Some(params.clone())).await {
-                    Ok(value)=>{if method.ends_with(".preview"){set(preview,json!({"params":params,"result":value}));}set(state.details,value);}
-                    Err(error)=>set(state.error,error),
-                }
-            });
-        }));
-    }
-    crate::ui::details(
-        "session-delivery",
-        workspace::label(
-            ctx,
-            "Session context and Arkret delivery",
-            "会话上下文与 Arkret 投递",
-        ),
-        Box::new(col().class("delivery-controls").fill(controls)),
-    )
 }
 
 fn query_value(path: &str, key: &str) -> Option<String> {

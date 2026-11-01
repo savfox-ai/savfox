@@ -5204,6 +5204,7 @@
 @media(max-width:760px){.management-page{padding:18px 16px;}.management-page .card-body:has(>.form-group,>.sapid-select){grid-template-columns:1fr;}.management-page .models-card-grid{grid-template-columns:1fr;}.management-page .provider-header{align-items:flex-start;flex-direction:column!important;}.overview-page .ov-hero{flex-direction:column!important;padding:22px!important;}.overview-page .ov-hero__aside{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));min-width:0;}.overview-page .ov-hero__title{font-size:30px!important;}.overview-page .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px!important;}.overview-page .ov-trio-grid{grid-template-columns:1fr;}.management-toolbar>.form-group{max-width:none;flex-basis:100%;}}
 
 /* Original split-pane agent workspace and configuration section navigation. */
+.gateway-page:is(.split-view,.config-layout) { max-width:none; margin:0; }
 .agent-workspace.management-page { padding:0!important; gap:0!important; height:100%; min-height:0; flex-direction:row!important; overflow:hidden; }
 .agent-workspace .agent-list-pane { width:30%; min-width:280px; max-width:380px; flex-shrink:0; gap:0!important; height:100%; min-height:0; }
 .agent-workspace .panel-header { gap:10px!important; flex-shrink:0; margin:0; padding:12px 16px; min-height:62px; }

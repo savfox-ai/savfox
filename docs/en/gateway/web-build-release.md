@@ -82,6 +82,12 @@ login cancellation, channel edits, record refresh and mobile navigation. CI runs
 this independently of native tests. `node scripts/check-web-proxy.cjs` verifies the
 actual development server's HTTP/WebSocket proxy and static bundle paths.
 
+Internal navigation must keep the document and WebSocket alive when clicking
+either a link's label or icon, including the collapsed rail and mobile menus.
+Browser acceptance also covers history, keyboard activation and Ctrl-click to
+open a new tab. Decorative link children leave pointer gestures to the semantic
+anchor so its navigation marker handles ordinary and modified clicks.
+
 Choice controls use themed Sapid listboxes so both the trigger and expanded
 options follow the application palette. Browser acceptance opens these menus,
 checks their contrast and viewport bounds, and verifies pointer/keyboard period

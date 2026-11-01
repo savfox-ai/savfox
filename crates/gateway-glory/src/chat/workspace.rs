@@ -113,7 +113,8 @@ pub(super) fn render(
         set(new_state.session, String::new());
         set(new_state.messages, Vec::new());
         set(new_state.prompt, String::new());
-        set(new_state.details, Value::Null);
+        set(new_state.terminal_input, String::new());
+        set(new_state.checkpoint_summary, String::new());
         new_ctx.navigate("/sessions");
         set(list_open, false);
     };
@@ -286,7 +287,8 @@ pub(super) fn render(
                     }),
             )),
         ));
-    let show = state.show_thinking;
+    let reasoning_mode = state.reasoning;
+    let responding = state.busy;
     let assistant_agents = agents.value;
     let assistant_id = state.agent;
     let messages = col().class("chat-messages").fill((
@@ -336,7 +338,12 @@ pub(super) fn render(
                             text()
                                 .class("message-thinking")
                                 .content(scope.bond(move || {
-                                    if show.get() {
+                                    let is_latest = item.get().0 + 1 == message_source.get().len();
+                                    if super::options::reasoning_visible(
+                                        &reasoning_mode.get(),
+                                        responding.get(),
+                                        is_latest,
+                                    ) {
                                         message.get().thinking.unwrap_or_default()
                                     } else {
                                         String::new()
@@ -437,6 +444,8 @@ pub(super) fn render(
                         set(reset_state.session, String::new());
                         set(reset_state.messages, Vec::new());
                         set(reset_state.prompt, String::new());
+                        set(reset_state.terminal_input, String::new());
+                        set(reset_state.checkpoint_summary, String::new());
                         reset_ctx.navigate("/sessions");
                     }
                 },
@@ -463,45 +472,20 @@ pub(super) fn render(
     ));
     let options_ctx = ctx.clone();
     let options_state = state.clone();
+    let options_agents = agents.value;
+    let options_sessions = sessions.value;
     let options = when(inspector, move || {
-        let terminal = options_state.clone();
-        let delivery = options_state.clone();
         let ctx = options_ctx.clone();
-        col().class("session-options-panel").fill((
-            row().class("session-display-options").fill((
-                localized_choice(
-                    &ctx,
-                    "Reasoning",
-                    "推理显示",
-                    options_state.reasoning,
-                    &[
-                        ("off", "Off", "关闭"),
-                        ("on", "On", "开启"),
-                        ("stream", "Stream", "流式"),
-                    ],
-                ),
-                localized_choice(
-                    &ctx,
-                    "Verbose",
-                    "详细程度",
-                    options_state.verbose,
-                    &[
-                        ("off", "Off", "关闭"),
-                        ("on", "On", "开启"),
-                        ("full", "Full", "完整"),
-                    ],
-                ),
-                Box::new(
-                    sapid::checkbox()
-                        .label(label(&ctx, "Show reasoning", "显示思考过程"))
-                        .checked(options_state.show_thinking)
-                        .on_checked_change(move |value| set(show, value)),
-                ) as Box<dyn Widget>,
-            )),
-            terminal_controls(&ctx, &terminal),
-            delivery_controls(&ctx, &delivery),
-            json_text(&ctx, options_state.details),
-        ))
+        let state = options_state.clone();
+        widget(move |scope| {
+            super::options::render(
+                &ctx.with_scope(scope),
+                &state,
+                options_agents,
+                options_sessions,
+            )
+            .build(scope)
+        })
     });
     let composer_ctx = ctx.clone();
     let composer_state = state.clone();
@@ -722,7 +706,7 @@ fn catalog_picker(
     )
 }
 
-fn localized_choice(
+pub(super) fn localized_choice(
     ctx: &AppContext,
     en: &'static str,
     zh: &'static str,
