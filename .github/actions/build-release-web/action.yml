@@ -12,7 +12,9 @@ runs:
         key: release-web-wasm
     - name: Install matching wasm-bindgen
       shell: bash
-      run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+      run: |
+        version="$(node -e 'const fs=require("node:fs"); const rows=[...fs.readFileSync("Cargo.lock","utf8").matchAll(/^name = "wasm-bindgen"\r?\nversion = "([^"]+)"$/gm)]; if(rows.length!==1||!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(rows[0][1])) process.exit(1); process.stdout.write(rows[0][1]);')"
+        cargo install wasm-bindgen-cli --version "$version" --locked
     - name: Build and validate Web bundle
       shell: bash
       run: |
