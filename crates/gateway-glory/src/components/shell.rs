@@ -8,14 +8,13 @@ use crate::ui::{AppContext, set};
 type NavItem = (&'static str, &'static str, &'static str);
 type NavGroup = (&'static str, &'static [NavItem]);
 
+const PRIMARY_LINKS: &[NavItem] = &[
+    ("/", "nav.overview", "home"),
+    ("/sessions", "nav.sessions", "message"),
+    ("/approvals", "nav.approvals", "shield"),
+];
+
 const GROUPS: &[NavGroup] = &[
-    (
-        "nav.dashboard",
-        &[
-            ("/", "nav.overview", "home"),
-            ("/sessions", "nav.sessions", "message"),
-        ],
-    ),
     (
         "nav.manage",
         &[
@@ -25,6 +24,7 @@ const GROUPS: &[NavGroup] = &[
             ("/cron", "nav.cron_jobs", "clock"),
             ("/skills", "nav.skills", "star"),
             ("/speech", "nav.speech", "volume"),
+            ("/devices", "nav.devices", "network"),
         ],
     ),
     (
@@ -32,14 +32,6 @@ const GROUPS: &[NavGroup] = &[
         &[
             ("/logs", "nav.logs", "logs"),
             ("/usage", "nav.usage", "chart"),
-        ],
-    ),
-    (
-        "nav.system",
-        &[
-            ("/config", "nav.config", "settings"),
-            ("/devices", "nav.devices", "network"),
-            ("/approvals", "nav.approvals", "shield"),
         ],
     ),
 ];
@@ -135,15 +127,14 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
     let initial_group = active_group(&ctx.path.get_untracked());
     let groups = [
         ctx.scope.cage(true),
-        ctx.scope.cage(true),
-        ctx.scope.cage(initial_group == 2),
-        ctx.scope.cage(initial_group == 3),
+        ctx.scope.cage(initial_group == Some(1)),
     ];
     let path = ctx.path;
     ctx.scope.effect(move || {
         let current = path.get();
-        let group = active_group(&current);
-        if !groups[group].get_untracked() {
+        if let Some(group) = active_group(&current)
+            && !groups[group].get_untracked()
+        {
             set(groups[group], true);
         }
     });
@@ -228,6 +219,28 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
 
     let mut rail = Vec::<Box<dyn Widget>>::new();
     let mut full = Vec::<Box<dyn Widget>>::new();
+    full.push(Box::new(
+        col().class("nav-group-links sidebar-primary-links").fill(
+            PRIMARY_LINKS
+                .iter()
+                .map(|&(path, key, glyph)| {
+                    nav_link(ctx, path, key, glyph, "nav-link", sidebar, more)
+                })
+                .collect::<Vec<_>>(),
+        ),
+    ));
+    for &(path, key, glyph) in PRIMARY_LINKS {
+        rail.push(nav_link(
+            ctx,
+            path,
+            key,
+            glyph,
+            "sidebar-rail__item",
+            sidebar,
+            more,
+        ));
+    }
+    rail.push(Box::new(view().class("sidebar-rail__divider")));
     for (index, &(key, links)) in GROUPS.iter().enumerate() {
         let expanded = groups[index];
         full.push(Box::new(
@@ -280,7 +293,25 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
             rail.push(Box::new(view().class("sidebar-rail__divider")));
         }
     }
-    let footer = col().class("sidebar-footer").fill(
+    rail.push(nav_link(
+        ctx,
+        "/config",
+        "nav.config",
+        "settings",
+        "sidebar-rail__item sidebar-rail__settings",
+        sidebar,
+        more,
+    ));
+    let footer = col().class("sidebar-footer").fill((
+        nav_link(
+            ctx,
+            "/config",
+            "nav.config",
+            "settings",
+            "nav-link sidebar-config-link",
+            sidebar,
+            more,
+        ),
         button()
             .class("sidebar-palette-btn")
             .name(translated(ctx, "nav.command_palette"))
@@ -294,7 +325,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 remember_palette_focus();
                 set(palette, true);
             }),
-    );
+    ));
     let sidebar_view = col()
         .role(Role::Navigation)
         .name(translated(ctx, "aria.main_nav"))
@@ -448,6 +479,17 @@ fn mobile_navigation(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) ->
         move || set(more, !more.get()),
     ));
     let mut links = Vec::new();
+    for &(path, key, glyph) in PRIMARY_LINKS {
+        links.push(nav_link(
+            ctx,
+            path,
+            key,
+            glyph,
+            "more-sheet__link",
+            sidebar,
+            more,
+        ));
+    }
     for &(_, entries) in GROUPS {
         for &(path, key, glyph) in entries {
             links.push(nav_link(
@@ -461,6 +503,15 @@ fn mobile_navigation(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) ->
             ));
         }
     }
+    links.push(nav_link(
+        ctx,
+        "/config",
+        "nav.config",
+        "settings",
+        "more-sheet__link",
+        sidebar,
+        more,
+    ));
     Box::new(
         col().class("mobile-navigation").fill((
             row()
@@ -503,15 +554,12 @@ fn mobile_navigation(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) ->
     )
 }
 
-fn active_group(path: &str) -> usize {
-    GROUPS
-        .iter()
-        .position(|(_, links)| {
-            links
-                .iter()
-                .any(|(target, ..)| crate::route::is_active(path, target))
-        })
-        .unwrap_or(0)
+fn active_group(path: &str) -> Option<usize> {
+    GROUPS.iter().position(|(_, links)| {
+        links
+            .iter()
+            .any(|(target, ..)| crate::route::is_active(path, target))
+    })
 }
 
 fn saved_theme() -> String {
@@ -833,10 +881,10 @@ pub(super) fn sign_out(ctx: &AppContext) {
 mod tests {
     #[test]
     fn deep_links_expand_the_original_navigation_group() {
-        assert_eq!(super::active_group("/sessions?session_id=one"), 0);
-        assert_eq!(super::active_group("/agents/alice/files"), 1);
-        assert_eq!(super::active_group("/logs"), 2);
-        assert_eq!(super::active_group("/config/gateway"), 3);
+        assert_eq!(super::active_group("/sessions?session_id=one"), None);
+        assert_eq!(super::active_group("/agents/alice/files"), Some(0));
+        assert_eq!(super::active_group("/logs"), Some(1));
+        assert_eq!(super::active_group("/config/gateway"), None);
     }
 
     #[test]

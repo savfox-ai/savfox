@@ -53,6 +53,7 @@ body{font-size:14px;overflow:hidden}
 .sidebar-rail{min-height:0}
 .sidebar-rail__item .nav-label{display:none!important}
 .sidebar-rail__item{flex-shrink:0}
+.sidebar-rail__settings{margin-top:auto}
 .nav-group-header{width:100%;font-size:13px!important;font-weight:700!important;flex:0 0 auto;gap:7px}
 .nav-group-header .shell-icon{width:13px;height:13px;min-width:13px;min-height:13px;flex-basis:13px}
 .nav-group-links{display:flex!important;flex-direction:column;gap:1px}
