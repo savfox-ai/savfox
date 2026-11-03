@@ -13,7 +13,7 @@ resolver = "3"
 version = "0.3.1"
 authors = ["Chrislearn Young <chris@sonc.ai>"]
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.99.0"
 description = """
 Multi-surface AI coding agent platform with CLI, TUI, gateway, MCP, and editor integrations.
 """
@@ -362,7 +362,7 @@ arkret-test-kit = { version = "0.3.0", git = "https://github.com/arkret-org/arkr
 
 # Browser UI: Cargo.lock pins the upstream main revisions used by every build.
 glory = { git = "https://github.com/glory-rs/glory.git", branch = "main", default-features = false, features = ["web", "ssr"] }
-sapid = { git = "https://github.com/sapid-ui/sapid.git", branch = "main", features = ["chat", "code", "json", "dates", "files", "charts"] }
+sapid = { git = "https://github.com/sapid-ui/sapid.git", branch = "main", features = ["code", "json", "dates", "files", "charts"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"

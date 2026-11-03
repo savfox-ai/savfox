@@ -180,22 +180,205 @@ fn matches_request(payload: &Value, state: &Conversation) -> bool {
     !request.is_empty() && payload["request_id"].as_str() == Some(request.as_str())
 }
 
+#[derive(Clone)]
+struct ChatSubmission {
+    text: String,
+    files: Vec<glory::render::FileInfo>,
+    file_controller: Option<sapid::FileController>,
+}
+
+fn submit_chat(
+    ctx: &AppContext,
+    state: &Conversation,
+    agents: &Cage<Value>,
+    sessions: &Query,
+    files: Cage<Vec<glory::render::FileInfo>>,
+    picker_status: Cage<sapid::FileStatus>,
+    file_controller: Cage<Option<sapid::FileController>>,
+    composing: Cage<bool>,
+) {
+    if state.busy.get() {
+        return;
+    }
+    let submission = ChatSubmission {
+        text: state.prompt.get(),
+        files: files.get(),
+        file_controller: file_controller.get(),
+    };
+    let rejection = if !ctx.connected.get() {
+        Some("Message could not be sent: disconnected")
+    } else if composing.get() {
+        Some("Message could not be sent: finish composing the text first")
+    } else if picker_status.get() == sapid::FileStatus::Choosing {
+        Some("Message could not be sent: finish choosing files first")
+    } else if submission.text.trim().is_empty() && submission.files.is_empty() {
+        Some("Message could not be sent: enter a message or attach a file")
+    } else {
+        None
+    };
+    if let Some(message) = rejection {
+        set(state.error, message.to_owned());
+        return;
+    }
+    set(state.busy, true);
+    set(state.error, String::new());
+    let ctx = ctx.clone();
+    let state = state.clone();
+    let agents = agents.get();
+    let sessions = sessions.clone();
+    ctx.clone().spawn(async move {
+        let result = send(&ctx, &state, submission, agents).await;
+        if result.is_ok() {
+            crate::utils::notifications::notify_if_enabled(
+                "Savfox response ready",
+                "Your conversation has a new response.",
+            );
+        }
+        if let Err(error) = result {
+            set(state.error, error);
+        }
+        set(state.busy, false);
+        set(state.request, String::new());
+        state.abort.borrow_mut().take();
+        sessions.refresh();
+    });
+}
+
 fn composer(
     ctx: &AppContext,
     state: &Conversation,
     agents: &Query,
     sessions: &Query,
 ) -> Box<dyn Widget> {
-    let send_ctx = ctx.clone();
-    let send_state = state.clone();
-    let send_agents = agents.value;
-    let send_sessions = sessions.clone();
-    let cancel_ctx = ctx.clone();
-    let cancel_state = state.clone();
-    let error = state.error;
-    Box::new(
-        sapid::prompt_input("savfox-chat")
-            .class(ctx.scope.bond({
+    let ctx = ctx.clone();
+    let state = state.clone();
+    let agents = agents.clone();
+    let sessions = sessions.clone();
+    Box::new(widget(move |scope| {
+        let files = scope.cage(Vec::new());
+        let picker_status = scope.cage(sapid::FileStatus::Idle);
+        let file_controller = scope.cage(None::<sapid::FileController>);
+        let composing = scope.cage(false);
+        let editable = scope.bond({
+            let connected = ctx.connected;
+            let busy = state.busy;
+            move || connected.get() && !busy.get()
+        });
+        let can_send = scope.bond({
+            let editable = editable.clone();
+            move || {
+                editable.get()
+                    && !composing.get()
+                    && picker_status.get() != sapid::FileStatus::Choosing
+            }
+        });
+        let editor = sapid::field("savfox-chat-message")
+            .label(if ctx.locale.get_untracked() == crate::i18n::Locale::ZhCn {
+                "消息"
+            } else {
+                "Message"
+            })
+            .control({
+                let editable = editable.clone();
+                let prompt = state.prompt;
+                let ctx = ctx.clone();
+                let state = state.clone();
+                let agents = agents.clone();
+                let sessions = sessions.clone();
+                move |field| {
+                    sapid::textarea()
+                        .field(field)
+                        .rows(3)
+                        .value(prompt)
+                        .enabled(editable.clone())
+                        .on_value_change(move |value| set(prompt, value))
+                        .on(glory::render::EventKind::Composition, move |event| {
+                            if let glory::render::Event::Composition { active } = event {
+                                set(composing, active);
+                            }
+                        })
+                        .on(glory::render::EventKind::Keyboard, {
+                            let ctx = ctx.clone();
+                            let state = state.clone();
+                            let agents = agents.clone();
+                            let sessions = sessions.clone();
+                            move |event| {
+                                if matches!(
+                                    event,
+                                    glory::render::Event::Keyboard {
+                                        command: glory::render::KeyboardCommand::Submit,
+                                        ..
+                                    }
+                                ) {
+                                    submit_chat(
+                                        &ctx,
+                                        &state,
+                                        &agents.value,
+                                        &sessions,
+                                        files,
+                                        picker_status,
+                                        file_controller,
+                                        composing,
+                                    );
+                                }
+                            }
+                        })
+                }
+            });
+        let actions = glory::ui::view().class("sapid-prompt-actions").fill((
+            sapid::submit_button()
+                .label(ctx.tr("chat.send_message"))
+                .enabled(can_send),
+            sapid::button()
+                .label(ctx.tr("chat.stop_generation"))
+                .enabled(scope.bond({
+                    let connected = ctx.connected;
+                    let busy = state.busy;
+                    move || connected.get() && busy.get()
+                }))
+                .on_press({
+                    let ctx = ctx.clone();
+                    let state = state.clone();
+                    move || {
+                        if let Some(controller) = state.abort.borrow().as_ref() {
+                            controller.abort();
+                        }
+                        let task_ctx = ctx.clone();
+                        let session = state.session.get();
+                        let error = state.error;
+                        ctx.spawn(async move {
+                            if !session.is_empty()
+                                && let Err(message) = task_ctx
+                                    .rpc
+                                    .call::<Value>(
+                                        "chat.abort",
+                                        Some(json!({"session_id":session})),
+                                    )
+                                    .await
+                            {
+                                set(error, message);
+                            }
+                        });
+                        set(state.request, String::new());
+                    }
+                }),
+            sapid::file_input()
+                .label(ctx.tr("chat.attach_image"))
+                .configuration(glory::render::FileConfig {
+                    multiple: true,
+                    max_files: 8,
+                    filters: vec![glory::render::FileFilter::Mime("image/*".into())],
+                    max_file_bytes: 10 * 1024 * 1024,
+                    max_total_bytes: 32 * 1024 * 1024,
+                    ..Default::default()
+                })
+                .enabled(editable)
+                .files_ref(files)
+                .status_ref(picker_status)
+                .controller_ref(file_controller),
+        ));
+        sapid::form("savfox-chat")
+            .class(scope.bond({
                 let busy = state.busy;
                 move || {
                     if busy.get() {
@@ -205,84 +388,34 @@ fn composer(
                     }
                 }
             }))
-            .label(if ctx.locale.get_untracked() == crate::i18n::Locale::ZhCn {
-                "消息"
-            } else {
-                "Message"
-            })
-            .send_label(ctx.tr("chat.send_message"))
-            .cancel_label(ctx.tr("chat.stop_generation"))
-            .attachment_label(ctx.tr("chat.attach_image"))
-            .value(state.prompt)
-            .busy(state.busy)
             .enabled(ctx.connected)
-            .submit_mode(sapid::PromptSubmitMode::EnterToSend)
-            .attachments(glory::render::FileConfig {
-                multiple: true,
-                max_files: 8,
-                filters: vec![glory::render::FileFilter::Mime("image/*".into())],
-                max_file_bytes: 10 * 1024 * 1024,
-                max_total_bytes: 32 * 1024 * 1024,
-                ..Default::default()
-            })
-            .on_value_change({
-                let prompt = state.prompt;
-                move |value| set(prompt, value)
-            })
-            .on_reject(move |reason| set(error, format!("Message could not be sent: {reason:?}")))
-            .on_send(move |submission| {
-                if send_state.busy.get() {
-                    return;
+            .fill((editor, actions))
+            .on_submit({
+                let ctx = ctx.clone();
+                let state = state.clone();
+                let agents = agents.clone();
+                let sessions = sessions.clone();
+                move |_| {
+                    submit_chat(
+                        &ctx,
+                        &state,
+                        &agents.value,
+                        &sessions,
+                        files,
+                        picker_status,
+                        file_controller,
+                        composing,
+                    );
                 }
-                set(send_state.busy, true);
-                set(send_state.error, String::new());
-                let ctx = send_ctx.clone();
-                let state = send_state.clone();
-                let agents = send_agents.get();
-                let sessions = send_sessions.clone();
-                send_ctx.spawn(async move {
-                    let result = send(&ctx, &state, submission, agents).await;
-                    if result.is_ok() {
-                        crate::utils::notifications::notify_if_enabled(
-                            "Savfox response ready",
-                            "Your conversation has a new response.",
-                        );
-                    }
-                    if let Err(error) = result {
-                        set(state.error, error);
-                    }
-                    set(state.busy, false);
-                    set(state.request, String::new());
-                    state.abort.borrow_mut().take();
-                    sessions.refresh();
-                });
             })
-            .on_cancel(move || {
-                if let Some(controller) = cancel_state.abort.borrow().as_ref() {
-                    controller.abort();
-                }
-                let ctx = cancel_ctx.clone();
-                let session = cancel_state.session.get();
-                let error = cancel_state.error;
-                cancel_ctx.spawn(async move {
-                    if !session.is_empty()
-                        && let Err(message) = ctx
-                            .rpc
-                            .call::<Value>("chat.abort", Some(json!({"session_id":session})))
-                            .await
-                    {
-                        set(error, message);
-                    }
-                });
-                set(cancel_state.request, String::new());
-            }),
-    )
+            .build(scope)
+    }))
 }
 
 async fn send(
     ctx: &AppContext,
     state: &Conversation,
-    submission: sapid::PromptSubmission,
+    submission: ChatSubmission,
     agents: Value,
 ) -> Result<(), String> {
     let picker = submission.file_controller.clone();

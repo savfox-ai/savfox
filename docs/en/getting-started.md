@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Rust 1.98+** (if building from source)
+- **Rust 1.99.0+** (if building from source; this repository selects 1.99.0 via `rust-toolchain.toml`)
 - A supported LLM provider account (OpenAI, or a local provider like Ollama / LM Studio)
 - Git (for session diffs and patch application)
 
