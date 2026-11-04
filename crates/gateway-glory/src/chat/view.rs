@@ -187,16 +187,27 @@ struct ChatSubmission {
     file_controller: Option<sapid::FileController>,
 }
 
+#[derive(Clone, Copy)]
+struct ComposerState {
+    files: Cage<Vec<glory::render::FileInfo>>,
+    picker_status: Cage<sapid::FileStatus>,
+    file_controller: Cage<Option<sapid::FileController>>,
+    composing: Cage<bool>,
+}
+
 fn submit_chat(
     ctx: &AppContext,
     state: &Conversation,
     agents: &Cage<Value>,
     sessions: &Query,
-    files: Cage<Vec<glory::render::FileInfo>>,
-    picker_status: Cage<sapid::FileStatus>,
-    file_controller: Cage<Option<sapid::FileController>>,
-    composing: Cage<bool>,
+    composer: ComposerState,
 ) {
+    let ComposerState {
+        files,
+        picker_status,
+        file_controller,
+        composing,
+    } = composer;
     if state.busy.get() {
         return;
     }
@@ -259,18 +270,19 @@ fn composer(
         let picker_status = scope.cage(sapid::FileStatus::Idle);
         let file_controller = scope.cage(None::<sapid::FileController>);
         let composing = scope.cage(false);
+        let input = ComposerState {
+            files,
+            picker_status,
+            file_controller,
+            composing,
+        };
         let editable = scope.bond({
             let connected = ctx.connected;
             let busy = state.busy;
             move || connected.get() && !busy.get()
         });
-        let can_send = scope.bond({
-            let editable = editable.clone();
-            move || {
-                editable.get()
-                    && !composing.get()
-                    && picker_status.get() != sapid::FileStatus::Choosing
-            }
+        let can_send = scope.bond(move || {
+            editable.get() && !composing.get() && picker_status.get() != sapid::FileStatus::Choosing
         });
         let editor = sapid::field("savfox-chat-message")
             .label(if ctx.locale.get_untracked() == crate::i18n::Locale::ZhCn {
@@ -279,7 +291,6 @@ fn composer(
                 "Message"
             })
             .control({
-                let editable = editable.clone();
                 let prompt = state.prompt;
                 let ctx = ctx.clone();
                 let state = state.clone();
@@ -290,7 +301,7 @@ fn composer(
                         .field(field)
                         .rows(3)
                         .value(prompt)
-                        .enabled(editable.clone())
+                        .enabled(editable)
                         .on_value_change(move |value| set(prompt, value))
                         .on(glory::render::EventKind::Composition, move |event| {
                             if let glory::render::Event::Composition { active } = event {
@@ -310,16 +321,7 @@ fn composer(
                                         ..
                                     }
                                 ) {
-                                    submit_chat(
-                                        &ctx,
-                                        &state,
-                                        &agents.value,
-                                        &sessions,
-                                        files,
-                                        picker_status,
-                                        file_controller,
-                                        composing,
-                                    );
+                                    submit_chat(&ctx, &state, &agents.value, &sessions, input);
                                 }
                             }
                         })
@@ -396,16 +398,7 @@ fn composer(
                 let agents = agents.clone();
                 let sessions = sessions.clone();
                 move |_| {
-                    submit_chat(
-                        &ctx,
-                        &state,
-                        &agents.value,
-                        &sessions,
-                        files,
-                        picker_status,
-                        file_controller,
-                        composing,
-                    );
+                    submit_chat(&ctx, &state, &agents.value, &sessions, input);
                 }
             })
             .build(scope)
