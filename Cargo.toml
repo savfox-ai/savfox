@@ -225,7 +225,7 @@ pretty_assertions = "1.4.1"
 proc-macro-crate = { version = ">= 2, <= 4" }
 proc-macro2 = "1"
 proc-macro2-diagnostics = { version = "0.11", default-features = true }
-pulldown-cmark = "0.13"
+pulldown-cmark = "0.13.6"
 quinn = { version = "0.11", default-features = false }
 quote = "1"
 rand = "0.10"

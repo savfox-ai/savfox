@@ -113,7 +113,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
@@ -133,7 +135,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
       - run: node --test scripts/ui-sources.test.cjs scripts/install.test.cjs scripts/verify-web-bundle.test.cjs scripts/check-ci-test-matrix.test.cjs scripts/gateway-browser-response.test.cjs
       - run: node scripts/check-ci-test-matrix.cjs
 
@@ -158,8 +162,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ui-sources
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.0
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -175,7 +180,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ui-sources
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -213,7 +220,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ui-sources
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -242,7 +251,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ui-sources
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -310,7 +321,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ui-sources
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -357,7 +370,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ui-sources
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -382,7 +397,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ui-sources
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -401,8 +418,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ui-sources
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.0
           targets: x86_64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2
         with:
@@ -422,8 +440,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ui-sources
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.0
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
