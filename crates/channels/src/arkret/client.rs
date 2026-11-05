@@ -254,10 +254,11 @@ impl AgentAuthenticatedTransportFactory {
         };
         if let Some(engine) = &entry.engine {
             if engine.current_state().is_some_and(|state| {
-                state
-                    .granted_scope
-                    .iter()
-                    .any(|action| action == "ak.event.read")
+                state.expires_at > Utc::now()
+                    && state
+                        .granted_scope
+                        .iter()
+                        .any(|action| action == "ak.event.read")
             }) {
                 return Ok(SessionTransportProvider::new(
                     engine.clone(),
@@ -265,8 +266,8 @@ impl AgentAuthenticatedTransportFactory {
                     refresh,
                 ));
             }
-            // Refresh cannot restore a narrowed ceiling. Keep the old grant
-            // unchanged and use a new issue intent under current authority.
+            // A narrowed ceiling or expired grant cannot be refreshed into
+            // content access. Leave it immutable and issue under current authority.
             entry.engine = None;
             entry.request = None;
         }
@@ -1827,13 +1828,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn narrowed_or_invalidated_content_session_reissues_and_preserves_unknown_intent() {
+    async fn content_session_reissues_unusable_grants_and_preserves_unknown_intent() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        for narrowed in [true, false] {
+        for state_kind in ["fresh", "narrowed", "invalidated", "expired"] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let base = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+            let issued = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let observed_issue = Arc::clone(&issued);
             let server = tokio::spawn(async move {
                 let (mut socket, _) = listener.accept().await.unwrap();
+                observed_issue.store(true, std::sync::atomic::Ordering::SeqCst);
                 let mut bytes = Vec::new();
                 let mut chunk = [0_u8; 4096];
                 let header_end = loop {
@@ -1881,15 +1885,30 @@ mod tests {
             let realm =
                 RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI").unwrap();
             let mut state = agent_session_state();
-            state
-                .granted_scope
-                .retain(|action| action != "ak.event.read");
+            if matches!(state_kind, "narrowed" | "invalidated") {
+                state
+                    .granted_scope
+                    .retain(|action| action != "ak.event.read");
+            } else if state_kind == "expired" {
+                state.expires_at = arkret::canonical::normalize_timestamp_canonical(
+                    Utc::now() - chrono::Duration::seconds(1),
+                );
+            }
             let mut parts = state.grant_jwt.split('.');
             let header = parts.next().unwrap().to_owned();
             let mut claims: serde_json::Value =
                 serde_json::from_slice(&arkret::base64url_decode(parts.next().unwrap()).unwrap())
                     .unwrap();
             claims["scopes"] = serde_json::to_value(&state.granted_scope).unwrap();
+            if state_kind == "expired" {
+                claims["expires_at"] = serde_json::json!(
+                    arkret::canonical::format_timestamp_canonical(state.expires_at)
+                );
+                claims["not_before"] =
+                    serde_json::json!(arkret::canonical::format_timestamp_canonical(
+                        state.expires_at - chrono::Duration::minutes(5)
+                    ));
+            }
             claims["scope_details"]["realm_ids"] = serde_json::json!([realm.clone()]);
             claims["scope_details"]["strand_ids"] = serde_json::json!([]);
             let input = format!(
@@ -1900,11 +1919,8 @@ mod tests {
                 "{input}.{}",
                 arkret::base64url_encode(signing_key().sign(input.as_bytes()).to_bytes())
             );
-            assert!(
-                factory.build(&state).is_ok(),
-                "a valid narrowed service ceiling"
-            );
-            let engine = if narrowed {
+            assert_eq!(factory.build(&state).is_ok(), state_kind != "expired");
+            let engine = if state_kind != "invalidated" {
                 SessionEngine::with_state(factory.session_transport.clone(), state)
             } else {
                 SessionEngine::new(factory.session_transport.clone())
@@ -1924,6 +1940,16 @@ mod tests {
             )
             .await
             .expect("actual fresh issue has a bounded transport");
+            if state_kind == "fresh" {
+                assert!(result.is_ok());
+                assert!(!issued.load(std::sync::atomic::Ordering::SeqCst));
+                let entry = entry.lock().await;
+                assert!(entry.engine.is_some());
+                assert!(entry.request.is_none());
+                server.abort();
+                assert!(server.await.unwrap_err().is_cancelled());
+                continue;
+            }
             assert!(
                 result.is_err(),
                 "the old cached ceiling cannot serve content"
