@@ -12,9 +12,6 @@ port  := "18881"
 dev_backend_port := "18881"
 frontend_port := "18080"
 
-# Keep native gateway builds beside the WASM build cache on Windows.
-export CARGO_TARGET_DIR := if os() == "windows" { "D:/BuildCache/savfox-glory/target" } else { env_var_or_default("CARGO_TARGET_DIR", "/mnt/d/BuildCache/savfox-glory/target") }
-
 # ── Gateway ─────────────────────────────────────────────────────────────────
 
 # Build web frontend if needed + run gateway server (debug)

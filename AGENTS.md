@@ -126,7 +126,7 @@ savfox-cli / savfox-exec / savfox-tui
 ## Gateway And Frontend Notes
 
 - `scripts/build-web.ps1` is the canonical frontend build/sync script.
-- That script fingerprints frontend and locked Git Glory/Sapid inputs, skips unnecessary rebuilds, and syncs the generated bundle from `D:/BuildCache/savfox-glory/web` into `crates/gateway-server/static`.
+- That script fingerprints frontend and locked Git Glory/Sapid inputs, skips unnecessary rebuilds, and syncs the generated bundle from the directory reported by Cargo metadata into `crates/gateway-server/static`.
 - When you change `crates/gateway-glory` or `crates/gateway-shared`, verify the web build still succeeds and that the gateway can serve the updated static assets.
 - `crates/gateway-server/src/ws_rpc` carries a large compatibility-heavy JSON-RPC surface. Preserve existing method names and aliases unless the change explicitly intends to break or version the protocol.
 
