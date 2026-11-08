@@ -7,15 +7,14 @@ remain owned by the gateway.
 
 ## Dependencies and storage
 
-The workspace depends on the `main` branches of
-`https://github.com/glory-rs/glory.git` and `https://github.com/sapid-ui/sapid.git`.
-`Cargo.lock` pins their commits for reproducible local, CI and Docker builds.
-Sibling checkouts are not build inputs. Sapid currently declares Glory through a
-sibling path; the workspace patches Sapid's Git source to the same Glory Git
-dependency so Cargo resolves one copy of Glory without a local path fallback.
-To adopt newer upstream commits, run `cargo update -p glory -p sapid`, review the
-lockfile changes, then repeat native, WASM and browser verification. The
-`.github/actions/ui-sources` action checks the lockfile and reports both revisions.
+The workspace requires Glory `0.7.0` and Sapid `0.7.1` from crates.io.
+`Cargo.toml` requires these exact versions, and `Cargo.lock` pins their registry
+sources and checksums for reproducible local, CI and Docker builds.
+Sibling checkouts are not build inputs. No Git or local path overrides are used
+for these packages. To adopt newer releases, update the workspace version
+requirements and `scripts/ui-sources.cjs`, run `cargo update -p glory -p sapid`,
+review the lockfile changes, then repeat native, WASM and browser verification.
+The `.github/actions/ui-sources` action checks the lockfile and reports both versions.
 
 Install the Rust `wasm32-unknown-unknown` target and a `wasm-bindgen-cli` version
 matching the `wasm-bindgen` entry in `Cargo.lock`. Set `WASM_BINDGEN` or pass
@@ -43,7 +42,7 @@ available.
 
 `scripts/build-web.ps1` delegates to the Node.js engine in `scripts/build-web.cjs`.
 It runs Cargo with `--locked` and wasm-bindgen, copies Sapid CSS from the exact
-Git package selected by `cargo metadata` and copies application
+crates.io package selected by `cargo metadata` and copies application
 assets, and publishes a complete bundle to `crates/gateway-server/static`. The
 intermediate bundle is in `<cargo-target>/web-build/web/<profile>`. `-SkipCopy`
 builds only that bundle; `-Force` rebuilds and resyncs it. Content fingerprints
@@ -96,9 +95,16 @@ label activation; keep Sapid styling enabled instead of drawing replacement
 controls in page CSS. Shared control sizing and palette belong in
 `glory-bridge.css`; page styles should only arrange those controls.
 
+Reuse Sapid widgets for controls, navigation disclosures, action menus, cards,
+badges, loading indicators, empty states and code fences. Shared helpers adapt
+application state and localization. Large code fences retain a text fallback
+when they exceed Sapid's byte, line or token budgets; clipboard requests above
+64 KiB use the browser clipboard directly. The shell's navigation toggle keeps
+a Glory button because Sapid 0.7.1's Burger labels cannot react to locale changes.
+
 Password fields keep Sapid styling enabled and include a visible field label.
-The input-group control takes the remaining row width while its visibility
-button keeps the same height as the input. Fieldset surfaces, legends and help
+The input fills its row, with Sapid's visibility action centered inside its
+right section. Fieldset surfaces, legends and help
 text use the application theme in both light and dark modes. Action rows wrap
 at narrow widths instead of stacking by default; configuration navigation reserves
 the active border width so selecting a section does not shift its label.
@@ -126,7 +132,7 @@ pre-migration Dioxus reference as well as checking the assertions. The shell kee
 the original 56px header, 260px navigation, and 320px desktop session list; the
 mobile editor must stop above the bottom navigation.
 
-Docker resolves the same locked Git dependencies and copies Sapid CSS from its
+Docker resolves the same locked crates.io dependencies and copies Sapid CSS from its
 Cargo package. No additional source contexts are required:
 
 ```powershell

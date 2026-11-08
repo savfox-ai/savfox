@@ -283,7 +283,8 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                     text()
                         .class("ov-model-id")
                         .content(string(&model, &["name", "model_slug", "id"])),
-                    text()
+                    sapid::badge()
+                        .unstyled()
                         .class("ov-model-provider-badge")
                         .content(string(&model, &["provider_name", "provider"])),
                 )),

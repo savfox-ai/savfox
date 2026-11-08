@@ -360,9 +360,9 @@ arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-or
 
 arkret-test-kit = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "8d53a52b6a7a0dd090793c78101652993fa66c6a" }
 
-# Browser UI: Cargo.lock pins the upstream main revisions used by every build.
-glory = { git = "https://github.com/glory-rs/glory.git", branch = "main", default-features = false, features = ["web", "ssr"] }
-sapid = { git = "https://github.com/sapid-ui/sapid.git", branch = "main", features = ["code", "json", "dates", "files", "charts"] }
+# Browser UI: use exact crates.io releases with checksums pinned in Cargo.lock.
+glory = { version = "=0.7.0", default-features = false, features = ["web", "ssr"] }
+sapid = { version = "=0.7.1", features = ["code", "json", "dates", "files", "charts"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
@@ -424,11 +424,6 @@ use_self = "warn"
 broken_intra_doc_links = "warn"
 
 # ── Dependency source patches ───────────────────────────────────────────────
-[patch."https://github.com/sapid-ui/sapid.git"]
-# Sapid main declares Glory via a sibling path. Within a Git dependency Cargo
-# interprets it as a package in Sapid's Git source; redirect it to our one Glory.
-glory = { git = "https://github.com/glory-rs/glory.git", branch = "main" }
-
 # The Garth and bridge manifests use sibling SDK paths. Redirect their Git
 # source dependencies to the same SDK revision to keep shared types identical.
 [patch."https://github.com/arkret-org/garth.git"]

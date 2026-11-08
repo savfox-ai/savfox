@@ -3846,8 +3846,9 @@ dependencies = [
 
 [[package]]
 name = "glory"
-version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#04a7095a938e7758d0f80ef1b5470719aed7095c"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bd3145940910f82a153c99a3ee23dc924348779b0e6e88c99898ff8c6de80e5"
 dependencies = [
  "glory-core",
  "glory-html",
@@ -3860,16 +3861,18 @@ dependencies = [
 
 [[package]]
 name = "glory-core"
-version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#04a7095a938e7758d0f80ef1b5470719aed7095c"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3e475d59770a922eb940c79cf9feecddf43d9f9a4019e22fa6df814ede06299"
 dependencies = [
  "glory-render",
 ]
 
 [[package]]
 name = "glory-html"
-version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#04a7095a938e7758d0f80ef1b5470719aed7095c"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f7867f085136e703e2e539c64e14f29d339149bf8cd099bb22838b5dc88d689"
 dependencies = [
  "glory-render",
  "glory-style",
@@ -3877,16 +3880,18 @@ dependencies = [
 
 [[package]]
 name = "glory-render"
-version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#04a7095a938e7758d0f80ef1b5470719aed7095c"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2628b7d4c96cce62e6adb7555289bae07dace266839da90defb70a9eefb073cd"
 dependencies = [
  "glory-style",
 ]
 
 [[package]]
 name = "glory-ssr"
-version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#04a7095a938e7758d0f80ef1b5470719aed7095c"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f849947ead75e59c4fdfd60811611b7940827b6e3cbbf5a04deced0750090a4"
 dependencies = [
  "glory-core",
  "glory-html",
@@ -3896,13 +3901,15 @@ dependencies = [
 
 [[package]]
 name = "glory-style"
-version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#04a7095a938e7758d0f80ef1b5470719aed7095c"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d28b3ddc414138e0d745d3e58eec24171938fb58d92c6e5fbcf73bf37e01f3a"
 
 [[package]]
 name = "glory-ui"
-version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#04a7095a938e7758d0f80ef1b5470719aed7095c"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20c2f12acaf8eccccc5c7a86446ce8e92afae8b1bdc69a31deb0cc8afd0b37cd"
 dependencies = [
  "glory-core",
  "glory-render",
@@ -3911,8 +3918,9 @@ dependencies = [
 
 [[package]]
 name = "glory-web"
-version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#04a7095a938e7758d0f80ef1b5470719aed7095c"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a9b98a8fdfaa5fc1c951e2f24f14cf85ce82420405f04db08c0fa1d5b161d8e"
 dependencies = [
  "futures-util",
  "glory-core",
@@ -9437,8 +9445,9 @@ dependencies = [
 
 [[package]]
 name = "sapid"
-version = "0.6.1"
-source = "git+https://github.com/sapid-ui/sapid.git?branch=main#f13004b6f6a8b9578945944801380faa78e751e9"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11b597a93e13dbb345e527b49e0aaa4fd7b10ce15d68c7a0a158752007d7aea1"
 dependencies = [
  "glory",
  "libm",

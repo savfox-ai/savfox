@@ -420,10 +420,19 @@ pub fn render(content: &str) -> Box<dyn Widget> {
             )),
             Block::Code { source, language } => {
                 let copy = source.clone();
-                children.push(Box::new(
-                    col().class("markdown-code-block").fill((
-                        row().class("markdown-code-header").fill((
-                            text().content(language),
+                let copy_button: Box<dyn Widget> =
+                    if source.len() <= glory::render::MAX_CLIPBOARD_BYTES {
+                        Box::new(
+                            sapid::copy_button()
+                                .class("copy-code")
+                                .label("Copy code")
+                                .source(copy)
+                                .feedback_delay(|| Box::pin(crate::utils::sleep_ms(2_000))),
+                        )
+                    } else {
+                        // Sapid's clipboard contract is bounded to 64 KiB. Keep
+                        // copying complete larger fences instead of truncating them.
+                        Box::new(
                             sapid::button()
                                 .class("copy-code")
                                 .label("Copy code")
@@ -435,11 +444,32 @@ pub fn render(content: &str) -> Box<dyn Widget> {
                                     #[cfg(not(target_arch = "wasm32"))]
                                     let _ = &copy;
                                 }),
-                        )),
-                        text()
-                            .class("markdown-code")
-                            .kind(TextKind::Code)
-                            .content(source),
+                        )
+                    };
+                let code: Box<dyn Widget> =
+                    if sapid::tokenize_code(&source, sapid::CodeLanguage::Plain).is_ok() {
+                        Box::new(
+                            sapid::code_block()
+                                .unstyled()
+                                .class("markdown-code")
+                                .source(source),
+                        )
+                    } else {
+                        // Chat fences may exceed Sapid's byte, line or token
+                        // budgets; preserve their full text with Glory's code text.
+                        Box::new(
+                            text()
+                                .class("markdown-code")
+                                .kind(TextKind::Code)
+                                .content(source),
+                        )
+                    };
+                children.push(Box::new(
+                    col().class("markdown-code-block").fill((
+                        row()
+                            .class("markdown-code-header")
+                            .fill((text().content(language), copy_button)),
+                        code,
                     )),
                 ));
             }
@@ -487,5 +517,25 @@ mod tests {
         assert!(html.contains("fn main() {}"));
         assert!(html.contains(">first<"));
         assert!(html.contains(">second<"));
+    }
+
+    #[test]
+    fn large_code_fences_keep_complete_text_when_sapid_budgets_are_exceeded() {
+        for source in [
+            format!("{}end-of-fence", "x".repeat(sapid::MAX_CODE_BYTES)),
+            format!("{}end-of-fence", "line\n".repeat(sapid::MAX_CODE_LINES + 1)),
+        ] {
+            let html = glory::ssr::render_with(|_| super::render(&format!("```\n{source}\n```")))
+                .expect("large code fences must still render");
+            assert!(
+                html.contains(&source),
+                "the fallback must preserve every byte"
+            );
+            assert!(!html.contains("sapid-code-block"));
+            assert_eq!(
+                html.contains("sapid-copy-button"),
+                source.len() <= glory::render::MAX_CLIPBOARD_BYTES
+            );
+        }
     }
 }

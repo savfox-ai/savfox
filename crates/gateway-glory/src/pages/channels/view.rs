@@ -219,13 +219,14 @@ fn channel_copy(ctx: &AppContext, en: &'static str, zh: &'static str) -> glory::
 fn channel_button(
     label: impl Into<glory::Vary<String>>,
     class: &str,
-    mut action: impl FnMut() + 'static,
+    action: impl FnMut() + 'static,
 ) -> Box<dyn Widget> {
     Box::new(
-        glory::prelude::button()
+        sapid::button()
+            .unstyled()
             .label(label)
             .class(class.to_owned())
-            .on(glory::prelude::activate, move |_| action()),
+            .on_press(action),
     )
 }
 
@@ -411,13 +412,17 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
                         "channels-btn",
                         move || ui::set(show_search, !show_search.get()),
                     ),
-                    text()
+                    sapid::badge()
+                        .unstyled()
                         .class("channels-status-badge channels-status-badge--connected")
                         .content(active),
-                    text()
+                    sapid::badge()
+                        .unstyled()
                         .class("channels-status-badge channels-status-badge--configured")
                         .content(configured),
-                    glory::prelude::button()
+                    sapid::toggle()
+                        .unstyled()
+                        .pressed(auto)
                         .label(channel_copy(ctx, "Auto-refresh", "自动刷新"))
                         .class(auto.map(|enabled| {
                             if *enabled {
@@ -426,9 +431,7 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
                                 "channels-btn".into()
                             }
                         }))
-                        .on(glory::prelude::activate, move |_| {
-                            ui::set(auto, !auto.get())
-                        }),
+                        .on_pressed_change(move |next| ui::set(auto, next)),
                     channel_button(
                         channel_copy(ctx, "Refresh", "刷新"),
                         "channels-btn",
@@ -458,7 +461,10 @@ fn dashboard(ctx: &AppContext) -> Box<dyn Widget> {
             }),
             col().class("channels-grid").fill(rows),
             when(empty, move || {
-                text().class("channels-empty").content(empty_label)
+                sapid::empty_state()
+                    .unstyled()
+                    .class("channels-empty")
+                    .title(empty_label)
             }),
             channel_button(
                 channel_copy(ctx, "Platform runtime status", "平台运行状态"),
@@ -540,7 +546,6 @@ fn channel_card(
         }
         .to_owned()
     });
-    let menu = ctx.scope.cage(false);
     let edit_ctx = ctx.clone();
     let edit_id = id.clone();
     let health_ctx = ctx.clone();
@@ -680,42 +685,42 @@ fn channel_card(
                     )),
                 )),
                 row().class("channels-card__header-actions").fill((
-                    text().class(badge_class).content(status_label),
-                    col().class("channels-card__menu-wrap").fill((
-                        glory::prelude::button()
-                            .name(channel_copy(ctx, "Channel actions", "渠道操作"))
-                            .class("channels-card__menu-trigger")
-                            .fill(text().class("shell-icon shell-icon--settings").content(""))
-                            .on(glory::prelude::activate, move |_| {
-                                ui::set(menu, !menu.get())
-                            }),
-                        col()
-                            .class(menu.map(|open| {
-                                if *open {
-                                    "channels-card__menu".into()
-                                } else {
-                                    "channels-card__menu is-hidden".into()
-                                }
-                            }))
-                            .fill((
-                                channel_button(
-                                    channel_copy(ctx, "Configure", "配置"),
-                                    "channels-card__menu-item",
-                                    move || edit_ctx.navigate(&format!("/channels/edit/{edit_id}")),
-                                ),
-                                channel_button(
-                                    channel_copy(ctx, "Health", "健康状态"),
-                                    "channels-card__menu-item",
-                                    move || {
+                    sapid::badge()
+                        .unstyled()
+                        .class(badge_class)
+                        .content(status_label),
+                    col()
+                        .class("channels-card__menu-wrap shell-icon--settings")
+                        .fill(
+                            sapid::dropdown_menu(format!(
+                                "channel-actions-{}",
+                                crate::pages::common::select_key(&id)
+                            ))
+                            .unstyled()
+                            .class("channels-actions-menu")
+                            .label(channel_copy(ctx, "Channel actions", "渠道操作"))
+                            .width(190.0)
+                            .items([
+                                sapid::menu_item("configure")
+                                    .unstyled()
+                                    .class("channels-card__menu-item")
+                                    .label(channel_copy(ctx, "Configure", "配置"))
+                                    .on_activate(move || {
+                                        edit_ctx.navigate(&format!("/channels/edit/{edit_id}"))
+                                    }),
+                                sapid::menu_item("health")
+                                    .unstyled()
+                                    .class("channels-card__menu-item")
+                                    .label(channel_copy(ctx, "Health", "健康状态"))
+                                    .on_activate(move || {
                                         health_ctx
                                             .navigate(&format!("/channels/health/{health_id}"))
-                                    },
-                                ),
-                                channel_button(
-                                    channel_copy(ctx, "Start", "启动"),
-                                    "channels-card__menu-item",
-                                    move || {
-                                        ui::set(menu, false);
+                                    }),
+                                sapid::menu_item("start")
+                                    .unstyled()
+                                    .class("channels-card__menu-item")
+                                    .label(channel_copy(ctx, "Start", "启动"))
+                                    .on_activate(move || {
                                         runtime_action(
                                             &start_ctx,
                                             &start_state,
@@ -723,13 +728,12 @@ fn channel_card(
                                             &start_kind,
                                             &start_id,
                                         )
-                                    },
-                                ),
-                                channel_button(
-                                    channel_copy(ctx, "Stop", "停止"),
-                                    "channels-card__menu-item",
-                                    move || {
-                                        ui::set(menu, false);
+                                    }),
+                                sapid::menu_item("stop")
+                                    .unstyled()
+                                    .class("channels-card__menu-item")
+                                    .label(channel_copy(ctx, "Stop", "停止"))
+                                    .on_activate(move || {
                                         runtime_action(
                                             &stop_ctx,
                                             &stop_state,
@@ -737,10 +741,9 @@ fn channel_card(
                                             &stop_kind,
                                             &stop_id,
                                         )
-                                    },
-                                ),
-                            )),
-                    )),
+                                    }),
+                            ]),
+                        ),
                 )),
             )),
             col().class("channels-card__metrics").fill(metrics),
@@ -748,7 +751,9 @@ fn channel_card(
                 text().class("channels-card__error").content(error)
             }),
             row().class("channels-card__actions").fill((
-                glory::prelude::button()
+                sapid::button()
+                    .unstyled()
+                    .pressed(entry.map(|entry| entry.enabled))
                     .name(entry.map(|entry| {
                         if entry.enabled {
                             "Disable".to_owned()
@@ -777,9 +782,7 @@ fn channel_card(
                             "channels-action-btn".into()
                         }
                     }))
-                    .on(glory::prelude::activate, move |_| {
-                        toggle_enabled(&enable_ctx, &enable_state, entry.get())
-                    }),
+                    .on_press(move || toggle_enabled(&enable_ctx, &enable_state, entry.get())),
                 channel_button(
                     channel_copy(ctx, "Test", "测试"),
                     "channels-action-btn channels-action-btn--test",

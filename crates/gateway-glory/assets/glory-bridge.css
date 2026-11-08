@@ -16,9 +16,6 @@ body{font-size:14px;overflow:hidden}
 .app-layout .sapid-field-label{color:var(--text-secondary)!important;font:600 12px/1.4 var(--font-body)!important}
 .app-layout .sapid-field-description{color:var(--text-muted)!important;font:400 12px/1.6 var(--font-body)!important;overflow-wrap:anywhere}
 .app-layout .sapid-field-error{color:var(--danger)!important;font:400 12px/1.6 var(--font-body)!important}
-.app-layout .sapid-password-group{width:100%;min-width:0;align-items:center!important;gap:8px!important}
-.app-layout .sapid-password-group>.sapid-input-group-control{flex:1 1 0!important;min-width:0}
-.app-layout .sapid-password-group input{min-width:0;width:100%;box-sizing:border-box}
 .app-layout .sapid-password-toggle{flex:0 0 auto;white-space:nowrap;align-self:center!important}
 .app-layout input:not([type="checkbox"]):not([type="radio"]):focus,.app-layout textarea:focus{border-color:var(--accent)!important;box-shadow:var(--field-focus)!important}
 .app-layout .sapid-button:where(:not(.sapid-unstyled),.btn),.auth-container .sapid-button:where(:not(.sapid-unstyled),.btn){min-height:var(--control-height);padding:7px 12px!important;border-radius:var(--radius)!important;border:1px solid var(--surface-stroke)!important;background:var(--button-surface)!important;box-shadow:var(--surface-inner),var(--button-soft-shadow);color:var(--text-secondary)!important;font:600 13px/20px var(--font-body)!important}
@@ -54,8 +51,8 @@ body{font-size:14px;overflow:hidden}
 .sidebar-rail__item .nav-label{display:none!important}
 .sidebar-rail__item{flex-shrink:0}
 .sidebar-rail__settings{margin-top:auto}
-.nav-group-header{width:100%;font-size:13px!important;font-weight:700!important;flex:0 0 auto;gap:7px}
-.nav-group-header .shell-icon{width:13px;height:13px;min-width:13px;min-height:13px;flex-basis:13px}
+.nav-group>.sapid-collapsible-trigger{width:100%;font-size:13px!important;font-weight:700!important;flex:0 0 auto;gap:7px}
+.nav-group>.sapid-collapsible-trigger .shell-icon{width:13px;height:13px;min-width:13px;min-height:13px;flex-basis:13px}
 .nav-group-links{display:flex!important;flex-direction:column;gap:1px}
 .nav-group-links.is-collapsed{display:none!important}
 .nav-link{flex:0 0 auto;font-size:14px!important;line-height:1.4!important}
@@ -74,8 +71,8 @@ body{font-size:14px;overflow:hidden}
 .gateway-page>.page-title{font-size:28px!important;font-weight:700!important;font-family:var(--font-display)!important;line-height:1.15!important;letter-spacing:.015em;margin:0}
 .gateway-page>.page-description{font-size:13px!important;color:var(--text-muted)!important;margin:0 0 16px;line-height:1.6}
 .card{padding:20px;border:1px solid var(--surface-stroke);border-radius:var(--radius-lg);background:var(--surface-panel);box-shadow:var(--surface-inner),var(--surface-shadow-soft);gap:14px;min-width:0}
-.card-title{font-size:15px!important;font-weight:700!important;font-family:var(--font-display)!important}
-.card-body{gap:12px;min-width:0}
+:is(.card-title,.sapid-card-title){font-size:15px!important;font-weight:700!important;font-family:var(--font-display)!important}
+:is(.card-body,.sapid-card-body){gap:12px;min-width:0}
 .form-field{gap:6px;min-width:0}
 .page-status{font-size:12px;gap:5px}
 .error-message,.app-layout .error-message{color:var(--danger)!important;white-space:pre-wrap}
@@ -129,7 +126,24 @@ body{font-size:14px;overflow:hidden}
 @media(max-width:480px){.app-layout>.app-body{height:calc(100dvh - var(--header-height) - 56px - env(safe-area-inset-bottom));flex:0 0 calc(100dvh - var(--header-height) - 56px - env(safe-area-inset-bottom))!important;max-height:calc(100dvh - var(--header-height) - 56px - env(safe-area-inset-bottom))}}
 @media(max-width:480px){.app-layout .main-content{padding-bottom:0!important}}
 @media(max-width:480px){.sidebar-overlay.visible{display:none!important}}
+/* Application layout for Sapid's structural slots. */
+.sapid-card.card,.sapid-card.card>.sapid-card-body{display:flex!important;flex-direction:column}
+.sapid-card.card>.sapid-card-header{display:contents!important}
+.sapid-card.card>.sapid-card-footer:empty{display:none!important}
+.nav-group{display:flex!important;flex-direction:column;gap:1px}
+.nav-group>.sapid-collapsible-trigger{display:flex!important;align-items:center;text-align:left;cursor:pointer}
+.nav-group>.sapid-collapsible-panel{padding:0!important}
+.chat-empty>.sapid-empty-title,.chat-empty>.sapid-empty-description{margin:0}
+.chat-empty>.sapid-empty-illustration{display:flex;justify-content:center}
+.empty-state>.sapid-empty-title,.agent-empty-detail .sapid-empty-title,.channels-empty>.sapid-empty-title{font-size:14px!important;font-weight:400!important;margin:0;color:var(--text-muted)!important}
+.channels-card__menu-wrap>.sapid-menu-trigger{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:1px solid var(--border);border-radius:var(--radius);background:transparent;color:var(--text-muted);font-size:0;cursor:pointer}
+.channels-card__menu-wrap>.sapid-menu-trigger::before{content:"";width:16px;height:16px;background:currentColor;mask:var(--shell-icon) center/contain no-repeat}
+.channels-card__menu-wrap>.sapid-menu-trigger:hover{background:var(--bg-hover);color:var(--text-primary)}
+.channels-actions-menu{display:flex;flex-direction:column;padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-primary);color:var(--text-secondary);box-shadow:0 12px 32px rgba(0,0,0,.35)}
 /* Match the reference header on phones, including its compact brand subtitle. */
 @media(max-width:480px){.app-layout{--header-height:56px}.app-layout>.top-header{gap:6px!important}.top-header__left,.top-header__right,.top-header__brand{gap:8px!important}.top-header__brand .top-header__logo{width:36px!important;height:36px!important}.app-layout .top-header__title{font-size:26px!important}.app-layout .top-header__subtitle{display:inline-flex!important;font-size:9px!important;letter-spacing:.12em;white-space:nowrap}.top-header__bell{display:inline-flex!important;width:38px!important;height:38px!important;flex-shrink:0}.top-header__health{font-size:11px!important;padding:4px 8px!important}}
 
 @media(max-width:360px){.app-layout .top-header__subtitle{display:none!important}}
+
+.app-layout .sapid-text-field-editor:has(.sapid-password-input),.auth-container .sapid-text-field-editor:has(.sapid-password-input){min-width:0;width:100%}
+.app-layout .sapid-text-field-editor .sapid-password-toggle,.auth-container .sapid-text-field-editor .sapid-password-toggle{min-height:0!important;padding:0!important}

@@ -234,8 +234,8 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 .unwrap_or("")
                 .to_owned();
             Box::new(
-                link()
-                    .target(url)
+                sapid::anchor()
+                    .href(url)
                     .fill(text().content(ui::label_for(locale, "Open generated audio"))),
             ) as Box<dyn Widget>
         },

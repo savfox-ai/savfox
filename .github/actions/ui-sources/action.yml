@@ -1,5 +1,5 @@
 name: Verify semantic UI dependencies
-description: Verify and report the upstream main revisions pinned in Cargo.lock
+description: Verify and report the crates.io versions pinned in Cargo.lock
 runs:
   using: composite
   steps:

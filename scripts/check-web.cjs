@@ -229,9 +229,17 @@ const server = http.createServer((request, response) => {
       assert.equal(connections, navigationConnections, `WebSocket reconnected navigating to ${route}`);
       assert.deepEqual(navigationDocuments, [], 'Internal links must not request a new document');
     }
-    for (const header of await page.locator('.sidebar-nav .nav-group-header').all()) {
+    for (const header of await page.locator('.sidebar-nav .nav-group > .sapid-collapsible-trigger').all()) {
       if (await header.getAttribute('aria-expanded') === 'false') await header.click();
     }
+    const disclosure = page.locator('.sidebar-nav .nav-group > .sapid-collapsible-trigger').first();
+    await disclosure.focus();
+    await disclosure.press('Space');
+    await page.waitForFunction(() => document.querySelector('.sidebar-nav .nav-group > .sapid-collapsible-trigger')?.getAttribute('aria-expanded') === 'false');
+    assert.equal(await page.locator('.sidebar-nav a[href="/agents"]').isVisible(), false);
+    await disclosure.press('Enter');
+    await page.waitForFunction(() => document.querySelector('.sidebar-nav .nav-group > .sapid-collapsible-trigger')?.getAttribute('aria-expanded') === 'true');
+    await page.locator('.sidebar-nav a[href="/agents"]').waitFor({ state: 'visible' });
     const navigationRoutes = await page.locator('.sidebar-nav a').evaluateAll(links => links.map(link => link.getAttribute('href')));
     for (const route of navigationRoutes) {
       for (const part of ['.nav-label', '.shell-icon']) {
@@ -284,6 +292,20 @@ const server = http.createServer((request, response) => {
       report.routes.push(route);
       console.log(`Checked ${route}`);
     }
+    await page.goto(base + '/channels');
+    const channelMenu = page.getByRole('button', { name: 'Channel actions', exact: true }).first();
+    await channelMenu.focus();
+    await channelMenu.press('ArrowDown');
+    const configureChannel = page.getByRole('menuitem', { name: 'Configure', exact: true });
+    await configureChannel.waitFor({ state: 'visible' });
+    assert(await configureChannel.evaluate(node => node === document.activeElement), 'Menu must focus its first action');
+    await configureChannel.press('Escape');
+    await configureChannel.waitFor({ state: 'hidden' });
+    assert(await channelMenu.evaluate(node => node === document.activeElement), 'Escape must restore the channel action trigger');
+    await channelMenu.press('Enter');
+    await configureChannel.press('Enter');
+    await page.waitForURL(base + '/channels/edit/discord-test');
+    report.checks.push('Sapid disclosure keyboard state; channel menu keyboard selection and Escape focus restoration');
     await page.goto(base + '/settings');
     await page.getByText('Page not found', {exact:true}).waitFor();
     assert.equal(await page.locator('.sidebar a[href="/settings"]').count(),0);
@@ -423,12 +445,12 @@ const server = http.createServer((request, response) => {
       await page.setViewportSize({ width, height: 1000 });
       await credential.scrollIntoViewIfNeeded();
       const layout = await credential.evaluate(input => {
-        const group = input.closest('.sapid-password-group');
+        const group = input.closest('.sapid-text-field-editor');
         const toggle = group.querySelector('button');
         const card = input.closest('.skill-card').getBoundingClientRect();
         const a = input.getBoundingClientRect(), b = toggle.getBoundingClientRect();
         const save = input.closest('.actions').querySelector(':scope > button').getBoundingClientRect();
-        return { aligned: Math.abs(a.y - b.y) <= 1 && Math.abs(a.height - b.height) <= 1, contained: a.width >= 40 && a.x >= card.x && b.right <= card.right && save.right <= card.right, overflow: document.documentElement.scrollWidth > innerWidth + 1 };
+        return { aligned: Math.abs(a.y + a.height / 2 - b.y - b.height / 2) <= 1, contained: a.width >= 40 && a.x >= card.x && b.right <= a.right && b.y >= a.y && b.bottom <= a.bottom && save.right <= card.right, overflow: document.documentElement.scrollWidth > innerWidth + 1, input: a.toJSON(), toggle: b.toJSON(), card: card.toJSON(), save: save.toJSON() };
       });
       assert(layout.aligned && layout.contained && !layout.overflow, `Expanded skill credentials must fit and align at ${width}px: ${JSON.stringify(layout)}`);
       await page.screenshot({ path: path.join(cache, `skills-credentials-${width}.png`) });
@@ -468,6 +490,12 @@ const server = http.createServer((request, response) => {
     assert(await strong.evaluate(element => Number(getComputedStyle(element).fontWeight) >= 600), 'Markdown strong text must render bold');
     await page.locator('.chat-message.assistant .markdown-paragraph').filter({ hasText: '- Fixture list item' }).waitFor();
     await page.locator('.chat-message.assistant .markdown-code-block .markdown-code').filter({ hasText: 'const answer = 42;' }).waitFor();
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const copyCode = page.locator('.chat-message.assistant .sapid-copy-button').first();
+    await copyCode.click();
+    await page.waitForFunction(() => navigator.clipboard.readText().then(text => text === 'const answer = 42;\n'));
+    await copyCode.filter({ hasText: 'Copied' }).waitFor();
+    report.checks.push('Sapid code block copies the full source with clipboard completion feedback');
     const historyImage = page.locator('.chat-message-attachment[alt="fixture-preview.png"]');
     await historyImage.waitFor({ state: 'visible' });
     await page.waitForFunction(() => {

@@ -64,7 +64,8 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                             .class("page-title logs-title")
                             .kind(TextKind::Heading(1))
                             .content(ui::label_for(locale, "Logs")),
-                        text()
+                        sapid::badge()
+                            .unstyled()
                             .class("logs-count-badge")
                             .content(ctx.scope.bond(move || filtered.get().len().to_string())),
                     )),

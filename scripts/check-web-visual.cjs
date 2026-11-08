@@ -92,11 +92,11 @@ function inspectLayout() {
       const rect = control.getBoundingClientRect();
       return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, height: rect.height };
     })),
-    passwordGroups: [...document.querySelectorAll('.sapid-password-group')].filter(visible).map(group => {
+    passwordGroups: [...document.querySelectorAll('.sapid-text-field-editor:has(.sapid-password-input)')].filter(visible).map(group => {
       const input = group.querySelector('input');
       const toggle = group.querySelector('.sapid-password-toggle');
       const a = input.getBoundingClientRect(), b = toggle.getBoundingClientRect(), bounds = group.getBoundingClientRect();
-      return { inputHeight: a.height, toggleHeight: b.height, inputWidth: a.width, toggleUnstyled: toggle.classList.contains('sapid-unstyled'), aligned: Math.abs(a.y - b.y) <= 1, contained: a.x >= bounds.x - 1 && b.right <= bounds.right + 1 && a.right <= b.x };
+      return { inputHeight: a.height, toggleHeight: b.height, inputWidth: a.width, toggleUnstyled: toggle.classList.contains('sapid-unstyled'), aligned: Math.abs(a.y + a.height / 2 - b.y - b.height / 2) <= 1, contained: a.x >= bounds.x - 1 && b.right <= a.right + 1 && b.y >= a.y - 1 && b.bottom <= a.bottom + 1 };
     }),
     forcedCase: [...document.querySelectorAll('h1,h2,h3,button,label,a,[data-gly-kind="text"]')]
       .filter(visible)
@@ -135,7 +135,7 @@ function verify(item) {
     }
   }
   for (const group of metrics.passwordGroups) {
-    if (!group.aligned || !group.contained || Math.abs(group.inputHeight - group.toggleHeight) > 1 || group.inputWidth < 40) problems.push('password input and visibility action are misaligned or clipped');
+    if (!group.aligned || !group.contained || group.inputWidth < 40) problems.push('password input and visibility action are misaligned or clipped');
     if (group.toggleUnstyled) problems.push('password visibility action bypasses the shared control skin');
   }
   if (metrics.forcedCase.length) problems.push('visible text is forced into another case: ' + JSON.stringify(metrics.forcedCase));

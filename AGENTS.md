@@ -126,9 +126,11 @@ savfox-cli / savfox-exec / savfox-tui
 ## Gateway And Frontend Notes
 
 - `scripts/build-web.ps1` is the canonical frontend build/sync script.
-- That script fingerprints frontend and locked Git Glory/Sapid inputs, skips unnecessary rebuilds, and syncs the generated bundle from the directory reported by Cargo metadata into `crates/gateway-server/static`.
+- That script fingerprints frontend and locked crates.io Glory/Sapid inputs, skips unnecessary rebuilds, and syncs the generated bundle from the directory reported by Cargo metadata into `crates/gateway-server/static`.
 - When you change `crates/gateway-glory` or `crates/gateway-shared`, verify the web build still succeeds and that the gateway can serve the updated static assets.
 - `crates/gateway-server/src/ws_rpc` carries a large compatibility-heavy JSON-RPC surface. Preserve existing method names and aliases unless the change explicitly intends to break or version the protocol.
+
+- Prefer existing Sapid widgets for controls, disclosure, menus, loading, cards and code display. Shared helpers should only adapt application state, localization or styling; retain a custom implementation only where the published widget cannot meet a concrete requirement.
 
 ### Icons
 
@@ -136,10 +138,10 @@ The Glory frontend uses Sapid's semantic icon widgets and SVG assets. Give icon-
 
 ### Frontend dependencies
 
-- Glory: `https://github.com/glory-rs/glory.git`, branch `main`.
-- Sapid: `https://github.com/sapid-ui/sapid.git`, branch `main`.
-- `Cargo.lock` pins the actual Git commits. Sapid's Git source is patched to the same Glory Git dependency because upstream Sapid still declares a sibling Glory path. Do not introduce local path fallbacks or modify shared framework checkouts to make a build pass.
-- `scripts/build-web.cjs` resolves Sapid CSS from Cargo metadata and verifies both Git sources; `.github/actions/ui-sources` reports the locked revisions in CI.
+- Glory: crates.io version `0.7.0`.
+- Sapid: crates.io version `0.7.1`.
+- `Cargo.toml` requires these exact versions; `Cargo.lock` pins their registry sources and checksums. Do not introduce Git dependencies, local path fallbacks or modify shared framework checkouts to make a build pass.
+- `scripts/build-web.cjs` resolves Sapid CSS from Cargo metadata and verifies both crates.io sources and versions; `.github/actions/ui-sources` reports the locked versions in CI.
 - Build browser artifacts with `scripts/build-web.ps1`; it verifies Cargo's actual target directory and requires a matching wasm-bindgen CLI.
 
 ## Generated Artifacts

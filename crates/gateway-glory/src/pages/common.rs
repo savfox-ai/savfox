@@ -76,15 +76,14 @@ pub fn status(ctx: &AppContext, state: &Query) -> Box<dyn Widget> {
     Box::new(
         col().class("page-status").fill((
             ui::error_text(ctx, state.error),
-            text()
+            sapid::loader()
                 .class("loading-state")
-                .content(ctx.scope.bond(move || {
-                    if busy.get() {
-                        ui::translate(locale.get(), "Loading…")
-                    } else {
-                        String::new()
-                    }
-                })),
+                .size(sapid::Size::Small)
+                .visible(busy)
+                .name(
+                    ctx.scope
+                        .bond(move || ui::translate(locale.get(), "Loading…")),
+                ),
         )),
     )
 }
@@ -102,13 +101,12 @@ pub fn refresh(ctx: &AppContext, state: &Query) -> Box<dyn Widget> {
 }
 pub fn card(title: impl Into<Vary<String>>, children: Vec<Box<dyn Widget>>) -> Box<dyn Widget> {
     Box::new(
-        col().class("card").fill((
-            text()
-                .class("card-title")
-                .kind(TextKind::Heading(2))
-                .content(title.into()),
-            col().class("card-body").fill(children),
-        )),
+        sapid::card()
+            .unstyled()
+            .class("card")
+            .title(title.into())
+            .heading_level(2)
+            .fill(children),
     )
 }
 pub fn paragraph(value: impl Into<Vary<String>>) -> Box<dyn Widget> {
@@ -326,13 +324,12 @@ pub fn records(
     let empty_locale = ctx.locale;
     Box::new(
         col().class("record-list").fill((
-            text().class("empty-state").content(ctx.scope.bond(move || {
-                if items.get().is_empty() {
-                    ui::translate(empty_locale.get(), "No entries")
-                } else {
-                    String::new()
-                }
-            })),
+            when(ctx.scope.bond(move || items.get().is_empty()), move || {
+                sapid::empty_state()
+                    .unstyled()
+                    .class("empty-state")
+                    .title(ui::label_for(empty_locale, "No entries"))
+            }),
             each(items)
                 .key(|(key, _)| key.clone())
                 .children(move |each_row| {

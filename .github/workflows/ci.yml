@@ -151,7 +151,7 @@ jobs:
         with:
           toolchain: ${{ env.RUSTFMT_NIGHTLY }}
           components: rustfmt
-      # Format workspace sources; upstream UI dependencies are locked Git packages.
+      # Format workspace sources; upstream UI dependencies are locked crates.io packages.
       - run: cargo +${{ steps.rustfmt-toolchain.outputs.name }} fmt --check
 
   # ─── Clippy lints ──────────────────────────────────────────────────

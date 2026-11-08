@@ -1434,15 +1434,16 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     } else {
         Box::new(
             col().class("agent-empty-detail").fill(
-                col().class("empty-state agent-empty-card").fill((
-                    text()
-                        .class("agent-empty-icon shell-icon shell-icon--bot")
-                        .content(""),
-                    text()
-                        .class("empty-state__message")
-                        .content(ui::label_for(locale, "Select an agent or create a new one")),
-                    nav(ctx, "Create agent", "/agents/new"),
-                )),
+                sapid::empty_state()
+                    .unstyled()
+                    .class("empty-state agent-empty-card")
+                    .illustration(
+                        text()
+                            .class("agent-empty-icon shell-icon shell-icon--bot")
+                            .content(""),
+                    )
+                    .title(ui::label_for(locale, "Select an agent or create a new one"))
+                    .actions(nav(ctx, "Create agent", "/agents/new")),
             ),
         )
     };

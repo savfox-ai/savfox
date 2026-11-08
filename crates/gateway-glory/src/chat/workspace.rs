@@ -296,21 +296,22 @@ pub(super) fn render(
             let busy = state.history_busy;
             let messages = state.messages;
             when(scope.bond(move || messages.get().is_empty()), move || {
-                col().class("chat-empty").fill((
-                    icon(crate::utils::icons::ICON_MESSAGE_SQUARE),
-                    text().class("chat-empty-title").content(scope_text(
+                sapid::empty_state()
+                    .unstyled()
+                    .class("chat-empty")
+                    .illustration(icon(crate::utils::icons::ICON_MESSAGE_SQUARE))
+                    .title(scope_text(
                         locale,
                         busy,
                         "Start a new session",
                         "开始新的会话",
-                    )),
-                    text().class("chat-empty-description").content(scope_text(
+                    ))
+                    .description(scope_text(
                         locale,
                         busy,
                         "Send your first message to begin",
                         "发送第一条消息，开始对话",
-                    )),
-                ))
+                    ))
             })
         },
         each(message_items)
@@ -414,7 +415,12 @@ pub(super) fn render(
                     .content(label(ctx, "Session", "会话")),
             ),
             Box::new(text().class("session-main-subtitle").content(header_title)),
-            Box::new(text().class("session-main-badge").content(count)),
+            Box::new(
+                sapid::badge()
+                    .unstyled()
+                    .class("session-main-badge")
+                    .content(count),
+            ),
         )),
         row().class("session-main-header__right").fill((
             tool(

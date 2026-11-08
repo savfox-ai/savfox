@@ -64,8 +64,9 @@ fn tab(ctx: &AppContext, label: &str, target: &str) -> Box<dyn Widget> {
     let context = ctx.clone();
     let label = crate::ui::label(ctx, label.to_owned());
     Box::new(
-        link()
-            .target(target.clone())
+        sapid::anchor()
+            .unstyled()
+            .href(target.clone())
             .name(label.clone())
             .class(current.map(move |path| {
                 let path = path.split('?').next().unwrap_or(path);
@@ -77,11 +78,7 @@ fn tab(ctx: &AppContext, label: &str, target: &str) -> Box<dyn Widget> {
                     "btn hub-tab".into()
                 }
             }))
-            .semantics(Some(Box::new(Semantics {
-                link_request: true,
-                ..Default::default()
-            })))
             .fill(text().content(label))
-            .on(activate, move |_| context.navigate(&target)),
+            .on_navigate(move |_| context.navigate(&target)),
     )
 }

@@ -6,13 +6,13 @@
 
 ## 依赖与存储位置
 
-工作区通过 Git 依赖使用 `https://github.com/glory-rs/glory.git` 与
-`https://github.com/sapid-ui/sapid.git` 的 `main` 分支。
-`Cargo.lock` 固定实际提交，使本地、CI 和 Docker 使用相同版本；共享兄弟目录不再
-是构建输入。Sapid 当前仍以兄弟路径声明 Glory，工作区通过针对 Sapid Git 来源的
-patch 将它统一到同一份 Glory Git 依赖，无本地路径回退。
-升级上游版本时运行 `cargo update -p glory -p sapid`，检查锁文件差异，再验证原生
-测试、WASM 和浏览器行为。`.github/actions/ui-sources` 检查锁文件并记录双方提交。
+工作区使用 crates.io 发布的 Glory `0.7.0` 与 Sapid `0.7.1`。
+`Cargo.toml` 要求这两个确切版本，`Cargo.lock` 固定 registry 来源与校验和，
+使本地、CI 和 Docker 使用相同版本。共享兄弟目录不是构建输入，
+这两个包不使用 Git 依赖或本地路径覆盖。
+升级版本时更新工作区版本要求与 `scripts/ui-sources.cjs`，再运行
+`cargo update -p glory -p sapid`，检查锁文件差异，并验证原生测试、WASM
+和浏览器行为。`.github/actions/ui-sources` 检查锁文件并记录双方版本。
 
 需要安装 Rust 的 `wasm32-unknown-unknown` target，以及与 `Cargo.lock` 中
 `wasm-bindgen` 版本一致的 `wasm-bindgen-cli`。可通过 `WASM_BINDGEN` 环境变量
@@ -38,7 +38,7 @@ just gateway-release
 ## 构建边界
 
 `scripts/build-web.ps1` 转交 Node.js 构建引擎 `scripts/build-web.cjs` 执行
-带 `--locked` 的 Cargo 和 wasm-bindgen，从 `cargo metadata` 实际解析的 Git
+带 `--locked` 的 Cargo 和 wasm-bindgen，从 `cargo metadata` 实际解析的 crates.io
 依赖中复制对应 Sapid CSS 与应用资源，
 将完整 bundle 同步到 `crates/gateway-server/static`。
 中间产物位于 `<cargo-target>/web-build/web/<profile>`。
@@ -84,8 +84,13 @@ Glory 的浏览器测试目录。CI 独立执行此验收。
 组件内部的原生 input 保留键盘和标签点击行为；不要禁用 Sapid 样式后在页面 CSS
 里重新绘制控件。通用控件尺寸与配色集中在 `glory-bridge.css`，页面样式只负责布局。
 
-密码框保留 Sapid 样式并提供可见字段标签；输入组的控件容器占用剩余宽度，显示密码
-按钮与输入框保持同高。字段组底板、标题和帮助文字在深浅主题下均使用应用配色。
+控件、导航折叠组、操作菜单、卡片、徽章、加载提示、空状态和代码块优先复用 Sapid
+widget，共用辅助函数只适配应用状态与翻译。代码块超过 Sapid 的字节、行数或 token
+限制时保留文本显示，超过 64 KiB 的复制请求直接调用浏览器剪贴板。
+导航开关保留 Glory 按钮，因为 Sapid 0.7.1 的 Burger 标签不能响应语言切换。
+
+密码框保留 Sapid 样式并提供可见字段标签；输入框填满所在行，显示密码按钮在输入框
+右侧插槽内垂直居中。字段组底板、标题和帮助文字在深浅主题下均使用应用配色。
 操作区默认横排并在窄屏换行；配置导航预留选中边框的宽度，切换分区时标签不应偏移。
 
 共用按钮皮肤仅作用于启用样式的 Sapid 按钮和明确带 `.btn` 的操作按钮。
@@ -106,7 +111,7 @@ Glory 的浏览器测试目录。CI 独立执行此验收。
 除了断言，还必须人工对照迁移前 Dioxus 的真实截图。页面保留原来的
 56px 顶栏、260px 导航栏和桌面 320px 会话列表；手机输入框必须位于底部导航上方。
 
-Docker 使用同一锁定 Git 依赖，并从 Cargo 包复制 Sapid CSS，无需额外源码上下文：
+Docker 使用同一锁定 crates.io 依赖，并从 Cargo 包复制 Sapid CSS，无需额外源码上下文：
 
 ```powershell
 docker buildx build -t savfox .

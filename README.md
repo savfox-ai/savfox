@@ -51,7 +51,7 @@ savfox --full-auto exec "Refactor the auth module"
 
 Build the web frontend and start the gateway server with [just](https://github.com/casey/just):
 
-The Glory + Sapid frontend uses upstream Git `main` dependencies pinned in
+The frontend uses Glory `0.7.0` and Sapid `0.7.1` from crates.io, pinned in
 `Cargo.lock`; shared local checkouts are not required. Install Node.js, the Rust WASM target
 and wasm-bindgen CLI matching `Cargo.lock`; see the
 [web build guide](docs/en/gateway/web-build-release.md). Build output is resolved through Cargo metadata, and the scripts inherit the calling environment.

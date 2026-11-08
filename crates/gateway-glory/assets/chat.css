@@ -962,8 +962,8 @@ body[data-theme=dark] .session-icon { filter:invert(.85); }
 .session-page .chat-messages { flex:1 1 0!important; width:100%; height:100%; min-height:0!important; overflow:auto!important; gap:0!important; padding:24px 28px!important; }
 .session-page .chat-empty { margin:auto; flex:1 1 auto; min-height:100%; width:100%; gap:12px!important; opacity:1!important; }
 .session-page .chat-empty>.session-icon { width:38px!important; height:38px!important; opacity:.25; margin-bottom:6px; }
-.session-page .chat-empty-title { font-size:18px!important; font-weight:500!important; color:var(--text-secondary)!important; }
-.session-page .chat-empty-description { font-size:13px!important; color:var(--text-muted)!important; }
+.session-page :is(.chat-empty-title,.chat-empty>.sapid-empty-title) { font-size:18px!important; font-weight:500!important; color:var(--text-secondary)!important; }
+.session-page :is(.chat-empty-description,.chat-empty>.sapid-empty-description) { font-size:13px!important; color:var(--text-muted)!important; }
 .session-page .chat-message { padding:18px 22px; margin:0 auto 18px; width:100%; max-width:800px; gap:10px!important; color:var(--text-primary)!important; }
 .session-page .chat-message.user { background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius); }
 .session-page .message-author { font-size:12px!important; font-weight:600!important; color:var(--text-secondary)!important; }

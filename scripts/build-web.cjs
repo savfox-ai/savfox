@@ -48,9 +48,9 @@ try {
   console.log(`==> Cargo target verified: ${target}`);
   const dependencies = JSON.parse(run('cargo', ['metadata', '--locked', '--format-version', '1', '--filter-platform', 'wasm32-unknown-unknown'], true));
   const sources = resolvedUiSources(dependencies, fs.readFileSync(path.join(root, 'Cargo.lock'), 'utf8'));
-  const glory = path.resolve(sources.glory, '../..');
+  const glory = sources.glory;
   const sapid = sources.sapid;
-  for (const [name, value] of Object.entries(sources.locked)) console.log(`==> ${name} main: ${value.revision}`);
+  for (const [name, value] of Object.entries(sources.locked)) console.log(`==> ${name} crates.io: ${value.version}`);
   const bindgenIndex = args.findIndex(arg => /^(--bindgen|-Bindgen)$/i.test(arg));
   const localTool = path.join(env.CARGO_HOME || path.join(os.homedir(), '.cargo'), 'bin', process.platform === 'win32' ? 'wasm-bindgen.exe' : 'wasm-bindgen');
   const bindgen = (bindgenIndex >= 0 ? args[bindgenIndex + 1] : undefined) || env.WASM_BINDGEN || (fs.existsSync(localTool) ? localTool : 'wasm-bindgen');
@@ -58,7 +58,7 @@ try {
   const inputs = [__filename, path.join(__dirname, 'cargo-target.cjs'), path.join(__dirname, 'ui-sources.cjs'), path.join(__dirname, 'build-web.ps1'), path.join(root, 'Cargo.toml'), path.join(root, 'Cargo.lock'), path.join(root, '.cargo/config.toml'),
     path.join(web, 'Cargo.toml'), path.join(web, 'src'), path.join(web, 'assets'), path.join(web, 'locales'), path.join(web, 'index.html'),
     path.join(root, 'crates/gateway-shared'), path.join(root, 'crates/utils/src'), path.join(root, 'crates/utils/Cargo.toml'),
-    path.join(glory, 'Cargo.toml'), path.join(glory, 'crates'), path.join(sapid, 'Cargo.toml'), path.join(sapid, 'README.md'), path.join(sapid, 'src'), path.join(sapid, 'styles')];
+    path.join(glory, 'Cargo.toml'), path.join(glory, 'src'), path.join(sapid, 'Cargo.toml'), path.join(sapid, 'README.md'), path.join(sapid, 'src'), path.join(sapid, 'styles')];
   const output = path.join(buildRoot, 'web', profile);
   const stamp = path.join(buildRoot, `${profile}-frontend.stamp`);
   const before = fingerprint(inputs, version);

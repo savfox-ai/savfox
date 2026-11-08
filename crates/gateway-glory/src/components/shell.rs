@@ -52,17 +52,18 @@ fn icon_button(
     key: &'static str,
     glyph: &str,
     class: impl Into<String>,
-    mut press: impl FnMut() + 'static,
+    press: impl FnMut() + 'static,
 ) -> Box<dyn Widget> {
     Box::new(
-        button()
+        sapid::button()
+            .unstyled()
             .name(translated(ctx, key))
             .class(class.into())
             .fill((
                 icon(glyph),
                 text().class("nav-label").content(translated(ctx, key)),
             ))
-            .on(activate, move |_| press()),
+            .on_press(press),
     )
 }
 
@@ -95,21 +96,18 @@ fn nav_link(
         }
     });
     Box::new(
-        link()
-            .target(path)
+        sapid::anchor()
+            .unstyled()
+            .href(path)
             .name(label)
             .class(class)
-            .semantics(Some(Box::new(Semantics {
-                link_request: true,
-                ..Default::default()
-            })))
             .fill((
                 text()
                     .class(format!("{glyph_class} shell-icon shell-icon--{glyph}"))
                     .content(""),
                 text().class("nav-label").content(label),
             ))
-            .on(activate, move |_| {
+            .on_navigate(move |_| {
                 set(more, false);
                 if narrow_viewport() {
                     set(sidebar, false);
@@ -148,6 +146,8 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
 
     let toggle_label = ctx.locale;
     let header_left = row().class("top-header__left").fill((
+        // Burger's open/close labels are static in Sapid 0.7.1; this control
+        // needs a live localized name and expanded state without remounting.
         button()
             .class("hamburger-btn")
             .name(ctx.scope.bond(move || {
@@ -243,28 +243,6 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
     rail.push(Box::new(view().class("sidebar-rail__divider")));
     for (index, &(key, links)) in GROUPS.iter().enumerate() {
         let expanded = groups[index];
-        full.push(Box::new(
-            button()
-                .class("nav-group-header")
-                .name(translated(ctx, key))
-                .semantics(expanded.map(|value| {
-                    Some(Box::new(Semantics {
-                        expanded: Some(*value),
-                        ..Default::default()
-                    }))
-                }))
-                .fill((
-                    text().class(expanded.map(|value| {
-                        if *value {
-                            "shell-icon shell-icon--chevron-down".into()
-                        } else {
-                            "shell-icon shell-icon--chevron-right".into()
-                        }
-                    })),
-                    text().content(translated(ctx, key)),
-                ))
-                .on(activate, move |_| set(expanded, !expanded.get())),
-        ));
         let mut nav = Vec::new();
         for &(path, key, glyph) in links {
             nav.push(nav_link(ctx, path, key, glyph, "nav-link", sidebar, more));
@@ -278,16 +256,33 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 more,
             ));
         }
+        let label = translated(ctx, key);
+        let mut nav = Some(nav);
         full.push(Box::new(
-            col()
-                .class(expanded.map(|value| {
-                    if *value {
-                        "nav-group-links".into()
-                    } else {
-                        "nav-group-links is-collapsed".into()
-                    }
-                }))
-                .fill(nav),
+            sapid::collapsible(format!("nav-group-{index}"))
+                .unstyled()
+                .class("nav-group")
+                .label(label)
+                .open(expanded)
+                .on_open_change(move |open| set(expanded, open))
+                .content_policy(sapid::ContentPolicy::KeepMounted)
+                .trigger_content(move || {
+                    group().fill((
+                        text().class(expanded.map(|open| {
+                            if *open {
+                                "shell-icon shell-icon--chevron-down".into()
+                            } else {
+                                "shell-icon shell-icon--chevron-right".into()
+                            }
+                        })),
+                        text().content(label),
+                    ))
+                })
+                .content(move || {
+                    col()
+                        .class("nav-group-links")
+                        .fill(nav.take().unwrap_or_default())
+                }),
         ));
         if index < GROUPS.len() - 1 {
             rail.push(Box::new(view().class("sidebar-rail__divider")));
@@ -312,7 +307,8 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
             sidebar,
             more,
         ),
-        button()
+        sapid::button()
+            .unstyled()
             .class("sidebar-palette-btn")
             .name(translated(ctx, "nav.command_palette"))
             .fill((
@@ -321,7 +317,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
                     .content(translated(ctx, "nav.command_palette")),
                 text().class("sidebar-palette-shortcut").content("Ctrl+K"),
             ))
-            .on(activate, move |_| {
+            .on_press(move || {
                 remember_palette_focus();
                 set(palette, true);
             }),
@@ -366,7 +362,8 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
                     })
                 })),
         ));
-    let overlay = button()
+    let overlay = sapid::button()
+        .unstyled()
         .name(translated(ctx, "aria.close_nav"))
         .class(sidebar.map(|open| {
             if *open {
@@ -375,7 +372,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 "sidebar-overlay".into()
             }
         }))
-        .on(activate, move |_| set(sidebar, false));
+        .on_press(move || set(sidebar, false));
     Box::new(
         col().class("app-layout gateway-shell").fill((
             row()
@@ -393,8 +390,10 @@ fn locale_buttons(ctx: &AppContext) -> Box<dyn Widget> {
     for locale in Locale::ALL.iter().copied() {
         let current = ctx.locale;
         buttons.push(Box::new(
-            button()
+            sapid::button()
+                .unstyled()
                 .label(locale.label())
+                .pressed(current.map(move |value| *value == locale))
                 .class(current.map(move |value| {
                     if *value == locale {
                         "top-header__lang-btn active".into()
@@ -402,7 +401,7 @@ fn locale_buttons(ctx: &AppContext) -> Box<dyn Widget> {
                         "top-header__lang-btn".into()
                     }
                 }))
-                .on(activate, move |_| {
+                .on_press(move || {
                     i18n::save_locale(locale);
                     set(current, locale);
                     #[cfg(target_arch = "wasm32")]
@@ -428,7 +427,8 @@ fn theme_buttons(ctx: &AppContext, theme: Cage<String>) -> Box<dyn Widget> {
         let value = value.to_owned();
         let selected = value.clone();
         controls.push(Box::new(
-            button()
+            sapid::button()
+                .unstyled()
                 .name(translated(ctx, label))
                 .class(theme.map(move |current| {
                     if *current == selected {
@@ -437,17 +437,12 @@ fn theme_buttons(ctx: &AppContext, theme: Cage<String>) -> Box<dyn Widget> {
                         "top-header__theme-btn".into()
                     }
                 }))
-                .semantics(theme.map({
+                .pressed(theme.map({
                     let value = value.clone();
-                    move |current| {
-                        Some(Box::new(Semantics {
-                            pressed: Some(*current == value),
-                            ..Default::default()
-                        }))
-                    }
+                    move |current| *current == value
                 }))
                 .fill(icon(glyph))
-                .on(activate, move |_| set(theme, value.clone())),
+                .on_press(move || set(theme, value.clone())),
         ));
     }
     Box::new(
@@ -519,7 +514,8 @@ fn mobile_navigation(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) ->
                 .role(Role::Navigation)
                 .name(translated(ctx, "nav.navigation"))
                 .fill(row().class("bottom-tab-bar__items").fill(tabs)),
-            button()
+            sapid::button()
+                .unstyled()
                 .name(translated(ctx, "common.close"))
                 .class(more.map(|open| {
                     if *open {
@@ -528,7 +524,7 @@ fn mobile_navigation(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) ->
                         "more-sheet-backdrop".into()
                     }
                 }))
-                .on(activate, move |_| set(more, false)),
+                .on_press(move || set(more, false)),
             col()
                 .class(more.map(|open| {
                     if *open {
@@ -905,7 +901,7 @@ mod tests {
         for landmark in [
             "sidebar-nav",
             "sidebar-rail",
-            "nav-group-header",
+            "sapid-collapsible-trigger",
             "sidebar-palette-btn",
             "top-header__theme-group",
             "top-header__lang-group",

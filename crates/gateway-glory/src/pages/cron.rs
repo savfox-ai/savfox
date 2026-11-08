@@ -316,11 +316,10 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         Box::new(col().class("cron-detail-content").fill(children))
     } else {
         Box::new(
-            col().class("agent-empty-detail").fill(
-                text()
-                    .class("empty-state__message")
-                    .content(ui::label_for(locale, "Select a job or create a new one")),
-            ),
+            sapid::empty_state()
+                .unstyled()
+                .class("agent-empty-detail")
+                .title(ui::label_for(locale, "Select a job or create a new one")),
         )
     };
     Box::new(row().class(if has_selection {"gateway-page management-page agent-workspace cron-workspace split-view split-view--detail"}else{"gateway-page management-page agent-workspace cron-workspace split-view"}).fill((list,col().class("split-view__detail").fill(detail))))

@@ -154,16 +154,15 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         Box::new(col().class("nodes-detail-content").fill(children))
     } else {
         Box::new(
-            col().class("agent-empty-detail").fill((
-                text()
-                    .class("empty-state__message")
-                    .content(ui::label_for(locale, "Select a node to view details")),
-                ui::details(
+            sapid::empty_state()
+                .unstyled()
+                .class("agent-empty-detail")
+                .title(ui::label_for(locale, "Select a node to view details"))
+                .fill(ui::details(
                     "node-pairing-requests",
                     ui::label_for(locale, "Device pairing requests"),
                     Box::new(col().fill(children)),
-                ),
-            )),
+                )),
         )
     };
     Box::new(row().class(if has_detail {"gateway-page management-page agent-workspace nodes-workspace split-view split-view--detail"}else{"gateway-page management-page agent-workspace nodes-workspace split-view"}).fill((list,col().class("split-view__detail").fill(detail))))

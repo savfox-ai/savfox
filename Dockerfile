@@ -28,7 +28,7 @@ RUN cargo build --locked --release -p savfox-gateway-glory --lib --target wasm32
     cp crates/gateway-glory/index.html /web/index.html && \
     cp -r crates/gateway-glory/assets/. /web/assets/ && \
     sapid_manifest="$(cargo metadata --locked --format-version 1 --filter-platform wasm32-unknown-unknown | \
-      jq -er '.packages[] | select(.name == "sapid" and ((.source // "") | startswith("git+https://github.com/sapid-ui/sapid.git?branch=main#"))) | .manifest_path')" && \
+      jq -er '.packages[] | select(.name == "sapid" and .version == "0.7.1" and .source == "registry+https://github.com/rust-lang/crates.io-index") | .manifest_path')" && \
     cp "$(dirname "$sapid_manifest")/styles/sapid.css" /web/assets/sapid.css
 
 # ---------------------------------------------------------------------------
