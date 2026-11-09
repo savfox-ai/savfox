@@ -2951,10 +2951,7 @@ async fn handle_parsed_account_events(
                     .as_ref()
                     .or(skipped.encrypted_metadata_payload.as_ref())
                     .is_some_and(|payload| {
-                        matches!(
-                            payload.pre_encryption_header.effective_scope,
-                            arkret::ScopeRef::Sidecar { .. }
-                        )
+                        matches!(payload.original.scope_ref, arkret::ScopeRef::Sidecar { .. })
                     })
                     && skipped.accepted_ref.is_none()
                 {
@@ -3455,10 +3452,7 @@ async fn try_handle_encrypted_account_skip(
         .as_ref()
         .or(skipped.encrypted_metadata_payload.as_ref())
         .is_some_and(|payload| {
-            matches!(
-                payload.pre_encryption_header.effective_scope,
-                arkret::ScopeRef::Sidecar { .. }
-            )
+            matches!(payload.original.scope_ref, arkret::ScopeRef::Sidecar { .. })
         });
     if native_sidecar && skipped.accepted_ref.is_none() {
         // A shape-only query cannot execute a request or consume its MLS ratchet
@@ -3478,10 +3472,7 @@ async fn try_handle_encrypted_account_skip(
         anyhow::ensure!(
             skipped.event_id.as_deref() == Some(reference.event_id.as_str())
                 && reference.stream_ref
-                    == arkret::CommitStreamRef::from_scope(
-                        &payload.pre_encryption_header.effective_scope,
-                        None
-                    )?,
+                    == arkret::CommitStreamRef::from_scope(&payload.original.scope_ref, None)?,
             "Sidecar content differs from its verified accepted stream identity"
         );
     }
@@ -3546,7 +3537,7 @@ async fn try_handle_encrypted_account_skip(
                 provider,
                 crypto_store,
                 account,
-                &payload.pre_encryption_header.effective_scope,
+                &payload.original.scope_ref,
                 realm_id,
                 skipped.sender_actor_id.as_ref(),
                 false,
@@ -3564,7 +3555,7 @@ async fn try_handle_encrypted_account_skip(
             "decrypt_interaction_suppressed"
         },
     );
-    match crypto_store.plan_bootstrap_for_payload(
+    match crypto_store.plan_bootstrap_for_event_content(
         &account.principal_id,
         &account.device_id,
         payload,
@@ -3586,9 +3577,9 @@ async fn try_handle_encrypted_account_skip(
     observe_inbound_boundary(channel, account, "mls_decrypt_entered");
     let decrypted = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
         Some(reference) => {
-            crypto_store.try_decrypt_accepted_content_block_detailed(reference, payload)
+            crypto_store.try_decrypt_accepted_event_content_detailed(reference, payload)
         }
-        None => crypto_store.try_decrypt_content_block_detailed(payload),
+        None => crypto_store.try_decrypt_event_content_detailed(payload),
     };
     match decrypted {
         Ok(ArkretDecryptDetailedOutcome::Decrypted {
@@ -3643,7 +3634,7 @@ async fn try_handle_encrypted_account_skip(
                             realm_id: realm_id.clone(),
                             strand_id: strand_id.clone(),
                             stream_ref: arkret::CommitStreamRef::from_scope(
-                                &payload.pre_encryption_header.effective_scope,
+                                &payload.original.scope_ref,
                                 None,
                             )?,
                         },
@@ -3682,7 +3673,7 @@ async fn try_handle_encrypted_account_skip(
                 account_id: skipped.account_id.clone(),
                 event_id,
                 realm_id: realm_id.clone(),
-                scope_ref: payload.pre_encryption_header.effective_scope.clone(),
+                scope_ref: payload.original.scope_ref.clone(),
                 chat_type: if crypto_store
                     .direct_conversation_binding_event_ref(&realm_id)?
                     .is_some()
@@ -3871,7 +3862,7 @@ async fn fold_sidecar_exchange_control(
     };
     let ArkretDecryptDetailedOutcome::Decrypted {
         content: plaintext, ..
-    } = crypto_store.try_decrypt_accepted_content_block_detailed(accepted_ref, payload)?
+    } = crypto_store.try_decrypt_accepted_event_content_detailed(accepted_ref, payload)?
     else {
         debug!(
             account_id = %account.id,
@@ -3979,10 +3970,7 @@ async fn consume_sidecar_exchange_binding(
     event_id: &str,
 ) -> anyhow::Result<SidecarConsumeOutcome> {
     let native_sidecar = skipped.encrypted_payload.as_ref().is_some_and(|payload| {
-        matches!(
-            payload.pre_encryption_header.effective_scope,
-            arkret::ScopeRef::Sidecar { .. }
-        )
+        matches!(payload.original.scope_ref, arkret::ScopeRef::Sidecar { .. })
     });
     let non_request = || {
         if native_sidecar {
@@ -3996,9 +3984,9 @@ async fn consume_sidecar_exchange_binding(
     };
     let decrypted_metadata = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
         Some(reference) => {
-            crypto_store.try_decrypt_accepted_content_block_detailed(reference, metadata_payload)
+            crypto_store.try_decrypt_accepted_event_content_detailed(reference, metadata_payload)
         }
-        None => crypto_store.try_decrypt_content_block_detailed(metadata_payload),
+        None => crypto_store.try_decrypt_event_content_detailed(metadata_payload),
     };
     let Ok(ArkretDecryptDetailedOutcome::Decrypted {
         content: metadata_plaintext,
@@ -4033,11 +4021,9 @@ async fn consume_sidecar_exchange_binding(
             return Ok(SidecarConsumeOutcome::DropSilently);
         };
         anyhow::ensure!(
-            skipped
-                .encrypted_payload
-                .as_ref()
-                .is_some_and(|payload| payload.pre_encryption_header.effective_scope
-                    == metadata_payload.pre_encryption_header.effective_scope),
+            skipped.encrypted_payload.as_ref().is_some_and(
+                |payload| payload.original.scope_ref == metadata_payload.original.scope_ref
+            ),
             "Sidecar response content and metadata use different scopes"
         );
         let context = SidecarExchangeContext {
@@ -4127,13 +4113,13 @@ async fn consume_sidecar_exchange_binding(
                 native_sidecar
                     && skipped.source_track_name.as_deref()
                         == Some(request_context.source_track_ref.track_name.as_str())
-                    && metadata_payload.pre_encryption_header.effective_scope
+                    && metadata_payload.original.scope_ref
                         == skipped
                             .encrypted_payload
                             .as_ref()
                             .expect("native content checked")
-                            .pre_encryption_header
-                            .effective_scope,
+                            .original
+                            .scope_ref,
                 "Sidecar request metadata differs from its native content or source Track"
             );
             ensure_fresh_runtime_authorization(
@@ -4204,7 +4190,7 @@ fn arkret_sender_is_account_principal(
 fn record_account_unable_to_decrypt(
     crypto_store: &FileArkretCryptoStore,
     skipped: &ArkretInboundSkippedEvent,
-    payload: arkret::EncryptedPayload,
+    payload: savfox_channels::arkret::ArkretEventContent,
     reason: UnableToDecryptReason,
 ) {
     let (Some(event_id), Some(realm_id), Some(sender)) = (
@@ -4730,7 +4716,11 @@ fn apply_account_outbound_encryption(
     delivery: Option<&crate::arkret_delivery::DeliveryCorrelation>,
 ) -> anyhow::Result<()> {
     if let Some(content_block) = event.payload.get("content").cloned() {
-        match crypto_store.encrypt_content_block_for_scope(&event.scope_ref, &content_block)? {
+        match crypto_store.encrypt_content_block_for_scope(
+            &event.scope_ref,
+            &content_block,
+            event,
+        )? {
             ArkretEncryptOutcome::PlaintextAllowed => {}
             ArkretEncryptOutcome::Encrypted(encrypted_content) => {
                 event.payload.remove("content");
@@ -4772,7 +4762,11 @@ fn apply_account_outbound_encryption(
     // `schema_violation` (zh/models/sidecar.md §8, forbidden-wire-fields
     // `sidecar_exchange_binding`). Native Sidecar encryption is independent
     // of the parent Realm policy.
-    match crypto_store.encrypt_message_metadata_for_scope(&event.scope_ref, &metadata_plaintext)? {
+    match crypto_store.encrypt_message_metadata_for_scope(
+        &event.scope_ref,
+        &metadata_plaintext,
+        event,
+    )? {
         ArkretEncryptOutcome::Encrypted(encrypted_metadata) => {
             // Defense in depth: the binding must never surface in plaintext
             // metadata alongside the encrypted carrier.
@@ -5429,19 +5423,38 @@ mod tests {
                 realm_id: realm_id.clone(),
             })
             .unwrap();
-        let commit = group.self_update_commit().unwrap();
         let base_ref =
             arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x01; 32]);
         let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
             realm_id,
             Some(base_ref.clone()),
             0,
-            commit.epoch,
+            group.epoch() + 1,
             0,
         )
         .unwrap();
-        let payload =
-            arkret::MlsCommitPayload::new(base_ref, 0, &commit, governance_binding).unwrap();
+        let commit = group
+            .self_update_commit_with_governance_binding(&governance_binding)
+            .unwrap();
+        let (info, tree) = group
+            .pending_public_group_state_bytes(&commit, &governance_binding)
+            .unwrap();
+        let reference = |bytes: &[u8]| {
+            arkret::BlobRef::new(format!(
+                "ak:blob:{}",
+                arkret::canonical::sha256_digest(bytes)
+            ))
+            .unwrap()
+        };
+        let payload = arkret::MlsCommitPayload::new(
+            base_ref,
+            0,
+            &commit,
+            governance_binding,
+            reference(&info),
+            reference(&tree),
+        )
+        .unwrap();
         let event_ref =
             arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x11; 32]);
         let value = json!({

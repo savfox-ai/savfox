@@ -1580,7 +1580,11 @@ mod tests {
             store
                 .encrypt_content_block_for_scope(
                     intent.effective_scope(),
-                    &serde_json::to_value(ContentBlock::text("actual encrypted write")).unwrap()
+                    &serde_json::to_value(ContentBlock::text("actual encrypted write")).unwrap(),
+                    &crate::arkret::crypto_fixture::original(
+                        intent.effective_scope(),
+                        intent.owner_actor_id()
+                    )
                 )
                 .unwrap(),
             ArkretEncryptOutcome::Encrypted(_)
@@ -1628,7 +1632,11 @@ mod tests {
                 store
                     .encrypt_content_block_for_scope(
                         intent.effective_scope(),
-                        &serde_json::to_value(ContentBlock::text("must stay closed")).unwrap()
+                        &serde_json::to_value(ContentBlock::text("must stay closed")).unwrap(),
+                        &crate::arkret::crypto_fixture::original(
+                            intent.effective_scope(),
+                            intent.owner_actor_id()
+                        )
                     )
                     .is_err()
             );
@@ -1661,7 +1669,11 @@ mod tests {
                 reopened
                     .encrypt_content_block_for_scope(
                         intent.effective_scope(),
-                        &serde_json::to_value(ContentBlock::text("private")).unwrap()
+                        &serde_json::to_value(ContentBlock::text("private")).unwrap(),
+                        &crate::arkret::crypto_fixture::original(
+                            intent.effective_scope(),
+                            intent.owner_actor_id()
+                        )
                     )
                     .is_err()
             );

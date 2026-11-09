@@ -71,7 +71,7 @@ pub struct UnableToDecryptRecord {
     pub realm_id: RealmId,
     pub sender: DidCoreId,
     pub reason: UnableToDecryptReason,
-    pub encrypted_content: EncryptedPayload,
+    pub encrypted_content: super::ArkretEventContent,
     pub first_seen_at: DateTime<Utc>,
 }
 
@@ -335,6 +335,10 @@ pub struct ArkretCryptoStateFile {
     pub signal_sequences: BTreeMap<String, u64>,
     #[serde(default)]
     pub key_backup: ArkretKeyBackupState,
+    #[serde(default)]
+    pub content_backup_manifests: BTreeMap<arkret::BackupId, arkret_models_crypto::KeyBackup>,
+    #[serde(default)]
+    pub content_salt_intents: BTreeMap<String, (arkret::Hash, String)>,
 }
 
 impl ArkretCryptoStateFile {
@@ -363,6 +367,8 @@ impl ArkretCryptoStateFile {
             bootstrap: BTreeMap::new(),
             signal_sequences: BTreeMap::new(),
             key_backup: ArkretKeyBackupState::default(),
+            content_backup_manifests: BTreeMap::new(),
+            content_salt_intents: BTreeMap::new(),
         })
     }
 }
@@ -2361,6 +2367,25 @@ impl FileArkretCryptoStore {
         device_id: &str,
         payload: &EncryptedPayload,
     ) -> anyhow::Result<ArkretBootstrapRecord> {
+        self.plan_content_bootstrap(principal_id, device_id, &payload.group_id, payload.epoch)
+    }
+
+    pub fn plan_bootstrap_for_event_content(
+        &self,
+        principal_id: &str,
+        device_id: &str,
+        payload: &super::ArkretEventContent,
+    ) -> anyhow::Result<ArkretBootstrapRecord> {
+        self.plan_content_bootstrap(principal_id, device_id, &payload.group_id, payload.epoch)
+    }
+
+    fn plan_content_bootstrap(
+        &self,
+        principal_id: &str,
+        device_id: &str,
+        group_id: &arkret::MlsGroupId,
+        required_epoch: u64,
+    ) -> anyhow::Result<ArkretBootstrapRecord> {
         let _guard = self.acquire_mutation()?;
         let mut state = self.load()?;
         let _principal = DidCoreId::new(principal_id.to_owned())
@@ -2369,22 +2394,21 @@ impl FileArkretCryptoStore {
             .with_context(|| format!("invalid Arkret device id '{device_id}'"))?;
         let local_epoch = state
             .mls_group_states
-            .get(payload.group_id.as_str())
+            .get(group_id.as_str())
             .map(|record| record.epoch);
         let action = match local_epoch {
-            Some(epoch) if epoch >= payload.epoch => MlsRecoveryAction::UseLocalState,
+            Some(epoch) if epoch >= required_epoch => MlsRecoveryAction::UseLocalState,
             Some(epoch) => MlsRecoveryAction::RequestEpochRecovery {
                 missing_from_epoch: epoch.saturating_add(1),
             },
             None => MlsRecoveryAction::RequestEpochRecovery {
-                missing_from_epoch: payload.epoch,
+                missing_from_epoch: required_epoch,
             },
         };
-        let group_state_ref =
-            group_state_ref_for_epoch(&state, payload.group_id.as_str(), payload.epoch);
+        let group_state_ref = group_state_ref_for_epoch(&state, group_id.as_str(), required_epoch);
         let record = ArkretBootstrapRecord {
-            group_id: payload.group_id.to_string(),
-            required_epoch: payload.epoch,
+            group_id: group_id.to_string(),
+            required_epoch,
             local_epoch,
             group_state_ref,
             action,
@@ -2410,7 +2434,7 @@ impl FileArkretCryptoStore {
         event_id: &str,
         realm_id: &str,
         sender: &str,
-        encrypted_content: EncryptedPayload,
+        encrypted_content: super::ArkretEventContent,
         reason: UnableToDecryptReason,
     ) -> anyhow::Result<()> {
         let _guard = self.acquire_mutation()?;
@@ -2613,10 +2637,112 @@ impl FileArkretCryptoStore {
         })
     }
 
+    /// The caller verifies native acceptance, subject custody and the current
+    /// sufficient recipient before retaining these immutable public manifests.
+    /// A local write never stands in for a successful remote PUT.
+    pub fn retain_content_backup_manifests(
+        &self,
+        subject: &ActorId,
+        backups: &[arkret_models_crypto::KeyBackup],
+    ) -> anyhow::Result<()> {
+        let _guard = self.acquire_mutation()?;
+        let mut state = self.load()?;
+        for backup in backups {
+            backup.validate()?;
+            anyhow::ensure!(
+                &backup.actor_id == subject
+                    && !backup.contents.is_empty()
+                    && backup
+                        .contents
+                        .iter()
+                        .all(|item| item.root_context.is_some() && item.root_ref.is_some()),
+                "content backup manifest differs from its native root subject"
+            );
+            if let Some(previous) = state.content_backup_manifests.get(&backup.backup_id) {
+                anyhow::ensure!(
+                    previous == backup,
+                    "immutable content backup manifest changed"
+                );
+            }
+            state
+                .content_backup_manifests
+                .insert(backup.backup_id.clone(), backup.clone());
+        }
+        self.save(&mut state)
+    }
+
+    pub fn resolve_event_content(
+        &self,
+        input: &super::ArkretEventContent,
+    ) -> anyhow::Result<EncryptedPayload> {
+        let state = self.load()?;
+        let record = state
+            .mls_group_states
+            .get(input.group_id.as_str())
+            .context("content is waiting for its verified historical group")?;
+        let group = ArkretMlsGroup::restore_from_state_record(record)?;
+        let arkret_models_crypto::EncryptedEnvelopeEncryptionContext::EpochContent {
+            root_ref,
+            group_state_ref,
+            ..
+        } = &input.envelope.encryption_context;
+        let (context, ..) = content_root_basis(
+            &state,
+            &group,
+            &input.original,
+            group_state_ref,
+            input.epoch,
+            Some(root_ref),
+        )?;
+        let producer = group.original_content_endpoint(&input.original)?;
+        let material = arkret_models_crypto::EventContentMaterial::from_original(
+            &input.original,
+            &input.envelope,
+            context,
+            producer,
+        )?;
+        input.resolve(material)
+    }
+
+    pub fn try_decrypt_event_content_detailed(
+        &self,
+        input: &super::ArkretEventContent,
+    ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
+        self.try_decrypt_content_block_detailed(&self.resolve_event_content(input)?)
+    }
+
+    pub fn try_decrypt_accepted_event_content_detailed(
+        &self,
+        reference: &CommittedEventRef,
+        input: &super::ArkretEventContent,
+    ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
+        anyhow::ensure!(
+            reference.event_id == input.original.event_id,
+            "content differs from its accepted original"
+        );
+        self.try_decrypt_accepted_content_block_detailed(
+            reference,
+            &self.resolve_event_content(input)?,
+        )
+    }
+
+    pub fn try_decrypt_native_shared_event_content(
+        &self,
+        reference: &CommittedEventRef,
+        input: &super::ArkretEventContent,
+    ) -> anyhow::Result<ArkretDecryptDetailedOutcome> {
+        anyhow::ensure!(
+            reference.event_id == input.original.event_id,
+            "content differs from its accepted original"
+        );
+        self.try_decrypt_native_shared_reply(reference, &self.resolve_event_content(input)?)
+    }
+
     pub fn encrypt_content_block_for_realm(
         &self,
         realm_id: &str,
         content: &Value,
+        original: &arkret::Event,
     ) -> anyhow::Result<ArkretEncryptOutcome<ContentBlock>> {
         let content: ContentBlock = serde_json::from_value(content.clone())
             .with_context(|| "Arkret message content is not a ContentBlock")?;
@@ -2625,6 +2751,8 @@ impl FileArkretCryptoStore {
                 realm_id: RealmId::new(realm_id.to_owned())?,
             },
             &content,
+            original,
+            "/payload/encrypted_content",
         )
     }
 
@@ -2632,12 +2760,15 @@ impl FileArkretCryptoStore {
         &self,
         realm_id: &str,
         metadata: &MessageMetadata,
+        original: &arkret::Event,
     ) -> anyhow::Result<ArkretEncryptOutcome<MessageMetadata>> {
         self.encrypt_typed_payload_for_scope(
             &ScopeRef::Realm {
                 realm_id: RealmId::new(realm_id.to_owned())?,
             },
             metadata,
+            original,
+            "/payload/encrypted_metadata",
         )
     }
 
@@ -2645,23 +2776,37 @@ impl FileArkretCryptoStore {
         &self,
         scope: &ScopeRef,
         content: &Value,
+        original: &arkret::Event,
     ) -> anyhow::Result<ArkretEncryptOutcome<ContentBlock>> {
         let content: ContentBlock = serde_json::from_value(content.clone())?;
-        self.encrypt_typed_payload_for_scope(scope, &content)
+        self.encrypt_typed_payload_for_scope(
+            scope,
+            &content,
+            original,
+            "/payload/encrypted_content",
+        )
     }
 
     pub fn encrypt_message_metadata_for_scope(
         &self,
         scope: &ScopeRef,
         metadata: &MessageMetadata,
+        original: &arkret::Event,
     ) -> anyhow::Result<ArkretEncryptOutcome<MessageMetadata>> {
-        self.encrypt_typed_payload_for_scope(scope, metadata)
+        self.encrypt_typed_payload_for_scope(
+            scope,
+            metadata,
+            original,
+            "/payload/encrypted_metadata",
+        )
     }
 
     fn encrypt_typed_payload_for_scope<T>(
         &self,
         scope: &ScopeRef,
         plaintext_value: &T,
+        original: &arkret::Event,
+        content_path: &str,
     ) -> anyhow::Result<ArkretEncryptOutcome<T>>
     where
         T: MlsPayloadType + Serialize,
@@ -2711,22 +2856,91 @@ impl FileArkretCryptoStore {
         let group_state_ref = EventId::new(group_state_ref).map_err(|error| {
             anyhow::anyhow!("invalid Arkret MLS group_state_ref for encryption: {error}")
         })?;
+        anyhow::ensure!(
+            &original.scope_ref == scope && original.actual_signer() == group.local_actor_id(),
+            "content original differs from the active native sender or scope"
+        );
+        let (root_context, root_ref, backup_refs) = content_root_basis(
+            &state,
+            &group,
+            original,
+            &group_state_ref,
+            group.epoch(),
+            None,
+        )?;
+        let producer = group.local_content_endpoint()?;
+        let protection = arkret_models_crypto::ContentProtection {
+            root_refs: vec![root_ref.clone()],
+            backup_refs,
+            blob_refs: original
+                .payload
+                .get("blob_refs")
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()?
+                .unwrap_or_default(),
+        };
+        let plaintext = serde_json::to_vec(plaintext_value)?;
+        let binding = super::content_material::salt_binding(
+            original,
+            content_path,
+            T::MLS_CONTENT_TYPE,
+            &plaintext,
+            &root_context,
+            &root_ref,
+            &producer,
+            &protection,
+        )?;
+        let intent_key = arkret::canonical::canonical_sha256(&(
+            arkret_models_crypto::EventContentMaterial::outer_event_for(original)?,
+            content_path,
+        ))?;
+        let salt = match state.content_salt_intents.get(&intent_key) {
+            Some((existing, salt)) if existing == &binding => salt.clone(),
+            _ => {
+                let salt = arkret::crypto::content_history::fresh_content_key_salt()?;
+                state
+                    .content_salt_intents
+                    .insert(intent_key, (binding, salt.clone()));
+                self.save(&mut state)?;
+                salt
+            }
+        };
+        let context = arkret_models_crypto::ContentContext {
+            root_context,
+            root_ref,
+            purpose: arkret_models_crypto::ContentPurpose::EventBody,
+            encryption_scheme: EncryptedPayloadScheme::EpochContentAead,
+            encryption_algorithm: arkret_models_crypto::ContentEncryptionAlgorithm::Aes128Gcm,
+            producer,
+            content_key_salt: salt,
+        };
+        let root = group.export_content_root(&context.root_context)?;
+        let key = arkret::crypto::content_history::derive_content_key(&root, &context)?;
+        let material = arkret_models_crypto::EventContentMaterial {
+            key_commitment: arkret::crypto::content_history::content_key_commitment(
+                &context, &key,
+            )?,
+            content_context: context,
+            outer_event: arkret_models_crypto::EventContentMaterial::outer_event_for(original)?,
+            protection,
+        };
         let sender_domain = group
             .local_content_sender_domain()
             .map_err(|err| anyhow::anyhow!("resolve Arkret MLS sender domain: {err}"))?;
         let header = EventContentPreEncryptionHeader::reconstruct(
             "1.0",
             T::MLS_CONTENT_TYPE,
-            EncryptedPayloadScheme::MlsRfc9420,
+            EncryptedPayloadScheme::EpochContentAead,
             scope.clone(),
-            "ak.message.create",
+            original.kind.as_str(),
             record.epoch,
             group_state_ref.clone(),
             sender_domain,
             EventContentRoutingContext::None,
+            material,
         )
         .map_err(|err| anyhow::anyhow!("build Arkret pre-encryption header: {err}"))?;
-        let plaintext = serde_json::to_vec(plaintext_value)?;
         let payload = group
             .encrypt_payload(header, &plaintext)
             .map_err(|err| anyhow::anyhow!("encrypt Arkret MLS payload: {err}"))?;
@@ -2918,7 +3132,7 @@ pub fn applet_scope_id(config_id: &str) -> String {
 #[must_use]
 pub fn extract_encrypted_payload_from_message_content(
     event: &arkret::Event,
-) -> Option<EncryptedPayload> {
+) -> Option<super::ArkretEventContent> {
     let envelope = serde_json::from_value(event.payload.get("encrypted_content")?.clone()).ok()?;
     encrypted_payload_for_event(event, &envelope)
 }
@@ -2932,7 +3146,7 @@ pub fn extract_encrypted_payload_from_message_content(
 #[must_use]
 pub fn extract_encrypted_metadata_payload_from_message_content(
     event: &arkret::Event,
-) -> Option<EncryptedPayload> {
+) -> Option<super::ArkretEventContent> {
     let envelope = serde_json::from_value(event.payload.get("encrypted_metadata")?.clone()).ok()?;
     encrypted_payload_for_event(event, &envelope)
 }
@@ -2940,22 +3154,70 @@ pub fn extract_encrypted_metadata_payload_from_message_content(
 pub(crate) fn encrypted_payload_for_event(
     event: &arkret::Event,
     envelope: &arkret::EncryptedEnvelope,
-) -> Option<EncryptedPayload> {
-    // Accepted Event identity must match the sender's canonical MLS credential.
-    // The producer verification method selects its key, not its AAD identity.
+) -> Option<super::ArkretEventContent> {
     event.producer_proof.as_ref()?;
-    let sender_identity = arkret::mls_basic_credential_identity(event.actual_signer()).ok()?;
-    let sender_domain = std::str::from_utf8(&sender_identity).ok()?;
-    let header = envelope
-        .reconstruct_pre_encryption_header(
-            EncryptedPayloadScheme::MlsRfc9420,
-            event.scope_ref.clone(),
-            event.kind.as_str(),
-            sender_domain,
-            None,
-        )
-        .ok()?;
-    arkret::mls::encrypted_envelope_to_payload_with_verified_header(envelope, header).ok()
+    super::ArkretEventContent::from_original(event, envelope).ok()
+}
+
+fn content_root_basis(
+    state: &ArkretCryptoStateFile,
+    group: &ArkretMlsGroup,
+    original: &arkret::Event,
+    reference: &EventId,
+    epoch: u64,
+    expected: Option<&arkret::Hash>,
+) -> anyhow::Result<(
+    arkret_models_crypto::ContentRootContext,
+    arkret::Hash,
+    Vec<arkret::BackupId>,
+)> {
+    let id = original.scope_ref.canonical_mls_group_id()?;
+    let current = state
+        .mls_station_currents
+        .get(id.as_str())
+        .and_then(|epochs| epochs.get(&epoch))
+        .context("content is waiting for its accepted epoch coordinates")?;
+    anyhow::ensure!(
+        group.scope() == &original.scope_ref && current.current_mls_commit_event_ref == *reference,
+        "content differs from its installed accepted epoch"
+    );
+    let mut selected = None;
+    let mut backups = BTreeSet::new();
+    for backup in state
+        .content_backup_manifests
+        .values()
+        .filter(|b| b.actor_id == original.actor_id)
+    {
+        for item in &backup.contents {
+            let (Some(context), Some(root_ref)) = (&item.root_context, &item.root_ref) else {
+                continue;
+            };
+            if context.effective_scope != original.scope_ref
+                || context.epoch != epoch
+                || context.group_state_ref != *reference
+                || context.genesis_event_ref != current.genesis_event_ref
+                || expected.is_some_and(|expected| expected != root_ref)
+            {
+                continue;
+            }
+            let root = group.export_content_root(context)?;
+            anyhow::ensure!(
+                arkret::crypto::content_history::content_root_ref(&root, context)? == *root_ref,
+                "native backup index differs from the actual epoch root"
+            );
+            if let Some((previous, previous_ref)) = &selected {
+                anyhow::ensure!(
+                    previous == context && previous_ref == root_ref,
+                    "conflicting epoch root manifests"
+                );
+            }
+            selected = Some((context.clone(), root_ref.clone()));
+            backups.insert(backup.backup_id.clone());
+        }
+    }
+    let (context, root_ref) =
+        selected.context("content is waiting for a qualified durable root backup")?;
+    Ok((context, root_ref, backups.into_iter().collect()))
 }
 
 #[must_use]
@@ -4067,32 +4329,42 @@ mod tests {
     }
 
     fn encrypted_payload() -> EncryptedPayload {
-        let realm_id = RealmId::new(FIXTURE_REALM.as_str()).unwrap();
-        let effective_scope = ScopeRef::Realm { realm_id };
-        let group_id = effective_scope.canonical_mls_group_id().unwrap();
-        EncryptedPayload {
-            scheme: EncryptedPayloadScheme::MlsRfc9420,
-            group_id,
-            epoch: 3,
-            content_type: "application/vnd.arkret.content+json".to_owned(),
-            ciphertext: "abc".to_owned(),
-            pre_encryption_header: EventContentPreEncryptionHeader::reconstruct(
-                "1.0",
-                "application/vnd.arkret.content+json",
-                EncryptedPayloadScheme::MlsRfc9420,
-                effective_scope,
-                "ak.message.create",
-                3,
-                EventId::new(FIXTURE_EVENT_2.as_str()).unwrap(),
-                "ak:device:01904100-0000-7000-8000-000000000003",
-                EventContentRoutingContext::None,
-            )
-            .unwrap(),
-            payload_digest: Hash::new(
-                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-            )
-            .expect("test digest should parse"),
-        }
+        let actor = ActorId::account(test_account("ak:did_core:web:alice.example"));
+        let endpoint = MlsEndpointIdentity::HumanDevice {
+            principal_id: actor.as_account_id().unwrap().principal_id.clone(),
+            device_id: DeviceId::new("ak:device:01904100-0000-7000-8000-000000000003").unwrap(),
+        };
+        let mut group = new_mls_identity(actor.clone(), endpoint, Some([13; 32]))
+            .unwrap()
+            .create_group(&ScopeRef::Realm {
+                realm_id: FIXTURE_REALM.clone(),
+            })
+            .unwrap();
+        group
+            .install_local_creator_binding(actor, Some(FIXTURE_EVENT_1.clone()))
+            .unwrap();
+        let material = crate::arkret::crypto_fixture::local_material(
+            &group,
+            "ak.message.create",
+            &FIXTURE_EVENT_2,
+        )
+        .unwrap();
+        let header = EventContentPreEncryptionHeader::reconstruct(
+            "1.0",
+            "application/vnd.arkret.content+json",
+            EncryptedPayloadScheme::EpochContentAead,
+            group.scope().clone(),
+            "ak.message.create",
+            group.epoch(),
+            FIXTURE_EVENT_2.clone(),
+            group.local_content_sender_domain().unwrap(),
+            EventContentRoutingContext::None,
+            material,
+        )
+        .unwrap();
+        group
+            .encrypt_payload(header, br#"{"kind":"ak.content.text","body":"carrier"}"#)
+            .unwrap()
     }
 
     #[test]
@@ -4105,7 +4377,7 @@ mod tests {
                 FIXTURE_EVENT_1.as_str(),
                 FIXTURE_REALM.as_str(),
                 "ak:did_core:webvh:z6mkfixturealice",
-                encrypted_payload(),
+                crate::arkret::crypto_fixture::candidate(&encrypted_payload()),
                 UnableToDecryptReason::NoSession,
             )
             .expect("record");
@@ -4140,93 +4412,88 @@ mod tests {
     }
 
     #[test]
-    fn signed_event_reconstructs_sender_leaf_aad_instead_of_its_key_selector() {
+    fn signed_original_requires_explicit_root_and_binds_delegation_and_station() {
         let principal = DidCoreId::new("ak:did_core:web:alice.example").unwrap();
         let device = DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006").unwrap();
-        for station in [
-            "ak:did_core:web:station.example",
-            "ak:did_core:web:other.example",
-        ] {
-            let actor = ActorId::account(AccountId::new(
-                principal.clone(),
-                DidCoreId::new(station).unwrap(),
-            ));
-            let endpoint = MlsEndpointIdentity::HumanDevice {
-                principal_id: principal.clone(),
-                device_id: device.clone(),
-            };
-            let mut group = new_mls_identity(actor.clone(), endpoint, Some([13; 32]))
+        let actor = ActorId::account(test_account(principal.as_str()));
+        let endpoint = MlsEndpointIdentity::HumanDevice {
+            principal_id: principal,
+            device_id: device.clone(),
+        };
+        let mut group = new_mls_identity(actor.clone(), endpoint, Some([13; 32]))
+            .unwrap()
+            .create_group(&ScopeRef::Realm {
+                realm_id: FIXTURE_REALM.clone(),
+            })
+            .unwrap();
+        group
+            .install_local_creator_binding(actor.clone(), Some(FIXTURE_EVENT_1.clone()))
+            .unwrap();
+        let material = crate::arkret::crypto_fixture::local_material(
+            &group,
+            "ak.message.create",
+            &FIXTURE_EVENT_1,
+        )
+        .unwrap();
+        let mut original = crate::arkret::crypto_fixture::original(group.scope(), &actor);
+        let header = EventContentPreEncryptionHeader::reconstruct(
+            "1.0",
+            ContentBlock::MLS_CONTENT_TYPE,
+            EncryptedPayloadScheme::EpochContentAead,
+            group.scope().clone(),
+            "ak.message.create",
+            group.epoch(),
+            FIXTURE_EVENT_1.clone(),
+            group.local_content_sender_domain().unwrap(),
+            EventContentRoutingContext::None,
+            material.clone(),
+        )
+        .unwrap();
+        let encrypted = group
+            .encrypt_payload(
+                header.clone(),
+                br#"{"kind":"ak.content.text","body":"hello"}"#,
+            )
+            .unwrap();
+        original.payload.insert(
+            "encrypted_content".into(),
+            serde_json::to_value(encrypted.to_envelope().unwrap()).unwrap(),
+        );
+        let mut authored = arkret::AuthoredEvent::finalize_with_digest_suite(
+            original,
+            arkret::canonical::DigestSuite::Sha256,
+        )
+        .unwrap();
+        let signer = arkret::Ed25519PayloadSigner::from_did_key_seed(
+            [13; 32],
+            arkret::Did::new("did:web:alice.example").unwrap(),
+            arkret::DidUrl::new(format!("did:web:alice.example#{device}")).unwrap(),
+        );
+        arkret_signatures::sign_event(&mut authored, &signer, Default::default()).unwrap();
+        let parsed = extract_encrypted_payload_from_message_content(authored.event()).unwrap();
+        let rebuilt = parsed.resolve(material.clone()).unwrap();
+        assert_eq!(rebuilt.pre_encryption_header, header);
+        assert!(group.decrypt_payload(&rebuilt).is_ok());
+        let mut delegated = authored.event().clone();
+        delegated.executed_by = Some(delegated.actor_id.clone());
+        delegated.actor_id = ActorId::account(test_account("ak:did_core:web:controller.example"));
+        assert!(
+            extract_encrypted_payload_from_message_content(&delegated)
                 .unwrap()
-                .create_group(&ScopeRef::Realm {
-                    realm_id: FIXTURE_REALM.clone(),
-                })
-                .unwrap();
-            let header = EventContentPreEncryptionHeader::reconstruct(
-                "1.0",
-                "application/vnd.arkret.content+json",
-                EncryptedPayloadScheme::MlsRfc9420,
-                group.scope().clone(),
-                "ak.message.create",
-                group.epoch(),
-                FIXTURE_EVENT_1.clone(),
-                group.local_content_sender_domain().unwrap(),
-                EventContentRoutingContext::None,
-            )
-            .unwrap();
-            let encrypted = group
-                .encrypt_payload(
-                    header.clone(),
-                    br#"{"kind":"ak.content.text","body":"hello"}"#,
-                )
-                .unwrap();
-            let envelope = arkret::mls::encrypted_envelope_from_payload(&encrypted).unwrap();
-            let event = arkret_wire::test_support::raw_event_for_actor_at("ak.message.create", group.scope().clone(), actor,
-                json!({"strand_id": FIXTURE_STRAND.as_str(), "track_name": "discussion", "encrypted_content": envelope}), Utc::now()).unwrap();
-            let mut authored = arkret::AuthoredEvent::finalize_with_digest_suite(
-                event,
-                arkret::canonical::DigestSuite::Sha256,
-            )
-            .unwrap();
-            let signer = arkret::Ed25519PayloadSigner::from_did_key_seed(
-                [13; 32],
-                arkret::Did::new("did:web:alice.example").unwrap(),
-                arkret::DidUrl::new(format!("did:web:alice.example#{device}")).unwrap(),
-            );
-            arkret_signatures::sign_event(&mut authored, &signer, Default::default()).unwrap();
-            let rebuilt = extract_encrypted_payload_from_message_content(authored.event()).unwrap();
-            assert_eq!(
-                rebuilt.pre_encryption_header.canonical_bytes().unwrap(),
-                header.canonical_bytes().unwrap()
-            );
-            let mut delegated = authored.event().clone();
-            delegated.executed_by = Some(delegated.actor_id.clone());
-            delegated.actor_id =
-                ActorId::account(test_account("ak:did_core:web:controller.example"));
-            assert_eq!(
-                extract_encrypted_payload_from_message_content(&delegated)
-                    .unwrap()
-                    .pre_encryption_header,
-                header,
-                "AAD follows the actual MLS sender even when the record actor differs"
-            );
-            assert_ne!(rebuilt.pre_encryption_header.sender_domain, device.as_str());
-            assert!(
-                rebuilt
-                    .pre_encryption_header
-                    .sender_domain
-                    .contains(station)
-            );
-            let mut wrong_station = authored.into_event();
-            wrong_station.actor_id = ActorId::account(test_account(principal.as_str()));
-            if station != "ak:did_core:web:station.example" {
-                assert_ne!(
-                    extract_encrypted_payload_from_message_content(&wrong_station)
-                        .unwrap()
-                        .pre_encryption_header,
-                    header
-                );
-            }
-        }
+                .resolve(material.clone())
+                .is_err()
+        );
+        let mut wrong_station = authored.into_event();
+        wrong_station.actor_id = ActorId::account(arkret::AccountId::new(
+            actor.as_account_id().unwrap().principal_id.clone(),
+            DidCoreId::new("ak:did_core:web:other.example").unwrap(),
+        ));
+        assert!(
+            extract_encrypted_payload_from_message_content(&wrong_station)
+                .unwrap()
+                .resolve(material)
+                .is_err()
+        );
     }
 
     #[test]
@@ -4370,8 +4637,14 @@ mod tests {
         store.save(&mut state).unwrap();
         let checkpoint =
             store.load().unwrap().mls_group_states[alice_group.group_id().as_str()].clone();
-        let payload =
-            MlsCommitPayload::new(FIXTURE_EVENT_1.clone(), 0, &add.commit, binding).unwrap();
+        let payload = crate::arkret::crypto_fixture::commit_payload(
+            &alice_group,
+            FIXTURE_EVENT_1.clone(),
+            0,
+            &add.commit,
+            binding,
+        )
+        .unwrap();
         let Value::Object(payload) = serde_json::to_value(payload).unwrap() else {
             unreachable!()
         };
@@ -4658,13 +4931,19 @@ mod tests {
         let header = EventContentPreEncryptionHeader::reconstruct(
             "1.0",
             ContentBlock::MLS_CONTENT_TYPE,
-            EncryptedPayloadScheme::MlsRfc9420,
+            EncryptedPayloadScheme::EpochContentAead,
             scope.clone(),
             "ak.message.create",
             1,
             accepted.event.event_id.clone(),
             bob_group.local_content_sender_domain().unwrap(),
             EventContentRoutingContext::None,
+            crate::arkret::crypto_fixture::local_material(
+                &bob_group,
+                "ak.message.create",
+                &(accepted.event.event_id.clone()),
+            )
+            .unwrap(),
         )
         .unwrap();
         let content = serde_json::to_value(ContentBlock::text("fixture private request")).unwrap();
@@ -4721,7 +5000,8 @@ mod tests {
                 transition.event.actor_id = bob_group.local_actor_id().clone();
                 transition.event.payload = serde_json::from_value(
                     serde_json::to_value(
-                        MlsCommitPayload::new(
+                        crate::arkret::crypto_fixture::commit_payload(
+                            &bob_group,
                             historical_predecessor.event.event_id.clone(),
                             epoch - 1,
                             &commit,
@@ -4855,7 +5135,8 @@ mod tests {
         ));
         next_accepted.event.payload = serde_json::from_value(
             serde_json::to_value(
-                MlsCommitPayload::new(
+                crate::arkret::crypto_fixture::commit_payload(
+                    &bob_group,
                     historical_predecessor.event.event_id.clone(),
                     base_epoch,
                     &next_add.commit,
@@ -5272,13 +5553,19 @@ mod tests {
         let next_header = EventContentPreEncryptionHeader::reconstruct(
             "1.0",
             ContentBlock::MLS_CONTENT_TYPE,
-            EncryptedPayloadScheme::MlsRfc9420,
+            EncryptedPayloadScheme::EpochContentAead,
             scope.clone(),
             "ak.message.create",
             next_epoch,
             next_accepted.event.event_id.clone(),
             bob_group.local_content_sender_domain().unwrap(),
             EventContentRoutingContext::None,
+            crate::arkret::crypto_fixture::local_material(
+                &bob_group,
+                "ak.message.create",
+                &(next_accepted.event.event_id.clone()),
+            )
+            .unwrap(),
         )
         .unwrap();
         let next_encrypted = bob_group
@@ -5384,8 +5671,14 @@ mod tests {
         let add = alice_group
             .add_member_with_governance_binding(&package, &binding)
             .unwrap();
-        let payload =
-            MlsCommitPayload::new(FIXTURE_EVENT_1.clone(), 0, &add.commit, binding).unwrap();
+        let payload = crate::arkret::crypto_fixture::commit_payload(
+            &alice_group,
+            FIXTURE_EVENT_1.clone(),
+            0,
+            &add.commit,
+            binding,
+        )
+        .unwrap();
         let Value::Object(payload) = serde_json::to_value(payload).unwrap() else {
             unreachable!()
         };
@@ -5461,13 +5754,19 @@ mod tests {
             EventContentPreEncryptionHeader::reconstruct(
                 "1.0",
                 content_type,
-                EncryptedPayloadScheme::MlsRfc9420,
+                EncryptedPayloadScheme::EpochContentAead,
                 scope.clone(),
                 "ak.message.create",
                 1,
                 FIXTURE_EVENT_2.clone(),
                 alice_group.local_content_sender_domain().unwrap(),
                 EventContentRoutingContext::None,
+                crate::arkret::crypto_fixture::local_material(
+                    &alice_group,
+                    "ak.message.create",
+                    &(FIXTURE_EVENT_2.clone()),
+                )
+                .unwrap(),
             )
             .unwrap()
         };
@@ -5592,8 +5891,14 @@ mod tests {
         let next = alice_group
             .add_member_with_governance_binding(&package, &next_binding)
             .unwrap();
-        let next_payload =
-            MlsCommitPayload::new(FIXTURE_EVENT_2.clone(), 1, &next.commit, next_binding).unwrap();
+        let next_payload = crate::arkret::crypto_fixture::commit_payload(
+            &alice_group,
+            FIXTURE_EVENT_2.clone(),
+            1,
+            &next.commit,
+            next_binding,
+        )
+        .unwrap();
         let mut accepted_next = accepted.clone();
         accepted_next.event.event_id = FIXTURE_EVENT_6.clone();
         accepted_next.event.payload =
@@ -5681,7 +5986,9 @@ mod tests {
         let actor = ActorId::account(account);
         let identity = new_mls_identity(actor.clone(), endpoint, Some([27; 32])).unwrap();
         let mut group = identity.create_group(&scope).unwrap();
-        group.install_local_creator_binding(actor, None).unwrap();
+        group
+            .install_local_creator_binding(actor.clone(), None)
+            .unwrap();
         let group_id = group.group_id().to_string();
         let mut state = store.load().unwrap();
         group.persist_state(&mut state).unwrap();
@@ -5700,7 +6007,11 @@ mod tests {
         assert!(store.load().unwrap().realm_policies.is_empty());
         let content = serde_json::to_value(ContentBlock::text("private reply")).unwrap();
         let ArkretEncryptOutcome::Encrypted(encrypted_content) = store
-            .encrypt_content_block_for_scope(&scope, &content)
+            .encrypt_content_block_for_scope(
+                &scope,
+                &content,
+                &crate::arkret::crypto_fixture::original(&scope, &actor),
+            )
             .unwrap()
         else {
             panic!("native Sidecar content must always be encrypted");
@@ -5713,7 +6024,11 @@ mod tests {
         let metadata =
             super::super::sidecar::build_user_facing_response_metadata(&context).unwrap();
         let ArkretEncryptOutcome::Encrypted(encrypted_metadata) = store
-            .encrypt_message_metadata_for_scope(&scope, &metadata)
+            .encrypt_message_metadata_for_scope(
+                &scope,
+                &metadata,
+                &crate::arkret::crypto_fixture::original(&scope, &actor),
+            )
             .unwrap()
         else {
             panic!("native Sidecar metadata must always be encrypted");
@@ -5729,11 +6044,25 @@ mod tests {
             let sender = group.local_content_sender_domain().unwrap();
             let header = envelope
                 .reconstruct_pre_encryption_header(
-                    EncryptedPayloadScheme::MlsRfc9420,
+                    EncryptedPayloadScheme::EpochContentAead,
                     scope.clone(),
                     "ak.message.create",
                     sender,
                     None,
+                    arkret_models_crypto::EventContentMaterial::from_original(
+                        &crate::arkret::crypto_fixture::original(&scope, &actor),
+                        &envelope,
+                        crate::arkret::crypto_fixture::local_material(
+                            &group,
+                            "ak.message.create",
+                            &FIXTURE_EVENT_1,
+                        )
+                        .unwrap()
+                        .content_context
+                        .root_context,
+                        group.local_content_endpoint().unwrap(),
+                    )
+                    .unwrap(),
                 )
                 .unwrap();
             assert_eq!(header.mls_group_id.as_str(), group_id);
@@ -5753,13 +6082,26 @@ mod tests {
         };
         assert!(matches!(
             store
-                .encrypt_content_block_for_scope(&other_scope, &content)
+                .encrypt_content_block_for_scope(
+                    &other_scope,
+                    &content,
+                    &crate::arkret::crypto_fixture::original(&other_scope, &actor)
+                )
                 .unwrap(),
             ArkretEncryptOutcome::MissingRequiredGroupState { .. }
         ));
         assert!(matches!(
             store
-                .encrypt_content_block_for_realm(FIXTURE_REALM.as_str(), &content)
+                .encrypt_content_block_for_realm(
+                    FIXTURE_REALM.as_str(),
+                    &content,
+                    &crate::arkret::crypto_fixture::original(
+                        &ScopeRef::Realm {
+                            realm_id: FIXTURE_REALM.clone()
+                        },
+                        &actor
+                    )
+                )
                 .unwrap(),
             ArkretEncryptOutcome::PlaintextAllowed
         ));
@@ -5966,6 +6308,12 @@ mod tests {
             .encrypt_content_block_for_realm(
                 FIXTURE_REALM.as_str(),
                 &json!({"kind":"ak.content.text","body":"secret"}),
+                &crate::arkret::crypto_fixture::original(
+                    &ScopeRef::Realm {
+                        realm_id: FIXTURE_REALM.clone(),
+                    },
+                    &ActorId::account(test_account("ak:did_core:web:alice.example")),
+                ),
             )
             .expect("encryption decision should complete");
         assert_eq!(

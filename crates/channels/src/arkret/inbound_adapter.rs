@@ -65,11 +65,11 @@ pub struct ArkretInboundSkippedEvent {
     pub sender_actor_id: Option<arkret::ActorId>,
     pub strand_id: Option<String>,
     pub reply_to: Option<String>,
-    pub encrypted_payload: Option<arkret::EncryptedPayload>,
+    pub encrypted_payload: Option<super::ArkretEventContent>,
     /// Parallel `encrypted_metadata` carrier (same envelope shape as
     /// `encrypted_content`); its plaintext may hold the Sidecar exchange
     /// binding (`message_metadata.sidecar_exchange_binding`).
-    pub encrypted_metadata_payload: Option<arkret::EncryptedPayload>,
+    pub encrypted_metadata_payload: Option<super::ArkretEventContent>,
     /// Filled only by the host's verified Commit delivery path. Raw backfill
     /// Events cannot authorize private exchange execution or control folding.
     pub accepted_ref: Option<arkret::CommittedEventRef>,

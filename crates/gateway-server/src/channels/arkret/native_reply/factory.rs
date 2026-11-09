@@ -391,7 +391,7 @@ impl NativeReceiver {
                 let ArkretDecryptDetailedOutcome::Decrypted {
                     content,
                     consume_bindings,
-                } = crypto.try_decrypt_native_shared_reply(&reference, payload)?
+                } = crypto.try_decrypt_native_shared_event_content(&reference, payload)?
                 else {
                     anyhow::bail!("native source waits for original MLS state");
                 };

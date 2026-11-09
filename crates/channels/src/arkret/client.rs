@@ -404,6 +404,7 @@ pub fn build_mls_key_packages_claim_request(
     claim_request_id: String,
     target_principal_id: &str,
     intended_realm_id: &str,
+    effective_scope: arkret::ScopeRef,
     requester: &str,
     claim_purpose: PeerKeyPackageClaimPurpose,
     required_capabilities: &[String],
@@ -477,6 +478,7 @@ pub fn build_mls_key_packages_claim_request(
         requester_account_id,
         requester_actor_id: None,
         intended_realm_id,
+        effective_scope,
         mls_group_id,
         claim_purpose,
         required_capabilities,
@@ -2123,6 +2125,12 @@ mod tests {
             "AQEBAQEBAQEBAQEBAQEBAQ".to_owned(),
             "ak:did_core:webvh:z6mkbobfixture",
             "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI",
+            arkret::ScopeRef::Realm {
+                realm_id: arkret::RealmId::new(
+                    "ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI",
+                )
+                .unwrap(),
+            },
             "ak:did_core:webvh:z6mkfixture",
             PeerKeyPackageClaimPurpose::RealmMembership,
             &["ak.content.v1".to_owned(), "mimi.content.v1".to_owned()],

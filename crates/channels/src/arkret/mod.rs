@@ -28,6 +28,8 @@ mod account_store;
 pub mod applet;
 mod client;
 mod config;
+mod content_material;
+pub use content_material::ArkretEventContent;
 mod crypto_state;
 mod grant;
 mod inbound_adapter;
@@ -100,3 +102,6 @@ pub use signer::{
     sign_keypackages_consume_request, sign_keypackages_revoke_request,
     sign_keypackages_upload_request,
 };
+
+#[cfg(test)]
+mod crypto_fixture;
