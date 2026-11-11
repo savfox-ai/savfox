@@ -881,6 +881,7 @@ impl FileArkretCryptoStore {
         realm_id: &str,
         actor_account_id: &arkret::AccountId,
         verification_method: &str,
+        authorization_ref: &EventId,
         key_ref: &ArkretKeyRef,
         authority_head: &arkret::CommitStreamHead,
         sent_at: DateTime<Utc>,
@@ -923,6 +924,17 @@ impl FileArkretCryptoStore {
         let aead_profile = arkret::mls::ARKRET_MLS_CIPHERSUITE_CANONICAL_ID;
         actor_account_id.validate()?;
         let actor_id = ActorId::account(actor_account_id.clone());
+        let mut group = ArkretMlsGroup::restore_from_state_record(&record)
+            .map_err(|error| anyhow::anyhow!("restore Arkret MLS group: {error}"))?;
+        let endpoint = group.local_content_endpoint()?;
+        anyhow::ensure!(
+            endpoint.actor_id == actor_id
+                && &endpoint.authorization_event_ref == authorization_ref
+                && matches!(&endpoint.endpoint,
+                    arkret::MlsWelcomeRecipientEndpoint::AgentRuntime { verification_method: method }
+                    if method.as_str() == verification_method),
+            "presence runtime authority differs from the accepted Agent MLS endpoint"
+        );
         let expires_at = sent_at + chrono::Duration::seconds(30);
         let signing_key = load_ed25519_signing_key(key_ref)?;
         let public_key_digest = arkret_signatures::PublicKeyMaterial::Ed25519Raw {
@@ -935,11 +947,15 @@ impl FileArkretCryptoStore {
             scope_ref: scope_ref.clone(),
         }
         .canonical_key()?;
-        let payload_sequence = state
-            .signal_sequences
-            .get(&sequence_key)
-            .copied()
-            .unwrap_or(0);
+        let payload_sequence = match state.signal_sequences.get(&sequence_key).copied() {
+            Some(sequence) => sequence,
+            // Epoch rotation changes the encryption domain, not the business
+            // sequence domain. Retain the saved prior-epoch allocation too.
+            None if group.signal_nonce_counter() == 0 => 0,
+            None => anyhow::bail!(
+                "Agent Signal allocator continuity is missing; new-key replacement is required"
+            ),
+        };
         let plaintext = PresencePlaintext::new(
             payload_sequence,
             actor_id.clone(),
@@ -950,8 +966,6 @@ impl FileArkretCryptoStore {
         let signal_key_ref = arkret_wire::SignalKeyRef {
             group_state_ref: group_state_ref.clone(),
         };
-        let mut group = ArkretMlsGroup::restore_from_state_record(&record)
-            .map_err(|error| anyhow::anyhow!("restore Arkret MLS group: {error}"))?;
         let binding = arkret_wire::SignalAeadBinding {
             realm_id: &realm_id,
             scope_ref: &scope_ref,
@@ -6367,6 +6381,7 @@ mod tests {
                     realm_id.as_str(),
                     &account,
                     "did:web:agent.example#runtime-1",
+                    &FIXTURE_EVENT_9,
                     &key_ref,
                     &head,
                     Utc::now(),
@@ -6378,6 +6393,153 @@ mod tests {
                 "invalid head must not create or mutate persisted state"
             );
         }
+    }
+
+    #[test]
+    fn presence_nonce_and_sequence_survive_reopen_and_reject_wrong_runtime() {
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "signal", "agent");
+        store.ensure_created().unwrap();
+        let account = test_account("ak:did_core:web:agent.example");
+        let actor = ActorId::account(account.clone());
+        let method = "did:web:agent.example#runtime-1";
+        let endpoint = agent_mls_endpoint(
+            account.principal_id.as_str(),
+            method,
+            FIXTURE_EVENT_9.as_str(),
+        )
+        .unwrap();
+        let scope = ScopeRef::Realm {
+            realm_id: FIXTURE_REALM.clone(),
+        };
+        let identity = new_mls_identity(actor.clone(), endpoint, Some([27; 32])).unwrap();
+        let mut group = identity.create_group(&scope).unwrap();
+        group.install_local_creator_binding(actor, None).unwrap();
+        let mut state = store.load().unwrap();
+        let record = group.persist_state(&mut state).unwrap();
+        state.realm_policies.insert(
+            FIXTURE_REALM.to_string(),
+            ArkretRealmCryptoPolicy {
+                realm_id: FIXTURE_REALM.to_string(),
+                content_encryption_floor: ArkretContentEncryptionFloor::E2eeRequired,
+                encryption_profile: Some("mls_rfc9420".into()),
+                mls_group_id: Some(record.group_id.to_string()),
+                source: "accepted-native-fixture".into(),
+                updated_at: Utc::now(),
+            },
+        );
+        state.bootstrap.insert(
+            record.group_id.to_string(),
+            ArkretBootstrapRecord {
+                group_id: record.group_id.to_string(),
+                required_epoch: 0,
+                local_epoch: Some(0),
+                group_state_ref: Some(FIXTURE_EVENT_1.to_string()),
+                action: MlsRecoveryAction::UseLocalState,
+                updated_at: Utc::now(),
+            },
+        );
+        store.save(&mut state).unwrap();
+        let key_ref = ArkretKeyRef::InlineSeedBase64 {
+            value: base64::engine::general_purpose::STANDARD_NO_PAD.encode([27; 32]),
+        };
+        let head = arkret::CommitStreamHead {
+            stream_ref: arkret::CommitStreamRef::Realm {
+                realm_id: FIXTURE_REALM.clone(),
+            },
+            stream_position: 1,
+            commit_id: arkret::RealmCommitId::from_digest([27; 32]),
+        };
+        let first = store
+            .seal_online_presence_signal(
+                FIXTURE_REALM.as_str(),
+                &account,
+                method,
+                &FIXTURE_EVENT_9,
+                &key_ref,
+                &head,
+                Utc::now(),
+            )
+            .unwrap();
+        let reopened = FileArkretCryptoStore::for_account(home.path(), "signal", "agent");
+        let second = reopened
+            .seal_online_presence_signal(
+                FIXTURE_REALM.as_str(),
+                &account,
+                method,
+                &FIXTURE_EVENT_9,
+                &key_ref,
+                &head,
+                Utc::now(),
+            )
+            .unwrap();
+        assert_ne!(
+            first.encrypted_payload.nonce,
+            second.encrypted_payload.nonce
+        );
+        let authority = arkret_wire::StationSigningKey {
+            actor: first.sender_actor_id.clone(),
+            verification_method: first.proof.verification_method.clone(),
+            authorization_ref: FIXTURE_EVENT_9.clone(),
+            public_key_base64url: arkret_wire::Base64UrlString::new(arkret::base64url_encode(
+                ed25519_dalek::SigningKey::from_bytes(&[27; 32])
+                    .verifying_key()
+                    .to_bytes(),
+            ))
+            .unwrap(),
+        };
+        let mut replay = arkret::AeadNonceReplayTracker::default();
+        for (signal, expected) in [(&first, 0), (&second, 1)] {
+            let plaintext = group
+                .open_signal_envelope_with_station_key(
+                    signal,
+                    &authority,
+                    FIXTURE_EVENT_1.as_str(),
+                    &head.commit_id,
+                    &mut replay,
+                )
+                .unwrap();
+            let payload =
+                arkret_models_collaboration::signal_plaintext::open_signal_plaintext(&plaintext)
+                    .unwrap();
+            assert_eq!(payload.signal_sequence().get(), expected);
+        }
+        let unchanged = std::fs::read(store.path()).unwrap();
+        for (method, authorization) in [
+            ("did:web:agent.example#runtime-2", &*FIXTURE_EVENT_9),
+            (method, &*FIXTURE_EVENT_2),
+        ] {
+            assert!(
+                reopened
+                    .seal_online_presence_signal(
+                        FIXTURE_REALM.as_str(),
+                        &account,
+                        method,
+                        authorization,
+                        &key_ref,
+                        &head,
+                        Utc::now()
+                    )
+                    .is_err()
+            );
+            assert_eq!(std::fs::read(store.path()).unwrap(), unchanged);
+        }
+        let mut broken = reopened.load().unwrap();
+        broken.signal_sequences.clear();
+        reopened.save(&mut broken).unwrap();
+        assert!(
+            reopened
+                .seal_online_presence_signal(
+                    FIXTURE_REALM.as_str(),
+                    &account,
+                    method,
+                    &FIXTURE_EVENT_9,
+                    &key_ref,
+                    &head,
+                    Utc::now()
+                )
+                .is_err()
+        );
     }
 
     #[test]

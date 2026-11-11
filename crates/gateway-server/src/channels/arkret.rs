@@ -913,6 +913,7 @@ async fn refresh_account_presence(
             realm_id.as_str(),
             &account.actor_account_id,
             verification_method,
+            &observation.agent_key_authorization_ref,
             key_ref,
             &authority_head,
             Utc::now(),
