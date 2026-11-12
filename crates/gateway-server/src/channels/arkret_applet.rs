@@ -282,7 +282,7 @@ async fn forward_applet_with_body(
     state: &AppletChannelState,
     body: impl std::future::Future<Output = Result<Vec<u8>, salvo::http::ParseError>>,
     method: salvo::http::Method,
-    uri: salvo::http::Uri,
+    uri: salvo::http::uri::Uri,
     headers: salvo::http::HeaderMap,
     res: &mut Response,
 ) {

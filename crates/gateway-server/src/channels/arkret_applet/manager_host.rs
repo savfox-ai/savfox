@@ -149,7 +149,7 @@ impl ManagerHost {
     pub(super) async fn receive(
         &self,
         method: salvo::http::Method,
-        uri: salvo::http::Uri,
+        uri: salvo::http::uri::Uri,
         headers: salvo::http::HeaderMap,
         body: Vec<u8>,
     ) -> anyhow::Result<(salvo::http::StatusCode, salvo::http::HeaderMap, Vec<u8>)> {
