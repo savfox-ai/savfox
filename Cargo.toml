@@ -343,22 +343,22 @@ dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-
 
 # Optional Arkret v1 integration crates pinned for standalone builds and CI.
 # Local co-development overrides are documented in CONTRIBUTING.md.
-arkret = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5", default-features = false, features = [
+arkret = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc", default-features = false, features = [
     "client",
     "tls-rustls",
     "mls",
     "signer",
 ] }
-arkret-schema = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5", default-features = false }
-arkret-crypto = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5", default-features = false }
-arkret-models-collaboration = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5", default-features = false }
-arkret-models-crypto = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5", default-features = false }
-arkret-signatures = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5", default-features = false, features = ["collaboration"] }
-arkret-wire = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5", default-features = false }
-garth = { version = "0.3.0", git = "https://github.com/arkret-org/garth.git", rev = "6724e5d518f6bd296a9ac68e9c201fe42e21df72", default-features = false, features = ["native"] }
-arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "928e7deddd1c4d952b75e574e294e6aa2657dd47", default-features = false, features = ["edge", "managed-authoring", "web"] }
+arkret-schema = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc", default-features = false }
+arkret-crypto = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc", default-features = false }
+arkret-models-collaboration = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc", default-features = false }
+arkret-models-crypto = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc", default-features = false }
+arkret-signatures = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc", default-features = false, features = ["collaboration"] }
+arkret-wire = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc", default-features = false }
+garth = { version = "0.3.0", git = "https://github.com/arkret-org/garth.git", rev = "4e107f333dfce09519cd46ea17c083a40f5fcead", default-features = false, features = ["native"] }
+arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "ab89f6852ac3bd2bf7018a422835209d6c49fe43", default-features = false, features = ["edge", "managed-authoring", "web"] }
 
-arkret-test-kit = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
+arkret-test-kit = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
 
 # Browser UI: use exact crates.io releases with checksums pinned in Cargo.lock.
 glory = { version = "=0.7.0", default-features = false, features = ["web", "ssr"] }
@@ -427,39 +427,39 @@ broken_intra_doc_links = "warn"
 # The Garth and bridge manifests use sibling SDK paths. Redirect their Git
 # source dependencies to the same SDK revision to keep shared types identical.
 [patch."https://github.com/arkret-org/garth.git"]
-arkret-crypto = { git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-auth={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-canonical={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-event-draft={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-hlc={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-http-client={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-identifiers={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-identity={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-keystore={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-models-collaboration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-models-crypto={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-models-discovery={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-models-identity={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-models-integration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-policy={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-retry={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-signatures={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-wire={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
+arkret-crypto = { git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-auth={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-canonical={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-event-draft={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-hlc={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-http-client={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-identifiers={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-identity={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-keystore={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-models-collaboration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-models-crypto={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-models-discovery={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-models-identity={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-models-integration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-policy={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-retry={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-signatures={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-wire={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
 
 [patch."https://github.com/arkret-org/bridges.git"]
-arkret-models-crypto = { git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-garth = { git = "https://github.com/arkret-org/garth.git", rev = "6724e5d518f6bd296a9ac68e9c201fe42e21df72" }
-arkret={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-canonical={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-egress-reqwest={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-event-draft={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-identifiers={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-models-collaboration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-models-discovery={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-models-integration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-retry={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-signatures={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
-arkret-wire={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "438636e29ceadbb35e01449c4a9fa07a4c71fcf5" }
+arkret-models-crypto = { git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+garth = { git = "https://github.com/arkret-org/garth.git", rev = "4e107f333dfce09519cd46ea17c083a40f5fcead" }
+arkret={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-canonical={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-egress-reqwest={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-event-draft={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-identifiers={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-models-collaboration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-models-discovery={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-models-integration={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-retry={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-signatures={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
+arkret-wire={ git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "5d09d6abcfffbb7a831a571303ef764f359702cc" }
 
 # ── Build profiles ──────────────────────────────────────────────────────────
 
