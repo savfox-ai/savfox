@@ -386,6 +386,7 @@ impl NativeReceiver {
                 let Some(payload) = skipped.encrypted_payload.as_ref() else {
                     continue;
                 };
+                ensure_realm_content_strategy(client, crypto, &event.realm_id).await?;
                 // Reuses the original sealed accepted cache/RFC decrypt, not a second crypto
                 // implementation.
                 let ArkretDecryptDetailedOutcome::Decrypted {
