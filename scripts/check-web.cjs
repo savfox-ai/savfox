@@ -61,7 +61,9 @@ function fixture(method, params) {
     case 'account/login/cancel': return { cancelled: true };
     case 'sessions.list': return { entries: [{ session_id: 'browser-session', label: 'Browser conversation', agent_id: 'browser-agent', message_count: 1 }, { session_id: 'terminal-session', label: 'Terminal conversation', agent_id: 'terminal-agent', message_count: 1 }, { session_id: 'delivery-session', label: 'Delivery conversation', agent_id: 'browser-agent', arkret_delivery: arkretDelivery, message_count: 1 }] };
     case 'sessions.patch': return { session_id: params.session_id || 'browser-new-session' };
-    case 'chat.history': return { messages: [{ role: 'user', content: 'Earlier message', attachments: [{ filename: 'fixture-preview.png', mime_type: 'image/png', data_base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFtwAAAAASUVORK5CYII=' }] }, { role: 'assistant', content: 'History restored\n\n**Fixture strong**\n\n- Fixture list item\n\n```js\nconst answer = 42;\n```' }] };
+    case 'chat.history':
+      if (params.session_id === 'performance-session') return { messages: Array.from({ length: 2000 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: `Performance message ${index}\n\n` + 'Variable height paragraph.\n\n'.repeat(index % 7 + 1) })) };
+      return { messages: [{ role: 'user', content: 'Earlier message', attachments: [{ filename: 'fixture-preview.png', mime_type: 'image/png', data_base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFtwAAAAASUVORK5CYII=' }] }, { role: 'assistant', content: 'History restored\n\n**Fixture strong**\n\n- Fixture list item\n\n```js\nconst answer = 42;\n```' }] };
     case 'sessions.ambient.get': return { session_id: params.session_id, messages: [] };
     case 'sessions.idle_reply.get': return { pending: null, recent_sent_count: 0 };
     case 'sessions.arkret.delivery.preview': return { rendered: `Reviewed checkpoint: ${params.summary}`, senderDid: 'did:fixture:agent', previousRendered: null };
@@ -144,6 +146,20 @@ function fixture(method, params) {
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png' };
 const server = http.createServer((request, response) => {
   const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
+  if (pathname === '/api/chat/completions') {
+    request.resume();
+    response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
+    let index = 0;
+    const timer = setInterval(() => {
+      response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: `Live fragment ${index++}\n\n` } }] })}\n\n`);
+      if (index === 16) {
+        clearInterval(timer);
+        response.end('data: {"choices":[{"delta":{"content":"LIVE_END"}}]}\n\ndata: [DONE]\n\n');
+      }
+    }, 80);
+    response.on('close', () => clearInterval(timer));
+    return;
+  }
   let file = path.resolve(bundle, '.' + pathname);
   if (file !== bundle && !file.startsWith(bundle + path.sep)) { response.writeHead(403); response.end(); return; }
   try { if (!fs.statSync(file).isFile()) file = path.join(bundle, 'index.html'); }
@@ -167,6 +183,15 @@ const server = http.createServer((request, response) => {
     await page.route('**/api/chat/completions?*', async route => {
       const body = route.request().postDataJSON();
       calls.push({ method: 'http.chat', params: body });
+      if (body.session_id === 'performance-session') {
+        if (body.message?.content === 'Live tail test' || body.message?.content === 'Abort tail test') {
+          await route.continue();
+          return;
+        }
+        const event = delta => `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
+        await route.fulfill({ contentType: 'text/event-stream', body: event({ reasoning_content: '批量推理' }) + Array.from({ length: 1000 }, () => event({ content: '批次' })).join('') + event({ content: '最终尾字' }) + 'data: [DONE]\n\n' });
+        return;
+      }
       await route.fulfill({ contentType: 'text/event-stream', body: 'data: {"choices":[{"delta":{"reasoning_content":"Thinking fixture"}}]}\n\ndata: {"choices":[{"delta":{"content":"Streamed browser reply"}}]}\n\ndata: [DONE]\n\n' });
     });
     await page.routeWebSocket('**/ws', socket => {
@@ -199,6 +224,63 @@ const server = http.createServer((request, response) => {
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await page.locator('.top-header__health--ok').waitFor();
     report.checks.push('invalid token rejected; valid token signed WebSocket challenge');
+    if (process.argv.includes('--chat-performance')) {
+      await page.goto(base + '/sessions?session_id=performance-session');
+      const viewport = page.locator('.chat-messages > [data-gly-virtual="root"]');
+      await page.getByText('Performance message 1999', { exact: true }).waitFor();
+      assert(await page.locator('.chat-message').count() < 80, 'Only visible rows and overscan may be mounted');
+      const lastRows = await page.locator('.chat-message').count();
+      await viewport.evaluate(node => { node.scrollTop = 0; });
+      await page.getByText('Performance message 0', { exact: true }).waitFor();
+      await viewport.evaluate(node => { node.scrollTop = node.scrollHeight / 2; });
+      await page.waitForFunction(() => [...document.querySelectorAll('.chat-message')].some(node => /Performance message [1-9]\d{2}/.test(node.textContent)));
+      await page.waitForTimeout(250);
+      const anchor = await viewport.evaluate(node => {
+        window.__chatStableNode = document.querySelector('.chat-message .markdown-prose');
+        return node.scrollTop;
+      });
+      await page.locator('.chat-composer textarea').fill('Performance streaming test');
+      await page.locator('.chat-composer textarea').press('Enter');
+      await page.waitForFunction(() => document.querySelector('.session-main-badge')?.textContent.includes('2002'));
+      await page.waitForFunction(() => !document.querySelector('.chat-composer--busy'));
+      assert(Math.abs(await viewport.evaluate(node => node.scrollTop) - anchor) < 3, 'Streaming must not pull a reader away from older messages');
+      assert(await page.evaluate(() => window.__chatStableNode?.isConnected), 'Streaming must retain existing historical widgets');
+      await viewport.evaluate(node => { node.scrollTop = node.scrollHeight; });
+      await page.getByText('批次'.repeat(1000) + '最终尾字', { exact: true }).waitFor();
+      const rows = await page.locator('.chat-message').count();
+      assert(rows < 80, 'Appends must preserve bounded mounted rows');
+      await page.getByRole('button', { name: 'Options', exact: true }).click();
+      await page.getByRole('button', { name: 'Options', exact: true }).click();
+      await page.locator('.chat-composer textarea').fill('Live tail test');
+      await page.locator('.chat-composer textarea').press('Enter');
+      await page.getByText('Live fragment 0', { exact: true }).waitFor();
+      await page.getByText('LIVE_END', { exact: true }).waitFor();
+      await page.waitForFunction(() => !document.querySelector('.chat-composer--busy'));
+      await page.waitForFunction(() => {
+        const node = document.querySelector('.chat-messages > [data-gly-virtual="root"]');
+        return node.scrollHeight - node.clientHeight - node.scrollTop < 3;
+      });
+      await page.locator('.chat-composer textarea').fill('Abort tail test');
+      await page.locator('.chat-composer textarea').press('Enter');
+      await page.waitForFunction(() => document.querySelector('.session-main-badge')?.textContent.includes('2006'));
+      await page.locator('.chat-message').last().getByText('Live fragment 1', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Stop generation', exact: true }).click();
+      await page.waitForFunction(() => !document.querySelector('.chat-composer--busy'));
+      const interrupted = await page.locator('.chat-message').last().innerText();
+      assert(interrupted.includes('Live fragment 1') && !interrupted.includes('LIVE_END'));
+      await page.waitForTimeout(200);
+      assert.equal(await page.locator('.chat-message').last().innerText(), interrupted, 'Aborted timers must not append stale fragments');
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(250);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+      assert(await viewport.evaluate(node => node.clientHeight > 100), 'The mobile list must fill the available pane');
+      await page.getByRole('button', { name: 'Clear', exact: true }).click();
+      await page.getByText('Start a new session', { exact: true }).waitFor();
+      assert.equal(await page.locator('.chat-message').count(), 0);
+      report.checks.push(`2000 variable-height messages: ${lastRows} mounted at tail; ${rows} after append; head/middle/tail scrolling; stable reading anchor; 1000 UTF-8 fragments and final drain; panel resize; live streaming follows tail; abort drains and stops updates; mobile resize; clear`);
+      assert.equal(errors.length, 0, errors.join('\n'));
+      return;
+    }
     await page.evaluate(() => { window.__savfoxBrowserSentinel = 'same-document'; });
     await page.getByRole('link', { name: 'Agents', exact: true }).click();
     await page.locator('.page-title').filter({ hasText: 'Agents' }).waitFor();

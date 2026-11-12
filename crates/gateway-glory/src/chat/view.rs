@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use super::helpers::{
     build_openai_chat_message_payload, parse_history_messages, parse_terminal_events,
 };
+use super::stream_updates::StreamUpdates;
 use crate::api::client::stream_chat;
 use crate::api::types::{AgentEntry, ChatAttachment, ChatMessage, SessionsResponse};
 use crate::components::markdown_renderer::markdown;
@@ -35,6 +36,7 @@ struct Conversation {
     error: Cage<String>,
     request: Cage<String>,
     abort: Rc<RefCell<Option<web_sys::AbortController>>>,
+    updates: Rc<RefCell<Option<StreamUpdates>>>,
     terminal_input: Cage<String>,
     checkpoint_summary: Cage<String>,
 }
@@ -57,6 +59,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
         error: scope.cage(String::new()),
         request: scope.cage(String::new()),
         abort: Rc::new(RefCell::new(None)),
+        updates: Rc::new(RefCell::new(None)),
         terminal_input: scope.cage(String::new()),
         checkpoint_summary: scope.cage(String::new()),
     };
@@ -115,9 +118,13 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     history_effect(ctx, &state);
     stream_notifications(ctx, &state);
     let abort = state.abort.clone();
+    let updates = state.updates.clone();
     let _ = ctx.scope.on_cleanup(move || {
         if let Some(controller) = abort.borrow_mut().take() {
             controller.abort();
+        }
+        if let Some(updates) = updates.borrow_mut().take() {
+            updates.finish();
         }
     });
 
@@ -161,16 +168,11 @@ fn stream_notifications(ctx: &AppContext, state: &Conversation) {
         }
         if let Some(delta) = payload["delta"].as_str() {
             let kind = payload["kind"].as_str().unwrap_or("text");
-            let _ = state.messages.try_revise(|messages| {
-                if let Some(message) = messages.last_mut() {
-                    if kind == "reasoning" || kind == "thinking" {
-                        message.thinking.get_or_insert_default().push_str(delta);
-                    } else if kind == "text" {
-                        message.content.push_str(delta);
-                    }
-                }
-            });
-            crate::ui::flush();
+            if let Some(updates) = state.updates.borrow().as_ref()
+                && matches!(kind, "text" | "reasoning" | "thinking")
+            {
+                updates.push(delta, kind != "text");
+            }
         }
     });
 }
@@ -239,6 +241,9 @@ fn submit_chat(
     let sessions = sessions.clone();
     ctx.clone().spawn(async move {
         let result = send(&ctx, &state, submission, agents).await;
+        if let Some(updates) = state.updates.borrow_mut().take() {
+            updates.finish();
+        }
         if result.is_ok() {
             crate::utils::notifications::notify_if_enabled(
                 "Savfox response ready",
@@ -463,6 +468,10 @@ async fn send(
         });
     });
     crate::ui::flush();
+    let last_index = state.messages.with_untracked(|messages| messages.len() - 1);
+    let active_message = state.messages.item(last_index);
+    let updates = StreamUpdates::new(active_message);
+    *state.updates.borrow_mut() = Some(updates.clone());
     let entries = common::array(&agents, &["agents", "entries"]);
     let terminal = entries
         .into_iter()
@@ -475,46 +484,35 @@ async fn send(
         let request = uuid::Uuid::new_v4().to_string();
         set(state.request, request.clone());
         let result=ctx.rpc.call::<Value>("chat.send",Some(json!({"message":prompt,"agent":agent,"session_id":session,"request_id":request,"attachments":attachments}))).await?;
-        let _ = state.messages.try_revise(|messages| {
-            if let Some(message) = messages.last_mut() {
-                if let Some(content) = result
-                    .get("raw_response")
-                    .or_else(|| result.get("response"))
-                    .and_then(Value::as_str)
-                {
-                    message.content = content.into();
-                }
-                message.terminal_events = parse_terminal_events(
-                    result
-                        .get("terminal")
-                        .and_then(|terminal| terminal.get("events")),
-                );
+        updates.finish();
+        let _ = active_message.try_revise(|message| {
+            if let Some(content) = result
+                .get("raw_response")
+                .or_else(|| result.get("response"))
+                .and_then(Value::as_str)
+            {
+                message.content = content.into();
             }
+            message.terminal_events = parse_terminal_events(
+                result
+                    .get("terminal")
+                    .and_then(|terminal| terminal.get("events")),
+            );
         });
         crate::ui::flush();
     } else {
         let controller = web_sys::AbortController::new().map_err(|error| format!("{error:?}"))?;
         *state.abort.borrow_mut() = Some(controller.clone());
-        let messages = state.messages;
+        let reasoning_updates = updates.clone();
         let mut reasoning = move |chunk: &str| {
-            let _ = messages.try_revise(|items| {
-                if let Some(message) = items.last_mut() {
-                    message.thinking.get_or_insert_default().push_str(chunk);
-                }
-            });
-            crate::ui::flush();
+            reasoning_updates.push(chunk, true);
         };
         let result = stream_chat(
             build_openai_chat_message_payload(&prompt, &attachments),
             model,
             Some(session),
             move |chunk| {
-                let _ = messages.try_revise(|items| {
-                    if let Some(message) = items.last_mut() {
-                        message.content.push_str(chunk);
-                    }
-                });
-                crate::ui::flush();
+                updates.push(chunk, false);
             },
             Some(&mut reasoning),
             Some(controller.signal()),

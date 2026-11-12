@@ -2,6 +2,18 @@
 
 The gateway server provides remote HTTP/WebSocket access to Savfox, enabling web clients, chat platform integrations, and multi-device usage.
 
+The web conversation pane uses Glory's measured virtual list: only visible messages
+and a small overscan window are mounted. Streaming text and reasoning are batched
+at 32 ms intervals and update only the active reply's fields. Completion, failure
+and cancellation drain pending text. The pane follows new output while near the
+bottom; scrolling up keeps your reading position. Virtualization applies to loaded
+messages; opening a session still requests the latest 200 messages, and the server
+currently reads the full rollout before applying that limit.
+
+Run `node scripts/check-web.cjs --chat-performance` after
+`./scripts/build-web.ps1` to verify a 2,000-message fixture, bounded mounted rows,
+reading position, streaming completion, mobile resizing and clearing history.
+
 ## Starting the Gateway
 
 ```bash

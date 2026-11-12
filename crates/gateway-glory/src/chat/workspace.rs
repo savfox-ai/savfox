@@ -1,4 +1,6 @@
 //! The session workspace follows the pre-migration Dioxus split-pane layout.
+use std::cell::Cell;
+
 use super::*;
 use crate::i18n::Locale;
 
@@ -85,15 +87,9 @@ pub(super) fn render(
             .unwrap_or_else(|| words(locale.get(), "Draft session", "新会话"))
     });
     let message_source = state.messages;
-    let message_items = scope.bond(move || {
-        message_source
-            .get()
-            .into_iter()
-            .enumerate()
-            .collect::<Vec<_>>()
-    });
+    let message_count = message_source.map(Vec::len).with_partial_eq();
     let count = scope.bond(move || {
-        let count = message_source.get().len();
+        let count = message_count.get();
         if count == 0 {
             String::new()
         } else {
@@ -291,11 +287,13 @@ pub(super) fn render(
     let responding = state.busy;
     let assistant_agents = agents.value;
     let assistant_id = state.agent;
+    let scroll_position = scope.cage(0.0);
+    let follow_tail = Rc::new(Cell::new(true));
     let messages = col().class("chat-messages").fill((
         {
             let busy = state.history_busy;
             let messages = state.messages;
-            when(scope.bond(move || messages.get().is_empty()), move || {
+            when(messages.map(Vec::is_empty).with_partial_eq(), move || {
                 sapid::empty_state()
                     .unstyled()
                     .class("chat-empty")
@@ -314,15 +312,25 @@ pub(super) fn render(
                     ))
             })
         },
-        each(message_items)
-            .key(|value| value.0)
-            .children(move |each_row| {
-                let item = each_row.value;
+        glory::ui::list(
+            message_count,
+            |index| index,
+            move |_index, key| {
                 widget(move |scope| {
-                    let message = item.map(|(_, message)| message.clone());
-                    let content = scope.bond(move || vec![message.get().content]);
+                    let message = message_source.item(key);
+                    let body = message.field("content", |m| &m.content, |m| &mut m.content);
+                    let thinking = message.field("thinking", |m| &m.thinking, |m| &mut m.thinking);
+                    let role_source = message.field("role", |m| &m.role, |m| &mut m.role);
+                    let attachments =
+                        message.field("attachments", |m| &m.attachments, |m| &mut m.attachments);
+                    let terminal = message.field(
+                        "terminal_events",
+                        |m| &m.terminal_events,
+                        |m| &mut m.terminal_events,
+                    );
+                    let content = scope.bond(move || vec![body.get()]);
                     let role = scope.bond(move || {
-                        if message.get().role == "user" {
+                        if role_source.get() == "user" {
                             words(locale.get(), "You", "你")
                         } else {
                             common::array(&assistant_agents.get(), &["agents"])
@@ -333,19 +341,19 @@ pub(super) fn render(
                         }
                     });
                     col()
-                        .class(scope.bond(move || format!("chat-message {}", message.get().role)))
+                        .class(scope.bond(move || format!("chat-message {}", role_source.get())))
                         .fill((
                             text().class("message-author").content(role),
                             text()
                                 .class("message-thinking")
                                 .content(scope.bond(move || {
-                                    let is_latest = item.get().0 + 1 == message_source.get().len();
+                                    let is_latest = key + 1 == message_count.get();
                                     if super::options::reasoning_visible(
                                         &reasoning_mode.get(),
                                         responding.get(),
                                         is_latest,
                                     ) {
-                                        message.get().thinking.unwrap_or_default()
+                                        thinking.get().unwrap_or_default()
                                     } else {
                                         String::new()
                                     }
@@ -357,9 +365,8 @@ pub(super) fn render(
                                     markdown(&content.get_untracked())
                                 }),
                             each(scope.bond(move || {
-                                message
+                                attachments
                                     .get()
-                                    .attachments
                                     .into_iter()
                                     .filter(|attachment| attachment.mime_type.starts_with("image/"))
                                     .enumerate()
@@ -379,9 +386,8 @@ pub(super) fn render(
                                     .class("chat-message-attachment")
                             }),
                             text().class("terminal-events").content(scope.bond(move || {
-                                message
+                                terminal
                                     .get()
-                                    .terminal_events
                                     .iter()
                                     .filter_map(|event| {
                                         event.text.as_deref().or(event.message.as_deref())
@@ -392,7 +398,30 @@ pub(super) fn render(
                         ))
                         .build(scope)
                 })
-            }),
+            },
+        )
+        .name(label(ctx, "Conversation messages", "会话消息"))
+        .measure(180.0)
+        .measure_limit(2048)
+        .overscan(3)
+        .locate(move |key| (*key < message_count.get()).then_some(*key))
+        .position(scroll_position)
+        .inspect(move |stats| {
+            let bottom = (stats.total - stats.viewport.height).max(0.0);
+            if message_count.get() == 0 {
+                follow_tail.set(true);
+            }
+            if stats.user_moved {
+                follow_tail.set(bottom - stats.logical <= 48.0);
+            }
+            // Keep following growth only while the reader is at the bottom.
+            if follow_tail.get()
+                && (bottom - stats.logical).abs() > 1.0
+                && (bottom - scroll_position.get_untracked()).abs() > 1.0
+            {
+                let _ = scroll_position.try_revise(|position| *position = bottom);
+            }
+        }),
     ));
     let export_state = state.clone();
     let clear_state = state.clone();

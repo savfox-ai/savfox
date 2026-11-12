@@ -592,10 +592,10 @@ fn apply_theme(value: &str) {
         if let Some(storage) = window.local_storage().ok().flatten() {
             let previous = storage.get_item("savfox_theme").ok().flatten();
             let _ = storage.set_item("savfox_theme", value);
-            if previous.as_deref() != Some(value) {
-                if let Ok(event) = web_sys::Event::new("savfox:preferences") {
-                    let _ = window.dispatch_event(&event);
-                }
+            if previous.as_deref() != Some(value)
+                && let Ok(event) = web_sys::Event::new("savfox:preferences")
+            {
+                let _ = window.dispatch_event(&event);
             }
         }
         if let Some(document) = window.document() {
