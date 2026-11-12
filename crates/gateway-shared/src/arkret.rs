@@ -54,6 +54,7 @@ pub fn default_agent_runtime_scope() -> Result<Vec<String>, String> {
         ServiceOperationId::SELF_DIRECT_CONVERSATION_READ_RESOLVE_V1,
         ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
         ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+        ServiceOperationId::SELF_COMMITTED_EVENT_RESOURCE_GET_V1,
         ServiceOperationId::SELF_SIGNER_KEYS_READ_RESOLVE_V1,
         ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1,
         ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1,
@@ -129,6 +130,11 @@ mod tests {
             actions
                 .iter()
                 .any(|action| action == ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1)
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action == ServiceOperationId::SELF_COMMITTED_EVENT_RESOURCE_GET_V1)
         );
         assert!(
             !actions

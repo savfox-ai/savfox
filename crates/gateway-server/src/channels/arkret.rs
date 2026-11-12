@@ -2926,6 +2926,25 @@ fn find_typed_mls_commit_payload(
     }
 }
 
+async fn ensure_realm_content_strategy(
+    client: &ArkretHttpClient,
+    crypto_store: &FileArkretCryptoStore,
+    realm: &arkret::RealmId,
+) -> anyhow::Result<()> {
+    if !crypto_store.has_content_strategy(realm)? {
+        let genesis = garth::own_station_results::read_collaboration_realm_genesis(
+            client.own_station()?,
+            realm,
+        )
+        .await
+        .inspect_err(|error| {
+            warn!(%error, "arkret: content strategy original remains pending");
+        })?;
+        crypto_store.record_verified_content_strategy(&genesis)?;
+    }
+    Ok(())
+}
+
 async fn handle_parsed_account_events(
     provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
@@ -3575,10 +3594,40 @@ async fn try_handle_encrypted_account_skip(
         ),
     }
 
+    ensure_realm_content_strategy(client, crypto_store, &payload.original.realm_id).await?;
+    let direct_source = if !native_sidecar
+        && crypto_store.realm_is_direct_conversation(payload.original.realm_id.as_str())?
+    {
+        let source = garth::own_station_results::read_window_dependency_by_event_id(
+            client.own_station()?,
+            &payload.original.event_id,
+        )
+        .await?;
+        anyhow::ensure!(
+            source.full()?.event == payload.original,
+            "Direct content differs from its exact accepted original"
+        );
+        Some(source)
+    } else {
+        None
+    };
     observe_inbound_boundary(channel, account, "mls_decrypt_entered");
     let decrypted = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
         Some(reference) => {
             crypto_store.try_decrypt_accepted_event_content_detailed(reference, payload)
+        }
+        None if direct_source.is_some() => {
+            let source = direct_source.as_ref().expect("qualified Direct source");
+            let full = source.full()?;
+            let reference = arkret::CommittedEventRef {
+                event_id: full.event.event_id.clone(),
+                commit_id: full.commit.commit_id.clone(),
+                stream_ref: full.commit.stream_ref.clone(),
+                stream_position: full.commit.stream_position,
+            };
+            let result = crypto_store.try_decrypt_native_shared_event_content(&reference, payload);
+            source.session()?;
+            result
         }
         None => crypto_store.try_decrypt_event_content_detailed(payload),
     };
