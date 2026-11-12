@@ -200,6 +200,18 @@ Applet host 可在验证 authoring completion 后，为本地创建的每个 Bot
 则不自动引导。授权配对仅覆盖创建的 exact scope，Realm 不包含其 Circle。
 安装及 Device 接纳本身不提供业务权或 membership。
 
+当 `device.mls` 已启用，且 `device.actions` 包含 `ak.message.create` 或
+`ak.strand.create` 时，必须显式配置以下全部四个备份动作：
+
+- `ak.self.keys.backups.resource.replace.v1`
+- `ak.self.keys.backups.read.list.v1`
+- `ak.self.keys.backups.command.issue_unlock_challenge.v1`
+- `ak.self.keys.backups.command.unlock.v1`
+
+该 Device 在相同 exact scope 的实际权限授予也必须包含这些相同动作。
+配置列表不会授予权限，也不会自动补齐缺失动作。仅接收的 Device 不会因启用 MLS
+而获得这些备份权限。
+
 首次提交前，既有加密 authoring store 耐久保存独立 Device 签名私钥、HPKE 私钥、
 Principal 原签授权和原创建 roots。重启复用原 Event、原 scope 和期限；
 Station 已接纳但本地保存响应失败时也按原件恢复。错误 wrapping key、缺原 roots
@@ -207,6 +219,20 @@ Station 已接纳但本地保存响应失败时也按原件恢复。错误 wrapp
 显式启用 `device.mls` 后，宿主持续运行原生 Welcome、MLS 与内容工作循环。
 
 Bot／Ghost 历史创建回执复用共享耐久接收器：核验当前治理站及原 accepted 创建证据，跨重试与重启保留原结果，不要求业务安装仍有效。后续业务仍检查当前安装与具体权限；恢复按独立恢复授权。使用正式 `/_arkret/edge/applet/transactions` 路径，以签名覆盖的 `Destination-Service-Id` 选择 Applet。回执的登记 epoch 来自原创建证据，无需人工配置。
+
+网关管理宿主必须配置部署环境变量 `SAVFOX_ARKRET_MANAGER_ARCHIVE_ROOT`。
+每个完整 `(AppletId, ServiceId)` owner 使用独立目录：目录名为 SDK 对
+`[applet_id, service_id]` 做 canonical JCS 后的 SHA-256 小写十六进制摘要，
+不带 `sha256:` 前缀。部署方须在该目录预置独立的 `wrapping.key`，内容严格为
+32 个原始密钥字节；宿主在同目录打开 `archive.redb`，不会自动生成密钥或目录。
+根目录和密钥文件应由 manager 部署权限独占，并纳入 manager 的运维保管流程。
+禁止复用 Service 签名 seed、日常 authoring key 或 Device 私钥，也不能让两个 owner
+共用归档库。网关不回退到独立 Bridge 进程的全局归档环境变量。
+
+归档路径和能力仅保留在管理宿主，Bot 内容 worker 继续只获得日常 runtime。
+共享管理路由负责各 scope 的 series 维护。停用、删除或替换渠道会显式停止其
+manager 维护，并取消尚在等待的本地 HTTP 处理，即使旧宿主仍有引用也会生效。
+取消不能撤销远端已接受的事务；未知结果仍须通过已保留的不可变原件恢复确认。
 
 Applet 启动还必须配置 `service_resolution_path`，指向包含 SDK `AuthenticatedServiceResolution` 的本地 JSON 文件，附带该 Service 完整的原生 WebVH 历史。共享宿主在注册前验证历史、角色、当前 assertion 方法与实际签名密钥。反向代理须开放正式 `/_arkret/describe`、`/_arkret/open/services/{service_id}/resolution`、Applet 管理地址，以及由 `service_did` 推导的原生 document／log／witness 地址。网关将原始请求交给共享宿主，包括配置执行，不另建签名或审批流程。
 

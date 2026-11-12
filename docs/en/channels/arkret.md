@@ -290,6 +290,18 @@ Omitting `device` disables automatic bootstrap. The permission pair covers only
 the exact creation scope; a Realm does not imply its Circles. Installation and
 Device acceptance do not supply business permission or membership.
 
+When `device.mls` is enabled and `device.actions` includes `ak.message.create`
+or `ak.strand.create`, explicitly include all four backup actions:
+
+- `ak.self.keys.backups.resource.replace.v1`
+- `ak.self.keys.backups.read.list.v1`
+- `ak.self.keys.backups.command.issue_unlock_challenge.v1`
+- `ak.self.keys.backups.command.unlock.v1`
+
+The actual permission grant for that Device and exact scope must include these
+same actions. Configuration neither grants permissions nor appends missing actions.
+Enabling MLS on a receive-only Device does not grant these backup actions.
+
 The existing encrypted authoring store saves the independent Device signing
 key, HPKE private key, exact Principal-signed authorization and original creation
 roots before submission. Restart retries that original Event and stored scope
@@ -299,6 +311,25 @@ This initial-generation bootstrap does not renew expired authorization or rotate
 the Principal. Explicit `device.mls` enables the native MLS/queue/content workers.
 
 Historical Bot/Ghost creation receipts use the shared durable completion receiver. It verifies the current governing Station and the original accepted creation evidence, then retains the original outcome across retries and restart. It does not require an active business installation. Later business actions still check their current installation and exact permissions; recovery uses its independent authorization. Use the canonical `/_arkret/edge/applet/transactions` path and the signed `Destination-Service-Id` header to select the Applet. The registration epoch comes from the accepted creation evidence, not a manually configured completion epoch.
+
+The gateway management host requires the operator environment variable
+`SAVFOX_ARKRET_MANAGER_ARCHIVE_ROOT`. Each complete `(AppletId, ServiceId)` owner
+uses its own directory named by the lowercase SHA-256 hex of the SDK's canonical
+JCS serialization of `[applet_id, service_id]`, without the `sha256:` prefix.
+Provision that directory under the root with a separate `wrapping.key` containing
+exactly 32 raw secret bytes. The host opens `archive.redb` alongside that key;
+neither the key nor its directory is generated automatically. Protect the root
+and key files with manager-only deployment permissions and back them up through
+the manager's operational custody procedure. Never reuse a Service signing seed,
+daily authoring key or managed Device key, and never point two owners at one vault.
+The gateway does not fall back to the standalone bridge's global archive variables.
+
+These paths and archive capabilities stay inside the management host. Bot content
+workers receive their existing daily runtime only. The shared manager router owns
+scope-series maintenance. Disabling, deleting or replacing a channel explicitly
+stops its manager maintenance and cancels pending local HTTP handling, including
+when an old host is still referenced. Cancellation cannot undo an already accepted
+remote transaction; retained immutable publications must resolve that unknown outcome.
 
 Applet startup also requires `service_resolution_path`, a local JSON file containing the SDK `AuthenticatedServiceResolution` for this Applet Service, including its complete native WebVH history. The shared host verifies the history, role, current assertion method and configured signing key before registration. Expose the canonical `/_arkret/describe`, `/_arkret/open/services/{service_id}/resolution`, Applet management paths, and the native document/log/witness URLs derived from `service_did`. The gateway forwards original request bytes to the shared host, including configuration execution; it does not implement a separate signature or approval path.
 
