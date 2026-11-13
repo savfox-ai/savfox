@@ -3,9 +3,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result;
 
-#[path = "options.rs"]
 mod options;
-#[path = "workspace.rs"]
 mod workspace;
 
 use base64::Engine;

@@ -56,7 +56,6 @@ pub mod auto_reply;
 mod cached_db;
 pub mod canvas_host;
 pub mod channel;
-#[path = "channels/mod.rs"]
 pub mod channels;
 pub(crate) mod chat_sanitize;
 pub(crate) mod chat_session;

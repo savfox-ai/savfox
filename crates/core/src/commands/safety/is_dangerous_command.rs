@@ -1,6 +1,5 @@
 use crate::bash::parse_shell_lc_plain_commands;
 #[cfg(windows)]
-#[path = "windows_dangerous_commands.rs"]
 mod windows_dangerous_commands;
 
 #[must_use]

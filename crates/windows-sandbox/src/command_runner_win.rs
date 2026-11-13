@@ -23,7 +23,6 @@ use windows_sys::Win32::System::JobObjects::{
 };
 use windows_sys::Win32::System::Threading::{INFINITE, TerminateProcess, WaitForSingleObject};
 
-#[path = "cwd_junction.rs"]
 mod cwd_junction;
 
 #[allow(dead_code)]

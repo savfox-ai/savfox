@@ -31,7 +31,6 @@ mod client_common;
 pub mod commands;
 mod compact_remote;
 pub mod savfox;
-#[path = "session_state.rs"]
 mod savfox_session;
 pub use savfox_session::{SavfoxSession, SessionConfigSnapshot};
 mod agent;
@@ -57,7 +56,6 @@ mod mcp_connection_manager;
 pub mod md_memory;
 pub mod prompting;
 pub mod providers;
-#[path = "agent_delegate.rs"]
 mod savfox_delegate;
 mod transport_manager;
 pub use mcp_connection_manager::{

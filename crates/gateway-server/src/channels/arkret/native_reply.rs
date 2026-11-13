@@ -110,9 +110,7 @@ impl Drop for NativePublicReplyHandle {
 //     home: PathBuf, host: Arc<dyn NativePublicReplyHost>
 // ) -> anyhow::Result<NativePublicReplyHandle>;
 
-#[path = "native_reply/factory.rs"]
 pub(super) mod factory;
-#[path = "native_reply/guarded_transport.rs"]
 mod guarded_transport;
 pub(crate) use factory::native_save_onboarding;
 pub use factory::start_native_arkret_public_replies;

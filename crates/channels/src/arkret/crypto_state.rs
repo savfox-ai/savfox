@@ -31,7 +31,6 @@ use serde_json::Value;
 
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
-#[path = "creator_bootstrap.rs"]
 mod creator_bootstrap;
 
 /// A local encrypted-state read or write failed.
