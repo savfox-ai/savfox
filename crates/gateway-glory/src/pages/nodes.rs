@@ -79,9 +79,12 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             let state = row_state.clone();
             let id = id.clone();
             actions.push(ui::action(label, move || {
-                if confirmed("Change this device's access token?") {
-                    mutate(&context, &state, method, json!({"node_id":id}));
-                }
+                let context_mutate = context.clone();
+                let state = state.clone();
+                let id = id.clone();
+                context.confirm_action("Change this device's access token?", move || {
+                    mutate(&context_mutate, &state, method, json!({"node_id":id}));
+                });
             }));
         }
         let context_rename = context.clone();

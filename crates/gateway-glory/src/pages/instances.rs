@@ -39,17 +39,17 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                         let state = row_state.clone();
                         let session_id = string(&instance, &["session_id"]);
                         actions.push(ui::action(ui::label(&context, "Disconnect"), move || {
-                            if confirmed(&ui::translate(
-                                context.locale.get(),
-                                "Disconnect this client?",
-                            )) {
+                            let context_mutate = context.clone();
+                            let state = state.clone();
+                            let session_id = session_id.clone();
+                            context.confirm_action("Disconnect this client?", move || {
                                 mutate(
-                                    &context,
+                                    &context_mutate,
                                     &state,
                                     "system.disconnect",
                                     json!({"session_id":session_id}),
                                 );
-                            }
+                            });
                         }));
                     }
                     card(

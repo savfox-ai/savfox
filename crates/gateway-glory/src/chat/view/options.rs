@@ -49,6 +49,11 @@ fn button(
 ) -> Box<dyn Widget> {
     Box::new(
         sapid::button()
+            .variant(match en {
+                "Start terminal" | "Preview checkpoint" => sapid::ButtonVariant::Primary,
+                "Close terminal" | "Publish checkpoint" => sapid::ButtonVariant::Danger,
+                _ => sapid::ButtonVariant::Secondary,
+            })
             .class("session-option-button")
             .label(workspace::label(ctx, en, zh))
             .enabled(enabled)
@@ -84,24 +89,53 @@ pub(super) fn render(
     agents: Cage<Value>,
     sessions: Cage<Value>,
 ) -> Box<dyn Widget> {
-    Box::new(col().class("session-options-panel").fill((
-        col().class("session-display-options").fill((
-            text().class("session-option-label")
-                .content(workspace::label(ctx, "Reasoning display", "思考过程")),
-            workspace::localized_choice(ctx, "Reasoning display", "思考过程", state.reasoning, &[
-                ("off", "Hidden", "隐藏"),
-                ("on", "After reply", "回复完成后显示"),
-                ("stream", "Live", "实时显示"),
+    Box::new(
+        col().class("session-options-panel").fill((
+            col().class("session-display-options").fill((
+                text()
+                    .class("session-option-label")
+                    .content(workspace::label(ctx, "Reasoning display", "思考过程")),
+                workspace::localized_choice(
+                    ctx,
+                    "Reasoning display",
+                    "思考过程",
+                    state.reasoning,
+                    &[
+                        ("off", "Hidden", "隐藏"),
+                        ("on", "After reply", "回复完成后显示"),
+                        ("stream", "Live", "实时显示"),
+                    ],
+                ),
+                note(
+                    ctx,
+                    "Controls the display of reasoning provided by the model.",
+                    "控制模型返回的思考过程如何显示。",
+                ),
+                text()
+                    .class("session-option-label")
+                    .content(workspace::label(ctx, "Reasoning effort", "推理力度")),
+                workspace::localized_choice(
+                    ctx,
+                    "Reasoning effort for this session",
+                    "此会话的推理力度",
+                    state.thinking,
+                    &[
+                        ("off", "Off", "关闭"),
+                        ("minimal", "Minimal", "最少"),
+                        ("low", "Low", "低"),
+                        ("medium", "Medium", "中"),
+                        ("high", "High", "高"),
+                        ("xhigh", "Extra high", "极高"),
+                    ],
+                ),
+            )),
+            col().class("session-options-grid").fill(vec![
+                terminal(ctx, state, agents),
+                context(ctx, state),
+                delivery(ctx, state, sessions),
             ]),
-            note(ctx, "Controls the display of reasoning provided by the model; reasoning effort is set in the composer.",
-                "控制模型返回的思考过程如何显示；推理力度在消息输入框下方设置。"),
         )),
-        col().class("session-options-grid").fill(vec![
-            terminal(ctx, state, agents),
-            context(ctx, state),
-            delivery(ctx, state, sessions),
-        ]),
-    )))
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -327,39 +361,48 @@ fn terminal(ctx: &AppContext, state: &Conversation, agents: Cage<Value>) -> Box<
             if !ready.get() {
                 return;
             }
-            if kind == "close"
-                && !confirm(&words(
-                    locale.get(),
-                    "Close this session's terminal process?",
-                    "关闭当前会话的终端进程？",
-                ))
-            {
-                return;
-            }
-            let params = json!({"agent":agent.get(),"session_id":session.get(),"kind":kind,"text":if kind=="line"{input.get()}else{String::new()},"since_sequence":terminal.sequence.get()});
-            set(
-                terminal.revision,
-                terminal.revision.get_untracked().wrapping_add(1),
-            );
-            set(terminal.busy, true);
-            set(terminal.error, String::new());
-            if kind == "start" {
-                set(terminal.output, String::new());
-                set(terminal.sequence, 0);
-            }
-            let task = context.clone();
-            context.spawn(async move {
-                match task.rpc.call::<Value>(method, Some(params)).await {
-                    Ok(value) => {
-                        accept_terminal(terminal, &value);
-                        if kind == "line" {
-                            set(input, String::new());
-                        }
-                    }
-                    Err(message) => set(terminal.error, message),
+            let action_context = context.clone();
+            let apply = move || {
+                if !ready.get() {
+                    return;
                 }
-                set(terminal.busy, false);
-            });
+                let params = json!({"agent":agent.get(),"session_id":session.get(),"kind":kind,"text":if kind=="line"{input.get()}else{String::new()},"since_sequence":terminal.sequence.get()});
+                set(
+                    terminal.revision,
+                    terminal.revision.get_untracked().wrapping_add(1),
+                );
+                set(terminal.busy, true);
+                set(terminal.error, String::new());
+                if kind == "start" {
+                    set(terminal.output, String::new());
+                    set(terminal.sequence, 0);
+                }
+                let task = action_context.clone();
+                action_context.spawn(async move {
+                    match task.rpc.call::<Value>(method, Some(params)).await {
+                        Ok(value) => {
+                            accept_terminal(terminal, &value);
+                            if kind == "line" {
+                                set(input, String::new());
+                            }
+                        }
+                        Err(message) => set(terminal.error, message),
+                    }
+                    set(terminal.busy, false);
+                });
+            };
+            if kind == "close" {
+                context.confirm_action(
+                    words(
+                        locale.get(),
+                        "Close this session's terminal process?",
+                        "关闭当前会话的终端进程？",
+                    ),
+                    apply,
+                );
+            } else {
+                apply();
+            }
         });
         actions.push(button);
     }
@@ -589,37 +632,46 @@ fn delivery(ctx: &AppContext, state: &Conversation, sessions: Cage<Value>) -> Bo
             if !ready.get() {
                 return;
             }
-            if publishing
-                && !confirm(&words(
-                    locale.get(),
-                    "Publish this reviewed checkpoint to Arkret?",
-                    "将已审核的检查点发布到 Arkret？",
-                ))
-            {
-                return;
-            }
             let params = delivery_params(&session.get(), &summary.get());
-            set(busy, true);
-            set(error, String::new());
-            set(result, String::new());
-            let task = context.clone();
-            context.spawn(async move {
-                match task.rpc.call::<Value>(method, Some(params.clone())).await {
-                    Ok(value) => {
-                        if publishing {
-                            set(preview, Value::Null);
-                            set(
-                                result,
-                                words(locale.get(), "Checkpoint published.", "检查点已发布。"),
-                            );
-                        } else {
-                            set(preview, json!({"params":params,"result":value}));
-                        }
-                    }
-                    Err(message) => set(error, message),
+            let action_context = context.clone();
+            let apply = move || {
+                if !ready.get() || params != delivery_params(&session.get(), &summary.get()) {
+                    return;
                 }
-                set(busy, false);
-            });
+                set(busy, true);
+                set(error, String::new());
+                set(result, String::new());
+                let task = action_context.clone();
+                action_context.spawn(async move {
+                    match task.rpc.call::<Value>(method, Some(params.clone())).await {
+                        Ok(value) => {
+                            if publishing {
+                                set(preview, Value::Null);
+                                set(
+                                    result,
+                                    words(locale.get(), "Checkpoint published.", "检查点已发布。"),
+                                );
+                            } else {
+                                set(preview, json!({"params":params,"result":value}));
+                            }
+                        }
+                        Err(message) => set(error, message),
+                    }
+                    set(busy, false);
+                });
+            };
+            if publishing {
+                context.confirm_action(
+                    words(
+                        locale.get(),
+                        "Publish this reviewed checkpoint to Arkret?",
+                        "将已审核的检查点发布到 Arkret？",
+                    ),
+                    apply,
+                );
+            } else {
+                apply();
+            }
         }));
     }
     section(ctx, "Arkret checkpoint", "Arkret 检查点", "", vec![

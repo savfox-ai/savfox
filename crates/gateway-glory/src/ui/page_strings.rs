@@ -5,6 +5,52 @@ pub fn translate(locale: Locale, source: &str) -> String {
         return source.to_owned();
     }
     match source {
+        "More actions" => "更多操作".into(),
+        "Eligible" => "可用".into(),
+        "Blocked" => "被阻止".into(),
+        "Availability unknown" => "可用性未知".into(),
+        "Waiting for sign-in…" => "正在等待登录…".into(),
+        "Signed in successfully" => "登录成功".into(),
+        "Sign-in cancelled" => "已取消登录".into(),
+        "Configuration section" => "配置分类".into(),
+        "Authentication method" => "认证方式".into(),
+        "ChatGPT account" => "ChatGPT 账号".into(),
+        "Device code" => "设备代码".into(),
+        "Base URL" => "接口地址".into(),
+        "Verify and find models" => "验证并发现模型".into(),
+        "Save and start chatting" => "保存并开始对话".into(),
+        "1 · Provider and authentication" => "1 · 服务商与认证".into(),
+        "2 · Verify and choose models" => "2 · 验证并选择模型".into(),
+        "3 · Start your conversation" => "3 · 开始对话".into(),
+        "Use a model ID instead" => "改为输入模型 ID".into(),
+        "Account name (optional)" => "账号名称（可选）".into(),
+        "Default model for this connection" => "此连接的默认模型".into(),
+        "Leave the key empty to use a credential configured on the gateway, or an endpoint that needs no key." => {
+            "使用网关已配置的凭据或无需密钥的接口时，可留空。".into()
+        }
+        "For endpoints without model discovery. This model will be saved without verification." => {
+            "用于不支持模型发现的接口。此模型将在未验证的情况下保存。".into()
+        }
+        "Saving also makes the selected model your global default. You can change it in any conversation." => {
+            "保存后，所选模型也会成为全局默认模型。你仍可在各个会话中切换模型。".into()
+        }
+        "Connect once, choose a model, and start a conversation." => {
+            "连接服务商，选好模型，即可开始对话。".into()
+        }
+        "No models found. You can enter a model ID below." => {
+            "未发现模型。你可以在下方输入模型 ID。".into()
+        }
+        "Connection verified. Choose the models you want to use." => {
+            "连接已验证。请选择要使用的模型。".into()
+        }
+        "Delete this agent?" => "删除此智能体？".into(),
+        "Delete this agent file?" => "删除此智能体文件？".into(),
+        "Delete this provider account and its models?" => "删除此提供方账号及其模型？".into(),
+        "Remove this scheduled job?" => "删除此定时任务？".into(),
+        "Discard unsaved configuration changes?" => "放弃尚未保存的配置修改？".into(),
+        "Change this device's access token?" => "更改此设备的访问令牌？".into(),
+        "ZIP archive exceeds 50 MiB" => "ZIP 压缩包超过 50 MiB 限制".into(),
+        "Cannot select ZIP archive" => "无法选择 ZIP 压缩包".into(),
         "Use default" => "使用默认值".into(),
         "Interface and notifications" => "界面与通知".into(),
         "Use global default model" => "使用全局默认模型".into(),

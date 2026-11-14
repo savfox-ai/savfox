@@ -3,75 +3,13 @@ use savfox_gateway_shared::is_internal_session_message;
 use serde_json::{Value, json};
 
 use crate::api::types::{
-    AgentEntry, ArkretDeliveryPreview, ChatAttachment, ChatMessage, ChatTerminalEvent,
-    SessionAmbientMessage, SessionEntry, SessionIdleReplyResponse,
+    AgentEntry, ChatAttachment, ChatMessage, ChatTerminalEvent, SessionAmbientMessage,
+    SessionEntry, SessionIdleReplyResponse,
 };
-use crate::api::ws::WsRpc;
 const THINKING_LEVELS: [&str; 6] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const REASONING_MODES: [&str; 3] = ["off", "on", "stream"];
 const VERBOSE_MODES: [&str; 3] = ["off", "on", "full"];
 const PENDING_MODEL_STORAGE_KEY: &str = "savfox_pending_session_model";
-
-async fn preview_and_publish_arkret(
-    ws: WsRpc,
-    session_id: String,
-    kind: &'static str,
-    title: &'static str,
-    summary: String,
-) -> Result<String, String> {
-    let params = json!({
-        "session_id": session_id,
-        "kind": kind,
-        "title": title,
-        "summary": summary,
-        "verification": [],
-        "next_actions": [],
-    });
-    let preview = ws
-        .call::<ArkretDeliveryPreview>("sessions.arkret.delivery.preview", Some(params.clone()))
-        .await?;
-    let comparison = preview
-        .previous_rendered
-        .as_deref()
-        .map(|previous| {
-            format!(
-                "Last public checkpoint:\n{previous}\n\nNew publish candidate:\n{}",
-                preview.rendered
-            )
-        })
-        .unwrap_or_else(|| format!("First public checkpoint:\n{}", preview.rendered));
-    let confirmation = format!(
-        "Publish through Arkret Agent {}?\n\n{}",
-        preview.sender_did, comparison
-    );
-    let confirmed = web_sys::window()
-        .and_then(|window| window.confirm_with_message(&confirmation).ok())
-        .unwrap_or(false);
-    if !confirmed {
-        return Ok(format!("## Publish preview\n\n{}", preview.rendered));
-    }
-    let published = ws
-        .call::<Value>("sessions.arkret.delivery.publish", Some(params))
-        .await?;
-    let event_id = published
-        .get("remoteEventId")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
-    Ok(format!(
-        "## Published to Arkret\n\nSender: `{}`\n\nEvent: `{event_id}`\n\n{}",
-        preview.sender_did, preview.rendered
-    ))
-}
-
-pub(super) fn request_arkret_publish_candidate(kind: &str) -> Option<String> {
-    let message = format!(
-        "Write the minimal public {kind} summary for Arkret. Local chat, tool logs, and private paths are not copied automatically."
-    );
-    web_sys::window()
-        .and_then(|window| window.prompt_with_message(&message).ok().flatten())
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-}
 
 pub(super) fn normalize_reasoning_mode(value: &str) -> String {
     let normalized = value.trim().to_lowercase();

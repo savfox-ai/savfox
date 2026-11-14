@@ -235,21 +235,26 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             });
         });
     let reload = config.clone();
+    let reload_context = ctx.clone();
     let refresh = ui::action(ui::label_for(locale, "Reload configuration"), move || {
-        if (draft.get() != baseline.get()
+        let dirty = draft.get() != baseline.get()
             || browser_draft.get() != browser_baseline.get()
-            || !errors.get().is_empty())
-            && !confirmed("Discard unsaved configuration changes?")
-        {
-            return;
+            || !errors.get().is_empty();
+        let reload = reload.clone();
+        let reset = move || {
+            ui::set(initialized, false);
+            ui::set(errors, HashMap::new());
+            ui::set(message, String::new());
+            let loaded_browser = super::browser::load(locale.get());
+            ui::set(browser_draft, loaded_browser.clone());
+            ui::set(browser_baseline, loaded_browser);
+            reload.refresh();
+        };
+        if dirty {
+            reload_context.confirm_action("Discard unsaved configuration changes?", reset);
+        } else {
+            reset();
         }
-        ui::set(initialized, false);
-        ui::set(errors, HashMap::new());
-        ui::set(message, String::new());
-        let loaded_browser = super::browser::load(locale.get());
-        ui::set(browser_draft, loaded_browser.clone());
-        ui::set(browser_baseline, loaded_browser);
-        reload.refresh();
     });
     let revert = ui::action(ui::label_for(locale, "Discard changes"), move || {
         ui::set(draft, baseline.get());
@@ -281,6 +286,43 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             });
         },
     );
+    let mut secondary_actions = Some(vec![refresh, export, revert]);
+    let more_actions = sapid::popover("configuration-actions")
+        .class("configuration-more-actions")
+        .label(ui::label_for(locale, "More actions"))
+        .content_policy(sapid::ContentPolicy::KeepMounted)
+        .content(move || {
+            col()
+                .class("configuration-action-list")
+                .fill(secondary_actions.take().unwrap_or_default())
+        });
+    let mobile_section = each(locale.map(|locale| vec![*locale]))
+        .key(|locale| locale.code().to_owned())
+        .children(move |entry| {
+            let section_options = std::iter::once(("overview", "Configuration overview"))
+                .chain(GROUPS.iter().map(|(id, label, _)| (*id, *label)))
+                .chain(std::iter::once(("advanced", "Advanced configuration")))
+                .map(|(id, label)| {
+                    sapid::select_option(id, ui::translate(entry.value.get_untracked(), label))
+                });
+            ui::select_control("configuration-section")
+                .label(ui::label_for(locale, "Configuration section"))
+                .value(selected.map(|value| Some(value.clone())))
+                .options(section_options)
+                .on_value_change(move |value| {
+                    let Some(value) = value else {
+                        return;
+                    };
+                    let target = if value == "overview" {
+                        "/config".to_owned()
+                    } else {
+                        format!("/config/{value}")
+                    };
+                    ui::set(selected, value);
+                    ui::set(search, String::new());
+                    crate::utils::deep_link::replace_url(&target);
+                })
+        });
     let mut links: Vec<Box<dyn Widget>> = Vec::new();
     for (id, label) in std::iter::once(("overview", "Configuration overview"))
         .chain(GROUPS.iter().map(|(id, label, _)| (*id, *label)))
@@ -370,12 +412,11 @@ pub(super) fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                         false,
                     )),
                     col().class("config-nav").fill(links),
+                    col().class("config-mobile-section").fill(mobile_section),
                 )),
                 col().class("config-main").fill((
                     row().class("config-actions").fill((
-                        refresh,
-                        export,
-                        revert,
+                        Box::new(more_actions) as Box<dyn Widget>,
                         Box::new(save) as Box<dyn Widget>,
                     )),
                     col().class("config-scroll").fill((

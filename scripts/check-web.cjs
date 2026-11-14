@@ -28,6 +28,8 @@ async function waitForCall(predicate) {
 }
 let agentName = 'Browser agent';
 let signInComplete = false;
+let delayNextDiscovery = false;
+let emptyModelCatalog = false;
 const agent = () => ({ id: 'browser-agent', name: agentName, kind: 'native', native: { provider: 'openai', model: 'test-model' } });
 const terminalAgent = { id: 'terminal-agent', name: 'Fixture terminal', kind: 'terminal', terminal: { mode: 'managed_pty', command: 'fixture-shell' } };
 const arkretDelivery = { bindingId: 'fixture-binding', mode: 'task_delivery', state: 'active', conversation: { channelConfigId: 'fixture-channel', accountId: 'fixture-account', realmId: 'fixture-realm', strandId: 'fixture-strand' }, sourceSenderDid: 'did:fixture:source', agentSenderDid: 'did:fixture:agent', pendingOutbox: 0, publishedCheckpoints: 0, hydratedEvents: 0, hydrationTruncated: false };
@@ -54,7 +56,8 @@ function fixture(method, params) {
     case 'agents.update': agentName = params.name || agentName; return { ok: true };
     case 'agents.files.list': return { files: [] };
     case 'agents.skills.get': return { skills: [] };
-    case 'models.list': return { models: [model] };
+    case 'models.list': return { models: emptyModelCatalog && !params?.provider ? [] : [model] };
+    case 'models.import': return { status: 'imported', account_id: 'openai-personal', model_count: params.models.length };
     case 'models.test': return { ok: true, message: 'Connection verified' };
     case 'account/login/start': signInComplete = false; return params.type === 'apiKey' ? { type: 'apiKey' } : { loginId: 'fixture-login', authUrl: 'https://example.test/sign-in', verificationUrl: 'https://example.test/device', userCode: 'TEST-CODE' };
     case 'account/read': return { account: signInComplete ? { type: 'chatgpt', email: 'browser@example.test', planType: 'test' } : null };
@@ -177,6 +180,16 @@ const server = http.createServer((request, response) => {
     report.base = base;
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage({ locale: 'en-US', viewport: { width: 1440, height: 1000 } });
+    async function toggleOptions() {
+      const close = page.getByRole('button', { name: 'Close settings', exact: true });
+      const dialog = page.getByRole('dialog', { name: 'Conversation settings', exact: true });
+      if (await close.isVisible()) { await close.click(); await dialog.waitFor({state:'hidden'}); }
+      else { await page.getByRole('button', { name: 'Options', exact: true }).click(); await dialog.waitFor(); }
+    }
+    async function chooseAuthentication(method) {
+      await page.getByRole('combobox', { name: 'Authentication method', exact: true }).click();
+      await page.getByRole('option', { name: method, exact: true }).click();
+    }
     page.on('pageerror', error => errors.push(error.stack || error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await page.route('**/api/token/validate', route => route.fulfill({ json: { valid: route.request().headers().authorization === `Bearer ${token}` } }));
@@ -207,6 +220,11 @@ const server = http.createServer((request, response) => {
         }
         if (!frame.method) return;
         calls.push({ method: frame.method, params: frame.params });
+        if (frame.method === 'models.list' && frame.params?.provider && delayNextDiscovery) {
+          delayNextDiscovery = false;
+          setTimeout(() => socket.send(JSON.stringify({ jsonrpc: '2.0', id: frame.id, result: fixture(frame.method, frame.params) })), 300);
+          return;
+        }
         if (frame.method === 'agent.terminal.pty.write' && terminalFailNextWrite) {
           terminalFailNextWrite = false;
           socket.send(JSON.stringify({ jsonrpc: '2.0', id: frame.id, error: { code: -32603, message: 'Fixture terminal write failed' } }));
@@ -250,8 +268,8 @@ const server = http.createServer((request, response) => {
       await page.getByText('批次'.repeat(1000) + '最终尾字', { exact: true }).waitFor();
       const rows = await page.locator('.chat-message').count();
       assert(rows < 80, 'Appends must preserve bounded mounted rows');
-      await page.getByRole('button', { name: 'Options', exact: true }).click();
-      await page.getByRole('button', { name: 'Options', exact: true }).click();
+      await toggleOptions();
+      await toggleOptions();
       await page.locator('.chat-composer textarea').fill('Live tail test');
       await page.locator('.chat-composer textarea').press('Enter');
       await page.getByText('Live fragment 0', { exact: true }).waitFor();
@@ -275,15 +293,25 @@ const server = http.createServer((request, response) => {
       await page.waitForTimeout(250);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
       assert(await viewport.evaluate(node => node.clientHeight > 100), 'The mobile list must fill the available pane');
-      await page.getByRole('button', { name: 'Clear', exact: true }).click();
+      await page.getByRole('button', { name: 'Conversation actions', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Clear current view', exact: true }).click();
       await page.getByText('Start a new session', { exact: true }).waitFor();
       assert.equal(await page.locator('.chat-message').count(), 0);
       report.checks.push(`2000 variable-height messages: ${lastRows} mounted at tail; ${rows} after append; head/middle/tail scrolling; stable reading anchor; 1000 UTF-8 fragments and final drain; panel resize; live streaming follows tail; abort drains and stops updates; mobile resize; clear`);
       assert.equal(errors.length, 0, errors.join('\n'));
       return;
     }
+    assert(await page.locator('.session-page').isVisible(), 'The home route must open a conversation');
+    emptyModelCatalog = true;
+    await page.reload();
+    await page.getByRole('button', { name: 'Connect a model', exact: true }).click();
+    await page.waitForURL(base + '/models/connect-provider');
+    emptyModelCatalog = false;
+    await page.goto(base + '/');
+    report.checks.push('conversation home; an empty model catalog offers a direct setup action');
     await page.evaluate(() => { window.__savfoxBrowserSentinel = 'same-document'; });
-    await page.getByRole('link', { name: 'Agents', exact: true }).click();
+    await page.locator('.sidebar-rail a[href="/agents"]').click();
+    await page.locator('.hamburger-btn').click();
     await page.locator('.page-title').filter({ hasText: 'Agents' }).waitFor();
     assert.equal(await page.evaluate(() => window.__savfoxBrowserSentinel), 'same-document');
     const navigationConnections = connections;
@@ -297,6 +325,7 @@ const server = http.createServer((request, response) => {
     async function clickNavigationPart(selector, part, options = {}) {
       const link = page.locator(selector);
       await link.scrollIntoViewIfNeeded();
+      await link.click({ trial: true });
       const linkBox = await link.boundingBox();
       const partBox = await link.locator(part).boundingBox();
       assert(linkBox && partBox, `Missing navigation target ${selector} ${part}`);
@@ -359,14 +388,30 @@ const server = http.createServer((request, response) => {
     await clickNavigationPart('.bottom-tab-bar a[href="/agents"]', '.shell-icon');
     await assertLiveNavigation('/agents');
     await page.locator('.bottom-tab-bar__more').click();
-    await clickNavigationPart('.more-sheet a[href="/devices"]', '.nav-label');
+    await clickNavigationPart('.mobile-navigation-drawer a[href="/devices"]', '.nav-label');
     await assertLiveNavigation('/devices');
     await page.locator('.bottom-tab-bar__more').click();
-    await clickNavigationPart('.more-sheet a[href="/logs"]', '.shell-icon');
+    await clickNavigationPart('.mobile-navigation-drawer a[href="/logs"]', '.shell-icon');
     await assertLiveNavigation('/logs');
     await page.setViewportSize({ width: 1440, height: 1000 });
     page.off('request', recordNavigationDocument);
     report.checks.push('all navigation labels/icons preserve the document and WebSocket; history, keyboard, new tabs, rail and mobile menus');
+    await page.goto(base + '/overview');
+    const refreshAll = page.getByRole('button', { name: 'Refresh All', exact: true });
+    await refreshAll.waitFor();
+    await page.locator('.top-header__health--ok').waitFor();
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(theme => { document.body.dataset.theme = theme; document.documentElement.dataset.theme = theme; }, theme);
+      await page.mouse.move(0, 0);
+      await page.waitForTimeout(220);
+      await refreshAll.scrollIntoViewIfNeeded();
+      await refreshAll.hover({ trial: true });
+      const before = await refreshAll.boundingBox();
+      await refreshAll.hover();
+      await page.waitForTimeout(220);
+      assert.deepEqual(await refreshAll.boundingBox(), before, 'Hover must not move or resize the primary button');
+    }
+    report.checks.push('primary button hover retains identical geometry in both themes');
     for (const route of ['/agents', '/agents/new', '/agents/browser-agent', '/agents/browser-agent/files', '/agents/browser-agent/tools', '/agents/browser-agent/skills', '/models', '/models/connect-provider', '/channels', '/channels/add', '/channels/edit/discord-test', '/channels/health/discord-test', '/channels/arkret', '/channels/whatsapp', '/channels/matrix', '/channels/nostr', '/cron', '/cron/new', '/config', '/config/gateway', '/config/execution', '/config/context', '/config/advanced', '/devices/connections', '/logs', '/usage', '/approvals', '/devices', '/devices/nodes/browser-node', '/config/diagnostics', '/skills', '/speech', '/speech/wake', '/devices/pair', '/config/interface', '/sessions?session_id=browser-session']) {
       await page.goto(base + route);
       await page.locator('.top-header__health--ok').waitFor();
@@ -415,7 +460,9 @@ const server = http.createServer((request, response) => {
     assert.equal(await page.evaluate(()=>localStorage.getItem('savfox_default_model')),'openai/test-model');
     await page.getByRole('button',{name:'Interface and notifications',exact:true}).click();
     await themeChoice.click(); await page.getByRole('option',{name:'Dark',exact:true}).click();
+    await page.getByRole('button',{name:'More actions',exact:true}).click();
     await page.getByRole('button',{name:'Discard changes',exact:true}).click();
+    await page.keyboard.press('Escape');
     await page.waitForFunction(()=>document.querySelector('[role="combobox"][aria-label="Theme"]')?.textContent.includes('Light'));
     assert((await themeChoice.innerText()).includes('Light'),'Discard must restore browser options too');
     await page.getByRole('combobox',{name:'Language',exact:true}).click();
@@ -492,8 +539,15 @@ const server = http.createServer((request, response) => {
     await page.getByLabel('Port',{exact:true}).waitFor();
     await page.goto(base + '/devices/connections');
     await page.getByText('Fixture client',{exact:true}).waitFor();
-    page.once('dialog',dialog=>dialog.accept());
     await page.getByRole('button',{name:'Disconnect',exact:true}).click();
+    const confirmation = page.getByRole('alertdialog');
+    await confirmation.waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Cancel', 'Confirmation must initially focus the safe action');
+    const beforeDisconnect = calls.filter(call => call.method === 'system.disconnect').length;
+    await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+    assert.equal(calls.filter(call => call.method === 'system.disconnect').length, beforeDisconnect, 'Cancel must not send the operation');
+    await page.getByRole('button',{name:'Disconnect',exact:true}).click();
+    await confirmation.getByRole('button', { name: 'Confirm', exact: true }).click();
     await waitForCall(call=>call.method==='system.disconnect' && call.params.session_id==='fixture-client-session');
     await page.getByText('Fixture client',{exact:true}).waitFor({state:'hidden'});
     report.checks.push('configuration save once, restart feedback, JSON validation/import/deletion, persistent reload, field search and client disconnect identity');
@@ -529,6 +583,35 @@ const server = http.createServer((request, response) => {
     await page.waitForFunction(() => document.querySelector('.skill-card .sapid-switch input')?.checked === false);
     await waitForCall(call => call.method === 'skills.update' && call.params.name === 'Fixture skill' && call.params.enabled === false);
     report.checks.push('Sapid checkbox label/keyboard activation and save RPC; semantic model/skill switches and persistence');
+    const zip = Buffer.alloc(140000, 42);
+    zip.write('PK\x03\x04');
+    const zipPath = path.join(cache, 'fixture.zip');
+    fs.writeFileSync(zipPath, zip);
+    const upload = page.getByRole('button', { name: 'Upload ZIP', exact: true });
+    const archiveChooser = page.waitForEvent('filechooser');
+    await upload.click();
+    const archivePicker = await archiveChooser;
+    await page.waitForFunction(button => button.getAttribute('aria-busy') === 'true', await upload.elementHandle());
+    await archivePicker.setFiles(zipPath);
+    await waitForCall(call => call.method === 'skills.install_zip');
+    assert.equal(calls.findLast(call => call.method === 'skills.install_zip').params.data, zip.toString('base64'), 'Sapid file reads must preserve every ZIP chunk');
+    const zipCalls = calls.filter(call => call.method === 'skills.install_zip').length;
+    for (const fixture of [
+      { name: 'fixture.txt', mimeType: 'text/plain', buffer: Buffer.from('Invalid archive'), error: 'Cannot select ZIP archive' },
+      { name: 'too-large.zip', mimeType: 'application/zip', buffer: Buffer.alloc(50 * 1024 * 1024 + 1), error: 'ZIP archive exceeds 50 MiB' },
+    ]) {
+      const chooser = page.waitForEvent('filechooser');
+      await upload.click();
+      const { error, ...file } = fixture;
+      const filePath = path.join(cache, file.name);
+      fs.writeFileSync(filePath, file.buffer);
+      const picker = await chooser;
+      await page.waitForFunction(button => button.getAttribute('aria-busy') === 'true', await upload.elementHandle());
+      await picker.setFiles(filePath);
+      await page.locator('.error-message').filter({ hasText: error }).waitFor();
+      assert.equal(calls.filter(call => call.method === 'skills.install_zip').length, zipCalls, 'Rejected files must not reach the install RPC');
+    }
+    report.checks.push('Sapid ZIP picker, complete chunked reads, type and 50 MiB rejection');
     await page.locator('.skill-card .sapid-collapsible>button').click();
     const credential = page.getByLabel('SAVFOX_FIXTURE_KEY', { exact: true });
     await credential.waitFor({ state: 'visible' });
@@ -596,7 +679,7 @@ const server = http.createServer((request, response) => {
     assert((await historyImage.getAttribute('src')).startsWith('data:image/png;base64,'), 'History image must retain its MIME type and encoded data');
     await page.screenshot({ path: path.join(cache, 'history.png'), fullPage: false });
     report.checks.push('nested route refresh; rich Markdown history; image attachment preview');
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await toggleOptions();
     await page.getByRole('combobox', { name: 'Reasoning display', exact: true }).waitFor();
     assert.equal(await page.locator('.session-terminal-body').isVisible(), false, 'Native agents must not offer terminal execution');
     await page.getByText('This session uses a native agent and has no interactive terminal.', { exact: true }).waitFor();
@@ -607,14 +690,14 @@ const server = http.createServer((request, response) => {
     await page.getByText('No pending idle reply.', { exact: false }).waitFor();
     assert.equal(await page.locator('.session-delivery-body').isVisible(), false, 'Unbound sessions must not offer publication');
     await page.goto(base + '/sessions');
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await toggleOptions();
     assert.equal(await page.locator('.session-terminal-body').isVisible(), false);
     assert.equal(await page.getByRole('button', { name: 'View ambient context', exact: true }).isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: 'View idle reply', exact: true }).isDisabled(), true);
     assert.equal(await page.locator('.session-main > .error-message').innerText(), '');
     await page.screenshot({ path: path.join(cache, 'session-options-draft.png'), fullPage: false });
     await page.goto(base + '/sessions?session_id=terminal-session');
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await toggleOptions();
     const terminalStart = page.getByRole('button', { name: 'Start terminal', exact: true });
     await page.waitForFunction(() => ![...document.querySelectorAll('.session-option-button')].find(el => el.textContent === 'Start terminal')?.disabled);
     assert.equal(await page.getByRole('button', { name: 'Send line', exact: true }).isDisabled(), true);
@@ -637,25 +720,25 @@ const server = http.createServer((request, response) => {
     await page.locator('.session-terminal-output').filter({ hasText: 'Interrupted' }).waitFor();
     assert.equal((await page.locator('.session-terminal-output').innerText()).split('Fixture terminal ready').length - 1, 1, 'Incremental reads must not duplicate output');
     await page.screenshot({ path: path.join(cache, 'session-options-terminal.png'), fullPage: false });
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await toggleOptions();
     const readsAfterClosing = calls.filter(call => call.method === 'agent.terminal.pty.read').length;
     await page.waitForTimeout(1300);
     assert.equal(calls.filter(call => call.method === 'agent.terminal.pty.read').length, readsAfterClosing, 'Closing options must retire terminal polling');
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await toggleOptions();
     await page.locator('.session-terminal-output').filter({ hasText: 'Executed: pwd' }).waitFor();
-    page.once('dialog', dialog => dialog.accept());
     await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm', exact: true }).click();
     await page.locator('.session-terminal-status').filter({ hasText: 'Not running' }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Send line', exact: true }).isDisabled(), true);
     await page.goto(base + '/sessions?session_id=delivery-session');
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await toggleOptions();
     const publicSummary = page.getByRole('textbox', { name: 'Public checkpoint summary', exact: true });
     await publicSummary.waitFor();
     const publishCheckpoint = page.getByRole('button', { name: 'Publish checkpoint', exact: true });
     assert.equal(await publishCheckpoint.isDisabled(), true);
     await publicSummary.fill('First reviewed progress');
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await toggleOptions();
+    await toggleOptions();
     assert.equal(await publicSummary.inputValue(), 'First reviewed progress', 'Closing options must preserve the public summary draft');
     await page.getByRole('button', { name: 'Preview checkpoint', exact: true }).click();
     await page.locator('.session-delivery-preview').filter({ hasText: 'Reviewed checkpoint: First reviewed progress' }).waitFor();
@@ -665,8 +748,8 @@ const server = http.createServer((request, response) => {
     assert.equal(await publishCheckpoint.isDisabled(), true);
     await page.getByRole('button', { name: 'Preview checkpoint', exact: true }).click();
     await page.locator('.session-delivery-preview').filter({ hasText: 'Reviewed checkpoint: Updated reviewed progress' }).waitFor();
-    page.once('dialog', dialog => dialog.accept());
     await publishCheckpoint.click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm', exact: true }).click();
     await page.getByText('Checkpoint published.', { exact: true }).waitFor();
     assert.equal(await publishCheckpoint.isDisabled(), true, 'Repeated publication requires a fresh preview');
     assert.equal(calls.findLast(call => call.method === 'sessions.arkret.delivery.publish').params.summary, 'Updated reviewed progress');
@@ -695,19 +778,32 @@ const server = http.createServer((request, response) => {
     await page.locator('.top-header__health--ok').waitFor();
     assert.equal(await prompt.inputValue(), 'Browser streaming test');
     report.checks.push('authenticated WebSocket reconnect preserves the active draft');
+    const imageChooser = page.waitForEvent('filechooser');
+    const attachImage = page.getByRole('button', { name: 'Attach image', exact: true });
+    await attachImage.click();
+    const imagePicker = await imageChooser;
+    await page.waitForFunction(button => button.getAttribute('aria-busy') === 'true', await attachImage.elementHandle());
+    const imagePath = path.join(cache, 'composer.png');
+    fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFtwAAAAASUVORK5CYII=', 'base64'));
+    await imagePicker.setFiles(imagePath);
+    await page.waitForFunction(() => document.querySelector('.sapid-submit-button')?.disabled === false);
     await page.locator('.chat-composer textarea').press('Enter');
     await page.getByText('Streamed browser reply', { exact: true }).waitFor();
     assert(calls.some(call => call.method === 'http.chat' && call.params.session_id === 'browser-new-session'));
+    assert(JSON.stringify(calls.findLast(call => call.method === 'http.chat').params.message).includes('data:image/png;base64,'), 'Prepared image must reach the chat request before the picker is disabled');
     report.checks.push('new session creation, prompt send, SSE reasoning and response');
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await toggleOptions();
     const reasoningDisplay = page.getByRole('combobox', { name: 'Reasoning display', exact: true });
+    await reasoningDisplay.locator('.sapid-select-chevron').waitFor();
+    assert.equal(await reasoningDisplay.locator('.sapid-select-chevron').count(), 1, 'Select must use one Sapid chevron');
+    assert.equal(await reasoningDisplay.evaluate(element => getComputedStyle(element, '::after').content), 'none', 'The application must not duplicate Sapid chevrons');
     await reasoningDisplay.click();
     await page.getByRole('option', { name: 'Hidden', exact: true }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.message-thinking')].every(el => !el.textContent));
     await reasoningDisplay.click();
     await page.getByRole('option', { name: 'After reply', exact: true }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.message-thinking')].some(el => el.textContent.includes('Thinking fixture')));
-    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await toggleOptions();
     report.checks.push('reasoning display toggles completed streamed content without losing it');
     currentSocket.send(JSON.stringify({ type: 'event', event: 'exec.approval.requested', payload: { request_id: 'fixture-approval', nonce: 'fixture-nonce', command: 'test command', session_id: 'browser-new-session' } }));
     await page.getByRole('button', { name: 'Approve once', exact: true }).click();
@@ -723,18 +819,57 @@ const server = http.createServer((request, response) => {
     report.checks.push('inline questionnaire sends numeric question answers');
     await page.screenshot({ path: path.join(cache, 'chat.png'), fullPage: true });
     await page.goto(base + '/models/connect-provider');
+    await page.locator('input[aria-label="API key"]').waitFor();
+    assert.equal(await page.locator('input[aria-label="API key"]').count(), 1, 'API key authentication must have one credential input');
+    assert.equal(await page.getByRole('button', { name: 'Sign in with ChatGPT', exact: true }).count(), 0, 'Only the selected authentication method is shown');
+    const providerKey = page.locator('input[aria-label="API key"]');
+    await providerKey.fill('old-fixture-key');
+    delayNextDiscovery = true;
+    await page.getByRole('button', { name: 'Verify and find models', exact: true }).click();
+    await waitForCall(call => call.method === 'models.list' && call.params?.api_key === 'old-fixture-key');
+    assert.equal(await page.getByRole('button', { name: 'Save and start chatting', exact: true }).isDisabled(), true);
+    await providerKey.fill('current-fixture-key');
+    await page.waitForTimeout(450);
+    assert.equal(await page.locator('.connection-model-list input').count(), 0, 'A stale credential reply must not restore selectable models');
+    await page.getByRole('button', { name: 'Verify and find models', exact: true }).click();
+    await page.getByText('Connection verified. Choose the models you want to use.', { exact: true }).waitFor();
+    await page.getByLabel('Account name (optional)', { exact: true }).fill('Personal');
+    await page.getByRole('button', { name: 'Save and start chatting', exact: true }).click();
+    await page.waitForURL(base + '/sessions?model=openai-personal%2Ftest-model');
+    const importedModels = calls.findLast(call => call.method === 'models.import');
+    assert.equal(importedModels.params.api_key, 'current-fixture-key');
+    assert.equal(importedModels.params.models[0].is_default, true);
+    assert.equal(importedModels.params.models[0].model_slug, 'test-model');
+    assert.equal(importedModels.params.models[0].api_key, undefined);
+    assert((await page.getByRole('combobox', { name: 'Model', exact: true }).inputValue()).includes('openai-personal/test-model'));
+    report.checks.push('single authentication method; credential edits reject stale discovery; import selects default and enters chat with the saved account model');
+    await page.goto(base + '/models/connect-provider');
+    await page.getByRole('button', { name: 'Verify and find models', exact: true }).click();
+    await page.getByText('Connection verified. Choose the models you want to use.', { exact: true }).waitFor();
+    await page.getByRole('switch', { name: 'Use a model ID instead', exact: true }).check();
+    await page.getByRole('textbox', { name: 'Model ID', exact: true }).fill('vendor/model');
+    await page.getByRole('button', { name: 'Save and start chatting', exact: true }).click();
+    await page.waitForURL(base + '/sessions?model=openai-personal%2Fvendor%2Fmodel');
+    assert.equal(calls.findLast(call => call.method === 'models.import').params.models.length, 1, 'Manual mode must replace the discovered selection');
+    assert.equal(calls.findLast(call => call.method === 'models.import').params.models[0].model_slug, 'vendor/model');
+    report.checks.push('manual model setup preserves namespaces and opens the saved model conversation');
+    await page.goto(base + '/models/connect-provider');
+    await chooseAuthentication('Device code');
     await page.getByRole('button', { name: 'Sign in with device code', exact: true }).click();
     await page.getByText('TEST-CODE', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Cancel sign-in', exact: true }).click();
     await page.getByText('Sign-in cancelled', { exact: true }).waitFor();
+    await chooseAuthentication('ChatGPT account');
     await page.getByRole('button', { name: 'Sign in with ChatGPT', exact: true }).click();
     await page.getByRole('link', { name: 'Open sign-in page', exact: true }).waitFor();
     const cancellations = calls.filter(call => call.method === 'account/login/cancel').length;
+    await page.locator('.sidebar-nav .nav-group > .sapid-collapsible-trigger').first().click();
     await page.getByRole('link', { name: 'Agents', exact: true }).click();
     for (let attempt = 0; attempt < 100 && calls.filter(call => call.method === 'account/login/cancel').length === cancellations; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
     assert(calls.filter(call => call.method === 'account/login/cancel').length > cancellations, 'Navigation must cancel the server login worker');
     report.checks.push('route retirement cancels pending OpenAI sign-in');
     await page.goto(base + '/models/connect-provider');
+    await chooseAuthentication('ChatGPT account');
     await page.getByRole('button', { name: 'Sign in with ChatGPT', exact: true }).click();
     await page.getByRole('link', { name: 'Open sign-in page', exact: true }).waitFor();
     signInComplete = true;

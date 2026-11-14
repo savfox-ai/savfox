@@ -5,7 +5,7 @@ use std::rc::Rc;
 use glory::prelude::*;
 use serde_json::{Value, json};
 
-use super::super::common::{card, paragraph, secret, string};
+use super::super::common::string;
 use crate::api::ws::WsRpc;
 use crate::ui::{self, AppContext};
 
@@ -18,6 +18,7 @@ struct Login {
     error: Cage<String>,
     busy: Cage<bool>,
     generation: Cage<u64>,
+    ready: Cage<bool>,
 }
 #[derive(Default)]
 struct Worker {
@@ -43,7 +44,7 @@ fn cancel_worker(rpc: WsRpc, id: String) {
             .await;
     });
 }
-pub fn render(ctx: &AppContext, key: Cage<String>) -> Box<dyn Widget> {
+pub fn render(ctx: &AppContext, kind: &'static str, ready: Cage<bool>) -> Box<dyn Widget> {
     let locale = ctx.locale;
     let state = Login {
         id: ctx.scope.cage(String::new()),
@@ -53,29 +54,29 @@ pub fn render(ctx: &AppContext, key: Cage<String>) -> Box<dyn Widget> {
         error: ctx.scope.cage(String::new()),
         busy: ctx.scope.cage(false),
         generation: ctx.scope.cage(0),
+        ready,
     };
     let worker = Rc::new(Worker::default());
     let mut children = vec![
-        paragraph(ui::label_for(
-            locale,
-            "Sign in with ChatGPT, a device code, or an OpenAI API key.",
-        )),
         ui::error_text(ctx, state.error),
         Box::new(text().content(state.status)),
     ];
     let mut sign_in_actions: Vec<Box<dyn Widget>> = Vec::new();
-    for (label, kind) in [
-        ("Sign in with ChatGPT", "chatgpt"),
-        ("Sign in with device code", "deviceCode"),
-    ] {
+    {
+        let label = if kind == "deviceCode" {
+            "Sign in with device code"
+        } else {
+            "Sign in with ChatGPT"
+        };
         let context = ctx.clone();
         let lease = worker.clone();
         sign_in_actions.push(Box::new(
             sapid::button()
-                .label(label)
+                .label(ui::label_for(locale, label))
                 .enabled(
-                    ctx.scope
-                        .bond(move || !state.busy.get() && state.id.get().is_empty()),
+                    ctx.scope.bond(move || {
+                        !state.busy.get() && !ready.get() && state.id.get().is_empty()
+                    }),
                 )
                 .on_press(move || start(&context, state, kind, lease.clone())),
         ));
@@ -92,67 +93,29 @@ pub fn render(ctx: &AppContext, key: Cage<String>) -> Box<dyn Widget> {
                 .open_in(LinkOpen::NewContext)
         },
     )));
-    let context = ctx.clone();
-    let lease = worker.clone();
-    let check_status = ui::action(ui::label_for(locale, "Check sign-in status"), move || {
-        let context_async = context.clone();
-        let lease = lease.clone();
-        context.spawn(async move {
-            check(&context_async, state, &lease).await;
-        });
-    });
-    let context = ctx.clone();
-    let lease = worker.clone();
-    let cancel_sign_in = ui::action(ui::label_for(locale, "Cancel sign-in"), move || {
-        cancel(&context, state, &lease)
-    });
-    children.push(Box::new(
-        row().class("actions").fill((check_status, cancel_sign_in)),
-    ));
-    children.push(secret(ui::label_for(locale, "OpenAI account API key"), key));
-    let context = ctx.clone();
-    children.push(Box::new(
-        sapid::button()
-            .label(ui::label_for(locale, "Save OpenAI API key"))
-            .loading(state.busy)
-            .on_press(move || {
-                if key.get().trim().is_empty() {
-                    ui::set(state.error, "Enter an OpenAI API key".to_owned());
-                    return;
-                }
-                if !state.id.get().is_empty() {
-                    ui::set(
-                        state.error,
-                        "Cancel the current sign-in before saving an API key".to_owned(),
-                    );
-                    return;
-                }
-                let context_async = context.clone();
-                let api_key = key.get();
-                ui::set(state.busy, true);
-                ui::set(state.error, String::new());
-                context.spawn(async move {
-                    match context_async
-                        .rpc
-                        .call::<Value>(
-                            "account/login/start",
-                            Some(json!({"type":"apiKey","apiKey":api_key})),
-                        )
-                        .await
-                    {
-                        Ok(value) if value["type"].as_str() == Some("apiKey") => {
-                            ui::set(state.status, "OpenAI API key saved".to_owned())
-                        }
-                        Ok(_) => ui::set(
-                            state.error,
-                            "Gateway did not confirm the API key login".to_owned(),
-                        ),
-                        Err(message) => ui::set(state.error, message),
-                    }
-                    ui::set(state.busy, false);
+    let pending_context = ctx.clone();
+    let pending_worker = worker.clone();
+    children.push(Box::new(when(
+        state.id.map(|id| !id.is_empty()),
+        move || {
+            let context = pending_context.clone();
+            let lease = pending_worker.clone();
+            let check_status =
+                ui::action(ui::label_for(locale, "Check sign-in status"), move || {
+                    let context_async = context.clone();
+                    let lease = lease.clone();
+                    context.spawn(async move {
+                        check(&context_async, state, &lease).await;
+                    });
                 });
-            }),
-    ));
+            let context = pending_context.clone();
+            let lease = pending_worker.clone();
+            let cancel_sign_in = ui::action(ui::label_for(locale, "Cancel sign-in"), move || {
+                cancel(&context, state, &lease)
+            });
+            row().class("actions").fill((check_status, cancel_sign_in))
+        },
+    )));
     // Cleanup runs after reactive identities retire. The worker lease remains readable.
     let rpc = ctx.rpc.clone();
     let _ = ctx.scope.on_cleanup(move || {
@@ -160,11 +123,7 @@ pub fn render(ctx: &AppContext, key: Cage<String>) -> Box<dyn Widget> {
             cancel_worker(rpc, id);
         }
     });
-    Box::new(
-        col()
-            .class("account-login")
-            .fill(card(ui::label_for(locale, "OpenAI account"), children)),
-    )
+    Box::new(col().class("account-login").fill(children))
 }
 fn start(ctx: &AppContext, state: Login, kind: &'static str, worker: Rc<Worker>) {
     if state.busy.get() || !state.id.get().is_empty() {
@@ -173,6 +132,7 @@ fn start(ctx: &AppContext, state: Login, kind: &'static str, worker: Rc<Worker>)
     let generation = state.generation.get().wrapping_add(1);
     ui::set(state.generation, generation);
     ui::set(state.busy, true);
+    ui::set(state.ready, false);
     ui::set(state.error, String::new());
     ui::set(state.status, String::new());
     let context = ctx.clone();
@@ -217,7 +177,10 @@ fn start(ctx: &AppContext, state: Login, kind: &'static str, worker: Rc<Worker>)
                 ui::set(state.id, id);
                 ui::set(state.url, url);
                 ui::set(state.code, string(&value, &["userCode"]));
-                ui::set(state.status, "Waiting for sign-in…".to_owned());
+                ui::set(
+                    state.status,
+                    ui::translate(context.locale.get_untracked(), "Waiting for sign-in…"),
+                );
             }
             Err(message) => {
                 ui::set(state.error, message);
@@ -252,6 +215,9 @@ fn start(ctx: &AppContext, state: Login, kind: &'static str, worker: Rc<Worker>)
     });
 }
 async fn check(ctx: &AppContext, state: Login, worker: &Worker) -> bool {
+    if state.id.get().is_empty() {
+        return false;
+    }
     let generation = state.generation.get();
     let response = ctx
         .rpc
@@ -269,7 +235,8 @@ async fn check(ctx: &AppContext, state: Login, worker: &Worker) -> bool {
             ui::set(
                 state.status,
                 format!(
-                    "Signed in successfully{email}{plan}",
+                    "{}{email}{plan}",
+                    ui::translate(ctx.locale.get_untracked(), "Signed in successfully"),
                     email = if email.is_empty() {
                         String::new()
                     } else {
@@ -287,6 +254,7 @@ async fn check(ctx: &AppContext, state: Login, worker: &Worker) -> bool {
             ui::set(state.id, String::new());
             ui::set(state.url, String::new());
             ui::set(state.code, String::new());
+            ui::set(state.ready, true);
             true
         }
         Ok(_) => false,
@@ -303,6 +271,7 @@ fn cancel(ctx: &AppContext, state: Login, worker: &Worker) {
     ui::set(state.url, String::new());
     ui::set(state.code, String::new());
     ui::set(state.busy, false);
+    ui::set(state.ready, false);
     if let Some(id) = id {
         let context = ctx.clone();
         let generation = state.generation.get();
@@ -315,7 +284,10 @@ fn cancel(ctx: &AppContext, state: Login, worker: &Worker) {
                 return;
             }
             match result {
-                Ok(_) => ui::set(state.status, "Sign-in cancelled".to_owned()),
+                Ok(_) => ui::set(
+                    state.status,
+                    ui::translate(context.locale.get_untracked(), "Sign-in cancelled"),
+                ),
                 Err(message) => ui::set(state.error, message),
             }
         });

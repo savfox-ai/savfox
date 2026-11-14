@@ -9,8 +9,8 @@ type NavItem = (&'static str, &'static str, &'static str);
 type NavGroup = (&'static str, &'static [NavItem]);
 
 const PRIMARY_LINKS: &[NavItem] = &[
-    ("/", "nav.overview", "home"),
     ("/sessions", "nav.sessions", "message"),
+    ("/models", "nav.models", "brain"),
     ("/approvals", "nav.approvals", "shield"),
 ];
 
@@ -19,7 +19,6 @@ const GROUPS: &[NavGroup] = &[
         "nav.manage",
         &[
             ("/agents", "nav.agents", "bot"),
-            ("/models", "nav.models", "brain"),
             ("/channels", "nav.channels", "radio"),
             ("/cron", "nav.cron_jobs", "clock"),
             ("/skills", "nav.skills", "star"),
@@ -30,6 +29,7 @@ const GROUPS: &[NavGroup] = &[
     (
         "nav.observe",
         &[
+            ("/overview", "nav.overview", "home"),
             ("/logs", "nav.logs", "logs"),
             ("/usage", "nav.usage", "chart"),
         ],
@@ -119,12 +119,14 @@ fn nav_link(
 
 pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
     let palette = ctx.scope.cage(false);
-    let sidebar = ctx.scope.cage(!narrow_viewport());
+    let sidebar = ctx
+        .scope
+        .cage(!narrow_viewport() && !crate::route::is_session_path(&ctx.path.get_untracked()));
     let more = ctx.scope.cage(false);
     let theme = ctx.scope.cage(saved_theme());
     let initial_group = active_group(&ctx.path.get_untracked());
     let groups = [
-        ctx.scope.cage(true),
+        ctx.scope.cage(initial_group == Some(0)),
         ctx.scope.cage(initial_group == Some(1)),
     ];
     let path = ctx.path;
@@ -148,6 +150,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
     let header_left = row().class("top-header__left").fill((
         // Burger's open/close labels are static in Sapid 0.7.1; this control
         // needs a live localized name and expanded state without remounting.
+        // Replace after https://github.com/taidge/sapid/pull/15 is released.
         button()
             .class("hamburger-btn")
             .name(ctx.scope.bond(move || {
@@ -181,6 +184,16 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
     ));
     let connected = ctx.connected;
     let locale = ctx.locale;
+    let connection_label = ctx.scope.bond(move || {
+        i18n::t(
+            locale.get(),
+            if connected.get() {
+                "header.health_ok"
+            } else {
+                "header.offline"
+            },
+        )
+    });
     let header_right = row().class("top-header__right").fill((
         nav_link(
             ctx,
@@ -193,6 +206,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
         ),
         row()
             .role(Role::Status)
+            .name(connection_label)
             .class(ctx.scope.bond(move || {
                 if connected.get() {
                     "top-header__health top-header__health--ok connection connected".into()
@@ -202,16 +216,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
             }))
             .fill((
                 view().class("top-header__health-dot"),
-                text().content(ctx.scope.bond(move || {
-                    i18n::t(
-                        locale.get(),
-                        if connected.get() {
-                            "header.health_ok"
-                        } else {
-                            "header.offline"
-                        },
-                    )
-                })),
+                text().content(connection_label),
             )),
     ));
 
@@ -266,13 +271,16 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 .content_policy(sapid::ContentPolicy::KeepMounted)
                 .trigger_content(move || {
                     group().fill((
-                        text().class(expanded.map(|open| {
-                            if *open {
-                                "shell-icon shell-icon--chevron-down".into()
-                            } else {
-                                "shell-icon shell-icon--chevron-right".into()
-                            }
-                        })),
+                        glory::ui::graphic()
+                            .class("nav-group-chevron")
+                            .drawing(expanded.map(|open| {
+                                let icon = if *open {
+                                    sapid::Icon::ChevronDown
+                                } else {
+                                    sapid::Icon::ChevronRight
+                                };
+                                icon.drawing(glory::style::Color(0, 0, 0, 255))
+                            })),
                         text().content(label),
                     ))
                 })
@@ -340,7 +348,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
     let main = col()
         .role(Role::Main)
         .class(path.map(|path| {
-            if path.split('?').next() == Some("/sessions") {
+            if crate::route::is_session_path(path) {
                 "main-content main-content--sessions gateway-main".into()
             } else {
                 "main-content gateway-main".into()
@@ -349,6 +357,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
         .fill((
             super::approvals::center(ctx),
             super::command_palette(ctx, palette),
+            crate::ui::modal_host(ctx),
             col()
                 .class("route-outlet")
                 .fill(each(routes).key(Clone::clone).children(move |each_row| {
@@ -385,10 +394,9 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
 
 fn mobile_navigation(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) -> Box<dyn Widget> {
     let primary = [
-        ("/", "nav.overview", "home"),
         ("/sessions", "nav.sessions", "message"),
+        ("/models", "nav.models", "brain"),
         ("/agents", "nav.agents", "bot"),
-        ("/channels", "nav.channels", "radio"),
     ];
     let mut tabs = primary
         .iter()
@@ -437,6 +445,7 @@ fn mobile_navigation(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) ->
         sidebar,
         more,
     ));
+    let mut drawer_links = Some(links);
     Box::new(
         col().class("mobile-navigation").fill((
             row()
@@ -444,38 +453,20 @@ fn mobile_navigation(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) ->
                 .role(Role::Navigation)
                 .name(translated(ctx, "nav.navigation"))
                 .fill(row().class("bottom-tab-bar__items").fill(tabs)),
-            sapid::button()
-                .unstyled()
-                .name(translated(ctx, "common.close"))
-                .class(more.map(|open| {
-                    if *open {
-                        "more-sheet-backdrop visible".into()
-                    } else {
-                        "more-sheet-backdrop".into()
-                    }
-                }))
-                .on_press(move || set(more, false)),
-            col()
-                .class(more.map(|open| {
-                    if *open {
-                        "more-sheet open".into()
-                    } else {
-                        "more-sheet".into()
-                    }
-                }))
-                .semantics(more.map(|open| {
-                    Some(Box::new(Semantics {
-                        hidden: !*open,
-                        ..Default::default()
-                    }))
-                }))
-                .fill((
-                    view().class("more-sheet__handle"),
-                    text()
-                        .class("more-sheet__title")
-                        .content(translated(ctx, "nav.navigation")),
-                    col().class("more-sheet__nav").fill(links),
-                )),
+            sapid::drawer("mobile-navigation")
+                .class("mobile-navigation-drawer")
+                .show_trigger(false)
+                .side(sapid::DrawerSide::Bottom)
+                .title(translated(ctx, "nav.navigation"))
+                .close_label(translated(ctx, "common.close"))
+                .open(more)
+                .on_open_change(move |open| set(more, open))
+                .content_policy(sapid::ContentPolicy::KeepMounted)
+                .content(move || {
+                    col()
+                        .class("more-sheet__nav")
+                        .fill(drawer_links.take().unwrap_or_default())
+                }),
         )),
     )
 }
@@ -622,8 +613,12 @@ fn install_viewport(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) {
             .and_then(|window| window.match_media("(max-width: 768px)").ok().flatten())
         {
             let responsive = media.clone();
+            let path = ctx.path;
             let callback = Closure::wrap(Box::new(move || {
-                set(sidebar, !responsive.matches());
+                set(
+                    sidebar,
+                    !responsive.matches() && !crate::route::is_session_path(&path.get_untracked()),
+                );
                 set(more, false);
             }) as Box<dyn FnMut()>);
             let _ =

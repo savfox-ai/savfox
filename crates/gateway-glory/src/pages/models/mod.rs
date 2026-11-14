@@ -73,7 +73,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
    row().class("provider-header__main").fill((text().class("provider-name").kind(TextKind::Heading(2)).content(title),text().class("provider-count").content(models.len().to_string()))),
    row().class("provider-actions").fill((
     ui::action(ui::label_for(locale,"Test connection"),move ||{let context_async=context_test.clone();let provider=test_account.clone();let error=state_test.error;context_test.spawn(async move{match context_async.rpc.call::<Value>("models.test",Some(json!({"provider":provider}))).await{Ok(value)=>ui::set(result,string(&value,&["message"])),Err(message)=>ui::set(error,message)}});}),
-    ui::action(ui::label_for(locale,"Delete account"),move ||{if confirmed("Delete this provider account and its models?"){mutate(&context_delete,&state_delete,"models.deleteAccount",json!({"account_id":delete_account}));}})
+    ui::action(ui::label_for(locale,"Delete account"),move ||{let context=context_delete.clone();let state=state_delete.clone();let account=delete_account.clone();context_delete.confirm_action("Delete this provider account and its models?",move ||mutate(&context,&state,"models.deleteAccount",json!({"account_id":account})));})
    ))
   )),
   col().class("models-card-grid").fill(models.into_iter().map(move |model|{

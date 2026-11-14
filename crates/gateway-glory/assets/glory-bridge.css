@@ -6,7 +6,8 @@ body{font-size:14px;overflow:hidden}
 #app{isolation:isolate}
 .app-layout{height:100dvh!important;min-height:0!important;font-family:var(--font-body)!important;color:var(--text-primary)!important}
 .app-layout [data-gly-kind="text"],.auth-container [data-gly-kind="text"]{font-family:inherit!important;color:inherit!important}
-.app-layout button,.app-layout input,.app-layout textarea,.app-layout select,.auth-container button,.auth-container input{font-family:var(--font-body)!important;font-size:inherit;color:var(--text-primary)!important}
+.app-layout button,.auth-container button{font-family:var(--font-body)!important;font-size:inherit;color:var(--control-text,var(--text-primary))!important}
+.app-layout input,.app-layout textarea,.app-layout select,.auth-container input{font-family:var(--font-body)!important;font-size:inherit;color:var(--text-primary)!important}
 .app-layout [class*="sapid-theme-"],.auth-container [class*="sapid-theme-"]{color-scheme:inherit;--sp-text:var(--text-primary);--sp-muted:var(--text-muted);--sp-canvas:var(--bg-primary);--sp-surface:var(--bg-secondary);--sp-input:var(--bg-primary);--sp-accent:var(--accent);--sp-accent-text:var(--accent);--sp-accent-soft:var(--accent-bg);--sp-border:var(--field-stroke);--sp-disabled:var(--bg-tertiary);--sp-disabled-text:var(--text-muted);--sp-ring:var(--accent);--sp-input-focus:var(--accent);--sp-danger:var(--danger);--sp-success:var(--success)}
 .app-layout input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),.app-layout textarea,.auth-container input{color:var(--text-primary)!important;background:var(--field-surface)!important;border:1px solid var(--field-stroke)!important;border-radius:var(--radius)!important;box-shadow:var(--surface-inner);font:400 13px/20px var(--font-body)!important;min-width:0;max-width:100%;min-height:var(--control-height);padding:7px 11px;outline:0}
 .app-layout input::placeholder,.app-layout textarea::placeholder{color:var(--text-muted)!important;opacity:.85}
@@ -16,16 +17,38 @@ body{font-size:14px;overflow:hidden}
 .app-layout .sapid-field-label{color:var(--text-secondary)!important;font:600 12px/1.4 var(--font-body)!important}
 .app-layout .sapid-field-description{color:var(--text-muted)!important;font:400 12px/1.6 var(--font-body)!important;overflow-wrap:anywhere}
 .app-layout .sapid-field-error{color:var(--danger)!important;font:400 12px/1.6 var(--font-body)!important}
+.sapid-alert-dialog{max-width:calc(100vw - 32px)!important;background:var(--surface-panel-strong),var(--bg-secondary)!important;color:var(--text-primary)!important;border:1px solid var(--surface-stroke-strong)!important;border-radius:var(--radius-lg)!important;box-shadow:var(--surface-shadow)!important;font-family:var(--font-body)!important;backdrop-filter:blur(var(--panel-blur))}
+.sapid-alert-dialog .sapid-layer-title{font:700 18px/1.4 var(--font-display)!important;color:var(--text-primary)!important}
+.sapid-alert-dialog [data-gly-kind="text"]{font-family:inherit!important;color:inherit!important;white-space:pre-wrap}
+.sapid-alert-dialog .sapid-layer-close{background:var(--button-surface)!important;color:var(--text-secondary)!important;border:1px solid var(--surface-stroke)!important;border-radius:var(--radius)!important;font:600 13px/20px var(--font-body)!important;padding:7px 12px!important;min-height:var(--control-height,36px)}
+.sapid-alert-dialog .sapid-layer-close:hover:enabled{background:var(--button-surface-hover)!important;color:var(--text-primary)!important}
 .app-layout .sapid-password-toggle{flex:0 0 auto;white-space:nowrap;align-self:center!important}
 .app-layout input:not([type="checkbox"]):not([type="radio"]):focus,.app-layout textarea:focus{border-color:var(--accent)!important;box-shadow:var(--field-focus)!important}
-.app-layout .sapid-button:where(:not(.sapid-unstyled),.btn),.auth-container .sapid-button:where(:not(.sapid-unstyled),.btn){min-height:var(--control-height);padding:7px 12px!important;border-radius:var(--radius)!important;border:1px solid var(--surface-stroke)!important;background:var(--button-surface)!important;box-shadow:var(--surface-inner),var(--button-soft-shadow);color:var(--text-secondary)!important;font:600 13px/20px var(--font-body)!important}
-.app-layout .sapid-button:where(:not(.sapid-unstyled),.btn):hover:enabled,.auth-container .sapid-button:where(:not(.sapid-unstyled),.btn):hover:enabled{background:var(--button-surface-hover)!important;border-color:color-mix(in srgb,var(--border) 70%,var(--accent) 30%)!important}
-.app-layout button:disabled,.auth-container button:disabled{opacity:.45;cursor:default}
-.app-layout .btn--primary,.auth-container .auth-submit{background:var(--button-primary-surface)!important;color:#fff!important;border-color:transparent!important;box-shadow:var(--button-primary-shadow)!important}
-.app-layout .btn--danger{color:var(--danger)!important}
+.app-layout .sapid-button:where(:not(.sapid-unstyled),.btn),.auth-container .sapid-button:where(:not(.sapid-unstyled),.btn){min-height:var(--control-height);padding:7px 12px!important;border-radius:var(--radius)!important;border:1px solid var(--control-border,var(--surface-stroke))!important;background:var(--control-surface,var(--button-surface))!important;box-shadow:var(--surface-inner),var(--control-shadow,var(--button-soft-shadow));color:var(--control-text,var(--text-secondary))!important;font:600 13px/20px var(--font-body)!important}
+.app-layout .sapid-button:where(:not(.sapid-unstyled),.btn):hover:enabled,.auth-container .sapid-button:where(:not(.sapid-unstyled),.btn):hover:enabled{background:var(--control-surface-hover,var(--button-surface-hover))!important;border-color:var(--control-border,color-mix(in srgb,var(--border) 70%,var(--accent) 30%))!important;box-shadow:var(--surface-inner),var(--control-shadow-hover,var(--button-soft-shadow-hover))}
+.app-layout button:disabled,.auth-container button:disabled{opacity:.65;cursor:not-allowed;transform:none;box-shadow:none}
+/* Share the semantic palette across default, hover and loading states. Sapid's
+   default primary class is also present on unstyled neutral actions. */
+:is(.app-layout,.auth-container) :where(.btn-primary,.btn--primary,.btn.primary,.auth-submit,.agent-empty-card .btn,.sapid-button-primary:not(.sapid-unstyled)){
+  --control-surface:var(--button-primary-surface);
+  --control-surface-hover:var(--button-primary-surface-hover);
+  --control-text:var(--button-primary-text);
+  --control-border:transparent;
+  --control-shadow:var(--button-primary-shadow);
+  --control-shadow-hover:var(--button-primary-shadow-hover);
+}
+.app-layout .btn--danger{--control-surface:var(--danger);--control-surface-hover:var(--danger);--control-text:var(--on-danger);--control-border:var(--danger)}
+.app-layout .btn--success{--control-surface:var(--button-success-surface);--control-surface-hover:var(--button-success-surface-hover);--control-text:#fff;--control-border:transparent;--control-shadow:var(--button-success-shadow)}
 /* Text actions share a neutral baseline; unstyled Sapid widgets own their skin. */
 .btn-plain{appearance:none;margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none;font:inherit;color:inherit;text-align:inherit}
 .app-layout :is(.sapid-checkbox,.sapid-switch){color:var(--text-secondary)!important;font:400 13px/20px var(--font-body)!important;min-height:24px;max-width:100%}
+/* Composite action widgets share the same palette as ordinary buttons. */
+.app-layout :is(.sapid-menu-trigger,.sapid-popover-trigger,.sapid-drawer-trigger){background:var(--button-surface)!important;color:var(--text-secondary)!important;border:1px solid var(--surface-stroke)!important;border-radius:var(--radius)!important;font:600 13px/20px var(--font-body)!important;padding:7px 12px;min-height:32px}
+.app-layout :is(.sapid-menu-trigger,.sapid-popover-trigger,.sapid-drawer-trigger):hover:enabled{background:var(--button-surface-hover)!important;color:var(--text-primary)!important}
+.app-layout .sapid-copy-button{background:var(--button-surface)!important;color:var(--text-secondary)!important;border:1px solid var(--surface-stroke)!important;border-radius:var(--radius)!important;font:600 12px/20px var(--font-body)!important;padding:6px 10px!important;min-height:32px}
+.app-layout .sapid-copy-button:hover:enabled{background:var(--button-surface-hover)!important;color:var(--text-primary)!important}
+.app-layout .sapid-copy-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app-layout .sapid-switch input:checked{background-color:var(--accent)!important;--sp-control-thumb:var(--on-accent)}
 .app-body{min-height:0;min-width:0;overflow:hidden}
 .app-layout>.top-header{flex:0 0 var(--header-height);height:var(--header-height);min-height:var(--header-height);gap:12px}
 .top-header__left,.top-header__right,.top-header__brand{flex-shrink:0}
@@ -50,7 +73,8 @@ body{font-size:14px;overflow:hidden}
 .sidebar-rail__item{flex-shrink:0}
 .sidebar-rail__settings{margin-top:auto}
 .nav-group>.sapid-collapsible-trigger{width:100%;font-size:13px!important;font-weight:700!important;flex:0 0 auto;gap:7px}
-.nav-group>.sapid-collapsible-trigger .shell-icon{width:13px;height:13px;min-width:13px;min-height:13px;flex-basis:13px}
+.nav-group-chevron{width:13px!important;height:13px!important;min-width:13px;min-height:13px;flex:0 0 13px;color:inherit!important}
+.nav-group-chevron path{stroke:currentColor}
 .nav-group-links{display:flex!important;flex-direction:column;gap:1px}
 .nav-group-links.is-collapsed{display:none!important}
 .nav-link{flex:0 0 auto;font-size:14px!important;line-height:1.4!important}

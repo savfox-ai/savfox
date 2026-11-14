@@ -183,8 +183,13 @@ fn matches_request(payload: &Value, state: &Conversation) -> bool {
 #[derive(Clone)]
 struct ChatSubmission {
     text: String,
+    attachments: Vec<ChatAttachment>,
+}
+
+#[derive(Clone)]
+struct PreparedAttachments {
     files: Vec<glory::render::FileInfo>,
-    file_controller: Option<sapid::FileController>,
+    attachments: Vec<ChatAttachment>,
 }
 
 #[derive(Clone, Copy)]
@@ -193,6 +198,7 @@ struct ComposerState {
     picker_status: Cage<sapid::FileStatus>,
     file_controller: Cage<Option<sapid::FileController>>,
     composing: Cage<bool>,
+    prepared: Cage<Option<PreparedAttachments>>,
 }
 
 fn submit_chat(
@@ -207,22 +213,26 @@ fn submit_chat(
         picker_status,
         file_controller,
         composing,
+        prepared,
     } = composer;
     if state.busy.get() {
         return;
     }
-    let submission = ChatSubmission {
-        text: state.prompt.get(),
-        files: files.get(),
-        file_controller: file_controller.get(),
-    };
+    let text = state.prompt.get();
+    let selected = files.get();
+    let prepared = prepared.get();
     let rejection = if !ctx.connected.get() {
         Some("Message could not be sent: disconnected")
     } else if composing.get() {
         Some("Message could not be sent: finish composing the text first")
     } else if picker_status.get() == sapid::FileStatus::Choosing {
         Some("Message could not be sent: finish choosing files first")
-    } else if submission.text.trim().is_empty() && submission.files.is_empty() {
+    } else if prepared
+        .as_ref()
+        .is_none_or(|prepared| prepared.files != selected)
+    {
+        Some("Message could not be sent: finish reading attachments first")
+    } else if text.trim().is_empty() && selected.is_empty() {
         Some("Message could not be sent: enter a message or attach a file")
     } else {
         None
@@ -230,6 +240,18 @@ fn submit_chat(
     if let Some(message) = rejection {
         set(state.error, message.to_owned());
         return;
+    }
+    let submission = ChatSubmission {
+        text,
+        attachments: prepared
+            .map(|prepared| prepared.attachments)
+            .unwrap_or_default(),
+    };
+    // Clear selected tokens while the published Glory file control is enabled;
+    // after busy is set, 0.7.0 rejects both reading and clearing those tokens.
+    if let Some(controller) = file_controller.get() {
+        let _ = controller.clear();
+        crate::ui::flush();
     }
     set(state.busy, true);
     set(state.error, String::new());
@@ -273,11 +295,55 @@ fn composer(
         let picker_status = scope.cage(sapid::FileStatus::Idle);
         let file_controller = scope.cage(None::<sapid::FileController>);
         let composing = scope.cage(false);
+        let prepared = scope.cage(Some(PreparedAttachments {
+            files: Vec::new(),
+            attachments: Vec::new(),
+        }));
+        let generation = scope.cage(0_u64);
+        let read_context = ctx.with_scope(scope);
+        let read_error = state.error;
+        scope.effect(move || {
+            let selected = files.get();
+            let controller = file_controller.get();
+            let connected = read_context.connected.get();
+            let revision = generation.get_untracked().wrapping_add(1);
+            let _ = generation.try_revise(|current| *current = revision);
+            if selected.is_empty() {
+                let _ = prepared.try_revise(|current| {
+                    *current = Some(PreparedAttachments {
+                        files: selected,
+                        attachments: Vec::new(),
+                    });
+                });
+                return;
+            }
+            let _ = prepared.try_revise(|current| *current = None);
+            if !connected {
+                return;
+            }
+            read_context.spawn(async move {
+                let result = read_attachments(selected.clone(), controller).await;
+                if generation.get_untracked() != revision || files.get_untracked() != selected {
+                    return;
+                }
+                match result {
+                    Ok(attachments) => set(
+                        prepared,
+                        Some(PreparedAttachments {
+                            files: selected,
+                            attachments,
+                        }),
+                    ),
+                    Err(error) => set(read_error, error),
+                }
+            });
+        });
         let input = ComposerState {
             files,
             picker_status,
             file_controller,
             composing,
+            prepared,
         };
         let editable = scope.bond({
             let connected = ctx.connected;
@@ -285,7 +351,14 @@ fn composer(
             move || connected.get() && !busy.get()
         });
         let can_send = scope.bond(move || {
-            editable.get() && !composing.get() && picker_status.get() != sapid::FileStatus::Choosing
+            editable.get()
+                && !composing.get()
+                && picker_status.get() != sapid::FileStatus::Choosing
+                && prepared.with(|prepared| {
+                    prepared
+                        .as_ref()
+                        .is_some_and(|prepared| prepared.files == files.get())
+                })
         });
         let editor = sapid::field("savfox-chat-message")
             .label(if ctx.locale.get_untracked() == crate::i18n::Locale::ZhCn {
@@ -302,7 +375,15 @@ fn composer(
                 move |field| {
                     sapid::textarea()
                         .field(field)
-                        .rows(3)
+                        .rows(2)
+                        .min_rows(2)
+                        .max_rows(10)
+                        .autosize(true)
+                        .placeholder(if ctx.locale.get_untracked() == crate::i18n::Locale::ZhCn {
+                            "提问、描述任务，或粘贴代码…"
+                        } else {
+                            "Ask a question, describe a task, or paste code…"
+                        })
                         .value(prompt)
                         .enabled(editable)
                         .on_value_change(move |value| set(prompt, value))
@@ -414,12 +495,7 @@ async fn send(
     submission: ChatSubmission,
     agents: Value,
 ) -> Result<(), String> {
-    let picker = submission.file_controller.clone();
-    let attachments = read_attachments(submission.files, submission.file_controller).await?;
-    if let Some(picker) = picker {
-        let _ = picker.clear();
-        crate::ui::flush();
-    }
+    let attachments = submission.attachments;
     let prompt = submission.text.trim().to_owned();
     let session = state.session.get();
     let agent = state.agent.get();
@@ -556,12 +632,14 @@ async fn read_attachments(
                 )
                 .map_err(|error| error.to_string())?;
             crate::ui::flush();
-            bytes.extend(
-                receive
-                    .await
-                    .map_err(|_| "File read cancelled")?
-                    .map_err(|error| error.to_string())?,
-            );
+            let chunk = receive
+                .await
+                .map_err(|_| "File read cancelled")?
+                .map_err(|error| error.to_string())?;
+            if chunk.len() != length as usize {
+                return Err("Cannot read complete attachment".into());
+            }
+            bytes.extend(chunk);
             offset += u64::from(length);
         }
         attachments.push(ChatAttachment {
@@ -614,31 +692,8 @@ fn session_from_path(path: &str) -> String {
         .unwrap_or_default()
 }
 fn encode(value: &str) -> String {
-    let mut output = String::new();
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
-            output.push(byte as char);
-        } else {
-            use std::fmt::Write;
-            let _ = write!(output, "%{byte:02X}");
-        }
-    }
-    output
+    crate::utils::deep_link::encode_query(value)
 }
-fn confirm(message: &str) -> bool {
-    #[cfg(target_arch = "wasm32")]
-    {
-        web_sys::window()
-            .and_then(|window| window.confirm_with_message(message).ok())
-            .unwrap_or(false)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = message;
-        false
-    }
-}
-
 fn preference(key: &str, fallback: &str) -> String {
     #[cfg(target_arch = "wasm32")]
     {

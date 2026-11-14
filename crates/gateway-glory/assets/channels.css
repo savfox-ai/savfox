@@ -149,12 +149,12 @@
 
     .channels-toast--success {
         background: var(--success);
-        color: #fff;
+        color: var(--on-success);
     }
 
     .channels-toast--error {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
     }
 
     .channels-toast__text {
@@ -516,12 +516,13 @@
 
     .channels-btn--auto-active {
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
+        --control-text: var(--on-accent);
         border-color: var(--accent);
     }
 
     .channels-btn--auto-active:hover {
-        opacity: 0.9;
+        background: var(--accent-hover);
     }
 
     .channels-btn--primary {
@@ -596,7 +597,8 @@
 
     .channels-action-btn--test:hover {
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
+        --control-text: var(--on-accent);
     }
 
     .channels-action-btn--muted {
@@ -610,7 +612,8 @@
 
     .channels-action-btn--danger:hover {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
+        --control-text: var(--on-danger);
     }
 
     /* ---- Modal ---- */
@@ -1390,7 +1393,7 @@
 .channels-status-badge{font-size:10px!important;font-weight:600!important;padding:2px 8px;border-radius:3px;line-height:1.4!important;white-space:nowrap}
 .app-layout .channels-status-badge--connected{background:var(--success-bg);color:var(--success)!important}
 .app-layout .channels-status-badge--running{background:var(--warning-bg);color:var(--warning)!important}
-.app-layout .channels-status-badge--configured{background:var(--accent-bg);color:var(--accent)!important}
+.app-layout .channels-status-badge--configured{background:color-mix(in srgb,var(--accent) 8%,var(--bg-secondary));color:var(--accent)!important}
 .app-layout .channels-status-badge--disconnected{background:var(--bg-tertiary);color:var(--text-muted)!important}
 .channels-card__menu-wrap{position:relative}
 .channels-card__menu-trigger{width:30px!important;min-width:30px!important;height:30px!important;min-height:30px!important}
@@ -1404,9 +1407,12 @@
 .app-layout .channels-card__metric-value{font-size:11px!important;font-weight:600!important;color:var(--text-primary)!important;min-width:0;overflow-wrap:anywhere}
 .channels-card__actions{gap:8px!important;flex-wrap:wrap}
 .app-layout .channels-action-btn--enabled{color:var(--success)!important;border-color:var(--success);background:var(--success-bg)}
-.app-layout .channels-action-btn--test{color:var(--danger)!important;border-color:var(--danger)}
-.app-layout .channels-btn--primary{color:#fff!important}
-.app-layout .channels-btn--auto-active{color:#fff!important}
+.app-layout .channels-action-btn--test{color:var(--text-secondary)!important;border-color:var(--border)}
+.app-layout :is(.channels-btn--primary,.channels-action-btn--primary){color:var(--button-primary-text)!important}
+.app-layout .channels-btn--auto-active{color:var(--on-accent)!important}
+.app-layout .channels-btn--auto-active:hover{background:var(--accent-hover);color:var(--on-accent)!important}
+.app-layout .channels-action-btn--test:hover{background:var(--bg-hover);color:var(--text-primary)!important;--control-text:var(--text-primary)}
+.app-layout .channels-action-btn--danger:hover{color:var(--on-danger)!important}
 .channels-page .error-message:empty{display:none!important}
 .channels-page .channels-search input{width:100%}
 @media(max-width:768px){.channels-toolbar{align-items:flex-start!important}.channels-page{padding:18px 16px!important}.channels-health__value{font-size:22px!important}.channels-health__card{padding:16px 12px}.channels-card__header{flex-wrap:nowrap}.channels-card__header-actions{gap:6px!important}.channels-toolbar__actions{gap:6px!important}.channels-btn{padding:6px 10px}.channels-card__metrics{grid-template-columns:1fr}.channels-card__metric-value{max-width:55%}}

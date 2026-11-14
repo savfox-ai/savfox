@@ -21,6 +21,10 @@ body[data-theme="dark"] {
   --accent-hover: #dd5a61;
   --accent-bg: rgba(239, 107, 111, 0.12);
   --accent-rgb: 239, 107, 111;
+  --on-accent: #2b1019;
+  --on-success: #062b16;
+  --on-warning: #302100;
+  --on-danger: #2b1019;
   --ornament: #f6c58d;
   --ornament-bg: rgba(246, 197, 141, 0.10);
   --accent-ember: #ff9a6c;
@@ -30,16 +34,18 @@ body[data-theme="dark"] {
   --button-soft-shadow: 0 8px 18px rgba(12, 4, 6, 0.16);
   --button-soft-shadow-hover: 0 12px 24px rgba(12, 4, 6, 0.22);
   --button-highlight: rgba(255, 255, 255, 0.08);
-  --button-primary-surface: linear-gradient(135deg, #e8857a 0%, #d8636a 58%, #c45360 100%);
-  --button-primary-surface-hover: linear-gradient(135deg, #e37e74 0%, #d25d64 58%, #be4e5a 100%);
+  /* Every gradient stop keeps at least 4.5:1 contrast with white labels. */
+  --button-primary-text: #fff;
+  --button-primary-surface: linear-gradient(135deg, #b84d52 0%, #a83f4c 58%, #913443 100%);
+  --button-primary-surface-hover: linear-gradient(135deg, #aa424b 0%, #983544 58%, #822d3c 100%);
   --button-primary-shadow: 0 12px 26px rgba(216, 99, 106, 0.24);
   --button-primary-shadow-hover: 0 16px 32px rgba(216, 99, 106, 0.30);
-  --button-cta-surface: linear-gradient(135deg, #e8857a 0%, #d8636a 58%, #c45360 100%);
-  --button-cta-surface-hover: linear-gradient(135deg, #e37e74 0%, #d25d64 58%, #be4e5a 100%);
+  --button-cta-surface: var(--button-primary-surface);
+  --button-cta-surface-hover: var(--button-primary-surface-hover);
   --button-cta-shadow: 0 12px 26px rgba(216, 99, 106, 0.24);
   --button-cta-shadow-hover: 0 16px 32px rgba(216, 99, 106, 0.30);
-  --button-success-surface: linear-gradient(180deg, #35cf6f 0%, #22c55e 100%);
-  --button-success-surface-hover: linear-gradient(180deg, #2dc467 0%, #1fa552 100%);
+  --button-success-surface: linear-gradient(180deg, #167b3c 0%, #126432 100%);
+  --button-success-surface-hover: linear-gradient(180deg, #126c34 0%, #0f542a 100%);
   --button-success-shadow: 0 10px 20px rgba(34, 197, 94, 0.16);
   --font-body: "Manrope", "Noto Sans SC", "Segoe UI Variable Text", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   --font-display: "Space Grotesk", "Noto Sans SC", "Segoe UI Variable Display", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
@@ -92,13 +98,17 @@ body[data-theme="light"] {
   --bg-hover: #ffe6dc;
   --border: #efc7bc;
   --text-primary: #372127;
-  --text-secondary: #7e585f;
-  --text-muted: #ab838a;
-  --accent: #d85d68;
-  --accent-hover: #c34e59;
+  --text-secondary: #69434e;
+  --text-muted: #70515b;
+  --accent: #a43646;
+  --accent-hover: #9d3545;
   --accent-bg: rgba(216, 93, 104, 0.10);
-  --accent-rgb: 216, 93, 104;
-  --ornament: #e8ac69;
+  --accent-rgb: 164, 54, 70;
+  --on-accent: #fff;
+  --on-success: #fff;
+  --on-warning: #fff;
+  --on-danger: #fff;
+  --ornament: #805025;
   --ornament-bg: rgba(232, 172, 105, 0.12);
   --accent-ember: #f59669;
   --accent-pearl: #fff6f0;
@@ -107,16 +117,10 @@ body[data-theme="light"] {
   --button-soft-shadow: 0 8px 18px rgba(146, 94, 92, 0.08);
   --button-soft-shadow-hover: 0 12px 24px rgba(146, 94, 92, 0.12);
   --button-highlight: rgba(255, 255, 255, 0.86);
-  --button-primary-surface: linear-gradient(135deg, #f59669 0%, #d85d68 58%, #be4b58 100%);
-  --button-primary-surface-hover: linear-gradient(135deg, #f08d65 0%, #cf5662 58%, #b34653 100%);
   --button-primary-shadow: 0 12px 24px rgba(216, 93, 104, 0.16);
   --button-primary-shadow-hover: 0 16px 30px rgba(216, 93, 104, 0.20);
-  --button-cta-surface: linear-gradient(135deg, #f59669 0%, #d85d68 58%, #be4b58 100%);
-  --button-cta-surface-hover: linear-gradient(135deg, #f08d65 0%, #cf5662 58%, #b34653 100%);
   --button-cta-shadow: 0 12px 24px rgba(216, 93, 104, 0.16);
   --button-cta-shadow-hover: 0 16px 30px rgba(216, 93, 104, 0.20);
-  --button-success-surface: linear-gradient(180deg, #2dc86a 0%, #16a34a 100%);
-  --button-success-surface-hover: linear-gradient(180deg, #27bc61 0%, #15803d 100%);
   --button-success-shadow: 0 10px 20px rgba(22, 163, 74, 0.12);
   --font-body: "Manrope", "Noto Sans SC", "Segoe UI Variable Text", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   --font-display: "Space Grotesk", "Noto Sans SC", "Segoe UI Variable Display", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
@@ -145,9 +149,9 @@ body[data-theme="light"] {
   --mist-gold: rgba(232, 172, 105, 0.12);
   --danger: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.08);
-  --success: #16a34a;
+  --success: #0d632e;
   --success-bg: rgba(22, 163, 74, 0.08);
-  --warning: #ca8a04;
+  --warning: #885900;
   --warning-bg: rgba(202, 138, 4, 0.08);
 }
 
@@ -403,7 +407,7 @@ code, pre {
   top: 2px;
   right: 2px;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
   font-size: 9px;
   min-width: 14px;
   height: 14px;
@@ -472,7 +476,7 @@ code, pre {
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
   box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
-  transform: translateY(-1px);
+
 }
 
 .sidebar-palette-label {
@@ -560,7 +564,7 @@ code, pre {
 
 .nav-badge {
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 10px;
@@ -1003,7 +1007,8 @@ code, pre {
 
 .config-mode-toggle__btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
 }
 
 /* Config Main */
@@ -1395,7 +1400,8 @@ code, pre {
 
 .cfg-segmented__btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
 }
 
 /* Config Nested Group */
@@ -1575,7 +1581,7 @@ code, pre {
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
   box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
-  transform: translateY(-1px);
+
 }
 
 .btn:disabled,
@@ -1808,7 +1814,8 @@ button:disabled {
   height: 18px;
   border-radius: 50%;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
+  --control-text: var(--on-danger);
   border: none;
   font-size: 10px;
   line-height: 1;
@@ -2048,10 +2055,10 @@ button:disabled {
   flex-shrink: 0;
 }
 
-.toast--success .toast__icon { background: var(--success); color: #fff; }
-.toast--error .toast__icon   { background: var(--danger);  color: #fff; }
-.toast--warning .toast__icon { background: var(--warning); color: #fff; }
-.toast--info .toast__icon    { background: var(--accent);  color: #fff; }
+.toast--success .toast__icon { background: var(--success); color: var(--on-success); }
+.toast--error .toast__icon   { background: var(--danger);  color: var(--on-danger); }
+.toast--warning .toast__icon { background: var(--warning); color: var(--on-warning); }
+.toast--info .toast__icon    { background: var(--accent);  color: var(--on-accent); }
 
 .toast__message { flex: 1; }
 
@@ -2138,7 +2145,7 @@ button:disabled {
 .empty-state__action:hover {
   background: var(--button-cta-surface-hover);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
-  transform: translateY(-1px);
+
 }
 
 /* ============== Error State ============== */
@@ -2202,7 +2209,7 @@ button:disabled {
 .error-state__retry:hover {
   background: var(--button-cta-surface-hover);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
-  transform: translateY(-1px);
+
 }
 
 /* ============== Resize Handle ============== */
@@ -2263,7 +2270,7 @@ button:disabled {
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-hover) 92%);
   color: var(--text-primary);
   box-shadow: inset 0 1px 0 var(--button-highlight);
-  transform: translateY(-1px);
+
 }
 
 .schedule-selector__btn.active {
@@ -2689,7 +2696,7 @@ button:disabled {
   z-index: 10000;
   padding: 8px 16px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border-radius: var(--radius);
   font-size: 14px;
   font-weight: 600;
@@ -2883,7 +2890,8 @@ select:focus-visible {
 .confirm-dialog__btn--confirm {
   background: var(--accent);
   border: 1px solid var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
 }
 
 .confirm-dialog__btn--confirm:hover {
@@ -2893,7 +2901,8 @@ select:focus-visible {
 .confirm-dialog__btn--danger {
   background: var(--danger);
   border: 1px solid var(--danger);
-  color: #fff;
+  color: var(--on-danger);
+  --control-text: var(--on-danger);
 }
 
 .confirm-dialog__btn--danger:hover {
@@ -3091,7 +3100,7 @@ select:focus-visible {
 .danger-zone__btn:hover {
   background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 78%, white 22%) 0%, color-mix(in srgb, var(--danger) 90%, black 10%) 100%);
   box-shadow: 0 14px 30px color-mix(in srgb, var(--danger) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  transform: translateY(-1px);
+
 }
 
 /* ============== Split View Mobile (T027) ============== */
@@ -3179,7 +3188,7 @@ select:focus-visible {
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
   box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
-  transform: translateY(-1px);
+
 }
 
 .tool-btn--primary {
@@ -3195,7 +3204,7 @@ select:focus-visible {
 }
 
 .tool-btn--active {
-  background: color-mix(in srgb, var(--accent) 10%, var(--button-surface-hover) 90%);
+  background: linear-gradient(var(--accent-bg), var(--accent-bg)), var(--button-surface-hover);
   border-color: color-mix(in srgb, var(--border) 60%, var(--accent) 40%);
 }
 
@@ -3217,7 +3226,7 @@ select:focus-visible {
 }
 
 .tool-btn--danger:hover {
-  background: color-mix(in srgb, var(--danger) 12%, var(--button-surface-hover) 88%);
+  background: linear-gradient(var(--danger-bg), var(--danger-bg)), var(--button-surface-hover);
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 60%, var(--border) 40%);
   box-shadow: inset 0 1px 0 var(--button-highlight), 0 12px 26px color-mix(in srgb, var(--danger) 18%, transparent);
@@ -3229,7 +3238,7 @@ select:focus-visible {
 }
 
 .tool-btn--warning:hover {
-  background: color-mix(in srgb, var(--warning, #e67e22) 10%, var(--button-surface-hover) 90%);
+  background: linear-gradient(var(--warning-bg), var(--warning-bg)), var(--button-surface-hover);
   color: var(--warning, #e67e22);
   border-color: color-mix(in srgb, var(--warning, #e67e22) 60%, var(--border) 40%);
   box-shadow: inset 0 1px 0 var(--button-highlight), 0 12px 26px color-mix(in srgb, var(--warning, #e67e22) 16%, transparent);
@@ -3335,7 +3344,7 @@ select:focus-visible {
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
   box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
-  transform: translateY(-1px);
+
 }
 
 .pagination__btn:disabled {
@@ -3439,7 +3448,8 @@ select:focus-visible {
   font-size: 11px;
   padding: 2px 8px;
   background: var(--success);
-  color: #fff;
+  color: var(--on-success);
+  --control-text: var(--on-success);
   border: none;
 }
 
@@ -3650,7 +3660,7 @@ select:focus-visible {
   color: var(--text-secondary);
   border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
   box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
-  transform: translateY(-1px);
+
 }
 
 .tts-toggle-btn--on {
@@ -3683,7 +3693,7 @@ select:focus-visible {
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
   box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
-  transform: translateY(-1px);
+
 }
 
 .tts-providers-list {
@@ -3850,7 +3860,7 @@ select:focus-visible {
   min-width: 20px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 11px;
   font-weight: 600;
 }
@@ -3870,7 +3880,8 @@ select:focus-visible {
 /* Rename button (accent variant) */
 .tool-btn--rename {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
   border: none;
 }
 
@@ -3906,7 +3917,8 @@ select:focus-visible {
   padding: 3px 10px;
   font-size: 11px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -4096,7 +4108,8 @@ select:focus-visible {
   font-size: 14px;
   font-weight: 600;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
   border: none;
   border-radius: var(--radius);
   cursor: pointer;
@@ -4238,7 +4251,8 @@ select:focus-visible {
 
 .skills-category-chip--active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
   border-color: var(--accent);
 }
 
@@ -4470,7 +4484,7 @@ select:focus-visible {
   padding: 2px 6px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border: none;
 }
 
@@ -4569,7 +4583,8 @@ select:focus-visible {
 .debug-call-btn {
   padding: 8px 20px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
   border: none;
   border-radius: var(--radius);
   font-size: 13px;
@@ -4599,7 +4614,8 @@ select:focus-visible {
 
 .debug-compare-btn--active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
   border-color: var(--accent);
 }
 
@@ -4625,7 +4641,8 @@ select:focus-visible {
 
 .debug-pin-btn--active {
   background: var(--warning);
-  color: #fff;
+  color: var(--on-warning);
+  --control-text: var(--on-warning);
   border-color: var(--warning);
 }
 
@@ -4782,14 +4799,15 @@ select:focus-visible {
   border: none;
   border-radius: var(--radius);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  --control-text: var(--on-accent);
   cursor: pointer;
   transition: background 0.15s ease, transform 0.15s ease;
 }
 
 .onboarding__action:hover {
   background: var(--accent-hover);
-  transform: translateY(-1px);
+
 }
 
 .onboarding__footer {
@@ -4994,7 +5012,7 @@ body[data-theme="dark"]::after {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--accent) 10%, var(--surface-flat-hover) 90%);
   border-color: color-mix(in srgb, var(--surface-stroke) 65%, var(--accent) 35%);
-  transform: translateY(-1px);
+
   box-shadow: var(--surface-inner), 0 14px 26px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
@@ -5073,7 +5091,7 @@ body[data-theme="dark"]::after {
   background: color-mix(in srgb, var(--accent) 7%, var(--surface-flat-hover) 93%);
   border-color: color-mix(in srgb, var(--surface-stroke) 72%, var(--accent) 28%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 10px 20px rgba(7, 3, 10, 0.10);
-  transform: translateX(1px);
+
 }
 
 .nav-link.active,
@@ -5821,7 +5839,8 @@ body[data-theme="dark"] .chip--info {
 
 .btn--danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
+  --control-text: var(--on-danger);
   border: 1px solid var(--danger);
 }
 

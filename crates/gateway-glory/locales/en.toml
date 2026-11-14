@@ -51,8 +51,8 @@ advanced = "Advanced tools"
 
 [header]
 ai_assistant = "AI ASSISTANT"
-health_ok = "Health OK"
-offline = "Offline"
+health_ok = "Gateway connected"
+offline = "Gateway disconnected"
 follow_system_theme = "Follow system theme"
 light_theme = "Light theme"
 dark_theme = "Dark theme"

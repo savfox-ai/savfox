@@ -1,3 +1,16 @@
+pub fn encode_query(value: &str) -> String {
+    let mut output = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            output.push(byte as char);
+        } else {
+            use std::fmt::Write;
+            let _ = write!(output, "%{byte:02X}");
+        }
+    }
+    output
+}
+
 pub fn replace_url(path: &str) {
     #[cfg(target_arch = "wasm32")]
     {

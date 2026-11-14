@@ -150,12 +150,12 @@
 
     .channels-toast--success {
         background: var(--success);
-        color: #fff;
+        color: var(--on-success);
     }
 
     .channels-toast--error {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
     }
 
     .channels-toast__text {
@@ -517,7 +517,8 @@
 
     .channels-btn--auto-active {
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
+        --control-text: var(--on-accent);
         border-color: var(--accent);
     }
 
@@ -597,7 +598,8 @@
 
     .channels-action-btn--test:hover {
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
+        --control-text: var(--on-accent);
     }
 
     .channels-action-btn--muted {
@@ -611,7 +613,8 @@
 
     .channels-action-btn--danger:hover {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
+        --control-text: var(--on-danger);
     }
 
     /* ---- Modal ---- */
@@ -1402,7 +1405,7 @@
         align-items: center;
         justify-content: center;
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
         border-radius: 50%;
         font-size: 11px;
         font-weight: 700;
@@ -1499,7 +1502,8 @@
 
     .logs-btn--active {
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
+        --control-text: var(--on-accent);
         border-color: var(--accent);
     }
 
@@ -1522,21 +1526,21 @@
     }
 
     .logs-level-btn:hover {
-        opacity: 0.7;
+        opacity: 1;
     }
 
     .logs-level-btn.active {
         opacity: 1;
     }
 
-    .logs-level-btn--info { color: var(--accent); }
-    .logs-level-btn--info.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .logs-level-btn--info { --control-text: var(--accent); color: var(--accent); }
+    .logs-level-btn--info.active { --control-text: var(--on-accent); background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
-    .logs-level-btn--warn { color: var(--warning); }
-    .logs-level-btn--warn.active { background: var(--warning); color: #fff; border-color: var(--warning); }
+    .logs-level-btn--warn { --control-text: var(--warning); color: var(--warning); }
+    .logs-level-btn--warn.active { --control-text: var(--on-warning); background: var(--warning); color: var(--on-warning); border-color: var(--warning); }
 
-    .logs-level-btn--error { color: var(--danger); }
-    .logs-level-btn--error.active { background: var(--danger); color: #fff; border-color: var(--danger); }
+    .logs-level-btn--error { --control-text: var(--danger); color: var(--danger); }
+    .logs-level-btn--error.active { --control-text: var(--on-danger); background: var(--danger); color: var(--on-danger); border-color: var(--danger); }
 
     .logs-level-btn--debug { color: var(--text-muted); }
     .logs-level-btn--debug.active { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border); }
@@ -1745,13 +1749,13 @@
 
     .wiz-progress__step--active .wiz-progress__circle {
         border-color: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
         background: var(--accent);
     }
 
     .wiz-progress__step--done .wiz-progress__circle {
         border-color: var(--success);
-        color: #fff;
+        color: var(--on-success);
         background: var(--success);
     }
 
@@ -1885,7 +1889,7 @@
         height: 22px;
         border-radius: 50%;
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -2174,7 +2178,7 @@
     .wiz-channel__check--on {
         background: var(--accent);
         border-color: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
     }
 
     .wiz-channel__config {
@@ -2223,7 +2227,7 @@
         font-size: 13px;
         padding: 3px 10px;
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
         border-radius: 4px;
         font-weight: 500;
     }
@@ -2355,7 +2359,8 @@
 
     .wiz-btn--accent {
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
+        --control-text: var(--on-accent);
     }
 
     .wiz-btn--accent:hover:not(:disabled) {
@@ -3162,7 +3167,7 @@
     .ov-action-btn:hover {
         background: var(--bg-hover);
         color: var(--text-primary);
-        transform: translateY(-1px);
+
     }
 
     .ov-action-btn--primary {
@@ -3218,7 +3223,6 @@
     }
 
     .stat-card:hover {
-        transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     }
 
@@ -3524,7 +3528,7 @@
         background: var(--bg-hover);
         color: var(--text-primary);
         text-decoration: none;
-        transform: translateY(-1px);
+
     }
 
     .quick-action {
@@ -3566,7 +3570,7 @@
     .ov-quick-card:hover {
         background: var(--bg-hover);
         color: var(--text-primary);
-        transform: translateY(-2px);
+
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         text-decoration: none;
     }
@@ -3620,7 +3624,7 @@
         background:
             radial-gradient(circle at 16% 18%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 34%),
             radial-gradient(circle at 84% 18%, color-mix(in srgb, var(--ornament) 22%, transparent) 0%, transparent 26%),
-            linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, var(--surface-panel-strong) 94%) 0%, color-mix(in srgb, var(--ornament) 8%, var(--surface-panel) 92%) 100%);
+            var(--surface-panel-strong);
         box-shadow: var(--surface-inner), var(--surface-shadow), var(--surface-glow);
         overflow: hidden;
         isolation: isolate;
@@ -4065,7 +4069,7 @@
     .session-list-new-btn:hover {
         background: var(--button-cta-surface-hover);
         color: #fff;
-        transform: translateY(-0.5px);
+
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
@@ -4159,7 +4163,7 @@
         position: absolute;
         right: 8px;
         top: 50%;
-        transform: translateY(-50%) scale(0.95);
+        transform: translateY(-50%);
         width: 24px;
         height: 24px;
         border: none;
@@ -4179,12 +4183,11 @@
 
     .session-list-item-wrapper:hover .session-list-item__delete {
         opacity: 1;
-        transform: translateY(-50%) scale(1);
     }
 
     .session-list-item__delete:hover {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
     }
 
     .session-delete-confirm {
@@ -4221,7 +4224,8 @@
 
     .session-delete-confirm__yes {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
+        --control-text: var(--on-danger);
     }
 
     .session-delete-confirm__yes:hover {
@@ -4551,10 +4555,11 @@
 
     .stop-generating-btn:hover {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
+        --control-text: var(--on-danger);
         border-color: var(--danger);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-        transform: translateY(-1px);
+
     }
 
     @media (max-width: 900px) {
@@ -4656,12 +4661,14 @@
 
     .usage-range-btn--active {
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
+        --control-text: var(--on-accent);
     }
 
     .usage-range-btn--active:hover {
         background: var(--accent);
-        color: #fff;
+        color: var(--on-accent);
+        --control-text: var(--on-accent);
     }
 
     .usage-action-btn {
@@ -5243,7 +5250,7 @@
 .agent-workspace .agent-empty-detail { align-items:center; justify-content:center; height:100%; min-height:420px; }
 .agent-workspace .agent-empty-card { width:300px; gap:20px!important; align-items:center; padding:54px 24px!important; border:1px solid var(--surface-stroke)!important; background:var(--surface-panel); box-shadow:var(--surface-inner),var(--surface-shadow-soft); border-radius:var(--radius-lg); }
 .agent-workspace .agent-empty-card .empty-state__message { color:var(--text-secondary)!important; font-size:13px!important; }
-.agent-workspace .agent-empty-card .btn { align-self:center; background:var(--button-primary-surface); color:#fff!important; }
+.agent-workspace .agent-empty-card .btn { align-self:center; }
 .agent-workspace .agent-detail-panel { gap:0!important; min-width:0; }
 .agent-workspace .agent-detail-header .page-title { font-size:18px!important; font-weight:650!important; }
 .agent-workspace .agent-tabs { padding:12px 20px; border-bottom:1px solid var(--surface-stroke); }
@@ -5317,13 +5324,11 @@
 .overview-page .ov-hero__aside { gap:12px!important; }
 .overview-page .ov-hero__stat { padding:12px 18px; }
 .overview-page .ov-actions .btn { min-height:40px; }
-.overview-page .ov-actions > :first-child { background:var(--button-primary-surface)!important; color:#fff!important; }
 .overview-page > .card { min-height:138px; }
 .overview-page > .card > :is(.card-title,.sapid-card-title) { font-size:11px!important; color:var(--text-muted)!important; }
 .agent-workspace .agent-list-item { padding-top:9px; padding-bottom:9px; }
 .agent-workspace .agent-empty-card { width:280px; min-height:236px; padding:40px 20px!important; gap:20px!important; }
 .agent-workspace .agent-empty-card .agent-empty-icon { color:var(--text-muted)!important; width:26px; height:26px; margin:0 auto 8px; }
-.agent-workspace .agent-empty-card .btn { background:var(--button-primary-surface)!important; color:#fff!important; }
 @media(max-width:760px){.overview-page.management-page{padding-top:18px;}}
 /* Compact log console: one persistent toolbar and independent line scrolling. */
 .logs-page.management-page { gap:24px!important; min-height:0; height:100%; }
@@ -5407,7 +5412,9 @@
 /* Disclosure triggers use the same theme as the rest of the control surface. */
 .management-page .sapid-collapsible>button { background:var(--surface-flat-soft)!important; color:var(--text-secondary)!important; border:1px solid var(--surface-stroke)!important; border-radius:8px!important; font:500 12px/1.5 var(--font-body)!important; min-height:30px; padding:6px 12px!important; }
 .management-page--skills .skill-card .sapid-collapsible>button { background:transparent!important; border:0!important; padding:2px 0!important; min-height:24px; text-align:left; }
-.management-page--skills .skill-card__eligibility { color:var(--success)!important; background:var(--success-bg); }
+.management-page--skills .skill-card__eligibility--ready { color:var(--success)!important; background:var(--success-bg); }
+.management-page--skills .skill-card__eligibility--blocked { color:var(--danger)!important; background:var(--danger-bg); }
+.management-page--skills .skill-card__eligibility--unknown { color:var(--text-muted)!important; background:var(--bg-tertiary); }
 .management-page--skills .skills-toolbar>.btn { align-self:flex-end; }
 .management-page--tts .record-list:has(.tts-provider-row) { gap:0!important; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .management-page--tts .tts-provider-row { border:0!important; border-bottom:1px solid var(--border)!important; min-height:64px; }

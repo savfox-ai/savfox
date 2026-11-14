@@ -1373,14 +1373,12 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
                                 )
                             }),
                             ui::action(ui::label_for(locale, "Delete"), move || {
-                                if confirmed("Delete this agent?") {
-                                    mutate(
-                                        &delete_context,
-                                        &delete_state,
-                                        "agents.delete",
-                                        json!({"id":delete_id}),
-                                    );
-                                }
+                                let context = delete_context.clone();
+                                let state = delete_state.clone();
+                                let id = delete_id.clone();
+                                delete_context.confirm_action("Delete this agent?", move || {
+                                    mutate(&context, &state, "agents.delete", json!({"id":id}));
+                                });
                             }),
                         )),
                     ))
@@ -1973,15 +1971,15 @@ fn files(ctx: &AppContext, agent: &str) -> Box<dyn Widget> {
                 ui::set(state.error, "File path is required".to_owned());
                 return;
             }
-            if method.ends_with("delete") && !confirmed("Delete this agent file?") {
-                return;
+            let context_mutate = context.clone();
+            let state = state.clone();
+            let params = json!({"agent_id":agent,"path":path.get(),"content":content.get()});
+            let apply = move || mutate(&context_mutate, &state, method, params);
+            if method.ends_with("delete") {
+                context.confirm_action("Delete this agent file?", apply);
+            } else {
+                apply();
             }
-            mutate(
-                &context,
-                &state,
-                method,
-                json!({"agent_id":agent,"path":path.get(),"content":content.get()}),
-            );
         }));
     }
     actions.push(ui::action(ui::label_for(locale, "Reset"), move || {

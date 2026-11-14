@@ -2079,6 +2079,7 @@ mod tests {
             locale: scope.cage(crate::i18n::Locale::En),
             path: scope.cage("/channels".to_owned()),
             authenticated: scope.cage(true),
+            modals: scope.cage(None),
         }
     }
 

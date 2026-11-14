@@ -302,7 +302,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         report.clone(),
         cron.clone(),
     ];
-    let refresh_all = ui::action(ui::label_for(locale, "Refresh All"), move || {
+    let refresh_all = ui::primary_action(ui::label_for(locale, "Refresh All"), move || {
         for resource in &refresh_resources {
             resource.refresh();
         }

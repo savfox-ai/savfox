@@ -26,7 +26,8 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
     let full_path = path;
     let path = path.split('?').next().unwrap_or("/").trim_end_matches('/');
     match path {
-        "" => overview::render(ctx),
+        "" => crate::chat::render(ctx, full_path),
+        "/overview" => overview::render(ctx),
         p if p == "/sessions" || p.starts_with("/sessions/") => crate::chat::render(ctx, full_path),
         p if p == "/agents" || p.starts_with("/agents/") => agents::render(ctx, path),
         p if p == "/channels" || p.starts_with("/channels/") => channels::render(ctx, path),
@@ -96,12 +97,13 @@ mod tests {
                     locale: scope.cage(Locale::En),
                     path: scope.cage(path.to_owned()),
                     authenticated: scope.cage(true),
+                    modals: scope.cage(None),
                 };
                 render(&context, path)
             })
             .unwrap_or_else(|error| panic!("route {path} failed: {error}"));
             assert!(
-                html.contains(if path.starts_with("/sessions") {
+                html.contains(if crate::route::is_session_path(path) {
                     "session-page"
                 } else {
                     "gateway-page"
@@ -114,7 +116,7 @@ mod tests {
     fn restored_management_pages_keep_reference_layout_regions() {
         for (path, expected) in [
             (
-                "/",
+                "/overview",
                 vec![
                     "ov-hero",
                     "ov-hero__aside",

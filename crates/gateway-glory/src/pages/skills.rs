@@ -56,11 +56,7 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
             );
         },
     ));
-    let context = ctx.clone();
-    let zip_state = state.clone();
-    controls.push(ui::action(ui::label_for(locale, "Upload ZIP"), move || {
-        upload_zip(&context, &zip_state)
-    }));
+    controls.push(zip_upload(ctx, &state));
     let stats = [
         ("Installed", "installed_count"),
         ("Available", "available_count"),
@@ -213,13 +209,19 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                             .class("skill-card__source")
                             .content(string(&skill, &["category"])),
                         text()
-                            .class("skill-card__eligibility")
+                            .class(if skill["eligible"].as_bool() == Some(true) {
+                                "skill-card__eligibility skill-card__eligibility--ready"
+                            } else if skill["eligible"].as_bool() == Some(false) {
+                                "skill-card__eligibility skill-card__eligibility--blocked"
+                            } else {
+                                "skill-card__eligibility skill-card__eligibility--unknown"
+                            })
                             .content(ui::label_for(
                                 locale,
-                                if skill["eligible"].as_bool().unwrap_or(false) {
-                                    "Eligible"
-                                } else {
-                                    "Blocked"
+                                match skill["eligible"].as_bool() {
+                                    Some(true) => "Eligible",
+                                    Some(false) => "Blocked",
+                                    None => "Availability unknown",
                                 },
                             )),
                         primary,
@@ -268,54 +270,116 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
         children,
     )
 }
-#[cfg(target_arch = "wasm32")]
-fn upload_zip(ctx: &AppContext, state: &Query) {
+fn zip_upload(ctx: &AppContext, state: &Query) -> Box<dyn Widget> {
     use base64::Engine;
-    use wasm_bindgen::JsCast;
-    use wasm_bindgen::prelude::*;
-    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
-        return;
-    };
-    let Ok(element) = document.create_element("input") else {
-        return;
-    };
-    let Ok(input) = element.dyn_into::<web_sys::HtmlInputElement>() else {
-        return;
-    };
-    input.set_type("file");
-    input.set_accept(".zip");
-    let picker = input.clone();
+    let controller = ctx.scope.cage(None::<sapid::FileController>);
+    let generation = ctx.scope.cage(0_u64);
+    let installing = ctx.scope.cage(false);
+    let connected = ctx.connected;
     let context = ctx.clone();
     let state = state.clone();
-    let on_change = Closure::once_into_js(move || {
-        let Some(file) = picker.files().and_then(|files| files.get(0)) else {
-            return;
-        };
-        if file.size() > 50.0 * 1024.0 * 1024.0 {
-            ui::set(state.error, "ZIP archive exceeds 50 MiB".to_owned());
-            return;
-        }
-        let context_async = context.clone();
-        context.spawn(async move {
-            match wasm_bindgen_futures::JsFuture::from(file.array_buffer()).await {
-                Ok(buffer) => {
-                    let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
-                    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-                    mutate(
-                        &context_async,
-                        &state,
-                        "skills.install_zip",
-                        json!({"data":data}),
+    let error = state.error;
+    let locale = ctx.locale;
+    Box::new(
+        sapid::file_button()
+            .unstyled()
+            .class("btn btn-secondary skill-zip-upload")
+            .label(ui::label_for(locale, "Upload ZIP"))
+            .configuration(glory::render::FileConfig {
+                max_files: 1,
+                filters: vec![glory::render::FileFilter::Extension(".zip".into())],
+                max_file_bytes: 50 * 1024 * 1024,
+                max_total_bytes: 50 * 1024 * 1024,
+                ..Default::default()
+            })
+            .enabled(ctx.scope.bond(move || connected.get() && !installing.get()))
+            .controller_ref(controller)
+            .on_result(move |outcome| {
+                if let glory::render::FileOutcome::Rejected(reason) = outcome {
+                    ui::set(
+                        error,
+                        ui::translate(
+                            locale.get(),
+                            match reason {
+                                glory::render::FileRejection::Bytes => "ZIP archive exceeds 50 MiB",
+                                _ => "Cannot select ZIP archive",
+                            },
+                        ),
                     );
                 }
-                Err(message) => {
-                    ui::set(state.error, format!("Cannot read ZIP archive: {message:?}"))
-                }
-            }
-        });
-    });
-    input.set_onchange(Some(on_change.unchecked_ref()));
-    input.click();
+            })
+            .on_files(move |files| {
+                let Some(file) = files.into_iter().next() else {
+                    return;
+                };
+                let Some(controller) = controller.get_untracked() else {
+                    return;
+                };
+                let context_async = context.clone();
+                let state = state.clone();
+                let revision = generation.get_untracked().wrapping_add(1);
+                ui::set(generation, revision);
+                ui::set(state.error, String::new());
+                context.spawn(async move {
+                    let result = async {
+                        let mut bytes = Vec::new();
+                        let mut offset = 0;
+                        while offset < file.size {
+                            let length = (file.size - offset).min(65_536) as u32;
+                            let (send, receive) = futures::channel::oneshot::channel();
+                            controller
+                                .read(
+                                    glory::render::FileRead {
+                                        file: file.token,
+                                        offset,
+                                        length,
+                                    },
+                                    move |result| {
+                                        let _ = send.send(result);
+                                    },
+                                )
+                                .map_err(|error| error.to_string())?;
+                            ui::flush();
+                            let chunk = receive
+                                .await
+                                .map_err(|_| "File read cancelled".to_owned())?
+                                .map_err(|error| error.to_string())?;
+                            if chunk.len() != length as usize {
+                                return Err("Cannot read complete ZIP archive".to_owned());
+                            }
+                            bytes.extend(chunk);
+                            offset += u64::from(length);
+                        }
+                        Ok::<_, String>(bytes)
+                    }
+                    .await;
+                    if generation.get_untracked() != revision {
+                        return;
+                    }
+                    // Glory 0.7.0 cannot read selected files after disabling the
+                    // picker. Finish reading first; a newer selection retires
+                    // this generation before any install RPC can be sent.
+                    let _ = controller.clear();
+                    ui::flush();
+                    ui::set(state.busy, true);
+                    ui::set(installing, true);
+                    let result = match result {
+                        Ok(bytes) => {
+                            let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+                            context_async
+                                .rpc
+                                .call::<Value>("skills.install_zip", Some(json!({"data":data})))
+                                .await
+                        }
+                        Err(error) => Err(error),
+                    };
+                    match result {
+                        Ok(_) => state.refresh(),
+                        Err(message) => ui::set(state.error, message),
+                    }
+                    ui::set(state.busy, false);
+                    ui::set(installing, false);
+                });
+            }),
+    )
 }
-#[cfg(not(target_arch = "wasm32"))]
-fn upload_zip(_ctx: &AppContext, _state: &Query) {}

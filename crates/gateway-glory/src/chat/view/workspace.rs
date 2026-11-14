@@ -1,4 +1,4 @@
-//! The session workspace follows the pre-migration Dioxus split-pane layout.
+//! Conversation-first workspace; Sapid owns menus and the settings drawer.
 use std::cell::Cell;
 
 use super::*;
@@ -52,9 +52,47 @@ pub(super) fn render(
     let scope = &ctx.scope;
     let search = scope.cage(String::new());
     let agent_filter = scope.cage(String::new());
-    let list_open = scope.cage(false);
+    let list_open = scope.cage(wide_workspace());
+    install_viewport(ctx, list_open);
     let inspector = scope.cage(false);
     let source = sessions.value;
+    let configuration = common::query(ctx, "config.get", None).value;
+    let model_catalog = scope.cage(Value::Null);
+    let model_source = models.value;
+    let agent_source = agents.value;
+    let active_agent = state.agent;
+    scope.effect(move || {
+        let mut data = model_source.get();
+        let config = configuration.get();
+        let agent_id = active_agent.get();
+        let inherited = common::array(&agent_source.get(), &["agents"])
+            .into_iter()
+            .find(|entry| {
+                common::item_id(entry) == agent_id
+                    || (agent_id == "default" && entry["is_default"].as_bool() == Some(true))
+            })
+            .and_then(|entry| {
+                entry
+                    .pointer("/native/model")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
+        let global = config.pointer("/config/model").map(|model| {
+            model.as_str().map(str::to_owned).unwrap_or_else(|| {
+                let slug = common::string(model, &["slug"]);
+                let provider = common::string(model, &["provider"]);
+                if provider.is_empty() {
+                    slug
+                } else {
+                    format!("{provider}/{slug}")
+                }
+            })
+        });
+        if data.is_object() {
+            data["inherited_model"] = json!(inherited.or(global).unwrap_or_default());
+        }
+        let _ = model_catalog.try_revise(|value| *value = data);
+    });
     let selected = state.session;
     let locale = ctx.locale;
     let entries = scope.bond(move || {
@@ -112,7 +150,9 @@ pub(super) fn render(
         set(new_state.terminal_input, String::new());
         set(new_state.checkpoint_summary, String::new());
         new_ctx.navigate("/sessions");
-        set(list_open, false);
+        if !wide_workspace() {
+            set(list_open, false);
+        }
     };
     let list_ctx = ctx.clone();
     let list_state = state.clone();
@@ -141,6 +181,11 @@ pub(super) fn render(
                         text().content(label(ctx, "New session", "新建会话")),
                     ))
                     .on_press(new_session),
+                sapid::button()
+                    .unstyled()
+                    .class("session-list-close")
+                    .label(label(ctx, "Back to conversation", "返回对话"))
+                    .on_press(move || set(list_open, false)),
             )),
             row().class("session-list-filter").fill((
                 text()
@@ -258,7 +303,9 @@ pub(super) fn render(
                                         "/sessions?session_id={}",
                                         encode(&click_id)
                                     ));
-                                    set(list_open, false);
+                                    if !wide_workspace() {
+                                        set(list_open, false);
+                                    }
                                 }),
                             sapid::button()
                                 .unstyled()
@@ -266,18 +313,24 @@ pub(super) fn render(
                                 .name(label(&ctx, "Delete session", "删除会话"))
                                 .fill(icon(crate::utils::icons::ICON_X))
                                 .on_press(move || {
-                                    if confirm(&words(
-                                        locale.get_untracked(),
-                                        "Delete this session and its history?",
-                                        "删除此会话及其历史记录？",
-                                    )) {
-                                        common::mutate(
-                                            &delete_ctx,
-                                            &query,
-                                            "sessions.delete",
-                                            json!({"session_id":delete_id}),
-                                        );
-                                    }
+                                    let context = delete_ctx.clone();
+                                    let query = query.clone();
+                                    let id = delete_id.clone();
+                                    delete_ctx.confirm_action(
+                                        words(
+                                            locale.get_untracked(),
+                                            "Delete this session and its history?",
+                                            "删除此会话及其历史记录？",
+                                        ),
+                                        move || {
+                                            common::mutate(
+                                                &context,
+                                                &query,
+                                                "sessions.delete",
+                                                json!({"session_id":id}),
+                                            );
+                                        },
+                                    );
                                 }),
                         ))
                     }),
@@ -289,11 +342,24 @@ pub(super) fn render(
     let assistant_id = state.agent;
     let scroll_position = scope.cage(0.0);
     let follow_tail = Rc::new(Cell::new(true));
+    let models_busy = models.busy;
+    let models_error = models.error;
+    let needs_model = scope.bond(move || {
+        !models_busy.get()
+            && models_error.get().is_empty()
+            && common::array(&model_source.get(), &["models"]).is_empty()
+            && common::array(&agent_source.get(), &["agents"])
+                .into_iter()
+                .find(|entry| common::item_id(entry) == active_agent.get())
+                .is_none_or(|entry| entry["kind"] == "native")
+    });
+    let connect_context = ctx.clone();
     let messages = col().class("chat-messages").fill((
         {
             let busy = state.history_busy;
             let messages = state.messages;
             when(messages.map(Vec::is_empty).with_partial_eq(), move || {
+                let context = connect_context.clone();
                 sapid::empty_state()
                     .unstyled()
                     .class("chat-empty")
@@ -310,6 +376,14 @@ pub(super) fn render(
                         "Send your first message to begin",
                         "发送第一条消息，开始对话",
                     ))
+                    .actions(when(needs_model, move || {
+                        let context = context.clone();
+                        let navigation = context.clone();
+                        sapid::button()
+                            .variant(sapid::ButtonVariant::Primary)
+                            .label(label(&context, "Connect a model", "连接模型"))
+                            .on_press(move || navigation.navigate("/models/connect-provider"))
+                    }))
             })
         },
         glory::ui::list(
@@ -425,8 +499,6 @@ pub(super) fn render(
     ));
     let export_state = state.clone();
     let clear_state = state.clone();
-    let reset_ctx = ctx.clone();
-    let reset_state = state.clone();
     let header = row().class("session-main-header").fill((
         row().class("session-main-header__left").fill((
             Box::new(
@@ -441,9 +513,8 @@ pub(super) fn render(
                 text()
                     .kind(TextKind::Heading(1))
                     .class("session-main-title page-title")
-                    .content(label(ctx, "Session", "会话")),
+                    .content(header_title),
             ),
-            Box::new(text().class("session-main-subtitle").content(header_title)),
             Box::new(
                 sapid::badge()
                     .unstyled()
@@ -452,50 +523,34 @@ pub(super) fn render(
             ),
         )),
         row().class("session-main-header__right").fill((
-            tool(
-                ctx,
-                "Export",
-                "导出",
-                crate::utils::icons::ICON_FILE_TEXT,
-                move || {
-                    let mut output = String::new();
-                    for message in export_state.messages.get() {
-                        output.push_str(&format!("## {}\n\n{}\n\n", message.role, message.content));
-                    }
-                    crate::utils::download::trigger_download(
-                        "savfox-session.md",
-                        &output,
-                        "text/markdown",
-                    );
-                },
-            ),
-            tool(
-                ctx,
-                "New",
-                "新建",
-                crate::utils::icons::ICON_PLUS,
-                move || {
-                    if !reset_state.busy.get() {
-                        set(reset_state.session, String::new());
-                        set(reset_state.messages, Vec::new());
-                        set(reset_state.prompt, String::new());
-                        set(reset_state.terminal_input, String::new());
-                        set(reset_state.checkpoint_summary, String::new());
-                        reset_ctx.navigate("/sessions");
-                    }
-                },
-            ),
-            tool(
-                ctx,
-                "Clear",
-                "清空",
-                crate::utils::icons::ICON_TRASH,
-                move || {
-                    if !clear_state.busy.get() {
-                        set(clear_state.messages, Vec::new());
-                    }
-                },
-            ),
+            sapid::dropdown_menu("conversation-actions")
+                .class("conversation-actions")
+                .label(label(ctx, "Conversation actions", "会话操作"))
+                .items([
+                    sapid::menu_item("export")
+                        .label(label(ctx, "Export conversation", "导出会话"))
+                        .on_activate(move || {
+                            let mut output = String::new();
+                            for message in export_state.messages.get() {
+                                output.push_str(&format!(
+                                    "## {}\n\n{}\n\n",
+                                    message.role, message.content
+                                ));
+                            }
+                            crate::utils::download::trigger_download(
+                                "savfox-session.md",
+                                &output,
+                                "text/markdown",
+                            );
+                        }),
+                    sapid::menu_item("clear-view")
+                        .label(label(ctx, "Clear current view", "清空当前视图"))
+                        .on_activate(move || {
+                            if !clear_state.busy.get() {
+                                set(clear_state.messages, Vec::new());
+                            }
+                        }),
+                ]),
             tool(
                 ctx,
                 "Options",
@@ -509,19 +564,27 @@ pub(super) fn render(
     let options_state = state.clone();
     let options_agents = agents.value;
     let options_sessions = sessions.value;
-    let options = when(inspector, move || {
-        let ctx = options_ctx.clone();
-        let state = options_state.clone();
-        widget(move |scope| {
-            super::options::render(
-                &ctx.with_scope(scope),
-                &state,
-                options_agents,
-                options_sessions,
-            )
-            .build(scope)
-        })
-    });
+    let options = sapid::drawer("conversation-settings")
+        .class("session-options-drawer")
+        .show_trigger(false)
+        .side(sapid::DrawerSide::Right)
+        .open(inspector)
+        .on_open_change(move |open| set(inspector, open))
+        .title(label(ctx, "Conversation settings", "会话设置"))
+        .close_label(label(ctx, "Close settings", "关闭设置"))
+        .content(move || {
+            let ctx = options_ctx.clone();
+            let state = options_state.clone();
+            widget(move |scope| {
+                super::options::render(
+                    &ctx.with_scope(scope),
+                    &state,
+                    options_agents,
+                    options_sessions,
+                )
+                .build(scope)
+            })
+        });
     let composer_ctx = ctx.clone();
     let composer_state = state.clone();
     let composer_agents = agents.clone();
@@ -582,7 +645,7 @@ pub(super) fn render(
                         .class("chat-picker chat-picker--model")
                         .fill(catalog_picker(
                             ctx,
-                            models.value,
+                            model_catalog,
                             state.model,
                             PickerKind::Model,
                             None,
@@ -614,7 +677,13 @@ pub(super) fn render(
     );
     Box::new(
         col()
-            .class("session-page")
+            .class(list_open.map(|open| {
+                if *open {
+                    "session-page session-page--list-open".into()
+                } else {
+                    "session-page".into()
+                }
+            }))
             .fill(row().class("session-shell").fill((
                 sidebar,
                 col().class("session-main").fill((
@@ -626,6 +695,44 @@ pub(super) fn render(
                 )),
             ))),
     )
+}
+
+fn wide_workspace() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    return web_sys::window()
+        .and_then(|window| window.inner_width().ok())
+        .and_then(|width| width.as_f64())
+        .is_some_and(|width| width > 760.0);
+    #[cfg(not(target_arch = "wasm32"))]
+    true
+}
+
+fn install_viewport(ctx: &AppContext, list_open: Cage<bool>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{JsCast, closure::Closure};
+        if let Some(media) = web_sys::window()
+            .and_then(|window| window.match_media("(max-width: 760px)").ok().flatten())
+        {
+            let responsive = media.clone();
+            let callback = Closure::wrap(Box::new(move || {
+                if responsive.matches() {
+                    set(list_open, false);
+                }
+            }) as Box<dyn FnMut()>);
+            let _ =
+                media.add_event_listener_with_callback("change", callback.as_ref().unchecked_ref());
+            let _ = ctx.scope.on_cleanup(move || {
+                let _ = media.remove_event_listener_with_callback(
+                    "change",
+                    callback.as_ref().unchecked_ref(),
+                );
+                drop(callback);
+            });
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (ctx, list_open);
 }
 
 fn scope_text(
@@ -690,6 +797,26 @@ fn catalog_picker(
                     ),
                 )];
                 let prefs = crate::utils::model_visibility::load_model_preferences();
+                let inherited = common::string(&data, &["inherited_model"]);
+                if matches!(kind, PickerKind::Model) && !inherited.is_empty() {
+                    options[0].1 = words(
+                        locale,
+                        &format!("Inherited · {inherited}"),
+                        &format!("继承 · {inherited}"),
+                    );
+                }
+                if matches!(kind, PickerKind::Model)
+                    && inherited.is_empty()
+                    && let Some(model) = common::array(&data, &["models"])
+                        .into_iter()
+                        .find(|model| model["is_default"].as_bool() == Some(true))
+                {
+                    options[0].1 = words(
+                        locale,
+                        &format!("Default · {}", common::string(&model, &["name", "id"])),
+                        &format!("默认 · {}", common::string(&model, &["name", "id"])),
+                    );
+                }
                 for entry in common::array(
                     &data,
                     if matches!(kind, PickerKind::Model) {

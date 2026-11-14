@@ -1,7 +1,7 @@
 //! Browser history routes. The gateway serves index.html for deep links.
 pub const NAVIGATION: &[(&str, &str)] = &[
-    ("/", "nav.overview"),
     ("/sessions", "nav.sessions"),
+    ("/overview", "nav.overview"),
     ("/approvals", "nav.approvals"),
     ("/agents", "nav.agents"),
     ("/models", "nav.models"),
@@ -17,6 +17,11 @@ pub const NAVIGATION: &[(&str, &str)] = &[
     ("/config/diagnostics", "nav.debug"),
 ];
 
+pub fn is_session_path(path: &str) -> bool {
+    let path = path.split('?').next().unwrap_or(path).trim_end_matches('/');
+    path.is_empty() || path == "/sessions" || path.starts_with("/sessions/")
+}
+
 pub fn current_path() -> String {
     #[cfg(target_arch = "wasm32")]
     if let Some(window) = web_sys::window() {
@@ -31,6 +36,9 @@ pub fn current_path() -> String {
 }
 
 pub fn is_active(path: &str, destination: &str) -> bool {
+    if destination == "/sessions" && is_session_path(path) {
+        return true;
+    }
     let path = path.split('?').next().unwrap_or(path);
     path == destination
         || (destination != "/"
@@ -45,6 +53,9 @@ mod tests {
     fn section_matches_deep_links_without_prefix_collisions() {
         assert!(super::is_active("/agents/alice/files", "/agents"));
         assert!(super::is_active("/sessions?session=a", "/sessions"));
+        assert!(super::is_active("/?model=openai%2Fexample", "/sessions"));
+        assert!(super::is_active("/", "/sessions"));
+        assert!(!super::is_active("/overview", "/sessions"));
         assert!(!super::is_active("/agents-extra", "/agents"));
         assert!(!super::is_active("/agents", "/"));
     }

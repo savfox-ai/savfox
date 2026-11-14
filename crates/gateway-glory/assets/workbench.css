@@ -1,0 +1,102 @@
+/* Application skin for the conversation workspace and native Sapid layers. */
+.session-page .session-shell { background:var(--bg-primary); }
+.session-page .session-list-pane { flex:0 0 260px!important; min-width:220px; background:var(--bg-secondary); }
+.session-page:not(.session-page--list-open) .session-list-pane { display:none!important; }
+.session-page .session-list-close { display:none!important; padding:6px 8px!important; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-secondary)!important; color:var(--text-secondary)!important; }
+.session-page .session-mobile-list-toggle { display:inline-flex!important; flex:0 0 32px; width:32px; height:32px; min-height:32px; padding:7px!important; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); }
+.session-page .session-main-header { min-height:56px; padding:10px 20px!important; flex-wrap:nowrap!important; background:var(--bg-primary); border-bottom:1px solid var(--border); }
+.session-page .session-main-header__left { width:auto!important; min-width:0; justify-content:flex-start!important; }
+.session-page .session-main-header__right { width:auto!important; flex:0 0 auto; }
+.session-page .session-main-title { overflow:hidden; text-overflow:ellipsis; font-family:var(--font-body)!important; }
+.session-page .chat-input-area { padding:10px 20px 16px!important; }
+.session-page .chat-input { min-height:0!important; width:100%; max-width:920px; padding:12px!important; gap:8px!important; box-shadow:none; }
+.session-page .chat-input-model-badge { display:none!important; }
+.session-page .chat-composer { flex:0 0 auto!important; min-height:0!important; }
+.session-page .chat-composer textarea { height:auto!important; min-height:48px!important; max-height:min(240px,30dvh); field-sizing:content; overflow:auto; font-size:14px!important; line-height:1.6!important; resize:none; }
+.session-page .chat-input-actions { padding-right:84px; padding-bottom:0; }
+.session-page .chat-input-actions-left { max-width:580px; grid-template-columns:minmax(90px,1fr) minmax(140px,1.7fr) minmax(90px,1fr); }
+.session-page .chat-input-actions input { width:100%!important; }
+.session-page .sapid-prompt-actions { bottom:12px; right:12px; }
+.session-page .chat-message { max-width:880px; font-size:14px; line-height:1.7; }
+.session-page .chat-message.assistant { background:transparent; box-shadow:none; }
+.session-page .session-main-header__right>.sapid-menu-trigger { font-family:var(--font-body)!important; font-size:12px!important; min-height:32px; border:1px solid var(--border)!important; border-radius:var(--radius); color:var(--text-secondary)!important; background:var(--bg-secondary)!important; box-shadow:none; }
+.session-page .session-main-header__right>.sapid-menu-trigger:hover { color:var(--text-primary)!important; background:var(--bg-hover)!important; }
+.sapid-menu { background:var(--bg-primary)!important; color:var(--text-primary)!important; border:1px solid var(--border)!important; border-radius:var(--radius); box-shadow:var(--surface-shadow); }
+.sapid-menu .sapid-menu-item { color:var(--text-primary)!important; background:transparent!important; padding:9px 12px; }
+.sapid-menu .sapid-menu-item:hover { background:var(--bg-hover)!important; }
+.session-options-drawer { color:var(--text-primary)!important; background:var(--bg-primary)!important; width:min(480px,100vw)!important; max-width:100vw; padding:20px!important; gap:18px!important; overflow:auto; font-family:var(--font-body)!important; }
+.session-options-drawer .session-options-panel { max-height:none!important; padding:0!important; gap:18px!important; background:transparent; border:0; }
+.session-options-drawer .session-options-grid { display:flex!important; flex-direction:column!important; gap:14px!important; }
+.session-options-drawer .session-options-panel .session-display-options { display:flex!important; flex-direction:column!important; gap:8px!important; align-items:stretch!important; }
+.session-options-drawer .session-option-card { padding:14px!important; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-secondary); gap:10px!important; }
+.session-options-drawer .session-option-body { gap:10px!important; }
+.session-options-drawer :is(.session-option-label,.session-option-note) { font-size:12px!important; color:var(--text-secondary)!important; }
+.session-options-drawer .session-option-title { font-size:14px!important; font-weight:600!important; }
+.session-options-drawer .session-option-actions { display:flex!important; flex-direction:row!important; flex-wrap:wrap; gap:8px!important; }
+.session-options-drawer .is-unavailable { display:none!important; }
+.session-options-drawer :is(textarea,input) { width:100%!important; box-sizing:border-box; }
+.session-options-drawer textarea { min-height:64px; max-height:180px; }
+.session-options-drawer .json-output { max-height:240px; overflow:auto; font:12px/1.6 var(--font-mono)!important; white-space:pre-wrap; }
+.sapid-layer-close { color:var(--text-secondary)!important; background:var(--bg-secondary)!important; border:1px solid var(--border)!important; border-radius:var(--radius); }
+.sapid-layer-close:hover { background:var(--bg-hover)!important; color:var(--text-primary)!important; }
+.sapid-layer-close { width:32px!important; height:32px!important; flex:0 0 32px; }
+.sapid-layer-close svg :is(path,line,polyline) { stroke:currentColor!important; }
+.app-layout .sapid-button-danger { --control-surface:var(--danger); --control-surface-hover:var(--danger); --control-text:var(--on-danger); --control-border:var(--danger); color:var(--on-danger)!important; }
+.config-mobile-section { display:none!important; }
+.configuration-more-actions { background:var(--bg-primary)!important; color:var(--text-primary)!important; border:1px solid var(--border); border-radius:var(--radius); padding:10px; box-shadow:var(--surface-shadow); }
+.configuration-action-list { gap:8px!important; min-width:220px; }
+.configuration-action-list button { width:100%; text-align:left; }
+.mobile-navigation-drawer { max-height:75dvh; overflow:auto; padding:16px!important; background:var(--bg-primary)!important; color:var(--text-primary)!important; font-family:var(--font-body)!important; }
+.mobile-navigation-drawer .more-sheet__nav { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px!important; padding-top:12px; }
+.mobile-navigation-drawer .more-sheet__link { min-width:0; min-height:44px; }
+.provider-connect { width:100%; min-width:0; }
+.app-layout .provider-connect .connection-form { border:0!important; border-radius:0!important; padding:0!important; background:transparent!important; }
+.connection-form>.sapid-fieldset-legend { display:none!important; }
+.provider-connect .gateway-page { max-width:880px; width:100%; margin:0 auto; }
+.provider-connect .page-body { gap:18px!important; }
+.provider-connect .card { background:var(--bg-secondary); box-shadow:none; }
+.connection-authentication,.connection-manual-model { gap:12px!important; }
+.connection-model-list { gap:10px!important; max-height:280px; overflow:auto; }
+.connection-model-list--hidden { display:none!important; }
+.connection-result:empty { display:none!important; }
+.connection-form .sapid-switch { width:fit-content; }
+@media(max-width:1100px) {
+  .session-page .session-list-pane { flex-basis:240px!important; }
+  .session-page .chat-input-hint { display:none!important; }
+}
+@media(max-width:760px) {
+  .session-page .session-shell { flex-direction:row!important; }
+  .session-page .session-list-pane { position:static!important; width:100%!important; min-width:0; max-width:none; height:100%!important; flex:1 1 0!important; box-shadow:none; border:0; }
+  .session-page.session-page--list-open .session-main { display:none!important; }
+  .session-page .session-list-head { min-height:56px; height:auto; padding:12px!important; flex-wrap:wrap; }
+  .session-page .session-list-title { margin-right:auto!important; }
+  .session-page .session-list-close { display:inline-flex!important; min-height:32px; font-size:12px; }
+  .session-page .session-list-filter { display:flex!important; }
+  .session-page .session-main { width:100%; min-height:0; }
+  .session-page .session-main-header { padding:8px 12px!important; gap:8px!important; min-height:50px; flex-wrap:nowrap!important; }
+  .session-page .session-main-header__right { gap:6px!important; }
+  .session-page .session-main-header__right .session-pill-btn { width:30px!important; min-width:30px; }
+  .session-page .session-main-header__right .session-pill-btn [data-gly-kind=text] { display:none!important; }
+  .session-page .session-main-header__right>.sapid-menu-trigger { font-size:0!important; width:32px; height:32px; padding:7px!important; }
+  .session-page .session-main-header__right>.sapid-menu-trigger::before { content:''; display:block; flex:0 0 16px; width:16px; height:16px; background:currentColor; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Ccircle cx='4' cy='12' r='2'/%3E%3Ccircle cx='12' cy='12' r='2'/%3E%3Ccircle cx='20' cy='12' r='2'/%3E%3C/svg%3E") center/contain no-repeat; }
+  .session-page .chat-input-area { padding:8px 10px!important; }
+  .session-page .chat-input { padding:10px!important; gap:6px!important; }
+  .session-page .chat-composer textarea { font-size:16px!important; min-height:48px!important; max-height:24dvh; }
+  .session-page .chat-input-actions-left { gap:6px!important; grid-template-columns:minmax(80px,.9fr) minmax(110px,1.4fr); }
+  .session-page .chat-picker--effort { display:none!important; }
+  .session-page .sapid-prompt-actions { bottom:10px; right:10px; }
+  .config-layout .config-sidebar { max-height:none!important; }
+  .config-layout .config-nav { display:none!important; }
+  .config-layout .config-mobile-section { display:flex!important; padding:0 14px 10px; }
+  .config-layout .config-mobile-section>button { width:100%; }
+  .config-layout .config-main { min-height:0; }
+  .config-layout .config-actions { order:2; min-height:56px; padding:8px 14px; flex-wrap:nowrap; border-top:1px solid var(--border); border-bottom:0; background:var(--bg-primary); }
+  .config-layout .config-scroll { padding:16px 14px 24px; }
+}
+@media(max-width:480px) {
+  .app-layout .top-header__subtitle { display:none!important; }
+  .top-header__health { flex:0 0 auto; white-space:nowrap; font-size:10px!important; }
+}
+@media(max-width:360px) {
+  .top-header__health [data-gly-kind=text] { display:none!important; }
+}

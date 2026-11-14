@@ -24,6 +24,7 @@ pub fn app(scope: &Scope) -> Box<dyn Widget> {
         locale: scope.cage(i18n::detect_locale()),
         path: scope.cage(crate::route::current_path()),
         authenticated: scope.cage(get_token().is_some()),
+        modals: scope.cage(None),
     };
     let reconnect_epoch = scope.cage(0_u64);
     if ctx.authenticated.get() {

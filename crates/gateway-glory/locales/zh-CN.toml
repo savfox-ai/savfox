@@ -51,8 +51,8 @@ advanced = "高级工具"
 
 [header]
 ai_assistant = "AI 助手"
-health_ok = "运行正常"
-offline = "已离线"
+health_ok = "网关已连接"
+offline = "网关未连接"
 follow_system_theme = "跟随系统主题"
 light_theme = "浅色主题"
 dark_theme = "深色主题"

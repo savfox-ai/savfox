@@ -396,19 +396,6 @@ pub fn nav(ctx: &AppContext, label: &str, path: impl Into<String>) -> Box<dyn Wi
     let path = path.into();
     ui::action(ui::label(ctx, label), move || context.navigate(&path))
 }
-pub fn confirmed(message: &str) -> bool {
-    #[cfg(target_arch = "wasm32")]
-    {
-        web_sys::window()
-            .and_then(|window| window.confirm_with_message(message).ok())
-            .unwrap_or(false)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = message;
-        false
-    }
-}
 pub fn record_key(value: &Value) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();

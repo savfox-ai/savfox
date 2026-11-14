@@ -29,6 +29,7 @@ pub struct AppContext {
     pub locale: Cage<Locale>,
     pub(crate) path: Cage<String>,
     pub(crate) authenticated: Cage<bool>,
+    pub(crate) modals: Cage<Option<sapid::ModalsHandle>>,
 }
 
 impl AppContext {
@@ -40,6 +41,7 @@ impl AppContext {
             locale: scope.cage(i18n::detect_locale()),
             path: scope.cage(crate::route::current_path()),
             authenticated: scope.cage(crate::api::ws::get_token().is_some()),
+            modals: scope.cage(None),
         }
     }
 
@@ -62,6 +64,42 @@ impl AppContext {
 
     pub fn tr(&self, key: &str) -> String {
         i18n::t(self.locale.get(), key)
+    }
+
+    /// Sapid owns dismissal, safe initial focus and focus return. The request
+    /// retires with its page, so a stale confirmation cannot mutate another page.
+    pub fn confirm_action(&self, message: impl Into<String>, action: impl FnOnce() + 'static) {
+        let Some(modals) = self.modals.get_untracked() else {
+            return;
+        };
+        let locale = self.locale.get_untracked();
+        let (title, confirm, cancel) = if locale == Locale::ZhCn {
+            ("确认操作", "确认", "取消")
+        } else {
+            ("Confirm action", "Confirm", "Cancel")
+        };
+        let owner = self.scope.downgrade();
+        let mut action = Some(action);
+        let request = sapid::confirmation_request(title, translate(locale, &message.into()))
+            .confirm_label(confirm)
+            .close_label(cancel)
+            .on_result(move |outcome| {
+                if outcome == sapid::ModalOutcome::Confirmed
+                    && owner.upgrade().is_some()
+                    && let Some(action) = action.take()
+                {
+                    action();
+                }
+            });
+        match modals.open(request) {
+            Ok(token) => {
+                let _ = self.scope.on_cleanup(move || {
+                    let _ = modals.close(&token);
+                });
+                flush();
+            }
+            Err(error) => self.scope.report_error(error),
+        }
     }
 
     pub fn on_notification(&self, method: &str, handler: impl Fn(Value) + 'static) {
@@ -100,6 +138,15 @@ pub fn flush() {
 pub fn set<T: 'static>(cage: Cage<T>, value: T) {
     let _ = cage.try_revise(|current| *current = value);
     flush();
+}
+
+pub fn modal_host(ctx: &AppContext) -> Box<dyn Widget> {
+    let modals = ctx.modals;
+    Box::new(
+        sapid::modals_manager("gateway-modals").on_ready(move |handle| {
+            let _ = modals.try_revise(|current| *current = Some(handle));
+        }),
+    )
 }
 
 pub fn page(
@@ -179,10 +226,25 @@ pub fn field(
 }
 
 pub fn action(label: impl Into<Vary<String>>, callback: impl FnMut() + 'static) -> Box<dyn Widget> {
+    action_button(label, "btn btn-secondary", callback)
+}
+
+pub fn primary_action(
+    label: impl Into<Vary<String>>,
+    callback: impl FnMut() + 'static,
+) -> Box<dyn Widget> {
+    action_button(label, "btn btn-primary", callback)
+}
+
+fn action_button(
+    label: impl Into<Vary<String>>,
+    class: &'static str,
+    callback: impl FnMut() + 'static,
+) -> Box<dyn Widget> {
     Box::new(
         sapid::button()
             .unstyled()
-            .class("btn btn-secondary")
+            .class(class)
             .label(label.into())
             .on_press(callback),
     )
@@ -225,9 +287,59 @@ pub fn details(
 /// Keep Sapid's cursor styling and keyboard behavior while the CSS palette
 /// supplies surfaces and text for both application color schemes.
 pub fn select_control(key: impl Into<String>) -> sapid::Select {
-    sapid::select(key).theme(sapid::Theme {
-        name: "savfox-select".into(),
-        accent_soft: glory::style::Color(236, 118, 126, 46),
-        ..sapid::Theme::default()
-    })
+    sapid::select(key)
+        .check_position(sapid::SelectCheckPosition::Right)
+        .theme(sapid::Theme {
+            name: "savfox-select".into(),
+            accent_soft: glory::style::Color(236, 118, 126, 46),
+            ..sapid::Theme::default()
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    use super::*;
+
+    #[test]
+    fn pending_confirmation_retires_with_its_page_without_running_the_action() {
+        let app = App::new(glory::ssr::Renderer::new);
+        let root = AppContext::new(app.scope());
+        let visible = root.scope.cage(true);
+        let mounted = Rc::new(RefCell::new(None));
+        let output = mounted.clone();
+        let page = root.clone();
+        app.mount(view().fill((
+            modal_host(&root),
+            when(visible, move || {
+                let page = page.clone();
+                let output = output.clone();
+                widget(move |scope| {
+                    *output.borrow_mut() = Some(page.with_scope(scope));
+                    view().build(scope)
+                })
+            }),
+        )))
+        .expect("mount page and Sapid modal host");
+        let calls = Rc::new(Cell::new(0));
+        let action_calls = calls.clone();
+        mounted
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .confirm_action("Delete this agent?", move || {
+                action_calls.set(action_calls.get() + 1);
+            });
+        app.flush().unwrap();
+        let modals = root.modals.get_untracked().expect("Sapid modal manager");
+        assert_eq!(modals.pending().unwrap(), 1);
+        assert_eq!(calls.get(), 0);
+
+        set(visible, false);
+        app.flush().unwrap();
+        assert_eq!(modals.pending().unwrap(), 0);
+        assert_eq!(calls.get(), 0);
+    }
 }

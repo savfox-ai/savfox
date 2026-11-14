@@ -14,9 +14,47 @@ bottom; scrolling up keeps your reading position. Virtualization applies to load
 messages; opening a session still requests the latest 200 messages, and the server
 currently reads the full rollout before applying that limit.
 
+Web controls reuse Sapid widgets for buttons, selects, disclosures, menus,
+forms, file selection and confirmation dialogs. Application helpers adapt state,
+localization and styling. Select arrows and selection marks come from Sapid;
+hover styling keeps controls in place. Confirmation dialogs initially focus
+Cancel, and closing a page cancels its pending confirmation. Skill ZIP uploads
+use Sapid's file picker and keep the 50 MiB limit.
+
+Selected files are read before disabling the picker: Glory 0.7.0 rejects reads
+from disabled controls. Chat prepares image attachments when selected; ZIP
+imports discard stale read results when another file replaces the selection.
+[Glory PR #62](https://github.com/glory-rs/glory/pull/62) fixes the underlying
+disabled-picker behavior without revoking already selected file tokens.
+
+The remaining native sidebar button needs reactive localized open/close labels,
+which Sapid 0.7.1 does not support. [Sapid PR #15](https://github.com/taidge/sapid/pull/15)
+adds that capability; migrate after a published release. Custom SVG assets cover
+application icons absent from Sapid's finite icon set. The markdown renderer uses
+Sapid code blocks within their supported budgets and preserves larger blocks
+with Glory code text.
+
 Run `node scripts/check-web.cjs --chat-performance` after
 `./scripts/build-web.ps1` to verify a 2,000-message fixture, bounded mounted rows,
-reading position, streaming completion, mobile resizing and clearing history.
+reading position, streaming completion, mobile resizing and clearing the view.
+
+The web home route `/` opens a conversation and offers model setup when no models
+are connected; the operations overview is at
+`/overview`. Desktop conversations start with a navigation rail and a collapsible
+session list. On phones, the session list and conversation are separate views.
+The composer grows with its text. Reasoning display, terminal and checkpoint
+tools live in a Sapid drawer; closing it stops its polling and preserves input
+drafts. “Clear current view” clears displayed messages without deleting saved
+history. The header connection badge reports the gateway connection only.
+
+Provider setup at `/models/connect-provider` offers one authentication method at
+a time. Verify the connection and discover models, choose which to import and a
+default, then save and enter a new conversation with that model. Credential
+changes invalidate discovery results and stale replies. Endpoints without model
+discovery support an explicit manual model ID. Saving updates the global default;
+model IDs retain their namespaces. Mobile navigation also uses a Sapid drawer.
+Configuration secondary actions are grouped
+under “More actions”; phones use a section picker and a bottom save bar.
 
 ## Starting the Gateway
 

@@ -264,10 +264,15 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             let context = context.clone();
             let state = row_state.clone();
             actions.push(ui::action(ui::label_for(locale, label), move || {
-                if method == "cron.remove" && !confirmed("Remove this scheduled job?") {
-                    return;
+                let context_mutate = context.clone();
+                let state = state.clone();
+                let params = params.clone();
+                let apply = move || mutate(&context_mutate, &state, method, params);
+                if method == "cron.remove" {
+                    context.confirm_action("Remove this scheduled job?", apply);
+                } else {
+                    apply();
                 }
-                mutate(&context, &state, method, params.clone());
             }));
         }
         card(

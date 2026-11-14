@@ -82,7 +82,7 @@
     .session-list-new-btn:hover {
         background: var(--button-cta-surface-hover);
         color: #fff;
-        transform: translateY(-0.5px);
+
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
@@ -176,7 +176,7 @@
         position: absolute;
         right: 8px;
         top: 50%;
-        transform: translateY(-50%) scale(0.95);
+        transform: translateY(-50%);
         width: 24px;
         height: 24px;
         border: none;
@@ -196,12 +196,11 @@
 
     .session-list-item-wrapper:hover .session-list-item__delete {
         opacity: 1;
-        transform: translateY(-50%) scale(1);
     }
 
     .session-list-item__delete:hover {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
     }
 
     .session-delete-confirm {
@@ -238,7 +237,8 @@
 
     .session-delete-confirm__yes {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
+        --control-text: var(--on-danger);
     }
 
     .session-delete-confirm__yes:hover {
@@ -568,10 +568,11 @@
 
     .stop-generating-btn:hover {
         background: var(--danger);
-        color: #fff;
+        color: var(--on-danger);
+        --control-text: var(--on-danger);
         border-color: var(--danger);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-        transform: translateY(-1px);
+
     }
 
     @media (max-width: 900px) {
@@ -777,7 +778,7 @@
         background: var(--button-surface-hover);
         border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
         box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
-        transform: translateY(-1px);
+
     }
 
     .chat-input-actions-right {
@@ -812,7 +813,7 @@
     .chat-icon-btn:hover {
         border-color: color-mix(in srgb, var(--border) 70%, var(--accent) 30%);
         box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
-        transform: translateY(-1px);
+
     }
 
     .chat-icon-btn:active {
@@ -929,6 +930,7 @@
 .session-page .session-main-badge:empty { display:none; }
 .session-page :is(.session-list-new-btn,.session-pill-btn) { display:inline-flex!important; flex-direction:row!important; align-items:center!important; justify-content:center; gap:6px!important; height:32px; min-height:32px; white-space:nowrap; }
 .session-page .session-list-new-btn { padding:6px 10px!important; font-size:12px!important; background:var(--button-cta-surface)!important; color:#fff!important; border:0!important; }
+.session-page .session-list-new-btn:hover:enabled { background:var(--button-cta-surface-hover)!important; }
 .session-icon { display:inline-block!important; width:15px!important; height:15px!important; min-width:15px; flex:0 0 auto!important; object-fit:contain; }
 body[data-theme=dark] .session-icon { filter:invert(.85); }
 .session-list-new-btn .session-icon { filter:invert(1)!important; }
@@ -980,13 +982,14 @@ body[data-theme=dark] .session-icon { filter:invert(.85); }
 .session-page .chat-input-model-badge { display:flex!important; flex-direction:row!important; gap:5px!important; max-width:100%; padding:4px 8px!important; }
 .session-page .chat-input-model-badge__label { font-size:10px!important; color:var(--text-muted)!important; }
 .session-page .chat-input-model-badge__name { font-size:11px!important; color:var(--text-secondary)!important; }
-.session-page .chat-input-model-badge__sep { font-size:11px!important; color:var(--border)!important; }
+.session-page .chat-input-model-badge__sep { font-size:11px!important; color:var(--text-muted)!important; }
 .session-page .chat-composer { display:flex!important; flex-direction:column!important; gap:0!important; padding:0!important; border:0!important; background:transparent!important; box-shadow:none!important; position:static; }
 .session-page .chat-composer :is(.sapid-field,.sapid-field-control,.sapid-textarea) { gap:0!important; background:transparent!important; border:0!important; padding:0!important; box-shadow:none!important; }
 .session-page .chat-composer label { position:absolute!important; width:1px!important; height:1px!important; overflow:hidden!important; clip:rect(0,0,0,0); white-space:nowrap; }
 .session-page .chat-composer textarea { color:var(--text-primary)!important; background:transparent!important; border:0!important; border-radius:0!important; box-shadow:none!important; resize:none!important; font-size:14px!important; line-height:1.6!important; padding:4px 0!important; min-height:76px!important; max-height:200px; }
 .session-page .sapid-prompt-actions { position:absolute!important; inset:auto 14px 13px auto; display:flex!important; flex-direction:row!important; align-items:center!important; gap:5px!important; }
 .session-page .sapid-prompt-actions>button { min-height:34px; width:34px; height:34px; border-radius:var(--radius)!important; font-size:0!important; padding:7px!important; border:0!important; background:var(--button-cta-surface)!important; color:#fff!important; }
+.session-page .sapid-prompt-actions>button:hover:enabled { background:var(--button-cta-surface-hover)!important; }
 .session-page .sapid-prompt-actions>button::before { content:'';display:block;width:18px;height:18px;background:currentColor;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 7-7 7 7M12 5v14'/%3E%3C/svg%3E") center/contain no-repeat; }
 .session-page .sapid-prompt-actions>button:nth-child(2)::before {mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Crect x='6' y='6' width='12' height='12' rx='2'/%3E%3C/svg%3E");}
 .session-page .chat-composer:not(.chat-composer--busy) .sapid-prompt-actions>button:nth-child(2),.session-page .chat-composer--busy .sapid-prompt-actions>button:first-child { display:none!important; }
