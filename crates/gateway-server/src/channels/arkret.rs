@@ -1618,7 +1618,6 @@ async fn handle_account_client_event(
             // A missing historical dependency must retry this durable delivery.
             apply_account_accepted_mls_commit(client, crypto_store, &accepted_view, account)
                 .await?;
-            let native_sidecar = matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. });
             let causal_after_event_ids = event
                 .semantic_refs
                 .iter()
@@ -1627,18 +1626,22 @@ async fn handle_account_client_event(
                 .collect::<Vec<_>>();
             let mut parsed =
                 parse_backfill_events_for_account(&delta.realm_id, vec![event], account);
-            if native_sidecar {
-                // This port receives Garth's already verified continuous Commit
-                // delivery. Raw Event backfill never reaches this assignment.
-                for skipped in &mut parsed.skipped {
-                    anyhow::ensure!(
-                        skipped.event_id.as_deref() == Some(accepted_ref.event_id.as_str()),
-                        "Sidecar parser changed the accepted Event identity"
-                    );
-                    skipped.accepted_ref = Some(accepted_ref.clone());
-                    skipped.accepted_view = Some(accepted_view.clone());
-                    skipped.causal_after_event_ids = causal_after_event_ids.clone();
+            // This port receives Garth's verified continuous Commit delivery.
+            // Retain its exact coordinates for both shared and private AEAD;
+            // raw Event backfill never reaches this assignment.
+            for skipped in &mut parsed.skipped {
+                if skipped.encrypted_payload.is_none()
+                    && skipped.encrypted_metadata_payload.is_none()
+                {
+                    continue;
                 }
+                anyhow::ensure!(
+                    skipped.event_id.as_deref() == Some(accepted_ref.event_id.as_str()),
+                    "native parser changed the accepted Event identity"
+                );
+                skipped.accepted_ref = Some(accepted_ref.clone());
+                skipped.accepted_view = Some(accepted_view.clone());
+                skipped.causal_after_event_ids = causal_after_event_ids.clone();
             }
             if crypto_store
                 .direct_conversation_binding_event_ref(delta.realm_id.as_str())?
@@ -3613,10 +3616,11 @@ async fn try_handle_encrypted_account_skip(
         None
     };
     observe_inbound_boundary(channel, account, "mls_decrypt_entered");
-    let decrypted = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
-        Some(reference) => {
+    let decrypted = match skipped.accepted_ref.as_ref() {
+        Some(reference) if native_sidecar => {
             crypto_store.try_decrypt_accepted_event_content_detailed(reference, payload)
         }
+        Some(reference) => crypto_store.try_decrypt_native_shared_event_content(reference, payload),
         None if direct_source.is_some() => {
             let source = direct_source.as_ref().expect("qualified Direct source");
             let full = source.full()?;
