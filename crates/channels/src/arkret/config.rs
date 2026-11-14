@@ -15,6 +15,7 @@ const REQUIRED_LISTEN_SCOPE: &[&str] = &[
     ServiceOperationId::SELF_DIRECT_CONVERSATION_READ_RESOLVE_V1,
     ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
     ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
+    ServiceOperationId::SELF_COMMITTED_EVENT_RESOURCE_GET_V1,
     ServiceOperationId::SELF_SIGNER_KEYS_READ_RESOLVE_V1,
     ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1,
     ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1,
@@ -1452,6 +1453,25 @@ mod strict_tests {
             vec!["ak.object.read".to_owned()]
         );
         assert!(missing_required_service_operations(&old_scope, true, true).is_empty());
+        assert_eq!(old_scope, original);
+        assert!(
+            ArkretChannelConfig::from_strict_agent_config(&approved_config(serde_json::json!(
+                old_scope
+            )))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn listener_requires_original_reads_without_rewriting_an_existing_scope() {
+        let mut old_scope = default_agent_runtime_scope().unwrap();
+        old_scope
+            .retain(|action| action != ServiceOperationId::SELF_COMMITTED_EVENT_RESOURCE_GET_V1);
+        let original = old_scope.clone();
+        assert_eq!(
+            missing_required_service_operations(&old_scope, true, true),
+            vec![ServiceOperationId::SELF_COMMITTED_EVENT_RESOURCE_GET_V1.to_owned()]
+        );
         assert_eq!(old_scope, original);
         assert!(
             ArkretChannelConfig::from_strict_agent_config(&approved_config(serde_json::json!(

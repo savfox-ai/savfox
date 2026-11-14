@@ -24,22 +24,38 @@ use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
 pub(crate) mod bot;
+mod manager_host;
 
 struct AppletLifetime {
     active: Arc<AtomicBool>,
     tasks: Mutex<Vec<tokio::task::AbortHandle>>,
+    cancelled: tokio::sync::watch::Sender<bool>,
+    manager: Mutex<
+        Option<Arc<arkret_bridge_runtime::managed_actor_authoring::ManagerArchiveMaintenance>>,
+    >,
 }
 impl Default for AppletLifetime {
     fn default() -> Self {
         Self {
             active: Arc::new(AtomicBool::new(true)),
             tasks: Mutex::new(Vec::new()),
+            cancelled: tokio::sync::watch::channel(false).0,
+            manager: Mutex::new(None),
         }
     }
 }
 impl AppletLifetime {
     fn retire(&self) {
         self.active.store(false, Ordering::Release);
+        self.cancelled.send_replace(true);
+        if let Some(manager) = self
+            .manager
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            manager.stop();
+        }
         for task in self
             .tasks
             .lock()
@@ -47,6 +63,40 @@ impl AppletLifetime {
             .drain(..)
         {
             task.abort();
+        }
+    }
+    fn own_manager(
+        &self,
+        manager: Arc<arkret_bridge_runtime::managed_actor_authoring::ManagerArchiveMaintenance>,
+    ) -> anyhow::Result<()> {
+        let mut owner = self
+            .manager
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !self.active.load(Ordering::Acquire) {
+            manager.stop();
+            anyhow::bail!("Applet host retired during manager initialization");
+        }
+        anyhow::ensure!(owner.is_none(), "Applet manager already initialized");
+        *owner = Some(manager);
+        Ok(())
+    }
+    async fn until_retired<T>(
+        &self,
+        work: impl std::future::Future<Output = anyhow::Result<T>>,
+    ) -> anyhow::Result<T> {
+        let mut cancelled = self.cancelled.subscribe();
+        anyhow::ensure!(
+            self.active.load(Ordering::Acquire) && !*cancelled.borrow(),
+            "Applet host retired"
+        );
+        tokio::select! {
+            biased;
+            _ = cancelled.changed() => anyhow::bail!("Applet host retired; an already submitted remote result may be unknown"),
+            result = work => {
+                anyhow::ensure!(self.active.load(Ordering::Acquire), "Applet host retired; remote results are not rolled back");
+                result
+            }
         }
     }
     fn own(&self, task: tokio::task::AbortHandle) {
@@ -70,12 +120,11 @@ impl Drop for AppletLifetime {
 struct AppletChannelState {
     config: ArkretAppletConfig,
     /// Exact signed publications and accepted Realm/full Actor frontiers,
-    /// persisted under the Savfox home directory and shared across edge refresh.
+    /// persisted under the Savfox home directory across channel reloads.
     journal: arkret_bridge_runtime::AuthoringJournal,
-    /// Authenticated outbound edge, initialized lazily and refreshed after a
-    /// failed submission so expired DID-proof grants cannot wedge the applet.
+    /// Authenticated outbound edge initialized once for this registered host.
     edge: tokio::sync::Mutex<Option<Arc<arkret_bridge_runtime::ArkretEdge>>>,
-    host: tokio::sync::OnceCell<Arc<arkret_bridge_runtime::web::ManagedAppletHttpHost>>,
+    host: tokio::sync::OnceCell<Arc<manager_host::ManagerHost>>,
     lifetime: AppletLifetime,
 }
 
@@ -197,64 +246,84 @@ fn resolve_public_applet(req: &Request, res: &mut Response) -> Option<Arc<Applet
 
 async fn applet_host(
     state: &AppletChannelState,
-) -> anyhow::Result<&Arc<arkret_bridge_runtime::web::ManagedAppletHttpHost>> {
+) -> anyhow::Result<&Arc<manager_host::ManagerHost>> {
+    anyhow::ensure!(
+        state.lifetime.active.load(Ordering::Acquire),
+        "Applet host retired"
+    );
     state
         .host
         .get_or_try_init(|| async {
             let edge = applet_edge(state).await?;
-            arkret_bridge_runtime::run_blocking(move || {
-                arkret_bridge_runtime::web::ManagedAppletHttpHost::new(edge).map(Arc::new)
+            let host = arkret_bridge_runtime::run_blocking(move || {
+                manager_host::ManagerHost::from_environment(edge).map(Arc::new)
             })
             .await
-            .map_err(anyhow::Error::from)
+            .map_err(anyhow::Error::from)?;
+            state.lifetime.own_manager(host.maintenance())?;
+            Ok(host)
         })
         .await
 }
 
 async fn forward_applet(state: &AppletChannelState, req: &mut Request, res: &mut Response) {
-    let body = match req
-        .payload_with_max_size(arkret_bridge_runtime::web::MAX_APPLET_TRANSACTION_BODY_BYTES)
-        .await
-    {
-        Ok(body) => body.to_vec(),
-        Err(salvo::http::ParseError::PayloadTooLarge) => {
-            render_error(
-                res,
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "payload_too_large",
-                "Applet request body exceeds its limit",
-            );
-            return;
-        }
-        Err(_) => {
-            render_error(
-                res,
-                StatusCode::BAD_REQUEST,
-                "schema_violation",
-                "Applet request body could not be read",
-            );
-            return;
-        }
-    };
-    let result = async {
-        applet_host(state)
-            .await?
-            .receive(
-                req.method().clone(),
-                req.uri().clone(),
-                req.headers().clone(),
-                body,
-            )
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let headers = req.headers().clone();
+    let body = async {
+        req.payload_with_max_size(arkret_bridge_runtime::web::MAX_APPLET_TRANSACTION_BODY_BYTES)
             .await
-            .map_err(anyhow::Error::from)
-    }
-    .await;
+            .map(|body| body.to_vec())
+    };
+    forward_applet_with_body(state, body, method, uri, headers, res).await;
+}
+
+async fn forward_applet_with_body(
+    state: &AppletChannelState,
+    body: impl std::future::Future<Output = Result<Vec<u8>, salvo::http::ParseError>>,
+    method: salvo::http::Method,
+    uri: salvo::http::uri::Uri,
+    headers: salvo::http::HeaderMap,
+    res: &mut Response,
+) {
+    let result = state
+        .lifetime
+        .until_retired(async {
+            let body = match body.await {
+                Ok(body) => body,
+                Err(salvo::http::ParseError::PayloadTooLarge) => {
+                    render_error(
+                        res,
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "payload_too_large",
+                        "Applet request body exceeds its limit",
+                    );
+                    return Ok(None);
+                }
+                Err(_) => {
+                    render_error(
+                        res,
+                        StatusCode::BAD_REQUEST,
+                        "schema_violation",
+                        "Applet request body could not be read",
+                    );
+                    return Ok(None);
+                }
+            };
+            applet_host(state)
+                .await?
+                .receive(method, uri, headers, body)
+                .await
+                .map(Some)
+        })
+        .await;
     match result {
-        Ok((status, headers, body)) => {
+        Ok(Some((status, headers, body))) => {
             res.status_code(status);
             *res.headers_mut() = headers;
             res.body(body);
         }
+        Ok(None) => {}
         Err(error) => {
             warn!(%error, "Applet shared HTTP host unavailable");
             render_error(
@@ -329,19 +398,21 @@ async fn applet_native_resource(req: &mut Request, res: &mut Response) {
     let mut found = None;
     let mut unavailable = false;
     for state in states {
-        let result = async {
-            applet_host(&state)
-                .await?
-                .receive(
-                    req.method().clone(),
-                    req.uri().clone(),
-                    req.headers().clone(),
-                    Vec::new(),
-                )
-                .await
-                .map_err(anyhow::Error::from)
-        }
-        .await;
+        let result = state
+            .lifetime
+            .until_retired(async {
+                applet_host(&state)
+                    .await?
+                    .receive(
+                        req.method().clone(),
+                        req.uri().clone(),
+                        req.headers().clone(),
+                        Vec::new(),
+                    )
+                    .await
+                    .map_err(anyhow::Error::from)
+            })
+            .await;
         match result {
             Ok((StatusCode::NOT_FOUND, ..)) => {}
             Ok(response) if response.0.is_success() => {
@@ -477,7 +548,7 @@ fn build_applet_authoring_journal(
 }
 
 /// Start (register) an Arkret Applet channel. Mounts no extra HTTP listener
-/// — the routes are added to the main savfox-gateway-server `Router` in
+/// â€” the routes are added to the main savfox-gateway-server `Router` in
 /// `server.rs`. Returns once registry insertion is done.
 pub(crate) async fn start_arkret_applet_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
@@ -582,7 +653,7 @@ mod tests {
 
     use super::*;
 
-    fn valid_channel_config() -> ChannelConfig {
+    pub(super) fn valid_channel_config() -> ChannelConfig {
         ChannelConfig {
             id: "applet-test".into(),
             kind: "arkret".into(),
@@ -691,12 +762,26 @@ mod tests {
         applet.validate().unwrap();
         let journal = build_applet_authoring_journal(tmp.path(), &applet.id).unwrap();
         let edge = Arc::new(build_applet_edge(&applet, journal.clone()).await.unwrap());
+        let manager_root = tmp.path().join("manager-archive");
+        std::fs::create_dir_all(&manager_root).unwrap();
+        let owner = arkret::canonical::canonical_sha256(&(
+            arkret::AppletId::new(edge.applet_id()).unwrap(),
+            edge.service_actor_id(),
+        ))
+        .unwrap();
+        let owner = manager_root.join(owner.strip_prefix("sha256:").unwrap());
+        std::fs::create_dir_all(&owner).unwrap();
+        std::fs::write(owner.join("wrapping.key"), [173u8; 32]).unwrap();
+        let host =
+            Arc::new(manager_host::ManagerHost::from_root(&manager_root, edge.clone()).unwrap());
+        let lifetime = AppletLifetime::default();
+        lifetime.own_manager(host.maintenance()).unwrap();
         register_channel(AppletChannelState {
             journal,
             config: applet.clone(),
             edge: tokio::sync::Mutex::new(Some(edge)),
-            host: tokio::sync::OnceCell::new(),
-            lifetime: AppletLifetime::default(),
+            host: tokio::sync::OnceCell::from(host),
+            lifetime,
         })
         .unwrap();
         let service = Service::new(

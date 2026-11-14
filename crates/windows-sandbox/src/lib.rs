@@ -10,7 +10,6 @@ windows_modules!(
 );
 
 #[cfg(target_os = "windows")]
-#[path = "setup_orchestrator.rs"]
 mod setup;
 
 #[cfg(target_os = "windows")]

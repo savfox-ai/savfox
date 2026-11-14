@@ -31,7 +31,6 @@ use serde_json::Value;
 
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
-#[path = "creator_bootstrap.rs"]
 mod creator_bootstrap;
 
 /// A local encrypted-state read or write failed.
@@ -261,7 +260,7 @@ pub struct ArkretDirectConversationWelcomeBinding {
     pub initial_exact_pair_generation_ref: Option<String>,
 }
 
-/// A verified delivery's authenticated plaintext, saved with the ratchet advance.
+/// A verified delivery's plaintext and authenticated material, saved atomically.
 /// This host-local record never replaces Commit verification or action authority.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -270,6 +269,8 @@ pub struct ArkretAcceptedDecryptionRecord {
     pub content: Value,
     pub decrypted_epoch: u64,
     pub saved_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authenticated_material: Option<arkret_models_crypto::EventContentMaterial>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -302,6 +303,9 @@ pub struct ArkretCryptoStateFile {
     /// Account Station current results retained at their exact MLS epochs.
     #[serde(default)]
     pub mls_station_currents: BTreeMap<String, BTreeMap<u64, arkret::MlsGroupValue>>,
+    /// Immutable root strategy from the verified Realm Genesis original.
+    #[serde(default)]
+    realm_content_strategies: BTreeMap<RealmId, arkret_wire::EncryptionBackupStrategy>,
     /// Candidate accepted base bytes, atomically saved with the actual MLS
     /// checkpoint. Re-admitted through the current bound own-Station session before replay.
     #[serde(default)]
@@ -355,6 +359,7 @@ impl ArkretCryptoStateFile {
             accepted_decryptions: BTreeMap::new(),
             mls_group_states: BTreeMap::new(),
             mls_station_currents: BTreeMap::new(),
+            realm_content_strategies: BTreeMap::new(),
             mls_accepted_bases: BTreeMap::new(),
             mls_replay_continuations: BTreeMap::new(),
             mls_identities: BTreeMap::new(),
@@ -1602,6 +1607,47 @@ impl FileArkretCryptoStore {
         Ok(accepted.len())
     }
 
+    pub fn has_content_strategy(&self, realm: &RealmId) -> anyhow::Result<bool> {
+        Ok(self.load()?.realm_content_strategies.contains_key(realm))
+    }
+
+    pub fn record_verified_content_strategy(
+        &self,
+        genesis: &arkret::http_client::own_station_results::BoundOwnStationResponse<
+            EventId,
+            arkret::CommittedEventView,
+        >,
+    ) -> anyhow::Result<()> {
+        use arkret::EventPayloadExt as _;
+
+        let arkret::CommittedEventView::Full(full) = genesis.value()? else {
+            anyhow::bail!("Realm content strategy original is withheld");
+        };
+        let event = &full.event;
+        anyhow::ensure!(
+            &event.realm_id.event_id() == genesis.request()
+                && event.event_id == *genesis.request()
+                && event.scope_ref == ScopeRef::RealmGenesis,
+            "Realm content strategy is outside its original Genesis"
+        );
+        let object = event.as_realm_create()?.object;
+        object.validate()?;
+        let strategy = object.initial_encryption_backup_strategy;
+        let _guard = self.acquire_mutation()?;
+        let mut state = self.load()?;
+        if let Some(previous) = state.realm_content_strategies.get(&event.realm_id) {
+            anyhow::ensure!(
+                *previous == strategy,
+                "accepted Realm root strategy changed"
+            );
+            return Ok(());
+        }
+        state
+            .realm_content_strategies
+            .insert(event.realm_id.clone(), strategy);
+        self.save(&mut state)
+    }
+
     pub fn station_mls_current_for_scope_epoch(
         &self,
         scope: &ScopeRef,
@@ -2510,8 +2556,8 @@ impl FileArkretCryptoStore {
     }
 
     /// Retry only the exact native Sidecar delivery already verified by Garth.
-    /// A different Event, Commit, stream, position, header or ciphertext must
-    /// pass RFC decryption again and cannot reuse a consumed sender secret.
+    /// A different original or cut must be independently verified by Garth.
+    /// Epoch-content opening is idempotent and supplies no read authority.
     pub fn try_decrypt_accepted_content_block_detailed(
         &self,
         accepted_ref: &CommittedEventRef,
@@ -2533,7 +2579,7 @@ impl FileArkretCryptoStore {
     }
 
     /// Exact original Garth-verified shared delivery; cache uses existing sealed
-    /// crypto state atomically with the same RFC ratchet, never raw backfill.
+    /// crypto state atomically; native original qualification remains required.
     pub fn try_decrypt_native_shared_reply(
         &self,
         accepted_ref: &CommittedEventRef,
@@ -2631,6 +2677,7 @@ impl FileArkretCryptoStore {
                     content: content.clone(),
                     decrypted_epoch: updated.epoch,
                     saved_generation: state.generation,
+                    authenticated_material: Some(payload.pre_encryption_header.material.clone()),
                 },
             );
             // Eviction loses only retry convenience, never RFC replay protection.
@@ -2700,14 +2747,18 @@ impl FileArkretCryptoStore {
             group_state_ref,
             ..
         } = &input.envelope.encryption_context;
-        let (context, ..) = content_root_basis(
+        let context = accepted_content_root_context(
             &state,
             &group,
             &input.original,
             group_state_ref,
             input.epoch,
-            Some(root_ref),
         )?;
+        let root = group.export_content_root(&context)?;
+        anyhow::ensure!(
+            arkret::crypto::content_history::content_root_ref(&root, &context)? == *root_ref,
+            "content root does not match its accepted original"
+        );
         let producer = group.original_content_endpoint(&input.original)?;
         let material = arkret_models_crypto::EventContentMaterial::from_original(
             &input.original,
@@ -2874,14 +2925,8 @@ impl FileArkretCryptoStore {
             &original.scope_ref == scope && original.actual_signer() == group.local_actor_id(),
             "content original differs from the active native sender or scope"
         );
-        let (root_context, root_ref, backup_refs) = content_root_basis(
-            &state,
-            &group,
-            original,
-            &group_state_ref,
-            group.epoch(),
-            None,
-        )?;
+        let (root_context, root_ref, backup_refs) =
+            content_root_basis(&state, &group, original, &group_state_ref, group.epoch())?;
         let producer = group.local_content_endpoint()?;
         let protection = arkret_models_crypto::ContentProtection {
             root_refs: vec![root_ref.clone()],
@@ -3173,13 +3218,49 @@ pub(crate) fn encrypted_payload_for_event(
     super::ArkretEventContent::from_original(event, envelope).ok()
 }
 
+fn accepted_content_root_context(
+    state: &ArkretCryptoStateFile,
+    group: &ArkretMlsGroup,
+    original: &arkret::Event,
+    reference: &EventId,
+    epoch: u64,
+) -> anyhow::Result<arkret_models_crypto::ContentRootContext> {
+    let id = original.scope_ref.canonical_mls_group_id()?;
+    let current = state
+        .mls_station_currents
+        .get(id.as_str())
+        .and_then(|epochs| epochs.get(&epoch))
+        .context("content is waiting for its accepted epoch coordinates")?;
+    let strategy = state
+        .realm_content_strategies
+        .get(&original.realm_id)
+        .context("content is waiting for its accepted Realm Genesis")?;
+    anyhow::ensure!(
+        group.scope() == &original.scope_ref
+            && current.effective_scope == original.scope_ref
+            && current.epoch == epoch
+            && current.current_mls_commit_event_ref == *reference,
+        "content differs from its installed accepted epoch"
+    );
+    let context = arkret_models_crypto::ContentRootContext {
+        effective_scope: original.scope_ref.clone(),
+        genesis_event_ref: current.genesis_event_ref.clone(),
+        epoch,
+        group_state_ref: reference.clone(),
+        cipher_suite: current.cipher_suite.as_str().to_owned(),
+        encryption_backup_strategy: *strategy,
+        backup_strategy_ref: original.realm_id.event_id(),
+    };
+    context.validate()?;
+    Ok(context)
+}
+
 fn content_root_basis(
     state: &ArkretCryptoStateFile,
     group: &ArkretMlsGroup,
     original: &arkret::Event,
     reference: &EventId,
     epoch: u64,
-    expected: Option<&arkret::Hash>,
 ) -> anyhow::Result<(
     arkret_models_crypto::ContentRootContext,
     arkret::Hash,
@@ -3210,7 +3291,6 @@ fn content_root_basis(
                 || context.epoch != epoch
                 || context.group_state_ref != *reference
                 || context.genesis_event_ref != current.genesis_event_ref
-                || expected.is_some_and(|expected| expected != root_ref)
             {
                 continue;
             }
@@ -3229,9 +3309,35 @@ fn content_root_basis(
             backups.insert(backup.backup_id.clone());
         }
     }
-    let (context, root_ref) =
-        selected.context("content is waiting for a qualified durable root backup")?;
-    Ok((context, root_ref, backups.into_iter().collect()))
+    if let Some((context, root_ref)) = selected {
+        return Ok((context, root_ref, backups.into_iter().collect()));
+    }
+    // Shared business replies may name the same immutable root packages as
+    // their already accepted, successfully decrypted request. This is not an
+    // Agent backup or custody receipt: the receiving Station must revalidate
+    // every physical package and its current sufficient recipient at submit.
+    // Only a qualified collaboration/Direct Genesis installs this strategy;
+    // Agent/Human PCRs cannot enter this path.
+    let context = accepted_content_root_context(state, group, original, reference, epoch)?;
+    let root = group.export_content_root(&context)?;
+    let root_ref = arkret::crypto::content_history::content_root_ref(&root, &context)?;
+    for cached in state.accepted_decryptions.values() {
+        let Some(material) = cached.authenticated_material.as_ref() else {
+            continue;
+        };
+        if material.content_context.root_context != context
+            || material.content_context.root_ref != root_ref
+            || material.protection.root_refs != [root_ref.clone()]
+            || material.protection.backup_refs.is_empty()
+            || !material.protection.blob_refs.is_empty()
+            || cached.accepted_ref.stream_ref
+                != arkret::CommitStreamRef::from_scope(&original.scope_ref, None)?
+        {
+            continue;
+        }
+        return Ok((context, root_ref, material.protection.backup_refs.clone()));
+    }
+    anyhow::bail!("content is waiting for a qualified durable root backup")
 }
 
 #[must_use]
@@ -4488,6 +4594,115 @@ mod tests {
         let rebuilt = parsed.resolve(material.clone()).unwrap();
         assert_eq!(rebuilt.pre_encryption_header, header);
         assert!(group.decrypt_payload(&rebuilt).is_ok());
+        let home = tempfile::tempdir().unwrap();
+        let store = FileArkretCryptoStore::for_account(home.path(), "content", "reader");
+        let mut state = store.load().unwrap();
+        group.persist_state(&mut state).unwrap();
+        let context = &material.content_context.root_context;
+        let current = arkret::MlsGroupValue {
+            effective_scope: context.effective_scope.clone(),
+            genesis_event_ref: context.genesis_event_ref.clone(),
+            cipher_suite: arkret::NonEmptyString::new(context.cipher_suite.clone()).unwrap(),
+            current_mls_commit_event_ref: context.group_state_ref.clone(),
+            epoch: context.epoch,
+            current_key_access_revision: 0,
+            covered_key_access_revision: 0,
+            public_tree_ref: arkret::BlobRef::from_bytes(b"public tree"),
+        };
+        state
+            .mls_station_currents
+            .entry(group.group_id().to_string())
+            .or_default()
+            .insert(current.epoch, current);
+        state
+            .realm_content_strategies
+            .insert(FIXTURE_REALM.clone(), context.encryption_backup_strategy);
+        assert!(state.content_backup_manifests.is_empty());
+        store.save(&mut state).unwrap();
+        assert_eq!(
+            store
+                .resolve_event_content(&parsed)
+                .unwrap()
+                .pre_encryption_header,
+            header
+        );
+        let reference = CommittedEventRef {
+            event_id: authored.event().event_id.clone(),
+            commit_id: arkret::RealmCommitId::from_digest([97; 32]),
+            stream_ref: arkret::CommitStreamRef::from_scope(group.scope(), None).unwrap(),
+            stream_position: 1,
+        };
+        // Structural Commit coordinates are fixture inputs, not a Station
+        // acceptance claim. Exercise the real AEAD and sealed cache boundary.
+        store
+            .try_decrypt_native_shared_reply(&reference, &rebuilt)
+            .unwrap();
+        let reopened = FileArkretCryptoStore::for_account(home.path(), "content", "reader");
+        let state = reopened.load().unwrap();
+        assert!(state.content_backup_manifests.is_empty());
+        let (root_context, root_ref, backups) = content_root_basis(
+            &state,
+            &group,
+            authored.event(),
+            &FIXTURE_EVENT_1,
+            group.epoch(),
+        )
+        .unwrap();
+        assert_eq!(root_context, material.content_context.root_context);
+        assert_eq!(root_ref, material.content_context.root_ref);
+        assert_eq!(backups, material.protection.backup_refs);
+        let mut missing = state.clone();
+        missing.accepted_decryptions.clear();
+        assert!(
+            content_root_basis(
+                &missing,
+                &group,
+                authored.event(),
+                &FIXTURE_EVENT_1,
+                group.epoch()
+            )
+            .is_err()
+        );
+        let mut wrong_root = state.clone();
+        for cached in wrong_root.accepted_decryptions.values_mut() {
+            cached
+                .authenticated_material
+                .as_mut()
+                .unwrap()
+                .content_context
+                .root_context
+                .epoch += 1;
+        }
+        assert!(
+            content_root_basis(
+                &wrong_root,
+                &group,
+                authored.event(),
+                &FIXTURE_EVENT_1,
+                group.epoch()
+            )
+            .is_err()
+        );
+        let mut attachment = state.clone();
+        for cached in attachment.accepted_decryptions.values_mut() {
+            cached
+                .authenticated_material
+                .as_mut()
+                .unwrap()
+                .protection
+                .blob_refs
+                .push(arkret::BlobRef::from_bytes(b"different attachment"));
+        }
+        assert!(
+            content_root_basis(
+                &attachment,
+                &group,
+                authored.event(),
+                &FIXTURE_EVENT_1,
+                group.epoch()
+            )
+            .is_err()
+        );
         let mut delegated = authored.event().clone();
         delegated.executed_by = Some(delegated.actor_id.clone());
         delegated.actor_id = ActorId::account(test_account("ak:did_core:web:controller.example"));
@@ -4786,7 +5001,7 @@ mod tests {
         let mut receipt: arkret::PeerKeyPackageClaimReceipt = serde_json::from_value(json!({
             "claim_request_id":claim_request_id,"request_digest":format!("sha256:{}","1".repeat(64)),"claims_digest":format!("sha256:{}","2".repeat(64)),
             "source_id":station,"destination_id":station,
-            "request":{"claim_request_id":claim_request_id,"intended_realm_id":realm_id,"mls_group_id":alice_group.group_id(),"claim_purpose":"realm_membership","required_capabilities":[arkret_models_crypto::ARKRET_CONTENT_V1],"requester_account_id":alice_actor.as_account_id(),"target_agent_id":bob_actor.signing_principal_id(),"target_agent_verification_method":bob_method,"target_agent_key_authorize_event_id":*FIXTURE_EVENT_9,"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1))},
+            "request":{"claim_request_id":claim_request_id,"intended_realm_id":realm_id,"effective_scope":scope,"mls_group_id":alice_group.group_id(),"claim_purpose":"realm_membership","required_capabilities":[arkret_models_crypto::ARKRET_CONTENT_V1],"requester_account_id":alice_actor.as_account_id(),"target_agent_id":bob_actor.signing_principal_id(),"target_agent_verification_method":bob_method,"target_agent_key_authorize_event_id":*FIXTURE_EVENT_9,"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1))},
             "claimed_at":arkret::canonical::format_timestamp_canonical(at),"expires_at":arkret::canonical::format_timestamp_canonical(at+chrono::Duration::hours(1)),"signature":placeholder
         })).unwrap();
         receipt.request.validate_shape().unwrap();
@@ -5606,7 +5821,7 @@ mod tests {
     }
 
     #[test]
-    fn accepted_native_decryption_retries_after_reopen_without_reusing_rfc_secrets() {
+    fn accepted_native_content_retries_after_reopen_preserve_authenticated_cache() {
         use arkret::{
             Base64UrlString, CommitStreamRef, CommittedEventFullView, DetachedObjectSignature,
             DetachedSignatureAlgorithm, DetachedSignatureContext, DidUrl, Event, EventKind, Hash,
@@ -5818,39 +6033,26 @@ mod tests {
         assert_eq!(read(&reopened, &metadata_ciphertext), metadata);
         assert_eq!(read(&reopened, &ciphertext), content);
         assert_eq!(read(&reopened, &metadata_ciphertext), metadata);
+        // Epoch Content AEAD reads are idempotent; no RFC PrivateMessage
+        // sender secret is consumed. Garth verifies the original Commit before
+        // this crypto boundary receives its accepted reference.
+        assert!(
+            matches!(reopened.try_decrypt_content_block_detailed(&ciphertext).unwrap(),
+            ArkretDecryptDetailedOutcome::Decrypted { content: opened, .. } if opened == content)
+        );
         let stable = std::fs::read(store.path()).unwrap();
         assert!(!String::from_utf8_lossy(&stable).contains("durable private request"));
+        let other_stream = CommittedEventRef {
+            stream_ref: CommitStreamRef::Realm {
+                realm_id: realm_id.clone(),
+            },
+            ..reference.clone()
+        };
         assert!(
             reopened
-                .try_decrypt_content_block_detailed(&ciphertext)
+                .try_decrypt_accepted_content_block_detailed(&other_stream, &ciphertext)
                 .is_err()
         );
-        for other in [
-            CommittedEventRef {
-                event_id: FIXTURE_EVENT_1.clone(),
-                ..reference.clone()
-            },
-            CommittedEventRef {
-                commit_id: RealmCommitId::from_digest([63; 32]),
-                ..reference.clone()
-            },
-            CommittedEventRef {
-                stream_position: 4,
-                ..reference.clone()
-            },
-            CommittedEventRef {
-                stream_ref: CommitStreamRef::Realm {
-                    realm_id: realm_id.clone(),
-                },
-                ..reference.clone()
-            },
-        ] {
-            assert!(
-                reopened
-                    .try_decrypt_accepted_content_block_detailed(&other, &ciphertext)
-                    .is_err()
-            );
-        }
         let mut altered = ciphertext;
         altered.pre_encryption_header.content_type = MessageMetadata::MLS_CONTENT_TYPE.to_owned();
         altered.content_type = MessageMetadata::MLS_CONTENT_TYPE.to_owned();
@@ -5981,8 +6183,8 @@ mod tests {
 
     #[test]
     fn native_sidecar_reply_encrypts_content_and_metadata_without_realm_policy() {
-        // Real RFC sealing and checkpoint isolation; this fixture does not
-        // certify Station admission or recipient Welcome acceptance.
+        // Real epoch-content sealing and checkpoint isolation; local root
+        // selectors do not certify Station custody or Welcome acceptance.
         let home = tempfile::tempdir().unwrap();
         let store = FileArkretCryptoStore::for_account(home.path(), "c1", "agent");
         store.ensure_created().unwrap();
@@ -6017,7 +6219,64 @@ mod tests {
                 updated_at: Utc::now(),
             },
         );
+        let material = crate::arkret::crypto_fixture::local_material(
+            &group,
+            "ak.message.create",
+            &FIXTURE_EVENT_1,
+        )
+        .unwrap();
+        let context = &material.content_context.root_context;
+        state
+            .mls_station_currents
+            .entry(group_id.clone())
+            .or_default()
+            .insert(
+                0,
+                arkret::MlsGroupValue {
+                    effective_scope: scope.clone(),
+                    genesis_event_ref: context.genesis_event_ref.clone(),
+                    cipher_suite: arkret::NonEmptyString::new(context.cipher_suite.clone())
+                        .unwrap(),
+                    current_mls_commit_event_ref: FIXTURE_EVENT_1.clone(),
+                    epoch: 0,
+                    current_key_access_revision: 0,
+                    covered_key_access_revision: 0,
+                    public_tree_ref: arkret::BlobRef::from_bytes(b"fixture public tree"),
+                },
+            );
+        state
+            .realm_content_strategies
+            .insert(FIXTURE_REALM.clone(), context.encryption_backup_strategy);
         store.save(&mut state).unwrap();
+        let request = group
+            .encrypt_payload(
+                EventContentPreEncryptionHeader::reconstruct(
+                    "1.0",
+                    ContentBlock::MLS_CONTENT_TYPE,
+                    EncryptedPayloadScheme::EpochContentAead,
+                    scope.clone(),
+                    "ak.message.create",
+                    0,
+                    FIXTURE_EVENT_1.clone(),
+                    group.local_content_sender_domain().unwrap(),
+                    EventContentRoutingContext::None,
+                    material,
+                )
+                .unwrap(),
+                br#"{"kind":"ak.content.text","body":"request"}"#,
+            )
+            .unwrap();
+        store
+            .try_decrypt_accepted_content_block_detailed(
+                &CommittedEventRef {
+                    event_id: FIXTURE_EVENT_2.clone(),
+                    commit_id: arkret::RealmCommitId::from_digest([99; 32]),
+                    stream_ref: arkret::CommitStreamRef::from_scope(&scope, None).unwrap(),
+                    stream_position: 1,
+                },
+                &request,
+            )
+            .unwrap();
         assert!(store.load().unwrap().realm_policies.is_empty());
         let content = serde_json::to_value(ContentBlock::text("private reply")).unwrap();
         let ArkretEncryptOutcome::Encrypted(encrypted_content) = store

@@ -1618,7 +1618,6 @@ async fn handle_account_client_event(
             // A missing historical dependency must retry this durable delivery.
             apply_account_accepted_mls_commit(client, crypto_store, &accepted_view, account)
                 .await?;
-            let native_sidecar = matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. });
             let causal_after_event_ids = event
                 .semantic_refs
                 .iter()
@@ -1627,18 +1626,22 @@ async fn handle_account_client_event(
                 .collect::<Vec<_>>();
             let mut parsed =
                 parse_backfill_events_for_account(&delta.realm_id, vec![event], account);
-            if native_sidecar {
-                // This port receives Garth's already verified continuous Commit
-                // delivery. Raw Event backfill never reaches this assignment.
-                for skipped in &mut parsed.skipped {
-                    anyhow::ensure!(
-                        skipped.event_id.as_deref() == Some(accepted_ref.event_id.as_str()),
-                        "Sidecar parser changed the accepted Event identity"
-                    );
-                    skipped.accepted_ref = Some(accepted_ref.clone());
-                    skipped.accepted_view = Some(accepted_view.clone());
-                    skipped.causal_after_event_ids = causal_after_event_ids.clone();
+            // This port receives Garth's verified continuous Commit delivery.
+            // Retain its exact coordinates for both shared and private AEAD;
+            // raw Event backfill never reaches this assignment.
+            for skipped in &mut parsed.skipped {
+                if skipped.encrypted_payload.is_none()
+                    && skipped.encrypted_metadata_payload.is_none()
+                {
+                    continue;
                 }
+                anyhow::ensure!(
+                    skipped.event_id.as_deref() == Some(accepted_ref.event_id.as_str()),
+                    "native parser changed the accepted Event identity"
+                );
+                skipped.accepted_ref = Some(accepted_ref.clone());
+                skipped.accepted_view = Some(accepted_view.clone());
+                skipped.causal_after_event_ids = causal_after_event_ids.clone();
             }
             if crypto_store
                 .direct_conversation_binding_event_ref(delta.realm_id.as_str())?
@@ -2926,6 +2929,25 @@ fn find_typed_mls_commit_payload(
     }
 }
 
+async fn ensure_realm_content_strategy(
+    client: &ArkretHttpClient,
+    crypto_store: &FileArkretCryptoStore,
+    realm: &arkret::RealmId,
+) -> anyhow::Result<()> {
+    if !crypto_store.has_content_strategy(realm)? {
+        let genesis = garth::own_station_results::read_collaboration_realm_genesis(
+            client.own_station()?,
+            realm,
+        )
+        .await
+        .inspect_err(|error| {
+            warn!(%error, "arkret: content strategy original remains pending");
+        })?;
+        crypto_store.record_verified_content_strategy(&genesis)?;
+    }
+    Ok(())
+}
+
 async fn handle_parsed_account_events(
     provider: &ArkretAgentSessionProvider,
     client: &ArkretHttpClient,
@@ -3239,6 +3261,7 @@ async fn agent_interaction_trigger_allowed(
     }
     let http = ArkretHttpClient::from_provider(provider, crypto).await?;
     let realm = RealmId::new(realm_id.to_owned())?;
+    let http = http.for_realm(&realm).await?;
     let mode = match garth::own_station_results::read_own_station_agent_interaction(
         http.own_station()?,
         &realm,
@@ -3575,10 +3598,41 @@ async fn try_handle_encrypted_account_skip(
         ),
     }
 
+    ensure_realm_content_strategy(client, crypto_store, &payload.original.realm_id).await?;
+    let direct_source = if !native_sidecar
+        && crypto_store.realm_is_direct_conversation(payload.original.realm_id.as_str())?
+    {
+        let source = garth::own_station_results::read_window_dependency_by_event_id(
+            client.own_station()?,
+            &payload.original.event_id,
+        )
+        .await?;
+        anyhow::ensure!(
+            source.full()?.event == payload.original,
+            "Direct content differs from its exact accepted original"
+        );
+        Some(source)
+    } else {
+        None
+    };
     observe_inbound_boundary(channel, account, "mls_decrypt_entered");
-    let decrypted = match skipped.accepted_ref.as_ref().filter(|_| native_sidecar) {
-        Some(reference) => {
+    let decrypted = match skipped.accepted_ref.as_ref() {
+        Some(reference) if native_sidecar => {
             crypto_store.try_decrypt_accepted_event_content_detailed(reference, payload)
+        }
+        Some(reference) => crypto_store.try_decrypt_native_shared_event_content(reference, payload),
+        None if direct_source.is_some() => {
+            let source = direct_source.as_ref().expect("qualified Direct source");
+            let full = source.full()?;
+            let reference = arkret::CommittedEventRef {
+                event_id: full.event.event_id.clone(),
+                commit_id: full.commit.commit_id.clone(),
+                stream_ref: full.commit.stream_ref.clone(),
+                stream_position: full.commit.stream_position,
+            };
+            let result = crypto_store.try_decrypt_native_shared_event_content(&reference, payload);
+            source.session()?;
+            result
         }
         None => crypto_store.try_decrypt_event_content_detailed(payload),
     };
@@ -4457,13 +4511,10 @@ pub(crate) async fn send_to_arkret_account(
     let provider = construct_account_provider(savfox_home, &channel, &account).await?;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     let client = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
+    let client = client.for_realm(&realm_id_typed).await?;
     // The authenticated observation only suppresses local work; the Station
     // independently evaluates owner-current and governance at acceptance.
-    let observation = provider
-        .session()
-        .current_state()
-        .context("Agent session observation is unavailable")?
-        .agent_participation_observation(Utc::now())?;
+    let observation = client.participation_observation()?;
     anyhow::ensure!(
         observation.agent_account == account.actor_account_id
             && observation.controller_account == account.controller_account_id,
@@ -4597,12 +4648,8 @@ pub(crate) async fn send_to_arkret_account(
     cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation).await?;
     let options = arkret::http_client::ClientRequestOptions::default();
     loop {
-        let client = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
-        let observation = provider
-            .session()
-            .current_state()
-            .context("Agent session observation is unavailable")?
-            .agent_participation_observation(Utc::now())?;
+        let client = client.current().await?;
+        let observation = client.participation_observation()?;
         cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation)
             .await?;
         let authority = garth::AuthorityClient::new(client.own_station()?.clone());
@@ -5410,8 +5457,10 @@ mod tests {
     #[test]
     fn account_sync_extracts_strongly_typed_mls_commit_event() {
         let realm_id = realm_id();
+        let actor =
+            arkret::ActorId::account(arkret::AccountId::new(actor_id(), principal_server_id()));
         let identity = arkret::mls::ArkretMlsIdentity::new_human_device(
-            arkret::ActorId::account(arkret::AccountId::new(actor_id(), principal_server_id())),
+            actor.clone(),
             arkret::DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned())
                 .unwrap(),
             arkret::mls::ArkretMlsSigner::from_ed25519_signing_key(
@@ -5426,6 +5475,17 @@ mod tests {
             .unwrap();
         let base_ref =
             arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x01; 32]);
+        // Model accepted creator attribution for this payload parsing fixture.
+        // Native authorization is tested at its separate admission boundary.
+        group
+            .install_local_creator_binding(
+                actor,
+                Some(arkret::EventId::from_digest(
+                    arkret::canonical::DigestSuite::Sha256,
+                    [0x12; 32],
+                )),
+            )
+            .unwrap();
         let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
             realm_id,
             Some(base_ref.clone()),

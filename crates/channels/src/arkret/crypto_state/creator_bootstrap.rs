@@ -1576,16 +1576,82 @@ mod tests {
         let before = std::fs::read(store.path()).unwrap();
         assert!(!store.publish_creator_ready(&converged, &client).unwrap());
         assert_eq!(std::fs::read(store.path()).unwrap(), before);
+        let body = serde_json::to_value(ContentBlock::text("actual encrypted write")).unwrap();
+        let original = crate::arkret::crypto_fixture::original(
+            intent.effective_scope(),
+            intent.owner_actor_id(),
+        );
+        // Group readiness does not replace the independently qualified
+        // encryption declaration and durable root protection.
+        assert!(
+            store
+                .encrypt_content_block_for_scope(intent.effective_scope(), &body, &original)
+                .unwrap_err()
+                .to_string()
+                .contains("accepted Realm Genesis")
+        );
+        assert_eq!(std::fs::read(store.path()).unwrap(), before);
+        let mut state = store.load().unwrap();
+        let strategy = serde_json::from_value(
+            create.accepted_event().payload["object"]["initial_encryption_backup_strategy"].clone(),
+        )
+        .unwrap();
+        state
+            .realm_content_strategies
+            .insert(create.accepted_event().realm_id.clone(), strategy);
+        store.save(&mut state).unwrap();
+        assert!(
+            store
+                .encrypt_content_block_for_scope(intent.effective_scope(), &body, &original)
+                .unwrap_err()
+                .to_string()
+                .contains("qualified durable root backup")
+        );
+        // This local crypto fixture supplies an authenticated request after
+        // host qualification; it is not evidence of a physical Station PUT.
+        let mut group = ArkretMlsGroup::restore_from_state_record(
+            &state.mls_group_states[intent.mls_group_id().as_str()],
+        )
+        .unwrap();
+        let material = crate::arkret::crypto_fixture::local_material(
+            &group,
+            "ak.message.create",
+            &current.current_mls_commit_event_ref,
+        )
+        .unwrap();
+        let request = group
+            .encrypt_payload(
+                EventContentPreEncryptionHeader::reconstruct(
+                    "1.0",
+                    ContentBlock::MLS_CONTENT_TYPE,
+                    EncryptedPayloadScheme::EpochContentAead,
+                    intent.effective_scope().clone(),
+                    "ak.message.create",
+                    0,
+                    current.current_mls_commit_event_ref.clone(),
+                    group.local_content_sender_domain().unwrap(),
+                    EventContentRoutingContext::None,
+                    material,
+                )
+                .unwrap(),
+                br#"{"kind":"ak.content.text","body":"request"}"#,
+            )
+            .unwrap();
+        store
+            .try_decrypt_native_shared_reply(
+                &CommittedEventRef {
+                    event_id: create.accepted_event().event_id.clone(),
+                    commit_id: arkret::RealmCommitId::from_digest([98; 32]),
+                    stream_ref: arkret::CommitStreamRef::from_scope(intent.effective_scope(), None)
+                        .unwrap(),
+                    stream_position: current.epoch + 2,
+                },
+                &request,
+            )
+            .unwrap();
         assert!(matches!(
             store
-                .encrypt_content_block_for_scope(
-                    intent.effective_scope(),
-                    &serde_json::to_value(ContentBlock::text("actual encrypted write")).unwrap(),
-                    &crate::arkret::crypto_fixture::original(
-                        intent.effective_scope(),
-                        intent.owner_actor_id()
-                    )
-                )
+                .encrypt_content_block_for_scope(intent.effective_scope(), &body, &original,)
                 .unwrap(),
             ArkretEncryptOutcome::Encrypted(_)
         ));

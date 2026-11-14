@@ -403,5 +403,4 @@ fn user_message_positions(items: &[ResponseItem]) -> Vec<usize> {
 }
 
 #[cfg(test)]
-#[path = "history_tests.rs"]
 mod tests;

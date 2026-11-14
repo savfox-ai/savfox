@@ -13,9 +13,7 @@ pub mod models;
 pub mod process;
 pub mod responses;
 pub mod streaming_sse;
-#[path = "test_agent.rs"]
 pub mod test_savfox;
-#[path = "test_agent_exec.rs"]
 pub mod test_savfox_exec;
 
 #[track_caller]
