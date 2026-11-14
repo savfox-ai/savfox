@@ -525,6 +525,26 @@ impl ArkretHttpClient {
             .context("Agent client has no accepted own-Station session")
     }
 
+    /// Observe only the immutable ceiling of this actual scoped client.
+    /// A bootstrap provider is not a substitute for its content session.
+    pub fn participation_observation(
+        &self,
+    ) -> anyhow::Result<
+        arkret_models_collaboration::governance::agent_participation::AgentParticipationObservation,
+    > {
+        self.own_station()?.check_session()?;
+        let provider = self
+            .session_provider
+            .as_ref()
+            .context("Agent provider is unavailable")?;
+        let state = provider
+            .session()
+            .current_state()
+            .context("Agent scoped session is unavailable")?;
+        provider.factory().build(&state)?;
+        Ok(state.agent_participation_observation(Utc::now())?)
+    }
+
     pub async fn from_provider(
         provider: &ArkretAgentSessionProvider,
         store: &super::crypto_state::FileArkretCryptoStore,

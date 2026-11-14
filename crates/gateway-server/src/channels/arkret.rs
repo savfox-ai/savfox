@@ -3258,6 +3258,7 @@ async fn agent_interaction_trigger_allowed(
     }
     let http = ArkretHttpClient::from_provider(provider, crypto).await?;
     let realm = RealmId::new(realm_id.to_owned())?;
+    let http = http.for_realm(&realm).await?;
     let mode = match garth::own_station_results::read_own_station_agent_interaction(
         http.own_station()?,
         &realm,
@@ -4506,13 +4507,10 @@ pub(crate) async fn send_to_arkret_account(
     let provider = construct_account_provider(savfox_home, &channel, &account).await?;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     let client = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
+    let client = client.for_realm(&realm_id_typed).await?;
     // The authenticated observation only suppresses local work; the Station
     // independently evaluates owner-current and governance at acceptance.
-    let observation = provider
-        .session()
-        .current_state()
-        .context("Agent session observation is unavailable")?
-        .agent_participation_observation(Utc::now())?;
+    let observation = client.participation_observation()?;
     anyhow::ensure!(
         observation.agent_account == account.actor_account_id
             && observation.controller_account == account.controller_account_id,
@@ -4646,12 +4644,8 @@ pub(crate) async fn send_to_arkret_account(
     cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation).await?;
     let options = arkret::http_client::ClientRequestOptions::default();
     loop {
-        let client = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
-        let observation = provider
-            .session()
-            .current_state()
-            .context("Agent session observation is unavailable")?
-            .agent_participation_observation(Utc::now())?;
+        let client = client.current().await?;
+        let observation = client.participation_observation()?;
         cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation)
             .await?;
         let authority = garth::AuthorityClient::new(client.own_station()?.clone());
@@ -5459,8 +5453,10 @@ mod tests {
     #[test]
     fn account_sync_extracts_strongly_typed_mls_commit_event() {
         let realm_id = realm_id();
+        let actor =
+            arkret::ActorId::account(arkret::AccountId::new(actor_id(), principal_server_id()));
         let identity = arkret::mls::ArkretMlsIdentity::new_human_device(
-            arkret::ActorId::account(arkret::AccountId::new(actor_id(), principal_server_id())),
+            actor.clone(),
             arkret::DeviceId::new("ak:device:01904100-0000-7000-8000-000000000006".to_owned())
                 .unwrap(),
             arkret::mls::ArkretMlsSigner::from_ed25519_signing_key(
@@ -5475,6 +5471,17 @@ mod tests {
             .unwrap();
         let base_ref =
             arkret::EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [0x01; 32]);
+        // Model accepted creator attribution for this payload parsing fixture.
+        // Native authorization is tested at its separate admission boundary.
+        group
+            .install_local_creator_binding(
+                actor,
+                Some(arkret::EventId::from_digest(
+                    arkret::canonical::DigestSuite::Sha256,
+                    [0x12; 32],
+                )),
+            )
+            .unwrap();
         let governance_binding = arkret::MlsGovernanceBindingPayload::realm(
             realm_id,
             Some(base_ref.clone()),
