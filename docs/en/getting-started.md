@@ -29,6 +29,11 @@ the digest before extracting or replacing the installed binary. Missing or
 invalid checksums fail installation. Resolving `latest` requires curl; pinned
 downloads also support wget. Native Windows releases currently support x64.
 
+The npm wrapper downloads the matching platform package through an exact-version
+optional dependency; it no longer bundles binaries for every platform. Keep
+optional dependencies enabled when installing. Supported npm platforms are Linux
+x64/ARM64, macOS x64/ARM64 and Windows x64. Windows ARM64 is not currently published.
+
 ### Verify the installed binary
 
 ```bash

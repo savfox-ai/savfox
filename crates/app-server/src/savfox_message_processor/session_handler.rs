@@ -1367,7 +1367,7 @@ impl SavfoxMessageProcessor {
                             tokio::time::sleep(Duration::from_millis(50)).await;
                         }
                     };
-                    if tokio::time::timeout(Duration::from_secs(10), wait_for_shutdown)
+                    if tokio::time::timeout(Duration::from_secs(30), wait_for_shutdown)
                         .await
                         .is_err()
                     {
@@ -1436,73 +1436,75 @@ impl SavfoxMessageProcessor {
         let pending_rollbacks = self.pending_rollbacks.clone();
         let turn_summary_store = self.turn_summary_store.clone();
         let fallback_model_provider = self.config.model_provider_id.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = &mut cancel_rx => {
-                        // User has unsubscribed, so exit this task.
-                        break;
-                    }
-                    event = conversation.next_event() => {
-                        let event = match event {
-                            Ok(event) => event,
-                            Err(err) => {
-                                tracing::warn!("session.next_event() failed with: {err}");
-                                break;
-                            }
-                        };
+        self.outgoing
+            .spawn_task(async move {
+                loop {
+                    tokio::select! {
+                        _ = &mut cancel_rx => {
+                            // User has unsubscribed, so exit this task.
+                            break;
+                        }
+                        event = conversation.next_event() => {
+                            let event = match event {
+                                Ok(event) => event,
+                                Err(err) => {
+                                    tracing::warn!("session.next_event() failed with: {err}");
+                                    break;
+                                }
+                            };
 
-                        if let EventMsg::RawResponseItem(_) = &event.msg
-                            && !experimental_raw_events {
-                                continue;
-                            }
+                            if let EventMsg::RawResponseItem(_) = &event.msg
+                                && !experimental_raw_events {
+                                    continue;
+                                }
 
-                        // For now, we send a notification for every event,
-                        // JSON-serializing the `Event` as-is, but these should
-                        // be migrated to be variants of `ServerNotification`
-                        // instead.
-                        let event_formatted = match &event.msg {
-                            EventMsg::TurnStarted(_) => "task_started",
-                            EventMsg::TurnComplete(_) => "task_complete",
-                            _ => &event.msg.to_string(),
-                        };
-                        let mut params = match serde_json::to_value(event.clone()) {
-                            Ok(serde_json::Value::Object(map)) => map,
-                            Ok(_) => {
-                                error!("event did not serialize to an object");
-                                continue;
-                            }
-                            Err(err) => {
-                                error!("failed to serialize event: {err}");
-                                continue;
-                            }
-                        };
-                        params.insert(
-                            "conversationId".to_owned(),
-                            conversation_id.to_string().into(),
-                        );
+                            // For now, we send a notification for every event,
+                            // JSON-serializing the `Event` as-is, but these should
+                            // be migrated to be variants of `ServerNotification`
+                            // instead.
+                            let event_formatted = match &event.msg {
+                                EventMsg::TurnStarted(_) => "task_started",
+                                EventMsg::TurnComplete(_) => "task_complete",
+                                _ => &event.msg.to_string(),
+                            };
+                            let mut params = match serde_json::to_value(event.clone()) {
+                                Ok(serde_json::Value::Object(map)) => map,
+                                Ok(_) => {
+                                    error!("event did not serialize to an object");
+                                    continue;
+                                }
+                                Err(err) => {
+                                    error!("failed to serialize event: {err}");
+                                    continue;
+                                }
+                            };
+                            params.insert(
+                                "conversationId".to_owned(),
+                                conversation_id.to_string().into(),
+                            );
 
-                        outgoing_for_task
-                            .send_notification(OutgoingNotification {
-                                method: format!("savfox/event/{event_formatted}"),
-                                params: Some(params.into()),
-                            })
+                            outgoing_for_task
+                                .send_notification(OutgoingNotification {
+                                    method: format!("savfox/event/{event_formatted}"),
+                                    params: Some(params.into()),
+                                })
+                                .await;
+
+                            apply_bespoke_event_handling(
+                                event.clone(),
+                                conversation_id,
+                                conversation.clone(),
+                                outgoing_for_task.clone(),
+                                pending_rollbacks.clone(),
+                                turn_summary_store.clone(),
+                                fallback_model_provider.clone(),
+                            )
                             .await;
-
-                        apply_bespoke_event_handling(
-                            event.clone(),
-                            conversation_id,
-                            conversation.clone(),
-                            outgoing_for_task.clone(),
-                            pending_rollbacks.clone(),
-                            turn_summary_store.clone(),
-                            fallback_model_provider.clone(),
-                        )
-                        .await;
+                        }
                     }
                 }
-            }
-        });
+            })
+            .await;
         Ok(subscription_id)
     }
 }

@@ -10,7 +10,7 @@ use savfox_app_server_protocol::{
 };
 use savfox_core::SessionManager;
 use savfox_core::config::Config;
-use savfox_core::exec::ExecParams;
+use savfox_core::exec::{DEFAULT_EXEC_COMMAND_TIMEOUT_MS, ExecExpiration, ExecParams};
 use savfox_core::exec_env::create_env;
 use savfox_core::features::Feature;
 use savfox_core::sandboxing::SandboxPermissions;
@@ -50,7 +50,12 @@ impl SavfoxMessageProcessor {
         let exec_params = ExecParams {
             command: params.command,
             cwd,
-            expiration: timeout_ms.into(),
+            expiration: ExecExpiration::TimeoutWithCancellation {
+                timeout: std::time::Duration::from_millis(
+                    timeout_ms.unwrap_or(DEFAULT_EXEC_COMMAND_TIMEOUT_MS),
+                ),
+                cancellation: self.outgoing.cancellation_token(),
+            },
             env,
             sandbox_permissions: SandboxPermissions::UseDefault,
             windows_sandbox_level,
@@ -80,34 +85,36 @@ impl SavfoxMessageProcessor {
         let req_id = request_id;
         let sandbox_cwd = self.config.cwd.clone();
 
-        tokio::spawn(async move {
-            match savfox_core::exec::process_exec_tool_call(
-                exec_params,
-                &effective_policy,
-                sandbox_cwd.as_path(),
-                &savfox_linux_sandbox_exe,
-                None,
-            )
-            .await
-            {
-                Ok(output) => {
-                    let response = CommandExecResponse {
-                        exit_code: output.exit_code,
-                        stdout: output.stdout.text,
-                        stderr: output.stderr.text,
-                    };
-                    outgoing.send_response(req_id, response).await;
+        self.outgoing
+            .spawn_command(async move {
+                match savfox_core::exec::process_exec_tool_call(
+                    exec_params,
+                    &effective_policy,
+                    sandbox_cwd.as_path(),
+                    &savfox_linux_sandbox_exe,
+                    None,
+                )
+                .await
+                {
+                    Ok(output) => {
+                        let response = CommandExecResponse {
+                            exit_code: output.exit_code,
+                            stdout: output.stdout.text,
+                            stderr: output.stderr.text,
+                        };
+                        outgoing.send_response(req_id, response).await;
+                    }
+                    Err(err) => {
+                        let error = JSONRPCErrorError {
+                            code: INTERNAL_ERROR_CODE,
+                            message: format!("exec failed: {err}"),
+                            data: None,
+                        };
+                        outgoing.send_error(req_id, error).await;
+                    }
                 }
-                Err(err) => {
-                    let error = JSONRPCErrorError {
-                        code: INTERNAL_ERROR_CODE,
-                        message: format!("exec failed: {err}"),
-                        data: None,
-                    };
-                    outgoing.send_error(req_id, error).await;
-                }
-            }
-        });
+            })
+            .await;
     }
 
     pub(crate) async fn list_models(

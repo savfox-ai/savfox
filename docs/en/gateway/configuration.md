@@ -43,7 +43,10 @@ Speech synthesis and talk/wake settings share `/speech`; nodes, live WebSocket c
 and pairing share `/devices`. Browser options are grouped within System configuration:
 theme, language and desktop notifications under Interface and notifications, the WebSocket
 address under Gateway and security, and the default model for new chats under Sessions
-and context. There is no separate preferences page or `/settings` route.
+and context. Language and theme controls are available only in Interface and
+notifications (`/config/interface`), not in the top-right header. Save configuration
+to apply these browser preferences; theme supports System, Light and Dark.
+There is no separate preferences page or `/settings` route.
 Server logging controls are on the Logs page. Advanced configuration links to manual RPC
 and diagnostics instead of placing another item in the primary navigation.
 

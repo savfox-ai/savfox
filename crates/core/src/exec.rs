@@ -7,7 +7,7 @@ use std::process::ExitStatus;
 use std::time::{Duration, Instant};
 
 use async_channel::Sender;
-use savfox_utils::pty::process_group::kill_child_process_group;
+use savfox_utils::pty::process_group::kill_child_process_group_async;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::process::Child;
 use tokio_util::sync::CancellationToken;
@@ -62,6 +62,10 @@ pub enum ExecExpiration {
     Timeout(Duration),
     DefaultTimeout,
     Cancellation(CancellationToken),
+    TimeoutWithCancellation {
+        timeout: Duration,
+        cancellation: CancellationToken,
+    },
 }
 
 impl From<Option<u64>> for ExecExpiration {
@@ -79,14 +83,38 @@ impl From<u64> for ExecExpiration {
 }
 
 impl ExecExpiration {
-    async fn wait(self) {
+    #[cfg(windows)]
+    fn cancellation_token(&self) -> Option<CancellationToken> {
         match self {
-            Self::Timeout(duration) => tokio::time::sleep(duration).await,
+            Self::Cancellation(token)
+            | Self::TimeoutWithCancellation {
+                cancellation: token,
+                ..
+            } => Some(token.clone()),
+            Self::Timeout(_) | Self::DefaultTimeout => None,
+        }
+    }
+
+    /// Returns true only when cancellation, rather than the timeout, won.
+    async fn wait(self) -> bool {
+        match self {
+            Self::Timeout(duration) => {
+                tokio::time::sleep(duration).await;
+                false
+            }
             Self::DefaultTimeout => {
-                tokio::time::sleep(Duration::from_millis(DEFAULT_EXEC_COMMAND_TIMEOUT_MS)).await
+                tokio::time::sleep(Duration::from_millis(DEFAULT_EXEC_COMMAND_TIMEOUT_MS)).await;
+                false
             }
             Self::Cancellation(cancel) => {
                 cancel.cancelled().await;
+                true
+            }
+            Self::TimeoutWithCancellation {
+                timeout,
+                cancellation,
+            } => {
+                tokio::select! { _ = tokio::time::sleep(timeout) => false, _ = cancellation.cancelled() => true }
             }
         }
     }
@@ -97,6 +125,7 @@ impl ExecExpiration {
             Self::Timeout(duration) => Some(duration.as_millis() as u64),
             Self::DefaultTimeout => Some(DEFAULT_EXEC_COMMAND_TIMEOUT_MS),
             Self::Cancellation(_) => None,
+            Self::TimeoutWithCancellation { timeout, .. } => Some(timeout.as_millis() as u64),
         }
     }
 }
@@ -292,7 +321,8 @@ async fn exec_windows_sandbox(
 ) -> Result<RawExecToolCallOutput> {
     use savfox_protocol::config_types::WindowsSandboxLevel;
     use savfox_windows_sandbox::{
-        run_windows_sandbox_capture, run_windows_sandbox_capture_elevated,
+        run_windows_sandbox_capture_elevated_with_cancellation,
+        run_windows_sandbox_capture_with_cancellation,
     };
 
     use crate::config::find_savfox_home;
@@ -305,9 +335,8 @@ async fn exec_windows_sandbox(
         windows_sandbox_level,
         ..
     } = params;
-    // TODO(iceweasel-oai): run_windows_sandbox_capture should support all
-    // variants of ExecExpiration, not just timeout.
     let timeout_ms = expiration.timeout_ms();
+    let cancellation = expiration.cancellation_token();
 
     let policy_str = serde_json::to_string(sandbox_policy).map_err(|err| {
         SavfoxError::Io(io::Error::other(format!(
@@ -324,8 +353,13 @@ async fn exec_windows_sandbox(
     let sandbox_level = windows_sandbox_level;
     let use_elevated = matches!(sandbox_level, WindowsSandboxLevel::Elevated);
     let spawn_res = tokio::task::spawn_blocking(move || {
+        let cancelled = || {
+            cancellation
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+        };
         if use_elevated {
-            run_windows_sandbox_capture_elevated(
+            run_windows_sandbox_capture_elevated_with_cancellation(
                 policy_str.as_str(),
                 &sandbox_cwd,
                 savfox_home.as_ref(),
@@ -333,9 +367,10 @@ async fn exec_windows_sandbox(
                 &cwd,
                 env,
                 timeout_ms,
+                Some(&cancelled),
             )
         } else {
-            run_windows_sandbox_capture(
+            run_windows_sandbox_capture_with_cancellation(
                 policy_str.as_str(),
                 &sandbox_cwd,
                 savfox_home.as_ref(),
@@ -343,6 +378,7 @@ async fn exec_windows_sandbox(
                 &cwd,
                 env,
                 timeout_ms,
+                Some(&cancelled),
             )
         }
     })
@@ -593,7 +629,9 @@ fn aggregate_output(
         aggregated.extend_from_slice(&stderr.text);
         return StreamOutput {
             text: aggregated,
-            truncated_after_lines: None,
+            truncated_after_lines: stdout
+                .truncated_after_lines
+                .or(stderr.truncated_after_lines),
         };
     }
 
@@ -610,7 +648,9 @@ fn aggregate_output(
 
     StreamOutput {
         text: aggregated,
-        truncated_after_lines: None,
+        truncated_after_lines: stdout
+            .truncated_after_lines
+            .or(stderr.truncated_after_lines),
     }
 }
 
@@ -682,6 +722,19 @@ async fn exec(
     consume_truncated_output(child, expiration, stdout_stream).await
 }
 
+/// Always attempt direct-child cleanup even if tree termination is denied.
+async fn terminate_exec_child(child: &mut Child) -> io::Result<()> {
+    let tree_result = kill_child_process_group_async(child).await;
+    if child.try_wait()?.is_none() {
+        child.start_kill()?;
+    }
+    child.wait().await?;
+    if let Err(error) = &tree_result {
+        tracing::warn!(%error, "process tree termination failed; direct child was terminated");
+    }
+    tree_result
+}
+
 /// Consumes the output of a child process, truncating it so it is suitable for
 /// use as the output of a `shell` tool call. Also enforces specified timeout.
 async fn consume_truncated_output(
@@ -704,80 +757,65 @@ async fn consume_truncated_output(
         ))
     })?;
 
-    let stdout_handle = tokio::spawn(read_capped(
-        BufReader::new(stdout_reader),
-        stdout_stream.clone(),
-        false,
-    ));
-    let stderr_handle = tokio::spawn(read_capped(
-        BufReader::new(stderr_reader),
-        stdout_stream.clone(),
-        true,
-    ));
-
-    let (exit_status, timed_out) = tokio::select! {
-        status_result = child.wait() => {
-            let exit_status = status_result?;
-            (exit_status, false)
-        }
-        _ = expiration.wait() => {
-            kill_child_process_group(&mut child)?;
-            child.start_kill()?;
-            (synthetic_exit_status(EXIT_CODE_SIGNAL_BASE + TIMEOUT_CODE), true)
-        }
-        _ = tokio::signal::ctrl_c() => {
-            kill_child_process_group(&mut child)?;
-            child.start_kill()?;
-            (synthetic_exit_status(EXIT_CODE_SIGNAL_BASE + SIGKILL_CODE), false)
-        }
+    // Keep readers in this future so cancellation cannot detach pipe tasks. Buffers
+    // live outside the read futures and remain available if pipe draining times out.
+    let mut stdout = StreamOutput {
+        text: Vec::new(),
+        truncated_after_lines: None,
     };
-
-    // Wait for the stdout/stderr collection tasks but guard against them
-    // hanging forever. In the normal case, both pipes are closed once the child
-    // terminates so the tasks exit quickly. However, if the child process
-    // spawned grandchildren that inherited its stdout/stderr file descriptors
-    // those pipes may stay open after we `kill` the direct child on timeout.
-    // That would cause the `read_capped` tasks to block on `read()`
-    // indefinitely, effectively hanging the whole agent.
-
-    const IO_DRAIN_TIMEOUT_MS: u64 = 2_000; // 2 s should be plenty for local pipes
-
-    // We need mutable bindings so we can `abort()` them on timeout.
-    use tokio::task::JoinHandle;
-
-    async fn await_with_timeout(
-        handle: &mut JoinHandle<std::io::Result<StreamOutput<Vec<u8>>>>,
-        timeout: Duration,
-    ) -> std::io::Result<StreamOutput<Vec<u8>>> {
-        match tokio::time::timeout(timeout, &mut *handle).await {
-            Ok(join_res) => match join_res {
-                Ok(io_res) => io_res,
-                Err(join_err) => Err(std::io::Error::other(join_err)),
-            },
-            Err(_elapsed) => {
-                // Timeout: abort the task to avoid hanging on open pipes.
-                handle.abort();
-                Ok(StreamOutput {
-                    text: Vec::new(),
-                    truncated_after_lines: None,
-                })
+    let mut stderr = StreamOutput {
+        text: Vec::new(),
+        truncated_after_lines: None,
+    };
+    let (exit_status, timed_out) = {
+        let stdout_read = read_capped_into(
+            BufReader::new(stdout_reader),
+            stdout_stream.clone(),
+            false,
+            &mut stdout,
+        );
+        let stderr_read = read_capped_into(
+            BufReader::new(stderr_reader),
+            stdout_stream,
+            true,
+            &mut stderr,
+        );
+        let readers = async { tokio::try_join!(stdout_read, stderr_read).map(|_| ()) };
+        tokio::pin!(readers);
+        let expiration_wait = expiration.wait();
+        tokio::pin!(expiration_wait);
+        let mut readers_done = false;
+        let result = loop {
+            tokio::select! {
+                result = &mut readers, if !readers_done => {
+                    result?;
+                    readers_done = true;
+                }
+                status = child.wait() => break (status?, false),
+                is_cancellation = &mut expiration_wait => {
+                    terminate_exec_child(&mut child).await?;
+                    let status = if is_cancellation {
+                        cancellation_exit_status()
+                    } else {
+                        synthetic_exit_status(EXIT_CODE_SIGNAL_BASE + TIMEOUT_CODE)
+                    };
+                    break (status, !is_cancellation);
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    terminate_exec_child(&mut child).await?;
+                    break (synthetic_exit_status(EXIT_CODE_SIGNAL_BASE + SIGKILL_CODE), false);
+                }
+            }
+        };
+        if !readers_done {
+            // One deadline for both pipes. Dropping readers preserves their buffers.
+            if let Ok(result) = tokio::time::timeout(Duration::from_secs(2), &mut readers).await {
+                result?;
             }
         }
-    }
-
-    let mut stdout_handle = stdout_handle;
-    let mut stderr_handle = stderr_handle;
-
-    let stdout = await_with_timeout(
-        &mut stdout_handle,
-        Duration::from_millis(IO_DRAIN_TIMEOUT_MS),
-    )
-    .await?;
-    let stderr = await_with_timeout(
-        &mut stderr_handle,
-        Duration::from_millis(IO_DRAIN_TIMEOUT_MS),
-    )
-    .await?;
+        result
+    };
+    // A reader clears its initial truncation marker only after observing EOF.
     let aggregated_output = aggregate_output(&stdout, &stderr);
 
     Ok(RawExecToolCallOutput {
@@ -789,20 +827,39 @@ async fn consume_truncated_output(
     })
 }
 
-async fn read_capped<R: AsyncRead + Unpin + Send + 'static>(
+async fn read_capped_into<R: AsyncRead + Unpin>(
     mut reader: R,
     stream: Option<StdoutStream>,
     is_stderr: bool,
-) -> io::Result<StreamOutput<Vec<u8>>> {
-    let mut buf = Vec::with_capacity(AGGREGATE_BUFFER_INITIAL_CAPACITY.min(EXEC_OUTPUT_MAX_BYTES));
+    output: &mut StreamOutput<Vec<u8>>,
+) -> io::Result<()> {
+    output
+        .text
+        .reserve(AGGREGATE_BUFFER_INITIAL_CAPACITY.min(EXEC_OUTPUT_MAX_BYTES));
+    // Until EOF, expose the retained line count as an incomplete-output marker.
+    output.truncated_after_lines = Some(0);
     let mut tmp = [0u8; READ_CHUNK_SIZE];
     let mut emitted_deltas: usize = 0;
 
     loop {
         let n = reader.read(&mut tmp).await?;
         if n == 0 {
+            output.truncated_after_lines = None;
             break;
         }
+
+        let retained = n.min(EXEC_OUTPUT_MAX_BYTES.saturating_sub(output.text.len()));
+        let new_lines = tmp[..retained]
+            .iter()
+            .filter(|byte| **byte == b'\n')
+            .count() as u32;
+        append_capped(&mut output.text, &tmp[..n], EXEC_OUTPUT_MAX_BYTES);
+        output.truncated_after_lines = Some(
+            output
+                .truncated_after_lines
+                .unwrap_or_default()
+                .saturating_add(new_lines),
+        );
 
         if let Some(stream) = &stream
             && emitted_deltas < MAX_EXEC_OUTPUT_DELTAS_PER_CALL
@@ -826,14 +883,23 @@ async fn read_capped<R: AsyncRead + Unpin + Send + 'static>(
             emitted_deltas += 1;
         }
 
-        append_capped(&mut buf, &tmp[..n], EXEC_OUTPUT_MAX_BYTES);
         // Continue reading to EOF to avoid back-pressure
     }
 
-    Ok(StreamOutput {
-        text: buf,
-        truncated_after_lines: None,
-    })
+    Ok(())
+}
+
+fn cancellation_exit_status() -> ExitStatus {
+    let code = EXIT_CODE_SIGNAL_BASE + SIGKILL_CODE;
+    #[cfg(unix)]
+    {
+        ExitStatus::from_raw(code << 8)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::ExitStatusExt;
+        ExitStatus::from_raw(code as u32)
+    }
 }
 
 #[cfg(unix)]
@@ -927,8 +993,46 @@ mod tests {
             writer.write_all(&bytes).await.expect("write");
         });
 
-        let out = read_capped(reader, None, false).await.expect("read");
+        let mut out = StreamOutput {
+            text: Vec::new(),
+            truncated_after_lines: None,
+        };
+        read_capped_into(reader, None, false, &mut out)
+            .await
+            .expect("read");
         assert_eq!(out.text.len(), EXEC_OUTPUT_MAX_BYTES);
+    }
+
+    #[tokio::test]
+    async fn incomplete_pipe_keeps_already_read_output() {
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        writer
+            .write_all(b"diagnostic before background child\n")
+            .await
+            .expect("write");
+        let mut output = StreamOutput {
+            text: Vec::new(),
+            truncated_after_lines: None,
+        };
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(20),
+                read_capped_into(reader, None, false, &mut output)
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(output.text, b"diagnostic before background child\n");
+        assert_eq!(output.truncated_after_lines, Some(1));
+        let empty = StreamOutput {
+            text: Vec::new(),
+            truncated_after_lines: None,
+        };
+        assert_eq!(
+            aggregate_output(&output, &empty).truncated_after_lines,
+            Some(1)
+        );
+        drop(writer);
     }
 
     #[test]
@@ -1021,6 +1125,26 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn kill_child_process_group_kills_grandchildren_on_timeout() -> Result<()> {
+        assert_grandchildren_terminated(500.into(), true).await
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellation_kills_grandchildren_without_reporting_timeout() -> Result<()> {
+        let token = CancellationToken::new();
+        let cancel = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            cancel.cancel();
+        });
+        assert_grandchildren_terminated(ExecExpiration::Cancellation(token), false).await
+    }
+
+    #[cfg(unix)]
+    async fn assert_grandchildren_terminated(
+        expiration: ExecExpiration,
+        timed_out: bool,
+    ) -> Result<()> {
         // On Linux/macOS, /bin/bash is typically present; on FreeBSD/OpenBSD,
         // prefer /bin/sh to avoid NotFound errors.
         #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
@@ -1039,7 +1163,7 @@ mod tests {
         let params = ExecParams {
             command,
             cwd: std::env::current_dir()?,
-            expiration: 500.into(),
+            expiration,
             env,
             sandbox_permissions: SandboxPermissions::UseDefault,
             windows_sandbox_level: savfox_protocol::config_types::WindowsSandboxLevel::Disabled,
@@ -1048,7 +1172,7 @@ mod tests {
         };
 
         let output = exec(params, SandboxType::None, &SandboxPolicy::ReadOnly, None).await?;
-        assert!(output.timed_out);
+        assert_eq!(output.timed_out, timed_out);
 
         let stdout = output.stdout.from_utf8_lossy().text;
         let pid_line = stdout.lines().next().unwrap_or("").trim();
@@ -1108,7 +1232,10 @@ mod tests {
         let params = ExecParams {
             command,
             cwd: cwd.clone(),
-            expiration: ExecExpiration::Cancellation(cancel_token),
+            expiration: ExecExpiration::TimeoutWithCancellation {
+                timeout: Duration::from_secs(60),
+                cancellation: cancel_token,
+            },
             env,
             sandbox_permissions: SandboxPermissions::UseDefault,
             windows_sandbox_level: savfox_protocol::config_types::WindowsSandboxLevel::Disabled,
@@ -1127,12 +1254,9 @@ mod tests {
             None,
         )
         .await;
-        let output = match result {
-            Err(SavfoxError::Sandbox(SandboxErr::Timeout { output })) => output,
-            other => panic!("expected timeout error, got {other:?}"),
-        };
-        assert!(output.timed_out);
-        assert_eq!(output.exit_code, EXEC_TIMEOUT_EXIT_CODE);
+        let output = result.expect("cancelled execution result");
+        assert!(!output.timed_out);
+        assert_eq!(output.exit_code, EXIT_CODE_SIGNAL_BASE + SIGKILL_CODE);
         Ok(())
     }
 

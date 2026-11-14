@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -6,7 +8,7 @@ use savfox_core::{
 };
 use savfox_gateway_shared::{is_internal_session_message, normalize_session_label};
 use savfox_protocol::models::{ContentItem, ResponseItem};
-use savfox_protocol::protocol::{EventMsg, RolloutItem};
+use savfox_protocol::protocol::{EventMsg, RolloutItem, RolloutLine};
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -67,16 +69,26 @@ pub(crate) async fn build_history_payload(
     };
 
     debug!("Loading rollout history from file: {}", path.display());
-    match RolloutRecorder::get_rollout_history(&path).await {
-        Ok(history) => {
-            let items = history.get_rollout_items();
-            let all_messages = extract_messages(&items);
-            let total = all_messages.len();
-            let filtered = attach_provenance(all_messages, entry.as_ref(), source_channel);
-            let messages = tail_limit(filtered, limit);
+    let history_entry = entry.clone();
+    let history_source = source_channel.map(str::to_owned);
+    let history_path = path.clone();
+    let page = tokio::task::spawn_blocking(move || {
+        read_history_page(
+            &history_path,
+            limit,
+            history_entry.as_ref(),
+            history_source.as_deref(),
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(std::io::Error::other(error.to_string())));
+    match page {
+        Ok(page) => {
+            let messages = page.messages;
+            let total = page.messages_total;
             debug!(
                 "Successfully loaded rollout: rollout_items={}, messages={}",
-                items.len(),
+                page.rollout_items,
                 messages.len()
             );
             json!({
@@ -84,7 +96,7 @@ pub(crate) async fn build_history_payload(
                 "session_id": session_id,
                 "session": entry.as_ref().and_then(|v| serde_json::to_value(v).ok()),
                 "rollout_path": path.to_string_lossy(),
-                "rollout_items": items.len(),
+                "rollout_items": page.rollout_items,
                 "messages_total": total,
                 "source_channel": source_channel,
                 "messages": messages,
@@ -110,52 +122,138 @@ pub(crate) async fn build_history_payload(
     }
 }
 
-fn attach_provenance(
+struct HistoryPage {
     messages: Vec<Value>,
+    messages_total: usize,
+    rollout_items: usize,
+}
+
+// Two streaming passes preserve the legacy response-vs-event fallback per role
+// without retaining tool events or all messages. Work is still O(file bytes),
+// but memory is O(requested tail + longest JSONL record), on the blocking pool.
+fn read_history_page(
+    path: &Path,
+    limit: usize,
     entry: Option<&SessionEntry>,
     source_channel: Option<&str>,
-) -> Vec<Value> {
-    let Some(entry) = entry else {
-        return messages;
-    };
+) -> std::io::Result<HistoryPage> {
+    let length = std::fs::metadata(path)?.len();
+    let mut response_users = false;
+    let mut response_assistants = false;
+    let mut has_session = false;
+    let mut rollout_items = 0;
+    scan_history(path, length, |_, item| {
+        rollout_items += 1;
+        has_session |= matches!(item, RolloutItem::SessionMeta(_));
+        if let Some((role, _, source)) = history_message(&item)
+            && source != "event"
+        {
+            response_users |= role == "user";
+            response_assistants |= role == "assistant";
+        }
+    })?;
+    if !has_session {
+        return Err(std::io::Error::other(
+            "failed to parse session ID from rollout file",
+        ));
+    }
     let filter = source_channel
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase());
-
-    let mut user_index = 0usize;
-    let mut out = Vec::with_capacity(messages.len());
-    for mut message in messages {
-        let role = message
-            .get("role")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if role == "user" {
-            let provenance = entry.provenance.get(user_index).cloned();
-            user_index = user_index.saturating_add(1);
-            if let Some(provenance) = provenance {
-                let matches_filter = filter
-                    .as_deref()
-                    .map(|required| provenance.channel.to_ascii_lowercase() == required)
-                    .unwrap_or(true);
-                if !matches_filter {
-                    continue;
-                }
-                if let Some(map) = message.as_object_mut() {
-                    map.insert(
-                        "provenance".to_owned(),
-                        serde_json::to_value(provenance).unwrap_or(Value::Null),
-                    );
-                }
-            } else if filter.is_some() {
-                continue;
-            }
-        } else if filter.is_some() {
-            continue;
+        .filter(|source| !source.is_empty());
+    let mut messages = VecDeque::new();
+    let mut messages_total = 0;
+    let mut user_index = 0;
+    scan_history(path, length, |index, item| {
+        let Some((role, text, source)) = history_message(&item) else {
+            return;
+        };
+        if source == "event"
+            && ((role == "user" && response_users) || (role == "assistant" && response_assistants))
+        {
+            return;
         }
-        out.push(message);
+        messages_total += 1;
+        let provenance = if role == "user" {
+            let provenance = entry.and_then(|entry| entry.provenance.get(user_index));
+            user_index += 1;
+            provenance
+        } else {
+            None
+        };
+        // Without metadata the old implementation did not apply a filter.
+        if entry.is_some()
+            && let Some(filter) = filter
+            && (role != "user"
+                || !provenance.is_some_and(|p| p.channel.eq_ignore_ascii_case(filter)))
+        {
+            return;
+        }
+        if limit == 0 {
+            return;
+        }
+        let mut message = json!({"index":index,"role":role,"text":text,"source":source});
+        if let Some(provenance) = provenance {
+            message["provenance"] = serde_json::to_value(provenance).unwrap_or(Value::Null);
+        }
+        if messages.len() == limit {
+            messages.pop_front();
+        }
+        messages.push_back(message);
+    })?;
+    Ok(HistoryPage {
+        messages: messages.into_iter().collect(),
+        messages_total,
+        rollout_items,
+    })
+}
+
+fn scan_history(
+    path: &Path,
+    length: u64,
+    mut visit: impl FnMut(usize, RolloutItem),
+) -> std::io::Result<()> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file.take(length));
+    let mut line = String::new();
+    let mut index = 0;
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            break;
+        }
+        if let Ok(line) = serde_json::from_str::<RolloutLine>(&line) {
+            visit(index, line.item);
+            index += 1;
+        }
     }
-    out
+    Ok(())
+}
+
+fn history_message(item: &RolloutItem) -> Option<(&str, String, &'static str)> {
+    match item {
+        RolloutItem::ResponseItem(ResponseItem::Message { role, content, .. })
+            if role == "user" || role == "assistant" =>
+        {
+            let text = content_text(content);
+            if text.is_empty() || (role == "user" && is_internal_session_message(&text)) {
+                None
+            } else {
+                Some((role, text, "response_item"))
+            }
+        }
+        RolloutItem::Compacted(compacted) => {
+            Some(("assistant", compacted.message.clone(), "compacted"))
+        }
+        RolloutItem::EventMsg(EventMsg::UserMessage(message))
+            if !message.message.is_empty() && !is_internal_session_message(&message.message) =>
+        {
+            Some(("user", message.message.clone(), "event"))
+        }
+        RolloutItem::EventMsg(EventMsg::AgentMessage(message)) if !message.message.is_empty() => {
+            Some(("assistant", message.message.clone(), "event"))
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn session_file_to_store_value(savfox_home: &Path, path: &Path) -> String {
@@ -400,19 +498,102 @@ fn content_text(content: &[ContentItem]) -> String {
     buf
 }
 
-fn tail_limit(mut values: Vec<Value>, limit: usize) -> Vec<Value> {
-    if values.len() > limit {
-        values = values.split_off(values.len() - limit);
-    }
-    values
-}
-
 #[cfg(test)]
 mod tests {
     use savfox_protocol::models::{ContentItem, ResponseItem};
     use savfox_protocol::protocol::{AgentMessageEvent, EventMsg, RolloutItem, UserMessageEvent};
 
     use super::{derive_session_label_from_messages, extract_messages};
+
+    #[test]
+    fn streaming_tail_preserves_fallback_counts_and_source_filtering() {
+        use std::io::Write;
+
+        use savfox_protocol::protocol::{RolloutLine, SessionMeta, SessionMetaLine};
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        let mut items = vec![RolloutItem::SessionMeta(SessionMetaLine {
+            meta: SessionMeta::default(),
+            git: None,
+        })];
+        for index in 0..100 {
+            items.push(RolloutItem::EventMsg(EventMsg::UserMessage(
+                UserMessageEvent {
+                    message: format!("question {index}"),
+                    images: None,
+                    local_images: vec![],
+                    text_elements: vec![],
+                },
+            )));
+            items.push(RolloutItem::EventMsg(EventMsg::AgentMessage(
+                AgentMessageEvent {
+                    message: "fallback must be suppressed".into(),
+                },
+            )));
+            items.push(RolloutItem::ResponseItem(ResponseItem::Message {
+                id: None,
+                role: "assistant".into(),
+                content: vec![ContentItem::OutputText {
+                    text: format!("answer {index}"),
+                }],
+                end_turn: None,
+                phase: None,
+            }));
+        }
+        for item in &items {
+            writeln!(
+                file,
+                "{}",
+                serde_json::to_string(&RolloutLine {
+                    timestamp: "test".into(),
+                    item: item.clone()
+                })
+                .unwrap()
+            )
+            .unwrap();
+        }
+        writeln!(file, "invalid json").unwrap();
+        let page = super::read_history_page(file.path(), 3, None, None).unwrap();
+        let expected = extract_messages(&items);
+        assert_eq!(page.messages, expected[expected.len() - 3..]);
+        assert_eq!(page.messages_total, 200);
+        assert_eq!(page.rollout_items, items.len());
+        let mut entry = crate::session::SessionEntry::new();
+        for index in 0..100 {
+            entry
+                .provenance
+                .push(crate::session::SessionMessageProvenance {
+                    channel: if index % 2 == 0 {
+                        "telegram:a".into()
+                    } else {
+                        "discord:b".into()
+                    },
+                    user_id: "user".into(),
+                    name: "User".into(),
+                    timestamp: index,
+                    origin: Default::default(),
+                    visibility: Default::default(),
+                    channel_config_id: None,
+                    account_id: None,
+                    realm_id: None,
+                    strand_id: None,
+                    event_id: None,
+                    sender_did: None,
+                    sender_kind: None,
+                });
+        }
+        let filtered =
+            super::read_history_page(file.path(), 2, Some(&entry), Some("TeLeGrAm:a")).unwrap();
+        assert_eq!(filtered.messages_total, 200);
+        assert_eq!(filtered.messages.len(), 2);
+        assert_eq!(filtered.messages[0]["text"], "question 96");
+        assert_eq!(filtered.messages[1]["text"], "question 98");
+        assert!(
+            super::read_history_page(file.path(), 0, Some(&entry), None)
+                .unwrap()
+                .messages
+                .is_empty()
+        );
+    }
 
     #[test]
     fn extract_messages_keeps_user_event_when_response_items_only_have_assistant() {

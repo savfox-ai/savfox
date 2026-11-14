@@ -796,3 +796,9 @@ At runtime, clients must send `initialize` with `capabilities.experimentalApi = 
    ```bash
    cargo test -p savfox-app-server-protocol
    ```
+
+### Transport shutdown
+
+Stdin EOF closes the connection scope: pending client callbacks are cancelled, event listeners and approval response tasks are aborted and joined, all core sessions owned by that connection receive shutdown and are awaited, and queued stdout messages are drained after closing the outbound receiver. Core shutdown cancels MCP startup and drops its connection clients. Retained session/auth handles cannot keep the stdio writer alive.
+
+One-off `command/exec` requests retain their timeout while also observing connection cancellation. On EOF, their execution futures are awaited through process-tree cleanup instead of being immediately aborted. Model, MCP status, and authentication background work shares the connection scope; cancelling an OAuth waiter also releases its callback listener. Windows restricted-token and elevated capture paths poll cancellation on their existing process handles.

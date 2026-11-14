@@ -372,6 +372,22 @@ pub fn required_scope(method: &str) -> Scope {
         return Scope::Admin;
     }
 
+    // Provider mutations can preserve a saved credential while replacing its
+    // destination, or select it as the default model. Keep these operations
+    // behind the same boundary as config and credential administration.
+    if matches!(
+        method,
+        "models.add"
+            | "models.update"
+            | "models.delete"
+            | "models.deleteAccount"
+            | "models.setdefault"
+            | "models.import"
+            | "models.aliases.set"
+    ) {
+        return Scope::Admin;
+    }
+
     // ── Approvals ────────────────────────────────────────────────────
     if method.starts_with("exec.approval") {
         return if method.ends_with(".get")
@@ -819,6 +835,54 @@ mod tests {
         assert_eq!(required_scope("account/login/start"), Scope::Admin);
         assert_eq!(required_scope("account/login/cancel"), Scope::Admin);
         assert_eq!(required_scope("account/read"), Scope::Read);
+    }
+
+    #[test]
+    fn provider_mutations_cannot_redirect_saved_credentials_with_write_scope() {
+        for method in [
+            "models.add",
+            "models.update",
+            "models.delete",
+            "models.deleteAccount",
+            "models.setdefault",
+            "models.import",
+            "models.aliases.set",
+        ] {
+            let required = required_scope(method);
+            assert_eq!(required, Scope::Admin, "{method}");
+            for scope in [
+                TokenScope::Viewer,
+                TokenScope::OperatorRead,
+                TokenScope::OperatorWrite,
+                TokenScope::Chat,
+            ] {
+                assert!(
+                    !has_scope(
+                        &TokenInfo {
+                            label: "limited".to_owned(),
+                            scopes: vec![scope]
+                        },
+                        &required
+                    ),
+                    "{method}: {scope:?}"
+                );
+            }
+            for scope in [TokenScope::OperatorAdmin, TokenScope::Operator] {
+                assert!(
+                    has_scope(
+                        &TokenInfo {
+                            label: "admin".to_owned(),
+                            scopes: vec![scope]
+                        },
+                        &required
+                    ),
+                    "{method}: {scope:?}"
+                );
+            }
+        }
+        assert_eq!(required_scope("models.list"), Scope::Read);
+        assert_eq!(required_scope("models.aliases.get"), Scope::Read);
+        assert_eq!(required_scope("models.test"), Scope::Write);
     }
 
     #[test]

@@ -6,12 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g., 0.3.0)"
+        description: "Version of the checked-out commit (e.g., 0.3.1 or v0.3.1)"
         required: true
-        default: "0.3.0"
 
 env:
   CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
 
 jobs:
   web:
@@ -129,6 +131,8 @@ jobs:
           path: dist/
 
   package-and-publish:
+    permissions:
+      contents: write
     needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
@@ -161,12 +165,9 @@ jobs:
 
       - name: Get version
         id: get_version
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "VERSION=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          fi
+        env:
+          RELEASE_VERSION: ${{ github.event.release.tag_name || github.event.inputs.version }}
+        run: node nodejs/scripts/release-version.cjs >> "$GITHUB_OUTPUT"
 
       - name: Make scripts executable
         run: chmod +x nodejs/scripts/*.sh
@@ -174,30 +175,46 @@ jobs:
       - name: Package npm packages
         run: |
           cd nodejs/scripts
-          ./package-npm.sh ${{ steps.get_version.outputs.VERSION }}
+          ./package-npm.sh "$RELEASE_VERSION"
+        env:
+          RELEASE_VERSION: ${{ steps.get_version.outputs.VERSION }}
 
       - name: Publish to npm
         run: |
-          cd npm-packages
-          npm publish --access public ./savfox
-          npm publish --access public ./savfox-linux-x64
-          npm publish --access public ./savfox-linux-arm64
-          npm publish --access public ./savfox-darwin-x64
-          npm publish --access public ./savfox-darwin-arm64
-          npm publish --access public ./savfox-win32-x64
+          platforms=$(node -e 'for (const p of require("./nodejs/platforms.json")) console.log(p.platform)')
+          for platform in $platforms; do
+            npm publish --access public "./npm-packages/savfox-$platform"
+          done
+          # Do not expose a main version until its exact platform versions resolve.
+          for platform in $platforms; do
+            ready=false
+            for attempt in {1..12}; do
+              if [ "$(npm view "@savfox/savfox-$platform@$RELEASE_VERSION" version)" = "$RELEASE_VERSION" ]; then
+                ready=true
+                break
+              fi
+              sleep 5
+            done
+            if [ "$ready" != true ]; then
+              echo "Platform package has not propagated: $platform@$RELEASE_VERSION" >&2
+              exit 1
+            fi
+          done
+          npm publish --access public ./npm-packages/savfox
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_VERSION: ${{ steps.get_version.outputs.VERSION }}
 
       - name: Create release notes
         if: github.event_name == 'release'
         run: |
           cat > release-notes.md << EOF
-          # Savfox ${{ steps.get_version.outputs.VERSION }}
+          # Savfox $RELEASE_VERSION
 
           ## Installation
 
           \`\`\`bash
-          npm install -g @savfox/savfox@${{ steps.get_version.outputs.VERSION }}
+          npm install -g @savfox/savfox@$RELEASE_VERSION
           \`\`\`
 
           ## Supported Platforms
@@ -212,6 +229,8 @@ jobs:
           EOF
 
           # Update release with notes
-          gh release edit ${{ github.event.release.tag_name }} --notes-file release-notes.md
+          gh release edit "$RELEASE_TAG" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.get_version.outputs.VERSION }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}

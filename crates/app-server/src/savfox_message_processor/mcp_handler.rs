@@ -135,21 +135,23 @@ impl SavfoxMessageProcessor {
                 let notification_name = name.clone();
                 let outgoing = Arc::clone(&self.outgoing);
 
-                tokio::spawn(async move {
-                    let (success, error) = match handle.wait().await {
-                        Ok(()) => (true, None),
-                        Err(err) => (false, Some(err.to_string())),
-                    };
+                self.outgoing
+                    .spawn_task(async move {
+                        let (success, error) = match handle.wait().await {
+                            Ok(()) => (true, None),
+                            Err(err) => (false, Some(err.to_string())),
+                        };
 
-                    let notification = ServerNotification::McpServerOauthLoginCompleted(
-                        McpServerOauthLoginCompletedNotification {
-                            name: notification_name,
-                            success,
-                            error,
-                        },
-                    );
-                    outgoing.send_server_notification(notification).await;
-                });
+                        let notification = ServerNotification::McpServerOauthLoginCompleted(
+                            McpServerOauthLoginCompletedNotification {
+                                name: notification_name,
+                                success,
+                                error,
+                            },
+                        );
+                        outgoing.send_server_notification(notification).await;
+                    })
+                    .await;
 
                 let response = McpServerOauthLoginResponse { authorization_url };
                 self.outgoing.send_response(request_id, response).await;
@@ -179,9 +181,11 @@ impl SavfoxMessageProcessor {
             }
         };
 
-        tokio::spawn(async move {
-            Self::list_mcp_server_status_task(outgoing, request_id, params, config).await;
-        });
+        self.outgoing
+            .spawn_task(async move {
+                Self::list_mcp_server_status_task(outgoing, request_id, params, config).await;
+            })
+            .await;
     }
 
     async fn list_mcp_server_status_task(

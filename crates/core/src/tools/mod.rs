@@ -101,7 +101,7 @@ pub fn format_exec_output_str(
 
 /// Extracts exec output content and prepends a timeout message if the command timed out.
 fn build_content_with_timeout(exec_output: &ExecToolCallOutput) -> String {
-    if exec_output.timed_out {
+    let content = if exec_output.timed_out {
         format!(
             "command timed out after {} milliseconds\n{}",
             exec_output.duration.as_millis(),
@@ -109,5 +109,14 @@ fn build_content_with_timeout(exec_output: &ExecToolCallOutput) -> String {
         )
     } else {
         exec_output.aggregated_output.text.clone()
+    };
+    if exec_output
+        .aggregated_output
+        .truncated_after_lines
+        .is_some()
+    {
+        format!("[output incomplete: a background process kept an output pipe open]\n{content}")
+    } else {
+        content
     }
 }

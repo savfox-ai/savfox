@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use savfox_app_server_protocol::{
     JSONRPCErrorError, RequestId, Result, ServerNotification, ServerRequest, ServerRequestPayload,
@@ -15,6 +16,10 @@ use crate::error_code::INTERNAL_ERROR_CODE;
 /// Sends messages to the client and manages request callbacks.
 pub(crate) struct OutgoingMessageSender {
     next_request_id: AtomicI64,
+    closed: AtomicBool,
+    tasks: Mutex<tokio::task::JoinSet<()>>,
+    commands: Mutex<tokio::task::JoinSet<()>>,
+    cancellation: tokio_util::sync::CancellationToken,
     sender: mpsc::Sender<OutgoingMessage>,
     request_id_to_callback: Mutex<HashMap<RequestId, oneshot::Sender<Result>>>,
 }
@@ -23,9 +28,48 @@ impl OutgoingMessageSender {
     pub(crate) fn new(sender: mpsc::Sender<OutgoingMessage>) -> Self {
         Self {
             next_request_id: AtomicI64::new(0),
+            closed: AtomicBool::new(false),
+            tasks: Mutex::new(tokio::task::JoinSet::new()),
+            commands: Mutex::new(tokio::task::JoinSet::new()),
+            cancellation: tokio_util::sync::CancellationToken::new(),
             sender,
             request_id_to_callback: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Connection-owned tasks must not outlive the transport or retain callbacks.
+    pub(crate) async fn spawn_task(&self, future: impl Future<Output = ()> + Send + 'static) {
+        let mut tasks = self.tasks.lock().await;
+        while tasks.try_join_next().is_some() {}
+        if !self.closed.load(Ordering::Acquire) {
+            tasks.spawn(future);
+        }
+    }
+
+    pub(crate) fn cancellation_token(&self) -> tokio_util::sync::CancellationToken {
+        self.cancellation.clone()
+    }
+
+    /// Commands need cooperative process cleanup rather than immediate future abort.
+    pub(crate) async fn spawn_command(&self, future: impl Future<Output = ()> + Send + 'static) {
+        let mut commands = self.commands.lock().await;
+        while commands.try_join_next().is_some() {}
+        if !self.closed.load(Ordering::Acquire) {
+            commands.spawn(future);
+        }
+    }
+
+    pub(crate) async fn shutdown(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.cancellation.cancel();
+        self.request_id_to_callback.lock().await.clear();
+        let mut tasks = std::mem::take(&mut *self.tasks.lock().await);
+        tasks.abort_all();
+        while tasks.join_next().await.is_some() {}
+        // Execution futures receive cancellation and are awaited through tree kill,
+        // child reaping, and pipe draining. Do not abort them during process cleanup.
+        let mut commands = std::mem::take(&mut *self.commands.lock().await);
+        while commands.join_next().await.is_some() {}
     }
 
     pub(crate) async fn send_request(
@@ -45,6 +89,9 @@ impl OutgoingMessageSender {
         let (tx_approve, rx_approve) = oneshot::channel();
         {
             let mut request_id_to_callback = self.request_id_to_callback.lock().await;
+            if self.closed.load(Ordering::Acquire) {
+                return (outgoing_message_id, rx_approve);
+            }
             request_id_to_callback.insert(id, tx_approve);
         }
 
@@ -101,6 +148,9 @@ impl OutgoingMessageSender {
     }
 
     pub(crate) async fn send_response<T: Serialize>(&self, id: RequestId, response: T) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         match serde_json::to_value(response) {
             Ok(result) => {
                 let outgoing_message = OutgoingMessage::Response(OutgoingResponse { id, result });
@@ -123,6 +173,9 @@ impl OutgoingMessageSender {
     }
 
     pub(crate) async fn send_server_notification(&self, notification: ServerNotification) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         if let Err(err) = self
             .sender
             .send(OutgoingMessage::AppServerNotification(notification))
@@ -135,6 +188,9 @@ impl OutgoingMessageSender {
     /// All notifications should be migrated to [`ServerNotification`] and
     /// [`OutgoingMessage::Notification`] should be removed.
     pub(crate) async fn send_notification(&self, notification: OutgoingNotification) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         let outgoing_message = OutgoingMessage::Notification(notification);
         if let Err(err) = self.sender.send(outgoing_message).await {
             warn!("failed to send notification to client: {err:?}");
@@ -142,6 +198,9 @@ impl OutgoingMessageSender {
     }
 
     pub(crate) async fn send_error(&self, id: RequestId, error: JSONRPCErrorError) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         let outgoing_message = OutgoingMessage::Error(OutgoingError { id, error });
         if let Err(err) = self.sender.send(outgoing_message).await {
             warn!("failed to send error to client: {err:?}");
@@ -193,6 +252,51 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+
+    #[tokio::test]
+    async fn shutdown_cancels_callbacks_and_joins_connection_tasks() {
+        use std::sync::Arc;
+
+        use savfox_app_server_protocol::{
+            ChatgptAuthTokensRefreshParams, ChatgptAuthTokensRefreshReason,
+        };
+        let (tx, mut transport) = mpsc::channel(4);
+        let outgoing = Arc::new(OutgoingMessageSender::new(tx));
+        let rx = outgoing
+            .send_request(ServerRequestPayload::ChatgptAuthTokensRefresh(
+                ChatgptAuthTokensRefreshParams {
+                    reason: ChatgptAuthTokensRefreshReason::Unauthorized,
+                    previous_account_id: None,
+                },
+            ))
+            .await;
+        transport.recv().await.expect("request");
+        // Reproduce a response handler retaining the object that owns its callback.
+        let retained = outgoing.clone();
+        outgoing
+            .spawn_task(async move {
+                let _ = rx.await;
+                drop(retained);
+            })
+            .await;
+        tokio::time::timeout(std::time::Duration::from_secs(1), outgoing.shutdown())
+            .await
+            .expect("shutdown must complete");
+        assert!(outgoing.request_id_to_callback.lock().await.is_empty());
+        assert!(outgoing.tasks.lock().await.is_empty());
+        assert_eq!(Arc::strong_count(&outgoing), 1);
+        let late = outgoing
+            .send_request(ServerRequestPayload::ChatgptAuthTokensRefresh(
+                ChatgptAuthTokensRefreshParams {
+                    reason: ChatgptAuthTokensRefreshReason::Unauthorized,
+                    previous_account_id: None,
+                },
+            ))
+            .await;
+        assert!(late.await.is_err());
+        drop(outgoing);
+        assert!(transport.recv().await.is_none());
+    }
 
     #[test]
     fn verify_account_login_completed_notification_serialization() {

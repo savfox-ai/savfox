@@ -2,14 +2,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use savfox_async_utils::{CancelErr, OrCancelExt};
 use savfox_protocol::user_input::UserInput;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 use uuid::Uuid;
 
 use super::{SessionTask, SessionTaskContext};
-use crate::exec::{ExecToolCallOutput, SandboxType, StdoutStream, StreamOutput, execute_exec_env};
+use crate::exec::{
+    ExecExpiration, ExecToolCallOutput, SandboxType, StdoutStream, StreamOutput, execute_exec_env,
+};
 use crate::exec_env::create_env;
 use crate::parse_command::parse_command;
 use crate::protocol::{
@@ -22,8 +23,6 @@ use crate::state::TaskKind;
 use crate::tools::format_exec_output_str;
 use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;
 use crate::user_shell_command::user_shell_command_record_item;
-
-const USER_SHELL_TIMEOUT_MS: u64 = 60 * 60 * 1000; // 1 hour
 
 #[derive(Clone)]
 pub(crate) struct UserShellCommandTask {
@@ -40,6 +39,12 @@ impl UserShellCommandTask {
 impl SessionTask for UserShellCommandTask {
     fn kind(&self) -> TaskKind {
         TaskKind::Regular
+    }
+
+    fn graceful_interruption_timeout(&self) -> Duration {
+        // Windows tree termination has a 10s deadline, followed by at most 2s
+        // of pipe draining. Do not abort the cleanup future after the default 100ms.
+        Duration::from_secs(20)
     }
 
     async fn run(
@@ -96,9 +101,8 @@ impl SessionTask for UserShellCommandTask {
             command: exec_command.clone(),
             cwd: cwd.clone(),
             env: create_env(&turn_context.shell_environment_policy),
-            // TODO(zhao-oai): Now that we have ExecExpiration::Cancellation, we
-            // should use that instead of an "arbitrarily large" timeout here.
-            expiration: USER_SHELL_TIMEOUT_MS.into(),
+            // Let the executor terminate and reap the process group before returning.
+            expiration: ExecExpiration::Cancellation(cancellation_token.clone()),
             sandbox: SandboxType::None,
             windows_sandbox_level: turn_context.windows_sandbox_level,
             sandbox_permissions: SandboxPermissions::UseDefault,
@@ -113,13 +117,17 @@ impl SessionTask for UserShellCommandTask {
         });
 
         let sandbox_policy = SandboxPolicy::DangerFullAccess;
-        let exec_result = execute_exec_env(exec_env, &sandbox_policy, stdout_stream)
-            .or_cancel(&cancellation_token)
-            .await;
+        let exec_result = execute_exec_env(exec_env, &sandbox_policy, stdout_stream).await;
 
         match exec_result {
-            Err(CancelErr::Cancelled) => {
-                let aborted_message = "command aborted by user".to_owned();
+            result if cancellation_token.is_cancelled() => {
+                let aborted_message = match &result {
+                    Ok(_) => "command aborted by user".to_owned(),
+                    Err(error) => {
+                        error!(%error, "user shell cancellation cleanup failed");
+                        format!("command aborted by user; process cleanup failed: {error}")
+                    }
+                };
                 let exec_output = ExecToolCallOutput {
                     exit_code: -1,
                     stdout: StreamOutput::new(String::new()),
@@ -158,7 +166,7 @@ impl SessionTask for UserShellCommandTask {
                     )
                     .await;
             }
-            Ok(Ok(output)) => {
+            Ok(output) => {
                 session
                     .send_event(
                         turn_context.as_ref(),
@@ -193,7 +201,7 @@ impl SessionTask for UserShellCommandTask {
                     .record_conversation_items(turn_context.as_ref(), &output_items)
                     .await;
             }
-            Ok(Err(err)) => {
+            Err(err) => {
                 error!("user shell command failed: {err:?}");
                 let message = format!("execution error: {err:?}");
                 let exec_output = ExecToolCallOutput {

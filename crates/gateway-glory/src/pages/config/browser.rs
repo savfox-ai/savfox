@@ -64,10 +64,17 @@ pub(super) fn save(ctx: &AppContext, document: &Value) -> std::result::Result<()
     let locale = crate::i18n::Locale::from_code(settings["language"].as_str().unwrap_or("en"));
     crate::i18n::save_locale(locale);
     ui::set(ctx.locale, locale);
+    #[cfg(target_arch = "wasm32")]
+    if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+        document.set_title(&crate::i18n::t(locale, "app.title"));
+        if let Some(root) = document.document_element() {
+            let _ = root.set_attribute("lang", locale.code());
+        }
+    }
     Ok(())
 }
 
-/// Header controls are immediate; absorb their changes without losing editor drafts.
+/// Absorb saved preferences without losing unsaved editor drafts.
 pub(super) fn synchronize(ctx: &AppContext, draft: Cage<Value>, baseline: Cage<Value>) {
     let theme = ctx.scope.cage(preference("savfox_theme", "system"));
     crate::components::watch_theme(ctx, theme);

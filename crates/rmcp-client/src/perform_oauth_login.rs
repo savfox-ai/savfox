@@ -364,21 +364,55 @@ impl OauthLoginFlow {
     }
 
     fn spawn(self) -> oneshot::Receiver<Result<()>> {
-        let server_name_for_logging = self.server_name.clone();
-        let (tx, rx) = oneshot::channel();
+        let server_name = self.server_name.clone();
+        spawn_oauth_completion(server_name, self.finish())
+    }
+}
 
-        tokio::spawn(async move {
-            let result = self.finish().await;
+fn spawn_oauth_completion(
+    server_name: String,
+    finish: impl std::future::Future<Output = Result<()>> + Send + 'static,
+) -> oneshot::Receiver<Result<()>> {
+    let (mut tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let result = tokio::select! {
+            _ = tx.closed() => return,
+            result = finish => result,
+        };
+        if let Err(error) = &result {
+            eprintln!("Failed to complete OAuth login for '{server_name}': {error:#}");
+        }
+        let _ = tx.send(result);
+    });
+    rx
+}
 
-            if let Err(err) = &result {
-                eprintln!(
-                    "Failed to complete OAuth login for '{server_name_for_logging}': {err:#}"
-                );
-            }
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
 
-            let _ = tx.send(result);
+    #[tokio::test]
+    async fn dropped_oauth_waiter_releases_callback_listener() -> Result<()> {
+        let server =
+            Arc::new(Server::http("127.0.0.1:0").map_err(|error| anyhow!("bind: {error}"))?);
+        let address = server.server_addr().to_ip().expect("IP listener");
+        let (tx, _callback) = oneshot::channel();
+        spawn_callback_server(server.clone(), tx);
+        let guard = CallbackServerGuard { server };
+        let completion = spawn_oauth_completion("test".to_owned(), async move {
+            let _guard = guard;
+            std::future::pending::<Result<()>>().await
         });
-
-        rx
+        drop(completion);
+        let _listener = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match std::net::TcpListener::bind(address) {
+                    Ok(listener) => break listener,
+                    Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+                }
+            }
+        })
+        .await?;
+        Ok(())
     }
 }

@@ -91,3 +91,7 @@ The TUI uses standard terminal keybindings. Navigation and input follow typical 
   ```bash
   savfox -i screenshot.png
   ```
+
+## Shell command cancellation
+
+Interrupting a user shell command requests process-tree cleanup inside the executor before cancellation completes. Unix uses the command process group; Windows invokes the system `taskkill` utility asynchronously with a ten-second deadline for the root PID and descendants, with direct-child termination as a fallback. Cleanup permission failures are reported. Commands that deliberately detach can require separate cleanup. If a background process keeps output pipes open, the executor bounds draining to two seconds and retains the output already collected with an incomplete-output marker.

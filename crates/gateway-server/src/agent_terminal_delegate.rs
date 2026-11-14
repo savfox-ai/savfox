@@ -1898,6 +1898,7 @@ impl GatewayChannel {
                 .authorize_session(Some(&execution.owner), &session_id)
                 .await?;
         }
+        let lifecycle_generation = self.begin_terminal_generation(&session_id).await?;
         let terminal_context =
             build_terminal_session_context(self.config(), &delegate, &session_id).await?;
         let run = if configured_mode(&delegate) == "claude_stream" {
@@ -1916,7 +1917,14 @@ impl GatewayChannel {
         };
         let model = format!("terminal/{}", delegate.agent_id);
         let provider = "terminal".to_owned();
-        let rollout_path = if run.replayed {
+        let lifecycle = self.logical_session_lock(&session_id).await;
+        let _lifecycle = lifecycle.lock().await;
+        let current_generation = self
+            .session_store()
+            .get(&session_id)
+            .await
+            .is_some_and(|entry| entry.lifecycle_generation == lifecycle_generation);
+        let rollout_path = if run.replayed || !current_generation {
             None
         } else {
             match persist_terminal_delegate_rollout(
@@ -1952,6 +1960,7 @@ impl GatewayChannel {
             thread_id: session_id,
             rollout_path,
             last_token_usage: run.usage,
+            lifecycle_generation: Some(lifecycle_generation),
         };
         let terminal = TerminalInvocationMetadata {
             agent_id: delegate.agent_id.clone(),

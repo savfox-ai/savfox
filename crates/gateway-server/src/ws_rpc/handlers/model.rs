@@ -19,6 +19,30 @@ fn models_dir(channel: &GatewayChannel) -> std::path::PathBuf {
     channel.config().savfox_home.join(MODELS_SUBDIR)
 }
 
+/// Account IDs are filenames, never paths (on either Unix or Windows).
+fn provider_file_path(
+    models_dir: &std::path::Path,
+    account_id: &str,
+) -> Result<std::path::PathBuf, String> {
+    if account_id.is_empty()
+        || !account_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err("invalid account id: expected ASCII letters, digits, '-' or '_'".to_owned());
+    }
+    // Windows device names remain special even with a .json extension.
+    let upper = account_id.to_ascii_uppercase();
+    if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (upper.len() == 4
+            && (upper.starts_with("COM") || upper.starts_with("LPT"))
+            && matches!(upper.as_bytes()[3], b'1'..=b'9'))
+    {
+        return Err("invalid account id: reserved device name".to_owned());
+    }
+    Ok(models_dir.join(format!("{account_id}.json")))
+}
+
 // ── Provider file types ─────────────────────────────────────────────────
 // Re-uses `ProviderFile` and `ProviderAuth` from `savfox-core`. Gateway
 // keeps `models` runtime-only, populating it from builtin defaults on read
@@ -89,8 +113,11 @@ fn hydrate_provider_file_models(file: &mut ProviderFile, provider_id_hint: &str)
 /// Load a provider file, auto-detecting v1 (bare array) vs v2 (object).
 /// The `account_id` is the filename stem (may be a bare provider_id for
 /// legacy files, or a full account id like `"openai-work"`).
-async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> ProviderFile {
-    let path = models_dir(channel).join(format!("{account_id}.json"));
+async fn load_provider_file(
+    channel: &GatewayChannel,
+    account_id: &str,
+) -> Result<ProviderFile, String> {
+    let path = provider_file_path(&models_dir(channel), account_id)?;
     let bare = || ProviderFile {
         version: PROVIDER_STORE_FILE_VERSION,
         id: account_id.to_owned(),
@@ -99,16 +126,16 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
     };
 
     let Ok(data) = tokio::fs::read_to_string(&path).await else {
-        return bare();
+        return Ok(bare());
     };
 
     if let Ok(mut file) = serde_json::from_str::<ProviderFile>(&data) {
         file.normalize_disabled_models();
         hydrate_provider_file_models(&mut file, account_id);
-        return file;
+        return Ok(file);
     }
 
-    bare()
+    Ok(bare())
 }
 
 /// Save a v2 provider file. Creates the `models/` dir on first write.
@@ -118,13 +145,13 @@ async fn save_provider_file(
     account_id: &str,
     file: &ProviderFile,
 ) -> Result<(), String> {
+    let path = provider_file_path(&models_dir(channel), account_id)?;
     let mut file_to_write = file.clone();
     file_to_write.normalize_disabled_models();
     let dir = models_dir(channel);
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| format!("create models dir: {e}"))?;
-    let path = dir.join(format!("{account_id}.json"));
     if file_to_write.models.is_empty()
         && file_to_write.disabled_models.is_empty()
         && file_to_write.auth.is_none()
@@ -196,7 +223,9 @@ pub(crate) async fn inject_all_provider_auth(channel: &GatewayChannel) {
         if account_id.is_empty() {
             continue;
         }
-        let file = load_provider_file(channel, &account_id).await;
+        let Ok(file) = load_provider_file(channel, &account_id).await else {
+            continue;
+        };
         inject_provider_auth(&file);
     }
 }
@@ -320,8 +349,17 @@ fn model_test_resolve_remote_request(
 }
 
 fn model_test_is_openai_platform_base_url(base_url: &str) -> bool {
-    let normalized = base_url.trim().trim_end_matches('/').to_ascii_lowercase();
-    normalized == "https://api.openai.com" || normalized == "https://api.openai.com/v1"
+    let Ok(url) = reqwest::Url::parse(base_url.trim()) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str() == Some("api.openai.com")
+        && url.port_or_known_default() == Some(443)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && matches!(url.path(), "" | "/" | "/v1" | "/v1/")
 }
 
 fn model_test_chatgpt_codex_base_url(channel: &Arc<GatewayChannel>) -> String {
@@ -341,7 +379,12 @@ async fn model_test_apply_openai_auth_fallback(
     request: &mut RemoteModelsRequest,
     channel: &Arc<GatewayChannel>,
 ) {
-    if request.provider != "openai" || request.api_key.is_some() {
+    // A caller-selected destination must never receive the gateway's saved
+    // credentials. SSRF validation alone does not protect credential origins.
+    if request.provider != "openai"
+        || request.api_key.is_some()
+        || !model_test_is_openai_platform_base_url(&request.base_url)
+    {
         return;
     }
 
@@ -727,8 +770,11 @@ pub(crate) async fn handle_models_test(params: &Value, channel: &Arc<GatewayChan
 }
 
 /// Load models for a single account (thin wrapper over `load_provider_file`).
-async fn load_provider_models(channel: &GatewayChannel, account_id: &str) -> Vec<Value> {
-    load_provider_file(channel, account_id).await.models
+async fn load_provider_models(
+    channel: &GatewayChannel,
+    account_id: &str,
+) -> Result<Vec<Value>, String> {
+    Ok(load_provider_file(channel, account_id).await?.models)
 }
 
 /// Load all models from all `models/*.json` files, merged into a flat HashMap keyed by model ID.
@@ -751,7 +797,9 @@ async fn load_all_provider_models(channel: &GatewayChannel) -> HashMap<String, V
         if account_id.is_empty() {
             continue;
         }
-        let file = load_provider_file(channel, &account_id).await;
+        let Ok(file) = load_provider_file(channel, &account_id).await else {
+            continue;
+        };
         for model in file.models {
             if let Some(id) = model.get("id").and_then(|v| v.as_str()) {
                 out.insert(id.to_owned(), model);
@@ -767,7 +815,7 @@ async fn save_provider_models(
     account_id: &str,
     models: &[Value],
 ) -> Result<(), String> {
-    let mut file = load_provider_file(channel, account_id).await;
+    let mut file = load_provider_file(channel, account_id).await?;
     file.models = models.to_vec();
     save_provider_file(channel, account_id, &file).await
 }
@@ -819,7 +867,9 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
             if account_id.is_empty() {
                 continue;
             }
-            let file = load_provider_file(channel, &account_id).await;
+            let Ok(file) = load_provider_file(channel, &account_id).await else {
+                continue;
+            };
             let file_slug = file.slug.trim().to_owned();
             let file_provider_id = file.provider_id.trim().to_owned();
             let file_name = file.name.trim().to_owned();
@@ -942,7 +992,9 @@ pub(crate) async fn handle_models_add(params: &Value, channel: &Arc<GatewayChann
     }
 
     // The provider field doubles as account_id for file routing.
-    let mut models = load_provider_models(channel, provider).await;
+    let mut models = load_provider_models(channel, provider)
+        .await
+        .map_err(|error| (INVALID_PARAMS, error))?;
     // Remove existing entry with same id if present
     models.retain(|m| m.get("id").and_then(|v| v.as_str()) != Some(&id));
     models.push(entry);
@@ -962,7 +1014,9 @@ pub(crate) async fn handle_models_update(
     // The prefix before '/' is the account id (which is also the file stem).
     let account_id = id.split_once('/').map(|(p, _)| p).unwrap_or("unknown");
 
-    let mut models = load_provider_models(channel, account_id).await;
+    let mut models = load_provider_models(channel, account_id)
+        .await
+        .map_err(|error| (INVALID_PARAMS, error))?;
     // Find existing entry or create new one
     let entry = if let Some(pos) = models
         .iter()
@@ -1015,7 +1069,9 @@ pub(crate) async fn handle_models_delete(
 
     let account_id = id.split_once('/').map(|(p, _)| p).unwrap_or("unknown");
 
-    let mut models = load_provider_models(channel, account_id).await;
+    let mut models = load_provider_models(channel, account_id)
+        .await
+        .map_err(|error| (INVALID_PARAMS, error))?;
     models.retain(|m| m.get("id").and_then(|v| v.as_str()) != Some(id));
     save_provider_models(channel, account_id, &models)
         .await
@@ -1041,7 +1097,11 @@ pub(crate) async fn handle_models_account_delete(
         .to_owned();
 
     // Load the file first so we can clear the auth overrides it injected.
-    let file = load_provider_file(channel, &account_id).await;
+    let path = provider_file_path(&models_dir(channel), &account_id)
+        .map_err(|error| (INVALID_PARAMS, error))?;
+    let file = load_provider_file(channel, &account_id)
+        .await
+        .map_err(|error| (INVALID_PARAMS, error))?;
     if let Some(auth) = &file.auth
         && let Some(env_key) = auth.env_key.as_deref().filter(|k| !k.is_empty())
     {
@@ -1050,7 +1110,6 @@ pub(crate) async fn handle_models_account_delete(
     savfox_core::remove_bearer_token_override(&account_id);
 
     // Remove the on-disk store file.
-    let path = models_dir(channel).join(format!("{account_id}.json"));
     match tokio::fs::remove_file(&path).await {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -1084,7 +1143,9 @@ pub(crate) async fn handle_models_setdefault(
 
     let account_id = id.split_once('/').map(|(p, _)| p).unwrap_or("unknown");
 
-    let mut models = load_provider_models(channel, account_id).await;
+    let mut models = load_provider_models(channel, account_id)
+        .await
+        .map_err(|error| (INVALID_PARAMS, error))?;
 
     // Clear default on all entries in this provider
     for m in models.iter_mut() {
@@ -1115,6 +1176,8 @@ pub(crate) async fn handle_models_import(
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let provider_id = require_str(params, "provider_id")?;
+    provider_file_path(&models_dir(channel), provider_id)
+        .map_err(|error| (INVALID_PARAMS, error))?;
 
     let models_arr = params.get("models").and_then(|v| v.as_array()).ok_or((
         INVALID_REQUEST,
@@ -1135,7 +1198,8 @@ pub(crate) async fn handle_models_import(
 
     // Check for existing file that would be overwritten.
     let overwriting = {
-        let path = models_dir(channel).join(format!("{account_id}.json"));
+        let path = provider_file_path(&models_dir(channel), &account_id)
+            .map_err(|error| (INVALID_PARAMS, error))?;
         path.exists()
     };
 
@@ -1294,5 +1358,167 @@ pub(crate) async fn handle_tools_invoke(
             }))
         }
         Err(err) => Err((INTERNAL_ERROR, format!("tool invocation failed: {err}"))),
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+    use crate::channel::GatewayBridgeArgs;
+    use crate::session::{GatewaySessionManager, SessionStore};
+
+    async fn test_channel(home: &std::path::Path) -> Arc<GatewayChannel> {
+        for root in [home.to_path_buf(), home.join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let mut config = savfox_core::config::ConfigBuilder::default()
+            .savfox_home(home.to_owned())
+            .build()
+            .await
+            .unwrap();
+        config.cli_auth_credentials_store_mode =
+            savfox_core::auth::AuthCredentialsStoreMode::Ephemeral;
+        Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: Arc::new(SessionStore::from_home(home)),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            websocket_manager: GatewaySessionManager::new(),
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }))
+    }
+
+    #[tokio::test]
+    async fn implicit_credentials_are_bound_to_trusted_openai_destination() {
+        let home = tempfile::tempdir().unwrap();
+        let channel = test_channel(home.path()).await;
+        savfox_core::auth::login_with_api_key(
+            home.path(),
+            "sk-regression-test-only",
+            savfox_core::auth::AuthCredentialsStoreMode::Ephemeral,
+        )
+        .unwrap();
+        for base_url in [
+            "https://attacker.example/v1",
+            "https://api.openai.com.attacker.example/v1",
+            "https://api.openai.com@attacker.example/v1",
+            "https://user@api.openai.com/v1",
+            "https://api.openai.com:444/v1",
+            "http://api.openai.com/v1",
+            "https://api.openai.com./v1",
+            "https://api.openai.com/v1?forward=attacker",
+            "https://api.openai.com/v1#fragment",
+            "https://api.openai.com/v1/other",
+        ] {
+            let mut request = model_test_resolve_remote_request(
+                &json!({"provider":"openai", "base_url":base_url}),
+            )
+            .unwrap()
+            .unwrap();
+            model_test_apply_openai_auth_fallback(&mut request, &channel).await;
+            assert_eq!(request.api_key, None, "destination: {base_url}");
+            assert_eq!(request.account_id, None);
+        }
+        for base_url in [
+            "https://api.openai.com",
+            "https://api.openai.com/v1",
+            "https://API.OPENAI.COM:443/v1/",
+        ] {
+            let mut request = model_test_resolve_remote_request(
+                &json!({"provider":"openai", "base_url":base_url}),
+            )
+            .unwrap()
+            .unwrap();
+            model_test_apply_openai_auth_fallback(&mut request, &channel).await;
+            assert_eq!(request.api_key.as_deref(), Some("sk-regression-test-only"));
+        }
+        let mut explicit = model_test_resolve_remote_request(&json!({
+            "provider":"openai", "base_url":"https://attacker.example/v1", "api_key":"explicit-test-key",
+        })).unwrap().unwrap();
+        model_test_apply_openai_auth_fallback(&mut explicit, &channel).await;
+        assert_eq!(explicit.api_key.as_deref(), Some("explicit-test-key"));
+    }
+
+    #[tokio::test]
+    async fn account_operations_reject_paths_before_touching_outside_files() {
+        let home = tempfile::tempdir().unwrap();
+        let channel = test_channel(home.path()).await;
+        tokio::fs::create_dir_all(models_dir(&channel))
+            .await
+            .unwrap();
+        let sentinel = home.path().join("sentinel.json");
+        tokio::fs::write(&sentinel, "outside sentinel")
+            .await
+            .unwrap();
+        for account in [
+            "../sentinel",
+            "..\\sentinel",
+            "/tmp/sentinel",
+            "C:\\sentinel",
+            "\\\\host\\share\\sentinel",
+            ".",
+            "..",
+            "NUL",
+            "CON",
+            "COM1",
+            "a:b",
+            "a.",
+        ] {
+            assert!(load_provider_file(&channel, account).await.is_err());
+            assert!(
+                save_provider_file(&channel, account, &ProviderFile::default())
+                    .await
+                    .is_err()
+            );
+            assert_eq!(
+                handle_models_account_delete(&json!({"account_id":account}), &channel)
+                    .await
+                    .unwrap_err()
+                    .0,
+                INVALID_PARAMS
+            );
+            assert_eq!(
+                handle_models_add(&json!({"provider":account,"model_slug":"test"}), &channel)
+                    .await
+                    .unwrap_err()
+                    .0,
+                INVALID_PARAMS
+            );
+            assert_eq!(
+                handle_models_import(
+                    &json!({"provider_id":account,"models":[{"id":"test"}]}),
+                    &channel
+                )
+                .await
+                .unwrap_err()
+                .0,
+                INVALID_PARAMS
+            );
+        }
+        assert_eq!(
+            tokio::fs::read_to_string(&sentinel).await.unwrap(),
+            "outside sentinel"
+        );
+        let file = ProviderFile {
+            auth: Some(Default::default()),
+            ..ProviderFile::default()
+        };
+        save_provider_file(&channel, "openai-work_1", &file)
+            .await
+            .unwrap();
+        handle_models_account_delete(&json!({"account_id":"openai-work_1"}), &channel)
+            .await
+            .unwrap();
+        assert!(!models_dir(&channel).join("openai-work_1.json").exists());
+        assert_eq!(
+            tokio::fs::read_to_string(&sentinel).await.unwrap(),
+            "outside sentinel"
+        );
     }
 }

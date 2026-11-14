@@ -90,7 +90,8 @@ pub struct ShutdownHandle {
 
 impl ShutdownHandle {
     pub fn shutdown(&self) {
-        self.shutdown_notify.notify_waiters();
+        // Preserve cancellation even if the server loop has not started polling.
+        self.shutdown_notify.notify_one();
     }
 }
 
@@ -668,4 +669,41 @@ pub(crate) async fn obtain_api_key(
     }
     let body: ExchangeResp = resp.json().await.map_err(io::Error::other)?;
     Ok(body.access_token)
+}
+
+#[cfg(test)]
+mod connection_shutdown_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancellation_before_server_poll_releases_listener() -> io::Result<()> {
+        let home = tempfile::tempdir()?;
+        let mut opts = ServerOptions::new(
+            home.path().to_path_buf(),
+            "test-client".to_owned(),
+            None,
+            AuthCredentialsStoreMode::File,
+        );
+        opts.port = 0;
+        opts.open_browser = false;
+        let server = run_login_server(opts)?;
+        let port = server.actual_port;
+        server.cancel();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), server.block_until_done())
+                .await?
+                .is_err()
+        );
+        // The blocking recv thread exits after unblock; observe actual socket release.
+        let _listener = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match std::net::TcpListener::bind(("127.0.0.1", port)) {
+                    Ok(listener) => break listener,
+                    Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+                }
+            }
+        })
+        .await?;
+        Ok(())
+    }
 }

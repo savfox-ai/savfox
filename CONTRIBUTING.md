@@ -183,6 +183,21 @@ The minimal recipe (see [`docs/en/providers/custom.md`](docs/en/providers/custom
 3. If the streaming SSE shape differs from existing dialects, add a parser under `crates/api-client/src/sse/`.
 4. Add at least one happy-path SSE fixture test (see `sse::anthropic::tests::parses_text_response` for the template).
 
+## Preparing a release
+
+From a clean working tree, run `scripts/release.sh patch` (or `minor` / `major`).
+Python 3.11+ is required for TOML parsing. Preparation updates the workspace
+version, internal path dependency requirements and Cargo.lock together, then
+runs `cargo check --locked --workspace --all-targets` before creating a commit
+and tag. A failed version/lock resolution restores the original manifest and
+lockfile; a failed build leaves the prepared files available for inspection.
+Pushing remains opt-in through `--push`.
+
+For npm releases, collect all binaries defined by `nodejs/platforms.json` into
+the repository-level `dist/`, package them, publish and verify the platform
+versions first, then publish the main wrapper. The npm workflow rejects a
+requested version that differs from the checked-out workspace version.
+
 ## Reporting Issues
 
 - **Bugs**: Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md)

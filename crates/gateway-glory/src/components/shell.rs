@@ -2,7 +2,7 @@
 use glory::prelude::*;
 
 use crate::api::ws::clear_token;
-use crate::i18n::{self, Locale};
+use crate::i18n;
 use crate::ui::{AppContext, set};
 
 type NavItem = (&'static str, &'static str, &'static str);
@@ -213,8 +213,6 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
                     )
                 })),
             )),
-        locale_buttons(ctx),
-        theme_buttons(ctx, theme),
     ));
 
     let mut rail = Vec::<Box<dyn Widget>>::new();
@@ -382,74 +380,6 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
             row().class("app-body").fill((overlay, sidebar_view, main)),
             mobile_navigation(ctx, sidebar, more),
         )),
-    )
-}
-
-fn locale_buttons(ctx: &AppContext) -> Box<dyn Widget> {
-    let mut buttons = Vec::<Box<dyn Widget>>::new();
-    for locale in Locale::ALL.iter().copied() {
-        let current = ctx.locale;
-        buttons.push(Box::new(
-            sapid::button()
-                .unstyled()
-                .label(locale.label())
-                .pressed(current.map(move |value| *value == locale))
-                .class(current.map(move |value| {
-                    if *value == locale {
-                        "top-header__lang-btn active".into()
-                    } else {
-                        "top-header__lang-btn".into()
-                    }
-                }))
-                .on_press(move || {
-                    i18n::save_locale(locale);
-                    set(current, locale);
-                    #[cfg(target_arch = "wasm32")]
-                    if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-                        document.set_title(&i18n::t(locale, "app.title"));
-                        if let Some(root) = document.document_element() {
-                            let _ = root.set_attribute("lang", locale.code());
-                        }
-                    }
-                }),
-        ));
-    }
-    Box::new(row().class("top-header__lang-group").fill(buttons))
-}
-
-fn theme_buttons(ctx: &AppContext, theme: Cage<String>) -> Box<dyn Widget> {
-    let mut controls = Vec::<Box<dyn Widget>>::new();
-    for (value, label, glyph) in [
-        ("system", "header.follow_system_theme", "monitor"),
-        ("light", "header.light_theme", "sun"),
-        ("dark", "header.dark_theme", "moon"),
-    ] {
-        let value = value.to_owned();
-        let selected = value.clone();
-        controls.push(Box::new(
-            sapid::button()
-                .unstyled()
-                .name(translated(ctx, label))
-                .class(theme.map(move |current| {
-                    if *current == selected {
-                        "top-header__theme-btn active".into()
-                    } else {
-                        "top-header__theme-btn".into()
-                    }
-                }))
-                .pressed(theme.map({
-                    let value = value.clone();
-                    move |current| *current == value
-                }))
-                .fill(icon(glyph))
-                .on_press(move || set(theme, value.clone())),
-        ));
-    }
-    Box::new(
-        row()
-            .class("top-header__theme-group")
-            .name(translated(ctx, "aria.theme"))
-            .fill(controls),
     )
 }
 
@@ -903,8 +833,8 @@ mod tests {
             "sidebar-rail",
             "sapid-collapsible-trigger",
             "sidebar-palette-btn",
-            "top-header__theme-group",
-            "top-header__lang-group",
+            "top-header__health",
+            "top-header__bell",
             "bottom-tab-bar",
             "more-sheet",
         ] {
@@ -914,6 +844,8 @@ mod tests {
             );
         }
         assert!(html.contains("SAVFOX"));
+        assert!(!html.contains("top-header__theme-group"));
+        assert!(!html.contains("top-header__lang-group"));
         assert!(!html.contains("Search pages (Ctrl+K)"));
     }
 }

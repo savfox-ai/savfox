@@ -138,7 +138,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.99.0
-      - run: node --test scripts/ui-sources.test.cjs scripts/install.test.cjs scripts/verify-web-bundle.test.cjs scripts/check-ci-test-matrix.test.cjs scripts/gateway-browser-response.test.cjs
+      - run: node --test scripts/ui-sources.test.cjs scripts/install.test.cjs scripts/verify-web-bundle.test.cjs scripts/check-ci-test-matrix.test.cjs scripts/gateway-browser-response.test.cjs scripts/cargo-target.test.cjs scripts/release-packaging.test.cjs
       - run: node scripts/check-ci-test-matrix.cjs
 
   fmt:

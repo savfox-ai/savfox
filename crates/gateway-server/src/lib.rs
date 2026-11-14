@@ -258,17 +258,33 @@ pub async fn run_main(gateway_config: GatewayConfig) -> IoResult<()> {
     // Spawn a background task to periodically prune stale sessions (every 5 minutes).
     {
         let store = Arc::clone(&session_store);
-        let config_for_prune = Arc::clone(&config);
+        let channel_for_prune = Arc::clone(&channel);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
             loop {
                 interval.tick().await;
                 let report = store.prune_report().await;
-                channels::runtime::cleanup_session_runtime_state(
-                    &config_for_prune.savfox_home,
-                    &report.session_ids,
-                )
-                .await;
+                // Slow process cleanup for one retired conversation must not
+                // serialize retirement of every unrelated conversation.
+                let mut retirements = tokio::task::JoinSet::new();
+                for (session_id, expected_core) in report.core_sessions {
+                    if retirements.len() >= 16
+                        && let Some(Err(error)) = retirements.join_next().await
+                    {
+                        warn!(%error, "session retirement task failed");
+                    }
+                    let channel = Arc::clone(&channel_for_prune);
+                    retirements.spawn(async move {
+                        channel
+                            .retire_pruned_logical_session(&session_id, expected_core.as_deref())
+                            .await;
+                    });
+                }
+                while let Some(result) = retirements.join_next().await {
+                    if let Err(error) = result {
+                        warn!(%error, "session retirement task failed");
+                    }
+                }
                 let pruned = report.pruned;
                 if pruned > 0 {
                     info!(pruned, "session store maintenance: pruned stale entries");

@@ -183,17 +183,24 @@ impl SavfoxMessageProcessor {
                     let active_login = self.active_login.clone();
                     let auth_manager = self.auth_manager.clone();
                     let auth_url = server.auth_url.clone();
-                    tokio::spawn(async move {
-                        let (success, error_msg) = match tokio::time::timeout(
-                            LOGIN_CHATGPT_TIMEOUT,
-                            server.block_until_done(),
-                        )
-                        .await
-                        {
+                    let cancellation = self.outgoing.cancellation_token();
+                    self.outgoing.spawn_command(async move {
+                        let completion = server.block_until_done();
+                        tokio::pin!(completion);
+                        let result = tokio::select! {
+                            _ = cancellation.cancelled() => {
+                                shutdown_handle.shutdown();
+                                let _ = tokio::time::timeout(Duration::from_secs(2), &mut completion).await;
+                                return;
+                            }
+                            result = tokio::time::timeout(LOGIN_CHATGPT_TIMEOUT, &mut completion) => result,
+                        };
+                        let (success, error_msg) = match result {
                             Ok(Ok(())) => (true, None),
                             Ok(Err(err)) => (false, Some(format!("Login server error: {err}"))),
                             Err(_elapsed) => {
                                 shutdown_handle.shutdown();
+                                let _ = tokio::time::timeout(Duration::from_secs(2), &mut completion).await;
                                 (false, Some("Login timed out".to_owned()))
                             }
                         };
@@ -233,7 +240,7 @@ impl SavfoxMessageProcessor {
                         if guard.as_ref().map(|l| l.login_id) == Some(login_id) {
                             *guard = None;
                         }
-                    });
+                    }).await;
 
                     let response = savfox_app_server_protocol::LoginAccountResponse::Chatgpt {
                         login_id: login_id.to_string(),
@@ -270,50 +277,54 @@ impl SavfoxMessageProcessor {
 
                     let auth_manager = self.auth_manager.clone();
                     let outgoing_clone = self.outgoing.clone();
-                    tokio::spawn(async move {
-                        let result = tokio::time::timeout(
-                            Duration::from_secs(900),
-                            complete_device_code_login(opts, device_code),
-                        )
-                        .await;
-
-                        let (success, error_msg) = match result {
-                            Ok(Ok(())) => {
-                                auth_manager.reload();
-                                (true, None)
-                            }
-                            Ok(Err(err)) => {
-                                (false, Some(format!("Device code login error: {err}")))
-                            }
-                            Err(_) => (false, Some("Device code login timed out".to_owned())),
-                        };
-
-                        let payload_login_completed = AccountLoginCompletedNotification {
-                            login_id: Some(login_id.to_string()),
-                            success,
-                            error: error_msg,
-                        };
-                        outgoing_clone
-                            .send_server_notification(ServerNotification::AccountLoginCompleted(
-                                payload_login_completed,
-                            ))
+                    self.outgoing
+                        .spawn_task(async move {
+                            let result = tokio::time::timeout(
+                                Duration::from_secs(900),
+                                complete_device_code_login(opts, device_code),
+                            )
                             .await;
 
-                        if success {
-                            let current_auth_method = auth_manager
-                                .auth_cached()
-                                .as_ref()
-                                .map(SavfoxAuth::api_auth_mode);
-                            let payload_updated = AccountUpdatedNotification {
-                                auth_mode: current_auth_method,
+                            let (success, error_msg) = match result {
+                                Ok(Ok(())) => {
+                                    auth_manager.reload();
+                                    (true, None)
+                                }
+                                Ok(Err(err)) => {
+                                    (false, Some(format!("Device code login error: {err}")))
+                                }
+                                Err(_) => (false, Some("Device code login timed out".to_owned())),
+                            };
+
+                            let payload_login_completed = AccountLoginCompletedNotification {
+                                login_id: Some(login_id.to_string()),
+                                success,
+                                error: error_msg,
                             };
                             outgoing_clone
-                                .send_server_notification(ServerNotification::AccountUpdated(
-                                    payload_updated,
-                                ))
+                                .send_server_notification(
+                                    ServerNotification::AccountLoginCompleted(
+                                        payload_login_completed,
+                                    ),
+                                )
                                 .await;
-                        }
-                    });
+
+                            if success {
+                                let current_auth_method = auth_manager
+                                    .auth_cached()
+                                    .as_ref()
+                                    .map(SavfoxAuth::api_auth_mode);
+                                let payload_updated = AccountUpdatedNotification {
+                                    auth_mode: current_auth_method,
+                                };
+                                outgoing_clone
+                                    .send_server_notification(ServerNotification::AccountUpdated(
+                                        payload_updated,
+                                    ))
+                                    .await;
+                            }
+                        })
+                        .await;
                 }
                 Err(err) => {
                     let error = JSONRPCErrorError {

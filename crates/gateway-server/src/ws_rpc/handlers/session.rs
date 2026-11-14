@@ -14,7 +14,7 @@ use crate::channel::GatewayChannel;
 use crate::channels::policy::{
     DmScopePolicyConfig, load_dm_scope_policy, parse_dm_scope, write_dm_scope_policy,
 };
-use crate::channels::runtime::{get_idle_reply_status, remove_idle_reply_session};
+use crate::channels::runtime::get_idle_reply_status;
 use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
     provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
@@ -27,7 +27,6 @@ use crate::security::execution_policy::{ApprovalClientCapabilities, resolve_exec
 use crate::session::{
     GatewaySessionManager, SessionEntry, SessionOverrides, SessionStore, build_history_payload,
     build_routing_id, derive_session_label_from_history, peek_ambient_messages,
-    remove_ambient_session,
 };
 use crate::terminal_agent::TerminalAgentEvent;
 
@@ -412,12 +411,14 @@ pub(crate) async fn handle_chat_send(
             .await;
 
         persist_chat_session_metadata(
+            channel,
             session_store.as_ref(),
             &channel.config().savfox_home,
             &session_id,
             &session_id,
             model,
             provider,
+            None,
             None,
             None,
         )
@@ -614,6 +615,7 @@ pub(crate) async fn handle_chat_send(
             }
         };
         let _ = stream_task.await;
+        let lifecycle_generation = invocation.result.lifecycle_generation;
         let reply = invocation.result.reply;
         let rollout_path = invocation.result.rollout_path;
         let model = invocation.model;
@@ -692,6 +694,7 @@ pub(crate) async fn handle_chat_send(
         let response = append_footer(&reply, &footer);
 
         persist_chat_session_metadata(
+            channel,
             session_store.as_ref(),
             &channel.config().savfox_home,
             &logical_session_id,
@@ -700,6 +703,7 @@ pub(crate) async fn handle_chat_send(
             &provider,
             rollout_path.as_deref(),
             None,
+            lifecycle_generation.as_deref(),
         )
         .await;
 
@@ -1314,6 +1318,7 @@ pub(crate) async fn handle_chat_send(
     let response = append_footer(&reply, &footer);
 
     persist_chat_session_metadata(
+        channel,
         session_store.as_ref(),
         &channel.config().savfox_home,
         &session_id,
@@ -1322,6 +1327,7 @@ pub(crate) async fn handle_chat_send(
         &provider,
         rollout_path.as_deref(),
         last_token_usage.as_ref(),
+        None,
     )
     .await;
 
@@ -1466,6 +1472,7 @@ async fn handle_claude_send(
     let result = invocation.result;
     if !invocation.terminal.replayed {
         persist_chat_session_metadata(
+            channel,
             store.as_ref(),
             &channel.config().savfox_home,
             &session_id,
@@ -1474,6 +1481,7 @@ async fn handle_claude_send(
             &invocation.provider,
             result.rollout_path.as_deref(),
             result.last_token_usage.as_ref(),
+            result.lifecycle_generation.as_deref(),
         )
         .await;
     }
@@ -2057,8 +2065,8 @@ fn patch_str<'a>(parameters: &'a Value, patch: &'a Value, key: &str) -> Option<&
 
 pub(crate) async fn handle_sessions_reset(
     parameters: &Value,
-    session_mgr: &Arc<GatewaySessionManager>,
-    session_store: &Arc<SessionStore>,
+    _session_mgr: &Arc<GatewaySessionManager>,
+    _session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let session_id = parameters
@@ -2068,17 +2076,12 @@ pub(crate) async fn handle_sessions_reset(
     if session_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
-    let session_id_obj = SessionId::from_string(session_id)
+    SessionId::from_string(session_id)
         .map_err(|_| (INVALID_REQUEST, "invalid 'session_id' parameter".to_owned()))?;
-    // Remove from WS session manager.
-    session_mgr.remove_session(&session_id_obj).await;
-    // Remove from persistent store.
-    session_store.remove(session_id).await;
-    remove_ambient_session(&channel.config().savfox_home, session_id).await;
-    remove_idle_reply_session(&channel.config().savfox_home, session_id).await;
-    let staging_cleaned = MediaStore::from_home(&channel.config().savfox_home)
-        .cleanup_staging_for_session(session_id)
-        .await;
+    let (_, staging_cleaned) = channel
+        .retire_and_remove_logical_session(session_id)
+        .await
+        .map_err(|error| (INTERNAL_ERROR, format!("persist session reset: {error}")))?;
     Ok(json!({
         "session_id": session_id,
         "status": "reset",
@@ -2088,8 +2091,8 @@ pub(crate) async fn handle_sessions_reset(
 
 pub(crate) async fn handle_sessions_delete(
     parameters: &Value,
-    session_mgr: &Arc<GatewaySessionManager>,
-    session_store: &Arc<SessionStore>,
+    _session_mgr: &Arc<GatewaySessionManager>,
+    _session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let session_id = parameters
@@ -2099,15 +2102,12 @@ pub(crate) async fn handle_sessions_delete(
     if session_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
-    let session_id_obj = SessionId::from_string(session_id)
+    SessionId::from_string(session_id)
         .map_err(|_| (INVALID_REQUEST, "invalid 'session_id' parameter".to_owned()))?;
-    session_mgr.remove_session(&session_id_obj).await;
-    session_store.remove(session_id).await;
-    remove_ambient_session(&channel.config().savfox_home, session_id).await;
-    remove_idle_reply_session(&channel.config().savfox_home, session_id).await;
-    let staging_cleaned = MediaStore::from_home(&channel.config().savfox_home)
-        .cleanup_staging_for_session(session_id)
-        .await;
+    let (_, staging_cleaned) = channel
+        .retire_and_remove_logical_session(session_id)
+        .await
+        .map_err(|error| (INTERNAL_ERROR, format!("persist session deletion: {error}")))?;
     Ok(json!({ "status": "deleted", "staging_cleaned": staging_cleaned }))
 }
 
@@ -2413,7 +2413,7 @@ pub(crate) async fn handle_dm_scope_migrate(
 
     if !dry_run {
         session_store
-            .replace_all(rebuilt.clone())
+            .apply_bulk_updates(rebuilt.clone())
             .await
             .map_err(|e| (INTERNAL_ERROR, format!("persist error: {e}")))?;
     }

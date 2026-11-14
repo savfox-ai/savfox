@@ -90,6 +90,11 @@ pub(crate) trait SessionTask: Send + Sync + 'static {
         cancellation_token: CancellationToken,
     ) -> Option<String>;
 
+    /// Time allowed for execution-layer cleanup before forcibly dropping the task.
+    fn graceful_interruption_timeout(&self) -> Duration {
+        Duration::from_millis(GRACEFULL_INTERRUPTION_TIMEOUT_MS)
+    }
+
     /// Gives the task a chance to perform cleanup after an abort.
     ///
     /// The default implementation is a no-op; override this if additional
@@ -273,12 +278,13 @@ impl Session {
         trace!(task_kind = ?task.kind, sub_id, "aborting running task");
         task.cancellation_token.cancel();
         let session_task = task.task;
+        let cleanup_timeout = session_task.graceful_interruption_timeout();
 
         select! {
             _ = task.done.notified() => {
             },
-            _ = tokio::time::sleep(Duration::from_millis(GRACEFULL_INTERRUPTION_TIMEOUT_MS)) => {
-                warn!("task {sub_id} didn't complete gracefully after {}ms", GRACEFULL_INTERRUPTION_TIMEOUT_MS);
+            _ = tokio::time::sleep(cleanup_timeout) => {
+                warn!("task {sub_id} didn't complete gracefully after {}ms", cleanup_timeout.as_millis());
             }
         }
 

@@ -16,7 +16,7 @@ use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use crate::auth::GatewayAuth;
+use crate::auth::{GatewayAuth, TokenScope};
 use crate::channel::GatewayChannel;
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -181,18 +181,26 @@ pub(crate) async fn create_session_handler(
         return;
     };
 
-    let token = extract_bearer_token(req);
-    if let Some(ref t) = token
-        && auth.validate(t).await.is_none()
-    {
+    let info = match extract_bearer_token(req) {
+        Some(token) => auth.validate(&token).await,
+        None => None,
+    };
+    let Some(info) = info else {
         res.status_code(StatusCode::UNAUTHORIZED);
         res.render(Text::Json(
             json!({"error": "invalid or missing authorization token"}).to_string(),
         ));
         return;
+    };
+    if !info.has_scope(TokenScope::Chat) {
+        res.status_code(StatusCode::FORBIDDEN);
+        res.render(Text::Json(
+            json!({"error": "webchat session creation requires chat scope"}).to_string(),
+        ));
+        return;
     }
-    // Allow session creation without auth for public-facing widgets  - the
-    // returned session token is scoped to this single session.
+    // A session token delegates agent execution. Only an authenticated Chat
+    // caller may mint one; public embeddings need their own trusted backend.
 
     let body: CreateSessionRequest = match req.parse_json().await {
         Ok(b) => b,
@@ -597,8 +605,8 @@ pub(crate) async fn widget_js_handler(req: &mut Request, res: &mut Response) {
   container.appendChild(panel);
   document.body.appendChild(container);
 
-  var sessionId = null;
-  var sessionToken = null;
+  var sessionId = CFG.sessionId && CFG.sessionToken ? CFG.sessionId : null;
+  var sessionToken = CFG.sessionToken || null;
   var isOpen = false;
 
   function addMessage(role, content) {{
@@ -612,17 +620,9 @@ pub(crate) async fn widget_js_handler(req: &mut Request, res: &mut Response) {
   }}
 
   function initSession() {{
-    return fetch(ORIGIN + "/webchat/session", {{
-      method: "POST",
-      headers: {{ "Content-Type": "application/json" }},
-      body: JSON.stringify({{}})
-    }})
-    .then(function(r) {{ return r.json(); }})
-    .then(function(data) {{
-      sessionId = data.session_id;
-      sessionToken = data.token;
-      if(data.welcome_message) addMessage("assistant", data.welcome_message);
-    }});
+    addMessage("assistant", "Sign in to your host application to start a chat session.");
+    input.disabled = true;
+    sendBtn.disabled = true;
   }}
 
   function sendMessage(text) {{
@@ -694,9 +694,72 @@ pub(crate) fn webchat_router() -> Router {
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
     use salvo::test::{ResponseExt as _, TestClient};
 
     use super::*;
+
+    #[tokio::test]
+    async fn session_creation_requires_valid_gateway_chat_authority() {
+        let auth = Arc::new(GatewayAuth::new(HashMap::from([
+            (
+                "viewer".to_owned(),
+                crate::auth::TokenInfo {
+                    label: "viewer".to_owned(),
+                    scopes: vec![TokenScope::Viewer],
+                },
+            ),
+            (
+                "write".to_owned(),
+                crate::auth::TokenInfo {
+                    label: "write".to_owned(),
+                    scopes: vec![TokenScope::OperatorWrite],
+                },
+            ),
+            (
+                "chat".to_owned(),
+                crate::auth::TokenInfo {
+                    label: "chat".to_owned(),
+                    scopes: vec![TokenScope::Chat],
+                },
+            ),
+            (
+                "operator".to_owned(),
+                crate::auth::TokenInfo {
+                    label: "operator".to_owned(),
+                    scopes: vec![TokenScope::Operator],
+                },
+            ),
+        ])));
+        let service = Service::new(
+            Router::new()
+                .hoop(salvo::affix_state::inject(auth))
+                .push(webchat_router()),
+        );
+        for (token, expected) in [
+            (None, StatusCode::UNAUTHORIZED),
+            (Some("invalid"), StatusCode::UNAUTHORIZED),
+            (Some("viewer"), StatusCode::FORBIDDEN),
+            (Some("write"), StatusCode::FORBIDDEN),
+            (Some("chat"), StatusCode::OK),
+            (Some("operator"), StatusCode::OK),
+        ] {
+            let mut request = TestClient::post("http://localhost/webchat/session");
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            let mut response = request.json(&json!({})).send(&service).await;
+            assert_eq!(response.status_code, Some(expected), "token: {token:?}");
+            let body: serde_json::Value = response.take_json().await.expect("session JSON");
+            if expected == StatusCode::OK {
+                let id = body["session_id"].as_str().expect("session id");
+                assert!(!body["token"].as_str().expect("session token").is_empty());
+                webchat_store().lock().await.remove(id);
+            } else {
+                assert!(body.get("token").is_none());
+            }
+        }
+    }
 
     #[tokio::test]
     async fn poll_route_extracts_session_id_and_delivers_only_its_pending_messages() {

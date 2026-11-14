@@ -276,6 +276,7 @@ pub(super) mod handlers {
     use crate::context_manager::is_user_turn_boundary;
     use crate::mcp::auth::compute_auth_statuses;
     use crate::mcp::{collect_mcp_snapshot_from_manager, effective_mcp_servers};
+    use crate::mcp_connection_manager::McpConnectionManager;
     use crate::review_prompts::resolve_review_request;
     use crate::rollout::session_index;
     use crate::savfox::{Session, SessionSettingsUpdate, TurnContext, spawn_review_session};
@@ -743,11 +744,14 @@ pub(super) mod handlers {
     }
 
     pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
+        sess.cancel_mcp_startup().await;
         sess.abort_all_tasks(TurnAbortReason::Interrupted).await;
         sess.services
             .unified_exec_manager
             .terminate_all_processes()
             .await;
+        // Drop connection clients even if a frontend retains the session handle.
+        *sess.services.mcp_connection_manager.write().await = McpConnectionManager::default();
         info!("Shutting down Savfox instance");
         let history = sess.clone_history().await;
         let turn_count = history

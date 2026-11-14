@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use savfox_core::rollout::list::read_session_meta_line;
 use savfox_protocol::SessionId;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, OnceCell, RwLock};
 use tracing::{info, warn};
 
 // ─── Session Overrides ─────────────────────────────────────────────────────
@@ -150,6 +150,12 @@ pub struct SessionEntry {
     /// concurrent readers can detect stale data.
     #[serde(default)]
     pub version: u64,
+    /// Stable lifecycle identity, replaced on reset and on delete/recreation.
+    #[serde(default = "new_lifecycle_generation")]
+    pub lifecycle_generation: String,
+    /// Revision observed when reading storage; local touch() does not change it.
+    #[serde(skip)]
+    pub persisted_version: Option<u64>,
 
     // ── Delivery context ────────────────────────────────────────────
     /// Current channel (e.g. "discord:123456").
@@ -377,6 +383,8 @@ impl Default for SessionEntry {
             updated_at: 0,
             created_at: 0,
             version: 0,
+            lifecycle_generation: new_lifecycle_generation(),
+            persisted_version: None,
             channel: None,
             last_channel: None,
             to: None,
@@ -560,7 +568,6 @@ impl Default for SessionStoreConfig {
 struct StoreCache {
     entries: HashMap<String, SessionEntry>,
     loaded_at: Instant,
-    file_modified_at: Option<SystemTime>,
 }
 
 /// File-based persistent session store with in-memory caching.
@@ -571,6 +578,7 @@ pub struct SessionStore {
     /// Serializes refreshes, mutations and their durable writes. Readers can
     /// still access the cache while a mutation is being persisted.
     mutation: Mutex<()>,
+    database: OnceCell<sqlx::SqlitePool>,
 }
 
 impl SessionStore {
@@ -581,6 +589,7 @@ impl SessionStore {
             config,
             cache: RwLock::new(None),
             mutation: Mutex::new(()),
+            database: OnceCell::new(),
         }
     }
 
@@ -600,77 +609,214 @@ impl SessionStore {
         tokio::fs::create_dir_all(&self.config.sessions_dir).await
     }
 
-    async fn load_persisted_entries(&self) -> HashMap<String, SessionEntry> {
-        let path = &self.config.metadata_path;
-        let content = match tokio::fs::read_to_string(path).await {
-            Ok(content) => content,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return HashMap::new(),
-            Err(err) => {
-                warn!(path = %path.display(), "failed to read session metadata sidecar: {err}");
-                return HashMap::new();
-            }
-        };
-
-        match serde_json::from_str::<HashMap<String, SessionEntry>>(&content) {
-            Ok(mut entries) => {
-                entries.retain(|session_id, entry| entry.session_id == *session_id);
-                for entry in entries.values_mut() {
-                    entry.migrate_legacy_thread_namespaces();
+    // Keep the legacy JSON snapshot as a migration artifact. SQLite is
+    // authoritative after the first successful transactional import.
+    async fn database(&self) -> std::io::Result<&sqlx::SqlitePool> {
+        self.database
+            .get_or_try_init(|| async {
+                let path = self.config.metadata_path.with_extension("sqlite");
+                if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    tokio::fs::create_dir_all(parent).await?;
                 }
-                entries
-            }
-            Err(err) => {
-                warn!(path = %path.display(), "failed to parse session metadata sidecar: {err}");
-                HashMap::new()
+                let mut file = tokio::fs::OpenOptions::new();
+                file.create(true).append(true);
+                #[cfg(unix)]
+                file.mode(0o600);
+                file.open(&path).await?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                        .await?;
+                }
+                let options = sqlx::sqlite::SqliteConnectOptions::new()
+                    .filename(path)
+                    .create_if_missing(true)
+                    .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+                    .synchronous(sqlx::sqlite::SqliteSynchronous::Full);
+                let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                    .max_connections(1)
+                    .connect_with(options)
+                    .await
+                    .map_err(store_io_error)?;
+                sqlx::query(
+                    "CREATE TABLE IF NOT EXISTS session_metadata (id TEXT PRIMARY KEY, data TEXT)",
+                )
+                .execute(&pool)
+                .await
+                .map_err(store_io_error)?;
+                sqlx::query("CREATE TABLE IF NOT EXISTS session_store_meta (key TEXT PRIMARY KEY)")
+                    .execute(&pool)
+                    .await
+                    .map_err(store_io_error)?;
+                let mut transaction = pool.begin().await.map_err(store_io_error)?;
+                let imported: Option<(String,)> = sqlx::query_as(
+                    "SELECT key FROM session_store_meta WHERE key = 'legacy_imported'",
+                )
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(store_io_error)?;
+                if imported.is_none() {
+                    let entries: HashMap<String, SessionEntry> =
+                        match tokio::fs::read_to_string(&self.config.metadata_path).await {
+                            Ok(content) => {
+                                serde_json::from_str(&content).map_err(store_io_error)?
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                                HashMap::new()
+                            }
+                            Err(error) => return Err(error),
+                        };
+                    for (id, entry) in entries {
+                        if id != entry.session_id || !is_uuid_v7(&id) {
+                            continue;
+                        }
+                        let data = serde_json::to_string(&entry).map_err(store_io_error)?;
+                        sqlx::query(
+                            "INSERT OR IGNORE INTO session_metadata (id, data) VALUES (?1, ?2)",
+                        )
+                        .bind(id)
+                        .bind(data)
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(store_io_error)?;
+                    }
+                    sqlx::query("INSERT INTO session_store_meta (key) VALUES ('legacy_imported')")
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(store_io_error)?;
+                }
+                transaction.commit().await.map_err(store_io_error)?;
+                Ok(pool)
+            })
+            .await
+    }
+
+    async fn overlay_persisted_entries(
+        &self,
+        entries: &mut HashMap<String, SessionEntry>,
+    ) -> std::io::Result<()> {
+        let pool = self.database().await?;
+        let records =
+            sqlx::query_as::<_, (String, Option<String>)>("SELECT id, data FROM session_metadata")
+                .fetch_all(pool)
+                .await
+                .map_err(store_io_error)?;
+        for (id, data) in records {
+            match data {
+                Some(data) => {
+                    let mut entry: SessionEntry =
+                        serde_json::from_str(&data).map_err(store_io_error)?;
+                    if entry.session_id != id {
+                        return Err(store_io_error("session ID mismatch"));
+                    }
+                    entry.migrate_legacy_thread_namespaces();
+                    entry.persisted_version = Some(entry.version);
+                    if let Some(rollout) = entries.remove(&id) {
+                        entry.routing_id = entry.routing_id.or(rollout.routing_id);
+                        entry.session_file = entry.session_file.or(rollout.session_file);
+                        entry.model = entry.model.or(rollout.model);
+                        entry.provider = entry.provider.or(rollout.provider);
+                        entry.from = entry.from.or(rollout.from);
+                        if entry.created_at == 0 {
+                            entry.created_at = rollout.created_at;
+                        }
+                        if entry.updated_at == 0 {
+                            entry.updated_at = rollout.updated_at;
+                        }
+                    }
+                    entries.insert(id, entry);
+                }
+                None => {
+                    entries.remove(&id);
+                }
             }
         }
+        Ok(())
+    }
+
+    pub(crate) async fn is_tombstoned(&self, id: &str) -> std::io::Result<bool> {
+        let record: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT data FROM session_metadata WHERE id = ?1")
+                .bind(id)
+                .fetch_optional(self.database().await?)
+                .await
+                .map_err(store_io_error)?;
+        Ok(matches!(record, Some((None,))))
+    }
+
+    async fn persist_entry(&self, id: &str, entry: Option<&SessionEntry>) -> std::io::Result<()> {
+        let pool = self.database().await?;
+        let data = entry
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(store_io_error)?;
+        if let Some(entry) = entry {
+            let expected = entry
+                .persisted_version
+                .map(i64::try_from)
+                .transpose()
+                .map_err(store_io_error)?;
+            let result = sqlx::query("INSERT INTO session_metadata (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data WHERE (?3 IS NULL AND session_metadata.data IS NULL) OR (session_metadata.data IS NOT NULL AND json_extract(session_metadata.data, '$.version') = ?3 AND json_extract(session_metadata.data, '$.lifecycleGeneration') = ?4)")
+                .bind(id).bind(data).bind(expected).bind(&entry.lifecycle_generation).execute(pool).await.map_err(store_io_error)?;
+            if result.rows_affected() == 0 {
+                return Err(store_io_error("stale session replacement"));
+            }
+        } else {
+            sqlx::query("INSERT INTO session_metadata (id, data) VALUES (?1, NULL) ON CONFLICT(id) DO UPDATE SET data = NULL")
+                .bind(id).execute(pool).await.map_err(store_io_error)?;
+        }
+        Ok(())
     }
 
     async fn persist_entries(
         &self,
         entries: &HashMap<String, SessionEntry>,
+        remove_missing: bool,
     ) -> std::io::Result<()> {
-        let path = &self.config.metadata_path;
-        let data = serde_json::to_vec_pretty(entries)
-            .map_err(|err| std::io::Error::other(format!("serialize session metadata: {err}")))?;
-        savfox_utils::fs::write_atomically_async(path, data, Some(0o600)).await
-    }
-
-    async fn persist_cache(&self) {
-        let entries = {
-            let cache = self.cache.read().await;
-            cache
-                .as_ref()
-                .map(|cache| cache.entries.clone())
-                .unwrap_or_default()
-        };
-        if let Err(err) = self.persist_entries(&entries).await {
-            warn!(
-                path = %self.config.metadata_path.display(),
-                "failed to persist session metadata sidecar: {err}"
-            );
-        }
-    }
-
-    /// Get the latest modification time from all rollout files, or None if directory doesn't exist.
-    async fn get_latest_mtime(&self) -> Option<SystemTime> {
-        let mut dir = tokio::fs::read_dir(&self.config.sessions_dir).await.ok()?;
-        let mut latest = None;
-
-        while let Some(entry) = dir.next_entry().await.ok()? {
-            if entry.file_type().await.ok()?.is_file() {
-                let name = entry.file_name();
-                if name.to_string_lossy().ends_with(".jsonl") {
-                    let mtime = entry.metadata().await.ok()?.modified().ok()?;
-                    latest = Some(match latest {
-                        Some(current) if current > mtime => current,
-                        _ => mtime,
-                    });
+        let previous = self
+            .cache
+            .read()
+            .await
+            .as_ref()
+            .map(|cache| cache.entries.clone())
+            .unwrap_or_default();
+        let pool = self.database().await?;
+        let mut transaction = pool.begin().await.map_err(store_io_error)?;
+        for (id, old) in &previous {
+            if remove_missing && !entries.contains_key(id) {
+                let result = sqlx::query("INSERT INTO session_metadata (id, data) VALUES (?1, NULL) ON CONFLICT(id) DO UPDATE SET data = NULL WHERE session_metadata.data IS NOT NULL AND json_extract(session_metadata.data, '$.version') = ?2 AND json_extract(session_metadata.data, '$.lifecycleGeneration') = ?3")
+                    .bind(id).bind(old.version as i64).bind(&old.lifecycle_generation).execute(&mut *transaction).await.map_err(store_io_error)?;
+                if result.rows_affected() == 0 {
+                    return Err(store_io_error(
+                        "session deletion changed concurrently; retry bulk operation",
+                    ));
                 }
             }
         }
-
-        latest
+        for (id, entry) in entries {
+            if let Some(current) = previous.get(id)
+                && (entry.persisted_version != current.persisted_version
+                    || entry.lifecycle_generation != current.lifecycle_generation)
+            {
+                return Err(store_io_error("stale bulk session snapshot"));
+            }
+            let expected = entry.persisted_version.unwrap_or(0);
+            let mut updated = entry.clone();
+            updated.version = expected
+                .checked_add(1)
+                .ok_or_else(|| store_io_error("session version overflow"))?;
+            let data = serde_json::to_string(&updated).map_err(store_io_error)?;
+            let expected = i64::try_from(expected).map_err(store_io_error)?;
+            let result = sqlx::query("INSERT INTO session_metadata (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data WHERE session_metadata.data IS NOT NULL AND json_extract(session_metadata.data, '$.version') = ?3 AND json_extract(session_metadata.data, '$.lifecycleGeneration') = ?4")
+                .bind(id).bind(data).bind(expected).bind(&entry.lifecycle_generation).execute(&mut *transaction).await.map_err(store_io_error)?;
+            if result.rows_affected() == 0 {
+                return Err(store_io_error(
+                    "session metadata changed concurrently; retry bulk operation",
+                ));
+            }
+        }
+        transaction.commit().await.map_err(store_io_error)
     }
 
     /// Check if the cache is still valid.
@@ -688,11 +834,13 @@ impl SessionStore {
     }
 
     /// Load entries from rollout files (bypassing cache).
-    async fn load_from_disk(&self) -> HashMap<String, SessionEntry> {
-        let mut entries = self.load_persisted_entries().await;
-        let mut dir = match tokio::fs::read_dir(&self.config.sessions_dir).await {
-            Ok(d) => d,
-            Err(_) => return entries,
+    async fn load_from_disk(&self) -> std::io::Result<HashMap<String, SessionEntry>> {
+        let mut entries: HashMap<String, SessionEntry> = HashMap::new();
+        let mut dir = if let Ok(dir) = tokio::fs::read_dir(&self.config.sessions_dir).await {
+            dir
+        } else {
+            self.overlay_persisted_entries(&mut entries).await?;
+            return Ok(entries);
         };
 
         while let Some(entry) = dir.next_entry().await.ok().flatten() {
@@ -783,7 +931,8 @@ impl SessionStore {
             }
         }
 
-        entries
+        self.overlay_persisted_entries(&mut entries).await?;
+        Ok(entries)
     }
 
     /// Refresh the cache from disk if stale.
@@ -797,13 +946,18 @@ impl SessionStore {
             return;
         }
 
-        let entries = self.load_from_disk().await;
+        let entries = match self.load_from_disk().await {
+            Ok(entries) => entries,
+            Err(error) => {
+                warn!(%error, "session refresh failed; retaining last valid cache");
+                return;
+            }
+        };
 
         let mut cache = self.cache.write().await;
         *cache = Some(StoreCache {
             entries,
             loaded_at: Instant::now(),
-            file_modified_at: self.get_latest_mtime().await,
         });
     }
 
@@ -884,50 +1038,50 @@ impl SessionStore {
         self.refresh_cache().await;
         let _mutation = self.mutation.lock().await;
         entry.migrate_legacy_thread_namespaces();
+        let Some(version) = entry.persisted_version.unwrap_or(0).checked_add(1) else {
+            warn!("session version overflow");
+            return;
+        };
+        entry.version = version;
         let key = entry.session_id.clone();
-        entry.version += 1;
-
-        // Update cache with version check.
-        {
-            let mut cache = self.cache.write().await;
-            if let Some(cache) = cache.as_mut() {
-                if let Some(existing) = cache.entries.get(&key)
-                    && existing.version >= entry.version
-                {
-                    warn!(
-                        session_id = %key,
-                        existing_version = existing.version,
-                        incoming_version = entry.version,
-                        "session store: skipping stale upsert (existing version is newer)"
-                    );
-                    return;
-                }
-                cache.entries.insert(key.clone(), entry);
-            } else {
-                let mut entries = HashMap::new();
-                entries.insert(key.clone(), entry);
-                *cache = Some(StoreCache {
-                    entries,
-                    loaded_at: Instant::now(),
-                    file_modified_at: None,
-                });
-            }
+        if let Err(error) = self.persist_entry(&key, Some(&entry)).await {
+            warn!(%error, "failed to persist session upsert");
+            return;
         }
-        self.persist_cache().await;
+        entry.persisted_version = Some(entry.version);
+        let mut cache = self.cache.write().await;
+        if let Some(cache) = cache.as_mut() {
+            cache.entries.insert(key, entry);
+        }
     }
 
-    /// Replace all entries atomically and persist to disk.
+    /// Explicitly replace the current cached collection atomically. Missing IDs
+    /// in the cache at invocation time are deletion candidates, even if they were
+    /// created after a caller's earlier list(). Use apply_bulk_updates for migration.
     pub async fn replace_all(&self, entries: HashMap<String, SessionEntry>) -> std::io::Result<()> {
         let _mutation = self.mutation.lock().await;
-        {
-            let mut cache = self.cache.write().await;
-            *cache = Some(StoreCache {
-                entries: entries.clone(),
-                loaded_at: Instant::now(),
-                file_modified_at: None,
-            });
-        }
-        self.persist_cache().await;
+        self.persist_entries(&entries, true).await?;
+        let entries = self.load_from_disk().await?;
+        *self.cache.write().await = Some(StoreCache {
+            entries,
+            loaded_at: Instant::now(),
+        });
+        Ok(())
+    }
+
+    /// Apply a snapshot-based migration without deleting sessions added while
+    /// the caller computed it. Any changed supplied row aborts the transaction.
+    pub async fn apply_bulk_updates(
+        &self,
+        entries: HashMap<String, SessionEntry>,
+    ) -> std::io::Result<()> {
+        let _mutation = self.mutation.lock().await;
+        self.persist_entries(&entries, false).await?;
+        let entries = self.load_from_disk().await?;
+        *self.cache.write().await = Some(StoreCache {
+            entries,
+            loaded_at: Instant::now(),
+        });
         Ok(())
     }
 
@@ -936,21 +1090,11 @@ impl SessionStore {
     where
         F: FnOnce(&mut SessionEntry),
     {
-        self.refresh_cache().await;
-        let _mutation = self.mutation.lock().await;
-        let entry = {
-            let mut cache = self.cache.write().await;
-            let entry = cache.as_mut()?.entries.get_mut(session_id)?;
-            f(entry);
-            entry.touch();
-            entry.clone()
-        };
-        self.persist_cache().await;
-        Some(entry)
+        self.try_update(session_id, f).await.ok().flatten()
     }
 
-    /// Persist a field update before publishing it in memory. Interactive APIs
-    /// use this path when a successful response must confirm durable storage.
+    /// Persist one entry before publishing it in memory. A failed write leaves
+    /// the cached entry unchanged and propagates to interactive callers.
     pub async fn try_update<F>(
         &self,
         session_id: &str,
@@ -961,33 +1105,61 @@ impl SessionStore {
     {
         self.refresh_cache().await;
         let _mutation = self.mutation.lock().await;
-        let mut entries = {
-            let cache = self.cache.read().await;
-            let Some(cache) = cache.as_ref() else {
-                return Ok(None);
-            };
-            cache.entries.clone()
+        let pool = self.database().await?;
+        let mut transaction = pool.begin().await.map_err(store_io_error)?;
+        // Reserve the writer before reading; independent stores cannot race a
+        // read/modify/write and lose additive counters.
+        sqlx::query("UPDATE session_store_meta SET key = key WHERE key = 'legacy_imported'")
+            .execute(&mut *transaction)
+            .await
+            .map_err(store_io_error)?;
+        let persisted: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT data FROM session_metadata WHERE id = ?1")
+                .bind(session_id)
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(store_io_error)?;
+        let mut entry = match persisted {
+            Some((Some(data),)) => {
+                serde_json::from_str::<SessionEntry>(&data).map_err(store_io_error)?
+            }
+            Some((None,)) => return Ok(None),
+            None => {
+                let cache = self.cache.read().await;
+                let Some(entry) = cache
+                    .as_ref()
+                    .and_then(|cache| cache.entries.get(session_id))
+                else {
+                    return Ok(None);
+                };
+                entry.clone()
+            }
         };
-        let Some(entry) = entries.get_mut(session_id) else {
-            return Ok(None);
-        };
-        f(entry);
+        f(&mut entry);
         entry.touch();
-        let updated = entry.clone();
-        self.persist_entries(&entries).await?;
+        let data = serde_json::to_string(&entry).map_err(store_io_error)?;
+        sqlx::query("INSERT INTO session_metadata (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data")
+            .bind(session_id).bind(data).execute(&mut *transaction).await.map_err(store_io_error)?;
+        transaction.commit().await.map_err(store_io_error)?;
+        entry.persisted_version = Some(entry.version);
         if let Some(cache) = self.cache.write().await.as_mut() {
-            cache.entries = entries;
+            cache.entries.insert(session_id.to_owned(), entry.clone());
         }
-        Ok(Some(updated))
+        Ok(Some(entry))
     }
 
     /// Remove a session by session_id.
     pub async fn remove(&self, session_id: &str) -> bool {
+        self.try_remove(session_id).await.unwrap_or(false)
+    }
+
+    pub async fn try_remove(&self, session_id: &str) -> std::io::Result<bool> {
         if !is_uuid_v7(session_id) {
-            return false;
+            return Ok(false);
         }
         self.refresh_cache().await;
         let _mutation = self.mutation.lock().await;
+        self.persist_entry(session_id, None).await?;
         let (removed, session_file) = {
             let mut cache = self.cache.write().await;
             if let Some(cache) = cache.as_mut() {
@@ -1013,10 +1185,9 @@ impl SessionStore {
                     );
                 }
             }
-            self.persist_cache().await;
         }
 
-        removed
+        Ok(removed)
     }
 
     /// Delete a session by session_id.
@@ -1057,86 +1228,88 @@ impl SessionStore {
     pub async fn prune_report(&self) -> SessionPruneResult {
         self.refresh_cache().await;
         let _mutation = self.mutation.lock().await;
-
-        let (pruned, stale_keys, removed_session_ids) = {
-            let mut cache = self.cache.write().await;
-            let Some(cache) = cache.as_mut() else {
+        let entries = match self.load_from_disk().await {
+            Ok(entries) => entries,
+            Err(error) => {
+                warn!(%error, "cannot prune unreadable session store");
                 return SessionPruneResult::default();
-            };
-
-            let before = cache.entries.len();
-
-            // Find stale entries.
-            let stale_keys: Vec<_> = cache
-                .entries
-                .iter()
-                .filter(|(_, entry)| entry.is_stale(self.config.max_age))
-                .map(|(k, v)| (k.clone(), v.session_file.clone()))
-                .collect();
-
-            // Remove stale entries.
-            cache
-                .entries
-                .retain(|_, entry| !entry.is_stale(self.config.max_age));
-
-            let mut removed_session_ids = stale_keys
-                .iter()
-                .map(|(session_id, _)| session_id.clone())
-                .collect::<Vec<_>>();
-
-            // Cap at max_entries (keep most recently updated).
-            if cache.entries.len() > self.config.max_entries {
-                let mut entries_vec: Vec<_> = cache.entries.drain().collect();
-                entries_vec.sort_by_key(|entry| std::cmp::Reverse(entry.1.updated_at));
-                let retained = entries_vec
-                    .iter()
-                    .take(self.config.max_entries)
-                    .map(|(session_id, _)| session_id.clone())
-                    .collect::<std::collections::HashSet<_>>();
-                removed_session_ids.extend(
-                    entries_vec
-                        .iter()
-                        .skip(self.config.max_entries)
-                        .map(|(session_id, _)| session_id.clone()),
-                );
-                entries_vec.truncate(self.config.max_entries);
-                cache.entries = entries_vec.into_iter().collect();
-                removed_session_ids.retain(|session_id| !retained.contains(session_id));
             }
-
-            removed_session_ids.sort();
-            removed_session_ids.dedup();
-
-            (
-                before - cache.entries.len(),
-                stale_keys,
-                removed_session_ids,
-            )
         };
-
-        if pruned > 0 {
-            info!(pruned, "session store pruned stale entries");
-            // Delete the corresponding rollout files
-            for (_key, session_file) in stale_keys {
-                if let Some(session_file) = session_file {
-                    let path = self
-                        .config
-                        .sessions_dir
-                        .join(format!("{session_file}.jsonl"));
-                    if let Err(err) = tokio::fs::remove_file(&path).await {
-                        warn!(
-                            path = %path.display(),
-                            "failed to remove stale rollout file: {err}"
-                        );
-                    }
+        let mut retained: Vec<_> = entries
+            .values()
+            .filter(|entry| !entry.is_stale(self.config.max_age))
+            .cloned()
+            .collect();
+        retained.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
+        retained.truncate(self.config.max_entries);
+        let retained: HashMap<_, _> = retained
+            .into_iter()
+            .map(|entry| (entry.session_id.clone(), entry))
+            .collect();
+        let removed: Vec<_> = entries
+            .values()
+            .filter(|entry| !retained.contains_key(&entry.session_id))
+            .collect();
+        if removed.is_empty() {
+            return SessionPruneResult::default();
+        }
+        let durable = async {
+            let pool = self.database().await?;
+            let mut transaction = pool.begin().await.map_err(store_io_error)?;
+            let mut deleted = Vec::new();
+            for entry in &removed {
+                let result = sqlx::query("INSERT INTO session_metadata (id, data) VALUES (?1, NULL) ON CONFLICT(id) DO UPDATE SET data = NULL WHERE session_metadata.data IS NOT NULL AND json_extract(session_metadata.data, '$.version') = ?2 AND json_extract(session_metadata.data, '$.lifecycleGeneration') = ?3")
+                    .bind(&entry.session_id).bind(entry.version as i64).bind(&entry.lifecycle_generation).execute(&mut *transaction).await.map_err(store_io_error)?;
+                if result.rows_affected() > 0 { deleted.push(entry.session_id.clone()); }
+            }
+            transaction.commit().await.map_err(store_io_error)?;
+            Ok::<_, std::io::Error>(deleted)
+        }.await;
+        let deleted = match durable {
+            Ok(deleted) => deleted,
+            Err(error) => {
+                warn!(%error, "failed to persist pruning");
+                return SessionPruneResult::default();
+            }
+        };
+        let removed: Vec<_> = removed
+            .into_iter()
+            .filter(|entry| deleted.contains(&entry.session_id))
+            .collect();
+        if let Ok(entries) = self.load_from_disk().await
+            && let Some(cache) = self.cache.write().await.as_mut()
+        {
+            cache.entries = entries;
+        }
+        // Persist tombstones before deleting files so a failed deletion cannot
+        // resurrect metadata on the next cache refresh.
+        let mut session_ids = Vec::new();
+        let mut core_sessions = Vec::new();
+        for entry in removed {
+            session_ids.push(entry.session_id.clone());
+            core_sessions.push((
+                entry.session_id.clone(),
+                entry.core_thread_id.clone().or(entry.thread_id.clone()),
+            ));
+            if let Some(session_file) = &entry.session_file {
+                let path = self
+                    .config
+                    .sessions_dir
+                    .join(format!("{session_file}.jsonl"));
+                if let Err(error) = tokio::fs::remove_file(&path).await {
+                    warn!(path = %path.display(), %error, "failed to remove stale rollout");
                 }
             }
-            self.persist_cache().await;
         }
-
+        session_ids.sort();
+        info!(
+            pruned = session_ids.len(),
+            "session store pruned stale entries"
+        );
         SessionPruneResult {
-            pruned,
-            session_ids: removed_session_ids,
+            pruned: session_ids.len(),
+            session_ids,
+            core_sessions,
         }
     }
 
@@ -1150,11 +1323,15 @@ impl SessionStore {
     pub async fn stats(&self) -> SessionStoreStats {
         self.refresh_cache().await;
         let cache = self.cache.read().await;
-        let entries = cache
-            .as_ref()
-            .map(|c| &c.entries)
-            .cloned()
-            .unwrap_or_default();
+        let entries = cache.as_ref().map(|c| &c.entries);
+        let Some(entries) = entries else {
+            return SessionStoreStats {
+                total_sessions: 0,
+                total_tokens: 0,
+                oldest_created_at: 0,
+                newest_updated_at: 0,
+            };
+        };
 
         let total_tokens: u64 = entries.values().map(|e| e.total_tokens).sum();
         let oldest = entries.values().map(|e| e.created_at).min().unwrap_or(0);
@@ -1167,6 +1344,14 @@ impl SessionStore {
             newest_updated_at: newest,
         }
     }
+}
+
+fn new_lifecycle_generation() -> String {
+    uuid::Uuid::now_v7().to_string()
+}
+
+fn store_io_error(error: impl std::fmt::Display) -> std::io::Error {
+    std::io::Error::other(error.to_string())
 }
 
 /// Summary statistics for the session store.
@@ -1182,6 +1367,8 @@ pub struct SessionStoreStats {
 pub struct SessionPruneResult {
     pub pruned: usize,
     pub session_ids: Vec<String>,
+    /// Logical IDs and the core generation captured by the successful deletion.
+    pub core_sessions: Vec<(String, Option<String>)>,
 }
 
 #[cfg(test)]
@@ -1193,6 +1380,283 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{SessionEntry, SessionStore};
+
+    #[tokio::test]
+    async fn independent_stores_preserve_new_rows_counters_and_updates_during_pruning() {
+        let home = tempdir().unwrap();
+        let a = SessionStore::from_home(home.path());
+        let b = SessionStore::from_home(home.path());
+        let shared = a.get_or_create_for_routing_id("shared").await;
+        let mut stale = SessionEntry::new();
+        stale.updated_at = 1;
+        a.upsert(stale.clone()).await;
+        b.list().await;
+        a.update(&shared.session_id, |entry| entry.add_tokens(2, 3))
+            .await
+            .unwrap();
+        b.update(&shared.session_id, |entry| entry.add_tokens(5, 7))
+            .await
+            .unwrap();
+        let new = b.get_or_create_for_routing_id("new-after-a-cached").await;
+        let report = a.prune_report().await;
+        assert_eq!(report.session_ids, vec![stale.session_id]);
+        let reopened = SessionStore::from_home(home.path());
+        assert!(reopened.get(&new.session_id).await.is_some());
+        let durable = reopened.get(&shared.session_id).await.unwrap();
+        assert_eq!(durable.total_tokens, 17);
+        assert_eq!(durable.input_tokens, 7);
+        // A stale whole-entry replacement cannot overwrite B's newest fields.
+        let mut obsolete = shared.clone();
+        obsolete.label = Some("obsolete".into());
+        a.upsert(obsolete).await;
+        assert_eq!(
+            SessionStore::from_home(home.path())
+                .get(&shared.session_id)
+                .await
+                .unwrap()
+                .total_tokens,
+            17
+        );
+    }
+
+    #[tokio::test]
+    async fn bulk_write_advances_versions_and_rejects_stale_replacements_atomically() {
+        let home = tempdir().unwrap();
+        let a = SessionStore::from_home(home.path());
+        let first = a.get_or_create_for_routing_id("before-bulk").await;
+        let second = a.get_or_create_for_routing_id("unrelated").await;
+        let b = SessionStore::from_home(home.path());
+        let stale: std::collections::HashMap<_, _> = b
+            .list()
+            .await
+            .into_iter()
+            .map(|entry| (entry.session_id.clone(), entry))
+            .collect();
+        let mut changed = stale.clone();
+        changed.get_mut(&first.session_id).unwrap().routing_id = Some("after-bulk".into());
+        a.replace_all(changed).await.unwrap();
+        let durable = SessionStore::from_home(home.path())
+            .get(&first.session_id)
+            .await
+            .unwrap();
+        assert_eq!(durable.version, first.version + 1);
+        assert_eq!(durable.routing_id.as_deref(), Some("after-bulk"));
+        let mut obsolete = stale[&first.session_id].clone();
+        obsolete.label = Some("stale replacement".into());
+        b.upsert(obsolete).await;
+        assert!(b.replace_all(stale.clone()).await.is_err());
+        // A stale deletion must also abort the whole bulk transaction, including
+        // an attempted edit of an unrelated row.
+        let mut only_other = stale[&second.session_id].clone();
+        only_other.label = Some("must roll back".into());
+        assert!(
+            b.replace_all(std::collections::HashMap::from([(
+                second.session_id.clone(),
+                only_other
+            )]))
+            .await
+            .is_err()
+        );
+        let reopened = SessionStore::from_home(home.path());
+        let current = reopened.get(&first.session_id).await.unwrap();
+        assert_eq!(current.routing_id.as_deref(), Some("after-bulk"));
+        assert!(current.label.is_none());
+        assert!(
+            reopened
+                .get(&second.session_id)
+                .await
+                .unwrap()
+                .label
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn touched_stale_snapshot_and_same_store_bulk_cannot_overwrite_newer_revision() {
+        let home = tempdir().unwrap();
+        let a = SessionStore::from_home(home.path());
+        let first = a.get_or_create_for_routing_id("strict-cas").await;
+        let b = SessionStore::from_home(home.path());
+        let mut stale = b.get(&first.session_id).await.unwrap();
+        let old_bulk: std::collections::HashMap<_, _> = a
+            .list()
+            .await
+            .into_iter()
+            .map(|entry| (entry.session_id.clone(), entry))
+            .collect();
+        a.try_update(&first.session_id, |entry| {
+            entry.label = Some("latest".into())
+        })
+        .await
+        .unwrap();
+        stale.add_tokens(100, 200);
+        stale.touch();
+        b.upsert(stale.clone()).await;
+        assert!(a.replace_all(old_bulk).await.is_err());
+        let latest = SessionStore::from_home(home.path())
+            .get(&first.session_id)
+            .await
+            .unwrap();
+        assert_eq!(latest.label.as_deref(), Some("latest"));
+        assert_eq!(latest.total_tokens, 0);
+        a.try_remove(&first.session_id).await.unwrap();
+        let recreated = a.get_or_create(&first.session_id).await.unwrap();
+        assert_ne!(recreated.lifecycle_generation, stale.lifecycle_generation);
+        b.upsert(stale).await;
+        assert_eq!(
+            SessionStore::from_home(home.path())
+                .get(&first.session_id)
+                .await
+                .unwrap()
+                .lifecycle_generation,
+            recreated.lifecycle_generation
+        );
+    }
+
+    #[tokio::test]
+    async fn migration_keeps_sessions_added_after_its_snapshot() {
+        let home = tempdir().unwrap();
+        let store = SessionStore::from_home(home.path());
+        let first = store.get_or_create_for_routing_id("old-routing").await;
+        let mut snapshot: std::collections::HashMap<_, _> = store
+            .list()
+            .await
+            .into_iter()
+            .map(|entry| (entry.session_id.clone(), entry))
+            .collect();
+        let added = store
+            .get_or_create_for_routing_id("added-during-migration")
+            .await;
+        snapshot.get_mut(&first.session_id).unwrap().routing_id = Some("migrated-routing".into());
+        store.apply_bulk_updates(snapshot).await.unwrap();
+        let reopened = SessionStore::from_home(home.path());
+        assert!(reopened.get(&added.session_id).await.is_some());
+        assert_eq!(
+            reopened
+                .get(&first.session_id)
+                .await
+                .unwrap()
+                .routing_id
+                .as_deref(),
+            Some("migrated-routing")
+        );
+    }
+
+    #[tokio::test]
+    async fn database_read_failure_does_not_publish_empty_refresh() {
+        let home = tempdir().unwrap();
+        let mut store = SessionStore::from_home(home.path());
+        let entry = store.get_or_create_for_routing_id("keep-cache").await;
+        store.config.cache_ttl = Duration::ZERO;
+        sqlx::query("DROP TABLE session_metadata")
+            .execute(store.database().await.unwrap())
+            .await
+            .unwrap();
+        assert!(store.get(&entry.session_id).await.is_some());
+        assert!(
+            store
+                .try_update(&entry.session_id, |entry| entry.pinned = true)
+                .await
+                .is_err()
+        );
+        assert!(!store.get(&entry.session_id).await.unwrap().pinned);
+    }
+
+    #[tokio::test]
+    async fn legacy_import_is_once_only_and_row_updates_leave_other_sessions_untouched() {
+        let home = tempdir().unwrap();
+        let mut entry = SessionEntry::new();
+        entry.label = Some("legacy".into());
+        let mut other = SessionEntry::new();
+        other.label = Some("other".into());
+        let snapshot = serde_json::to_vec(&std::collections::HashMap::from([
+            (entry.session_id.clone(), entry.clone()),
+            (other.session_id.clone(), other.clone()),
+        ]))
+        .unwrap();
+        let legacy = home.path().join("gateway-session-store.json");
+        tokio::fs::write(&legacy, &snapshot).await.unwrap();
+        let store = SessionStore::from_home(home.path());
+        assert_eq!(
+            store.get(&entry.session_id).await.unwrap().label.as_deref(),
+            Some("legacy")
+        );
+        sqlx::query("CREATE TRIGGER protect_other BEFORE UPDATE ON session_metadata WHEN json_extract(OLD.data, '$.label') = 'other' BEGIN SELECT RAISE(FAIL, 'unrelated row written'); END")
+            .execute(store.database().await.unwrap()).await.unwrap();
+        assert!(store.set_label(&entry.session_id, "updated".into()).await);
+        assert_eq!(tokio::fs::read(&legacy).await.unwrap(), snapshot);
+        let reloaded = SessionStore::from_home(home.path());
+        assert_eq!(
+            reloaded
+                .get(&entry.session_id)
+                .await
+                .unwrap()
+                .label
+                .as_deref(),
+            Some("updated")
+        );
+        assert_eq!(
+            reloaded
+                .get(&other.session_id)
+                .await
+                .unwrap()
+                .label
+                .as_deref(),
+            Some("other")
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_replacement_and_removal_preserve_durable_and_cached_state() {
+        let home = tempdir().unwrap();
+        let store = SessionStore::from_home(home.path());
+        let entry = store.get_or_create_for_routing_id("rollback").await;
+        sqlx::query("CREATE TRIGGER fail_updates BEFORE UPDATE ON session_metadata BEGIN SELECT RAISE(FAIL, 'injected failure'); END")
+            .execute(store.database().await.unwrap()).await.unwrap();
+        assert!(
+            store
+                .replace_all(std::collections::HashMap::new())
+                .await
+                .is_err()
+        );
+        assert!(store.try_remove(&entry.session_id).await.is_err());
+        assert!(store.get(&entry.session_id).await.is_some());
+        assert!(
+            SessionStore::from_home(home.path())
+                .get(&entry.session_id)
+                .await
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_legacy_import_can_be_retried_without_marking_migration_done() {
+        let home = tempdir().unwrap();
+        let legacy = home.path().join("gateway-session-store.json");
+        tokio::fs::write(&legacy, b"broken json").await.unwrap();
+        let store = SessionStore::from_home(home.path());
+        assert!(store.database().await.is_err());
+        let entry = SessionEntry::new();
+        tokio::fs::write(
+            &legacy,
+            serde_json::to_vec(&std::collections::HashMap::from([(
+                entry.session_id.clone(),
+                entry.clone(),
+            )]))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert!(store.get(&entry.session_id).await.is_some());
+        assert!(store.try_remove(&entry.session_id).await.unwrap());
+        // A durable tombstone wins even if a rollout scan finds the old ID.
+        let mut discovered = std::collections::HashMap::from([(entry.session_id.clone(), entry)]);
+        store
+            .overlay_persisted_entries(&mut discovered)
+            .await
+            .unwrap();
+        assert!(discovered.is_empty());
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_updates_preserve_counters_and_persist_latest_state() {
@@ -1303,9 +1767,8 @@ mod tests {
         let home = tempdir().expect("tempdir");
         let store = SessionStore::from_home(home.path());
         let entry = store.get_or_create_for_routing_id("write-failure").await;
-        let metadata = home.path().join("gateway-session-store.json");
-        std::fs::remove_file(&metadata).expect("remove metadata file");
-        std::fs::create_dir(&metadata).expect("block atomic replacement with a directory");
+        sqlx::query("CREATE TRIGGER fail_updates BEFORE UPDATE ON session_metadata BEGIN SELECT RAISE(FAIL, 'injected storage failure'); END")
+            .execute(store.database().await.expect("database")).await.expect("install failure trigger");
         assert!(!store.set_pinned(&entry.session_id, true).await);
         assert!(!store.set_archived(&entry.session_id, true).await);
         let cached = store.get(&entry.session_id).await.expect("cached entry");

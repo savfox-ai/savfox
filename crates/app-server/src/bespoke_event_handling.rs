@@ -117,19 +117,22 @@ pub(crate) async fn apply_bespoke_event_handling(
             let rx = outgoing
                 .send_request(ServerRequestPayload::FileChangeRequestApproval(params))
                 .await;
-            tokio::spawn(async move {
-                on_file_change_request_approval_response(
-                    event_turn_id,
-                    conversation_id,
-                    item_id,
-                    patch_changes,
-                    rx,
-                    conversation,
-                    outgoing,
-                    turn_summary_store,
-                )
+            outgoing
+                .clone()
+                .spawn_task(async move {
+                    on_file_change_request_approval_response(
+                        event_turn_id,
+                        conversation_id,
+                        item_id,
+                        patch_changes,
+                        rx,
+                        conversation,
+                        outgoing,
+                        turn_summary_store,
+                    )
+                    .await;
+                })
                 .await;
-            });
         }
         EventMsg::ExecApprovalRequest(ExecApprovalRequestEvent {
             call_id,
@@ -165,20 +168,23 @@ pub(crate) async fn apply_bespoke_event_handling(
                     params,
                 ))
                 .await;
-            tokio::spawn(async move {
-                on_command_execution_request_approval_response(
-                    event_turn_id,
-                    conversation_id,
-                    item_id,
-                    command_string,
-                    cwd,
-                    command_actions,
-                    rx,
-                    conversation,
-                    outgoing,
-                )
+            outgoing
+                .clone()
+                .spawn_task(async move {
+                    on_command_execution_request_approval_response(
+                        event_turn_id,
+                        conversation_id,
+                        item_id,
+                        command_string,
+                        cwd,
+                        command_actions,
+                        rx,
+                        conversation,
+                        outgoing,
+                    )
+                    .await;
+                })
                 .await;
-            });
         }
         EventMsg::RequestUserInput(request) => {
             let questions = request
@@ -210,9 +216,12 @@ pub(crate) async fn apply_bespoke_event_handling(
             let rx = outgoing
                 .send_request(ServerRequestPayload::ToolRequestUserInput(params))
                 .await;
-            tokio::spawn(async move {
-                on_request_user_input_response(event_turn_id, rx, conversation).await;
-            });
+            outgoing
+                .clone()
+                .spawn_task(async move {
+                    on_request_user_input_response(event_turn_id, rx, conversation).await;
+                })
+                .await;
         }
         EventMsg::DynamicToolCallRequest(request) => {
             let call_id = request.call_id;
@@ -226,9 +235,12 @@ pub(crate) async fn apply_bespoke_event_handling(
             let rx = outgoing
                 .send_request(ServerRequestPayload::DynamicToolCall(params))
                 .await;
-            tokio::spawn(async move {
-                crate::dynamic_tools::on_call_response(call_id, rx, conversation).await;
-            });
+            outgoing
+                .clone()
+                .spawn_task(async move {
+                    crate::dynamic_tools::on_call_response(call_id, rx, conversation).await;
+                })
+                .await;
         }
         // TODO(celia): properly construct McpToolCall TurnItem in core.
         EventMsg::McpToolCallBegin(begin_event) => {

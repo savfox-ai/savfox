@@ -14,27 +14,20 @@ if [[ -z "$BUMP_TYPE" ]] || [[ ! "$BUMP_TYPE" =~ ^(major|minor|patch)$ ]]; then
     exit 1
 fi
 
-# Find current version from root Cargo.toml
-CURRENT_VERSION=$(grep '^version\s*=' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-if [[ -z "$CURRENT_VERSION" ]]; then
-    echo "Error: Could not determine current version from Cargo.toml"
+cd "$(git rev-parse --show-toplevel)"
+if [[ -n "$(git status --porcelain)" ]]; then
+    echo "Error: release preparation requires a clean working tree"
     exit 1
 fi
-
-IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
-
-case "$BUMP_TYPE" in
-    major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-    minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-    patch) PATCH=$((PATCH + 1)) ;;
-esac
-
-NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-echo "Bumping version: $CURRENT_VERSION -> $NEW_VERSION"
-
-# Update version in workspace Cargo.toml
-sed -i "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
-echo "Updated Cargo.toml"
+command -v python3 >/dev/null
+NEW_VERSION=$(python3 scripts/prepare-release.py "$BUMP_TYPE")
+git check-ref-format "refs/tags/v${NEW_VERSION}"
+if git rev-parse --verify "refs/tags/v${NEW_VERSION}" >/dev/null 2>&1; then
+    echo "Error: release tag already exists: v${NEW_VERSION}"
+    exit 1
+fi
+# Validate the exact prepared tree before creating a release commit or tag.
+cargo check --locked --workspace --all-targets
 
 # Generate changelog entry
 CHANGELOG_ENTRY="## v${NEW_VERSION} ($(date +%Y-%m-%d))\n\n"
@@ -58,7 +51,7 @@ fi
 echo "Updated CHANGELOG.md"
 
 # Commit and tag
-git add Cargo.toml CHANGELOG.md
+git add Cargo.toml Cargo.lock CHANGELOG.md
 git commit -m "release: v${NEW_VERSION}"
 git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
 

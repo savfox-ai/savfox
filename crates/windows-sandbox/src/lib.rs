@@ -42,6 +42,8 @@ pub use dpapi::unprotect as dpapi_unprotect;
 #[cfg(target_os = "windows")]
 pub use elevated_impl::run_windows_sandbox_capture as run_windows_sandbox_capture_elevated;
 #[cfg(target_os = "windows")]
+pub use elevated_impl::run_windows_sandbox_capture_with_cancellation as run_windows_sandbox_capture_elevated_with_cancellation;
+#[cfg(target_os = "windows")]
 pub use hide_users::hide_current_user_profile_dir;
 #[cfg(target_os = "windows")]
 pub use hide_users::hide_newly_created_users;
@@ -100,7 +102,9 @@ pub use token::get_current_token_for_restriction;
 #[cfg(target_os = "windows")]
 pub use windows_impl::CaptureResult;
 #[cfg(target_os = "windows")]
-pub use windows_impl::run_windows_sandbox_capture;
+pub use windows_impl::{
+    run_windows_sandbox_capture, run_windows_sandbox_capture_with_cancellation,
+};
 #[cfg(target_os = "windows")]
 pub use winutil::string_from_sid_bytes;
 #[cfg(target_os = "windows")]
@@ -119,8 +123,8 @@ mod windows_impl {
     };
     use windows_sys::Win32::System::Pipes::CreatePipe;
     use windows_sys::Win32::System::Threading::{
-        CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW, GetExitCodeProcess, INFINITE,
-        PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOW, WaitForSingleObject,
+        CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW, GetExitCodeProcess, PROCESS_INFORMATION,
+        STARTF_USESTDHANDLES, STARTUPINFOW,
     };
 
     use super::acl::{add_allow_ace, add_deny_write_ace, allow_null_device, revoke_ace};
@@ -187,8 +191,34 @@ mod windows_impl {
         savfox_home: &Path,
         command: Vec<String>,
         cwd: &Path,
+        env_map: HashMap<String, String>,
+        timeout_ms: Option<u64>,
+    ) -> Result<CaptureResult> {
+        run_windows_sandbox_capture_with_cancellation(
+            policy_json_or_preset,
+            sandbox_policy_cwd,
+            savfox_home,
+            command,
+            cwd,
+            env_map,
+            timeout_ms,
+            None,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Preserves the existing seven-argument capture API while adding an optional cancellation observer"
+    )]
+    pub fn run_windows_sandbox_capture_with_cancellation(
+        policy_json_or_preset: &str,
+        sandbox_policy_cwd: &Path,
+        savfox_home: &Path,
+        command: Vec<String>,
+        cwd: &Path,
         mut env_map: HashMap<String, String>,
         timeout_ms: Option<u64>,
+        cancellation: Option<&(dyn Fn() -> bool + Sync)>,
     ) -> Result<CaptureResult> {
         let policy = parse_policy(policy_json_or_preset)?;
         let apply_network_block = should_apply_network_block(&policy);
@@ -382,18 +412,11 @@ mod windows_impl {
             let _ = tx_err.send(buf);
         });
 
-        let timeout = timeout_ms.map(|ms| ms as u32).unwrap_or(INFINITE);
-        let res = unsafe { WaitForSingleObject(pi.hProcess, timeout) };
-        let timed_out = res == 0x0000_0102;
+        let (timed_out, cancelled, cleanup_error) =
+            crate::wait_for_capture(pi.hProcess, pi.dwProcessId, timeout_ms, cancellation);
         let mut exit_code_u32: u32 = 1;
-        if !timed_out {
-            unsafe {
-                GetExitCodeProcess(pi.hProcess, &mut exit_code_u32);
-            }
-        } else {
-            unsafe {
-                windows_sys::Win32::System::Threading::TerminateProcess(pi.hProcess, 1);
-            }
+        unsafe {
+            GetExitCodeProcess(pi.hProcess, &mut exit_code_u32);
         }
 
         unsafe {
@@ -405,11 +428,19 @@ mod windows_impl {
             }
             CloseHandle(h_token);
         }
-        let _ = t_out.join();
-        let _ = t_err.join();
-        let stdout = rx_out.recv().unwrap_or_default();
-        let stderr = rx_err.recv().unwrap_or_default();
-        let exit_code = if timed_out {
+        let stdout_result = rx_out.recv_timeout(std::time::Duration::from_secs(2));
+        let stderr_result = rx_err.recv_timeout(std::time::Duration::from_secs(2));
+        if stdout_result.is_ok() {
+            let _ = t_out.join();
+        }
+        if stderr_result.is_ok() {
+            let _ = t_err.join();
+        }
+        let stdout = stdout_result.unwrap_or_default();
+        let stderr = stderr_result.unwrap_or_default();
+        let exit_code = if cancelled {
+            137
+        } else if timed_out {
             128 + 64
         } else {
             exit_code_u32 as i32
@@ -421,20 +452,24 @@ mod windows_impl {
             log_failure(&command, &format!("exit code {}", exit_code), logs_base_dir);
         }
 
-        if !persist_aces {
-            unsafe {
-                for (p, sid) in guards {
-                    revoke_ace(&p, sid);
+        crate::after_capture_cleanup(
+            || {
+                if !persist_aces {
+                    unsafe {
+                        for (p, sid) in guards {
+                            revoke_ace(&p, sid);
+                        }
+                    }
                 }
-            }
-        }
-
-        Ok(CaptureResult {
-            exit_code,
-            stdout,
-            stderr,
-            timed_out,
-        })
+            },
+            cleanup_error,
+            CaptureResult {
+                exit_code,
+                stdout,
+                stderr,
+                timed_out,
+            },
+        )
     }
 
     #[cfg(test)]
@@ -504,5 +539,115 @@ mod stub {
         _logs_base_dir: Option<&Path>,
     ) -> Result<()> {
         bail!("Windows sandbox is only available on Windows")
+    }
+}
+
+/// Poll an existing process handle so cancellation never depends on abandoning a
+/// spawn_blocking future. Reuses the capture path's existing wait/terminate APIs.
+#[cfg(windows)]
+fn wait_for_capture(
+    process: windows_sys::Win32::Foundation::HANDLE,
+    pid: u32,
+    timeout_ms: Option<u64>,
+    cancellation: Option<&(dyn Fn() -> bool + Sync)>,
+) -> (bool, bool, Option<String>) {
+    use windows_sys::Win32::System::Threading::{TerminateProcess, WaitForSingleObject};
+    let started = std::time::Instant::now();
+    loop {
+        let result = unsafe { WaitForSingleObject(process, 50) };
+        if result == 0 {
+            return (false, false, None);
+        }
+        let cancelled = cancellation.is_some_and(|cancel| cancel());
+        let timed_out = !cancelled
+            && timeout_ms.is_some_and(|limit| started.elapsed().as_millis() >= u128::from(limit));
+        if cancelled || timed_out || result != 0x0000_0102 {
+            let tree = savfox_utils::pty::process_group::kill_process_tree_by_pid(pid);
+            // Retain direct-process fallback even when taskkill is unavailable/denied.
+            if unsafe { WaitForSingleObject(process, 0) } != 0 {
+                unsafe {
+                    TerminateProcess(process, 1);
+                }
+            }
+            unsafe {
+                WaitForSingleObject(process, 2000);
+            }
+            let error = tree.err().map(|error| error.to_string());
+            return (
+                timed_out,
+                cancelled,
+                error.or_else(|| (result != 0x0000_0102).then(|| "process wait failed".to_owned())),
+            );
+        }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod cancellation_tests {
+    use std::os::windows::io::AsRawHandle;
+    use std::os::windows::process::CommandExt;
+
+    use super::*;
+
+    #[test]
+    fn capture_wait_observes_cancellation_without_reporting_timeout() -> anyhow::Result<()> {
+        let mut child = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Sleep -Seconds 60",
+            ])
+            .creation_flags(0x08000000)
+            .spawn()?;
+        let (timed_out, cancelled, error) = wait_for_capture(
+            child.as_raw_handle(),
+            child.id(),
+            Some(60_000),
+            Some(&|| true),
+        );
+        child.wait()?;
+        assert!(!timed_out);
+        assert!(cancelled);
+        assert!(error.is_none(), "cleanup error: {error:?}");
+        Ok(())
+    }
+}
+
+/// Permission rollback must happen before a process cleanup failure is returned.
+#[cfg(any(windows, test))]
+fn after_capture_cleanup<T>(
+    rollback: impl FnOnce(),
+    cleanup_error: Option<String>,
+    output: T,
+) -> anyhow::Result<T> {
+    rollback();
+    if let Some(error) = cleanup_error {
+        anyhow::bail!("Windows process cleanup failed: {error}");
+    }
+    Ok(output)
+}
+
+#[cfg(test)]
+mod permission_cleanup_order_tests {
+    use std::cell::Cell;
+
+    use super::after_capture_cleanup;
+
+    #[test]
+    fn process_cleanup_denial_cannot_skip_permission_rollback() {
+        let rolled_back = Cell::new(false);
+        let result = after_capture_cleanup(
+            || rolled_back.set(true),
+            Some("access denied".to_owned()),
+            (),
+        );
+        assert!(rolled_back.get());
+        assert!(
+            result
+                .expect_err("report cleanup failure after rollback")
+                .to_string()
+                .contains("access denied")
+        );
     }
 }

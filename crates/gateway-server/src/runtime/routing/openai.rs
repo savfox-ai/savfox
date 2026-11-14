@@ -498,6 +498,7 @@ async fn handle_non_streaming(
 
     let provider = provider_from_model(&model);
     persist_chat_session_metadata(
+        &channel,
         session_store.as_ref(),
         &channel.config().savfox_home,
         &result.session_id,
@@ -506,6 +507,7 @@ async fn handle_non_streaming(
         &provider,
         result.rollout_path.as_deref(),
         result.last_token_usage.as_ref(),
+        result.lifecycle_generation.as_deref(),
     )
     .await;
 
@@ -686,6 +688,7 @@ async fn handle_streaming(
             Ok(result) => {
                 let provider = provider_from_model(&m);
                 persist_chat_session_metadata(
+                    &channel,
                     session_store_for_task.as_ref(),
                     &savfox_home,
                     &result.session_id,
@@ -694,6 +697,7 @@ async fn handle_streaming(
                     &provider,
                     result.rollout_path.as_deref(),
                     result.last_token_usage.as_ref(),
+                    result.lifecycle_generation.as_deref(),
                 )
                 .await;
 

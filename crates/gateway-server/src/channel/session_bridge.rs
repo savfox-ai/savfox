@@ -15,6 +15,10 @@ use crate::security::approval_coordinator::{
 };
 use crate::security::execution_policy::{ExecutionMode, ResolvedExecutionSecurity};
 
+// Windows tree termination may take 10s; user-shell cooperative cleanup has a
+// 20s grace period. Observe the complete core shutdown before releasing lifecycle work.
+const CORE_SESSION_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 #[derive(Clone, Copy)]
 enum PendingApprovalKind {
     Exec,
@@ -445,11 +449,13 @@ impl GatewayChannel {
             // of how the turn ends.
             if let Some(logical_id) = requested_session_id.as_deref() {
                 crate::chat_session::persist_session_thread_link(
+                    self,
                     &self.session_store,
                     &self.config.savfox_home,
                     logical_id,
                     &session_id.to_string(),
                     rollout_path.as_deref(),
+                    None,
                 )
                 .await;
             }
@@ -778,6 +784,7 @@ impl GatewayChannel {
                 thread_id: session_id.to_string(),
                 rollout_path,
                 last_token_usage,
+                lifecycle_generation: None,
             })
         };
 
@@ -797,7 +804,7 @@ impl GatewayChannel {
                             }
                         }
                     };
-                    if tokio::time::timeout(std::time::Duration::from_secs(5), shutdown)
+                    if tokio::time::timeout(CORE_SESSION_SHUTDOWN_TIMEOUT, shutdown)
                         .await
                         .is_err()
                     {
@@ -846,8 +853,9 @@ impl GatewayChannel {
         config: Config,
         logical_session_id: Option<&str>,
     ) -> anyhow::Result<ResolvedAgentSession> {
-        self.resolve_agent_session_inner(config, logical_session_id, false)
-            .await
+        // Keep the core startup state machine out of callers' futures. Two
+        // concurrent resolutions otherwise inline large startup futures twice.
+        Box::pin(self.resolve_agent_session_inner(config, logical_session_id, false)).await
     }
 
     /// Like `resolve_agent_session` but forks a new session when the existing
@@ -858,28 +866,171 @@ impl GatewayChannel {
         config: Config,
         logical_session_id: Option<&str>,
     ) -> anyhow::Result<ResolvedAgentSession> {
-        self.resolve_agent_session_inner(config, logical_session_id, true)
-            .await
+        Box::pin(self.resolve_agent_session_inner(config, logical_session_id, true)).await
     }
 
     /// Drop the active in-memory core session for a logical session after its
     /// effective security policy changes. The rollout remains available and
     /// will be resumed with the newly resolved config on the next invocation.
     pub(crate) async fn invalidate_logical_session_security(&self, logical_session_id: &str) {
-        if let Some(core_session_id) = self
+        self.retire_logical_session(logical_session_id).await;
+    }
+
+    pub(crate) async fn logical_session_lock(
+        &self,
+        logical_id: &str,
+    ) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.logical_session_lifecycle.lock().await;
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(logical_id).and_then(std::sync::Weak::upgrade) {
+            return lock;
+        }
+        let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(logical_id.to_owned(), std::sync::Arc::downgrade(&lock));
+        lock
+    }
+
+    /// End the core session as well as its logical binding. Serialize with
+    /// creation so concurrent callers cannot create an untracked second session.
+    pub(crate) async fn retire_logical_session(&self, logical_session_id: &str) {
+        let lifecycle = self.logical_session_lock(logical_session_id).await;
+        let _lifecycle = lifecycle.lock().await;
+        self.retire_logical_session_locked(logical_session_id).await;
+    }
+
+    pub(crate) async fn retire_and_remove_logical_session(
+        &self,
+        logical_session_id: &str,
+    ) -> std::io::Result<(bool, usize)> {
+        let lifecycle = self.logical_session_lock(logical_session_id).await;
+        let _lifecycle = lifecycle.lock().await;
+        self.retire_logical_session_locked(logical_session_id).await;
+        let removed = self.session_store.try_remove(logical_session_id).await?;
+        let staging_cleaned = self.cleanup_logical_session_files(logical_session_id).await;
+        Ok((removed, staging_cleaned))
+    }
+
+    async fn cleanup_logical_session_files(&self, logical_id: &str) -> usize {
+        crate::channels::runtime::cleanup_session_runtime_state(
+            &self.config.savfox_home,
+            &[logical_id.to_owned()],
+        )
+        .await;
+        crate::media_store::MediaStore::from_home(&self.config.savfox_home)
+            .cleanup_staging_for_session(logical_id)
+            .await
+    }
+
+    pub(crate) async fn restart_logical_session(&self, logical_id: &str) -> std::io::Result<()> {
+        let lifecycle = self.logical_session_lock(logical_id).await;
+        let _lifecycle = lifecycle.lock().await;
+        self.retire_logical_session_locked(logical_id).await;
+        self.session_store
+            .try_update(logical_id, |entry| {
+                entry.model = None;
+                entry.provider = None;
+                entry.overrides = None;
+                entry.core_thread_id = None;
+                entry.session_file = None;
+                entry.lifecycle_generation = uuid::Uuid::now_v7().to_string();
+            })
+            .await?;
+        self.cleanup_logical_session_files(logical_id).await;
+        Ok(())
+    }
+
+    pub(crate) async fn begin_terminal_generation(
+        &self,
+        logical_id: &str,
+    ) -> anyhow::Result<String> {
+        let lifecycle = self.logical_session_lock(logical_id).await;
+        let _lifecycle = lifecycle.lock().await;
+        self.session_store
+            .get_or_create(logical_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("failed to persist terminal session"))?;
+        let entry = self
+            .session_store
+            .try_update(logical_id, |_| {})
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("terminal session disappeared"))?;
+        Ok(entry.lifecycle_generation)
+    }
+
+    pub(crate) async fn logical_session_is_current(&self, logical_id: &str, core_id: &str) -> bool {
+        self.logical_session_threads
+            .lock()
+            .await
+            .get(logical_id)
+            .is_some_and(|id| id.to_string() == core_id)
+    }
+
+    async fn retire_core_session(&self, core_id: SessionId) {
+        self.approval_coordinator()
+            .remove_for_core_session(core_id)
+            .await;
+        if let Some(session) = self.session_manager.remove_session(&core_id).await {
+            let shutdown = async {
+                session
+                    .submit(savfox_protocol::protocol::Op::Shutdown)
+                    .await?;
+                // A turn collector can also consume events, so observe the stable
+                // agent status rather than competing for ShutdownComplete.
+                while !matches!(
+                    session.agent_status().await,
+                    savfox_protocol::protocol::AgentStatus::Shutdown
+                ) {
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                }
+                Ok::<(), savfox_core::error::SavfoxError>(())
+            };
+            match tokio::time::timeout(CORE_SESSION_SHUTDOWN_TIMEOUT, shutdown).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => warn!(%core_id, %error, "failed to shut down retired session"),
+                Err(_) => warn!(%core_id, "timed out shutting down retired session"),
+            }
+        }
+    }
+
+    async fn retire_logical_session_locked(&self, logical_session_id: &str) {
+        if let Some(core_id) = self
             .resolve_active_logical_session_thread(logical_session_id)
             .await
         {
-            self.approval_coordinator()
-                .remove_for_core_session(core_session_id)
-                .await;
-            let _ = self.session_manager.remove_session(&core_session_id).await;
+            self.retire_core_session(core_id).await;
         }
-
         self.logical_session_threads
             .lock()
             .await
             .remove(logical_session_id);
+    }
+
+    /// A prune result names the removed generation. New work can have rebound
+    /// the logical ID since the database deletion, and must remain untouched.
+    pub(crate) async fn retire_pruned_logical_session(
+        &self,
+        logical_id: &str,
+        expected_core: Option<&str>,
+    ) {
+        let lifecycle = self.logical_session_lock(logical_id).await;
+        let _lifecycle = lifecycle.lock().await;
+        if let Some(expected_core) = expected_core {
+            let Ok(core_id) = SessionId::from_string(expected_core) else {
+                return;
+            };
+            self.retire_core_session(core_id).await;
+            let mut bindings = self.logical_session_threads.lock().await;
+            if bindings.get(logical_id) == Some(&core_id) {
+                bindings.remove(logical_id);
+            }
+        } else if self.session_store.get(logical_id).await.is_none() {
+            // Legacy metadata may lack the core pointer. Explicit creation
+            // persists metadata under this same lock before binding a new core.
+            self.retire_logical_session_locked(logical_id).await;
+        }
+        if self.session_store.get(logical_id).await.is_none() {
+            self.cleanup_logical_session_files(logical_id).await;
+        }
     }
 
     async fn resolve_agent_session_inner(
@@ -890,12 +1041,33 @@ impl GatewayChannel {
     ) -> anyhow::Result<ResolvedAgentSession> {
         use savfox_protocol::protocol::AgentStatus;
 
+        let lifecycle = match logical_session_id {
+            Some(id) => Some(self.logical_session_lock(id.trim()).await),
+            None => None,
+        };
+        let _lifecycle = match lifecycle.as_ref() {
+            Some(lock) => Some(lock.lock().await),
+            None => None,
+        };
         let logical_session_id = logical_session_id
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
 
         if let Some(logical_session_id) = logical_session_id.as_deref() {
+            if self.session_store.is_tombstoned(logical_session_id).await? {
+                self.retire_logical_session_locked(logical_session_id).await;
+            }
+            // Explicitly accepted work may recreate a reset session; stale
+            // completion helpers may not clear a durable tombstone themselves.
+            if self
+                .session_store
+                .get_or_create(logical_session_id)
+                .await
+                .is_none()
+            {
+                anyhow::bail!("failed to persist logical session before execution");
+            }
             if let Some(active_thread_id) = self
                 .resolve_active_logical_session_thread(logical_session_id)
                 .await
@@ -929,11 +1101,13 @@ impl GatewayChannel {
                 .resolve_session_rollout_path(logical_session_id)
                 .await?
             {
-                let resumed = self
-                    .session_manager
-                    .resume_session_from_rollout(config, path, self.auth_manager.clone())
-                    .await
-                    .map_err(|err| anyhow::anyhow!("failed to resume session thread: {err}"))?;
+                let resumed = Box::pin(self.session_manager.resume_session_from_rollout(
+                    config,
+                    path,
+                    self.auth_manager.clone(),
+                ))
+                .await
+                .map_err(|err| anyhow::anyhow!("failed to resume session thread: {err}"))?;
                 self.bind_logical_session_thread(logical_session_id, &resumed.session_id)
                     .await;
                 return Ok(ResolvedAgentSession {
@@ -942,9 +1116,7 @@ impl GatewayChannel {
                 });
             }
 
-            let new_session = self
-                .session_manager
-                .start_session(config)
+            let new_session = Box::pin(self.session_manager.start_session(config))
                 .await
                 .map_err(|err| anyhow::anyhow!("failed to start thread: {err}"))?;
             self.bind_logical_session_thread(logical_session_id, &new_session.session_id)
@@ -955,9 +1127,7 @@ impl GatewayChannel {
             });
         }
 
-        let new_session = self
-            .session_manager
-            .start_session(config)
+        let new_session = Box::pin(self.session_manager.start_session(config))
             .await
             .map_err(|err| anyhow::anyhow!("failed to start thread: {err}"))?;
         Ok(ResolvedAgentSession {
@@ -974,13 +1144,11 @@ impl GatewayChannel {
         rollout_path: Option<std::path::PathBuf>,
     ) -> anyhow::Result<ResolvedAgentSession> {
         let forked = if let Some(path) = rollout_path {
-            self.session_manager
-                .fork_session(usize::MAX, config, path)
+            Box::pin(self.session_manager.fork_session(usize::MAX, config, path))
                 .await
                 .map_err(|err| anyhow::anyhow!("failed to fork concurrent session: {err}"))?
         } else {
-            self.session_manager
-                .start_session(config)
+            Box::pin(self.session_manager.start_session(config))
                 .await
                 .map_err(|err| anyhow::anyhow!("failed to start fresh concurrent session: {err}"))?
         };
@@ -1051,13 +1219,6 @@ impl GatewayChannel {
     ) {
         let mut bindings = self.logical_session_threads.lock().await;
         bindings.insert(logical_session_id.to_owned(), *thread_session_id);
-    }
-
-    /// Unbind the logical session thread mapping so the next message creates a
-    /// fresh agent session.
-    pub(crate) async fn unbind_logical_session_thread(&self, logical_session_id: &str) {
-        let mut bindings = self.logical_session_threads.lock().await;
-        bindings.remove(logical_session_id);
     }
 
     /// Interrupt the active agent session bound to a logical session, if any.
@@ -1176,6 +1337,292 @@ mod tests {
     use super::*;
     use crate::channel::GatewayBridgeArgs;
     use crate::session::{GatewaySessionManager, SessionStore};
+
+    #[tokio::test]
+    async fn logical_session_creation_is_single_flight_and_retirement_releases_core() {
+        let home = tempfile::tempdir().unwrap();
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry")).unwrap();
+        }
+        let mut config = Box::pin(
+            ConfigBuilder::default()
+                .savfox_home(home.path().to_path_buf())
+                .fallback_cwd(Some(home.path().to_path_buf()))
+                .build(),
+        )
+        .await
+        .unwrap();
+        config.cwd = home.path().to_path_buf();
+        config.model = Some("offline-lifecycle-model".to_owned());
+        config.model_provider_id = "offline-lifecycle".to_owned();
+        config.model_provider = serde_json::from_value(serde_json::json!({
+            "id":"offline-lifecycle", "name":"Offline lifecycle fixture",
+            "base_url":"http://127.0.0.1:1/v1", "wire_api":"responses",
+            "requires_openai_auth":false, "supports_websockets":false,
+            "request_max_retries":0, "stream_max_retries":0
+        }))
+        .unwrap();
+        config.model_providers.clear();
+        config.model_providers.insert(
+            config.model_provider_id.clone(),
+            config.model_provider.clone(),
+        );
+        config
+            .features
+            .disable(savfox_core::features::Feature::ResponsesWebsockets);
+        config
+            .features
+            .disable(savfox_core::features::Feature::RemoteModels);
+        let gateway = GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config.clone()),
+            session_store: Arc::new(SessionStore::from_home(home.path())),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            websocket_manager: GatewaySessionManager::new(),
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        });
+        let id = uuid::Uuid::now_v7().to_string();
+        // Regression budget for production-facing futures, independent of test
+        // thread stack configuration. Heavy startup phases live behind boxes.
+        let single = gateway.resolve_agent_session(config.clone(), Some(&id));
+        let concurrent = gateway.resolve_agent_session_concurrent(config.clone(), Some(&id));
+        assert!(
+            std::mem::size_of_val(&single) < 128 * 1024,
+            "single resolver future uses {} bytes",
+            std::mem::size_of_val(&single)
+        );
+        assert!(
+            std::mem::size_of_val(&concurrent) < 128 * 1024,
+            "concurrent resolver future uses {} bytes",
+            std::mem::size_of_val(&concurrent)
+        );
+        drop((single, concurrent));
+
+        let (first, second) = tokio::join!(
+            gateway.resolve_agent_session(config.clone(), Some(&id)),
+            gateway.resolve_agent_session(config.clone(), Some(&id)),
+        );
+        assert_eq!(first.unwrap().session_id, second.unwrap().session_id);
+        assert_eq!(gateway.session_manager().list_session_ids().await.len(), 1);
+        for _ in 0..3 {
+            gateway.retire_logical_session(&id).await;
+            assert!(
+                gateway
+                    .session_manager()
+                    .list_session_ids()
+                    .await
+                    .is_empty()
+            );
+            assert!(gateway.logical_session_threads.lock().await.is_empty());
+            gateway
+                .resolve_agent_session(config.clone(), Some(&id))
+                .await
+                .unwrap();
+        }
+        let old_core = gateway
+            .resolve_agent_session(config.clone(), Some(&id))
+            .await
+            .unwrap()
+            .session_id;
+        let old_core_string = old_core.to_string();
+        let deleting = gateway.retire_and_remove_logical_session(&id);
+        let stale_persist = crate::chat_session::persist_chat_session_metadata(
+            &gateway,
+            &gateway.session_store,
+            home.path(),
+            &id,
+            &old_core_string,
+            "old",
+            "old",
+            None,
+            None,
+            None,
+        );
+        // Both futures contend on the same lifecycle lock. Completion may win
+        // first, but cannot publish metadata after deletion has succeeded.
+        let (deleted, ()) = tokio::join!(deleting, stale_persist);
+        deleted.unwrap();
+        crate::chat_session::persist_session_thread_link(
+            &gateway,
+            &gateway.session_store,
+            home.path(),
+            &id,
+            &old_core_string,
+            None,
+            None,
+        )
+        .await;
+        assert!(gateway.session_store.get(&id).await.is_none());
+        assert!(
+            gateway
+                .session_manager()
+                .list_session_ids()
+                .await
+                .is_empty()
+        );
+        // Explicitly accepted work after reset gets a fresh generation.
+        let next = gateway
+            .resolve_agent_session(config.clone(), Some(&id))
+            .await
+            .unwrap();
+        assert_ne!(next.session_id, old_core);
+        assert!(gateway.session_store.get(&id).await.is_some());
+        gateway
+            .retire_pruned_logical_session(&id, Some(&old_core_string))
+            .await;
+        gateway.retire_pruned_logical_session(&id, None).await;
+        assert!(
+            gateway
+                .session_manager()
+                .get_session(next.session_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            gateway
+                .logical_session_is_current(&id, &next.session_id.to_string())
+                .await
+        );
+        // Model the interval between durable prune and its asynchronous core
+        // retirement: recreation must not reuse the still-bound old generation.
+        gateway.session_store.try_remove(&id).await.unwrap();
+        let after_prune = gateway
+            .resolve_agent_session(config.clone(), Some(&id))
+            .await
+            .unwrap();
+        assert_ne!(after_prune.session_id, next.session_id);
+        gateway
+            .retire_pruned_logical_session(&id, Some(&next.session_id.to_string()))
+            .await;
+        assert!(
+            gateway
+                .session_manager()
+                .get_session(after_prune.session_id)
+                .await
+                .is_ok()
+        );
+        gateway.restart_logical_session(&id).await.unwrap();
+        crate::chat_session::persist_session_thread_link(
+            &gateway,
+            &gateway.session_store,
+            home.path(),
+            &id,
+            &next.session_id.to_string(),
+            None,
+            None,
+        )
+        .await;
+        assert!(
+            gateway
+                .session_store
+                .get(&id)
+                .await
+                .unwrap()
+                .core_thread_id
+                .is_none()
+        );
+        assert!(
+            gateway
+                .session_manager()
+                .list_session_ids()
+                .await
+                .is_empty()
+        );
+        gateway
+            .retire_and_remove_logical_session(&id)
+            .await
+            .unwrap();
+        let terminal_id = uuid::Uuid::now_v7().to_string();
+        let old_generation = gateway
+            .begin_terminal_generation(&terminal_id)
+            .await
+            .unwrap();
+        gateway.restart_logical_session(&terminal_id).await.unwrap();
+        crate::chat_session::persist_chat_session_metadata(
+            &gateway,
+            &gateway.session_store,
+            home.path(),
+            &terminal_id,
+            &terminal_id,
+            "terminal/test",
+            "terminal",
+            None,
+            None,
+            Some(&old_generation),
+        )
+        .await;
+        assert!(
+            gateway
+                .session_store
+                .get(&terminal_id)
+                .await
+                .unwrap()
+                .core_thread_id
+                .is_none()
+        );
+        gateway
+            .retire_and_remove_logical_session(&terminal_id)
+            .await
+            .unwrap();
+        let generation = gateway
+            .begin_terminal_generation(&terminal_id)
+            .await
+            .unwrap();
+        assert_ne!(generation, old_generation);
+        crate::chat_session::persist_chat_session_metadata(
+            &gateway,
+            &gateway.session_store,
+            home.path(),
+            &terminal_id,
+            &terminal_id,
+            "terminal/old",
+            "terminal",
+            None,
+            None,
+            Some(&old_generation),
+        )
+        .await;
+        assert!(
+            gateway
+                .session_store
+                .get(&terminal_id)
+                .await
+                .unwrap()
+                .core_thread_id
+                .is_none()
+        );
+        crate::chat_session::persist_chat_session_metadata(
+            &gateway,
+            &gateway.session_store,
+            home.path(),
+            &terminal_id,
+            &terminal_id,
+            "terminal/current",
+            "terminal",
+            None,
+            None,
+            Some(&generation),
+        )
+        .await;
+        assert_eq!(
+            gateway
+                .session_store
+                .get(&terminal_id)
+                .await
+                .unwrap()
+                .model
+                .as_deref(),
+            Some("terminal/current")
+        );
+        gateway
+            .retire_and_remove_logical_session(&terminal_id)
+            .await
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn partial_output_timeout_is_an_error_and_stops_its_turn() {

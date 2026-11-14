@@ -32,6 +32,52 @@ pub(crate) fn provider_from_model(model: &str) -> String {
 }
 
 pub(crate) async fn persist_chat_session_metadata(
+    channel: &GatewayChannel,
+    session_store: &SessionStore,
+    savfox_home: &Path,
+    logical_session_id: &str,
+    thread_id: &str,
+    model: &str,
+    provider: &str,
+    rollout_path: Option<&Path>,
+    token_usage: Option<&TokenUsage>,
+    expected_generation: Option<&str>,
+) {
+    let lifecycle = channel.logical_session_lock(logical_session_id).await;
+    let _lifecycle = lifecycle.lock().await;
+    if let Some(expected) = expected_generation
+        && !session_store
+            .get(logical_session_id)
+            .await
+            .is_some_and(|entry| entry.lifecycle_generation == expected)
+    {
+        return;
+    }
+    if (thread_id != logical_session_id
+        && !channel
+            .logical_session_is_current(logical_session_id, thread_id)
+            .await)
+        || session_store
+            .is_tombstoned(logical_session_id)
+            .await
+            .unwrap_or(true)
+    {
+        return;
+    }
+    persist_chat_session_metadata_unchecked(
+        session_store,
+        savfox_home,
+        logical_session_id,
+        thread_id,
+        model,
+        provider,
+        rollout_path,
+        token_usage,
+    )
+    .await;
+}
+
+async fn persist_chat_session_metadata_unchecked(
     session_store: &SessionStore,
     savfox_home: &Path,
     logical_session_id: &str,
@@ -101,6 +147,46 @@ pub(crate) async fn persist_chat_session_metadata(
 /// instead of finding nothing (the rollout lives under a freshly minted thread
 /// id that differs from the logical session id).
 pub(crate) async fn persist_session_thread_link(
+    channel: &GatewayChannel,
+    session_store: &SessionStore,
+    savfox_home: &Path,
+    logical_session_id: &str,
+    thread_id: &str,
+    rollout_path: Option<&Path>,
+    expected_generation: Option<&str>,
+) {
+    let lifecycle = channel.logical_session_lock(logical_session_id).await;
+    let _lifecycle = lifecycle.lock().await;
+    if let Some(expected) = expected_generation
+        && !session_store
+            .get(logical_session_id)
+            .await
+            .is_some_and(|entry| entry.lifecycle_generation == expected)
+    {
+        return;
+    }
+    if (thread_id != logical_session_id
+        && !channel
+            .logical_session_is_current(logical_session_id, thread_id)
+            .await)
+        || session_store
+            .is_tombstoned(logical_session_id)
+            .await
+            .unwrap_or(true)
+    {
+        return;
+    }
+    persist_session_thread_link_unchecked(
+        session_store,
+        savfox_home,
+        logical_session_id,
+        thread_id,
+        rollout_path,
+    )
+    .await;
+}
+
+async fn persist_session_thread_link_unchecked(
     session_store: &SessionStore,
     savfox_home: &Path,
     logical_session_id: &str,
@@ -203,7 +289,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        persist_chat_session_metadata, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
+        persist_chat_session_metadata_unchecked as persist_chat_session_metadata,
+        resolve_abort_candidate_ids, validate_uuid_v7_session_id,
     };
     use crate::session::SessionStore;
 

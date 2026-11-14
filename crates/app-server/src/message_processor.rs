@@ -166,6 +166,11 @@ impl MessageProcessor {
         }
     }
 
+    pub(crate) async fn shutdown(&mut self) {
+        self.outgoing.shutdown().await;
+        self.savfox_message_processor.shutdown().await;
+    }
+
     pub(crate) async fn process_request(&mut self, request: JSONRPCRequest) {
         let request_id = request.id.clone();
         let request_json = match serde_json::to_value(&request) {

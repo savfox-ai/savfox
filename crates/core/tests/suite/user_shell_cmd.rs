@@ -112,6 +112,37 @@ async fn user_shell_cmd_can_be_interrupted() {
     assert_eq!(ev.reason, TurnAbortReason::Interrupted);
 }
 
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn interrupt_user_shell_stops_background_child_side_effects() {
+    let server = start_mock_server().await;
+    let cwd = TempDir::new().expect("temp dir");
+    let cwd_path = cwd.path().to_path_buf();
+    let mut builder = test_savfox().with_config(move |config| {
+        config.cwd = cwd_path;
+        config.features.disable(Feature::ShellSnapshot);
+    });
+    let savfox = builder.build(&server).await.expect("session").savfox;
+    savfox
+        .submit(Op::RunUserShellCommand {
+            command: "(sleep 1; echo survived > shell-child-marker) & echo child-started; wait"
+                .to_owned(),
+        })
+        .await
+        .expect("submit");
+    // ExecCommandBegin precedes process spawning; wait for actual child startup.
+    wait_for_event(&savfox, |event| matches!(event,
+        EventMsg::ExecCommandOutputDelta(delta) if String::from_utf8_lossy(&delta.chunk).contains("child-started")
+    )).await;
+    savfox.submit(Op::Interrupt).await.expect("interrupt");
+    wait_for_event(&savfox, |event| matches!(event, EventMsg::TurnAborted(_))).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1300)).await;
+    assert!(
+        !cwd.path().join("shell-child-marker").exists(),
+        "background child survived interrupt"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyhow::Result<()> {
     let server = responses::start_mock_server().await;

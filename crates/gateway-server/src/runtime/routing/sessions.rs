@@ -7,7 +7,9 @@ use serde_json::json;
 use crate::auth::GatewayAuth;
 use crate::channel::GatewayChannel;
 use crate::claude_code::Runtime;
-use crate::session::{GatewaySessionManager, SessionStore};
+#[cfg(test)]
+use crate::session::GatewaySessionManager;
+use crate::session::SessionStore;
 
 /// Use the same credential subject and ownership policy as WebSocket RPC and
 /// history reads. Scope checks alone do not grant access to another owner's
@@ -151,14 +153,25 @@ pub async fn sessions_reset_handler(req: &mut Request, depot: &mut Depot, res: &
         return;
     }
 
-    let session_mgr = if let Ok(mgr) = depot.get_typed::<Arc<GatewaySessionManager>>() {
-        mgr.clone()
+    let channel = if let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() {
+        channel.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    session_mgr.remove_session(&session_id).await;
+    let Ok(_store) = depot.get_typed::<Arc<SessionStore>>() else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
+    };
+    if let Err(error) = channel
+        .retire_and_remove_logical_session(&session_id.to_string())
+        .await
+    {
+        tracing::warn!(%error, "failed to persist session reset");
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
+    }
 
     res.render(Text::Json(
         json!({
@@ -183,22 +196,21 @@ pub async fn sessions_delete_handler(req: &mut Request, depot: &mut Depot, res: 
         return;
     }
 
-    let session_mgr = if let Ok(mgr) = depot.get_typed::<Arc<GatewaySessionManager>>() {
-        mgr.clone()
+    let channel = if let Ok(channel) = depot.get_typed::<Arc<GatewayChannel>>() {
+        channel.clone()
     } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let session_store = if let Ok(store) = depot.get_typed::<Arc<SessionStore>>() {
-        store.clone()
-    } else {
+    if let Err(error) = channel
+        .retire_and_remove_logical_session(&session_id.to_string())
+        .await
+    {
+        tracing::warn!(%error, "failed to persist session deletion");
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
-    };
-
-    session_mgr.remove_session(&session_id).await;
-    session_store.delete(&session_id).await;
+    }
 
     res.render(Text::Json(
         json!({
@@ -494,9 +506,14 @@ mod tests {
     async fn rest_session_patch_reports_disk_failure_without_changing_cached_flags() {
         let fixture = Fixture::new().await;
         let own = fixture.seed("owner-token", 1).await;
-        let metadata = fixture.home.path().join("gateway-session-store.json");
-        std::fs::remove_file(&metadata).expect("remove metadata file");
-        std::fs::create_dir(&metadata).expect("block durable replacement");
+        let pool = sqlx::SqlitePool::connect_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(fixture.home.path().join("gateway-session-store.sqlite")),
+        )
+        .await
+        .expect("open metadata database");
+        sqlx::query("CREATE TRIGGER fail_updates BEFORE UPDATE ON session_metadata BEGIN SELECT RAISE(FAIL, 'injected storage failure'); END")
+            .execute(&pool).await.expect("install failure trigger");
         let response = TestClient::post(format!("http://localhost/api/sessions/{own}"))
             .add_header("authorization", "Bearer owner-token", true)
             .add_header("content-type", "application/json", true)

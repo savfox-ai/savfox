@@ -223,6 +223,7 @@ const server = http.createServer((request, response) => {
     await page.getByLabel('Gateway token', { exact: true }).fill(token);
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await page.locator('.top-header__health--ok').waitFor();
+    assert.equal(await page.locator('.top-header__lang-group, .top-header__theme-group').count(), 0);
     report.checks.push('invalid token rejected; valid token signed WebSocket challenge');
     if (process.argv.includes('--chat-performance')) {
       await page.goto(base + '/sessions?session_id=performance-session');
@@ -410,6 +411,7 @@ const server = http.createServer((request, response) => {
     await page.getByText('Browser settings saved. Reload the page to connect to the new gateway.',{exact:true}).waitFor();
     assert.equal(calls.filter(call=>call.method==='config.set').length,beforeBrowserSave,'Browser-only saves must not write server configuration');
     assert.equal(await page.evaluate(()=>localStorage.getItem('savfox_theme')),'light');
+    assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
     assert.equal(await page.evaluate(()=>localStorage.getItem('savfox_default_model')),'openai/test-model');
     await page.getByRole('button',{name:'Interface and notifications',exact:true}).click();
     await themeChoice.click(); await page.getByRole('option',{name:'Dark',exact:true}).click();
@@ -421,7 +423,14 @@ const server = http.createServer((request, response) => {
     await browserSave.click();
     await page.getByText('浏览器选项已保存。',{exact:true}).waitFor();
     assert.equal(await page.evaluate(()=>localStorage.getItem('savfox_locale')),'zh-CN');
-    await page.getByRole('button',{name:'EN',exact:true}).click();
+    assert.equal(await page.locator('html').getAttribute('lang'),'zh-CN');
+    assert.equal(await page.title(),'Savfox - 你的 AI 助手');
+    await page.getByRole('combobox',{name:'语言',exact:true}).click();
+    await page.getByRole('option',{name:'English',exact:true}).click();
+    await page.getByRole('button',{name:'保存配置',exact:true}).click();
+    await page.getByText('Browser settings saved.',{exact:true}).waitFor();
+    assert.equal(await page.locator('html').getAttribute('lang'),'en');
+    assert.equal(await page.title(),'Savfox - Your AI assistant');
     // Restore this-host connection before reloading; the test gateway is deliberately local.
     await page.getByRole('button',{name:'Gateway and security',exact:true}).click();
     await browserUrl.fill(''); await browserSave.click();
@@ -669,16 +678,6 @@ const server = http.createServer((request, response) => {
     await page.goto(base + '/sessions');
     await page.locator('.top-header__health--ok').waitFor();
     await page.locator('.chat-composer textarea').fill('Browser streaming test');
-    await page.getByRole('button', { name: '中文', exact: true }).click();
-    assert.equal(await page.locator('.chat-composer textarea').inputValue(), 'Browser streaming test');
-    await page.getByRole('link', { name: '会话', exact: true }).waitFor();
-    await page.getByRole('textbox', { name: '消息', exact: true }).waitFor();
-    assert.equal(await page.locator('.chat-composer textarea').inputValue(), 'Browser streaming test');
-    await page.getByRole('button', { name: 'EN', exact: true }).click();
-    await page.getByRole('link', { name: 'Sessions', exact: true }).waitFor();
-    await page.getByRole('textbox', { name: 'Message', exact: true }).waitFor();
-    assert.equal(await page.locator('.chat-composer textarea').inputValue(), 'Browser streaming test');
-    report.checks.push('changing language preserves the active draft');
     const prompt = page.locator('.chat-composer textarea');
     await prompt.focus();
     await page.keyboard.press('Control+k');

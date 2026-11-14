@@ -29,7 +29,6 @@ This will compile the Rust CLI for all supported targets:
 - `x86_64-apple-darwin` (macOS Intel)
 - `aarch64-apple-darwin` (macOS Apple Silicon)
 - `x86_64-pc-windows-msvc` (Windows x64)
-- `aarch64-pc-windows-msvc` (Windows ARM64)
 
 ### Cross-Compilation Notes
 
@@ -47,8 +46,13 @@ For cross-platform builds, consider using CI/CD (GitHub Actions) to build on app
 ```
 
 This will create:
-1. Main package with platform detection wrapper
-2. Platform-specific packages with compiled binaries
+1. Main package with the platform detection wrapper and exact-version optional dependencies
+2. Platform-specific packages with compiled binaries, as defined in `platforms.json`
+
+All five platform binaries must be collected in the repository-level `dist/`
+directory before packaging. Missing or empty binaries fail packaging before old
+packages are replaced. Windows ARM64 is not currently published. The main package
+contains no platform binaries; installations must enable optional dependencies.
 
 ## Publishing
 
@@ -56,14 +60,15 @@ This will create:
 
 ```bash
 # After building and packaging
-cd ../npm-packages/savfox
-npm publish --access public
-
-# Publish platform-specific packages
-cd ../savfox-linux-x64
+# Publish all platform-specific packages first
+cd ../npm-packages/savfox-linux-x64
 npm publish --access public
 
 # ... repeat for other platforms
+
+# Verify each platform version is available, then publish the main wrapper
+cd ../savfox
+npm publish --access public
 ```
 
 ### Automated Publishing (GitHub Actions)

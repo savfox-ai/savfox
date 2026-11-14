@@ -53,6 +53,8 @@ pub(crate) struct GatewayChannel {
     channel_recovery_registry: crate::channels::recovery::ChannelRecoveryRegistry,
     /// Restart supervisors for persistent channel instances.
     channel_recovery_supervisors: crate::channels::recovery::ChannelRecoverySupervisors,
+    /// Serializes logical-session creation and retirement. Acquire before bindings.
+    logical_session_lifecycle: Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
     /// Logical gateway session IDs mapped to active core session IDs.
     logical_session_threads: Arc<Mutex<HashMap<String, SessionId>>>,
     /// Active Channel approvals mapped to their exact Core session/turn.
@@ -86,6 +88,7 @@ pub(crate) struct AgentInvocationResult {
     pub(crate) thread_id: String,
     pub(crate) rollout_path: Option<PathBuf>,
     pub(crate) last_token_usage: Option<savfox_protocol::protocol::TokenUsage>,
+    pub(crate) lifecycle_generation: Option<String>,
 }
 
 pub(crate) struct ResolvedAgentSession {
@@ -147,6 +150,7 @@ impl GatewayChannel {
             channel_recovery_registry: args.channel_recovery_registry,
             channel_recovery_supervisors: args.channel_recovery_supervisors,
             logical_session_threads: Arc::new(Mutex::new(HashMap::new())),
+            logical_session_lifecycle: Mutex::new(HashMap::new()),
             approval_coordinator,
             claude_runtime,
         }
@@ -175,6 +179,10 @@ impl GatewayChannel {
     #[must_use]
     pub(crate) fn websocket_manager(&self) -> &GatewaySessionManager {
         &self.websocket_manager
+    }
+
+    pub(crate) fn session_store(&self) -> &Arc<SessionStore> {
+        &self.session_store
     }
 
     /// Get a reference to the HTTP client for platform API calls.

@@ -212,19 +212,9 @@ async fn apply_command_action(
                 .await;
         }
         CommandAction::Reset => {
-            let _ = session_store
-                .update(session_id, |entry| {
-                    entry.model = None;
-                    entry.provider = None;
-                    entry.overrides = None;
-                    entry.core_thread_id = None;
-                    entry.session_file = None;
-                    entry.touch();
-                })
-                .await;
-            gateway_channel
-                .unbind_logical_session_thread(session_id)
-                .await;
+            if let Err(error) = gateway_channel.restart_logical_session(session_id).await {
+                warn!(%error, "failed to reset logical session");
+            }
         }
         CommandAction::Clear => {
             // Clear conversation history on the existing agent thread.
@@ -234,20 +224,9 @@ async fn apply_command_action(
                 .await;
         }
         CommandAction::NewSession => {
-            // Create a brand new agent thread, reset all settings to defaults.
-            let _ = session_store
-                .update(session_id, |entry| {
-                    entry.model = None;
-                    entry.provider = None;
-                    entry.overrides = None;
-                    entry.core_thread_id = None;
-                    entry.session_file = None;
-                    entry.touch();
-                })
-                .await;
-            gateway_channel
-                .unbind_logical_session_thread(session_id)
-                .await;
+            if let Err(error) = gateway_channel.restart_logical_session(session_id).await {
+                warn!(%error, "failed to start new logical session");
+            }
         }
         CommandAction::Stop => {
             // Interrupt the active agent session if one is running.
@@ -1167,6 +1146,29 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .await
     {
         Ok(result) => {
+            let lifecycle = gateway_channel
+                .logical_session_lock(&tracked.session_id)
+                .await;
+            let lifecycle_guard = lifecycle.lock().await;
+            let current = if let Some(expected) = result.lifecycle_generation.as_deref() {
+                session_store
+                    .get(&tracked.session_id)
+                    .await
+                    .is_some_and(|entry| entry.lifecycle_generation == expected)
+            } else {
+                result.thread_id == tracked.session_id
+                    || gateway_channel
+                        .logical_session_is_current(&tracked.session_id, &result.thread_id)
+                        .await
+            };
+            if !current {
+                drop(stream_tx);
+                if let Some(handle) = stream_handle {
+                    handle.abort();
+                }
+                approval_task.abort();
+                return;
+            }
             let mut input_tokens = 0_u64;
             let mut output_tokens = 0_u64;
             if let Some(tokens) = result.last_token_usage.as_ref() {
@@ -1221,6 +1223,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             }
 
             // Signal streaming completion with footer text.
+            drop(lifecycle_guard);
             let streamed = if let Some(tx) = stream_tx {
                 let footer_suffix = footer_text.map(|f| format!("\n\n{f}"));
                 let _ = tx.send(StreamEvent::Complete {

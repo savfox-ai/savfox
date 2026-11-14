@@ -1588,6 +1588,7 @@ async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response)
             Ok(result) => {
                 let provider = provider_from_model(&model_owned);
                 persist_chat_session_metadata(
+                    &channel,
                     session_store_clone.as_ref(),
                     &channel_clone.config().savfox_home,
                     &result.session_id,
@@ -1596,6 +1597,7 @@ async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response)
                     &provider,
                     result.rollout_path.as_deref(),
                     result.last_token_usage.as_ref(),
+                    result.lifecycle_generation.as_deref(),
                 )
                 .await;
 

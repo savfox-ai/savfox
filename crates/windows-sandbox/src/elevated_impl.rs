@@ -26,8 +26,8 @@ mod windows_impl {
     const PIPE_ACCESS_DUPLEX: u32 = 0x0000_0003;
     use windows_sys::Win32::System::Pipes::{PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_WAIT};
     use windows_sys::Win32::System::Threading::{
-        CreateProcessWithLogonW, GetExitCodeProcess, INFINITE, LOGON_WITH_PROFILE,
-        PROCESS_INFORMATION, STARTUPINFOW, WaitForSingleObject,
+        CreateProcessWithLogonW, GetExitCodeProcess, LOGON_WITH_PROFILE, PROCESS_INFORMATION,
+        STARTUPINFOW,
     };
 
     /// Ensures the parent directory of a path exists before writing to it.
@@ -200,8 +200,34 @@ mod windows_impl {
         savfox_home: &Path,
         command: Vec<String>,
         cwd: &Path,
+        env_map: HashMap<String, String>,
+        timeout_ms: Option<u64>,
+    ) -> Result<CaptureResult> {
+        run_windows_sandbox_capture_with_cancellation(
+            policy_json_or_preset,
+            sandbox_policy_cwd,
+            savfox_home,
+            command,
+            cwd,
+            env_map,
+            timeout_ms,
+            None,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Preserves the existing seven-argument capture API while adding an optional cancellation observer"
+    )]
+    pub fn run_windows_sandbox_capture_with_cancellation(
+        policy_json_or_preset: &str,
+        sandbox_policy_cwd: &Path,
+        savfox_home: &Path,
+        command: Vec<String>,
+        cwd: &Path,
         mut env_map: HashMap<String, String>,
         timeout_ms: Option<u64>,
+        cancellation: Option<&(dyn Fn() -> bool + Sync)>,
     ) -> Result<CaptureResult> {
         let policy = parse_policy(policy_json_or_preset)?;
         normalize_null_device_env(&mut env_map);
@@ -404,18 +430,11 @@ mod windows_impl {
             let _ = tx_err.send(buf);
         });
 
-        let timeout = timeout_ms.map(|ms| ms as u32).unwrap_or(INFINITE);
-        let res = unsafe { WaitForSingleObject(pi.hProcess, timeout) };
-        let timed_out = res == 0x0000_0102;
+        let (timed_out, cancelled, cleanup_error) =
+            crate::wait_for_capture(pi.hProcess, pi.dwProcessId, timeout_ms, cancellation);
         let mut exit_code_u32: u32 = 1;
-        if !timed_out {
-            unsafe {
-                GetExitCodeProcess(pi.hProcess, &mut exit_code_u32);
-            }
-        } else {
-            unsafe {
-                windows_sys::Win32::System::Threading::TerminateProcess(pi.hProcess, 1);
-            }
+        unsafe {
+            GetExitCodeProcess(pi.hProcess, &mut exit_code_u32);
         }
 
         unsafe {
@@ -428,11 +447,22 @@ mod windows_impl {
             CloseHandle(h_stdout_pipe);
             CloseHandle(h_stderr_pipe);
         }
-        let _ = t_out.join();
-        let _ = t_err.join();
-        let stdout = rx_out.recv().unwrap_or_default();
-        let stderr = rx_err.recv().unwrap_or_default();
-        let exit_code = if timed_out {
+        let stdout_result = rx_out.recv_timeout(std::time::Duration::from_secs(2));
+        let stderr_result = rx_err.recv_timeout(std::time::Duration::from_secs(2));
+        if stdout_result.is_ok() {
+            let _ = t_out.join();
+        }
+        if stderr_result.is_ok() {
+            let _ = t_err.join();
+        }
+        let stdout = stdout_result.unwrap_or_default();
+        let stderr = stderr_result.unwrap_or_default();
+        if let Some(error) = cleanup_error {
+            anyhow::bail!("Windows process cleanup failed: {error}");
+        }
+        let exit_code = if cancelled {
+            137
+        } else if timed_out {
             128 + 64
         } else {
             exit_code_u32 as i32
@@ -483,7 +513,9 @@ mod windows_impl {
 }
 
 #[cfg(target_os = "windows")]
-pub use windows_impl::run_windows_sandbox_capture;
+pub use windows_impl::{
+    run_windows_sandbox_capture, run_windows_sandbox_capture_with_cancellation,
+};
 
 #[cfg(not(target_os = "windows"))]
 mod stub {

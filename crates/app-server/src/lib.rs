@@ -288,6 +288,8 @@ pub async fn run_main(
         }
     }
 
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
+
     // Task: process incoming messages.
     let processor_handle = tokio::spawn({
         let outgoing_message_sender = OutgoingMessageSender::new(outgoing_tx);
@@ -339,6 +341,8 @@ pub async fn run_main(
                 }
             }
 
+            processor.shutdown().await;
+            let _ = shutdown_tx.send(());
             info!("processor task exited (channel closed)");
         }
     });
@@ -346,7 +350,20 @@ pub async fn run_main(
     // Task: write outgoing messages to stdout.
     let stdout_writer_handle = tokio::spawn(async move {
         let mut stdout = io::stdout();
-        while let Some(outgoing_message) = outgoing_rx.recv().await {
+        let mut closing = false;
+        loop {
+            let outgoing_message = tokio::select! {
+                _ = &mut shutdown_rx, if !closing => {
+                    // Reject sends from retained core/auth handles and drain queued messages.
+                    outgoing_rx.close();
+                    closing = true;
+                    continue;
+                }
+                message = outgoing_rx.recv() => {
+                    let Some(message) = message else { break; };
+                    message
+                }
+            };
             let Ok(value) = serde_json::to_value(outgoing_message) else {
                 error!("Failed to convert OutgoingMessage to JSON value");
                 continue;

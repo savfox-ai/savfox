@@ -28,6 +28,10 @@ Cargo 会自行获取固定提交的 Arkret SDK、Garth 和桥接 Git 依赖；
 校验文件缺失或摘要不匹配会使安装失败。解析最新版本需要 curl，固定版本下载
 也支持 wget。目前原生 Windows 发布支持 x64。
 
+npm 启动器通过固定同版本的可选依赖安装对应平台包，不再将所有平台二进制
+装入主包。安装时请保留可选依赖。npm 支持 Linux x64/ARM64、macOS x64/ARM64
+和 Windows x64，目前不发布 Windows ARM64 包。
+
 ### 检查已安装的二进制
 
 ```bash

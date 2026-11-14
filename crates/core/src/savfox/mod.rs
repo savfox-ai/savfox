@@ -1989,6 +1989,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_cancels_mcp_startup_before_terminal_event() {
+        let (session, _) = make_session_and_context().await;
+        let session = Arc::new(session);
+        let startup = session.mcp_startup_cancellation_token().await;
+        assert!(!startup.is_cancelled());
+        assert!(task_coordinator::handlers::shutdown(&session, "shutdown-test".to_owned()).await);
+        assert!(startup.is_cancelled());
+    }
+
+    #[tokio::test]
     async fn refresh_mcp_servers_is_deferred_until_next_turn() {
         let (session, turn_context) = make_session_and_context().await;
         let old_token = session.mcp_startup_cancellation_token().await;

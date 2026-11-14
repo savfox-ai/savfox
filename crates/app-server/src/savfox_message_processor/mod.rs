@@ -19,7 +19,7 @@ use savfox_app_server_protocol::{
 };
 use savfox_core::config::{Config, ConfigOverrides};
 use savfox_core::config_loader::CloudRequirementsLoader;
-use savfox_core::protocol::{ReviewRequest, ReviewTarget as CoreReviewTarget};
+use savfox_core::protocol::{EventMsg, Op, ReviewRequest, ReviewTarget as CoreReviewTarget};
 use savfox_core::{
     AuthManager, InitialHistory, RolloutRecorder, SavfoxSession, SessionConfigSnapshot,
     SessionManager, SessionMeta, read_head_for_summary,
@@ -157,6 +157,19 @@ impl SavfoxMessageProcessor {
         }
     }
 
+    pub(crate) async fn shutdown(&mut self) {
+        self.conversation_listeners.clear();
+        self.listener_session_ids_by_subscription.clear();
+        self.active_login.lock().await.take();
+        for cancelled in self.pending_fuzzy_searches.lock().await.values() {
+            cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.pending_fuzzy_searches.lock().await.clear();
+        self.pending_rollbacks.lock().await.clear();
+        self.turn_summary_store.lock().await.clear();
+        close_connection_sessions(&self.session_manager).await;
+    }
+
     async fn load_latest_config(&self) -> Result<Config, JSONRPCErrorError> {
         savfox_core::config::ConfigBuilder::default()
             .cli_overrides(self.cli_overrides.clone())
@@ -284,18 +297,28 @@ impl SavfoxMessageProcessor {
                 let session_manager = self.session_manager.clone();
                 let config = self.config.clone();
 
-                tokio::spawn(async move {
-                    Self::list_models(outgoing, session_manager, config, request_id, params).await;
-                });
+                self.outgoing
+                    .spawn_task(async move {
+                        Self::list_models(outgoing, session_manager, config, request_id, params)
+                            .await;
+                    })
+                    .await;
             }
             ClientRequest::CollaborationModeList { request_id, params } => {
                 let outgoing = self.outgoing.clone();
                 let session_manager = self.session_manager.clone();
 
-                tokio::spawn(async move {
-                    Self::list_collaboration_modes(outgoing, session_manager, request_id, params)
+                self.outgoing
+                    .spawn_task(async move {
+                        Self::list_collaboration_modes(
+                            outgoing,
+                            session_manager,
+                            request_id,
+                            params,
+                        )
                         .await;
-                });
+                    })
+                    .await;
             }
             ClientRequest::MockExperimentalMethod { request_id, params } => {
                 self.mock_experimental_method(request_id, params).await;
@@ -778,6 +801,44 @@ fn errors_to_info(
         .collect()
 }
 
+/// These sessions belong to this stdio connection's manager, including child
+/// agents. Remove handles first, then request and observe actual core shutdown.
+async fn close_connection_sessions(manager: &SessionManager) {
+    loop {
+        let ids = manager.list_session_ids().await;
+        if ids.is_empty() {
+            break;
+        }
+        let mut shutdowns = tokio::task::JoinSet::new();
+        for id in ids {
+            if let Some(session) = manager.remove_session(&id).await {
+                shutdowns.spawn(async move {
+                    let shutdown = async {
+                        session.submit(Op::Shutdown).await?;
+                        loop {
+                            if matches!(session.next_event().await?.msg, EventMsg::ShutdownComplete)
+                            {
+                                return Ok::<(), savfox_core::error::SavfoxError>(());
+                            }
+                        }
+                    };
+                    match tokio::time::timeout(std::time::Duration::from_secs(30), shutdown).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(error)) => {
+                            tracing::warn!(%id, %error, "connection session shutdown failed")
+                        }
+                        Err(_) => {
+                            tracing::warn!(%id, "connection session shutdown exceeded deadline")
+                        }
+                    }
+                });
+            }
+        }
+        while shutdowns.join_next().await.is_some() {}
+        // A turn may have created a child immediately before its shutdown was handled.
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
@@ -787,6 +848,113 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    async fn offline_shutdown_config(home: &Path) -> Result<Config> {
+        let mut config = savfox_core::config::ConfigBuilder::default()
+            .savfox_home(home.to_path_buf())
+            .fallback_cwd(Some(home.to_path_buf()))
+            .build()
+            .await?;
+        // These tests exercise lifecycle only: do not use the machine's keyring,
+        // a live model catalog, or provider endpoints to initialize the fixture.
+        config.model = Some("offline-shutdown-test-model".to_owned());
+        config
+            .features
+            .disable(savfox_core::features::Feature::RemoteModels);
+        config.cli_auth_credentials_store_mode = savfox_core::auth::AuthCredentialsStoreMode::File;
+        config.model_provider.base_url = Some("http://127.0.0.1:9/v1".to_owned());
+        config.ephemeral = true;
+        Ok(config)
+    }
+
+    #[tokio::test]
+    async fn connection_shutdown_cancels_one_off_command_tree() -> Result<()> {
+        let home = TempDir::new()?;
+        let mut config = offline_shutdown_config(home.path()).await?;
+        config
+            .sandbox_policy
+            .set(savfox_protocol::protocol::SandboxPolicy::DangerFullAccess)?;
+        let auth = AuthManager::from_auth_for_testing(savfox_core::SavfoxAuth::from_api_key(
+            "offline-test-key",
+        ));
+        let manager = Arc::new(SessionManager::with_models_provider_and_home(
+            savfox_core::SavfoxAuth::from_api_key("offline-test-key"),
+            config.model_provider.clone(),
+            home.path().to_path_buf(),
+        ));
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let outgoing = Arc::new(OutgoingMessageSender::new(tx));
+        let processor = SavfoxMessageProcessor::new(SavfoxMessageProcessorArgs {
+            auth_manager: auth,
+            session_manager: manager,
+            outgoing: outgoing.clone(),
+            savfox_linux_sandbox_exe: None,
+            config: Arc::new(config),
+            cli_overrides: Vec::new(),
+            cloud_requirements: CloudRequirementsLoader::default(),
+            feedback: SavfoxFeedback::new(),
+        });
+        #[cfg(unix)]
+        let command = vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "(while [ ! -e gate ]; do sleep 0.05; done; echo survived > escaped) & echo ready > ready; wait".to_owned(),
+        ];
+        #[cfg(windows)]
+        let command = vec!["powershell.exe".to_owned(), "-NoProfile".to_owned(), "-Command".to_owned(), "$p=Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-Command','while (-not (Test-Path gate)) { Start-Sleep -Milliseconds 50 }; Set-Content escaped survived'); Set-Content ready ready; Start-Sleep -Seconds 60".to_owned()];
+        processor
+            .exec_one_off_command(
+                RequestId::Integer(1),
+                savfox_app_server_protocol::CommandExecParams {
+                    command,
+                    timeout_ms: Some(60_000),
+                    cwd: Some(home.path().to_path_buf()),
+                    sandbox_policy: None,
+                },
+            )
+            .await;
+        let ready = tokio::time::timeout(Duration::from_secs(10), async {
+            while !home.path().join("ready").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        // Clean up even if the startup handshake fails; never return with the
+        // command still waiting on its gate. Production shutdown awaits cleanup.
+        let started_cleanup = std::time::Instant::now();
+        outgoing.shutdown().await;
+        ready?;
+        assert!(
+            started_cleanup.elapsed() < Duration::from_secs(30),
+            "command cleanup exceeded budget"
+        );
+        std::fs::write(home.path().join("gate"), "go")?;
+        tokio::time::sleep(Duration::from_millis(2200)).await;
+        assert!(
+            !home.path().join("escaped").exists(),
+            "one-off command descendant survived connection close"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn connection_shutdown_retires_core_sessions() -> Result<()> {
+        let home = TempDir::new()?;
+        let config = offline_shutdown_config(home.path()).await?;
+        let manager = SessionManager::with_models_provider_and_home(
+            savfox_core::SavfoxAuth::from_api_key("offline-test-key"),
+            config.model_provider.clone(),
+            home.path().to_path_buf(),
+        );
+        let session = manager.start_session(config).await?.session;
+        close_connection_sessions(&manager).await;
+        assert!(manager.list_session_ids().await.is_empty());
+        assert!(matches!(
+            session.agent_status().await,
+            savfox_protocol::protocol::AgentStatus::Shutdown
+        ));
+        Ok(())
+    }
 
     #[test]
     fn validate_dynamic_tools_rejects_unsupported_input_schema() {

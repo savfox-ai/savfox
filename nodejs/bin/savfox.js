@@ -10,14 +10,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
-const PLATFORM_PACKAGE_BY_TARGET = {
-  "x86_64-unknown-linux-musl": "@savfox/savfox-linux-x64",
-  "aarch64-unknown-linux-musl": "@savfox/savfox-linux-arm64",
-  "x86_64-apple-darwin": "@savfox/savfox-darwin-x64",
-  "aarch64-apple-darwin": "@savfox/savfox-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@savfox/savfox-win32-x64",
-  "aarch64-pc-windows-msvc": "@savfox/savfox-win32-arm64",
-};
+const PLATFORM_PACKAGE_BY_TARGET = Object.fromEntries(
+  require("../platforms.json").map(({ target, platform }) => [target, `@savfox/savfox-${platform}`]),
+);
 
 const { platform, arch } = process;
 

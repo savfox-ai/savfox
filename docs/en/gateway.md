@@ -2,6 +2,10 @@
 
 The gateway server provides remote HTTP/WebSocket access to Savfox, enabling web clients, chat platform integrations, and multi-device usage.
 
+See [credential boundaries](gateway/credential-boundaries.md) for model discovery
+credentials, administrator-only provider changes, authenticated WebChat bootstrap,
+and provider account filename validation.
+
 The web conversation pane uses Glory's measured virtual list: only visible messages
 and a small overscan window are mounted. Streaming text and reasoning are batched
 at 32 ms intervals and update only the active reply's fields. Completion, failure
