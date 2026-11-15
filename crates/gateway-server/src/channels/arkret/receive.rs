@@ -1950,8 +1950,11 @@ mod recovery_tests {
                 DidCoreId::new("ak:did_core:web:alice.example").unwrap(),
                 station.clone(),
             ),
-            station,
-            arkret_wire::SessionGrantId::from_issuance_digest([3; 32]),
+            station.clone(),
+            arkret_wire::SessionGrantRef::new(
+                station,
+                arkret_wire::SessionGrantId::new_v7_at(1_785_000_000_003),
+            ),
             0,
             "test-grant".into(),
         )
@@ -2179,7 +2182,7 @@ mod recovery_tests {
             old.binding().clone(),
             old.account_id().clone(),
             old.account_id().station_id.clone(),
-            old.grant_id().clone(),
+            old.grant_ref().clone(),
             old.epoch(),
             "test-grant".into(),
         )
@@ -2548,7 +2551,7 @@ mod recovery_tests {
             old.binding().clone(),
             old.account_id().clone(),
             old.account_id().station_id.clone(),
-            old.grant_id().clone(),
+            old.grant_ref().clone(),
             old.epoch(),
             "test-grant".into(),
         )
