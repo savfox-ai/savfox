@@ -1188,9 +1188,9 @@ mod tests {
             binding.clone(),
             account.clone(),
             account.station_id.clone(),
-            arkret_wire::SessionGrantRef::new(
-                account.station_id.clone(),
-                arkret_wire::SessionGrantId::new(
+            arkret::SessionGrantRef::new(
+                account.station_id,
+                arkret::SessionGrantId::new(
                     "ak:session_grant:01904100-0000-7000-8000-000000000001",
                 )
                 .unwrap(),
