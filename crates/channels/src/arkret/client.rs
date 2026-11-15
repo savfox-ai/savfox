@@ -462,7 +462,7 @@ impl AgentAuthenticatedTransportFactory {
         };
         if let Some(engine) = &entry.engine {
             if engine.current_state().is_some_and(|state| {
-                state.expires_at > Utc::now()
+                (state.expires_at > Utc::now() || state.pending_refresh.is_some())
                     && state
                         .granted_scope
                         .iter()
@@ -707,6 +707,77 @@ pub fn build_mls_key_packages_claim_request(
     Ok(request)
 }
 
+/// A transient locator read, not a governance projection or authority cache.
+#[derive(Default)]
+struct JoinedRealmLocatorPages {
+    cut: Option<(String, u64)>,
+    next: Option<String>,
+    finished: bool,
+    pages: std::collections::BTreeMap<String, String>,
+    seen_realms: std::collections::BTreeSet<RealmId>,
+    joined: std::collections::BTreeSet<RealmId>,
+}
+impl JoinedRealmLocatorPages {
+    fn push(
+        &mut self,
+        after: Option<&str>,
+        page: &arkret_models_collaboration::sync_frames::demand_sync::RealmListPage,
+    ) -> anyhow::Result<Option<String>> {
+        page.validate()?;
+        let key = after.unwrap_or_default().to_owned();
+        let digest = arkret::canonical::canonical_sha256(page)?;
+        if let Some(old) = self.pages.get(&key) {
+            anyhow::ensure!(
+                old == &digest,
+                "the same Realm-list cursor returned different bytes"
+            );
+            return Ok(self.next.clone());
+        }
+        anyhow::ensure!(
+            !self.finished,
+            "a completed Realm-list cut received another page"
+        );
+        anyhow::ensure!(
+            after == self.next.as_deref(),
+            "Realm-list continuation is out of order"
+        );
+        let cut = (page.snapshot_cursor.clone(), page.snapshot_revision);
+        if let Some(expected) = &self.cut {
+            anyhow::ensure!(
+                expected == &cut,
+                "Realm-list page belongs to another frozen cut"
+            );
+        }
+        if let Some(next) = &page.next_cursor {
+            anyhow::ensure!(
+                next != &key && !self.pages.contains_key(next),
+                "Realm-list continuation loops to an old cursor"
+            );
+        }
+        anyhow::ensure!(
+            page.items
+                .iter()
+                .all(|item| !self.seen_realms.contains(&item.realm_id)),
+            "frozen Realm-list pages repeat a Realm"
+        );
+        if self.cut.is_none() {
+            self.cut = Some(cut);
+        }
+        for item in &page.items {
+            self.seen_realms.insert(item.realm_id.clone());
+            if item.membership
+                == arkret_models_collaboration::sync_frames::demand_sync::RealmListMembership::Join
+            {
+                self.joined.insert(item.realm_id.clone());
+            }
+        }
+        self.next = page.next_cursor.clone();
+        self.finished = self.next.is_none();
+        self.pages.insert(key, digest);
+        Ok(self.next.clone())
+    }
+}
+
 impl ArkretHttpClient {
     #[must_use]
     pub fn inner(&self) -> &Client {
@@ -831,9 +902,51 @@ impl ArkretHttpClient {
         Ok(realms.keys().cloned().collect())
     }
 
-    /// Discover only the exact owner Direct pair. Public opaque issuance has
-    /// no selection overlay from which additional target scopes can be inferred.
-    /// Existing cached resource sessions remain independently bound to their intents.
+    /// Read only already-disclosed membership coordinates. Every candidate
+    /// still needs its own fresh issue and the service's current content gates.
+    async fn joined_realm_locators(&self) -> anyhow::Result<Vec<RealmId>> {
+        let own = self.own_station()?;
+        let session = own.session()?.clone();
+        let mut pages = JoinedRealmLocatorPages::default();
+        let mut account_after = None;
+        loop {
+            own.check_session()?;
+            anyhow::ensure!(
+                own.session()? == &session,
+                "Agent session changed during Realm-list paging"
+            );
+            let request=AccountSubscribeParameters {
+                after:account_after.clone(),catchup:Some(false),
+                filter:Some(arkret_models_collaboration::sync_frames::account_subscribe::AccountFilter {realm_ids:Some(Vec::new()),..Default::default()}),
+                realm_list_parameters:Some(arkret_models_collaboration::sync_frames::account_subscribe::RealmListParameters {
+                    after:pages.next.as_deref().map(arkret_wire::Cursor::new).transpose()?,limit:Some(100),
+                }),replace_filter:None,
+            };
+            let batch = self.inner.account_subscribe_batch(&request).await?;
+            own.check_session()?;
+            anyhow::ensure!(
+                own.session()? == &session,
+                "Agent session changed during Realm-list delivery"
+            );
+            let mut found = false;
+            let requested_after = pages.next.clone();
+            for frame in &batch.frames {
+                if let Some(page) = &frame.realm_list {
+                    let _ = pages.push(requested_after.as_deref(), page)?;
+                    found = true;
+                }
+            }
+            anyhow::ensure!(found, "Realm-list operation omitted its requested page");
+            account_after = Some(batch.cursor);
+            if pages.finished {
+                return Ok(pages.joined.into_iter().collect());
+            }
+        }
+    }
+
+    /// Discover joined membership locators and the exact owner Direct pair.
+    /// Each target still requires its own bound resource session; these locators
+    /// do not supply a participation selection overlay or grant authority.
     pub async fn content_realm_candidates(
         &self,
         controller_account: &arkret::AccountId,
@@ -843,7 +956,7 @@ impl ArkretHttpClient {
             .as_ref()
             .context("Agent provider is unavailable")?;
         provider.refresh_for_sensitive_action().await?;
-        let current = garth::TransportProvider::provide(provider).await?;
+        let current = self.current().await?;
         let state = provider
             .session()
             .current_state()
@@ -858,13 +971,18 @@ impl ArkretHttpClient {
                 account_id: controller_account.clone(),
             },
         };
-        let mut realms = Vec::new();
-        if let Ok(outcome) = current.direct_conversation_resolve(&request).await
+        let mut realms = current
+            .joined_realm_locators()
+            .await?
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        if let Ok(outcome) = current.inner.direct_conversation_resolve(&request).await
             && let Some(coordinates) = outcome.coordinates()
         {
-            realms.push(coordinates.realm_id.clone());
+            realms.insert(coordinates.realm_id.clone());
         }
-        Ok(realms)
+        current.own_station()?.check_session()?;
+        Ok(realms.into_iter().collect())
     }
 
     /// Construct an Agent HTTP client by exchanging a runtime-key
@@ -1070,7 +1188,7 @@ impl ArkretHttpClient {
                 factory
                     .build(&state)
                     .map_err(|error| anyhow::anyhow!("restored Agent grant scope: {error}"))?;
-                let session = arkret_session_from_state(&state)?;
+                let session = arkret_session_from_state(&state);
                 return Ok((
                     restored.clone(),
                     session,
@@ -1107,7 +1225,7 @@ impl ArkretHttpClient {
         .map_err(|error| anyhow::anyhow!("persist agent session grant: {error}"))?;
         Ok((
             provider.clone(),
-            arkret_session_from_state(&state)?,
+            arkret_session_from_state(&state),
             ArkretNativeCredentialSource { provider, factory },
         ))
     }
@@ -1430,14 +1548,14 @@ fn validate_agent_key_ref(key_ref: &ArkretKeyRef) -> anyhow::Result<()> {
     }
 }
 
-fn arkret_session_from_state(state: &SessionGrantState) -> anyhow::Result<ArkretSession> {
-    Ok(ArkretSession {
-        session_grant: state.session_grant.as_str().to_owned(),
+fn arkret_session_from_state(state: &SessionGrantState) -> ArkretSession {
+    ArkretSession {
+        grant_ref: state.grant_ref.clone(),
+        session_grant: state.session_grant.clone(),
         expires_at: state.expires_at,
         principal_did: state.account_id.principal_id.clone(),
         device_id: state.device_id.clone(),
-        participation_observation: None,
-    })
+    }
 }
 
 fn build_dpop_client(
@@ -1979,12 +2097,9 @@ mod tests {
                 .to_string()
                 .contains("selection overlay is unavailable")
         );
-        assert!(
-            arkret_session_from_state(&state)
-                .unwrap()
-                .participation_observation
-                .is_none()
-        );
+        let public_session = arkret_session_from_state(&state);
+        assert_eq!(public_session.grant_ref, state.grant_ref);
+        assert_eq!(public_session.session_grant, state.session_grant);
         let mut changed = state.clone();
         changed.session_grant = arkret::SessionGrantSecret::from_bytes([18; 32]);
         assert!(provider.factory().build(&changed).is_err());
@@ -2523,6 +2638,226 @@ mod tests {
             )
             .build(&state)
             .is_err()
+        );
+    }
+
+    fn locator_page(
+        cut: &str,
+        revision: u64,
+        ids: &[u8],
+        next: Option<&str>,
+    ) -> arkret_models_collaboration::sync_frames::demand_sync::RealmListPage {
+        use arkret_models_collaboration::sync_frames::demand_sync::{
+            AccountRealmView, RealmListMembership, RealmListPage,
+        };
+        RealmListPage {
+            snapshot_cursor: format!("ak:cursor:{cut}"),
+            snapshot_revision: revision,
+            items: ids
+                .iter()
+                .map(|id| AccountRealmView {
+                    realm_id: RealmId::from_event_id(&EventId::from_digest(
+                        arkret::DigestSuite::Sha256,
+                        [*id; 32],
+                    )),
+                    revision: 1,
+                    activity_position: 1,
+                    membership: RealmListMembership::Join,
+                    title: None,
+                    default_strand_id: None,
+                })
+                .collect(),
+            next_cursor: next.map(|value| format!("ak:cursor:{value}")),
+        }
+    }
+
+    #[tokio::test]
+    async fn joined_realm_locators_use_the_registered_account_list_over_real_http() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            for index in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let (end, length) = loop {
+                    let mut block = [0u8; 4096];
+                    let n = socket.read(&mut block).await.unwrap();
+                    assert!(n > 0);
+                    bytes.extend_from_slice(&block[..n]);
+                    if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&bytes[..end]);
+                        let length = headers
+                            .lines()
+                            .find_map(|line| {
+                                line.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .and_then(|value| value.trim().parse::<usize>().ok())
+                            })
+                            .unwrap_or(0);
+                        break (end + 4, length);
+                    }
+                };
+                while bytes.len() < end + length {
+                    let mut block = [0u8; 4096];
+                    let n = socket.read(&mut block).await.unwrap();
+                    assert!(n > 0);
+                    bytes.extend_from_slice(&block[..n]);
+                }
+                let headers = String::from_utf8_lossy(&bytes[..end]);
+                let line = headers.lines().next().unwrap();
+                let parts = line.split_whitespace().collect::<Vec<_>>();
+                let request: AccountSubscribeParameters = if parts[0] == "GET" {
+                    let url = Url::parse(&format!("http://station{}", parts[1])).unwrap();
+                    let query = url
+                        .query_pairs()
+                        .collect::<std::collections::BTreeMap<_, _>>();
+                    AccountSubscribeParameters {
+                        after: query.get("after").map(|value| value.to_string()),
+                        catchup: Some(false),
+                        filter: Some(serde_json::from_str(query.get("filter").unwrap()).unwrap()),
+                        realm_list_parameters: Some(
+                            serde_json::from_str(query.get("realm_list_parameters").unwrap())
+                                .unwrap(),
+                        ),
+                        replace_filter: None,
+                    }
+                } else {
+                    serde_json::from_slice(&bytes[end..end + length]).unwrap()
+                };
+                assert_eq!(request.filter.unwrap().realm_ids, Some(Vec::new()));
+                let list = request.realm_list_parameters.unwrap();
+                assert_eq!(list.limit, Some(100));
+                assert_eq!(
+                    list.after.as_ref().map(|value| value.as_str()),
+                    if index == 0 {
+                        None
+                    } else {
+                        Some("ak:cursor:page1")
+                    }
+                );
+                assert!(
+                    headers
+                        .to_ascii_lowercase()
+                        .contains("authorization: dpop ")
+                );
+                let page = if index == 0 {
+                    locator_page("native-cut", 7, &[1], Some("page1"))
+                } else {
+                    locator_page("native-cut", 7, &[2], None)
+                };
+                let frame = serde_json::json!({"kind":"delta","cursor":format!("ak:cursor:account{index}"),"realm_list":page});
+                let body = format!("{}\n", serde_json::to_string(&frame).unwrap());
+                socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/x-ndjson\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",body.len()).as_bytes()).await.unwrap();
+                socket.write_all(body.as_bytes()).await.unwrap();
+            }
+        });
+        let factory = AgentAuthenticatedTransportFactory {
+            base_url: base.clone(),
+            ..content_test_factory()
+        };
+        let state = agent_session_state();
+        record_test_issue(&factory.session_transport, &state, Vec::new(), Vec::new());
+        let inner = factory.build(&state).unwrap();
+        let provider = SessionTransportProvider::new(
+            SessionEngine::with_state(factory.session_transport.clone(), state.clone()),
+            factory,
+            SessionRefreshOptions::default(),
+        );
+        let binding = arkret::StationConnectionBinding {
+            service_id: state.audience_id.clone(),
+            base_url: base.to_string(),
+            trust_domain: arkret::TrustDomainId::new("ak:trust_domain:station.example").unwrap(),
+            authentication_metadata: arkret::AuthenticationMetadata::minimal(),
+        };
+        let own = provider
+            .own_station_result_client(inner.clone(), binding.clone())
+            .unwrap();
+        let client = ArkretHttpClient {
+            inner,
+            own_station: Some(own),
+            session_provider: Some(provider),
+            station_binding: Some(binding),
+        };
+        let realms = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            client.joined_realm_locators(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(realms.len(), 2);
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn joined_locators_keep_one_cut_and_duplicate_pages_cannot_restart_it() {
+        use arkret_models_collaboration::sync_frames::demand_sync::RealmListMembership;
+        let mut pages = JoinedRealmLocatorPages::default();
+        let mut first = locator_page("cut", 7, &[1, 2], Some("page1"));
+        first.items[1].membership = RealmListMembership::Knock;
+        assert_eq!(
+            pages.push(None, &first).unwrap(),
+            Some("ak:cursor:page1".into())
+        );
+        assert_eq!(
+            pages.push(None, &first).unwrap(),
+            Some("ak:cursor:page1".into())
+        );
+        // Account/live-head progress is not a Realm-list cut replacement.
+        let second = locator_page("cut", 7, &[3], None);
+        assert!(
+            pages
+                .push(Some("ak:cursor:page1"), &second)
+                .unwrap()
+                .is_none()
+        );
+        assert!(pages.finished);
+        assert_eq!(pages.joined.len(), 2);
+        assert!(
+            pages.push(None, &first).unwrap().is_none(),
+            "late exact duplicate preserves completed progress"
+        );
+        assert_eq!(pages.joined.len(), 2);
+    }
+
+    #[test]
+    fn joined_locator_pages_reject_mixed_cuts_wrong_frontiers_and_equivocation() {
+        let first = locator_page("cut", 7, &[1], Some("page1"));
+        for bad in [
+            locator_page("other", 7, &[2], None),
+            locator_page("cut", 8, &[2], None),
+            locator_page("cut", 7, &[1], None),
+            locator_page("cut", 7, &[2], Some("page1")),
+        ] {
+            let mut pages = JoinedRealmLocatorPages::default();
+            let _ = pages.push(None, &first).unwrap();
+            assert!(pages.push(Some("ak:cursor:page1"), &bad).is_err());
+            assert_eq!(pages.joined.len(), 1);
+            assert!(!pages.finished);
+        }
+        let mut pages = JoinedRealmLocatorPages::default();
+        let _ = pages.push(None, &first).unwrap();
+        assert!(
+            pages
+                .push(None, &locator_page("cut", 7, &[9], Some("page1")))
+                .is_err()
+        );
+        assert!(
+            pages
+                .push(
+                    Some("ak:cursor:unknown"),
+                    &locator_page("cut", 7, &[2], None)
+                )
+                .is_err()
+        );
+        assert!(
+            pages
+                .push(
+                    Some("ak:cursor:page1"),
+                    &locator_page("cut", 7, &[], Some("page2"))
+                )
+                .is_err()
         );
     }
 

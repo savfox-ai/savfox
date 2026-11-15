@@ -6,13 +6,11 @@ use chrono::{DateTime, Utc};
 /// One-shot view of an active Arkret session grant.
 #[derive(Debug, Clone)]
 pub struct ArkretSession {
-    pub session_grant: String,
+    pub session_grant: arkret::SessionGrantSecret,
+    pub grant_ref: arkret::SessionGrantRef,
     pub expires_at: DateTime<Utc>,
     pub principal_did: DidCoreId,
     pub device_id: Option<DeviceId>,
-    pub participation_observation: Option<
-        arkret_models_collaboration::governance::agent_participation::AgentParticipationObservation,
-    >,
 }
 
 impl ArkretSession {
@@ -33,7 +31,14 @@ mod tests {
     #[test]
     fn near_expiry_returns_true_when_past_threshold() {
         let s = ArkretSession {
-            session_grant: "g".into(),
+            session_grant: arkret::SessionGrantSecret::from_bytes([7; 32]),
+            grant_ref: arkret::SessionGrantRef::new(
+                DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+                arkret::SessionGrantId::new(
+                    "ak:session_grant:01904100-0000-7000-8000-000000000007",
+                )
+                .unwrap(),
+            ),
             expires_at: Utc::now() + chrono::Duration::seconds(10),
             principal_did: DidCoreId::new("ak:did_core:web:alice.example".to_owned())
                 .expect("test DID should parse"),
@@ -41,7 +46,6 @@ mod tests {
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
                     .expect("test device id should parse"),
             ),
-            participation_observation: None,
         };
         // 10s until expiry; with 60s skew, "near expiry" is true.
         assert!(s.is_near_expiry(60));
@@ -52,7 +56,14 @@ mod tests {
     #[test]
     fn near_expiry_handles_already_expired() {
         let s = ArkretSession {
-            session_grant: "g".into(),
+            session_grant: arkret::SessionGrantSecret::from_bytes([7; 32]),
+            grant_ref: arkret::SessionGrantRef::new(
+                DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+                arkret::SessionGrantId::new(
+                    "ak:session_grant:01904100-0000-7000-8000-000000000007",
+                )
+                .unwrap(),
+            ),
             expires_at: Utc::now() - chrono::Duration::seconds(10),
             principal_did: DidCoreId::new("ak:did_core:web:alice.example".to_owned())
                 .expect("test DID should parse"),
@@ -60,7 +71,6 @@ mod tests {
                 DeviceId::new("ak:device:01904100-0000-7000-8000-000000000001".to_owned())
                     .expect("test device id should parse"),
             ),
-            participation_observation: None,
         };
         assert!(s.is_near_expiry(0));
         assert!(s.is_near_expiry(60));

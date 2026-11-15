@@ -246,8 +246,6 @@ async fn operator_archive_key_cannot_reuse_the_daily_or_service_key() {
 
 #[tokio::test]
 async fn retirement_cancels_pending_body_before_host_initialization() {
-    use salvo::test::ResponseExt as _;
-
     let home = tempfile::tempdir().unwrap();
     let config = savfox_channels::arkret::applet::ArkretAppletConfig::from_channel_config(
         &super::super::tests::valid_channel_config(),
@@ -291,9 +289,116 @@ async fn retirement_cancels_pending_body_before_host_initialization() {
         response.status_code,
         Some(salvo::http::StatusCode::SERVICE_UNAVAILABLE)
     );
-    let problem: arkret::Problem = response.take_json().await.unwrap();
-    assert_eq!(problem.code(), "temporarily_unavailable");
+    assert_registered_applet_problem(
+        &mut response,
+        arkret_wire::ErrorCode::TemporarilyUnavailable,
+    )
+    .await;
     assert!(state.host.get().is_none());
     assert!(state.edge.lock().await.is_none());
     assert!(state.lifetime.manager.lock().unwrap().is_none());
+}
+
+async fn assert_registered_applet_problem(
+    response: &mut salvo::Response,
+    code: arkret_wire::ErrorCode,
+) {
+    use salvo::test::ResponseExt as _;
+
+    assert_eq!(response.status_code.unwrap().as_u16(), code.http_status());
+    assert_eq!(
+        response.headers().get(salvo::http::header::CONTENT_TYPE),
+        Some(&salvo::http::HeaderValue::from_static(
+            "application/problem+json"
+        ))
+    );
+    let problem: arkret::Problem = response.take_json().await.unwrap();
+    assert_eq!(problem.error_code(), Some(code));
+    assert_eq!(problem.problem_type, code.type_uri());
+    assert_eq!(problem.status, code.http_status());
+    assert!(problem.instance.is_some());
+}
+
+async fn assert_body_read_problem(error: salvo::http::ParseError, code: arkret_wire::ErrorCode) {
+    let home = tempfile::tempdir().unwrap();
+    let config = savfox_channels::arkret::applet::ArkretAppletConfig::from_channel_config(
+        &super::super::tests::valid_channel_config(),
+    )
+    .unwrap();
+    let state = super::super::AppletChannelState {
+        journal: super::super::build_applet_authoring_journal(home.path(), &config.id).unwrap(),
+        config,
+        edge: tokio::sync::Mutex::new(None),
+        host: tokio::sync::OnceCell::new(),
+        lifetime: super::super::AppletLifetime::default(),
+    };
+    let mut response = salvo::Response::new();
+    super::super::forward_applet_with_body(
+        &state,
+        std::future::ready(Err(error)),
+        salvo::http::Method::POST,
+        "https://savfox.example/_arkret/edge/applet/transactions"
+            .parse()
+            .unwrap(),
+        salvo::http::HeaderMap::new(),
+        &mut response,
+    )
+    .await;
+    assert_registered_applet_problem(&mut response, code).await;
+    assert!(state.host.get().is_none());
+    assert!(state.edge.lock().await.is_none());
+    assert!(state.lifetime.manager.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn oversized_body_renders_registered_problem_before_host_initialization() {
+    assert_body_read_problem(
+        salvo::http::ParseError::PayloadTooLarge,
+        arkret_wire::ErrorCode::PayloadTooLarge,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn unreadable_body_renders_registered_problem_before_host_initialization() {
+    assert_body_read_problem(
+        salvo::http::ParseError::Io(std::io::Error::other("request body interrupted")),
+        arkret_wire::ErrorCode::SchemaViolation,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn unavailable_applet_state_renders_registered_problem() {
+    let mut response = salvo::Response::new();
+    super::super::render_state_unavailable(&mut response, &anyhow::anyhow!("registry unavailable"));
+    assert_registered_applet_problem(
+        &mut response,
+        arkret_wire::ErrorCode::TemporarilyUnavailable,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn unknown_applet_target_renders_registered_not_found() {
+    let service = salvo::Service::new(
+        salvo::Router::new()
+            .push(super::super::arkret_applet_router())
+            .push(super::super::arkret_principal_router()),
+    );
+    for path in [
+        "/_arkret/edge/applet/transactions",
+        "/_arkret/describe",
+        "/_arkret/open/services/ak:did_core:web:unconfigured-applet-target.example/resolution",
+    ] {
+        let mut response = salvo::test::TestClient::get(format!("https://savfox.example{path}"))
+            .add_header(
+                "Destination-Service-Id",
+                "ak:did_core:web:unconfigured-applet-target.example",
+                true,
+            )
+            .send(&service)
+            .await;
+        assert_registered_applet_problem(&mut response, arkret_wire::ErrorCode::NotFound).await;
+    }
 }

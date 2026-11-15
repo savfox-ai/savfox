@@ -19,7 +19,6 @@ use savfox_channels::arkret::applet::{ArkretAppletConfig, load_arkret_applet_con
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use super::render_error;
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
@@ -197,10 +196,9 @@ fn lookup_by_config_id(config_id: &str) -> anyhow::Result<Option<Arc<AppletChann
 
 fn render_state_unavailable(res: &mut Response, err: &anyhow::Error) {
     warn!("arkret applet state unavailable: {err:#}");
-    render_error(
+    render_applet_problem(
         res,
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "state_unavailable",
+        arkret_wire::ErrorCode::TemporarilyUnavailable,
         "Arkret applet state unavailable",
     );
 }
@@ -229,10 +227,9 @@ fn resolve_public_applet(req: &Request, res: &mut Response) -> Option<Arc<Applet
     match select_applet_management_target(req) {
         Ok(Some(state)) => Some(state),
         Ok(None) => {
-            render_error(
+            render_applet_problem(
                 res,
-                StatusCode::NOT_FOUND,
-                "applet_not_found",
+                arkret_wire::ErrorCode::NotFound,
                 "Applet management target is unconfigured",
             );
             None
@@ -278,6 +275,31 @@ async fn forward_applet(state: &AppletChannelState, req: &mut Request, res: &mut
     forward_applet_with_body(state, body, method, uri, headers, res).await;
 }
 
+fn render_applet_problem(
+    res: &mut Response,
+    code: arkret_wire::ErrorCode,
+    message: impl Into<String>,
+) {
+    let problem = arkret::Problem::from_code(code.as_str(), message)
+        .with_instance(arkret_wire::new_prefixed_uuid7("ak:request:"));
+    let status = StatusCode::from_u16(problem.status)
+        .expect("registered Arkret error code has a valid HTTP status");
+    let mut output = salvo::http::Problem::new(status)
+        .kind(problem.problem_type)
+        .title(problem.title)
+        .detail(problem.detail)
+        .with_extensions(
+            problem
+                .extensions
+                .into_iter()
+                .collect::<serde_json::Map<_, _>>(),
+        );
+    if let Some(instance) = problem.instance {
+        output = output.instance(instance);
+    }
+    res.render(output);
+}
+
 async fn forward_applet_with_body(
     state: &AppletChannelState,
     body: impl std::future::Future<Output = Result<Vec<u8>, salvo::http::ParseError>>,
@@ -292,19 +314,17 @@ async fn forward_applet_with_body(
             let body = match body.await {
                 Ok(body) => body,
                 Err(salvo::http::ParseError::PayloadTooLarge) => {
-                    render_error(
+                    render_applet_problem(
                         res,
-                        StatusCode::PAYLOAD_TOO_LARGE,
-                        "payload_too_large",
+                        arkret_wire::ErrorCode::PayloadTooLarge,
                         "Applet request body exceeds its limit",
                     );
                     return Ok(None);
                 }
                 Err(_) => {
-                    render_error(
+                    render_applet_problem(
                         res,
-                        StatusCode::BAD_REQUEST,
-                        "schema_violation",
+                        arkret_wire::ErrorCode::SchemaViolation,
                         "Applet request body could not be read",
                     );
                     return Ok(None);
@@ -326,10 +346,9 @@ async fn forward_applet_with_body(
         Ok(None) => {}
         Err(error) => {
             warn!(%error, "Applet shared HTTP host unavailable");
-            render_error(
+            render_applet_problem(
                 res,
-                StatusCode::SERVICE_UNAVAILABLE,
-                "temporarily_unavailable",
+                arkret_wire::ErrorCode::TemporarilyUnavailable,
                 "Applet HTTP host unavailable",
             );
         }
@@ -356,10 +375,9 @@ async fn applet_service_resolution(req: &mut Request, res: &mut Response) {
     if let Some(state) = state {
         forward_applet(&state, req, res).await;
     } else {
-        render_error(
+        render_applet_problem(
             res,
-            StatusCode::NOT_FOUND,
-            "not_found",
+            arkret_wire::ErrorCode::NotFound,
             "Applet Service is unconfigured",
         );
     }

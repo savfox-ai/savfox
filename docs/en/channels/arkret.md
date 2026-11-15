@@ -26,8 +26,9 @@ without that action needs explicit migration; the runtime never adds it to an
 accepted scope or recovers it through refresh.
 
 The service session does not authorize every content resource. The runtime uses
-already bound resource sessions and exact controller Direct resolution
-only to locate candidate Realms, then requests an independent session for one
+already bound resource sessions, the registered Account Realm list at one
+frozen pagination cut, and exact controller Direct resolution to locate
+candidate Realms, then requests an independent session for one
 Realm with a new signed intent. The issuer and resource server still check its
 current authority. Refresh cannot add resources or restore removed content
 actions. An uncertain issue retries the original request. Recipient queue reads

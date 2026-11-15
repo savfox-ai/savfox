@@ -2114,6 +2114,7 @@ async fn recipient_page_with_content_session(
     service: &ArkretHttpClient,
     cursor: Option<&str>,
     account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
 ) -> anyhow::Result<(ArkretHttpClient, arkret::DeviceMessagesGetResponseBody)> {
     let current = service.current().await?;
     let service = &current;
@@ -2131,7 +2132,14 @@ async fn recipient_page_with_content_session(
     {
         return Err(refusal.into());
     }
-    let cached = service.cached_content_realms()?;
+    let mut cached = service
+        .cached_content_realms()?
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    for realm in crypto_store.presence_ready_realm_ids()? {
+        cached.insert(RealmId::new(realm)?);
+    }
+    let cached = cached.into_iter().collect::<Vec<_>>();
     for realm in &cached {
         let Ok(content) = service.for_realm(realm).await else {
             continue;
@@ -2216,19 +2224,25 @@ async fn drain_account_device_messages_from_cursor(
     // may be processed but neither their ACK nor scan cursor can cross it.
     let mut contiguous_complete = true;
     for page in 0..DEVICE_MESSAGES_PULL_MAX_PAGES {
-        let (page_client, outcome) =
-            match recipient_page_with_content_session(client, cursor.as_deref(), account).await {
-                Ok(outcome) => outcome,
-                Err(err) => {
-                    warn!(
-                        channel_id = %channel.id,
-                        account_id = %account.id,
-                        reason,
-                        "arkret: standard device_messages pull failed: {err}"
-                    );
-                    return;
-                }
-            };
+        let (page_client, outcome) = match recipient_page_with_content_session(
+            client,
+            cursor.as_deref(),
+            account,
+            crypto_store,
+        )
+        .await
+        {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                warn!(
+                    channel_id = %channel.id,
+                    account_id = %account.id,
+                    reason,
+                    "arkret: standard device_messages pull failed: {err}"
+                );
+                return;
+            }
+        };
         let client = &page_client;
 
         for delivery in &outcome.deliveries {
