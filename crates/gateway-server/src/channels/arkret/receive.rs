@@ -1951,9 +1951,12 @@ mod recovery_tests {
                 station.clone(),
             ),
             station.clone(),
-            arkret_wire::SessionGrantRef::new(
+            arkret::SessionGrantRef::new(
                 station,
-                arkret_wire::SessionGrantId::new_v7_at(1_785_000_000_003),
+                arkret_wire::SessionGrantId::new(
+                    "ak:session_grant:01904100-0000-7000-8000-000000000003",
+                )
+                .unwrap(),
             ),
             0,
             "test-grant".into(),
