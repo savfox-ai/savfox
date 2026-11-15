@@ -26,7 +26,7 @@ without that action needs explicit migration; the runtime never adds it to an
 accepted scope or recovers it through refresh.
 
 The service session does not authorize every content resource. The runtime uses
-authenticated participation observations and exact controller Direct resolution
+already bound resource sessions and exact controller Direct resolution
 only to locate candidate Realms, then requests an independent session for one
 Realm with a new signed intent. The issuer and resource server still check its
 current authority. Refresh cannot add resources or restore removed content
@@ -35,6 +35,17 @@ use one delivery at a time so a scoped session cannot skip a blocked queue head
 or acknowledge an unprocessed delivery.
 A narrowed or invalidated cached content session needs a new issue intent; the
 old grant is never expanded.
+
+The session credential is opaque. The runtime validates the public issuance
+response against its signed request, exact issuer, Account, holder key and
+scope; it does not decode the credential into private issuer metadata. The
+current public issuance response does not supply the participation selection
+overlay required by the reply guard. Work requiring that overlay remains
+blocked with an explicit unavailable diagnostic. Public interaction mode is
+checked independently and cannot replace any participation bit. Completing
+that existing interface gap is separate from the naming synchronization;
+this update does not claim restored autonomous-reply support.
+
 
 
 On Windows, Arkret runtime seeds and crypto-state wrapping keys use the shared

@@ -1187,8 +1187,14 @@ mod tests {
         let snapshot = arkret::http_client::own_station_results::OwnStationSessionSnapshot::new(
             binding.clone(),
             account.clone(),
-            account.station_id,
-            arkret_wire::SessionGrantId::from_issuance_digest([1; 32]),
+            account.station_id.clone(),
+            arkret::SessionGrantRef::new(
+                account.station_id,
+                arkret::SessionGrantId::new(
+                    "ak:session_grant:01904100-0000-7000-8000-000000000001",
+                )
+                .unwrap(),
+            ),
             1,
             "local-transaction-fixture".into(),
         )

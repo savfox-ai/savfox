@@ -17,12 +17,19 @@ binding，不能继续发送 provisional 应用消息（v1 contact-and-direct-co
 这是全局上界，不是资源 grant。旧 immutable provision 或 key 缺项时须明确迁移；
 运行时不会改写已接受范围，也不会通过 refresh 补回权限。
 
-服务会话不授权所有内容资源。运行时只用经认证的参与观察和精确的 controller Direct
+服务会话不授权所有内容资源。运行时只用已绑定的资源会话和精确的 controller Direct
 解析定位候选 Realm，再用新的签名意图申请独立的单 Realm 会话；签发方和资源服务端
 仍检查当前授权。refresh 不能增加资源或恢复已移除的内容 action。签发结果不确定时
 重试原请求。领取队列每次读取一项，受限会话不能跳过被阻断的队首，也不能确认尚未
 处理的投递。
 缓存的内容会话被收窄或失效后，运行时重新申请独立会话，不扩充旧 grant。
+
+会话凭据为不透明值。运行时用原签请求核对公开签发结果中的精确 issuer、完整账号、
+holder key 和 scope，不从凭据解析签发方私有元数据。当前公开签发响应尚未提供回复门
+所需的 participation selection overlay；依赖该观察的动作继续拒绝，并明确报告观察
+不可用。Public interaction mode 仍独立核对，不能替代任何 participation bit。该既有
+接口缺口另行跟进；本次命名同步不声称已恢复自主回复支持。
+
 
 
 Windows 上的 Arkret runtime 私钥与加密状态 wrapping key 使用 SDK 已有的当前用户

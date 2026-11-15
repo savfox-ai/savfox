@@ -834,26 +834,37 @@ async fn refresh_account_presence(
         }
     };
 
-    // Session observations can suppress work, but never grant scope authority.
-    // Presence has no participation behavior bit; Station admission still checks
-    // current membership, runtime lifecycle, key and Signal class authority.
-    let observation = match provider.session().current_state().and_then(|state| {
+    // Presence has no autonomous participation bit. Preserve the real issued
+    // session, native key binding and mode/current gates without fabricating
+    // the issuer-private selection overlay absent from public opaque issuance.
+    let Some(presence_state) = provider.session().current_state().filter(|state| {
         refreshed_grant_matches_account(
-            &state,
+            state,
             account,
             ServiceOperationId::SELF_SIGNAL_COMMAND_SEND_V1,
-        )
-        .then(|| state.agent_participation_observation(Utc::now()))
-    }) {
-        Some(Ok(observation)) if presence_observation_matches_runtime(&observation, account) => {
-            observation
-        }
-        _ => {
-            record_presence_failure(channel, account, "presence runtime session is unavailable");
+        ) && presence_session_matches_runtime(provider, state, account)
+    }) else {
+        record_presence_failure(channel, account, "presence runtime session is unavailable");
+        return;
+    };
+
+    let authorization_ref = match EventId::new(
+        account
+            .authorized_event_ref
+            .as_deref()
+            .unwrap_or_default()
+            .to_owned(),
+    ) {
+        Ok(reference) => reference,
+        Err(error) => {
+            record_presence_failure(
+                channel,
+                account,
+                format!("invalid accepted presence key ref: {error}"),
+            );
             return;
         }
     };
-
     for realm in ready_realms {
         let realm_id = match RealmId::new(realm.clone()) {
             Ok(realm_id) => realm_id,
@@ -905,7 +916,8 @@ async fn refresh_account_presence(
         // A mode/pair from an earlier cut cannot authorize a newly observed head.
         // Skip this heartbeat on a moving cut; the next scheduled refresh rereads.
         if authority_head != eligible_head
-            || !presence_observation_matches_runtime(&observation, account)
+            || provider.session().current_state().as_ref() != Some(&presence_state)
+            || !presence_session_matches_runtime(provider, &presence_state, account)
         {
             continue;
         }
@@ -913,7 +925,7 @@ async fn refresh_account_presence(
             realm_id.as_str(),
             &account.actor_account_id,
             verification_method,
-            &observation.agent_key_authorization_ref,
+            &authorization_ref,
             key_ref,
             &authority_head,
             Utc::now(),
@@ -960,6 +972,24 @@ async fn refresh_account_presence(
     }
 }
 
+fn presence_session_matches_runtime(
+    provider: &ArkretAgentSessionProvider,
+    state: &garth::SessionGrantState,
+    account: &ArkretAccountConfig,
+) -> bool {
+    let (Some(method), Some(reference)) = (
+        account.verification_method.as_deref(),
+        account.authorized_event_ref.as_deref(),
+    ) else {
+        return false;
+    };
+    provider
+        .factory()
+        .require_runtime_binding(state, &account.actor_account_id, method, reference)
+        .is_ok()
+}
+
+#[cfg(test)]
 fn presence_observation_matches_runtime(
     observation: &arkret::AgentParticipationObservation,
     account: &ArkretAccountConfig,
@@ -1405,11 +1435,7 @@ async fn drain_pending_account_outbound(
     loop {
         let current = async {
             let client = ArkretHttpClient::from_provider(provider, crypto_store).await?;
-            let observation = provider
-                .session()
-                .current_state()
-                .context("Agent session observation is unavailable")?
-                .agent_participation_observation(Utc::now())?;
+            let observation = client.participation_observation()?;
             cancel_unusable_account_submissions(&outbound, account, crypto_store, &observation)
                 .await?;
             anyhow::Ok(garth::AuthorityClient::new(client))
@@ -2087,6 +2113,7 @@ fn build_signed_keypackage_upload_request(
 async fn recipient_page_with_content_session(
     service: &ArkretHttpClient,
     cursor: Option<&str>,
+    account: &ArkretAccountConfig,
 ) -> anyhow::Result<(ArkretHttpClient, arkret::DeviceMessagesGetResponseBody)> {
     let current = service.current().await?;
     let service = &current;
@@ -2118,7 +2145,7 @@ async fn recipient_page_with_content_session(
         }
     }
     for realm in service
-        .content_realm_candidates()
+        .content_realm_candidates(&account.controller_account_id)
         .await?
         .into_iter()
         .filter(|realm| !cached.contains(realm))
@@ -2190,7 +2217,7 @@ async fn drain_account_device_messages_from_cursor(
     let mut contiguous_complete = true;
     for page in 0..DEVICE_MESSAGES_PULL_MAX_PAGES {
         let (page_client, outcome) =
-            match recipient_page_with_content_session(client, cursor.as_deref()).await {
+            match recipient_page_with_content_session(client, cursor.as_deref(), account).await {
                 Ok(outcome) => outcome,
                 Err(err) => {
                     warn!(
@@ -5157,13 +5184,20 @@ mod tests {
 
     #[test]
     fn presence_runtime_observation_rejects_expiry_other_account_and_replaced_key() {
+        // Qualified-overlay predicate unit inputs only; ordinary public issuance supplies none.
         let (mut account, _) = queued_message_fixture();
         let authorization = EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [95; 32]);
         account.authorized_event_ref = Some(authorization.to_string());
         let mut observation = arkret::AgentParticipationObservation {
             agent_account: account.actor_account_id.clone(),
             controller_account: account.controller_account_id.clone(),
-            grant_id: arkret_wire::SessionGrantId::from_issuance_digest([1; 32]),
+            grant_ref: arkret::SessionGrantRef::new(
+                account.actor_account_id.station_id.clone(),
+                arkret::SessionGrantId::new(
+                    "ak:session_grant:01904100-0000-7000-8000-000000000001",
+                )
+                .unwrap(),
+            ),
             agent_key_authorization_ref: authorization,
             verification_method: arkret::DidUrl::new(account.verification_method.clone().unwrap())
                 .unwrap(),
@@ -5202,11 +5236,18 @@ mod tests {
 
     #[test]
     fn durable_reply_observation_suppresses_tightened_missing_expired_and_wrong_owner() {
+        // Qualified-overlay predicate unit inputs only; this does not prove production supply.
         let (account, event) = queued_message_fixture();
         let mut observation = arkret::AgentParticipationObservation {
             agent_account: account.actor_account_id.clone(),
             controller_account: account.controller_account_id.clone(),
-            grant_id: arkret_wire::SessionGrantId::from_issuance_digest([1; 32]),
+            grant_ref: arkret::SessionGrantRef::new(
+                account.actor_account_id.station_id.clone(),
+                arkret::SessionGrantId::new(
+                    "ak:session_grant:01904100-0000-7000-8000-000000000001",
+                )
+                .unwrap(),
+            ),
             agent_key_authorization_ref: EventId::from_digest(
                 arkret::canonical::DigestSuite::Sha256,
                 [2; 32],
@@ -5832,8 +5873,14 @@ mod tests {
                 DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
             ),
             device_id: None,
-            grant_id: arkret::identifiers::SessionGrantId::from_issuance_digest([0x11; 32]),
-            grant_jwt: "redacted-test-grant".to_owned(),
+            grant_ref: arkret::SessionGrantRef::new(
+                account.actor_account_id.station_id.clone(),
+                arkret::SessionGrantId::new(
+                    "ak:session_grant:01904100-0000-7000-8000-000000000001",
+                )
+                .unwrap(),
+            ),
+            session_grant: arkret::SessionGrantSecret::from_bytes([17; 32]),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
             audience_id: DidCoreId::new("ak:did_core:webvh:z6mkfixture:service.example").unwrap(),
             granted_scope: account
@@ -5844,6 +5891,7 @@ mod tests {
                 .collect(),
             session_public_key: None,
             dpop_jkt: Some("test-jkt".to_owned()),
+            pending_refresh: None,
         };
         let granted_operations = state.granted_scope.clone();
         let read = ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1;
