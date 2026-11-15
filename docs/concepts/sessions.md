@@ -22,9 +22,9 @@ subscriptions are cleaned up.
 
 ## Persistent sessions (SessionStore)
 
-`SessionStore` (`crates/gateway-server/src/session_store.rs`) persists session
-metadata as JSONL at `{savfox_home}/sessions/<session_id>.jsonl` where
-`session_id` is UUID v7.
+`SessionStore` (`crates/gateway-server/src/runtime/session/store.rs`) persists
+metadata in SQLite at `{savfox_home}/gateway-session-store.sqlite`. Rollout history
+remains JSONL under `{savfox_home}/sessions/`, identified by its core session UUID.
 
 ### SessionEntry fields
 
@@ -41,7 +41,8 @@ Each session entry stores:
 | `model`             | string?     | Model override                           |
 | `provider`          | string?     | Provider override                        |
 | `label`             | string?     | Human-readable label                     |
-| `thread_id`         | string?     | Active thread/topic id                   |
+| `core_thread_id`    | string?     | Core conversation used for resume/history |
+| `remote_thread_id`  | string?     | External platform thread/topic for replies |
 | `parent_thread_id`  | string?     | Parent thread for inherited routing      |
 | `reply_target`      | string?     | Platform message id used for replies     |
 | `provenance`        | array       | Inbound source records for user messages |

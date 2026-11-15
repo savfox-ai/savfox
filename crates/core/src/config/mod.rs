@@ -1202,7 +1202,7 @@ impl ProjectConfig {
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ToolsToml {
-    #[serde(default, alias = "web_search_request")]
+    #[serde(default)]
     pub web_search: Option<bool>,
 
     /// Enable the `view_image` tool that lets the agent attach local images.
@@ -1232,11 +1232,9 @@ impl From<ToolsToml> for Tools {
 #[schemars(deny_unknown_fields)]
 pub struct GhostSnapshotToml {
     /// Exclude untracked files larger than this many bytes from ghost snapshots.
-    #[serde(alias = "ignore_untracked_files_over_bytes")]
     pub ignore_large_untracked_files: Option<i64>,
     /// Ignore untracked directories that contain this many files or more.
     /// (Still emits a warning unless warnings are disabled.)
-    #[serde(alias = "large_untracked_dir_warning_threshold")]
     pub ignore_large_untracked_dirs: Option<i64>,
     /// Disable all ghost snapshot warning events.
     pub disable_warnings: Option<bool>,
@@ -2752,28 +2750,6 @@ trust_level = "trusted"
             selected_model_id(cfg.model.as_ref()).as_deref(),
             Some("managed_config")
         );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn load_global_mcp_servers_accepts_legacy_ms_field() -> anyhow::Result<()> {
-        let savfox_home = TempDir::new()?;
-        let config_path = savfox_home.path().join(CONFIG_TOML_FILE);
-
-        std::fs::write(
-            &config_path,
-            r#"
-[mcp_servers]
-[mcp_servers.docs]
-command = "echo"
-startup_timeout_ms = 2500
-"#,
-        )?;
-
-        let servers = load_global_mcp_servers(savfox_home.path()).await?;
-        let docs = servers.get("docs").expect("docs entry");
-        assert_eq!(docs.startup_timeout_sec, Some(Duration::from_millis(2500)));
-
         Ok(())
     }
 

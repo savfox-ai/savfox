@@ -380,6 +380,23 @@ pub(crate) struct TurnContext {
     pub(crate) tool_access_policy: Option<savfox_protocol::protocol::ToolAccessPolicy>,
 }
 impl TurnContext {
+    pub(crate) fn rollout_item(&self, collaboration_mode: CollaborationMode) -> RolloutItem {
+        RolloutItem::TurnContext(TurnContextItem {
+            cwd: self.cwd.clone(),
+            approval_policy: self.approval_policy,
+            sandbox_policy: self.sandbox_policy.clone(),
+            model: self.client.get_model(),
+            personality: self.personality,
+            collaboration_mode: Some(collaboration_mode),
+            effort: self.client.get_reasoning_effort(),
+            summary: self.client.get_reasoning_summary(),
+            user_instructions: self.user_instructions.clone(),
+            developer_instructions: self.developer_instructions.clone(),
+            final_output_json_schema: self.final_output_json_schema.clone(),
+            truncation_policy: Some(self.truncation_policy.into()),
+        })
+    }
+
     pub(crate) fn resolve_path(&self, path: Option<String>) -> PathBuf {
         path.as_ref()
             .map(PathBuf::from)

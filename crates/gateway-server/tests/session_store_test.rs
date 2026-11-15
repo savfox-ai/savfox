@@ -39,28 +39,3 @@ async fn store_rejects_non_session_identifiers_without_creating_metadata() {
     assert!(!store.remove("../../other").await);
     assert!(store.list().await.is_empty());
 }
-
-#[test]
-fn session_migration_separates_core_and_remote_thread_identifiers() {
-    let core_id = uuid::Uuid::now_v7().to_string();
-    let mut core = SessionEntry {
-        thread_id: Some(core_id.clone()),
-        ..SessionEntry::default()
-    };
-    core.migrate_legacy_thread_namespaces();
-    assert_eq!(core.core_thread_id.as_deref(), Some(core_id.as_str()));
-    assert!(core.remote_thread_id.is_none());
-    assert!(core.thread_id.is_none());
-
-    let mut remote = SessionEntry {
-        thread_id: Some("platform-strand-123".to_owned()),
-        ..SessionEntry::default()
-    };
-    remote.migrate_legacy_thread_namespaces();
-    assert_eq!(
-        remote.remote_thread_id.as_deref(),
-        Some("platform-strand-123")
-    );
-    assert!(remote.core_thread_id.is_none());
-    assert!(remote.thread_id.is_none());
-}

@@ -110,7 +110,7 @@ pub struct CronRunEntry {
     pub status: Option<String>,
     pub duration_ms: Option<u64>,
     pub error: Option<String>,
-    #[serde(rename = "result_preview", alias = "output")]
+    #[serde(rename = "result_preview")]
     pub output: Option<String>,
 }
 
@@ -149,7 +149,7 @@ pub struct CronRunDetail {
 mod tests {
     use serde_json::json;
 
-    use super::{CronPayload, CronRunEntry, CronSchedule};
+    use super::{CronPayload, CronSchedule};
 
     #[test]
     fn cron_schedule_and_payload_use_gateway_wire_shape() {
@@ -176,19 +176,5 @@ mod tests {
                 "timeout_secs": 300
             })
         );
-    }
-
-    #[test]
-    fn cron_run_accepts_legacy_output_field() {
-        let run: CronRunEntry = serde_json::from_value(json!({
-            "job_id": "daily-summary",
-            "output": "done"
-        }))
-        .expect("legacy cron run should deserialize");
-
-        assert_eq!(run.output.as_deref(), Some("done"));
-        let serialized = serde_json::to_value(run).expect("cron run should serialize");
-        assert_eq!(serialized["result_preview"], "done");
-        assert!(serialized.get("output").is_none());
     }
 }

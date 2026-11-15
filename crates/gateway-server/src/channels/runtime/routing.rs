@@ -106,7 +106,7 @@ async fn resolve_parent_thread_agent(
     let mut current = parent_thread_id?.to_owned();
     let mut by_thread = HashMap::new();
     for entry in session_store.list().await {
-        if let Some(thread_id) = entry.remote_thread_id.clone().or(entry.thread_id.clone()) {
+        if let Some(thread_id) = entry.remote_thread_id.clone() {
             by_thread.insert(thread_id, entry);
         }
     }

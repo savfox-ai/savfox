@@ -112,10 +112,7 @@ fn run_live(prompt: &str) -> (assert_cmd::assert::Assert, TempDir) {
 #[ignore]
 #[test]
 fn live_create_file_hello_txt() {
-    if std::env::var("OPENAI_API_KEY").is_err() {
-        eprintln!("skipping live_create_file_hello_txt – OPENAI_API_KEY not set");
-        return;
-    }
+    std::env::var("OPENAI_API_KEY").expect("selected live test requires OPENAI_API_KEY");
 
     let (assert, dir) = run_live(
         "Use the shell tool with the apply_patch command to create a file named hello.txt containing the text 'hello'.",
@@ -134,10 +131,7 @@ fn live_create_file_hello_txt() {
 #[ignore]
 #[test]
 fn live_print_working_directory() {
-    if std::env::var("OPENAI_API_KEY").is_err() {
-        eprintln!("skipping live_print_working_directory – OPENAI_API_KEY not set");
-        return;
-    }
+    std::env::var("OPENAI_API_KEY").expect("selected live test requires OPENAI_API_KEY");
 
     let (assert, dir) = run_live("Print the current working directory using the shell function.");
 

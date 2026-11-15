@@ -362,14 +362,6 @@ pub const OPENAI_API_KEY_ENV_VAR: &str = "OPENAI_API_KEY";
 pub const SAVFOX_API_KEY_ENV_VAR: &str = "SAVFOX_API_KEY";
 
 #[must_use]
-pub fn read_openai_api_key_from_env() -> Option<String> {
-    env::var(OPENAI_API_KEY_ENV_VAR)
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-}
-
-#[must_use]
 pub fn read_savfox_api_key_from_env() -> Option<String> {
     env::var(SAVFOX_API_KEY_ENV_VAR)
         .ok()

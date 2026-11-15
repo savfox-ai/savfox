@@ -78,13 +78,8 @@ impl ToolHandler for ChannelToolsHandler {
                     send_post(&client, &gateway_url, "/api/message", body).await
                 }
             }
-            "react" | "edit" | "delete" | "history" | "list_channels" => model_err(format!(
-                "channel_tools action '{}' is not implemented by the gateway; only 'send' is currently supported",
-                args.action
-            )),
             other => model_err(format!(
-                "unknown channel_tools action: {other}. Valid actions: send, react, \
-                 edit, delete, history, list_channels"
+                "unknown channel_tools action: {other}. Valid actions: send"
             )),
         }
     }

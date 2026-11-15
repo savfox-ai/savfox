@@ -148,12 +148,19 @@ pub async fn run(
             model,
             prompt,
         } => {
-            let mut params = json!({ "name": name });
-            if let Some(m) = model {
-                params["model"] = json!(m);
-            }
+            let model = model.unwrap_or_else(|| "default".to_owned());
+            let provider = model
+                .split_once('/')
+                .map(|(provider, _)| provider)
+                .unwrap_or("default");
+            let mut params = json!({
+                "id": uuid::Uuid::now_v7().to_string(),
+                "name": name,
+                "kind": "native",
+                "native": { "provider": provider, "model": model },
+            });
             if let Some(p) = prompt {
-                params["prompt"] = json!(p);
+                params["system_prompt"] = json!(p);
             }
             let result = ws_rpc_client::rpc_call(gateway_url, token, "agents.create", params)
                 .await

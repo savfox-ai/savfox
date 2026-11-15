@@ -62,7 +62,7 @@ function fixture(method, params) {
     case 'account/login/start': signInComplete = false; return params.type === 'apiKey' ? { type: 'apiKey' } : { loginId: 'fixture-login', authUrl: 'https://example.test/sign-in', verificationUrl: 'https://example.test/device', userCode: 'TEST-CODE' };
     case 'account/read': return { account: signInComplete ? { type: 'chatgpt', email: 'browser@example.test', planType: 'test' } : null };
     case 'account/login/cancel': return { cancelled: true };
-    case 'sessions.list': return { entries: [{ session_id: 'browser-session', label: 'Browser conversation', agent_id: 'browser-agent', message_count: 1 }, { session_id: 'terminal-session', label: 'Terminal conversation', agent_id: 'terminal-agent', message_count: 1 }, { session_id: 'delivery-session', label: 'Delivery conversation', agent_id: 'browser-agent', arkret_delivery: arkretDelivery, message_count: 1 }] };
+    case 'sessions.list': return { entries: [{ session_id: 'browser-session', label: 'Browser conversation', agent_id: 'browser-agent' }, { session_id: 'terminal-session', label: 'Terminal conversation', agent_id: 'terminal-agent' }, { session_id: 'delivery-session', label: 'Delivery conversation', agent_id: 'browser-agent', arkret_delivery: arkretDelivery }] };
     case 'sessions.patch': return { session_id: params.session_id || 'browser-new-session' };
     case 'chat.history':
       if (params.session_id === 'performance-session') return { messages: Array.from({ length: 2000 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: `Performance message ${index}\n\n` + 'Variable height paragraph.\n\n'.repeat(index % 7 + 1) })) };

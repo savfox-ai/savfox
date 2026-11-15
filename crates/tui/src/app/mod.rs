@@ -406,10 +406,7 @@ fn session_name_from_event_store(
 // Model migration functions are in model_migration.rs
 use model_migration::handle_model_migration_prompt_if_needed;
 #[cfg(test)]
-use model_migration::{
-    HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG, should_show_model_migration_prompt,
-    target_preset_for_upgrade,
-};
+use model_migration::{should_show_model_migration_prompt, target_preset_for_upgrade};
 
 pub(crate) struct App {
     pub(crate) server: Arc<SessionManager>,
@@ -3225,7 +3222,7 @@ mod tests {
         current.upgrade = Some(ModelUpgrade {
             id: "missing-target".to_owned(),
             reasoning_effort_mapping: None,
-            migration_config_key: HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG.to_owned(),
+            migration_config_key: "test_model_upgrade".to_owned(),
             model_link: None,
             upgrade_copy: None,
             migration_markdown: None,

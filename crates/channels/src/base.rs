@@ -17,7 +17,6 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use serde_json::{Map, Value};
-use tracing::warn;
 
 // ---------------------------------------------------------------------------
 // Configuration trait
@@ -171,66 +170,7 @@ pub async fn send_http_json(
     }
 
     let response = request.send().await?;
-    check_response_status(response, context).await
-}
-
-/// Check an HTTP response, returning an `Err` with status and body on failure.
-///
-/// This is functionally equivalent to [`crate::http::check_response`] but lives
-/// here for discoverability alongside [`send_http_json`].  Channel code that
-/// already uses `crate::http::check_response` does not need to switch.
-pub async fn check_response_status(
-    response: reqwest::Response,
-    context: &str,
-) -> anyhow::Result<()> {
-    if response.status().is_success() {
-        return Ok(());
-    }
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    anyhow::bail!("{context}: HTTP {status}: {body}")
-}
-
-/// Send an HTTP POST with JSON and return the response body on success,
-/// logging a warning (but not failing) on error.
-///
-/// Useful for "fire-and-forget" operations like deleting or editing a message
-/// where the caller typically wants to continue even if the API call fails.
-pub async fn send_http_json_lenient(
-    client: &reqwest::Client,
-    url: &str,
-    body: &Value,
-    auth_header: Option<(&str, &str)>,
-    context: &str,
-) -> Option<Value> {
-    let mut request = client
-        .post(url)
-        .header("Content-Type", "application/json")
-        .body(body.to_string());
-
-    if let Some((name, value)) = auth_header {
-        request = request.header(name, value);
-    }
-
-    let response = match request.send().await {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("{context}: request failed: {e}");
-            return None;
-        }
-    };
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let resp_body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "{context}: HTTP {status}: {}",
-            String::from_utf8_lossy(&resp_body)
-        );
-        return None;
-    }
-
-    response.json::<Value>().await.ok()
+    crate::http::check_response(response, context).await
 }
 
 // ---------------------------------------------------------------------------

@@ -6948,7 +6948,7 @@ fn parse_provider_store_models(data: &str) -> Vec<serde_json::Value> {
         }
         return Vec::new();
     }
-    serde_json::from_str::<Vec<serde_json::Value>>(data).unwrap_or_default()
+    Vec::new()
 }
 
 fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Option<ModelPreset> {

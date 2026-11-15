@@ -102,8 +102,6 @@ pub struct RawMcpServerConfig {
     // shared
     #[serde(default)]
     pub startup_timeout_sec: Option<f64>,
-    #[serde(default)]
-    pub startup_timeout_ms: Option<u64>,
     #[serde(default, with = "option_duration_secs")]
     #[schemars(with = "Option<f64>")]
     pub tool_timeout_sec: Option<Duration>,
@@ -124,14 +122,11 @@ impl<'de> Deserialize<'de> for McpServerConfig {
     {
         let mut raw = RawMcpServerConfig::deserialize(deserializer)?;
 
-        let startup_timeout_sec = match (raw.startup_timeout_sec, raw.startup_timeout_ms) {
-            (Some(sec), _) => {
-                let duration = Duration::try_from_secs_f64(sec).map_err(SerdeError::custom)?;
-                Some(duration)
-            }
-            (None, Some(ms)) => Some(Duration::from_millis(ms)),
-            (None, None) => None,
-        };
+        let startup_timeout_sec = raw
+            .startup_timeout_sec
+            .map(Duration::try_from_secs_f64)
+            .transpose()
+            .map_err(SerdeError::custom)?;
         let tool_timeout_sec = raw.tool_timeout_sec;
         let enabled = raw.enabled.unwrap_or_else(default_enabled);
         let enabled_tools = raw.enabled_tools.clone();
@@ -500,11 +495,6 @@ pub struct Notice {
     pub hide_world_writable_warning: Option<bool>,
     /// Tracks whether the user opted out of the rate limit model switch reminder.
     pub hide_rate_limit_model_nudge: Option<bool>,
-    /// Tracks whether the user has seen the model migration prompt
-    pub hide_gpt5_1_migration_prompt: Option<bool>,
-    /// Tracks whether the user has seen the gpt-5.1-savfox-max migration prompt
-    #[serde(rename = "hide_gpt-5.1-savfox-max_migration_prompt")]
-    pub hide_gpt_5_1_savfox_max_migration_prompt: Option<bool>,
     /// Tracks acknowledged model migrations as old->new model slug mappings.
     #[serde(default)]
     pub model_migrations: BTreeMap<String, String>,

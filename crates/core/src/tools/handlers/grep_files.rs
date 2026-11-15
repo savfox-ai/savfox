@@ -147,8 +147,6 @@ fn parse_results(stdout: &[u8], limit: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command as StdCommand;
-
     use tempfile::tempdir;
 
     use super::*;
@@ -175,9 +173,6 @@ mod tests {
 
     #[tokio::test]
     async fn run_search_returns_results() -> anyhow::Result<()> {
-        if !rg_available() {
-            return Ok(());
-        }
         let temp = tempdir().expect("create temp dir");
         let dir = temp.path();
         std::fs::write(dir.join("match_one.txt"), "alpha beta gamma").unwrap();
@@ -193,9 +188,6 @@ mod tests {
 
     #[tokio::test]
     async fn run_search_with_glob_filter() -> anyhow::Result<()> {
-        if !rg_available() {
-            return Ok(());
-        }
         let temp = tempdir().expect("create temp dir");
         let dir = temp.path();
         std::fs::write(dir.join("match_one.rs"), "alpha beta gamma").unwrap();
@@ -209,9 +201,6 @@ mod tests {
 
     #[tokio::test]
     async fn run_search_respects_limit() -> anyhow::Result<()> {
-        if !rg_available() {
-            return Ok(());
-        }
         let temp = tempdir().expect("create temp dir");
         let dir = temp.path();
         std::fs::write(dir.join("one.txt"), "alpha one").unwrap();
@@ -225,9 +214,6 @@ mod tests {
 
     #[tokio::test]
     async fn run_search_handles_no_matches() -> anyhow::Result<()> {
-        if !rg_available() {
-            return Ok(());
-        }
         let temp = tempdir().expect("create temp dir");
         let dir = temp.path();
         std::fs::write(dir.join("one.txt"), "omega").unwrap();
@@ -235,13 +221,5 @@ mod tests {
         let results = run_rg_search("alpha", None, dir, 5, dir).await?;
         assert!(results.is_empty());
         Ok(())
-    }
-
-    fn rg_available() -> bool {
-        StdCommand::new("rg")
-            .arg("--version")
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
     }
 }

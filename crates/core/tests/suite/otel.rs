@@ -924,7 +924,7 @@ fn tool_decision_assertion<'a>(
 
 #[tokio::test]
 #[traced_test]
-async fn handle_container_exec_autoapprove_from_config_records_tool_decision() {
+async fn handle_local_shell_autoapprove_from_config_records_tool_decision() {
     let server = start_mock_server().await;
     mount_sse_once(
         &server,
@@ -979,7 +979,7 @@ async fn handle_container_exec_autoapprove_from_config_records_tool_decision() {
 
 #[tokio::test]
 #[traced_test]
-async fn handle_container_exec_user_approved_records_tool_decision() {
+async fn handle_local_shell_user_approved_records_tool_decision() {
     let server = start_mock_server().await;
     mount_sse_once(
         &server,
@@ -1039,7 +1039,7 @@ async fn handle_container_exec_user_approved_records_tool_decision() {
 
 #[tokio::test]
 #[traced_test]
-async fn handle_container_exec_user_approved_for_session_records_tool_decision() {
+async fn handle_local_shell_user_approved_for_session_records_tool_decision() {
     let server = start_mock_server().await;
 
     mount_sse_once(
@@ -1159,7 +1159,7 @@ async fn handle_sandbox_error_user_approves_retry_records_tool_decision() {
 
 #[tokio::test]
 #[traced_test]
-async fn handle_container_exec_user_denies_records_tool_decision() {
+async fn handle_local_shell_user_denies_records_tool_decision() {
     let server = start_mock_server().await;
 
     mount_sse_once(

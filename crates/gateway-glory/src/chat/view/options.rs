@@ -594,7 +594,7 @@ fn delivery(ctx: &AppContext, state: &Conversation, sessions: Cage<Value>) -> Bo
         common::array(&sessions.get(), &["entries"])
             .iter()
             .any(|entry| {
-                common::string(entry, &["session_id", "id"]) == session.get()
+                common::string(entry, &["session_id"]) == session.get()
                     && entry
                         .pointer("/arkret_delivery/mode")
                         .and_then(Value::as_str)

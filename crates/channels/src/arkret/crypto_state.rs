@@ -545,12 +545,6 @@ impl FileArkretCryptoStore {
     }
 
     #[must_use]
-    pub fn for_applet(savfox_home: &Path, config_id: &str) -> Self {
-        let scope_id = applet_scope_id(config_id);
-        Self::new(savfox_home, scope_id)
-    }
-
-    #[must_use]
     pub fn new(savfox_home: &Path, scope_id: String) -> Self {
         let path = savfox_home
             .join("gateway")
@@ -825,25 +819,6 @@ impl FileArkretCryptoStore {
             .realm_policies
             .get(realm_id)
             .is_some_and(ArkretRealmCryptoPolicy::requires_e2ee))
-    }
-
-    pub fn record_realm_authority_refs(
-        &self,
-        realm_id: &str,
-        authority_refs: &[EventId],
-    ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !authority_refs.is_empty()
-                && authority_refs.len() <= 64
-                && authority_refs.windows(2).all(|pair| pair[0] < pair[1]),
-            "Realm authority references must be non-empty, sorted, and unique"
-        );
-        let _guard = self.acquire_mutation()?;
-        let mut state = self.load()?;
-        state
-            .realm_authority_refs
-            .insert(realm_id.to_owned(), authority_refs.to_vec());
-        self.save(&mut state)
     }
 
     pub fn realm_authority_refs(&self, realm_id: &str) -> anyhow::Result<Option<Vec<EventId>>> {
@@ -1501,21 +1476,6 @@ impl FileArkretCryptoStore {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(err) => Err(err),
         }
-    }
-
-    /// Whether this accepted Commit advances the durable local group and needs
-    /// the Station's accepted post-transition leaf authority. An already
-    /// installed epoch needs no new attribution.
-    pub fn mls_commit_needs_accepted_leaf_authority(
-        &self,
-        payload: &MlsCommitPayload,
-    ) -> anyhow::Result<bool> {
-        let state = self.load()?;
-        let group_id = payload.mls_group_id()?;
-        Ok(state
-            .mls_group_states
-            .get(group_id.as_str())
-            .is_none_or(|record| record.epoch < payload.next_epoch()))
     }
 
     /// Retain the Account Station's typed MLS current values at their exact
@@ -2529,25 +2489,6 @@ impl FileArkretCryptoStore {
         Ok(())
     }
 
-    pub fn try_decrypt_content_block(
-        &self,
-        payload: &EncryptedPayload,
-    ) -> anyhow::Result<ArkretDecryptOutcome> {
-        let detailed = self.try_decrypt_content_block_detailed(payload)?;
-        Ok(match detailed {
-            ArkretDecryptDetailedOutcome::Decrypted {
-                content,
-                consume_bindings: _,
-            } => ArkretDecryptOutcome::Decrypted(content),
-            ArkretDecryptDetailedOutcome::MissingGroupState => {
-                ArkretDecryptOutcome::MissingGroupState
-            }
-            ArkretDecryptDetailedOutcome::UnsupportedScheme(scheme) => {
-                ArkretDecryptOutcome::UnsupportedScheme(scheme)
-            }
-        })
-    }
-
     pub fn try_decrypt_content_block_detailed(
         &self,
         payload: &EncryptedPayload,
@@ -2818,22 +2759,6 @@ impl FileArkretCryptoStore {
             &content,
             original,
             "/payload/encrypted_content",
-        )
-    }
-
-    pub fn encrypt_message_metadata_for_realm(
-        &self,
-        realm_id: &str,
-        metadata: &MessageMetadata,
-        original: &arkret::Event,
-    ) -> anyhow::Result<ArkretEncryptOutcome<MessageMetadata>> {
-        self.encrypt_typed_payload_for_scope(
-            &ScopeRef::Realm {
-                realm_id: RealmId::new(realm_id.to_owned())?,
-            },
-            metadata,
-            original,
-            "/payload/encrypted_metadata",
         )
     }
 

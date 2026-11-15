@@ -236,7 +236,7 @@ pub(crate) async fn resolve_abort_candidate_ids(
     if let Some(session_id) = session_id.map(str::trim).filter(|value| !value.is_empty()) {
         candidates.push(session_id.to_owned());
         if let Some(entry) = session_store.get(session_id).await
-            && let Some(mapped_thread_id) = entry.core_thread_id.or(entry.thread_id)
+            && let Some(mapped_thread_id) = entry.core_thread_id
         {
             let mapped_thread_id = mapped_thread_id.trim();
             if !mapped_thread_id.is_empty() {
@@ -371,7 +371,7 @@ mod tests {
             .get_or_create(&session_id)
             .await
             .expect("session entry should be created");
-        entry.thread_id = Some(mapped_thread_id.clone());
+        entry.core_thread_id = Some(mapped_thread_id.clone());
         store.upsert(entry).await;
 
         let candidates =

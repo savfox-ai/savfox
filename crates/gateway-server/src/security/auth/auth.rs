@@ -190,41 +190,13 @@ impl GatewayAuth {
 
     // ── Password-based auth (#45) ──────────────────────────────────────
 
-    /// Validate a username + password pair.
-    ///
-    /// Passwords are stored as bcrypt hashes (cost 12) in a separate map
-    /// keyed by username. On success, returns the token info associated
-    /// with the user. Also supports verifying legacy SHA-256 hashes for
-    /// backward compatibility (auto-upgrades to bcrypt on successful login).
+    /// Validate a username and password against the bcrypt password store.
     pub async fn validate_password(&self, username: &str, password: &str) -> Option<TokenInfo> {
         let passwords = password_store().lock().await;
-        if let Some(entry) = passwords.get(username) {
-            // Try bcrypt first (new-style hash starts with "$2b$").
-            if entry.password_hash.starts_with("$2b$") || entry.password_hash.starts_with("$2a$") {
-                if bcrypt::verify(password, &entry.password_hash).unwrap_or(false) {
-                    return Some(entry.token_info.clone());
-                }
-            } else {
-                // Legacy SHA-256 path — verify then auto-upgrade to bcrypt.
-                use sha2::Digest;
-                let sha_hash = hex::encode(sha2::Sha256::digest(password.as_bytes()));
-                if sha_hash
-                    .as_bytes()
-                    .ct_eq(entry.password_hash.as_bytes())
-                    .into()
-                {
-                    let info = entry.token_info.clone();
-                    drop(passwords);
-                    // Auto-upgrade to bcrypt (best-effort; login still succeeds
-                    // on the verified legacy hash even if the upgrade fails).
-                    if let Err(err) = self.set_password(username, password, info.clone()).await {
-                        tracing::warn!("failed to upgrade legacy password hash to bcrypt: {err}");
-                    }
-                    return Some(info);
-                }
-            }
-        }
-        None
+        let entry = passwords.get(username)?;
+        bcrypt::verify(password, &entry.password_hash)
+            .unwrap_or(false)
+            .then(|| entry.token_info.clone())
     }
 
     /// Register a username with a password (stored as bcrypt hash, cost 12).
@@ -361,10 +333,7 @@ pub fn required_scope(method: &str) -> Scope {
     if method == "system.connections" {
         return Scope::Read;
     }
-    if matches!(
-        method,
-        "system.disconnect" | "system-disconnect" | "system.kick" | "system-kick"
-    ) {
+    if matches!(method, "system.disconnect" | "system.kick") {
         return Scope::Admin;
     }
     // ── Admin: config / gateway ──────────────────────────────────────
@@ -570,10 +539,7 @@ pub fn required_scope(method: &str) -> Scope {
         || method == "update.run"
         || method.starts_with("talk.")
         || method.starts_with("voicewake.")
-        || matches!(
-            method,
-            "system.heartbeats.set" | "set-heartbeats" | "system.event" | "system-event"
-        )
+        || matches!(method, "system.heartbeats.set" | "system.event")
     {
         return Scope::Write;
     }
@@ -587,13 +553,7 @@ pub fn required_scope(method: &str) -> Scope {
     // strict deny rule below.
     if matches!(
         method,
-        "connect"
-            | "health"
-            | "status"
-            | "system.heartbeat"
-            | "last-heartbeat"
-            | "system.presence"
-            | "system-presence"
+        "connect" | "health" | "status" | "system.heartbeat" | "system.presence"
     ) {
         return Scope::Read;
     }
@@ -1043,9 +1003,7 @@ mod tests {
             "health",
             "status",
             "system.heartbeat",
-            "last-heartbeat",
             "system.presence",
-            "system-presence",
         ] {
             assert_eq!(required_scope(method), Scope::Read, "{method}");
         }

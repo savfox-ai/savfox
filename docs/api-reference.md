@@ -370,8 +370,27 @@ List all sessions (active WebSocket connections + persistent store entries).
 - **Params**: none
 - **Response**:
   ```json
-  { "active_connections": ["uuid1"], "persistent_sessions": ["01952364-8020-7d64-bdbb-f709f7d7f9c7"], "total_persistent": 5, "total_tokens": 12345 }
+  {
+    "active_connections": ["connection-uuid"],
+    "persistent_sessions": ["01952364-8020-7d64-bdbb-f709f7d7f9c7"],
+    "entries": [{
+      "session_id": "01952364-8020-7d64-bdbb-f709f7d7f9c7",
+      "label": "Project discussion",
+      "agent_id": "default",
+      "core_thread_id": "01952364-8021-7d64-bdbb-f709f7d7f9c8",
+      "remote_thread_id": "platform-topic-47"
+    }],
+    "total_persistent": 1,
+    "total_tokens": 12345
+  }
   ```
+
+Each entry uses `session_id` as its logical identifier. `core_thread_id` identifies
+the agent's core conversation for resume/history; `remote_thread_id` identifies
+the external platform topic used for delivery. An unbound session can have a null
+`agent_id`; channel sessions derive it from their current routing context.
+`active_connections` contains WebSocket connection IDs. The separate REST
+`GET /api/sessions` returns those connections as `{ "sessions": [...], "count": 1 }`.
 
 ### `sessions.preview`
 
@@ -1273,10 +1292,7 @@ Set heartbeat configuration.
 
 | Method                      | Scope     | Description                      |
 |-----------------------------|-----------|----------------------------------|
-| `exec.approvals.get`        | Approvals | Get the current approval policy  |
-| `exec.approvals.set`        | Approvals | Set the approval policy          |
-| `exec.approvals.node.get`   | Approvals | Get node-specific policy         |
-| `exec.approvals.node.set`   | Approvals | Set node-specific policy         |
+| `exec.approvals.get`        | Approvals | List current pending approvals  |
 | `exec.approval.request`     | Approvals | Create an approval request       |
 | `exec.approval.resolve`     | Approvals | Resolve an approval request      |
 
@@ -1292,10 +1308,10 @@ Set heartbeat configuration.
 
 | Method            | Scope | Description                        |
 |-------------------|-------|------------------------------------|
-| `last-heartbeat`  | Read  | Get last heartbeat timestamp       |
-| `set-heartbeats`  | Write | Configure heartbeat settings       |
-| `system-presence` | Read  | Report system presence status      |
-| `system-event`    | Write | Send a system event                |
+| `system.heartbeat`  | Read  | Get last heartbeat timestamp       |
+| `system.heartbeats.set`  | Write | Configure heartbeat settings       |
+| `system.presence` | Read  | Report system presence status      |
+| `system.event`    | Write | Send a system event                |
 
 ### Wizard
 

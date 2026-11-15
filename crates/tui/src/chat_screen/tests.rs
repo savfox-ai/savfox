@@ -3633,27 +3633,6 @@ async fn footer_uses_model_prefix_for_provider_display() {
 }
 
 #[test]
-fn provider_store_loader_parses_legacy_array_files() {
-    let savfox_home = tempdir().expect("tempdir");
-    let models_dir = savfox_home.path().join("models");
-    std::fs::create_dir_all(&models_dir).expect("create models dir");
-    std::fs::write(
-        models_dir.join("legacy-provider.json"),
-        r#"[
-  { "model_slug": "legacy-one", "name": "Legacy One", "is_default": true }
-]"#,
-    )
-    .expect("write legacy file");
-
-    let presets = load_provider_store_model_presets(savfox_home.path())
-        .expect("models dir exists and should be read");
-    assert_eq!(presets.len(), 1, "expected one parsed preset");
-    assert_eq!(presets[0].slug, "legacy-provider/legacy-one");
-    assert_eq!(presets[0].name, "Legacy One");
-    assert!(presets[0].is_default);
-}
-
-#[test]
 fn provider_store_loader_returns_none_when_models_dir_missing() {
     let savfox_home = tempdir().expect("tempdir");
     let presets = load_provider_store_model_presets(savfox_home.path());

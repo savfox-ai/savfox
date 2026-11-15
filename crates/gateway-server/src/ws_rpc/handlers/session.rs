@@ -1658,8 +1658,6 @@ pub(crate) async fn handle_sessions_list(
 
         entries.push(json!({
             "session_id": entry.session_id,
-            "id": entry.session_id,
-            "scope": entry.session_id,
             "label": label,
             "pinned": entry.pinned,
             "archived": entry.archived,
@@ -1668,11 +1666,8 @@ pub(crate) async fn handle_sessions_list(
             "identity": entry.identity,
             "provenance_count": entry.provenance.len(),
             "last_activity": last_activity,
-            "message_count": Value::Null,
-            "messages": Value::Null,
             "model": entry.model,
             "provider": entry.provider,
-            "thread_id": entry.core_thread_id.clone(),
             "core_thread_id": entry.core_thread_id,
             "remote_thread_id": entry.remote_thread_id,
             "reply_to_event_id": entry.reply_to_event_id,
@@ -2298,7 +2293,6 @@ fn merge_session_entries(mut left: SessionEntry, right: SessionEntry) -> Session
         left.core_thread_id = right.core_thread_id.clone().or(left.core_thread_id);
         left.remote_thread_id = right.remote_thread_id.clone().or(left.remote_thread_id);
         left.reply_to_event_id = right.reply_to_event_id.clone().or(left.reply_to_event_id);
-        left.thread_id = right.thread_id.clone().or(left.thread_id);
         left.reply_target = right.reply_target.clone().or(left.reply_target);
         left.parent_thread_id = right.parent_thread_id.clone().or(left.parent_thread_id);
         left.parent_message_id = right.parent_message_id.clone().or(left.parent_message_id);
@@ -2723,6 +2717,79 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::{TerminalAgentEvent, terminal_event_stream_payload};
+
+    #[tokio::test]
+    async fn sessions_list_projects_current_ids_and_agent_bindings() {
+        use std::sync::Arc;
+
+        use savfox_core::config::ConfigBuilder;
+        use savfox_gateway_shared::SessionsResponse;
+
+        use crate::channel::{GatewayBridgeArgs, GatewayChannel};
+        use crate::session::{GatewaySessionManager, SessionStore};
+
+        let home = tempfile::tempdir().expect("tempdir");
+        for root in [home.path().to_path_buf(), home.path().join("skills")] {
+            std::fs::create_dir_all(root.join("registry/github.com/savhub-ai/registry"))
+                .expect("offline registry placeholder");
+        }
+        let config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .expect("config");
+        let manager = Arc::new(GatewaySessionManager::new());
+        let store = Arc::new(SessionStore::from_home(home.path()));
+        let web_id = savfox_protocol::SessionId::new().to_string();
+        let core_id = savfox_protocol::SessionId::new().to_string();
+        let mut web = store.get_or_create(&web_id).await.expect("web session");
+        web.label = Some("Web conversation".to_owned());
+        web.agent_id = Some("web-agent".to_owned());
+        web.core_thread_id = Some(core_id.clone());
+        web.remote_thread_id = Some("platform-topic-47".to_owned());
+        store.upsert(web).await;
+        let mut routed = store
+            .get_or_create_for_routing_id("agent:routed-agent:main")
+            .await;
+        let routed_id = routed.session_id.clone();
+        routed.subject = Some("Routed subject".to_owned());
+        store.upsert(routed).await;
+        let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+            config: Arc::new(config),
+            session_store: Arc::clone(&store),
+            cli_overrides: vec![],
+            cloud_requirements: Default::default(),
+            websocket_manager: (*manager).clone(),
+            channel_registry: crate::channels::create_channel_registry(),
+            channel_recovery_registry: crate::channels::recovery::create_channel_recovery_registry(
+            ),
+            channel_recovery_supervisors:
+                crate::channels::recovery::create_channel_recovery_supervisors(),
+        }));
+        let response = super::handle_sessions_list(&manager, &store, &channel, Some("list-reader"))
+            .await
+            .expect("current sessions.list");
+        assert_eq!(response["total_persistent"], 2);
+        let decoded: SessionsResponse =
+            serde_json::from_value(response).expect("frontend must consume the real RPC response");
+        assert_eq!(decoded.entries.len(), 2);
+        let web = decoded
+            .entries
+            .iter()
+            .find(|entry| entry.session_id == web_id)
+            .expect("web row by logical session ID");
+        assert_eq!(web.core_thread_id.as_deref(), Some(core_id.as_str()));
+        assert_eq!(web.remote_thread_id.as_deref(), Some("platform-topic-47"));
+        assert_eq!(web.agent_id.as_deref(), Some("web-agent"));
+        assert_eq!(web.display_label(), "Web conversation");
+        let routed = decoded
+            .entries
+            .iter()
+            .find(|entry| entry.session_id == routed_id)
+            .expect("routed row by logical session ID");
+        assert_eq!(routed.agent_id.as_deref(), Some("routed-agent"));
+        assert_eq!(routed.display_label(), "Routed subject");
+    }
 
     #[tokio::test]
     async fn terminal_chat_output_reaches_only_authorized_owner_connections() {
