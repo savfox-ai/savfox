@@ -79,7 +79,7 @@ aes-gcm = "0.11"
 # Starlark 0.14 pins blake3 1.8.2, conflicting with Arkret's required 1.8.7.
 # Keep the compatible 0.13/allocative 0.3.4 pair until upstream relaxes that pin.
 # allocative 0.3.6 targets hashbrown 0.16; Starlark 0.13 still needs its 0.14 impls.
-allocative = "=0.3.4"
+allocative = "=0.3.6"
 ansi-to-tui = "8.0.1"
 anyhow = "1"
 arc-swap = "1.9.3"
@@ -176,7 +176,7 @@ landlock = "0.4.7"
 lazy_static = "1"
 libc = "0.2.191"
 log = "0.4"
-lopdf = "0.46"
+lopdf = "0.47"
 lru = "0.19.0"
 maplit = "1.0.2"
 # Latest arkret/salvo1-security revision; upstream main still brings vulnerable zstd.
