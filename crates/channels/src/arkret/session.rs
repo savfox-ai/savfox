@@ -33,11 +33,12 @@ mod tests {
         let s = ArkretSession {
             session_grant: arkret::SessionGrantSecret::from_bytes([7; 32]),
             grant_ref: arkret::SessionGrantRef::new(
-                DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+                DidCoreId::new("ak:did_core:web:station.example")
+                    .expect("fixture Station DID should parse"),
                 arkret::SessionGrantId::new(
                     "ak:session_grant:01904100-0000-7000-8000-000000000007",
                 )
-                .unwrap(),
+                .expect("fixture SessionGrant id should parse"),
             ),
             expires_at: Utc::now() + chrono::Duration::seconds(10),
             principal_did: DidCoreId::new("ak:did_core:web:alice.example".to_owned())
@@ -58,11 +59,12 @@ mod tests {
         let s = ArkretSession {
             session_grant: arkret::SessionGrantSecret::from_bytes([7; 32]),
             grant_ref: arkret::SessionGrantRef::new(
-                DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+                DidCoreId::new("ak:did_core:web:station.example")
+                    .expect("fixture Station DID should parse"),
                 arkret::SessionGrantId::new(
                     "ak:session_grant:01904100-0000-7000-8000-000000000007",
                 )
-                .unwrap(),
+                .expect("fixture SessionGrant id should parse"),
             ),
             expires_at: Utc::now() - chrono::Duration::seconds(10),
             principal_did: DidCoreId::new("ak:did_core:web:alice.example".to_owned())
