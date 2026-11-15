@@ -2757,7 +2757,6 @@ mod tests {
             ..content_test_factory()
         };
         let state = agent_session_state();
-        record_test_issue(&factory.session_transport, &state, Vec::new(), Vec::new());
         let inner = factory.build(&state).unwrap();
         let provider = SessionTransportProvider::new(
             SessionEngine::with_state(factory.session_transport.clone(), state.clone()),
