@@ -356,7 +356,7 @@ arkret-models-crypto = { version = "0.3.0", git = "https://github.com/arkret-org
 arkret-signatures = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "973b5659a9640401c2561aa04c09248f0a7bf015", default-features = false, features = ["collaboration"] }
 arkret-wire = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "973b5659a9640401c2561aa04c09248f0a7bf015", default-features = false }
 garth = { version = "0.3.0", git = "https://github.com/arkret-org/garth.git", rev = "131b0b0e412117abca0dc56ed858f5f497fd1cf8", default-features = false, features = ["native"] }
-arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "c1d60950c1189f2b4685913fcc4d45c66c3b8b7e", default-features = false, features = ["edge", "managed-authoring", "web"] }
+arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-org/bridges.git", rev = "9c5b9136df74d1420f8377c830f932f9c6b28a29", default-features = false, features = ["edge", "managed-authoring", "web"] }
 
 arkret-test-kit = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "973b5659a9640401c2561aa04c09248f0a7bf015" }
 
