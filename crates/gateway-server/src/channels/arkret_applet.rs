@@ -752,16 +752,16 @@ mod tests {
         let mut cfg = valid_channel_config();
         cfg.id = "completion-transport".into();
         let now = chrono::Utc::now();
-        let mut identity = arkret_test_kit::service_identity::ServiceIdentityFixture::webvh(
-            &"https://savfox.example/service/".parse().unwrap(),
-            812,
-            [42u8; 32],
-            "key-1",
-            now - chrono::Duration::minutes(1),
-            now,
-        )
-        .unwrap();
-        identity.resolution.service_kind = "applet_service".into();
+        let identity =
+            arkret_test_kit::service_identity::ServiceIdentityFixture::webvh_applet_service(
+                &"https://savfox.example/service/".parse().unwrap(),
+                812,
+                [42u8; 32],
+                "key-1",
+                now - chrono::Duration::minutes(1),
+                now,
+            )
+            .unwrap();
         let resolution = tmp.path().join("resolution.json");
         std::fs::write(
             &resolution,

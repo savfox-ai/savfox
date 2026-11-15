@@ -4,7 +4,7 @@ async fn edge(home: &Path, seed: u8) -> Arc<ArkretEdge> {
     let mut config = super::super::tests::valid_channel_config();
     config.id = format!("manager-host-{seed}");
     let now = chrono::Utc::now();
-    let mut identity = arkret_test_kit::service_identity::ServiceIdentityFixture::webvh(
+    let identity = arkret_test_kit::service_identity::ServiceIdentityFixture::webvh_applet_service(
         &format!("https://host-{seed}.example/service/")
             .parse()
             .unwrap(),
@@ -15,7 +15,6 @@ async fn edge(home: &Path, seed: u8) -> Arc<ArkretEdge> {
         now,
     )
     .unwrap();
-    identity.resolution.service_kind = "applet_service".into();
     let resolution = home.join(format!("resolution-{seed}.json"));
     std::fs::write(
         &resolution,
