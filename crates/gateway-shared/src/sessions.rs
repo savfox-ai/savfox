@@ -103,27 +103,17 @@ pub struct SessionSender {
     pub name: Option<String>,
 }
 
-/// One row in the session list. The wire format carries both legacy and
-/// current field names for the same datum (`session_id` / `id`,
-/// `message_count` / `messages`); helper methods on this struct collapse
-/// those down to a single display value.
+/// One persistent logical session in the gateway session list.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SessionEntry {
-    pub session_id: Option<String>,
-    pub id: Option<String>,
-    pub scope: Option<String>,
+    pub session_id: String,
     pub label: Option<String>,
-    pub title: Option<String>,
     pub subject: Option<String>,
     pub sender: Option<SessionSender>,
     /// Most recent activity timestamp (RFC3339 string).
     pub last_activity: Option<String>,
-    pub message_count: Option<u32>,
-    /// Legacy alias for `message_count`. Either may be present.
-    pub messages: Option<u32>,
     pub model: Option<String>,
     pub provider: Option<String>,
-    pub thread_id: Option<String>,
     pub core_thread_id: Option<String>,
     pub remote_thread_id: Option<String>,
     pub reply_to_event_id: Option<String>,
@@ -131,7 +121,8 @@ pub struct SessionEntry {
     /// `"manual" | "mention" | "dm"` etc. — channel-specific.
     pub group_activation: Option<String>,
     /// Agent this session is bound to (fixed for the session's lifetime).
-    /// `None` for legacy sessions that predate agent binding.
+    /// Unbound sessions may have no agent yet. Channel sessions resolve their
+    /// agent from the current routing context before entering this list.
     pub agent_id: Option<String>,
 }
 
@@ -174,30 +165,15 @@ pub struct ArkretDeliveryPreview {
 }
 
 impl SessionEntry {
-    #[must_use]
-    pub fn display_id(&self) -> String {
-        self.session_id
-            .as_deref()
-            .or(self.id.as_deref())
-            .unwrap_or("-")
-            .to_owned()
-    }
-
-    #[must_use]
-    pub fn display_count(&self) -> u32 {
-        self.message_count.or(self.messages).unwrap_or(0)
-    }
-
     pub fn display_label(&self) -> String {
         self.label
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_owned)
-            .or_else(|| self.title.clone())
             .or_else(|| self.subject.clone())
             .or_else(|| self.sender.as_ref().and_then(|s| s.name.clone()))
-            .unwrap_or_else(|| short_id(&self.display_id()))
+            .unwrap_or_else(|| short_id(&self.session_id))
     }
 }
 
@@ -242,42 +218,6 @@ pub struct SessionIdleReplyResponse {
     pub recent_sent_at_ms: Vec<u64>,
     pub last_suppressed_at_ms: Option<u64>,
     pub suppressed_reason: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct SessionDetail {
-    pub session_id: Option<String>,
-    pub id: Option<String>,
-    pub label: Option<String>,
-    pub model: Option<String>,
-    pub provider: Option<String>,
-    pub channel: Option<String>,
-    pub scope: Option<String>,
-    pub last_activity: Option<String>,
-    pub message_count: Option<u32>,
-    pub messages: Option<u32>,
-    pub input_tokens: Option<u64>,
-    pub output_tokens: Option<u64>,
-    pub total_tokens: Option<u64>,
-    pub thinking_level: Option<String>,
-    pub verbose_level: Option<String>,
-    pub reasoning_level: Option<String>,
-}
-
-impl SessionDetail {
-    #[must_use]
-    pub fn display_id(&self) -> String {
-        self.session_id
-            .as_deref()
-            .or(self.id.as_deref())
-            .unwrap_or("-")
-            .to_owned()
-    }
-
-    #[must_use]
-    pub fn display_count(&self) -> u32 {
-        self.message_count.or(self.messages).unwrap_or(0)
-    }
 }
 
 #[cfg(test)]

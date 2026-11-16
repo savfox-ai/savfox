@@ -95,16 +95,6 @@ impl AgentRouter {
             }
         }
 
-        // Fallback for legacy rules that did not specify a match type.
-        for rule in &self.rules {
-            if self.matches_rule(rule, ctx) {
-                return RouteResolution {
-                    agent_id: rule.agent_id.clone(),
-                    matched_rule: true,
-                };
-            }
-        }
-
         RouteResolution {
             agent_id: self.default_agent.clone(),
             matched_rule: false,

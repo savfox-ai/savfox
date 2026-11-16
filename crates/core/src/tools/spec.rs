@@ -19,8 +19,8 @@ use self::access::{
     create_web_fetch_tool, create_web_search_provider_tool, create_write_file_tool,
 };
 use self::agents::{
-    create_agents_list_tool, create_close_agent_tool, create_request_user_input_tool,
-    create_send_input_tool, create_spawn_agent_tool, create_test_sync_tool, create_wait_tool,
+    create_close_agent_tool, create_request_user_input_tool, create_send_input_tool,
+    create_spawn_agent_tool, create_test_sync_tool, create_wait_tool,
 };
 use self::declarations::{FunctionToolDecl, function_tool};
 use self::execution::{
@@ -295,9 +295,7 @@ fn create_process_tool() -> ToolSpec {
             "action".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Action to perform: \"poll\", \"read_log\", \"write\", \"send_keys\" (working). \
-                     \"list\" and \"kill\" are placeholders (not integrated) — use exec_command to \
-                     enumerate or terminate processes instead.".to_owned(),
+                    "Action to perform: \"poll\", \"read_log\", \"write\", \"send_keys\".".to_owned(),
                 ),
             },
         ),
@@ -322,19 +320,11 @@ fn create_process_tool() -> ToolSpec {
                 ),
             },
         ),
-        (
-            "signal".to_owned(),
-            JsonSchema::String {
-                description: Some(
-                    "Signal to send (for \"kill\" action): \"SIGTERM\" (default) or \"SIGINT\".".to_owned(),
-                ),
-            },
-        ),
     ]);
 
     function_tool(FunctionToolDecl {
         name: "process",
-        description: "Interact with background processes started via exec_command: poll/read their output, write to stdin, and send key sequences. (Note: \"list\" and \"kill\" are not integrated — use exec_command for those.)",
+        description: "Interact with background processes started via exec_command: poll/read their output, write to stdin, and send key sequences.",
         properties,
         required: &["action"],
     })
@@ -559,32 +549,6 @@ fn create_image_generate_tool() -> ToolSpec {
         description: "Generate an image using the DALL-E API and save it to a file. Requires OPENAI_API_KEY environment variable.",
         properties,
         required: &["prompt", "output_path"],
-    })
-}
-
-fn create_nodes_tool() -> ToolSpec {
-    let properties = BTreeMap::from([
-        (
-            "action".to_owned(),
-            JsonSchema::String {
-                description: Some(
-                    "Node action: \"list\" or \"status\". Other node actions are reserved until node pairing is integrated.".to_owned(),
-                ),
-            },
-        ),
-        (
-            "node_id".to_owned(),
-            JsonSchema::String {
-                description: Some("Target node identifier.".to_owned()),
-            },
-        ),
-    ]);
-
-    function_tool(FunctionToolDecl {
-        name: "nodes",
-        description: "Placeholder for paired device nodes. Currently reports discovery/status only; command, camera, location, and notification actions are not integrated yet.",
-        properties,
-        required: &["action"],
     })
 }
 
@@ -865,11 +829,11 @@ pub(crate) fn build_specs(
     use std::sync::Arc;
 
     use crate::tools::handlers::{
-        AgentStepHandler, AgentsListHandler, ApplyPatchHandler, BrowserHandler, CanvasHandler,
-        ChannelToolsHandler, CollabHandler, CronHandler, DiscordActionsHandler, DynamicToolHandler,
+        AgentStepHandler, ApplyPatchHandler, BrowserHandler, CanvasHandler, ChannelToolsHandler,
+        CollabHandler, CronHandler, DiscordActionsHandler, DynamicToolHandler,
         GatewayStatusHandler, GrepFilesHandler, ImageAnalyzeHandler, ImageGenerateHandler,
         ListDirHandler, LlmTaskHandler, McpHandler, McpResourceHandler, MdMemoryHandler,
-        MemoryHandler, MessageHandler, NodesHandler, PlanHandler, ProcessHandler, ReadFileHandler,
+        MemoryHandler, MessageHandler, PlanHandler, ProcessHandler, ReadFileHandler,
         RequestUserInputHandler, SessionsHandler, ShellCommandHandler, ShellHandler,
         SlackActionsHandler, TelegramActionsHandler, TestSyncHandler, TtsHandler,
         UnifiedExecHandler, ViewImageHandler, WebFetchHandler, WebSearchHandler,
@@ -933,9 +897,8 @@ pub(crate) fn build_specs(
     }
 
     if config.shell_type != ConfigShellToolType::Disabled {
-        // Always register shell aliases so older prompts remain compatible.
+        // Register the current shell tool modes supported by the response router.
         builder.register_handler("shell", shell_handler.clone());
-        builder.register_handler("container.exec", shell_handler.clone());
         builder.register_handler("local_shell", shell_handler);
         builder.register_handler("shell_command", shell_command_handler);
     }
@@ -1048,8 +1011,6 @@ pub(crate) fn build_specs(
         ImageGenerateHandler,
         create_image_generate_tool()
     );
-    register_experimental!("agents_list", AgentsListHandler, create_agents_list_tool());
-    register_experimental!("nodes", NodesHandler, create_nodes_tool());
     register_experimental!("browser", BrowserHandler, create_browser_tool());
     register_experimental!(
         "whatsapp_actions",

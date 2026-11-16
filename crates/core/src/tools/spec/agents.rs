@@ -247,19 +247,3 @@ pub(super) fn create_test_sync_tool() -> ToolSpec {
         required: &[],
     })
 }
-
-pub(super) fn create_agents_list_tool() -> ToolSpec {
-    let properties = BTreeMap::from([(
-        "filter".to_owned(),
-        JsonSchema::String {
-            description: Some("Optional filter for agent status.".to_owned()),
-        },
-    )]);
-
-    function_tool(FunctionToolDecl {
-        name: "agents_list",
-        description: "Placeholder: agent enumeration is not integrated yet (requires SessionManager) and currently returns an empty list. Do not rely on it.",
-        properties,
-        required: &[],
-    })
-}

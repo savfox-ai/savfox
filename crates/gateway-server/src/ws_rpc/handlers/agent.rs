@@ -1142,16 +1142,6 @@ fn trimmed_string_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
-fn legacy_primary_model(config: &Value) -> Option<String> {
-    trimmed_string_at(config, "model")
-        .or_else(|| {
-            config
-                .get("models")
-                .and_then(|models| trimmed_string_at(models, "primary"))
-        })
-        .map(str::to_owned)
-}
-
 fn provider_for_model(model: &str) -> String {
     model
         .split_once('/')
@@ -1161,42 +1151,9 @@ fn provider_for_model(model: &str) -> String {
         .to_owned()
 }
 
-fn legacy_fallback_models(config: &Value) -> Option<Value> {
-    let fallbacks = config
-        .get("models")
-        .and_then(|models| {
-            models
-                .get("fallback_models")
-                .or_else(|| models.get("fallbacks"))
-                .or_else(|| models.get("fallback"))
-        })
-        .or_else(|| config.get("fallback_models"))?;
-
-    match fallbacks {
-        Value::Array(items) => {
-            let models: Vec<_> = items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|model| !model.is_empty())
-                .map(|model| json!(model))
-                .collect();
-            (!models.is_empty()).then_some(Value::Array(models))
-        }
-        Value::String(model) => {
-            let model = model.trim();
-            (!model.is_empty()).then(|| json!([model]))
-        }
-        _ => None,
-    }
-}
-
 fn normalize_agent_model_config(config: &mut Value) {
-    let legacy_model = legacy_primary_model(config);
-    let legacy_fallbacks = legacy_fallback_models(config);
-
     if !config.get("native").is_some_and(Value::is_object) {
-        let model = legacy_model.clone().unwrap_or_else(|| "default".to_owned());
+        let model = "default";
         config["native"] = json!({
             "provider": provider_for_model(&model),
             "model": model,
@@ -1210,7 +1167,6 @@ fn normalize_agent_model_config(config: &mut Value) {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
-            .or_else(|| legacy_model.clone())
             .unwrap_or_else(|| "default".to_owned());
         native.insert("model".to_owned(), json!(model));
 
@@ -1222,23 +1178,7 @@ fn normalize_agent_model_config(config: &mut Value) {
         if provider_missing {
             native.insert("provider".to_owned(), json!(provider_for_model(&model)));
         }
-
-        if !native.contains_key("fallback_models")
-            && let Some(fallbacks) = legacy_fallbacks
-        {
-            native.insert("fallback_models".to_owned(), fallbacks);
-        }
     }
-}
-
-fn has_enabled_terminal_config(config: &Value) -> bool {
-    let terminal = config
-        .get("terminal")
-        .or_else(|| config.get("terminal_delegate"));
-    terminal.is_some_and(|terminal| {
-        terminal.get("enabled").and_then(Value::as_bool) == Some(true)
-            && trimmed_string_at(terminal, "command").is_some()
-    })
 }
 
 pub(crate) fn normalized_agent_name_key(name: &str) -> Option<String> {
@@ -1278,20 +1218,12 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
         config["name"] = json!(default_name);
     }
 
-    if !config.get("terminal").is_some_and(Value::is_object)
-        && let Some(terminal_delegate) = config.get("terminal_delegate").cloned()
-        && terminal_delegate.is_object()
-    {
-        config["terminal"] = terminal_delegate;
-    }
-
     let kind = config
         .get("kind")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| matches!(*value, "native" | "terminal"))
         .map(ToOwned::to_owned)
-        .or_else(|| has_enabled_terminal_config(config).then(|| "terminal".to_owned()))
         .unwrap_or_else(|| "native".to_owned());
     config["kind"] = json!(kind.as_str());
     if kind == "native" {
@@ -2569,7 +2501,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_agent_config_fills_legacy_native_defaults() {
+    fn normalize_agent_config_fills_native_defaults() {
         let mut config = json!({
             "id": "019cad1c-d58e-7e20-a16e-dd1b1f0d382f",
             "name": "sdd",
@@ -2604,38 +2536,6 @@ mod tests {
 
         let error = validate_agent_shape(&config).expect_err("invalid tool list should fail");
         assert!(error.starts_with("invalid `permission_policy`:"));
-    }
-
-    #[test]
-    fn normalize_agent_config_migrates_legacy_model_fields() {
-        let mut config = json!({
-            "id": "default",
-            "name": "Savfox Agent",
-            "description": "Default Savfox assistant agent",
-            "builtin": true,
-            "status": "active",
-            "is_default": true,
-            "model": "deepseek-chris/deepseek-v4-flash",
-            "models": {
-                "primary": "deepseek-chris/deepseek-v4-flash",
-                "fallback": ["openai/gpt-5-mini"]
-            }
-        });
-
-        normalize_agent_config(&mut config, "default", true);
-
-        assert_eq!(config["kind"], json!("native"));
-        assert_eq!(config["native"]["provider"], json!("deepseek-chris"));
-        assert_eq!(
-            config["native"]["model"],
-            json!("deepseek-chris/deepseek-v4-flash")
-        );
-        assert_eq!(
-            config["native"]["fallback_models"],
-            json!(["openai/gpt-5-mini"])
-        );
-        assert_eq!(config["builtin"], json!(true));
-        assert_agents_response_deserializes(&config);
     }
 
     #[tokio::test]

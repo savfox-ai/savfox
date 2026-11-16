@@ -793,7 +793,7 @@ pub(crate) async fn approvals_list_handler(depot: &mut Depot, res: &mut Response
 }
 
 /// Load approval forwarding config from environment variables.
-fn load_forwarding_config() -> ApprovalForwardingConfig {
+pub(crate) fn load_forwarding_config() -> ApprovalForwardingConfig {
     let enabled = std::env::var("SAVFOX_APPROVAL_FORWARDING")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);

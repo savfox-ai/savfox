@@ -1181,10 +1181,7 @@ impl GatewayChannel {
         }
 
         if let Some(entry) = self.session_store.get(logical_session_id).await
-            && let Some(thread_id) = entry
-                .core_thread_id
-                .as_deref()
-                .or(entry.thread_id.as_deref())
+            && let Some(thread_id) = entry.core_thread_id.as_deref()
             && let Ok(parsed_thread_id) = SessionId::from_string(thread_id)
             && self
                 .session_manager
@@ -1284,10 +1281,7 @@ impl GatewayChannel {
                 }
             }
 
-            if let Some(thread_id) = entry
-                .core_thread_id
-                .as_deref()
-                .or(entry.thread_id.as_deref())
+            if let Some(thread_id) = entry.core_thread_id.as_deref()
                 && let Some(path) = self.find_rollout_path_candidate(thread_id).await?
             {
                 return Ok(Some(path));

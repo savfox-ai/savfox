@@ -6,9 +6,6 @@
 use std::collections::BTreeMap;
 
 use savfox_core::config::Config;
-pub(super) use savfox_core::models_manager::model_presets::{
-    HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG, HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG,
-};
 use savfox_core::protocol::TokenUsage;
 use savfox_protocol::openai_models::{ModelPreset, ModelUpgrade};
 
@@ -53,19 +50,6 @@ pub(super) fn should_show_model_migration_prompt(
     false
 }
 
-pub(super) fn migration_prompt_hidden(config: &Config, migration_config_key: &str) -> bool {
-    match migration_config_key {
-        HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG => config
-            .notices
-            .hide_gpt_5_1_savfox_max_migration_prompt
-            .unwrap_or(false),
-        HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG => {
-            config.notices.hide_gpt5_1_migration_prompt.unwrap_or(false)
-        }
-        _ => false,
-    }
-}
-
 pub(super) fn target_preset_for_upgrade<'a>(
     available_models: &'a [ModelPreset],
     target_model: &str,
@@ -90,16 +74,12 @@ pub(super) async fn handle_model_migration_prompt_if_needed(
     if let Some(ModelUpgrade {
         id: target_model,
         reasoning_effort_mapping,
-        migration_config_key,
+        migration_config_key: _,
         model_link,
         upgrade_copy,
         migration_markdown,
     }) = upgrade
     {
-        if migration_prompt_hidden(config, migration_config_key.as_str()) {
-            return None;
-        }
-
         let target_model = target_model.clone();
         if !should_show_model_migration_prompt(
             model,

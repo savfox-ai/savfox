@@ -9,11 +9,11 @@ use savfox_utils::home_dir::SKILLS_SUBDIR;
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
-use super::super::utils::{opt_bool, opt_str, require_str};
+use super::super::utils::{opt_bool, require_str};
 use crate::channel::GatewayChannel;
 use crate::exec_approval::{
-    ApprovalForwardingConfig, ExecApprovalRequest, ExecApprovalResolution, ResolveOutcome,
-    forward_approval_to_chat, generate_approval_nonce, list_pending_approvals,
+    ExecApprovalRequest, ExecApprovalResolution, ResolveOutcome, forward_approval_to_chat,
+    generate_approval_nonce, list_pending_approvals, load_forwarding_config,
     notify_approval_resolved, persist_pending_approval, persist_resolved_approval,
 };
 use crate::security::approval_coordinator::{
@@ -21,7 +21,7 @@ use crate::security::approval_coordinator::{
 };
 use crate::security::execution_policy::{ApprovalClientCapabilities, resolve_execution_security};
 use crate::session::GatewaySessionManager;
-use crate::{approval_policy_store, skills_store, tts_service};
+use crate::{skills_store, tts_service};
 
 // ── TTS (text-to-speech) ────────────────────────────────────────────────────
 
@@ -307,62 +307,11 @@ pub(crate) async fn handle_exec_approvals_get(
                 && approval.peer_id == owner_digest
                 && active.contains(&approval.id))
     });
-    let policy = approval_policy_store::get_global(&channel.config().savfox_home)
-        .await
-        .map_err(|err| {
-            (
-                INTERNAL_ERROR,
-                format!("failed to load approval policy: {err}"),
-            )
-        })?;
     let count = approvals.len();
     Ok(json!({
-        "mode": policy.get("mode").cloned().unwrap_or(Value::String("auto".to_owned())),
-        "execution_mode": policy.get("execution_mode").cloned().unwrap_or(Value::String("unattended".to_owned())),
-        "rules": policy.get("rules").cloned().unwrap_or(Value::Array(Vec::new())),
-        "deprecated": policy.get("deprecated").cloned().unwrap_or(Value::Bool(true)),
-        "read_only": policy.get("read_only").cloned().unwrap_or(Value::Bool(true)),
-        "canonical_rule_source": policy.get("canonical_rule_source").cloned().unwrap_or(Value::String("rules/default.rules".to_owned())),
-        "migration": policy.get("migration").cloned().unwrap_or(Value::Null),
         "approvals": approvals,
         "count": count,
     }))
-}
-
-pub(crate) async fn handle_exec_approvals_set(
-    params: &Value,
-    channel: &Arc<GatewayChannel>,
-) -> RpcResult {
-    let mode = opt_str(params, "mode", "auto");
-    approval_policy_store::set_global(&channel.config().savfox_home, mode, params.get("rules"))
-        .await
-        .map_err(|err| (INVALID_REQUEST, err))
-}
-
-pub(crate) async fn handle_exec_approvals_node_get(
-    params: &Value,
-    channel: &Arc<GatewayChannel>,
-) -> RpcResult {
-    let node_id = require_str(params, "node_id")?;
-    approval_policy_store::get_node(&channel.config().savfox_home, node_id)
-        .await
-        .map_err(|err| (INTERNAL_ERROR, err))
-}
-
-pub(crate) async fn handle_exec_approvals_node_set(
-    params: &Value,
-    channel: &Arc<GatewayChannel>,
-) -> RpcResult {
-    let node_id = require_str(params, "node_id")?;
-    let mode = opt_str(params, "mode", "auto");
-    approval_policy_store::set_node(
-        &channel.config().savfox_home,
-        node_id,
-        mode,
-        params.get("rules"),
-    )
-    .await
-    .map_err(|err| (INVALID_REQUEST, err))
 }
 
 pub(crate) async fn handle_exec_approval_request(
@@ -422,7 +371,7 @@ pub(crate) async fn handle_exec_approval_request(
     }
 
     // Load forwarding config from env and forward the approval.
-    let config = load_approval_forwarding_config();
+    let config = load_forwarding_config();
     forward_approval_to_chat(channel, session_mgr, &request, &config).await;
 
     Ok(json!({
@@ -490,7 +439,7 @@ pub(crate) async fn handle_exec_approval_resolve(
                 reason,
                 nonce: nonce.to_owned(),
             };
-            let config = load_approval_forwarding_config();
+            let config = load_forwarding_config();
             notify_approval_resolved(channel, session_mgr, &resolution, &config).await;
             return Ok(json!({
                 "request_id": request_id,
@@ -566,7 +515,7 @@ pub(crate) async fn handle_exec_approval_resolve(
     };
 
     // Notify channels about the resolution.
-    let config = load_approval_forwarding_config();
+    let config = load_forwarding_config();
     notify_approval_resolved(channel, session_mgr, &resolution, &config).await;
 
     Ok(json!({
@@ -733,33 +682,4 @@ pub(crate) async fn handle_security_rules_remove(
         "status": if removed { "removed" } else { "not_found" },
         "command": argv,
     }))
-}
-
-/// Load approval forwarding config from environment variables.
-fn load_approval_forwarding_config() -> ApprovalForwardingConfig {
-    let enabled = std::env::var("SAVFOX_APPROVAL_FORWARDING")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-
-    let mode = std::env::var("SAVFOX_APPROVAL_MODE").unwrap_or_else(|_| "targets".to_owned());
-
-    let targets = std::env::var("SAVFOX_APPROVAL_TARGETS")
-        .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
-        .unwrap_or_default();
-
-    let agent_filter = std::env::var("SAVFOX_APPROVAL_AGENT_FILTER")
-        .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
-        .unwrap_or_default();
-
-    let session_filter = std::env::var("SAVFOX_APPROVAL_SESSION_FILTER")
-        .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
-        .unwrap_or_default();
-
-    ApprovalForwardingConfig {
-        enabled,
-        mode,
-        targets,
-        agent_filter,
-        session_filter,
-    }
 }

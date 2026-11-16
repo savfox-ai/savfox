@@ -749,17 +749,8 @@ fn json_terminal_permission_fields(value: Option<&Value>) -> (String, String) {
 
     let bridge = config
         .get("savfox_approval_bridge")
-        .and_then(|value| {
-            value.as_str().map(ToString::to_string).or_else(|| {
-                value.as_bool().map(|enabled| {
-                    if enabled {
-                        "prompt".to_string()
-                    } else {
-                        "disabled".to_string()
-                    }
-                })
-            })
-        })
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
         .unwrap_or_else(|| "disabled".to_string());
     let execution = config
         .get("terminal_execution")
@@ -767,13 +758,7 @@ fn json_terminal_permission_fields(value: Option<&Value>) -> (String, String) {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
-        .unwrap_or_else(|| {
-            if bridge != "disabled" {
-                "managed_workspace".to_string()
-            } else {
-                "native_terminal".to_string()
-            }
-        });
+        .unwrap_or_else(|| "native_terminal".to_string());
 
     (execution, bridge)
 }
@@ -2393,29 +2378,6 @@ mod tests {
         assert_eq!(
             codex_extra_args("app-server\n--listen=stdio://\n-c\nmodel=\"custom-model\""),
             vec!["-c", "model=\"custom-model\""]
-        );
-    }
-
-    #[test]
-    fn terminal_permission_fields_accept_legacy_bridge_booleans() {
-        assert_eq!(
-            json_terminal_permission_fields(Some(&json!({
-                "savfox_approval_bridge": true
-            }))),
-            ("managed_workspace".to_string(), "prompt".to_string())
-        );
-        assert_eq!(
-            json_terminal_permission_fields(Some(&json!({
-                "savfox_approval_bridge": false
-            }))),
-            ("native_terminal".to_string(), "disabled".to_string())
-        );
-        assert_eq!(
-            json_terminal_permission_fields(Some(&json!({
-                "terminal_execution": "native_terminal",
-                "savfox_approval_bridge": "required"
-            }))),
-            ("native_terminal".to_string(), "required".to_string())
         );
     }
 

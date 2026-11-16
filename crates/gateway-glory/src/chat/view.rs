@@ -99,7 +99,7 @@ pub fn render(ctx: &AppContext, path: &str) -> Box<dyn Widget> {
             && let Some(entry) = sessions
                 .entries
                 .into_iter()
-                .find(|entry| entry.display_id() == selected)
+                .find(|entry| entry.session_id == selected)
         {
             if let Some(next) = entry.agent_id
                 && agent.get_untracked() != next

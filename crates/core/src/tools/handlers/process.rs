@@ -8,7 +8,7 @@ use crate::unified_exec::WriteStdinRequest;
 
 #[derive(Deserialize)]
 struct ProcessArgs {
-    /// The action to perform: "list", "poll", "read_log", "write", "send_keys", "kill".
+    /// The action to perform: "poll", "read_log", "write", "send_keys".
     action: String,
     /// Process ID for actions that target a specific process.
     #[serde(default)]
@@ -19,9 +19,6 @@ struct ProcessArgs {
     /// Key names for the "send_keys" action (e.g. ["ctrl-c", "enter"]).
     #[serde(default)]
     keys: Option<Vec<String>>,
-    /// Signal name for the "kill" action (e.g. "SIGTERM", "SIGKILL").
-    #[serde(default)]
-    signal: Option<String>,
 }
 
 mod defaults {
@@ -31,12 +28,10 @@ mod defaults {
 }
 
 /// Handles process-related tool calls with a single `action` field to dispatch:
-/// - `list`      -- Enumerate active processes.
 /// - `poll`      -- Read latest output from a process.
-/// - `read_log`  -- Return last N lines of process output.
+/// - `read_log`  -- Read latest output from a process.
 /// - `write`     -- Write text to process stdin.
 /// - `send_keys` -- Convert key names to escape sequences and write to stdin.
-/// - `kill`      -- Terminate the process.
 pub struct ProcessHandler;
 
 #[async_trait::async_trait]
@@ -55,12 +50,9 @@ impl ToolHandler for ProcessHandler {
         let session = &invocation.session;
 
         match args.action.as_str() {
-            "list" => handle_list().await,
-            "poll" => handle_poll(session, &args).await,
-            "read_log" => handle_read_log(session, &args).await,
+            "poll" | "read_log" => handle_poll(session, &args).await,
             "write" => handle_write(session, &args).await,
             "send_keys" => handle_send_keys(session, &args).await,
-            "kill" => handle_kill(&args).await,
             other => model_err(format!("unknown process action: {other}")),
         }
     }
@@ -70,24 +62,15 @@ impl ToolHandler for ProcessHandler {
 // Action handlers
 // ---------------------------------------------------------------------------
 
-async fn handle_list() -> Result<ToolOutput, FunctionCallError> {
-    // The internal ProcessStore is private to UnifiedExecProcessManager, so we
-    // cannot enumerate processes directly.  Return an informational message that
-    // guides the model to use the unified exec manager for process enumeration.
-    Ok(ToolOutput::ok(serde_json::json!({
-            "note": "Process listing is available through the unified exec manager. \
-                     Use exec_command or write_stdin to interact with active processes. \
-                     Process IDs are returned when a long-running command is started via exec_command.",
-        })
-        .to_string()))
-}
-
 async fn handle_poll(
     session: &crate::savfox::Session,
     args: &ProcessArgs,
 ) -> Result<ToolOutput, FunctionCallError> {
     let Some(process_id) = args.process_id.as_deref() else {
-        return model_err("process_id is required for the poll action");
+        return model_err(format!(
+            "process_id is required for the {} action",
+            args.action
+        ));
     };
 
     let manager = &session.services.unified_exec_manager;
@@ -100,36 +83,6 @@ async fn handle_poll(
         })
         .await
         .or_else(|err| model_err(format!("poll failed: {err}")))?;
-
-    Ok(ToolOutput::ok(
-        serde_json::json!({
-            "process_id": response.process_id,
-            "exit_code": response.exit_code,
-            "output": response.output,
-        })
-        .to_string(),
-    ))
-}
-
-async fn handle_read_log(
-    session: &crate::savfox::Session,
-    args: &ProcessArgs,
-) -> Result<ToolOutput, FunctionCallError> {
-    let Some(process_id) = args.process_id.as_deref() else {
-        return model_err("process_id is required for the read_log action");
-    };
-
-    // Read the latest output by performing an empty write_stdin (poll).
-    let manager = &session.services.unified_exec_manager;
-    let response = manager
-        .write_stdin(WriteStdinRequest {
-            process_id,
-            input: "",
-            yield_time_ms: defaults::yield_time_ms(),
-            max_output_tokens: None,
-        })
-        .await
-        .or_else(|err| model_err(format!("read_log failed: {err}")))?;
 
     Ok(ToolOutput::ok(
         serde_json::json!({
@@ -211,25 +164,6 @@ async fn handle_send_keys(
         })
         .to_string(),
     ))
-}
-
-async fn handle_kill(args: &ProcessArgs) -> Result<ToolOutput, FunctionCallError> {
-    let Some(process_id) = args.process_id.as_deref() else {
-        return model_err("process_id is required for the kill action");
-    };
-
-    let signal = args.signal.as_deref().unwrap_or("SIGTERM");
-
-    // Killing a process requires methods not currently exposed on
-    // UnifiedExecProcessManager.  Return a placeholder that indicates the
-    // intent so the model can fall back to exec_command with an explicit kill.
-    Ok(ToolOutput::ok(serde_json::json!({
-            "process_id": process_id,
-            "signal": signal,
-            "note": "Process termination is not yet directly supported through the process tool. \
-                     Use exec_command to run 'kill' or send ctrl-c via send_keys to terminate the process.",
-        })
-        .to_string()))
 }
 
 // ---------------------------------------------------------------------------

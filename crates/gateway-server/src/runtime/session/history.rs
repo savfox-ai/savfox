@@ -308,7 +308,7 @@ async fn resolve_rollout_path(
     let mut candidates = vec![session_ref.to_owned()];
     if let Some(existing) = entry {
         candidates.push(existing.session_id.clone());
-        if let Some(thread_id) = &existing.thread_id {
+        if let Some(thread_id) = &existing.core_thread_id {
             candidates.push(thread_id.clone());
         }
     }
@@ -504,6 +504,42 @@ mod tests {
     use savfox_protocol::protocol::{AgentMessageEvent, EventMsg, RolloutItem, UserMessageEvent};
 
     use super::{derive_session_label_from_messages, extract_messages};
+
+    #[tokio::test]
+    async fn rollout_lookup_uses_core_thread_id_without_remote_thread_fallback() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let sessions = home.path().join("sessions");
+        tokio::fs::create_dir_all(&sessions)
+            .await
+            .expect("sessions directory");
+        let mut entry = crate::session::SessionEntry::new();
+        let logical_id = entry.session_id.clone();
+        let core_id = uuid::Uuid::now_v7().to_string();
+        let remote_id = uuid::Uuid::now_v7().to_string();
+        let core_path = sessions.join(format!("{core_id}.jsonl"));
+        let remote_path = sessions.join(format!("{remote_id}.jsonl"));
+        tokio::fs::write(&core_path, b"")
+            .await
+            .expect("core rollout");
+        tokio::fs::write(&remote_path, b"")
+            .await
+            .expect("unrelated remote-id rollout");
+        entry.core_thread_id = Some(core_id);
+        entry.remote_thread_id = Some(remote_id);
+        assert_eq!(
+            super::resolve_rollout_path(home.path(), &logical_id, Some(&entry))
+                .await
+                .expect("resolve core rollout"),
+            Some(core_path)
+        );
+        entry.core_thread_id = None;
+        assert_eq!(
+            super::resolve_rollout_path(home.path(), &logical_id, Some(&entry))
+                .await
+                .expect("remote thread is not a core rollout candidate"),
+            None
+        );
+    }
 
     #[test]
     fn streaming_tail_preserves_fallback_counts_and_source_filtering() {

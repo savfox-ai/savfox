@@ -48,7 +48,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 mod agent_terminal_delegate;
 mod agent_terminal_launcher;
-mod approval_policy_store;
 #[cfg(feature = "arkret")]
 mod arkret_delivery;
 pub mod audit;
@@ -323,7 +322,6 @@ pub async fn run_main(gateway_config: GatewayConfig) -> IoResult<()> {
     }
 
     info!("migrating channel configurations");
-    savfox_core::config::channel_store::migrate_channel_configs(&config.savfox_home).await;
 
     info!("loading channel configurations");
     if let Err(err) = channels::log_all_configured_channels(&config.savfox_home).await {

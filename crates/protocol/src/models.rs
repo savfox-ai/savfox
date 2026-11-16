@@ -173,7 +173,6 @@ pub enum ResponseItem {
     GhostSnapshot {
         ghost_commit: GhostCommit,
     },
-    #[serde(alias = "compaction_summary")]
     Compaction {
         encrypted_content: String,
     },
@@ -734,8 +733,7 @@ impl From<Vec<UserInput>> for ResponseInputItem {
     }
 }
 
-/// If the `name` of a `ResponseItem::FunctionCall` is either `container.exec`
-/// or `shell`, the `arguments` field should deserialize to this struct.
+/// Arguments for the `shell` function tool.
 #[derive(Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 pub struct ShellToolCallParams {
     pub command: Vec<String>,
@@ -1291,21 +1289,6 @@ mod tests {
         let expected_content = serde_json::to_string(&expected_items)?;
         assert_eq!(payload.content, expected_content);
 
-        Ok(())
-    }
-
-    #[test]
-    fn deserializes_compaction_alias() -> Result<()> {
-        let json = r#"{"type":"compaction_summary","encrypted_content":"abc"}"#;
-
-        let item: ResponseItem = serde_json::from_str(json)?;
-
-        assert_eq!(
-            item,
-            ResponseItem::Compaction {
-                encrypted_content: "abc".into(),
-            }
-        );
         Ok(())
     }
 

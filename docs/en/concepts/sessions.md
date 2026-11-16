@@ -41,6 +41,8 @@ Each session entry stores:
 |-------|-------------|
 | `session_id` | Unique UUID v7 |
 | `routing_id` | Internal routing identifier |
+| `core_thread_id` | Core conversation used for resume and history |
+| `remote_thread_id` | External platform thread/topic used for replies |
 | `created_at` | Creation timestamp (epoch ms) |
 | `updated_at` | Last activity timestamp (epoch ms) |
 | `channel` | Current platform (discord, telegram, etc.) |
@@ -52,12 +54,14 @@ Each session entry stores:
 
 ## Persistence
 
-Sessions are stored as JSONL in `{savfox_home}/sessions/<session_id>.jsonl`.
+Session metadata is stored in SQLite at
+`{savfox_home}/gateway-session-store.sqlite`. Conversation rollout history remains
+JSONL under `{savfox_home}/sessions/`, identified by its core session UUID.
 The store uses:
 
 - **In-memory cache** with a 45-second TTL for fast lookups.
-- **File-based persistence** for durability across gateway restarts.
-- **Atomic writes** to prevent corruption on crash.
+- **SQLite transactions** for durability across gateway restarts.
+- **Writer reservations** to serialize read/modify/write updates across stores.
 
 Configuration defaults:
 
@@ -65,8 +69,6 @@ Configuration defaults:
 |---------|---------|
 | Max age | 30 days |
 | Max entries | 500 |
-| Max file size | 10 MB |
-| Max backups | 3 |
 | Cache TTL | 45 seconds |
 
 ## Pruning
@@ -74,10 +76,6 @@ Configuration defaults:
 Stale sessions are pruned automatically every 5 minutes. A session is considered stale if its `updated_at` timestamp is older than the configured `max_age` (default: 30 days).
 
 When the entry count exceeds `max_entries`, the oldest sessions (by `updated_at`) are removed first.
-
-## Rotation
-
-Each session is persisted in its own file named by UUID v7 `session_id`.
 
 ## Context Compaction
 
@@ -119,10 +117,9 @@ curl http://localhost:18881/api/sessions/<id>/history -H "Authorization: Bearer 
 
 ### Concurrent metadata updates
 
-Gateway session metadata updates are serialized with cache refreshes and durable
-sidecar writes. Token increments and field updates use an atomic update of the
-current entry, so concurrent turns preserve each other's counters. Full entry
-replacements reject stale or competing equal versions; callers changing only
-some fields should use the store's update operation. Persistence remains scoped
-to one gateway process; sharing one home between multiple gateway writers is not
-supported by this in-process coordination.
+Session metadata updates acquire a SQLite writer reservation before reading and
+modifying the current row, so separate SessionStore instances preserve each
+other's counter increments. Full entry replacements reject stale or competing
+equal versions; callers changing only some fields should use the store's update
+operation. This database guarantee covers metadata persistence; gateway runtime
+session lifecycles have their own coordination.

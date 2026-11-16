@@ -387,9 +387,6 @@ pub(crate) async fn dispatch_rpc(
 
         // ── Exec approvals ──────────────────────────────────────────────
         "exec.approvals.get" => Box::pin(handle_exec_approvals_get(channel, principal.as_deref())),
-        "exec.approvals.set" => Box::pin(handle_exec_approvals_set(&params, channel)),
-        "exec.approvals.node.get" => Box::pin(handle_exec_approvals_node_get(&params, channel)),
-        "exec.approvals.node.set" => Box::pin(handle_exec_approvals_node_set(&params, channel)),
         "exec.approval.request" => {
             Box::pin(handle_exec_approval_request(&params, channel, session_mgr))
         }
@@ -413,26 +410,17 @@ pub(crate) async fn dispatch_rpc(
         "logs.tail" => Box::pin(handle_logs_tail(&params)),
 
         // ── System ──────────────────────────────────────────────────────
-        // The dash-style names below pre-date the `domain.action` convention
-        // used elsewhere; they're kept as deprecated aliases so existing
-        // Browser + scope-guard call sites keep working while clients migrate.
-        "system.heartbeat" | "last-heartbeat" => Box::pin(handle_last_heartbeat(&params)),
-        "system.heartbeats.set" | "set-heartbeats" => {
-            Box::pin(handle_set_heartbeats(&params, channel))
-        }
-        "system.presence" | "system-presence" => {
-            Box::pin(handle_system_presence(&params, session_mgr))
-        }
-        "system.event" | "system-event" => Box::pin(handle_system_event(
+        "system.heartbeat" => Box::pin(handle_last_heartbeat(&params)),
+        "system.heartbeats.set" => Box::pin(handle_set_heartbeats(&params, channel)),
+        "system.presence" => Box::pin(handle_system_presence(&params, session_mgr)),
+        "system.event" => Box::pin(handle_system_event(
             &params,
             channel,
             session_mgr,
             cron_service,
         )),
-        "system.disconnect" | "system-disconnect" => {
-            Box::pin(handle_system_disconnect(&params, session_mgr))
-        }
-        "system.kick" | "system-kick" => Box::pin(handle_system_kick(&params, session_mgr)),
+        "system.disconnect" => Box::pin(handle_system_disconnect(&params, session_mgr)),
+        "system.kick" => Box::pin(handle_system_kick(&params, session_mgr)),
         "approvals.policy" => Box::pin(handle_approvals_policy(&params, channel)),
 
         // ── Models ──────────────────────────────────────────────────────

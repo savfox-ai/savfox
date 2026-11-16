@@ -108,7 +108,7 @@ pub(super) fn render(
                 (filter.is_empty() || entry.agent_id.as_deref() == Some(filter.as_str()))
                     && (query.is_empty()
                         || entry.display_label().to_lowercase().contains(&query)
-                        || entry.display_id().to_lowercase().contains(&query))
+                        || entry.session_id.to_lowercase().contains(&query))
             })
             .collect::<Vec<_>>()
     });
@@ -119,7 +119,7 @@ pub(super) fn render(
             .and_then(|data| {
                 data.entries
                     .into_iter()
-                    .find(|entry| entry.display_id() == id)
+                    .find(|entry| entry.session_id == id)
             })
             .map(|entry| entry.display_label())
             .unwrap_or_else(|| words(locale.get(), "Draft session", "新会话"))
@@ -231,10 +231,10 @@ pub(super) fn render(
                     })
                 },
                 each(entries)
-                    .key(|entry| entry.display_id())
+                    .key(|entry| entry.session_id.clone())
                     .children(move |each_row| {
                         let entry = each_row.value;
-                        let id = entry.get_untracked().display_id();
+                        let id = entry.get_untracked().session_id.clone();
                         let ctx = list_ctx.clone();
                         let state = list_state.clone();
                         let query = list_query.clone();
@@ -260,25 +260,9 @@ pub(super) fn render(
                                     text()
                                         .class("session-list-item__title")
                                         .content(entry.map(|entry| entry.display_label())),
-                                    group().fill((
-                                        text().class("session-list-item__model").content(
-                                            entry.map(|entry| {
-                                                entry.model.clone().unwrap_or_default()
-                                            }),
-                                        ),
-                                        text().content(ctx.scope.bond(move || {
-                                            let count = entry.get().display_count();
-                                            if count == 0 {
-                                                String::new()
-                                            } else {
-                                                words(
-                                                    locale.get(),
-                                                    &format!("{count} messages"),
-                                                    &format!("{count} 条消息"),
-                                                )
-                                            }
-                                        })),
-                                    )),
+                                    text().class("session-list-item__model").content(
+                                        entry.map(|entry| entry.model.clone().unwrap_or_default()),
+                                    ),
                                     text().class("session-list-item__meta").content(
                                         ctx.scope.bond(move || {
                                             entry
@@ -710,7 +694,8 @@ fn wide_workspace() -> bool {
 fn install_viewport(ctx: &AppContext, list_open: Cage<bool>) {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasm_bindgen::{JsCast, closure::Closure};
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen::closure::Closure;
         if let Some(media) = web_sys::window()
             .and_then(|window| window.match_media("(max-width: 760px)").ok().flatten())
         {

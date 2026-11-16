@@ -10,7 +10,7 @@ use tracing::error;
 use crate::client_common::ResponseEvent;
 use crate::error::{Result as SavfoxResult, SavfoxError};
 use crate::features::Feature;
-use crate::protocol::{CompactedItem, EventMsg, TurnContextItem, TurnStartedEvent, WarningEvent};
+use crate::protocol::{CompactedItem, EventMsg, TurnStartedEvent, WarningEvent};
 use crate::savfox::{Session, TurnContext, get_last_assistant_message_from_turn};
 use crate::session_prefix::TURN_ABORTED_OPEN_TAG;
 use crate::truncate::{TruncationPolicy, approx_token_count, truncate_text};
@@ -81,20 +81,7 @@ async fn run_compact_task_inner(
     // duplicating model settings on TurnContext, but an Op after turn start could update the
     // session config before this write occurs.
     let collaboration_mode = sess.current_collaboration_mode().await;
-    let rollout_item = RolloutItem::TurnContext(TurnContextItem {
-        cwd: turn_context.cwd.clone(),
-        approval_policy: turn_context.approval_policy,
-        sandbox_policy: turn_context.sandbox_policy.clone(),
-        model: turn_context.client.get_model(),
-        personality: turn_context.personality,
-        collaboration_mode: Some(collaboration_mode),
-        effort: turn_context.client.get_reasoning_effort(),
-        summary: turn_context.client.get_reasoning_summary(),
-        user_instructions: turn_context.user_instructions.clone(),
-        developer_instructions: turn_context.developer_instructions.clone(),
-        final_output_json_schema: turn_context.final_output_json_schema.clone(),
-        truncation_policy: Some(turn_context.truncation_policy.into()),
-    });
+    let rollout_item = turn_context.rollout_item(collaboration_mode);
     sess.persist_rollout_items(&[rollout_item]).await;
 
     loop {

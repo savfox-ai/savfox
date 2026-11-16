@@ -377,22 +377,6 @@ async fn get_channel_config_by_id(
     }
 }
 
-/// Re-save all existing channel configs so that the `slug` field is populated.
-pub async fn migrate_channel_configs(savfox_home: &PathBuf) {
-    let configs = match list_channel_configs(savfox_home).await {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    for config in configs {
-        if !config.slug.is_empty() {
-            continue;
-        }
-        if let Err(e) = save_channel_config(savfox_home, &config).await {
-            warn!("Failed to migrate channel config {}: {}", config.id, e);
-        }
-    }
-}
-
 pub async fn save_channel_config(
     savfox_home: &PathBuf,
     config: &ChannelConfig,

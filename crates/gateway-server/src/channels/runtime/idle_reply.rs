@@ -512,8 +512,8 @@ async fn fire_idle_reply(
         let _ = session_store
             .update(&session_id, move |session| {
                 session.session_file = Some(session_file.clone());
-                if session.thread_id.is_none() {
-                    session.remote_thread_id = Some(thread_id);
+                if session.core_thread_id.is_none() {
+                    session.core_thread_id = Some(thread_id);
                 }
             })
             .await;

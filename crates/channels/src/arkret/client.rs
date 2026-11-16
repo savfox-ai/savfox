@@ -985,37 +985,6 @@ impl ArkretHttpClient {
         Ok(realms.into_iter().collect())
     }
 
-    /// Construct an Agent HTTP client by exchanging a runtime-key
-    /// `agent_key_proof` for a short-lived DPoP-bound session grant.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn login_agent_provider(
-        base_url: &str,
-        key_ref: &ArkretKeyRef,
-        account_id: arkret::AccountId,
-        accepted_binding: &arkret::StationConnectionBinding,
-        runtime_fence: Arc<dyn Fn() -> bool + Send + Sync>,
-        verification_method: &str,
-        agent_key_authorization_ref: &str,
-        requested_scope: Vec<String>,
-        audience: &str,
-        realm_id: Option<&str>,
-    ) -> anyhow::Result<(ArkretAgentSessionProvider, ArkretSession)> {
-        let (provider, session, _) = Self::login_agent_provider_with_native_credentials(
-            base_url,
-            key_ref,
-            account_id,
-            accepted_binding,
-            runtime_fence,
-            verification_method,
-            agent_key_authorization_ref,
-            requested_scope,
-            audience,
-            realm_id,
-        )
-        .await?;
-        Ok((provider, session))
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub async fn login_agent_provider_with_native_credentials(
         base_url: &str,
