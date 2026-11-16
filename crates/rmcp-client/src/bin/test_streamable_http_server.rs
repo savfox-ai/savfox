@@ -1,189 +1,20 @@
 #![allow(clippy::unwrap_used)]
 
-use std::borrow::Cow;
-use std::collections::HashMap;
+mod support;
+
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use rmcp::ErrorData as McpError;
-use rmcp::handler::server::ServerHandler;
-use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, JsonObject,
-    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
-    ResourceContents, ResourceTemplate, ServerCapabilities, ServerConfig, Tool,
-};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use salvo::affix_state;
 use salvo::http::StatusCode;
 use salvo::http::header::{AUTHORIZATION, CONTENT_TYPE, HOST};
 use salvo::prelude::*;
-use serde::Deserialize;
 use serde_json::json;
+use support::TestToolServer;
 use tokio::task;
-
-#[derive(Clone)]
-struct TestToolServer {
-    tools: Arc<Vec<Tool>>,
-    resources: Arc<Vec<Resource>>,
-    resource_templates: Arc<Vec<ResourceTemplate>>,
-}
-
-const MEMO_URI: &str = "memo://savfox/example-note";
-const MEMO_CONTENT: &str = "This is a sample MCP resource served by the rmcp test server.";
-
-impl TestToolServer {
-    fn new() -> Self {
-        let tools = vec![Self::echo_tool()];
-        let resources = vec![Self::memo_resource()];
-        let resource_templates = vec![Self::memo_template()];
-        Self {
-            tools: Arc::new(tools),
-            resources: Arc::new(resources),
-            resource_templates: Arc::new(resource_templates),
-        }
-    }
-
-    fn echo_tool() -> Tool {
-        #[expect(clippy::expect_used)]
-        let schema: JsonObject = serde_json::from_value(json!({
-            "type": "object",
-            "properties": {
-                "message": { "type": "string" },
-                "env_var": { "type": "string" }
-            },
-            "required": ["message"],
-            "additionalProperties": false
-        }))
-        .expect("echo tool schema should deserialize");
-
-        Tool::new(
-            Cow::Borrowed("echo"),
-            Cow::Borrowed("Echo back the provided message and include environment data."),
-            Arc::new(schema),
-        )
-    }
-
-    fn memo_resource() -> Resource {
-        Resource::new(MEMO_URI, "example-note")
-            .with_title("Example Note")
-            .with_description("A sample MCP resource exposed for integration tests.")
-            .with_mime_type("text/plain")
-    }
-
-    fn memo_template() -> ResourceTemplate {
-        ResourceTemplate::new("memo://savfox/{slug}", "savfox-memo")
-            .with_title("Savfox Memo")
-            .with_description("Template for memo://savfox/{slug} resources used in tests.")
-            .with_mime_type("text/plain")
-    }
-
-    fn memo_text() -> &'static str {
-        MEMO_CONTENT
-    }
-}
-
-#[derive(Deserialize)]
-struct EchoArgs {
-    message: String,
-    #[allow(dead_code)]
-    env_var: Option<String>,
-}
-
-impl ServerHandler for TestToolServer {
-    fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(
-            ServerCapabilities::builder()
-                .enable_tools()
-                .enable_tool_list_changed()
-                .enable_resources()
-                .build(),
-        )
-    }
-
-    fn list_tools(
-        &self,
-        _request: Option<PaginatedRequestParams>,
-        _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
-    ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
-        let tools = self.tools.clone();
-        async move { Ok(ListToolsResult::with_all_items((*tools).clone())) }
-    }
-
-    fn list_resources(
-        &self,
-        _request: Option<PaginatedRequestParams>,
-        _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
-    ) -> impl std::future::Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
-        let resources = self.resources.clone();
-        async move { Ok(ListResourcesResult::with_all_items((*resources).clone())) }
-    }
-
-    async fn list_resource_templates(
-        &self,
-        _request: Option<PaginatedRequestParams>,
-        _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
-    ) -> Result<ListResourceTemplatesResult, McpError> {
-        Ok(ListResourceTemplatesResult::with_all_items(
-            (*self.resource_templates).clone(),
-        ))
-    }
-
-    async fn read_resource(
-        &self,
-        ReadResourceRequestParams { uri, .. }: ReadResourceRequestParams,
-        _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
-    ) -> Result<ReadResourceResponse, McpError> {
-        if uri == MEMO_URI {
-            Ok(ReadResourceResult::new(vec![
-                ResourceContents::text(Self::memo_text(), uri).with_mime_type("text/plain"),
-            ])
-            .into())
-        } else {
-            Err(McpError::resource_not_found(
-                "resource_not_found",
-                Some(json!({ "uri": uri })),
-            ))
-        }
-    }
-
-    async fn call_tool(
-        &self,
-        request: CallToolRequestParams,
-        _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
-    ) -> Result<CallToolResponse, McpError> {
-        match request.name.as_ref() {
-            "echo" => {
-                let args: EchoArgs = match request.arguments {
-                    Some(arguments) => serde_json::from_value(serde_json::Value::Object(
-                        arguments.into_iter().collect(),
-                    ))
-                    .map_err(|err| McpError::invalid_params(err.to_string(), None))?,
-                    None => {
-                        return Err(McpError::invalid_params(
-                            "missing arguments for echo tool",
-                            None,
-                        ));
-                    }
-                };
-
-                let env_snapshot: HashMap<String, String> = std::env::vars().collect();
-                let structured_content = json!({
-                    "echo": format!("ECHOING: {}", args.message),
-                    "env": env_snapshot.get("MCP_TEST_VALUE"),
-                });
-
-                Ok(CallToolResult::structured(structured_content).into())
-            }
-            other => Err(McpError::invalid_params(
-                format!("unknown tool: {other}"),
-                None,
-            )),
-        }
-    }
-}
 
 fn parse_bind_addr() -> Result<SocketAddr, Box<dyn std::error::Error>> {
     let default_addr = "127.0.0.1:3920";
@@ -260,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("starting rmcp streamable http test server on http://{bind_addr}/mcp");
 
     let mcp_service = StreamableHttpService::new(
-        || Ok(TestToolServer::new()),
+        || Ok(TestToolServer::new(false)),
         Arc::new(LocalSessionManager::default()),
         StreamableHttpServerConfig::default(),
     );

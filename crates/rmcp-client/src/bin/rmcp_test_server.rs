@@ -1,15 +1,14 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
+#[path = "support/echo.rs"]
+mod echo;
+
 use std::sync::Arc;
 
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, JsonObject, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
+    CallToolRequestParams, CallToolResponse, ListToolsResult, PaginatedRequestParams,
+    ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::{ErrorData as McpError, ServiceExt};
-use serde::Deserialize;
-use serde_json::json;
 use tokio::task;
 
 #[derive(Clone)]
@@ -22,38 +21,11 @@ pub fn stdio() -> (tokio::io::Stdin, tokio::io::Stdout) {
 }
 impl TestToolServer {
     fn new() -> Self {
-        let tools = vec![Self::echo_tool()];
+        let tools = vec![echo::tool()];
         Self {
             tools: Arc::new(tools),
         }
     }
-
-    fn echo_tool() -> Tool {
-        #[expect(clippy::expect_used)]
-        let schema: JsonObject = serde_json::from_value(json!({
-            "type": "object",
-            "properties": {
-                "message": { "type": "string" },
-                "env_var": { "type": "string" }
-            },
-            "required": ["message"],
-            "additionalProperties": false
-        }))
-        .expect("echo tool schema should deserialize");
-
-        Tool::new(
-            Cow::Borrowed("echo"),
-            Cow::Borrowed("Echo back the provided message and include environment data."),
-            Arc::new(schema),
-        )
-    }
-}
-
-#[derive(Deserialize)]
-struct EchoArgs {
-    message: String,
-    #[allow(dead_code)]
-    env_var: Option<String>,
 }
 
 impl ServerHandler for TestToolServer {
@@ -81,28 +53,7 @@ impl ServerHandler for TestToolServer {
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
         match request.name.as_ref() {
-            "echo" => {
-                let args: EchoArgs = match request.arguments {
-                    Some(arguments) => serde_json::from_value(serde_json::Value::Object(
-                        arguments.into_iter().collect(),
-                    ))
-                    .map_err(|err| McpError::invalid_params(err.to_string(), None))?,
-                    None => {
-                        return Err(McpError::invalid_params(
-                            "missing arguments for echo tool",
-                            None,
-                        ));
-                    }
-                };
-
-                let env_snapshot: HashMap<String, String> = std::env::vars().collect();
-                let structured_content = json!({
-                    "echo": args.message,
-                    "env": env_snapshot.get("MCP_TEST_VALUE"),
-                });
-
-                Ok(CallToolResult::structured(structured_content).into())
-            }
+            "echo" => echo::call(request, ""),
             other => Err(McpError::invalid_params(
                 format!("unknown tool: {other}"),
                 None,
