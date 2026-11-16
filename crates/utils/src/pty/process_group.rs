@@ -292,7 +292,9 @@ pub fn kill_child_process_group(_child: &mut Child) -> io::Result<()> {
 
 #[cfg(all(test, windows))]
 mod tests {
+    use std::future::{Future, poll_fn};
     use std::process::Stdio;
+    use std::task::Poll;
 
     use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -327,11 +329,26 @@ mod tests {
             ])
             .creation_flags(0x08000000)
             .kill_on_drop(true);
-        let timeout = run_tree_termination_utility(command, std::time::Duration::from_millis(100));
-        let progress = async {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        };
-        let (result, ()) = tokio::join!(timeout, progress);
+        let termination = run_tree_termination_utility(command, std::time::Duration::from_secs(2));
+        tokio::pin!(termination);
+        // A synchronous wait would complete this first poll with TimedOut,
+        // rather than yield the current-thread runtime to other tasks.
+        poll_fn(|cx| {
+            assert!(termination.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        let (progress, progressed) = tokio::sync::oneshot::channel();
+        let progress_task = tokio::spawn(async move {
+            progress.send(()).unwrap();
+        });
+        tokio::select! {
+            biased;
+            result = &mut termination => panic!("utility finished before runtime progress: {result:?}"),
+            result = progressed => result.expect("runtime progress task must run while utility waits"),
+        }
+        progress_task.await.expect("runtime progress task");
+        let result = termination.await;
         assert_eq!(
             result.expect_err("deadline").kind(),
             io::ErrorKind::TimedOut
@@ -343,16 +360,18 @@ mod tests {
     async fn windows_tree_termination_stops_descendant_writes() -> io::Result<()> {
         let directory = tempfile::tempdir()?;
         let marker = directory.path().join("descendant-was-alive");
+        let ready = directory.path().join("descendant-ready");
         let script = directory.path().join("child.ps1");
         let gate = directory.path().join("allow-write");
         std::fs::write(
             &script,
-            "$deadline=[DateTime]::UtcNow.AddSeconds(60); while (-not (Test-Path $env:SAVFOX_TEST_GATE) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }; if (Test-Path $env:SAVFOX_TEST_GATE) { [IO.File]::WriteAllText($env:SAVFOX_TEST_MARKER, 'alive') }; Start-Sleep -Seconds 60",
+            "[IO.File]::WriteAllText($env:SAVFOX_TEST_READY, 'ready'); $deadline=[DateTime]::UtcNow.AddSeconds(60); while (-not (Test-Path $env:SAVFOX_TEST_GATE) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }; if (Test-Path $env:SAVFOX_TEST_GATE) { [IO.File]::WriteAllText($env:SAVFOX_TEST_MARKER, 'alive') }; Start-Sleep -Seconds 60",
         )?;
         let mut child = Command::new("powershell.exe")
             .args(["-NoProfile", "-NonInteractive", "-Command", r#"$p = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile', '-File', ('"' + $env:SAVFOX_TEST_SCRIPT + '"')); [Console]::WriteLine($p.Id); Start-Sleep -Seconds 60"#])
             .env("SAVFOX_TEST_GATE", &gate)
             .env("SAVFOX_TEST_MARKER", &marker)
+            .env("SAVFOX_TEST_READY", &ready)
             .env("SAVFOX_TEST_SCRIPT", &script)
             .creation_flags(0x08000000)
             .stdout(Stdio::piped())
@@ -375,12 +394,41 @@ mod tests {
             cleanup.descendant.is_some(),
             "descendant must have started: {line}"
         );
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                match tokio::fs::read_to_string(&ready).await {
+                    Ok(value) if value == "ready" => return Ok::<_, io::Error>(()),
+                    Ok(_) => {}
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("descendant must reach its write gate before cleanup")?;
+        assert!(!marker.exists());
         kill_child_process_group_async(&mut child).await?;
         child.wait().await?;
-        // Permit writes only after cleanup reports completion; utility startup
-        // latency cannot race the assertion. A survivor will now create marker.
+        // Independently observe process exit; absence of a marker after a short
+        // sleep cannot distinguish a dead descendant from an unscheduled one.
+        let mut probe = Command::new("powershell.exe");
+        probe
+            .args([
+                "-NoProfile", "-NonInteractive", "-Command",
+                "$ErrorActionPreference='Stop'; try { $p=[Diagnostics.Process]::GetProcessById([int]$env:SAVFOX_TEST_PROCESS_ID) } catch [ArgumentException] { exit 0 }; if ($p.WaitForExit(10000)) { exit 0 }; exit 1",
+            ])
+            .env("SAVFOX_TEST_PROCESS_ID", cleanup.descendant.expect("descendant pid").to_string())
+            .creation_flags(0x08000000)
+            .kill_on_drop(true);
+        let exited = tokio::time::timeout(std::time::Duration::from_secs(20), probe.status())
+            .await
+            .expect("independent descendant exit probe must complete")?;
+        assert!(
+            exited.success(),
+            "descendant survived tree termination: {exited}"
+        );
         std::fs::write(&gate, "go")?;
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         assert!(!marker.exists(), "descendant survived tree termination");
         cleanup.armed = false;
         Ok(())
