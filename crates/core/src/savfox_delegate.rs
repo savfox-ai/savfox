@@ -432,6 +432,9 @@ mod tests {
 
     #[tokio::test]
     async fn forward_events_cancelled_while_send_blocked_shuts_down_delegate() {
+        use std::future::{Future, poll_fn};
+        use std::task::Poll;
+
         let (tx_events, rx_events) = bounded(1);
         let (tx_sub, rx_sub) = bounded(SUBMISSION_CHANNEL_CAPACITY);
         let (_agent_status_tx, agent_status) = watch::channel(AgentStatus::PendingInit);
@@ -456,13 +459,14 @@ mod tests {
             .unwrap();
 
         let cancel = CancellationToken::new();
-        let forward = tokio::spawn(forward_events(
+        let forward = forward_events(
             Arc::clone(&handle),
             tx_out.clone(),
             session,
             ctx,
             cancel.clone(),
-        ));
+        );
+        tokio::pin!(forward);
 
         tx_events
             .send(Event {
@@ -480,12 +484,24 @@ mod tests {
             .await
             .unwrap();
 
+        // The source event is ready and the output is full. Polling consumes
+        // that event and must suspend at its nested output send before cancel.
+        poll_fn(|cx| {
+            assert!(forward.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert_eq!(
+            tx_events.len(),
+            0,
+            "the forwarder must consume the source event"
+        );
+        assert!(tx_out.is_full(), "the output send must remain blocked");
         drop(tx_events);
         cancel.cancel();
         timeout(std::time::Duration::from_millis(1000), forward)
             .await
-            .expect("forward_events hung")
-            .expect("forward_events join error");
+            .expect("forward_events hung while cancelling its pending output send");
 
         let received = rx_out.recv().await.expect("prefilled event missing");
         assert_eq!("full", received.id);

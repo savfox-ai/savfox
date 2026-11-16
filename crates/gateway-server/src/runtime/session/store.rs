@@ -916,11 +916,6 @@ impl SessionStore {
             .and_then(|c| c.entries.get(session_id).cloned())
     }
 
-    /// Get a session by its UUID session_id field.
-    pub async fn get_by_session_id(&self, session_id: &str) -> Option<SessionEntry> {
-        self.get(session_id).await
-    }
-
     /// Find a session by routing id (non-UUID channel/webhook routing key).
     pub async fn get_by_routing_id(&self, routing_id: &str) -> Option<SessionEntry> {
         let routing_id = routing_id.trim();

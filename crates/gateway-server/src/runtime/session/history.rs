@@ -3,9 +3,7 @@ use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use savfox_core::{
-    RolloutRecorder, find_archived_session_path_by_id_str, find_session_path_by_id_str,
-};
+use savfox_core::{find_archived_session_path_by_id_str, find_session_path_by_id_str};
 use savfox_gateway_shared::{is_internal_session_message, normalize_session_label};
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::protocol::{EventMsg, RolloutItem, RolloutLine};
@@ -24,10 +22,7 @@ pub(crate) async fn build_history_payload(
     channel: &Arc<GatewayChannel>,
     principal: Option<&str>,
 ) -> Value {
-    let entry = match session_store.get(session_ref).await {
-        Some(v) => Some(v),
-        None => session_store.get_by_session_id(session_ref).await,
-    };
+    let entry = session_store.get(session_ref).await;
 
     let session_id = entry
         .as_ref()
@@ -128,50 +123,19 @@ struct HistoryPage {
     rollout_items: usize,
 }
 
-// Two streaming passes preserve the legacy response-vs-event fallback per role
-// without retaining tool events or all messages. Work is still O(file bytes),
-// but memory is O(requested tail + longest JSONL record), on the blocking pool.
 fn read_history_page(
     path: &Path,
     limit: usize,
     entry: Option<&SessionEntry>,
     source_channel: Option<&str>,
 ) -> std::io::Result<HistoryPage> {
-    let length = std::fs::metadata(path)?.len();
-    let mut response_users = false;
-    let mut response_assistants = false;
-    let mut has_session = false;
-    let mut rollout_items = 0;
-    scan_history(path, length, |_, item| {
-        rollout_items += 1;
-        has_session |= matches!(item, RolloutItem::SessionMeta(_));
-        if let Some((role, _, source)) = history_message(&item)
-            && source != "event"
-        {
-            response_users |= role == "user";
-            response_assistants |= role == "assistant";
-        }
-    })?;
-    if !has_session {
-        return Err(std::io::Error::other(
-            "failed to parse session ID from rollout file",
-        ));
-    }
     let filter = source_channel
         .map(str::trim)
         .filter(|source| !source.is_empty());
     let mut messages = VecDeque::new();
     let mut messages_total = 0;
     let mut user_index = 0;
-    scan_history(path, length, |index, item| {
-        let Some((role, text, source)) = history_message(&item) else {
-            return;
-        };
-        if source == "event"
-            && ((role == "user" && response_users) || (role == "assistant" && response_assistants))
-        {
-            return;
-        }
+    let rollout_items = project_history(path, |index, role, text, source| {
         messages_total += 1;
         let provenance = if role == "user" {
             let provenance = entry.and_then(|entry| entry.provenance.get(user_index));
@@ -205,6 +169,57 @@ fn read_history_page(
         messages_total,
         rollout_items,
     })
+}
+
+// Both the tail and the first-user label use this one chronological projection.
+// The first streaming pass selects response-vs-event precedence for each role;
+// the second emits only selected messages within the same frozen file length.
+// Memory is bounded by the caller's aggregate and the longest JSONL record.
+fn project_history(
+    path: &Path,
+    mut visit: impl FnMut(usize, &str, String, &'static str),
+) -> std::io::Result<usize> {
+    let length = std::fs::metadata(path)?.len();
+    let mut response_users = false;
+    let mut response_assistants = false;
+    let mut has_session = false;
+    let mut rollout_items = 0;
+    scan_history(path, length, |_, item| {
+        rollout_items += 1;
+        has_session |= matches!(item, RolloutItem::SessionMeta(_));
+        if let Some((role, _, source)) = history_message(&item)
+            && source != "event"
+        {
+            response_users |= role == "user";
+            response_assistants |= role == "assistant";
+        }
+    })?;
+    if !has_session {
+        return Err(std::io::Error::other(
+            "failed to parse session ID from rollout file",
+        ));
+    }
+    scan_history(path, length, |index, item| {
+        let Some((role, text, source)) = history_message(&item) else {
+            return;
+        };
+        if source != "event"
+            || !((role == "user" && response_users) || (role == "assistant" && response_assistants))
+        {
+            visit(index, role, text, source);
+        }
+    })?;
+    Ok(rollout_items)
+}
+
+fn read_history_label(path: &Path) -> std::io::Result<Option<String>> {
+    let mut label = None;
+    project_history(path, |_, role, text, _| {
+        if label.is_none() && role == "user" {
+            label = normalize_session_label(&text);
+        }
+    })?;
+    Ok(label)
 }
 
 fn scan_history(
@@ -352,132 +367,21 @@ async fn resolve_rollout_path(
     Ok(None)
 }
 
-fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
-    let mut from_responses: Vec<(usize, String, String, &'static str)> = Vec::new();
-    for (index, item) in items.iter().enumerate() {
-        match item {
-            RolloutItem::ResponseItem(ResponseItem::Message { role, content, .. }) => {
-                // Keep chat-relevant response-item roles and skip non-chat/system entries.
-                if role != "assistant" && role != "user" {
-                    continue;
-                }
-                let text = content_text(content);
-                if !text.is_empty() {
-                    if role == "user" && is_internal_session_message(&text) {
-                        continue;
-                    }
-                    from_responses.push((index, role.clone(), text, "response_item"));
-                }
-            }
-            RolloutItem::Compacted(compacted) => {
-                from_responses.push((
-                    index,
-                    "assistant".to_owned(),
-                    compacted.message.clone(),
-                    "compacted",
-                ));
-            }
-            _ => {}
-        }
-    }
-    let responses_have_user = from_responses.iter().any(|(_, role, ..)| role == "user");
-    let responses_have_assistant = from_responses
-        .iter()
-        .any(|(_, role, ..)| role == "assistant");
-
-    let mut from_events: Vec<(usize, String, String, &'static str)> = Vec::new();
-    for (index, item) in items.iter().enumerate() {
-        match item {
-            RolloutItem::EventMsg(EventMsg::UserMessage(message))
-                if !message.message.is_empty()
-                    && !is_internal_session_message(message.message.as_str()) =>
-            {
-                from_events.push((index, "user".to_owned(), message.message.clone(), "event"));
-            }
-            RolloutItem::EventMsg(EventMsg::AgentMessage(message))
-                if !message.message.is_empty() =>
-            {
-                from_events.push((
-                    index,
-                    "assistant".to_owned(),
-                    message.message.clone(),
-                    "event",
-                ));
-            }
-            _ => {}
-        }
-    }
-
-    let mut merged = from_responses;
-    if !responses_have_user {
-        merged.extend(
-            from_events
-                .iter()
-                .filter(|(_, role, ..)| role == "user")
-                .cloned(),
-        );
-    }
-    if !responses_have_assistant {
-        merged.extend(
-            from_events
-                .iter()
-                .filter(|(_, role, ..)| role == "assistant")
-                .cloned(),
-        );
-    }
-    if merged.is_empty() {
-        merged = from_events;
-    }
-
-    // Stable chronological ordering by rollout index.
-    merged.sort_by_key(|(index, ..)| *index);
-
-    merged
-        .into_iter()
-        .map(|(index, role, text, source)| {
-            json!({
-                "index": index,
-                "role": role,
-                "text": text,
-                "source": source,
-            })
-        })
-        .collect()
-}
-
-pub(crate) fn derive_session_label_from_messages(messages: &[Value]) -> Option<String> {
-    messages.iter().find_map(|message| {
-        if message.get("role").and_then(Value::as_str) != Some("user") {
-            return None;
-        }
-        message
-            .get("text")
-            .or_else(|| message.get("content"))
-            .and_then(Value::as_str)
-            .and_then(normalize_session_label)
-    })
-}
-
 pub(crate) async fn derive_session_label_from_history(
     session_ref: &str,
     session_store: &Arc<SessionStore>,
     channel: &Arc<GatewayChannel>,
 ) -> Option<String> {
-    let entry = match session_store.get(session_ref).await {
-        Some(v) => Some(v),
-        None => session_store.get_by_session_id(session_ref).await,
-    };
+    let entry = session_store.get(session_ref).await;
     let savfox_home = &channel.config().savfox_home;
     let rollout_path = resolve_rollout_path(savfox_home, session_ref, entry.as_ref())
         .await
         .ok()
         .flatten()?;
-    let history = RolloutRecorder::get_rollout_history(&rollout_path)
+    tokio::task::spawn_blocking(move || read_history_label(&rollout_path))
         .await
-        .ok()?;
-    let items = history.get_rollout_items();
-    let messages = extract_messages(&items);
-    derive_session_label_from_messages(&messages)
+        .ok()?
+        .ok()?
 }
 
 fn content_text(content: &[ContentItem]) -> String {
@@ -500,10 +404,36 @@ fn content_text(content: &[ContentItem]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use savfox_protocol::models::{ContentItem, ResponseItem};
-    use savfox_protocol::protocol::{AgentMessageEvent, EventMsg, RolloutItem, UserMessageEvent};
+    use std::io::Write;
 
-    use super::{derive_session_label_from_messages, extract_messages};
+    use savfox_protocol::models::{ContentItem, ResponseItem};
+    use savfox_protocol::protocol::{
+        AgentMessageEvent, CompactedItem, EventMsg, RolloutItem, RolloutLine, SessionMeta,
+        SessionMetaLine, UserMessageEvent,
+    };
+
+    use super::{read_history_label, read_history_page};
+
+    fn history_file(items: &[RolloutItem]) -> tempfile::NamedTempFile {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        let meta = RolloutItem::SessionMeta(SessionMetaLine {
+            meta: SessionMeta::default(),
+            git: None,
+        });
+        for item in std::iter::once(&meta).chain(items) {
+            writeln!(
+                file,
+                "{}",
+                serde_json::to_string(&RolloutLine {
+                    timestamp: "test".into(),
+                    item: item.clone(),
+                })
+                .unwrap()
+            )
+            .unwrap();
+        }
+        file
+    }
 
     #[tokio::test]
     async fn rollout_lookup_uses_core_thread_id_without_remote_thread_fallback() {
@@ -543,14 +473,7 @@ mod tests {
 
     #[test]
     fn streaming_tail_preserves_fallback_counts_and_source_filtering() {
-        use std::io::Write;
-
-        use savfox_protocol::protocol::{RolloutLine, SessionMeta, SessionMetaLine};
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        let mut items = vec![RolloutItem::SessionMeta(SessionMetaLine {
-            meta: SessionMeta::default(),
-            git: None,
-        })];
+        let mut items = Vec::new();
         for index in 0..100 {
             items.push(RolloutItem::EventMsg(EventMsg::UserMessage(
                 UserMessageEvent {
@@ -575,24 +498,23 @@ mod tests {
                 phase: None,
             }));
         }
-        for item in &items {
-            writeln!(
-                file,
-                "{}",
-                serde_json::to_string(&RolloutLine {
-                    timestamp: "test".into(),
-                    item: item.clone()
-                })
-                .unwrap()
-            )
-            .unwrap();
-        }
+        let mut file = history_file(&items);
         writeln!(file, "invalid json").unwrap();
         let page = super::read_history_page(file.path(), 3, None, None).unwrap();
-        let expected = extract_messages(&items);
-        assert_eq!(page.messages, expected[expected.len() - 3..]);
+        assert_eq!(
+            page.messages,
+            vec![
+                serde_json::json!({"index":297,"role":"assistant","text":"answer 98","source":"response_item"}),
+                serde_json::json!({"index":298,"role":"user","text":"question 99","source":"event"}),
+                serde_json::json!({"index":300,"role":"assistant","text":"answer 99","source":"response_item"}),
+            ]
+        );
         assert_eq!(page.messages_total, 200);
-        assert_eq!(page.rollout_items, items.len());
+        assert_eq!(page.rollout_items, items.len() + 1);
+        assert_eq!(
+            read_history_label(file.path()).unwrap().as_deref(),
+            Some("question 0")
+        );
         let mut entry = crate::session::SessionEntry::new();
         for index in 0..100 {
             entry
@@ -632,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_messages_keeps_user_event_when_response_items_only_have_assistant() {
+    fn projection_keeps_user_event_when_response_items_only_have_assistant() {
         let items = vec![
             RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
                 message: "write rust hello world".to_owned(),
@@ -654,17 +576,30 @@ mod tests {
             })),
         ];
 
-        let messages = extract_messages(&items);
+        let file = history_file(&items);
+        let messages = read_history_page(file.path(), 10, None, None)
+            .unwrap()
+            .messages;
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "user");
         assert_eq!(messages[0]["text"], "write rust hello world");
         assert_eq!(messages[1]["role"], "assistant");
         assert_eq!(messages[1]["text"], "Sure, here's the code");
+        assert_eq!(
+            read_history_label(file.path()).unwrap().as_deref(),
+            Some("write rust hello world")
+        );
     }
 
     #[test]
-    fn extract_messages_reads_user_from_response_items_when_present() {
+    fn projection_prefers_response_users_for_both_page_and_label() {
         let items = vec![
+            RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
+                message: "event user must be suppressed".into(),
+                images: None,
+                local_images: vec![],
+                text_elements: vec![],
+            })),
             RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
                 role: "user".to_owned(),
@@ -685,16 +620,64 @@ mod tests {
             }),
         ];
 
-        let messages = extract_messages(&items);
+        let file = history_file(&items);
+        let messages = read_history_page(file.path(), 10, None, None)
+            .unwrap()
+            .messages;
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "user");
         assert_eq!(messages[0]["text"], "question");
         assert_eq!(messages[1]["role"], "assistant");
         assert_eq!(messages[1]["text"], "answer");
+        assert_eq!(
+            read_history_label(file.path()).unwrap().as_deref(),
+            Some("question")
+        );
     }
 
     #[test]
-    fn extract_messages_filters_internal_prefix_messages() {
+    fn projection_keeps_event_history_and_compacted_assistant_precedence() {
+        let mut items = vec![
+            RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
+                message: "event question".into(),
+                images: None,
+                local_images: vec![],
+                text_elements: vec![],
+            })),
+            RolloutItem::EventMsg(EventMsg::AgentMessage(AgentMessageEvent {
+                message: "event answer".into(),
+            })),
+        ];
+        let file = history_file(&items);
+        let page = read_history_page(file.path(), 10, None, None).unwrap();
+        assert_eq!(
+            page.messages,
+            vec![
+                serde_json::json!({"index":1,"role":"user","text":"event question","source":"event"}),
+                serde_json::json!({"index":2,"role":"assistant","text":"event answer","source":"event"}),
+            ]
+        );
+        items.push(RolloutItem::Compacted(CompactedItem {
+            message: "compacted answer".into(),
+            replacement_history: None,
+        }));
+        let file = history_file(&items);
+        let page = read_history_page(file.path(), 10, None, None).unwrap();
+        assert_eq!(
+            page.messages,
+            vec![
+                serde_json::json!({"index":1,"role":"user","text":"event question","source":"event"}),
+                serde_json::json!({"index":3,"role":"assistant","text":"compacted answer","source":"compacted"}),
+            ]
+        );
+        assert_eq!(
+            read_history_label(file.path()).unwrap().as_deref(),
+            Some("event question")
+        );
+    }
+
+    #[test]
+    fn projection_filters_internal_prefix_messages() {
         let items = vec![
             RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
@@ -734,23 +717,45 @@ mod tests {
             }),
         ];
 
-        let messages = extract_messages(&items);
+        let file = history_file(&items);
+        let messages = read_history_page(file.path(), 10, None, None)
+            .unwrap()
+            .messages;
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "user");
         assert_eq!(messages[0]["text"], "actual user question");
         assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(
+            read_history_label(file.path()).unwrap().as_deref(),
+            Some("actual user question")
+        );
     }
 
     #[test]
-    fn derive_session_label_prefers_first_meaningful_user_message() {
-        let messages = vec![
-            serde_json::json!({ "role": "assistant", "text": "hello" }),
-            serde_json::json!({ "role": "user", "text": "   " }),
-            serde_json::json!({ "role": "user", "text": "First valid label message" }),
-            serde_json::json!({ "role": "user", "text": "Other" }),
-        ];
-
-        let label = derive_session_label_from_messages(&messages);
+    fn streaming_label_prefers_first_meaningful_user_message() {
+        let items = [
+            ("assistant", "hello"),
+            ("user", "   "),
+            ("user", "First valid label message"),
+            ("user", "Other"),
+        ]
+        .into_iter()
+        .map(|(role, text)| {
+            RolloutItem::ResponseItem(ResponseItem::Message {
+                id: None,
+                role: role.into(),
+                content: vec![if role == "user" {
+                    ContentItem::InputText { text: text.into() }
+                } else {
+                    ContentItem::OutputText { text: text.into() }
+                }],
+                end_turn: None,
+                phase: None,
+            })
+        })
+        .collect::<Vec<_>>();
+        let file = history_file(&items);
+        let label = read_history_label(file.path()).unwrap();
         assert_eq!(label.as_deref(), Some("First valid label message"));
     }
 }
