@@ -609,24 +609,14 @@ impl FileArkretCryptoStore {
                 anyhow::bail!("refusing to replace an empty existing Arkret crypto state")
             }
             Ok(bytes) => {
-                let value: Value = serde_json::from_slice(&bytes)
+                let wrapped: WrappedCryptoStateFile = serde_json::from_slice(&bytes)
                     .with_context(|| format!("parse {}", self.path.display()))?;
-                let state: ArkretCryptoStateFile = if value.get("version").and_then(Value::as_str)
-                    == Some(WRAPPED_STATE_VERSION)
-                {
-                    let wrapped: WrappedCryptoStateFile = serde_json::from_value(value)?;
-                    let mut plaintext = self.decrypt_wrapped_state(&wrapped)?;
-                    let decoded = serde_json::from_slice(&plaintext)
-                        .with_context(|| format!("decrypt {}", self.path.display()));
-                    use zeroize::Zeroize as _;
-                    plaintext.zeroize();
-                    decoded?
-                } else {
-                    // One-time migration for legacy plaintext state. The next
-                    // successful mutation rewrites it as a wrapped envelope.
-                    serde_json::from_value(value)
-                        .with_context(|| format!("parse legacy {}", self.path.display()))?
-                };
+                let mut plaintext = self.decrypt_wrapped_state(&wrapped)?;
+                let decoded = serde_json::from_slice(&plaintext)
+                    .with_context(|| format!("decrypt {}", self.path.display()));
+                use zeroize::Zeroize as _;
+                plaintext.zeroize();
+                let state: ArkretCryptoStateFile = decoded?;
                 if state.version != STATE_VERSION {
                     anyhow::bail!(
                         "unsupported Arkret crypto state version '{}' in {}",
@@ -3520,10 +3510,14 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let store = FileArkretCryptoStore::for_account(home.path(), "storage-errors", "agent");
         store.ensure_created().unwrap();
-        std::fs::write(store.path(), b"invalid encrypted state JSON").unwrap();
-        let error = store.load().unwrap_err();
-        assert!(error.is::<ArkretCryptoStorageFailure>());
-        assert!(error.is::<serde_json::Error>());
+        let plaintext = serde_json::to_vec(&store.load().unwrap()).unwrap();
+        for invalid in [b"invalid encrypted state JSON".to_vec(), plaintext] {
+            std::fs::write(store.path(), &invalid).unwrap();
+            let error = store.load().unwrap_err();
+            assert!(error.is::<ArkretCryptoStorageFailure>());
+            assert!(error.is::<serde_json::Error>());
+            assert_eq!(std::fs::read(store.path()).unwrap(), invalid);
+        }
         std::fs::remove_file(store.path()).unwrap();
         store.ensure_created().unwrap();
         let entry = CurrentState::Value {
