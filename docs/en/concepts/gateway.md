@@ -24,7 +24,7 @@ behalf of connected clients.
 
 ## Salvo HTTP framework
 
-The gateway uses Salvo v1.2.0 for HTTP routing, WebSocket upgrade, and static
+The gateway uses Salvo v1.2.1 for HTTP routing, WebSocket upgrade, and static
 file serving. TLS is supported via PEM certificate and key paths in
 `config.toml`.
 
