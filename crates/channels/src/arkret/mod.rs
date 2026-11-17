@@ -81,9 +81,7 @@ pub use inbound_adapter::{
     parse_event_values_for_account, parse_notification_delta_for_account, should_dispatch_event,
     structured_mention_account_ids,
 };
-pub use mls_leaf_authority::{
-    VerifiedMlsLeafAuthority, install_verified_leaf_authority, verified_welcome_leaf_authority,
-};
+pub use mls_leaf_authority::{VerifiedMlsLeafAuthority, verified_welcome_leaf_authority};
 pub use outbound::{
     MessageCreateRequest, build_message_create_event, finalize_outbound_event, sign_outbound_event,
     sign_outbound_event_with_key,
