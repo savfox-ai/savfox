@@ -24,7 +24,7 @@ background services on behalf of connected clients.
 
 ### Salvo HTTP framework
 
-The gateway uses [Salvo](https://salvo.rs/) v0.89 for HTTP routing, WebSocket
+The gateway uses [Salvo](https://salvo.rs/) v1.2.0 for HTTP routing, WebSocket
 upgrade, and static file serving. TLS is supported via PEM certificate and key
 paths.
 

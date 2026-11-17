@@ -393,7 +393,7 @@ dependencies = [
 [[package]]
 name = "arkret"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-auth",
  "arkret-bootstrap",
@@ -431,7 +431,7 @@ dependencies = [
 [[package]]
 name = "arkret-auth"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
@@ -444,7 +444,7 @@ dependencies = [
 [[package]]
 name = "arkret-bootstrap"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-event-draft",
@@ -459,7 +459,7 @@ dependencies = [
 [[package]]
 name = "arkret-bridge-runtime"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/bridges.git?rev=9c5b9136df74d1420f8377c830f932f9c6b28a29#9c5b9136df74d1420f8377c830f932f9c6b28a29"
+source = "git+https://github.com/arkret-org/bridges.git?rev=580e3ebba7c272db58ca4fc667a739608dc30710#580e3ebba7c272db58ca4fc667a739608dc30710"
 dependencies = [
  "anyhow",
  "arkret",
@@ -501,7 +501,7 @@ dependencies = [
 [[package]]
 name = "arkret-canonical"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "base64 0.23.1",
  "blake3",
@@ -518,7 +518,7 @@ dependencies = [
 [[package]]
 name = "arkret-crypto"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "aes-gcm 0.11.1",
  "argon2",
@@ -547,7 +547,7 @@ dependencies = [
 [[package]]
 name = "arkret-egress-policy"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "thiserror 2.0.21",
  "url",
@@ -556,7 +556,7 @@ dependencies = [
 [[package]]
 name = "arkret-egress-reqwest"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-egress-policy",
  "reqwest 0.13.5",
@@ -568,7 +568,7 @@ dependencies = [
 [[package]]
 name = "arkret-event-draft"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
@@ -586,7 +586,7 @@ dependencies = [
 [[package]]
 name = "arkret-hlc"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
@@ -598,7 +598,7 @@ dependencies = [
 [[package]]
 name = "arkret-http-client"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-egress-policy",
@@ -633,7 +633,7 @@ dependencies = [
 [[package]]
 name = "arkret-identifiers"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "base64 0.23.1",
@@ -650,7 +650,7 @@ dependencies = [
 [[package]]
 name = "arkret-identity"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-crypto",
@@ -678,7 +678,7 @@ dependencies = [
 [[package]]
 name = "arkret-keystore"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "atomic-write-file",
  "chacha20poly1305 0.11.0",
@@ -693,7 +693,7 @@ dependencies = [
 [[package]]
 name = "arkret-locale"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "serde",
 ]
@@ -701,7 +701,7 @@ dependencies = [
 [[package]]
 name = "arkret-mls"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "aes-gcm 0.11.1",
  "arkret-canonical",
@@ -733,7 +733,7 @@ dependencies = [
 [[package]]
 name = "arkret-models-collaboration"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
@@ -758,7 +758,7 @@ dependencies = [
 [[package]]
 name = "arkret-models-crypto"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-wire",
@@ -775,7 +775,7 @@ dependencies = [
 [[package]]
 name = "arkret-models-discovery"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-models-identity",
@@ -790,7 +790,7 @@ dependencies = [
 [[package]]
 name = "arkret-models-identity"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-locale",
@@ -806,7 +806,7 @@ dependencies = [
 [[package]]
 name = "arkret-models-integration"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
@@ -821,7 +821,7 @@ dependencies = [
 [[package]]
 name = "arkret-policy"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-event-draft",
@@ -840,7 +840,7 @@ dependencies = [
 [[package]]
 name = "arkret-push-policy"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-models-integration",
  "serde",
@@ -851,17 +851,17 @@ dependencies = [
 [[package]]
 name = "arkret-rate-limit"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 
 [[package]]
 name = "arkret-retry"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 
 [[package]]
 name = "arkret-schema"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
@@ -878,7 +878,7 @@ dependencies = [
 [[package]]
 name = "arkret-server"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
@@ -895,7 +895,7 @@ dependencies = [
 [[package]]
 name = "arkret-signatures"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
@@ -922,7 +922,7 @@ dependencies = [
 [[package]]
 name = "arkret-state"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-identifiers",
  "arkret-wire",
@@ -932,7 +932,7 @@ dependencies = [
 [[package]]
 name = "arkret-test-kit"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "anyhow",
  "arkret-bootstrap",
@@ -958,7 +958,7 @@ dependencies = [
 [[package]]
 name = "arkret-wire"
 version = "0.3.0"
-source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=973b5659a9640401c2561aa04c09248f0a7bf015#973b5659a9640401c2561aa04c09248f0a7bf015"
+source = "git+https://github.com/arkret-org/arkret-rust-sdk.git?rev=ba7fd96ca6088868547d783c19f0e76aa700bf3e#ba7fd96ca6088868547d783c19f0e76aa700bf3e"
 dependencies = [
  "arkret-canonical",
  "arkret-identifiers",
@@ -4544,7 +4544,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.58.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -8875,12 +8875,10 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-rustls",
- "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
  "mime_guess",
- "native-tls",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -8891,7 +8889,6 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls",
  "tokio-util",
  "tower",
@@ -8923,11 +8920,13 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-rustls",
+ "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
  "mime",
  "mime_guess",
+ "native-tls",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -8939,6 +8938,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
+ "tokio-native-tls",
  "tokio-rustls",
  "tokio-util",
  "tower",
@@ -9290,9 +9290,9 @@ dependencies = [
 
 [[package]]
 name = "salvo"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65235fc57c27a7dd2204d9e34e001f10b534a9f2fb3a257bd63b5519183ee718"
+checksum = "35596172ae8f6736a4ca47a188eb9b930e01cdff459094f11b0b001feac45b03"
 dependencies = [
  "salvo-oapi",
  "salvo-otel",
@@ -9304,9 +9304,9 @@ dependencies = [
 
 [[package]]
 name = "salvo-oapi"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee8afccd046c26f09cec48c9e8ffeee6cd072487610964a2610c9bf674811121"
+checksum = "fb6177e7abe0c5ed9fdd279cd56ead50d9c5d23bcb7f166299c1d8e6e388251c"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -9339,9 +9339,9 @@ dependencies = [
 
 [[package]]
 name = "salvo-oapi-macros"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "707a0aa3232611ea883acc674251668e5283bd05cf762b6cbc9b83155d9ca9fc"
+checksum = "2764a12576dc87256a8b9ebcf07d76e20bb12a1948b36a3f7f8a6a88cf648676"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -9353,9 +9353,9 @@ dependencies = [
 
 [[package]]
 name = "salvo-otel"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb12e24d0c871da3fab83a8d1b0bb5e3ac1175067d1f741c9ec2972df7781a0a"
+checksum = "f23f1aca40a38bd0b08c5c0120f1e8e1a13d0610c7803e4d79c2f097fc677bae"
 dependencies = [
  "opentelemetry",
  "opentelemetry-http",
@@ -9367,9 +9367,9 @@ dependencies = [
 
 [[package]]
 name = "salvo-proxy"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dd70657481d28081665ca39cb16dabb74b6447d2dd965d421bb7cdb91472eb7"
+checksum = "fc349bf004cf08dfcbac00c4eb4249af76932fe30540d1a5f480f589883a45a1"
 dependencies = [
  "fastrand",
  "futures-util",
@@ -9386,9 +9386,9 @@ dependencies = [
 
 [[package]]
 name = "salvo-rate-limiter"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "761ecac0ea95c6ca36d9c5bbc79b8c8f3925bbcf4973d84491769ac42d8c5333"
+checksum = "16f3def34e5229613908c01cb08d72b3a11ae5570a76d3a3b89b28ef65f5b503"
 dependencies = [
  "moka",
  "salvo_core",
@@ -9400,9 +9400,9 @@ dependencies = [
 
 [[package]]
 name = "salvo-serde-util"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99004231a9c34651e40eb5feecaebd824a51ed90d74bedb82c40fd2bc6c60c8a"
+checksum = "729fe36909e188af8f9cc7ac712194af21059f99207e74702d27aac00d2cd2c2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9411,9 +9411,9 @@ dependencies = [
 
 [[package]]
 name = "salvo_core"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d759cd120a23e654c806a2d4fc73a66ba04d63316bf3c689239cedce6d5d770"
+checksum = "c842436e76213f50f5f080821e7628deb54ba69103c5e34b0df971cae07a64a2"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -9463,10 +9463,11 @@ dependencies = [
 
 [[package]]
 name = "salvo_extra"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3df57d99b43b9775d7ccfd64533f1629baca47230ba03a110596b5502b846862"
+checksum = "a7228500c87fdf0e2ccf7378a60f89ff2fccfd540314c6f8b5867379d5eb6d1d"
 dependencies = [
+ "base64 0.23.1",
  "futures-util",
  "http-body-util",
  "hyper",
@@ -9482,9 +9483,9 @@ dependencies = [
 
 [[package]]
 name = "salvo_macros"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a106e0e9f7d50f5342a0d3442e9e1c634a042591fa801929ff9fc65c26af547b"
+checksum = "a5a420d30ba2fca3152000441be1a58d402d1946dc5ce3b93b481a6520732d95"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -10883,7 +10884,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8050abb251097357e24aff63ba2c52a6309ecb7d23a5474023df960a02694d8"
 dependencies = [
  "annotate-snippets 0.12.17",
- "base64 0.22.1",
+ "base64 0.23.1",
  "encoding_rs_io",
  "granit-parser 1.3.0",
  "nohash-hasher",
@@ -10900,7 +10901,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a253edfdea34032da21af84e16fcc94f4c7a6ba237f9f3bc2dbf43cea8535c44"
 dependencies = [
  "annotate-snippets 0.12.17",
- "base64 0.22.1",
+ "base64 0.23.1",
  "encoding_rs_io",
  "granit-parser 2.0.0",
  "nohash-hasher",
@@ -11116,7 +11117,7 @@ dependencies = [
  "mime_guess",
  "parking_lot 0.12.5",
  "percent-encoding",
- "reqwest 0.12.28",
+ "reqwest 0.13.5",
  "rustc-hash",
  "secrecy",
  "serde",

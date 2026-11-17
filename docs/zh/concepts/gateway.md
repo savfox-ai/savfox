@@ -17,6 +17,11 @@ Savfox gateway server 是一个常驻、多协议接入层。它把 Savfox 核�
           Channel Runtime         Web UI (SPA)
 ```
 
+## Salvo HTTP 框架
+
+gateway 使用 Salvo 1.2.0 处理 HTTP 路由、WebSocket 升级和静态文件服务。
+可通过 `config.toml` 中的 PEM 证书和私钥路径配置 TLS。
+
 ## 核心职责
 
 gateway 负责：

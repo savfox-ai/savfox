@@ -43,10 +43,16 @@ tracing-opentelemetry 0.34.0，原先的六项 OpenTelemetry Git overrides 已�
 crypto-common 或 psm 升级 generic-array 或 pest，会把一项旧依赖换成另一项。
 本次升级不声称每项传递依赖都已使用最新发布版本或最新主版本。
 
+## Salvo 依赖对齐
+
+Arkret SDK 和 bridges 的 revision 精确锁定了各自的 Salvo 依赖。Savfox 固定到
+它们升级 Salvo 1.2.0 的提交，并在所有 Git patches 中使用同一 SDK revision，
+保持统一的 Salvo/OpenAPI 类型依赖图，避免同时引入上游无关的协议变更。
+
 ## Matrix Appservice 安全维护 fork
 
 `matrix-bot-sdk` 0.2.4 仍依赖 Salvo 0.89，传递引入存在漏洞的 zstd 0.13。
-Savfox 采用 Salvo 1.0.1，并将维护 fork
+Savfox 采用 Salvo 1.2.0，并将维护 fork
 `https://github.com/arkret-org/matrix-bot-sdk` 固定到
 `d079403dd100af26d2fe7c5ea83dffa7c547cc5a`（`arkret/salvo1-security`）。
 维护仓仅导入 crates.io 已公开的 0.2.4 源码包，保留 Apache-2.0 许可证，

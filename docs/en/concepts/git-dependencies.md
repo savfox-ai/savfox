@@ -59,10 +59,17 @@ Updating generic-array or pest by downgrading crypto-common or psm exchanges
 one older dependency for another. This upgrade does not claim that every
 transitive dependency is on its newest published release or major version.
 
+## Salvo dependency alignment
+
+The Arkret SDK and bridges revisions pin their Salvo dependencies exactly.
+Savfox pins their Salvo 1.2.0 upgrade commits and uses the same SDK revision in
+all Git patches, keeping one Salvo/OpenAPI type graph without importing unrelated
+upstream protocol changes.
+
 ## Matrix appservice security fork
 
 `matrix-bot-sdk` 0.2.4 still depends on Salvo 0.89, which retains vulnerable
-zstd 0.13 packages. Savfox uses Salvo 1.0.1 and pins the maintenance fork
+zstd 0.13 packages. Savfox uses Salvo 1.2.0 and pins the maintenance fork
 `https://github.com/arkret-org/matrix-bot-sdk` at
 `d079403dd100af26d2fe7c5ea83dffa7c547cc5a` (`arkret/salvo1-security`).
 The fork imports only the public crates.io 0.2.4 source archive and preserves
