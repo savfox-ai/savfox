@@ -4775,10 +4775,12 @@ mod tests {
                 sidecar_id,
                 realm_id,
                 &test_account("ak:did_core:web:alice.example"),
-                &[DidCoreId::new("ak:did_core:web:bob.example").unwrap()],
+                &[arkret::SidecarParticipantAuthorityAgent {
+                    agent_id: DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
+                    join_event_ref: FIXTURE_EVENT_1.clone(),
+                }],
             )
             .unwrap(),
-            vec![FIXTURE_EVENT_1.clone()],
         )
         .unwrap();
         let add = alice_group
@@ -5140,10 +5142,12 @@ mod tests {
                         sidecar_id,
                         realm_id,
                         &test_account("ak:did_core:web:alice.example"),
-                        &[DidCoreId::new("ak:did_core:web:bob.example").unwrap()],
+                        &[arkret::SidecarParticipantAuthorityAgent {
+                            agent_id: DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
+                            join_event_ref: FIXTURE_EVENT_1.clone(),
+                        }],
                     )
                     .unwrap(),
-                    vec![FIXTURE_EVENT_1.clone()],
                 )
                 .unwrap();
                 let commit = bob_group
@@ -5270,12 +5274,17 @@ mod tests {
                 realm_id,
                 &test_account("ak:did_core:web:alice.example"),
                 &[
-                    DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
-                    DidCoreId::new("ak:did_core:web:charlie.example").unwrap(),
+                    arkret::SidecarParticipantAuthorityAgent {
+                        agent_id: DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
+                        join_event_ref: FIXTURE_EVENT_1.clone(),
+                    },
+                    arkret::SidecarParticipantAuthorityAgent {
+                        agent_id: DidCoreId::new("ak:did_core:web:charlie.example").unwrap(),
+                        join_event_ref: FIXTURE_EVENT_2.clone(),
+                    },
                 ],
             )
             .unwrap(),
-            vec![FIXTURE_EVENT_1.clone()],
         )
         .unwrap();
         let next_add = bob_group
@@ -5816,10 +5825,12 @@ mod tests {
                 sidecar_id,
                 realm_id,
                 &test_account("ak:did_core:web:alice.example"),
-                &[DidCoreId::new("ak:did_core:web:bob.example").unwrap()],
+                &[arkret::SidecarParticipantAuthorityAgent {
+                    agent_id: DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
+                    join_event_ref: FIXTURE_EVENT_1.clone(),
+                }],
             )
             .unwrap(),
-            vec![FIXTURE_EVENT_1.clone()],
         )
         .unwrap();
         let add = alice_group
@@ -6023,10 +6034,12 @@ mod tests {
                 sidecar_id,
                 realm_id,
                 &test_account("ak:did_core:web:alice.example"),
-                &[DidCoreId::new("ak:did_core:web:bob.example").unwrap()],
+                &[arkret::SidecarParticipantAuthorityAgent {
+                    agent_id: DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
+                    join_event_ref: FIXTURE_EVENT_1.clone(),
+                }],
             )
             .unwrap(),
-            vec![FIXTURE_EVENT_1.clone()],
         )
         .unwrap();
         let next = alice_group

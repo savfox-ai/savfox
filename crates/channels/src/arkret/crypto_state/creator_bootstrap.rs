@@ -1263,6 +1263,7 @@ mod tests {
             realm_id: commit.realm_id.clone(),
             genesis_event: create.event.clone(),
             genesis_commit: commit.clone(),
+            producer_signer_fact: None,
             authority_transitions: Vec::new(),
             current_generation: 0,
             current_service_id: intent
