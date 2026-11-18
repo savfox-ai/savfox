@@ -866,7 +866,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: String::new(),
                     secret: false,
                     required: false,
-                    help: "A runtime binds exactly one Agent. Unbind revokes the current Agent's KeyPackage pool, purges its local runtime state, and clears the binding so a different Agent can be paired.",
+                    help: "A runtime binds exactly one Agent. Unbind clears the local binding and runtime state. Replace or deactivate the old Agent runtime authorization at its controller to fence the old KeyPackage pool.",
                 },
                 ConfigField {
                     key: "grantEventPath".into(),

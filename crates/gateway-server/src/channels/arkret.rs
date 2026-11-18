@@ -696,7 +696,7 @@ async fn run_account_listener(
     };
     record_listener_phase(&channel, &account, "subscribing");
     runtime::record_channel_probe("arkret", "ok").await;
-    if let Err(err) = run_account_key_lifecycle_maintenance(
+    run_account_key_lifecycle_maintenance(
         &client,
         &channel,
         &account,
@@ -704,22 +704,7 @@ async fn run_account_listener(
         &crypto_store,
         "startup",
     )
-    .await
-    {
-        record_listener_failure(
-            &channel,
-            &account,
-            "key_lifecycle_error",
-            format!("{err:#}"),
-        );
-        warn!(
-            channel_id = %channel.id,
-            account_id = %account.id,
-            "arkret: refusing to subscribe while pairing-scoped key migration is incomplete: {err:#}"
-        );
-        runtime::record_channel_probe("arkret", "error").await;
-        return;
-    }
+    .await;
 
     match crate::arkret_delivery::resume_pending_checkpoints(&savfox_home, &channel.id, &account.id)
         .await
@@ -1232,7 +1217,7 @@ async fn process_durable_account_work(
     };
     // Welcome recovery remains independent of a blocked account inbox head.
     // The retrying Commit must not prevent installing its missing local base.
-    if let Err(error) = run_account_key_lifecycle_maintenance(
+    run_account_key_lifecycle_maintenance(
         &client,
         channel,
         account,
@@ -1240,10 +1225,7 @@ async fn process_durable_account_work(
         crypto_store,
         "durable_retry",
     )
-    .await
-    {
-        warn!("arkret: key lifecycle maintenance before inbox retry failed: {error:#}");
-    }
+    .await;
     process_durable_account_inbox(
         provider,
         &client,
@@ -1742,7 +1724,7 @@ async fn run_account_key_lifecycle_maintenance(
     account_store: &garth::FileStore,
     crypto_store: &FileArkretCryptoStore,
     reason: &'static str,
-) -> anyhow::Result<()> {
+) {
     publish_account_mls_key_packages(client, channel, account, crypto_store).await;
     drain_account_device_messages(
         client,
@@ -1754,7 +1736,6 @@ async fn run_account_key_lifecycle_maintenance(
     )
     .await;
     consume_pending_mls_welcomes(client, channel, account, crypto_store).await;
-    Ok(())
 }
 
 async fn consume_pending_mls_welcomes(

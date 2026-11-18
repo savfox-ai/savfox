@@ -147,7 +147,7 @@ pub(super) async fn drive(
                     async {
                     let client = ArkretHttpClient::from_provider(provider, &crypto_store).await?;
                     run_account_key_lifecycle_maintenance(&client, channel, account,
-                        &account_store, &crypto_store, "agent_receive").await?;
+                        &account_store, &crypto_store, "agent_receive").await;
                     if tokio::time::Instant::now() >= recovery_due {
                         recover_pending_content(&client, channel, account, &account_store, &crypto_store, &mut recovery_progress, &mut recovery_retries, &mut read_budget).await?;
                         recovery_due = tokio::time::Instant::now() + Duration::from_secs(20);
@@ -2611,7 +2611,7 @@ pub(super) async fn drive_native(
                 // Frozen final submissions retry only original Event/MLS bytes.
                 drain_pending_account_outbound(provider,&account_store,channel,account,&crypto_store).await;
                 receiver.process_inbox(provider,credentials,&client,channel,account,&account_store,&crypto_store).await?;
-                run_account_key_lifecycle_maintenance(&client,channel,account,&account_store,&crypto_store,"native_receive").await?;
+                run_account_key_lifecycle_maintenance(&client,channel,account,&account_store,&crypto_store,"native_receive").await;
                 if tokio::time::Instant::now() >= recovery_due {
                     if let Some(key_ref) = account.key_ref.as_ref() {
                         for scope in crypto_store.pending_creator_bootstrap_scopes()? {

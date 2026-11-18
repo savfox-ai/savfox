@@ -1329,16 +1329,6 @@ impl FileArkretCryptoStore {
         })
     }
 
-    pub fn mark_mls_key_package_revoked(
-        &self,
-        keypackage_ref_or_id: &str,
-    ) -> anyhow::Result<Option<MlsKeyPackageRecord>> {
-        self.update_cached_mls_key_package(keypackage_ref_or_id, |record| {
-            record.state = MlsKeyPackageState::Revoked;
-            Ok(())
-        })
-    }
-
     /// Estimate the refill needed from Savfox's client-private inventory.
     /// Upload responses intentionally no longer expose server inventory.
     pub fn mls_key_package_maintenance_deficit(
@@ -1390,75 +1380,8 @@ impl FileArkretCryptoStore {
         self.save(&mut state)
     }
 
-    /// Canonical KeyPackage refs for every locally-tracked pool KeyPackage that
-    /// has not already been consumed or revoked.
-    ///
-    /// The revoke endpoint resolves its signed targets by `keypackage_ref`,
-    /// not by the client-generated `keypackage_id` used as the durable row
-    /// primary key.
-    pub fn revocable_keypackage_refs(&self) -> anyhow::Result<Vec<String>> {
-        let state = self.load()?;
-        Ok(Self::revocable_keypackage_refs_matching(&state, None, None))
-    }
-
-    /// Canonical KeyPackage refs in this store that belong to one exact Agent
-    /// runtime binding and have not already been consumed or revoked.
-    ///
-    /// This is used by the pairing-scoped account migration.  Older Savfox
-    /// releases keyed Arkret crypto state only by channel/account id, so one
-    /// legacy file can contain material from several replaced Agents.  A new
-    /// Agent MUST revoke only its own endpoint rows; attempting to
-    /// revoke another Agent's rows both fails authorization and leaves the
-    /// current runtime exposed to claims for private material it no longer
-    /// opens.
-    pub fn revocable_keypackage_refs_for_agent(
-        &self,
-        principal_id: &str,
-        _device_id: &str,
-    ) -> anyhow::Result<Vec<String>> {
-        let principal = DidCoreId::new(principal_id.to_owned())
-            .with_context(|| format!("invalid Arkret principal DID '{principal_id}'"))?;
-        let state = self.load()?;
-        Ok(Self::revocable_keypackage_refs_matching(
-            &state,
-            Some(&principal),
-            None,
-        ))
-    }
-
-    fn revocable_keypackage_refs_matching(
-        state: &ArkretCryptoStateFile,
-        principal_id: Option<&DidCoreId>,
-        device_id: Option<&DeviceId>,
-    ) -> Vec<String> {
-        let mut refs = Vec::new();
-        for record in state.mls_key_packages.values() {
-            if matches!(
-                record.state,
-                MlsKeyPackageState::Consumed | MlsKeyPackageState::Revoked
-            ) {
-                continue;
-            }
-            if principal_id
-                .is_some_and(|principal| record.actor_id.signing_principal_id() != principal)
-                || device_id.is_some_and(|device| {
-                    endpoint_human_device_id(&record.endpoint) != Some(device)
-                })
-            {
-                continue;
-            }
-            let keypackage_ref = record.keypackage_ref.as_str().to_owned();
-            if !refs.contains(&keypackage_ref) {
-                refs.push(keypackage_ref);
-            }
-        }
-        refs
-    }
-
-    /// Delete the persisted crypto-state file for this account. Used by unbind
-    /// to purge the Agent's MLS identity and private KeyPackage material after
-    /// the server-side pool has been revoked. Removing a missing file is a
-    /// no-op, not an error.
+    /// Purge this account's local MLS identity and private KeyPackage material
+    /// on unbind. Removing a missing file succeeds.
     pub fn delete_persisted(&self) -> std::io::Result<()> {
         let _guard = self.acquire_mutation().map_err(std::io::Error::other)?;
         match std::fs::remove_file(self.path()) {
@@ -3299,13 +3222,6 @@ fn mls_identity_signature_public_key(identity: &ArkretMlsIdentity) -> anyhow::Re
     URL_SAFE_NO_PAD
         .decode(encoded)
         .context("decode Arkret MLS signer public key")
-}
-
-fn endpoint_human_device_id(endpoint: &MlsEndpointIdentity) -> Option<&DeviceId> {
-    match endpoint {
-        MlsEndpointIdentity::HumanDevice { device_id, .. } => Some(device_id),
-        MlsEndpointIdentity::AgentRuntime { .. } => None,
-    }
 }
 
 fn mls_identity_key(actor_id: &ActorId, endpoint: &MlsEndpointIdentity) -> anyhow::Result<String> {
@@ -6784,58 +6700,6 @@ mod tests {
     }
 
     #[test]
-    fn revocable_pool_uses_wire_refs_instead_of_local_ids() {
-        let home = temp_home("kp-revoke-refs");
-        let store = FileArkretCryptoStore::for_account(&home, "c1", "agent");
-        let principal = "ak:did_core:web:agent.example";
-        let device = "ak:device:01904100-0000-7000-8000-000000000001";
-        let record = store
-            .ensure_mls_key_package(&test_account(principal), device)
-            .expect("KeyPackage should be created");
-
-        let refs = store
-            .revocable_keypackage_refs()
-            .expect("revocable refs should load");
-        assert_eq!(refs, vec![record.keypackage_ref.as_str().to_owned()]);
-        assert!(!refs.contains(&record.keypackage_id));
-
-        store
-            .mark_mls_key_package_revoked(record.keypackage_ref.as_str())
-            .expect("revoke marker should persist");
-        assert!(
-            store
-                .revocable_keypackage_refs()
-                .expect("revocable refs should reload")
-                .is_empty()
-        );
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn pool_cleanup_is_limited_to_the_current_agent_binding() {
-        let home = temp_home("kp-revoke-agent-scope");
-        let store = FileArkretCryptoStore::for_account(&home, "c1", "legacy");
-        let current_principal = "ak:did_core:web:current-agent.example";
-        let current_device = "ak:device:01904100-0000-7000-8000-000000000011";
-        let replaced_principal = "ak:did_core:web:replaced-agent.example";
-        let replaced_device = "ak:device:01904100-0000-7000-8000-000000000012";
-        let current = store
-            .ensure_mls_key_package(&test_account(current_principal), current_device)
-            .expect("current Agent KeyPackage should be created");
-        let replaced = store
-            .ensure_mls_key_package(&test_account(replaced_principal), replaced_device)
-            .expect("replaced Agent KeyPackage should be created");
-
-        let refs = store
-            .revocable_keypackage_refs_for_agent(current_principal, current_device)
-            .expect("binding-scoped revocable refs should load");
-        assert_eq!(refs, vec![current.keypackage_ref.as_str().to_owned()]);
-        assert!(!refs.contains(&replaced.keypackage_ref.as_str().to_owned()));
-
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
     fn claimed_key_package_record_can_feed_group_add_member() {
         let home = temp_home("kp-claim-record");
         let bob_store = FileArkretCryptoStore::for_account(&home, "c1", "bob");
@@ -6902,13 +6766,9 @@ mod tests {
             .expect("claimed KeyPackage should add to MLS group");
         assert!(matches!(
             &add.welcome.recipient,
-            MlsEndpointIdentity::HumanDevice { principal_id, .. }
-                if principal_id.as_str() == bob_principal
+            MlsEndpointIdentity::HumanDevice { principal_id, device_id, .. }
+                if principal_id.as_str() == bob_principal && device_id.as_str() == bob_device
         ));
-        assert_eq!(
-            endpoint_human_device_id(&add.welcome.recipient).map(DeviceId::as_str),
-            Some(bob_device)
-        );
         let _ = std::fs::remove_dir_all(&home);
     }
 
