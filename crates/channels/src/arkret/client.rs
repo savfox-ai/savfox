@@ -971,12 +971,15 @@ impl ArkretHttpClient {
                 account_id: controller_account.clone(),
             },
         };
-        let mut realms = current
-            .joined_realm_locators()
-            .await?
-            .into_iter()
-            .collect::<std::collections::BTreeSet<_>>();
-        if let Ok(outcome) = current.inner.direct_conversation_resolve(&request).await
+        // Account-wide discovery and exact-peer resolution are independent
+        // operations. A paired runtime normally has only the latter grant.
+        let granted = |operation: &str| state.granted_scope.iter().any(|scope| scope == operation);
+        let mut realms = std::collections::BTreeSet::new();
+        if granted(arkret::ServiceOperationId::SELF_ACCOUNT_STREAM_SUBSCRIBE_V1) {
+            realms.extend(current.joined_realm_locators().await?);
+        }
+        if granted(arkret::ServiceOperationId::SELF_DIRECT_CONVERSATION_READ_RESOLVE_V1)
+            && let Ok(outcome) = current.inner.direct_conversation_resolve(&request).await
             && let Some(coordinates) = outcome.coordinates()
         {
             realms.insert(coordinates.realm_id.clone());
