@@ -717,8 +717,50 @@ struct JoinedRealmLocatorPages {
     pages: std::collections::BTreeMap<String, String>,
     seen_realms: std::collections::BTreeSet<RealmId>,
     joined: std::collections::BTreeSet<RealmId>,
+    revisions: std::collections::BTreeMap<RealmId, u64>,
 }
 impl JoinedRealmLocatorPages {
+    fn membership(&mut self, realm: &RealmId, revision: u64, joined: bool) -> anyhow::Result<()> {
+        if let Some(previous) = self.revisions.get(realm) {
+            if *previous > revision {
+                return Ok(());
+            }
+            if *previous == revision {
+                anyhow::ensure!(
+                    self.joined.contains(realm) == joined,
+                    "conflicting membership at the same revision"
+                );
+                return Ok(());
+            }
+        }
+        self.revisions.insert(realm.clone(), revision);
+        if joined {
+            self.joined.insert(realm.clone());
+        } else {
+            self.joined.remove(realm);
+        }
+        Ok(())
+    }
+
+    fn changes(
+        &mut self,
+        changes: &arkret_models_collaboration::sync_frames::demand_sync::RealmListChanges,
+    ) -> anyhow::Result<()> {
+        use arkret_models_collaboration::sync_frames::demand_sync::RealmListMembership;
+        changes.validate()?;
+        for item in &changes.upserts {
+            self.membership(
+                &item.realm_id,
+                item.revision,
+                item.membership == RealmListMembership::Join,
+            )?;
+        }
+        for item in &changes.removals {
+            self.membership(&item.realm_id, item.revision, false)?;
+        }
+        Ok(())
+    }
+
     fn push(
         &mut self,
         after: Option<&str>,
@@ -766,11 +808,8 @@ impl JoinedRealmLocatorPages {
         }
         for item in &page.items {
             self.seen_realms.insert(item.realm_id.clone());
-            if item.membership
-                == arkret_models_collaboration::sync_frames::demand_sync::RealmListMembership::Join
-            {
-                self.joined.insert(item.realm_id.clone());
-            }
+            self.membership(&item.realm_id, item.revision, item.membership
+                == arkret_models_collaboration::sync_frames::demand_sync::RealmListMembership::Join)?;
         }
         self.next = page.next_cursor.clone();
         self.finished = self.next.is_none();
@@ -975,6 +1014,9 @@ impl ArkretHttpClient {
                     let _ = pages.push(requested_after.as_deref(), page)?;
                     found = true;
                 }
+                if let Some(changes) = &frame.realm_list_changes {
+                    pages.changes(changes)?;
+                }
             }
             anyhow::ensure!(found, "Realm-list operation omitted its requested page");
             account_after = Some(batch.cursor);
@@ -1012,7 +1054,7 @@ impl ArkretHttpClient {
             },
         };
         // Account-wide discovery and exact-peer resolution are independent
-        // operations. A paired runtime normally has only the latter grant.
+        // operations, checked against the actual grant on each discovery.
         let granted = |operation: &str| state.granted_scope.iter().any(|scope| scope == operation);
         let mut realms = std::collections::BTreeSet::new();
         if granted(arkret::ServiceOperationId::SELF_ACCOUNT_STREAM_SUBSCRIBE_V1) {
@@ -2824,6 +2866,33 @@ mod tests {
             "late exact duplicate preserves completed progress"
         );
         assert_eq!(pages.joined.len(), 2);
+    }
+
+    #[test]
+    fn joined_locator_withdrawal_during_paging_wins_over_frozen_join() {
+        use arkret_models_collaboration::sync_frames::demand_sync::{
+            RealmListChanges, RealmListRemoval,
+        };
+        let mut pages = JoinedRealmLocatorPages::default();
+        let first = locator_page("cut", 7, &[1], Some("page1"));
+        let second = locator_page("cut", 7, &[2], None);
+        pages.push(None, &first).unwrap();
+        pages
+            .changes(&RealmListChanges {
+                upserts: vec![],
+                removals: first
+                    .items
+                    .iter()
+                    .chain(&second.items)
+                    .map(|item| RealmListRemoval {
+                        realm_id: item.realm_id.clone(),
+                        revision: item.revision + 1,
+                    })
+                    .collect(),
+            })
+            .unwrap();
+        pages.push(Some("ak:cursor:page1"), &second).unwrap();
+        assert!(pages.joined.is_empty());
     }
 
     #[test]

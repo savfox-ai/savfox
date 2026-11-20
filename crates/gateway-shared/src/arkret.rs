@@ -52,6 +52,7 @@ pub fn agent_scope_recovery(reason: &str) -> Option<&'static str> {
 pub fn default_agent_runtime_scope() -> Result<Vec<String>, String> {
     arkret_schema::agent_runtime_scope::complete_agent_runtime_scope([
         ServiceOperationId::SELF_DIRECT_CONVERSATION_READ_RESOLVE_V1,
+        ServiceOperationId::SELF_ACCOUNT_STREAM_SUBSCRIBE_V1,
         ServiceOperationId::SELF_COMMITTED_EVENT_STREAM_SUBSCRIBE_V1,
         ServiceOperationId::SELF_COMMITTED_EVENT_READ_SCAN_V1,
         ServiceOperationId::SELF_COMMITTED_EVENT_RESOURCE_GET_V1,
@@ -121,6 +122,11 @@ mod tests {
     fn agent_scope_candidate_is_registered_complete_and_minimal() {
         let actions = default_agent_runtime_scope().expect("complete default scope");
         validate_agent_runtime_scope(&actions).expect("valid default scope");
+        assert!(
+            actions
+                .iter()
+                .any(|action| action == ServiceOperationId::SELF_ACCOUNT_STREAM_SUBSCRIBE_V1)
+        );
         assert!(
             actions
                 .iter()
