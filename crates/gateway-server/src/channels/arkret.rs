@@ -1405,6 +1405,13 @@ async fn check_message_route(
         );
         return Ok(());
     }
+    if matches!(scope, arkret::ScopeRef::Sidecar { realm_id, .. } if realm_id == realm) {
+        // Fresh replies come from a verified, addressed exchange. Queued originals
+        // were signed by this runtime and retain both native encrypted carriers.
+        // Coland checks current participation and effective membership on submit.
+        client.require_reply_strand(strand)?;
+        return Ok(());
+    }
     // Opaque issuance supplies no private overlay. Owner Direct has its own
     // authenticated pair and main Strand. Final admission still checks current.
     anyhow::ensure!(
@@ -1451,14 +1458,23 @@ async fn check_queued_publication(
                 && queued_message_matches_runtime(event, account, store)?,
             "queued message differs from current runtime or encryption policy"
         );
-        let client = service.for_realm(&event.realm_id).await?;
+        let strand = message_strand(event)?;
+        if matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. }) {
+            anyhow::ensure!(
+                event.payload.contains_key("encrypted_metadata"),
+                "signed Sidecar reply lacks private exchange metadata"
+            );
+        }
+        let client = service
+            .for_message_route(&event.scope_ref, &event.realm_id, &strand)
+            .await?;
         check_message_route(
             &client,
             store,
             account,
             &event.scope_ref,
             &event.realm_id,
-            &message_strand(event)?,
+            &strand,
         )
         .await?;
         anyhow::Ok(verified)
@@ -4660,14 +4676,17 @@ pub(crate) async fn send_to_arkret_account(
     let provider = construct_account_provider(savfox_home, &channel, &account).await?;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
     let service = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
-    let client = service.for_realm(&realm_id_typed).await?;
+    let strand = arkret::StrandId::new(strand_id.clone())?;
+    let client = service
+        .for_message_route(&scope_ref, &realm_id_typed, &strand)
+        .await?;
     check_message_route(
         &client,
         &crypto_store,
         &account,
         &scope_ref,
         &realm_id_typed,
-        &arkret::StrandId::new(strand_id.clone())?,
+        &strand,
     )
     .await?;
     let outbound_store = open_account_store(

@@ -298,6 +298,7 @@ pub struct AgentAuthenticatedTransportFactory {
     requested_scope: Vec<String>,
     session_transport: AgentSessionGrantTransport,
     content_realm: Option<RealmId>,
+    reply_strand: Option<StrandId>,
     content_sessions: Option<Arc<AgentContentSessions>>,
 }
 
@@ -309,8 +310,25 @@ struct PendingContentSession {
 
 #[derive(Default)]
 struct AgentContentSessions {
+    replies: Mutex<
+        std::collections::BTreeMap<
+            (RealmId, StrandId),
+            Arc<tokio::sync::Mutex<PendingContentSession>>,
+        >,
+    >,
     realms:
         Mutex<std::collections::BTreeMap<RealmId, Arc<tokio::sync::Mutex<PendingContentSession>>>>,
+}
+
+fn content_actions_cover(actions: &[String], reply_strand: Option<&StrandId>) -> bool {
+    if reply_strand.is_some() {
+        actions.iter().any(|v| v == "ak.message.create")
+            && actions
+                .iter()
+                .any(|v| v == arkret::ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1)
+    } else {
+        actions.iter().any(|v| v == "ak.event.read")
+    }
 }
 
 fn mint_agent_session_refresh_proof(
@@ -399,6 +417,7 @@ impl AgentAuthenticatedTransportFactory {
     fn fresh_content_request(
         &self,
         realm: &RealmId,
+        strand: Option<&StrandId>,
     ) -> anyhow::Result<arkret::SessionGrantRequestBody> {
         anyhow::ensure!((self.runtime_fence)(), "Agent runtime was replaced");
         let proof = arkret::dpop::build_dpop_proof(
@@ -415,8 +434,12 @@ impl AgentAuthenticatedTransportFactory {
             self.requested_scope.clone(),
             self.agent_key_authorization_ref.clone(),
             arkret::RequestedAgentSessionGrantScope {
-                realm_ids: vec![realm.clone()],
-                strand_ids: Vec::new(),
+                realm_ids: strand
+                    .is_none()
+                    .then(|| realm.clone())
+                    .into_iter()
+                    .collect(),
+                strand_ids: strand.cloned().into_iter().collect(),
                 track_names: Vec::new(),
             },
             None,
@@ -437,13 +460,20 @@ impl AgentAuthenticatedTransportFactory {
     async fn content_provider(
         &self,
         realm: &RealmId,
+        strand: Option<&StrandId>,
     ) -> anyhow::Result<ArkretAgentSessionProvider> {
         anyhow::ensure!((self.runtime_fence)(), "Agent runtime was replaced");
         let sessions = self
             .content_sessions
             .as_ref()
             .context("Agent content issuer is unavailable")?;
-        let entry = {
+        let entry = if let Some(strand) = strand {
+            let mut replies = sessions
+                .replies
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Agent reply session lock poisoned"))?;
+            Arc::clone(replies.entry((realm.clone(), strand.clone())).or_default())
+        } else {
             let mut realms = sessions
                 .realms
                 .lock()
@@ -454,7 +484,7 @@ impl AgentAuthenticatedTransportFactory {
         let mut entry = entry.lock().await;
         let factory = Self {
             content_realm: Some(realm.clone()),
-            content_sessions: None,
+            reply_strand: strand.cloned(),
             ..self.clone()
         };
         let refresh = SessionRefreshOptions {
@@ -464,10 +494,7 @@ impl AgentAuthenticatedTransportFactory {
         if let Some(engine) = &entry.engine {
             if engine.current_state().is_some_and(|state| {
                 (state.expires_at > Utc::now() || state.pending_refresh.is_some())
-                    && state
-                        .granted_scope
-                        .iter()
-                        .any(|action| action == "ak.event.read")
+                    && content_actions_cover(&state.granted_scope, strand)
             }) {
                 return Ok(SessionTransportProvider::new(
                     engine.clone(),
@@ -481,7 +508,7 @@ impl AgentAuthenticatedTransportFactory {
             entry.request = None;
         }
         if entry.request.is_none() {
-            entry.request = Some(self.fresh_content_request(realm)?);
+            entry.request = Some(self.fresh_content_request(realm, strand)?);
         }
         let request = entry
             .request
@@ -538,13 +565,20 @@ impl AuthenticatedTransportFactory for AgentAuthenticatedTransportFactory {
             ));
         }
         if let Some(realm) = &self.content_realm
-            && (source.request.agent_scope_request.realm_ids != [realm.clone()]
-                || !source.request.agent_scope_request.strand_ids.is_empty()
-                || !source.request.agent_scope_request.track_names.is_empty()
-                || !state
-                    .granted_scope
-                    .iter()
-                    .any(|action| action == "ak.event.read"))
+            && (!source.request.agent_scope_request.track_names.is_empty()
+                || !content_actions_cover(&state.granted_scope, self.reply_strand.as_ref())
+                || match self.reply_strand.as_ref() {
+                    Some(strand) => {
+                        !source.request.agent_scope_request.realm_ids.is_empty()
+                            || source.request.agent_scope_request.strand_ids.as_slice()
+                                != std::slice::from_ref(strand)
+                    }
+                    None => {
+                        !source.request.agent_scope_request.strand_ids.is_empty()
+                            || source.request.agent_scope_request.realm_ids.as_slice()
+                                != std::slice::from_ref(realm)
+                    }
+                })
         {
             return Err(garth::Error::Protocol(
                 "Agent content grant differs from its original exact resource intent".into(),
@@ -904,6 +938,17 @@ impl ArkretHttpClient {
         Ok(())
     }
 
+    /// Match the opaque issuer outcome to the Strand in our own signed intent.
+    pub fn require_reply_strand(&self, strand: &StrandId) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.session_provider
+                .as_ref()
+                .is_some_and(|provider| provider.factory().reply_strand.as_ref() == Some(strand)),
+            "Agent reply session has another Strand"
+        );
+        Ok(())
+    }
+
     pub async fn from_provider(
         provider: &ArkretAgentSessionProvider,
         store: &super::crypto_state::FileArkretCryptoStore,
@@ -923,15 +968,41 @@ impl ArkretHttpClient {
 
     /// Issue an independent single-resource grant; never expand the service chain.
     pub async fn for_realm(&self, realm: &RealmId) -> anyhow::Result<Self> {
+        self.for_content(realm, None).await
+    }
+
+    /// Use a separate signed Strand intent for private replies. A cached Realm
+    /// read credential cannot be refreshed into a Strand write credential.
+    pub async fn for_message_route(
+        &self,
+        scope: &arkret::ScopeRef,
+        realm: &RealmId,
+        strand: &StrandId,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            scope.realm_id_opt() == Some(realm),
+            "message scope has a different Realm"
+        );
+        let reply_strand = matches!(scope, arkret::ScopeRef::Sidecar { .. }).then_some(strand);
+        self.for_content(realm, reply_strand).await
+    }
+
+    async fn for_content(
+        &self,
+        realm: &RealmId,
+        strand: Option<&StrandId>,
+    ) -> anyhow::Result<Self> {
         let provider = self
             .session_provider
             .as_ref()
             .context("Agent content provider is unavailable")?;
         let factory = provider.factory();
-        let provider = if factory.content_realm.as_ref() == Some(realm) {
+        let provider = if factory.content_realm.as_ref() == Some(realm)
+            && factory.reply_strand.as_ref() == strand
+        {
             provider.clone()
         } else {
-            factory.content_provider(realm).await?
+            factory.content_provider(realm, strand).await?
         };
         let inner = garth::TransportProvider::provide(&provider).await?;
         let binding = self
@@ -979,6 +1050,22 @@ impl ArkretHttpClient {
             .lock()
             .map_err(|_| anyhow::anyhow!("Agent content session lock poisoned"))?;
         Ok(realms.keys().cloned().collect())
+    }
+
+    async fn for_event_submission(&self, event: &arkret::Event) -> anyhow::Result<Self> {
+        if event.kind == "ak.message.create"
+            && matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. })
+        {
+            let strand = event
+                .payload
+                .get("strand_id")
+                .and_then(serde_json::Value::as_str)
+                .context("Sidecar message lacks a Strand")?;
+            return self
+                .for_message_route(&event.scope_ref, &event.realm_id, &StrandId::new(strand)?)
+                .await;
+        }
+        self.for_realm(&event.realm_id).await
     }
 
     /// Read only already-disclosed membership coordinates. Every candidate
@@ -1218,6 +1305,7 @@ impl ArkretHttpClient {
             verification_method: verification_method.clone(),
             requested_scope: expected_scope,
             session_transport: session_transport.clone(),
+            reply_strand: None,
             content_realm: realm_id
                 .map(|value| RealmId::new(value.to_owned()))
                 .transpose()?,
@@ -1397,12 +1485,12 @@ impl garth::AuthorityTransport for ArkretHttpClient {
         request: &arkret::VerifiedSubmission<AuthoritySubmitRequestBody>,
         options: &arkret::http_client::ClientRequestOptions,
     ) -> garth::Result<AuthoritySubmitResponseBody> {
-        let realm = match request.wire() {
-            AuthoritySubmitRequestBody::Event(value) => &value.event.realm_id,
-            AuthoritySubmitRequestBody::MlsCommit(value) => &value.commit_event.realm_id,
+        let event = match request.wire() {
+            AuthoritySubmitRequestBody::Event(value) => &value.event,
+            AuthoritySubmitRequestBody::MlsCommit(value) => &value.commit_event,
         };
         let scoped = self
-            .for_realm(realm)
+            .for_event_submission(event)
             .await
             .map_err(resource_session_error)?;
         let own = scoped.own_station().map_err(resource_session_error)?;
@@ -1417,16 +1505,14 @@ impl garth::AuthorityTransport for ArkretHttpClient {
         options: &arkret::http_client::ClientRequestOptions,
     ) -> garth::Result<arkret_models_collaboration::authority_commit::SelfAuthoritySubmitResponseBody>
     {
-        let realm = match request.wire() {
-            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody::Event(value) => Some(&value.event.realm_id),
-            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody::MlsCommit(value) => {
-                Some(&value.commit_event.realm_id)
-            }
+        let event = match request.wire() {
+            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody::Event(value) => Some(&value.event),
+            arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody::MlsCommit(value) => Some(&value.commit_event),
             _ => None,
         };
-        if let Some(realm) = realm {
+        if let Some(event) = event {
             let scoped = self
-                .for_realm(realm)
+                .for_event_submission(event)
                 .await
                 .map_err(resource_session_error)?;
             return garth::AuthorityTransport::submit_self(
@@ -1663,10 +1749,12 @@ impl std::fmt::Debug for ArkretNativeCredentialSource {
 }
 impl ArkretNativeCredentialSource {
     pub async fn for_realm(&self, realm: &RealmId) -> anyhow::Result<Self> {
-        let provider = if self.factory.content_realm.as_ref() == Some(realm) {
+        let provider = if self.factory.content_realm.as_ref() == Some(realm)
+            && self.factory.reply_strand.is_none()
+        {
             self.provider.clone()
         } else {
-            self.factory.content_provider(realm).await?
+            self.factory.content_provider(realm, None).await?
         };
         let factory = provider.factory().clone();
         Ok(Self { provider, factory })
@@ -2022,6 +2110,7 @@ mod tests {
             requested_scope: agent_session_state().granted_scope.clone(),
             session_transport: test_session_transport(),
             content_realm: None,
+            reply_strand: None,
             content_sessions: None,
         }
     }
@@ -2043,6 +2132,7 @@ mod tests {
             requested_scope: requested_scope.clone(),
             session_transport: test_session_transport(),
             content_realm: None,
+            reply_strand: None,
             content_sessions: None,
         };
         let mut state = agent_session_state();
@@ -2416,6 +2506,7 @@ mod tests {
             requested_scope: savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap(),
             session_transport: test_session_transport(),
             content_realm: None,
+            reply_strand: None,
             content_sessions: None,
         };
         let fallback = SessionRefreshOptions {
@@ -2459,8 +2550,8 @@ mod tests {
         let factory = content_test_factory();
         let realm = RealmId::new("ak:realm:AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI").unwrap();
         let before = factory.requested_scope.clone();
-        let first = factory.fresh_content_request(&realm).unwrap();
-        let second = factory.fresh_content_request(&realm).unwrap();
+        let first = factory.fresh_content_request(&realm, None).unwrap();
+        let second = factory.fresh_content_request(&realm, None).unwrap();
         assert_ne!(
             serde_json::to_value(&first).unwrap(),
             serde_json::to_value(&second).unwrap()
@@ -2501,13 +2592,19 @@ mod tests {
             runtime_fence: Arc::new(|| false),
             ..factory
         };
-        assert!(stopped.fresh_content_request(&realm).is_err());
+        assert!(stopped.fresh_content_request(&realm, None).is_err());
     }
 
     #[tokio::test]
     async fn content_session_reissues_unusable_grants_and_preserves_unknown_intent() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        for state_kind in ["fresh", "narrowed", "invalidated", "expired"] {
+        for state_kind in [
+            "fresh",
+            "strand_reply",
+            "narrowed",
+            "invalidated",
+            "expired",
+        ] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let base = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
             let issued = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -2596,9 +2693,11 @@ mod tests {
                 .lock()
                 .unwrap()
                 .insert(realm.clone(), Arc::clone(&entry));
+            let strand = (state_kind == "strand_reply")
+                .then(|| StrandId::from_event_id(&authorization_event()));
             let result = tokio::time::timeout(
                 std::time::Duration::from_secs(5),
-                factory.content_provider(&realm),
+                factory.content_provider(&realm, strand.as_ref()),
             )
             .await
             .expect("actual fresh issue has a bounded transport");
@@ -2620,6 +2719,21 @@ mod tests {
                 .await
                 .expect("a new issue must actually reach the issuer")
                 .unwrap();
+            let entry = if let Some(strand) = &strand {
+                assert!(
+                    entry.lock().await.engine.is_some(),
+                    "independent Realm reader retained"
+                );
+                sessions
+                    .replies
+                    .lock()
+                    .unwrap()
+                    .get(&(realm.clone(), strand.clone()))
+                    .unwrap()
+                    .clone()
+            } else {
+                entry
+            };
             let entry = entry.lock().await;
             assert!(entry.engine.is_none());
             assert_eq!(
@@ -2630,8 +2744,13 @@ mod tests {
                 panic!("Agent issue required")
             };
             request.validate().unwrap();
-            assert_eq!(request.agent_scope_request.realm_ids, [realm]);
-            assert!(request.agent_scope_request.strand_ids.is_empty());
+            if let Some(strand) = strand {
+                assert!(request.agent_scope_request.realm_ids.is_empty());
+                assert_eq!(request.agent_scope_request.strand_ids, [strand]);
+            } else {
+                assert_eq!(request.agent_scope_request.realm_ids, [realm]);
+                assert!(request.agent_scope_request.strand_ids.is_empty());
+            }
             assert_eq!(
                 request.agent_key_authorization_ref,
                 factory.agent_key_authorization_ref
