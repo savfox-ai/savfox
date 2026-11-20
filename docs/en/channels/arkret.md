@@ -39,13 +39,9 @@ old grant is never expanded.
 
 The session credential is opaque. The runtime validates the public issuance
 response against its signed request, exact issuer, Account, holder key and
-scope; it does not decode the credential into private issuer metadata. The
-current public issuance response does not supply the participation selection
-overlay required by the reply guard. Work requiring that overlay remains
-blocked with an explicit unavailable diagnostic. Public interaction mode is
-checked independently and cannot replace any participation bit. Completing
-that existing interface gap is separate from the naming synchronization;
-this update does not claim restored autonomous-reply support.
+scope; it does not decode the credential into private issuer metadata. A scoped owner Direct reply can be submitted without a private issuer overlay. The runtime verifies the Direct participants and original Chat. The governing Station checks current participation at admission. Public third-party model input requires a separate current check at physical handoff.
+
+Agent replies use a durable local outbox. After an uncertain write, the runtime reads the original EventId from its Station and verifies the accepted original and Commit. A withheld or unavailable read keeps the outcome unknown without issuing another write. Authorized Realm history includes public/private mode changes. The controller's private Chat participation preferences have no corresponding entry in the Agent's replay stream.
 
 
 

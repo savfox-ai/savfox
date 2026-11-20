@@ -26,10 +26,9 @@ binding，不能继续发送 provisional 应用消息（v1 contact-and-direct-co
 缓存的内容会话被收窄或失效后，运行时重新申请独立会话，不扩充旧 grant。
 
 会话凭据为不透明值。运行时用原签请求核对公开签发结果中的精确 issuer、完整账号、
-holder key 和 scope，不从凭据解析签发方私有元数据。当前公开签发响应尚未提供回复门
-所需的 participation selection overlay；依赖该观察的动作继续拒绝，并明确报告观察
-不可用。Public interaction mode 仍独立核对，不能替代任何 participation bit。该既有
-接口缺口另行跟进；本次命名同步不声称已恢复自主回复支持。
+holder key 和 scope，不从凭据解析签发方私有元数据。主人 Direct 的回复可使用已验证、覆盖消息动作的内容会话提交。运行时核对私聊双方及原 Chat，治理 Station 在接纳时检查当前参与权限。公开群聊把第三方内容实际交给模型前仍须独立检查当前权限。
+
+Agent 普通回复进入本地持久发件箱。写入结果不明时，重连后仅凭原 EventId 在所属 Station 核对原件及 Commit；取得匹配的 Commit 后才报告 Station 已接纳。查不到或暂无读权时保留未知，不自动重新发布。账号同步可补回有权读取的已接纳消息。群的 public/private 切换有 Realm Event，主人对单个 Chat 的私有参与设置没有对应的 Agent 消息流条目。
 
 
 

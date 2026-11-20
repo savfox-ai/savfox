@@ -1,5 +1,5 @@
 //! Fixed reply transport, composed with the original ModelClient native entry.
-//! Private candidate: not applied, compiled or run.
+//! The authority cut spans the actual provider request and response.
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -392,6 +392,37 @@ mod native_cancel_tests {
             Ok(())
         }
     }
+    #[test]
+    fn tightening_before_upload_or_after_upload_blocks_the_next_effect() {
+        struct Current(Arc<AtomicBool>);
+        #[async_trait]
+        impl NativePublicReplyGuard for Current {
+            fn permits_model_handoff(&mut self, _: &arkret::Hash) -> anyhow::Result<()> {
+                anyhow::ensure!(self.0.load(Ordering::Acquire), "withdrawn");
+                Ok(())
+            }
+            fn permits_response_chunk(&mut self, digest: &arkret::Hash) -> anyhow::Result<()> {
+                self.permits_model_handoff(digest)
+            }
+            async fn finish(self: Box<Self>) -> anyhow::Result<()> {
+                Ok(())
+            }
+        }
+        let current = Arc::new(AtomicBool::new(false));
+        let mut held = Held {
+            guard: Some(Box::new(Current(current.clone()))),
+            upload_complete: false,
+            upload_failed: false,
+        };
+        let digest = arkret::Hash::new(arkret::canonical::sha256_digest(b"fixed input")).unwrap();
+        assert!(held.permit(&digest, false).is_err());
+        current.store(true, Ordering::Release);
+        held.permit(&digest, false).unwrap();
+        held.upload_complete = true;
+        current.store(false, Ordering::Release);
+        assert!(held.permit(&digest, true).is_err());
+    }
+
     #[test]
     fn native_upload_cancel_releases_cut_while_backend_keeps_body_arc() {
         let released = Arc::new(AtomicBool::new(false));

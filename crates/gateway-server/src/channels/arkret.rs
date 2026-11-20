@@ -28,7 +28,7 @@ use arkret::{
 use chrono::Utc;
 use garth::{
     ClientEvent, CursorStore, DurableInboxStore, EventCacheStore, OutboundEngine,
-    OutboundEngineOutcome,
+    OutboundEngineOutcome, OutboundQueueStore,
 };
 use savfox_channels::arkret::{
     ArkretAccountConfig, ArkretAgentSessionProvider, ArkretChannelConfig,
@@ -998,17 +998,17 @@ fn public_presence_mode_matches_account(
         && entry.value.interaction_mode == arkret::AgentInteractionMode::Public
 }
 
-fn owner_direct_presence_binding(
+fn owner_direct_main_strand(
     entries: &[arkret::CurrentState],
     realm_id: &RealmId,
     account: &ArkretAccountConfig,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Option<arkret::StrandId>> {
     let expected_stream = arkret::CommitStreamRef::Realm {
         realm_id: realm_id.clone(),
     };
     let agent = arkret::ActorId::account(account.actor_account_id.clone());
     let controller = arkret::ActorId::account(account.controller_account_id.clone());
-    let mut matched = false;
+    let mut matched = None;
     for entry in entries {
         let arkret::CurrentState::Value {
             selector: arkret::CurrentSelector::DirectConversationBinding { pair_key },
@@ -1038,10 +1038,12 @@ fn owner_direct_presence_binding(
                 .unordered_participant_ids
                 .contains(&controller);
         anyhow::ensure!(
-            !matched || !owner_pair,
+            matched.is_none() || !owner_pair,
             "Direct presence snapshot repeats the owner pair"
         );
-        matched |= owner_pair;
+        if owner_pair {
+            matched = Some(binding.binding.main_strand_id);
+        }
     }
     Ok(matched)
 }
@@ -1052,7 +1054,7 @@ fn direct_presence_head_from_verified_cut(
     realm_id: &RealmId,
     account: &ArkretAccountConfig,
 ) -> anyhow::Result<Option<arkret::CommitStreamHead>> {
-    if !owner_direct_presence_binding(entries, realm_id, account)? {
+    if owner_direct_main_strand(entries, realm_id, account)?.is_none() {
         return Ok(None);
     }
     let stream = arkret::CommitStreamRef::Realm {
@@ -1341,68 +1343,193 @@ fn verify_runtime_publication(
     })?)
 }
 
-async fn cancel_unusable_account_submissions(
-    outbound: &OutboundEngine<garth::FileStore, garth::SystemClock>,
-    account: &ArkretAccountConfig,
-    crypto_store: &FileArkretCryptoStore,
-    observation: &arkret::AgentParticipationObservation,
-) -> anyhow::Result<()> {
-    for item in outbound.snapshot().await?.items {
-        if item.status == garth::SendQueueStatus::Queued
-            && (!queued_message_matches_runtime(
-                item.submission.primary_event(),
-                account,
-                crypto_store,
-            )? || !observed_reply_allowed(
-                item.submission.primary_event(),
-                account,
-                observation,
-            ))
-        {
-            // Cancellation cannot rewrite a producer Event or an in-flight
-            // Station outcome. The queue serializes this state transition.
-            outbound.cancel(item.event_id().clone()).await?;
-        }
-    }
-    Ok(())
-}
-
-fn observed_reply_allowed(
-    event: &arkret::Event,
+fn observed_message_selection(
     account: &ArkretAccountConfig,
     observation: &arkret::AgentParticipationObservation,
-) -> bool {
+    realm: &RealmId,
+    scope: &arkret::ScopeRef,
+    strand: &arkret::StrandId,
+) -> Option<bool> {
+    let now = Utc::now();
     if observation.agent_account != account.actor_account_id
         || observation.controller_account != account.controller_account_id
-        || observation.expires_at <= Utc::now()
+        || observation.expires_at <= now
+        || observation.observed_at > now
+        || Some(observation.verification_method.as_str()) != account.verification_method.as_deref()
+        || Some(observation.agent_key_authorization_ref.as_str())
+            != account.authorized_event_ref.as_deref()
     {
-        return false;
+        return None;
     }
     use arkret::ParticipationScope;
     let mut scopes = vec![ParticipationScope::Realm {
-        realm_id: event.realm_id.clone(),
+        realm_id: realm.clone(),
     }];
-    if let arkret::ScopeRef::Circle { circle_id, .. } = &event.scope_ref {
+    if let arkret::ScopeRef::Circle { circle_id, .. } = scope {
         scopes.push(ParticipationScope::Circle {
-            realm_id: event.realm_id.clone(),
+            realm_id: realm.clone(),
             circle_id: circle_id.clone(),
         });
     }
-    let Some(strand) = event
-        .payload
-        .get("strand_id")
-        .and_then(serde_json::Value::as_str)
-        .and_then(|id| arkret::StrandId::new(id).ok())
-    else {
-        return false;
-    };
     scopes.push(ParticipationScope::Strand {
-        realm_id: event.realm_id.clone(),
-        strand_id: strand,
+        realm_id: realm.clone(),
+        strand_id: strand.clone(),
     });
     observation
         .observed_selection_for_scopes(&scopes)
-        .is_some_and(|bits| bits.message_creation_allowed)
+        .map(|bits| bits.message_creation_allowed)
+}
+
+fn message_strand(event: &arkret::Event) -> anyhow::Result<arkret::StrandId> {
+    let value = event
+        .payload
+        .get("strand_id")
+        .and_then(serde_json::Value::as_str)
+        .context("queued message lacks a Strand")?;
+    Ok(arkret::StrandId::new(value)?)
+}
+
+async fn check_message_route(
+    client: &ArkretHttpClient,
+    store: &FileArkretCryptoStore,
+    account: &ArkretAccountConfig,
+    scope: &arkret::ScopeRef,
+    realm: &RealmId,
+    strand: &arkret::StrandId,
+) -> anyhow::Result<()> {
+    client.require_message_session(realm, account)?;
+    if let Some(observation) = client.participation_observation()? {
+        anyhow::ensure!(
+            observed_message_selection(account, &observation, realm, scope, strand) == Some(true),
+            "Agent observation does not cover this reply"
+        );
+        return Ok(());
+    }
+    // Opaque issuance supplies no private overlay. Owner Direct has its own
+    // authenticated pair and main Strand. Final admission still checks current.
+    anyhow::ensure!(
+        matches!(scope, arkret::ScopeRef::Realm { realm_id } if realm_id == realm)
+            && store.realm_is_direct_conversation(realm.as_str())?,
+        "Agent route requires verified execution authority"
+    );
+    let (snapshot, _) = governance::verified_scope_snapshot(client, realm).await?;
+    let entries = &snapshot.current_state_entries;
+    let main = owner_direct_main_strand(entries, realm, account)?
+        .context("Direct reply has no accepted owner pair")?;
+    let stream = arkret::CommitStreamRef::Realm {
+        realm_id: realm.clone(),
+    };
+    anyhow::ensure!(&main == strand || entries.iter().any(|entry| matches!(entry,
+        arkret::CurrentState::Value { selector: arkret::CurrentSelector::Strand { strand_id }, source_stream_ref, .. }
+            if strand_id == strand && source_stream_ref == &stream)),
+        "Direct reply Chat is outside its accepted Realm");
+    Ok(())
+}
+
+async fn check_queued_publication(
+    request: arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody,
+    account: &ArkretAccountConfig,
+    store: &FileArkretCryptoStore,
+    service: &ArkretHttpClient,
+) -> Result<
+    arkret::VerifiedSubmission<
+        arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody,
+    >,
+    String,
+> {
+    async {
+        let verified = verify_runtime_publication(request, account)?;
+        let arkret_models_collaboration::authority_commit::SelfAuthoritySubmitRequestBody::Event(
+            submission,
+        ) = verified.wire()
+        else {
+            anyhow::bail!("Agent reply queue requires a MessageCreate");
+        };
+        let event = &submission.event;
+        anyhow::ensure!(
+            event.kind == "ak.message.create"
+                && queued_message_matches_runtime(event, account, store)?,
+            "queued message differs from current runtime or encryption policy"
+        );
+        let client = service.for_realm(&event.realm_id).await?;
+        check_message_route(
+            &client,
+            store,
+            account,
+            &event.scope_ref,
+            &event.realm_id,
+            &message_strand(event)?,
+        )
+        .await?;
+        anyhow::Ok(verified)
+    }
+    .await
+    .map_err(|error| error.to_string())
+}
+
+async fn refresh_queued_replies(
+    outbound: &OutboundEngine<garth::FileStore, garth::SystemClock>,
+    account: &ArkretAccountConfig,
+    crypto_store: &FileArkretCryptoStore,
+    service: &ArkretHttpClient,
+) -> anyhow::Result<()> {
+    let observation = service.participation_observation()?;
+    for item in outbound.snapshot().await?.items {
+        let event = item.submission.primary_event();
+        match item.status {
+            garth::SendQueueStatus::AwaitingConfirmation => {
+                // A withheld or unavailable read leaves the original unknown.
+                // Each other Chat can still advance independently.
+                let result = async {
+                    let client = service.for_realm(&event.realm_id).await?;
+                    let proof = garth::own_station_results::read_window_dependency_by_event_id(
+                        client.own_station()?,
+                        &event.event_id,
+                    )
+                    .await?;
+                    outbound
+                        .store()
+                        .mutate_outbound(move |queue| {
+                            queue.confirm_existing_event(&proof, Utc::now())
+                        })
+                        .await?;
+                    anyhow::Ok(())
+                }
+                .await;
+                if let Err(error) = result {
+                    debug!("arkret: previous reply acceptance remains unknown: {error}");
+                }
+            }
+            garth::SendQueueStatus::Queued | garth::SendQueueStatus::Forwarding => {
+                let denied = observation.as_ref().and_then(|obs| {
+                    observed_message_selection(
+                        account,
+                        obs,
+                        &event.realm_id,
+                        &event.scope_ref,
+                        &message_strand(event).ok()?,
+                    )
+                }) == Some(false);
+                if denied
+                    || matches!(
+                        queued_message_matches_runtime(event, account, crypto_store),
+                        Ok(false)
+                    )
+                {
+                    let id = item.event_id().clone();
+                    outbound
+                        .store()
+                        .mutate_outbound(move |queue| {
+                            queue.stop_revoked(&id, Utc::now());
+                            Ok(())
+                        })
+                        .await?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 async fn drain_pending_account_outbound(
@@ -1412,28 +1539,28 @@ async fn drain_pending_account_outbound(
     account: &ArkretAccountConfig,
     crypto_store: &FileArkretCryptoStore,
 ) {
-    let outbound = OutboundEngine::new(account_store.clone(), garth::SystemClock);
+    let outbound = OutboundEngine::new(account_store.clone(), garth::SystemClock)
+        .with_readback_on_uncertainty();
     let options = arkret::http_client::ClientRequestOptions::default();
     loop {
         let current = async {
             let client = ArkretHttpClient::from_provider(provider, crypto_store).await?;
-            let observation = client.participation_observation()?;
-            cancel_unusable_account_submissions(&outbound, account, crypto_store, &observation)
-                .await?;
-            anyhow::Ok(garth::AuthorityClient::new(client))
+            refresh_queued_replies(&outbound, account, crypto_store, &client).await?;
+            anyhow::Ok(client)
         }
         .await;
-        let authority = match current {
-            Ok(authority) => authority,
+        let client = match current {
+            Ok(client) => client,
             Err(error) => {
                 warn!(channel_id = %channel.id, account_id = %account.id,
                 "arkret: durable outbound observation unavailable: {error}");
                 return;
             }
         };
+        let authority = garth::AuthorityClient::new(client.clone());
         match outbound
-            .submit_next(&authority, &options, |request| async move {
-                verify_runtime_publication(request, account).map_err(|error| error.to_string())
+            .submit_next(&authority, &options, |request| {
+                check_queued_publication(request, account, crypto_store, &client)
             })
             .await
         {
@@ -4532,36 +4659,17 @@ pub(crate) async fn send_to_arkret_account(
     );
     let provider = construct_account_provider(savfox_home, &channel, &account).await?;
     let crypto_store = FileArkretCryptoStore::for_account(savfox_home, &channel.id, &account.id);
-    let client = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
-    let client = client.for_realm(&realm_id_typed).await?;
-    // The authenticated observation only suppresses local work; the Station
-    // independently evaluates owner-current and governance at acceptance.
-    let observation = client.participation_observation()?;
-    anyhow::ensure!(
-        observation.agent_account == account.actor_account_id
-            && observation.controller_account == account.controller_account_id,
-        "Agent observation belongs to another controller Account"
-    );
-    use arkret::ParticipationScope;
-    let mut observed_scopes = vec![ParticipationScope::Realm {
-        realm_id: realm_id_typed.clone(),
-    }];
-    if let arkret::ScopeRef::Circle { circle_id, .. } = &scope_ref {
-        observed_scopes.push(ParticipationScope::Circle {
-            realm_id: realm_id_typed.clone(),
-            circle_id: circle_id.clone(),
-        });
-    }
-    observed_scopes.push(ParticipationScope::Strand {
-        realm_id: realm_id_typed.clone(),
-        strand_id: arkret::StrandId::new(strand_id.clone())?,
-    });
-    anyhow::ensure!(
-        observation
-            .observed_selection_for_scopes(&observed_scopes)
-            .is_some_and(|bits| bits.message_creation_allowed),
-        "Agent session observation suppresses replies in this scope"
-    );
+    let service = ArkretHttpClient::from_provider(&provider, &crypto_store).await?;
+    let client = service.for_realm(&realm_id_typed).await?;
+    check_message_route(
+        &client,
+        &crypto_store,
+        &account,
+        &scope_ref,
+        &realm_id_typed,
+        &arkret::StrandId::new(strand_id.clone())?,
+    )
+    .await?;
     let outbound_store = open_account_store(
         savfox_home,
         &channel.id,
@@ -4665,21 +4773,32 @@ pub(crate) async fn send_to_arkret_account(
     );
     let queued = frozen.into_queued_submission();
     let event_id = queued.event_id.clone();
-    let outbound = OutboundEngine::new(outbound_store, garth::SystemClock);
-    outbound.enqueue(queued).await?;
-    cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation).await?;
+    let outbound =
+        OutboundEngine::new(outbound_store, garth::SystemClock).with_readback_on_uncertainty();
+    outbound
+        .store()
+        .mutate_outbound(move |queue| {
+            if let Some(retained) = queue.get(&queued.event_id) {
+                if retained.request() != &queued.request {
+                    return Err(garth::Error::Protocol(
+                        "checkpoint differs from retained signed reply".into(),
+                    ));
+                }
+                // Preserve its original outcome, including withdrawn or read-only.
+                Ok(())
+            } else {
+                queue.enqueue(queued, Utc::now())
+            }
+        })
+        .await?;
     let options = arkret::http_client::ClientRequestOptions::default();
     loop {
-        let client = client.current().await?;
-        let observation = client.participation_observation()?;
-        cancel_unusable_account_submissions(&outbound, &account, &crypto_store, &observation)
-            .await?;
-        let authority = garth::AuthorityClient::new(client.own_station()?.clone());
-        let submission_account = &account;
+        let client = service.current().await?;
+        refresh_queued_replies(&outbound, &account, &crypto_store, &client).await?;
+        let authority = garth::AuthorityClient::new(client.clone());
         match outbound
-            .submit_next(&authority, &options, |request| async move {
-                verify_runtime_publication(request, submission_account)
-                    .map_err(|error| error.to_string())
+            .submit_next(&authority, &options, |request| {
+                check_queued_publication(request, &account, &crypto_store, &client)
             })
             .await?
         {
@@ -4702,6 +4821,14 @@ pub(crate) async fn send_to_arkret_account(
             }
             OutboundEngineOutcome::Failed { item, error, .. } if item.event_id() == &event_id => {
                 anyhow::bail!("producer submission failed: {error}");
+            }
+            OutboundEngineOutcome::Retry { item, .. }
+                if item.event_id() == &event_id
+                    && item.status == garth::SendQueueStatus::AwaitingConfirmation =>
+            {
+                anyhow::bail!(
+                    "previous Agent reply has an unknown outcome; awaiting an authenticated read of its original Event"
+                );
             }
             OutboundEngineOutcome::Retry { item, delay } if item.event_id() == &event_id => {
                 anyhow::bail!(
@@ -4971,6 +5098,8 @@ mod tests {
         );
         let method = "did:web:agent.example#runtime-1";
         account.verification_method = Some(method.to_owned());
+        account.authorized_event_ref =
+            Some(EventId::from_digest(arkret::canonical::DigestSuite::Sha256, [2; 32]).to_string());
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&[73; 32]);
         let jwk = arkret::signatures::JsonWebKey::from_ed25519_verifying_key(
             &signing_key.verifying_key(),
@@ -5263,6 +5392,20 @@ mod tests {
                 }),
             }],
         };
+        let observed_reply_allowed =
+            |event: &arkret::Event,
+             account: &ArkretAccountConfig,
+             obs: &arkret::AgentParticipationObservation| {
+                message_strand(event).ok().and_then(|strand| {
+                    observed_message_selection(
+                        account,
+                        obs,
+                        &event.realm_id,
+                        &event.scope_ref,
+                        &strand,
+                    )
+                }) == Some(true)
+            };
         assert!(observed_reply_allowed(&event, &account, &observation));
         let mut tightened = observation.clone();
         tightened.entries[0].selection = arkret::ParticipationBits::NONE;

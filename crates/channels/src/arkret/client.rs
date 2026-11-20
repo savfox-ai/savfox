@@ -33,6 +33,7 @@ use garth::{
 };
 use url::Url;
 
+use super::config::ArkretAccountConfig;
 use super::session::ArkretSession;
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
@@ -802,14 +803,10 @@ impl ArkretHttpClient {
             .context("Agent client has no accepted own-Station session")
     }
 
-    /// The public opaque issuance API does not provide the issuer-owned selection overlay.
-    /// Retain the explicit missing state; it must never be replaced by Public mode or claims
-    /// parsing.
+    /// A missing optional observation is distinct from an invalid local session.
     pub fn participation_observation(
         &self,
-    ) -> anyhow::Result<
-        arkret_models_collaboration::governance::agent_participation::AgentParticipationObservation,
-    > {
+    ) -> anyhow::Result<Option<arkret::AgentParticipationObservation>> {
         self.own_station()?.check_session()?;
         let provider = self
             .session_provider
@@ -818,11 +815,54 @@ impl ArkretHttpClient {
         let state = provider
             .session()
             .current_state()
-            .context("Agent scoped session is unavailable")?;
+            .context("Agent session is unavailable")?;
         provider.factory().build(&state)?;
-        anyhow::bail!(
-            "Agent participation selection overlay is unavailable from public opaque issuance"
-        )
+        // Public opaque issuance carries no authenticated selection.
+        Ok(None)
+    }
+
+    /// Check the accepted issuer outcome and original signed resource intent.
+    /// The Station still checks action-time authority on Event submission.
+    pub fn require_message_session(
+        &self,
+        realm: &RealmId,
+        account: &ArkretAccountConfig,
+    ) -> anyhow::Result<()> {
+        self.own_station()?.check_session()?;
+        let provider = self
+            .session_provider
+            .as_ref()
+            .context("Agent provider is unavailable")?;
+        let state = provider
+            .session()
+            .current_state()
+            .context("Agent content session is unavailable")?;
+        let factory = provider.factory();
+        factory.require_runtime_binding(
+            &state,
+            &account.actor_account_id,
+            account
+                .verification_method
+                .as_deref()
+                .context("Agent runtime method is unavailable")?,
+            account
+                .authorized_event_ref
+                .as_deref()
+                .context("Agent key authorization is unavailable")?,
+        )?;
+        anyhow::ensure!(
+            factory.content_realm.as_ref() == Some(realm)
+                && state
+                    .granted_scope
+                    .iter()
+                    .any(|action| action == "ak.message.create")
+                && state
+                    .granted_scope
+                    .iter()
+                    .any(|op| op == arkret::ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1),
+            "Agent content session does not cover message submission in this Realm"
+        );
+        Ok(())
     }
 
     pub async fn from_provider(
@@ -2062,13 +2102,7 @@ mod tests {
         let client = ArkretHttpClient::from_provider(&provider, &store)
             .await
             .unwrap();
-        assert!(
-            client
-                .participation_observation()
-                .unwrap_err()
-                .to_string()
-                .contains("selection overlay is unavailable")
-        );
+        assert!(client.participation_observation().unwrap().is_none());
         let public_session = arkret_session_from_state(&state);
         assert_eq!(public_session.grant_ref, state.grant_ref);
         assert_eq!(public_session.session_grant, state.session_grant);
