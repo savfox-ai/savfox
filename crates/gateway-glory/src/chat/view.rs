@@ -186,19 +186,13 @@ struct ChatSubmission {
     attachments: Vec<ChatAttachment>,
 }
 
-#[derive(Clone)]
-struct PreparedAttachments {
-    files: Vec<glory::render::FileInfo>,
-    attachments: Vec<ChatAttachment>,
-}
-
 #[derive(Clone, Copy)]
 struct ComposerState {
     files: Cage<Vec<glory::render::FileInfo>>,
     picker_status: Cage<sapid::FileStatus>,
     file_controller: Cage<Option<sapid::FileController>>,
     composing: Cage<bool>,
-    prepared: Cage<Option<PreparedAttachments>>,
+    reading_attachments: Cage<bool>,
 }
 
 fn submit_chat(
@@ -213,25 +207,19 @@ fn submit_chat(
         picker_status,
         file_controller,
         composing,
-        prepared,
+        reading_attachments,
     } = composer;
-    if state.busy.get() {
+    if state.busy.get() || reading_attachments.get() {
         return;
     }
     let text = state.prompt.get();
     let selected = files.get();
-    let prepared = prepared.get();
     let rejection = if !ctx.connected.get() {
         Some("Message could not be sent: disconnected")
     } else if composing.get() {
         Some("Message could not be sent: finish composing the text first")
     } else if picker_status.get() == sapid::FileStatus::Choosing {
         Some("Message could not be sent: finish choosing files first")
-    } else if prepared
-        .as_ref()
-        .is_none_or(|prepared| prepared.files != selected)
-    {
-        Some("Message could not be sent: finish reading attachments first")
     } else if text.trim().is_empty() && selected.is_empty() {
         Some("Message could not be sent: enter a message or attach a file")
     } else {
@@ -241,25 +229,29 @@ fn submit_chat(
         set(state.error, message.to_owned());
         return;
     }
-    let submission = ChatSubmission {
-        text,
-        attachments: prepared
-            .map(|prepared| prepared.attachments)
-            .unwrap_or_default(),
-    };
-    // Clear selected tokens while the published Glory file control is enabled;
-    // after busy is set, 0.7.0 rejects both reading and clearing those tokens.
-    if let Some(controller) = file_controller.get() {
-        let _ = controller.clear();
-        crate::ui::flush();
-    }
-    set(state.busy, true);
+    let controller = file_controller.get();
+    set(reading_attachments, true);
     set(state.error, String::new());
     let ctx = ctx.clone();
     let state = state.clone();
     let agents = agents.get();
     let sessions = sessions.clone();
     ctx.clone().spawn(async move {
+        let attachments = match read_attachments(selected, controller.as_ref()).await {
+            Ok(attachments) => attachments,
+            Err(error) => {
+                set(state.error, error);
+                set(reading_attachments, false);
+                return;
+            }
+        };
+        if let Some(controller) = controller {
+            let _ = controller.clear();
+            crate::ui::flush();
+        }
+        set(state.busy, true);
+        set(reading_attachments, false);
+        let submission = ChatSubmission { text, attachments };
         let result = send(&ctx, &state, submission, agents).await;
         if let Some(updates) = state.updates.borrow_mut().take() {
             updates.finish();
@@ -295,70 +287,21 @@ fn composer(
         let picker_status = scope.cage(sapid::FileStatus::Idle);
         let file_controller = scope.cage(None::<sapid::FileController>);
         let composing = scope.cage(false);
-        let prepared = scope.cage(Some(PreparedAttachments {
-            files: Vec::new(),
-            attachments: Vec::new(),
-        }));
-        let generation = scope.cage(0_u64);
-        let read_context = ctx.with_scope(scope);
-        let read_error = state.error;
-        scope.effect(move || {
-            let selected = files.get();
-            let controller = file_controller.get();
-            let connected = read_context.connected.get();
-            let revision = generation.get_untracked().wrapping_add(1);
-            let _ = generation.try_revise(|current| *current = revision);
-            if selected.is_empty() {
-                let _ = prepared.try_revise(|current| {
-                    *current = Some(PreparedAttachments {
-                        files: selected,
-                        attachments: Vec::new(),
-                    });
-                });
-                return;
-            }
-            let _ = prepared.try_revise(|current| *current = None);
-            if !connected {
-                return;
-            }
-            read_context.spawn(async move {
-                let result = read_attachments(selected.clone(), controller).await;
-                if generation.get_untracked() != revision || files.get_untracked() != selected {
-                    return;
-                }
-                match result {
-                    Ok(attachments) => set(
-                        prepared,
-                        Some(PreparedAttachments {
-                            files: selected,
-                            attachments,
-                        }),
-                    ),
-                    Err(error) => set(read_error, error),
-                }
-            });
-        });
+        let reading_attachments = scope.cage(false);
         let input = ComposerState {
             files,
             picker_status,
             file_controller,
             composing,
-            prepared,
+            reading_attachments,
         };
         let editable = scope.bond({
             let connected = ctx.connected;
             let busy = state.busy;
-            move || connected.get() && !busy.get()
+            move || connected.get() && !busy.get() && !reading_attachments.get()
         });
         let can_send = scope.bond(move || {
-            editable.get()
-                && !composing.get()
-                && picker_status.get() != sapid::FileStatus::Choosing
-                && prepared.with(|prepared| {
-                    prepared
-                        .as_ref()
-                        .is_some_and(|prepared| prepared.files == files.get())
-                })
+            editable.get() && !composing.get() && picker_status.get() != sapid::FileStatus::Choosing
         });
         let editor = sapid::field("savfox-chat-message")
             .label(if ctx.locale.get_untracked() == crate::i18n::Locale::ZhCn {
@@ -603,7 +546,7 @@ async fn send(
 
 async fn read_attachments(
     files: Vec<glory::render::FileInfo>,
-    controller: Option<sapid::FileController>,
+    controller: Option<&sapid::FileController>,
 ) -> Result<Vec<ChatAttachment>, String> {
     let mut attachments = Vec::new();
     if files.is_empty() {
@@ -614,34 +557,7 @@ async fn read_attachments(
         if !file.media_type.starts_with("image/") {
             return Err("Only image attachments are supported".into());
         }
-        let mut bytes = Vec::new();
-        let mut offset = 0;
-        while offset < file.size {
-            let length = (file.size - offset).min(65_536) as u32;
-            let (send, receive) = futures::channel::oneshot::channel();
-            controller
-                .read(
-                    glory::render::FileRead {
-                        file: file.token,
-                        offset,
-                        length,
-                    },
-                    move |result| {
-                        let _ = send.send(result);
-                    },
-                )
-                .map_err(|error| error.to_string())?;
-            crate::ui::flush();
-            let chunk = receive
-                .await
-                .map_err(|_| "File read cancelled")?
-                .map_err(|error| error.to_string())?;
-            if chunk.len() != length as usize {
-                return Err("Cannot read complete attachment".into());
-            }
-            bytes.extend(chunk);
-            offset += u64::from(length);
-        }
+        let bytes = crate::utils::files::read(controller, &file).await?;
         attachments.push(ChatAttachment {
             filename: file.name,
             mime_type: file.media_type,

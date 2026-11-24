@@ -46,10 +46,12 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 "A sharper command deck for your agents, channels, and sessions. Savfox keeps the backstage hot, watchful, and ready to work.",
             )),
             row().class("ov-hero__chips").fill((
-                text()
+                sapid::badge()
+                    .unstyled()
                     .class("ov-hero__chip ov-hero__chip--live")
                     .content(connection),
-                text()
+                sapid::badge()
+                    .unstyled()
                     .class("ov-hero__chip")
                     .content(ctx.scope.bond(move || {
                         format!(
@@ -58,7 +60,8 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                             ui::translate(locale.get(), "Models")
                         )
                     })),
-                text()
+                sapid::badge()
+                    .unstyled()
                     .class("ov-hero__chip")
                     .content(ctx.scope.bond(move || {
                         format!(

@@ -201,29 +201,23 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 ),
                 col().class("actions").fill(actions),
             ));
+            let (eligibility, badge_class) = match skill["eligible"].as_bool() {
+                Some(true) => ("Eligible", "skill-card__eligibility--ready"),
+                Some(false) => ("Blocked", "skill-card__eligibility--blocked"),
+                None => ("Availability unknown", "skill-card__eligibility--unknown"),
+            };
             Box::new(
                 col().class("skill-card").fill((
                     row().class("skill-card__header").fill((
                         text().class("skill-card__name").content(name.clone()),
-                        text()
+                        sapid::badge()
+                            .unstyled()
                             .class("skill-card__source")
                             .content(string(&skill, &["category"])),
-                        text()
-                            .class(if skill["eligible"].as_bool() == Some(true) {
-                                "skill-card__eligibility skill-card__eligibility--ready"
-                            } else if skill["eligible"].as_bool() == Some(false) {
-                                "skill-card__eligibility skill-card__eligibility--blocked"
-                            } else {
-                                "skill-card__eligibility skill-card__eligibility--unknown"
-                            })
-                            .content(ui::label_for(
-                                locale,
-                                match skill["eligible"].as_bool() {
-                                    Some(true) => "Eligible",
-                                    Some(false) => "Blocked",
-                                    None => "Availability unknown",
-                                },
-                            )),
+                        sapid::badge()
+                            .unstyled()
+                            .class(format!("skill-card__eligibility {badge_class}"))
+                            .content(ui::label_for(locale, eligibility)),
                         primary,
                     )),
                     text()
@@ -273,7 +267,6 @@ pub fn render(ctx: &AppContext) -> Box<dyn Widget> {
 fn zip_upload(ctx: &AppContext, state: &Query) -> Box<dyn Widget> {
     use base64::Engine;
     let controller = ctx.scope.cage(None::<sapid::FileController>);
-    let generation = ctx.scope.cage(0_u64);
     let installing = ctx.scope.cage(false);
     let connected = ctx.connected;
     let context = ctx.clone();
@@ -309,6 +302,9 @@ fn zip_upload(ctx: &AppContext, state: &Query) -> Box<dyn Widget> {
                 }
             })
             .on_files(move |files| {
+                if installing.get_untracked() {
+                    return;
+                }
                 let Some(file) = files.into_iter().next() else {
                     return;
                 };
@@ -317,52 +313,13 @@ fn zip_upload(ctx: &AppContext, state: &Query) -> Box<dyn Widget> {
                 };
                 let context_async = context.clone();
                 let state = state.clone();
-                let revision = generation.get_untracked().wrapping_add(1);
-                ui::set(generation, revision);
+                ui::set(installing, true);
+                ui::set(state.busy, true);
                 ui::set(state.error, String::new());
                 context.spawn(async move {
-                    let result = async {
-                        let mut bytes = Vec::new();
-                        let mut offset = 0;
-                        while offset < file.size {
-                            let length = (file.size - offset).min(65_536) as u32;
-                            let (send, receive) = futures::channel::oneshot::channel();
-                            controller
-                                .read(
-                                    glory::render::FileRead {
-                                        file: file.token,
-                                        offset,
-                                        length,
-                                    },
-                                    move |result| {
-                                        let _ = send.send(result);
-                                    },
-                                )
-                                .map_err(|error| error.to_string())?;
-                            ui::flush();
-                            let chunk = receive
-                                .await
-                                .map_err(|_| "File read cancelled".to_owned())?
-                                .map_err(|error| error.to_string())?;
-                            if chunk.len() != length as usize {
-                                return Err("Cannot read complete ZIP archive".to_owned());
-                            }
-                            bytes.extend(chunk);
-                            offset += u64::from(length);
-                        }
-                        Ok::<_, String>(bytes)
-                    }
-                    .await;
-                    if generation.get_untracked() != revision {
-                        return;
-                    }
-                    // Glory 0.7.0 cannot read selected files after disabling the
-                    // picker. Finish reading first; a newer selection retires
-                    // this generation before any install RPC can be sent.
+                    let result = crate::utils::files::read(&controller, &file).await;
                     let _ = controller.clear();
                     ui::flush();
-                    ui::set(state.busy, true);
-                    ui::set(installing, true);
                     let result = match result {
                         Ok(bytes) => {
                             let data = base64::engine::general_purpose::STANDARD.encode(bytes);

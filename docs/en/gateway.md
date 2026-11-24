@@ -16,23 +16,17 @@ currently reads the full rollout before applying that limit.
 
 Web controls reuse Sapid widgets for buttons, selects, disclosures, menus,
 forms, file selection and confirmation dialogs. Application helpers adapt state,
-localization and styling. Select arrows and selection marks come from Sapid;
+localization and styling. The sidebar uses Sapid's Burger with localized
+open and close labels. Select arrows and selection marks come from Sapid;
 hover styling keeps controls in place. Confirmation dialogs initially focus
 Cancel, and closing a page cancels its pending confirmation. Skill ZIP uploads
 use Sapid's file picker and keep the 50 MiB limit.
 
-Selected files are read before disabling the picker: Glory 0.7.0 rejects reads
-from disabled controls. Chat prepares image attachments when selected; ZIP
-imports discard stale read results when another file replaces the selection.
-[Glory PR #62](https://github.com/glory-rs/glory/pull/62) fixes the underlying
-disabled-picker behavior without revoking already selected file tokens.
-
-The remaining native sidebar button needs reactive localized open/close labels,
-which Sapid 0.7.1 does not support. [Sapid PR #15](https://github.com/taidge/sapid/pull/15)
-adds that capability; migrate after a published release. Custom SVG assets cover
-application icons absent from Sapid's finite icon set. The markdown renderer uses
-Sapid code blocks within their supported budgets and preserves larger blocks
-with Glory code text.
+Chat reads selected images when you send a message. The skills picker accepts one
+ZIP at a time and becomes available again when the import finishes. Custom SVG
+assets cover application icons absent from Sapid's finite icon set. The markdown
+renderer uses Sapid code blocks within their supported budgets and preserves
+larger blocks with Glory code text.
 
 Run `node scripts/check-web.cjs --chat-performance` after
 `./scripts/build-web.ps1` to verify a 2,000-message fixture, bounded mounted rows,

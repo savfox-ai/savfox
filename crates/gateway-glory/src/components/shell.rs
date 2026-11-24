@@ -141,36 +141,21 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
     ctx.scope.effect(move || apply_theme(&theme.get()));
     install_system_theme(ctx, theme);
     watch_theme(ctx, theme);
-    install_palette_focus(ctx, palette);
     install_viewport(ctx, sidebar, more);
     install_shortcuts(ctx, palette, sidebar, more);
     install_swipe(ctx, sidebar);
 
-    let toggle_label = ctx.locale;
     let header_left = row().class("top-header__left").fill((
-        // Burger's open/close labels are static in Sapid 0.7.1; this control
-        // needs a live localized name and expanded state without remounting.
-        // Replace after https://github.com/taidge/sapid/pull/15 is released.
-        button()
+        sapid::burger()
+            .unstyled()
+            .size(sapid::Size::Small)
             .class("hamburger-btn")
-            .name(ctx.scope.bond(move || {
-                i18n::t(
-                    toggle_label.get(),
-                    if sidebar.get() {
-                        "aria.close_nav"
-                    } else {
-                        "aria.open_nav"
-                    },
-                )
-            }))
-            .semantics(sidebar.map(|open| {
-                Some(Box::new(Semantics {
-                    expanded: Some(*open),
-                    ..Default::default()
-                }))
-            }))
-            .fill(icon("menu"))
-            .on(activate, move |_| set(sidebar, !sidebar.get())),
+            .labels(
+                translated(ctx, "aria.open_nav"),
+                translated(ctx, "aria.close_nav"),
+            )
+            .open(sidebar)
+            .on_open_change(move |open| set(sidebar, open)),
         row().class("top-header__brand").fill((
             image()
                 .source("/assets/savfox.svg")
@@ -243,7 +228,12 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
             more,
         ));
     }
-    rail.push(Box::new(view().class("sidebar-rail__divider")));
+    rail.push(Box::new(
+        sapid::separator()
+            .unstyled()
+            .decorative(true)
+            .class("sidebar-rail__divider"),
+    ));
     for (index, &(key, links)) in GROUPS.iter().enumerate() {
         let expanded = groups[index];
         let mut nav = Vec::new();
@@ -291,7 +281,12 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
                 }),
         ));
         if index < GROUPS.len() - 1 {
-            rail.push(Box::new(view().class("sidebar-rail__divider")));
+            rail.push(Box::new(
+                sapid::separator()
+                    .unstyled()
+                    .decorative(true)
+                    .class("sidebar-rail__divider"),
+            ));
         }
     }
     rail.push(nav_link(
@@ -323,10 +318,7 @@ pub(super) fn render(ctx: &AppContext) -> Box<dyn Widget> {
                     .content(translated(ctx, "nav.command_palette")),
                 text().class("sidebar-palette-shortcut").content("Ctrl+K"),
             ))
-            .on_press(move || {
-                remember_palette_focus();
-                set(palette, true);
-            }),
+            .on_press(move || set(palette, true)),
     ));
     let sidebar_view = col()
         .role(Role::Navigation)
@@ -636,60 +628,6 @@ fn install_viewport(ctx: &AppContext, sidebar: Cage<bool>, more: Cage<bool>) {
     let _ = (ctx, sidebar, more);
 }
 
-#[cfg(target_arch = "wasm32")]
-thread_local! {
-    static PALETTE_FOCUS: std::cell::RefCell<Option<web_sys::HtmlElement>> = const { std::cell::RefCell::new(None) };
-}
-
-fn remember_palette_focus() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use wasm_bindgen::JsCast;
-        PALETTE_FOCUS.with(|previous| {
-            if previous.borrow().is_none() {
-                *previous.borrow_mut() = web_sys::window()
-                    .and_then(|window| window.document())
-                    .and_then(|document| document.active_element())
-                    .and_then(|element| element.dyn_into().ok());
-            }
-        });
-    }
-}
-
-fn install_palette_focus(ctx: &AppContext, palette: Cage<bool>) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use wasm_bindgen::JsCast;
-        use wasm_bindgen::closure::Closure;
-
-        // The visible launcher belongs to the application frame, while Sapid's
-        // internal trigger is hidden. Return to the actual invoking control.
-        ctx.scope.effect(move || {
-            let Some(window) = web_sys::window() else {
-                return;
-            };
-            if palette.get() {
-                remember_palette_focus();
-            } else if let Some(element) =
-                PALETTE_FOCUS.with(|previous| previous.borrow_mut().take())
-            {
-                // Run after the modal layer has removed its focus trap.
-                let callback = Closure::once_into_js(move || {
-                    if element.is_connected() {
-                        let _ = element.focus();
-                    }
-                });
-                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                    callback.unchecked_ref(),
-                    0,
-                );
-            }
-        });
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (ctx, palette);
-}
-
 fn install_shortcuts(ctx: &AppContext, palette: Cage<bool>, sidebar: Cage<bool>, more: Cage<bool>) {
     #[cfg(target_arch = "wasm32")]
     {
@@ -701,9 +639,6 @@ fn install_shortcuts(ctx: &AppContext, palette: Cage<bool>, sidebar: Cage<bool>,
                 let control = event.ctrl_key() || event.meta_key();
                 if control && event.key().eq_ignore_ascii_case("k") {
                     event.prevent_default();
-                    if !palette.get() {
-                        remember_palette_focus();
-                    }
                     set(palette, !palette.get());
                 } else if control && event.key() == "/" {
                     event.prevent_default();

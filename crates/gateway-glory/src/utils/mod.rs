@@ -19,6 +19,7 @@ pub async fn sleep_ms(ms: i32) {
 }
 
 pub mod download;
+pub mod files;
 pub mod icons;
 pub mod model_visibility;
 pub mod notifications;

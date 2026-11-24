@@ -361,8 +361,8 @@ arkret-bridge-runtime = { version = "0.3.0", git = "https://github.com/arkret-or
 arkret-test-kit = { version = "0.3.0", git = "https://github.com/arkret-org/arkret-rust-sdk.git", rev = "8be1caa33b34566303e16c2a9a3553ed9e77d53a" }
 
 # Browser UI: use exact crates.io releases with checksums pinned in Cargo.lock.
-glory = { version = "=0.7.0", default-features = false, features = ["web", "ssr"] }
-sapid = { version = "=0.7.1", features = ["code", "json", "dates", "files", "charts"] }
+glory = { version = "=0.9.1", default-features = false, features = ["web", "ssr"] }
+sapid = { version = "=0.9.1", features = ["code", "json", "dates", "files", "charts"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"

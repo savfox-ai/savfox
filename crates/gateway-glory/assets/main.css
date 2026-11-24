@@ -623,15 +623,6 @@ code, pre {
   background: var(--bg-hover);
 }
 
-.hamburger-line {
-  width: 18px;
-  height: 2px;
-  background: var(--text-primary);
-  margin: 2px 0;
-  transition: transform 0.3s ease, opacity 0.3s ease;
-}
-
-
 /* Overlay */
 .sidebar-overlay {
   display: none;

@@ -311,7 +311,15 @@ const server = http.createServer((request, response) => {
     report.checks.push('conversation home; an empty model catalog offers a direct setup action');
     await page.evaluate(() => { window.__savfoxBrowserSentinel = 'same-document'; });
     await page.locator('.sidebar-rail a[href="/agents"]').click();
-    await page.locator('.hamburger-btn').click();
+    const navigationToggle = page.locator('.sapid-burger.hamburger-btn');
+    await navigationToggle.and(page.getByRole('button', { name: 'Open navigation menu', exact: true, expanded: false })).click();
+    await navigationToggle.and(page.getByRole('button', { name: 'Close navigation menu', exact: true, expanded: true })).waitFor();
+    const paletteLauncher = page.locator('.sidebar-palette-btn');
+    await paletteLauncher.click();
+    await page.getByRole('dialog').waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.activeElement === document.querySelector('.sidebar-palette-btn'));
     await page.locator('.page-title').filter({ hasText: 'Agents' }).waitFor();
     assert.equal(await page.evaluate(() => window.__savfoxBrowserSentinel), 'same-document');
     const navigationConnections = connections;
@@ -372,7 +380,7 @@ const server = http.createServer((request, response) => {
     await assertLiveNavigation('/devices');
     for (const part of ['.nav-label', '.shell-icon']) {
       const popupOpened = page.context().waitForEvent('page');
-      await clickNavigationPart('.sidebar-nav a[href="/logs"]', part, { modifiers: ['Control'] });
+      await clickNavigationPart('.sidebar-nav a[href="/logs"]', part, { modifiers: ['ControlOrMeta'] });
       const popup = await popupOpened;
       await popup.waitForURL(base + '/logs');
       assert.equal(new URL(popup.url()).pathname, '/logs');
@@ -472,6 +480,8 @@ const server = http.createServer((request, response) => {
     assert.equal(await page.evaluate(()=>localStorage.getItem('savfox_locale')),'zh-CN');
     assert.equal(await page.locator('html').getAttribute('lang'),'zh-CN');
     assert.equal(await page.title(),'Savfox - 你的 AI 助手');
+    await navigationToggle.and(page.getByRole('button', { name: '关闭导航菜单', exact: true, expanded: true })).click();
+    await navigationToggle.and(page.getByRole('button', { name: '打开导航菜单', exact: true, expanded: false })).click();
     await page.getByRole('combobox',{name:'语言',exact:true}).click();
     await page.getByRole('option',{name:'English',exact:true}).click();
     await page.getByRole('button',{name:'保存配置',exact:true}).click();
@@ -790,8 +800,9 @@ const server = http.createServer((request, response) => {
     await page.locator('.chat-composer textarea').press('Enter');
     await page.getByText('Streamed browser reply', { exact: true }).waitFor();
     assert(calls.some(call => call.method === 'http.chat' && call.params.session_id === 'browser-new-session'));
-    assert(JSON.stringify(calls.findLast(call => call.method === 'http.chat').params.message).includes('data:image/png;base64,'), 'Prepared image must reach the chat request before the picker is disabled');
-    report.checks.push('new session creation, prompt send, SSE reasoning and response');
+    const imageData = fs.readFileSync(imagePath).toString('base64');
+    assert(JSON.stringify(calls.findLast(call => call.method === 'http.chat').params.message).includes(`data:image/png;base64,${imageData}`), 'Chat must send the complete image read from the disabled picker');
+    report.checks.push('new session creation, prompt and image attachment send, SSE reasoning and response');
     await toggleOptions();
     const reasoningDisplay = page.getByRole('combobox', { name: 'Reasoning display', exact: true });
     await reasoningDisplay.locator('.sapid-select-chevron').waitFor();

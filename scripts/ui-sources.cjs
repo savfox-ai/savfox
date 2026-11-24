@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const registry = 'registry+https://github.com/rust-lang/crates.io-index';
-const versions = { glory: '0.7.0', sapid: '0.7.1' };
+const versions = { glory: '0.9.1', sapid: '0.9.1' };
 
 function lockedUiSources(lockfile) {
   const sources = {};

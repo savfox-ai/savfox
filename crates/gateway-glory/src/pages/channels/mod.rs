@@ -3158,7 +3158,7 @@ mod tests {
         let (fields, mut values) = agent_scope_form();
         let mut scope = savfox_gateway_shared::arkret::default_agent_runtime_scope().unwrap();
         scope.reverse();
-        scope.push("ak.self.committed_event.resource.get.v1".to_owned());
+        scope.push(arkret_wire::ServiceOperationId::SELF_REALM_READ_EXPORT_V1.to_owned());
         values.insert(saved_channel_id_key("arkret"), "saved-agent".to_owned());
         values.insert(
             field_value_key("arkret", "requestedScope"),

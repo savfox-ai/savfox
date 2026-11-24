@@ -138,8 +138,8 @@ The Glory frontend uses Sapid's semantic icon widgets and SVG assets. Give icon-
 
 ### Frontend dependencies
 
-- Glory: crates.io version `0.7.0`.
-- Sapid: crates.io version `0.7.1`.
+- Glory: crates.io version `0.9.1`.
+- Sapid: crates.io version `0.9.1`.
 - `Cargo.toml` requires these exact versions; `Cargo.lock` pins their registry sources and checksums. Do not introduce Git dependencies, local path fallbacks or modify shared framework checkouts to make a build pass.
 - `scripts/build-web.cjs` resolves Sapid CSS from Cargo metadata and verifies both crates.io sources and versions; `.github/actions/ui-sources` reports the locked versions in CI.
 - Build browser artifacts with `scripts/build-web.ps1`; it verifies Cargo's actual target directory and requires a matching wasm-bindgen CLI.

@@ -63,7 +63,7 @@ body{font-size:14px;overflow:hidden}
 .nav-link>.shell-icon,.more-sheet__link>.shell-icon{margin:0 2px}
 /* Keep pointer gestures on the semantic link, including clicks on its icon/text. */
 .app-layout a[data-gly-link-request]>*{pointer-events:none}
-.hamburger-btn .shell-icon{width:18px;height:18px}
+.hamburger-btn .sapid-burger-graphic path{stroke:currentColor}
 .sidebar{height:100%;min-height:0;flex:0 0 auto}
 .sidebar.open .sidebar-nav{display:block!important;flex:1;min-height:0;overflow-y:auto}
 .sidebar:not(.open) .sidebar-nav,.sidebar:not(.open) .sidebar-footer,.sidebar.open .sidebar-rail{display:none!important}

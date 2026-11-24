@@ -7,7 +7,7 @@ remain owned by the gateway.
 
 ## Dependencies and storage
 
-The workspace requires Glory `0.7.0` and Sapid `0.7.1` from crates.io.
+The workspace requires Glory `0.9.1` and Sapid `0.9.1` from crates.io.
 `Cargo.toml` requires these exact versions, and `Cargo.lock` pins their registry
 sources and checksums for reproducible local, CI and Docker builds.
 Sibling checkouts are not build inputs. No Git or local path overrides are used
@@ -80,9 +80,9 @@ actual development server's HTTP/WebSocket proxy and static bundle paths.
 
 Internal navigation must keep the document and WebSocket alive when clicking
 either a link's label or icon, including the collapsed rail and mobile menus.
-Browser acceptance also covers history, keyboard activation and Ctrl-click to
-open a new tab. Decorative link children leave pointer gestures to the semantic
-anchor so its navigation marker handles ordinary and modified clicks.
+Browser acceptance also covers history, keyboard activation and opening a new
+tab with Ctrl-click or Command-click. The semantic anchor handles ordinary and
+modified clicks on its decorative children.
 
 Choice controls use themed Sapid listboxes so both the trigger and expanded
 options follow the application palette. Browser acceptance opens these menus,
@@ -99,8 +99,8 @@ Reuse Sapid widgets for controls, navigation disclosures, action menus, cards,
 badges, loading indicators, empty states and code fences. Shared helpers adapt
 application state and localization. Large code fences retain a text fallback
 when they exceed Sapid's byte, line or token budgets; clipboard requests above
-64 KiB use the browser clipboard directly. The shell's navigation toggle keeps
-a Glory button because Sapid 0.7.1's Burger labels cannot react to locale changes.
+64 KiB use the browser clipboard directly. The sidebar uses Sapid's Burger with
+labels that update when the interface language changes.
 
 Password fields keep Sapid styling enabled and include a visible field label.
 The input fills its row, with Sapid's visibility action centered inside its
