@@ -79,7 +79,7 @@ aes-gcm = "0.11"
 # Starlark 0.14 pins blake3 1.8.2, conflicting with Arkret's required 1.8.7.
 # Keep the compatible 0.13/allocative 0.3.4 pair until upstream relaxes that pin.
 # allocative 0.3.6 targets hashbrown 0.16; Starlark 0.13 still needs its 0.14 impls.
-allocative = "=0.3.4"
+allocative = "=0.4.0"
 ansi-to-tui = "8.0.1"
 anyhow = "1"
 arc-swap = "1.9.3"
@@ -176,7 +176,7 @@ landlock = "0.4.7"
 lazy_static = "1"
 libc = "0.2.191"
 log = "0.4"
-lopdf = "0.46"
+lopdf = "0.47"
 lru = "0.19.0"
 maplit = "1.0.2"
 # Latest arkret/salvo1-security revision; upstream main still brings vulnerable zstd.
@@ -188,8 +188,8 @@ moka = "0.12"
 multer = "3"
 multimap = "0.10"
 native-tls = "0.2"
-nix = { version = "0.31", default-features = false }
-notify = "8.2.1"
+nix = { version = "0.32", default-features = false }
+notify = "9.0.0"
 nucleo = { version = "0.5.0", git = "https://github.com/helix-editor/nucleo.git", rev = "8c16d47cdfa9607d3e44df5f81c635c6f43c65ee" }
 oauth2 = "5"
 once_cell = "1.21.4"
@@ -280,7 +280,7 @@ sqlx = { version = "0.9.0", default-features = false, features = [
     "tls-rustls-ring",
     "sqlite",
 ] }
-starlark = "0.13.0"
+starlark = "0.14.3"
 strum = "0.28.0"
 strum_macros = "0.28.0"
 supports-color = "3.0.2"
