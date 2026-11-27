@@ -2445,7 +2445,7 @@ impl FileArkretCryptoStore {
         anyhow::ensure!(
             matches!(
                 payload.pre_encryption_header.effective_scope,
-                ScopeRef::Realm { .. } | ScopeRef::Circle { .. }
+                ScopeRef::Realm { .. }
             ) && accepted_ref.stream_ref
                 == arkret::CommitStreamRef::from_scope(
                     &payload.pre_encryption_header.effective_scope,
@@ -2734,7 +2734,7 @@ impl FileArkretCryptoStore {
                 }
                 policy.group_id_for_realm()?;
             }
-            ScopeRef::Circle { .. } | ScopeRef::Sidecar { .. } => {}
+            ScopeRef::Sidecar { .. } => {}
             _ => {
                 anyhow::bail!("Arkret reply encryption requires its native Realm or Sidecar scope")
             }

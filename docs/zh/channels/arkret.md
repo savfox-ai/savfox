@@ -107,7 +107,7 @@ KeyPackage、claim、Welcome、receipt 和 consume 操作都必须保持该绑�
 持久化并回读后才签署接收端持久回执，并立即提交 KeyPackage consume。Direct Conversation binding 要等该 consume 完成，运行时不能反过来等待 binding 才确认 Welcome。内容加密方案由 accepted 治理绑定决定；
 exporter AEAD 回复在提交前保留并持久化计数器，重启后也不会复用计数器。
 
-Agent runtime 显式创建加密 Realm／Circle 时，先持久保存 SDK 封闭 creator intent，再提交原签 Create。`begin_creator_bootstrap`／`resume_creator_bootstrap` 在现有受保护 crypto store 内保留精确 runtime 授权、epoch-zero 私态恢复单元、public material 与原签 Genesis；native listener 在重启后续接未完成记录。只有 exact accepted 原件和完整耐久 artifact 安装完成后，才原子发布 ready 与发送门；读面不可用不改变当前步骤。ready／发送门还须匹配最新 accepted epoch、Commit、public tree 与已覆盖的 key-access revision；旧私态等待 native 恢复。superseded 必须独立取得 winner 私态，隔离记录保留原恢复材料。Sidecar 沿用独立握手。
+Agent runtime 显式创建加密 Realm 时，先持久保存 SDK 封闭 creator intent，再提交原签 Create。`begin_creator_bootstrap`／`resume_creator_bootstrap` 在现有受保护 crypto store 内保留精确 runtime 授权、epoch-zero 私态恢复单元、public material 与原签 Genesis；native listener 在重启后续接未完成记录。只有 exact accepted 原件和完整耐久 artifact 安装完成后，才原子发布 ready 与发送门；读面不可用不改变当前步骤。ready／发送门还须匹配最新 accepted epoch、Commit、public tree 与已覆盖的 key-access revision；旧私态等待 native 恢复。superseded 必须独立取得 winner 私态，隔离记录保留原恢复材料。Sidecar 沿用独立握手。
 
 Standard MLS 消息以完整 sender ActorId（包含 Station）作为 AAD 身份，不使用 device/runtime 验签方法的选择器。signed RealmGenesis purpose 识别私聊，普通消息无需提及即可触发。解密失败或尚无 binding 的新触发保留在持久 inbox，历史恢复仍验证正式 accepted stream。回复在加密和签名前携带 exact participant binding；重新入群使用同组 fresh verified Welcome 推进 epoch，不重置群组或复活过期领取。
 
@@ -204,7 +204,7 @@ controller method，私钥和 authoring ledger 不进入响应。native resoluti
 Applet host 可在验证 authoring completion 后，为本地创建的每个 Bot／Ghost
 引导独立首 Device。显式配置 `managed_actor_authoring.device.actions`（非空 capability 列表）
 与 `managed_actor_authoring.device.lifetime_seconds`（正数有限时长）；省略 `device`
-则不自动引导。授权配对仅覆盖创建的 exact scope，Realm 不包含其 Circle。
+则不自动引导。授权配对仅覆盖创建的 exact scope，授权不能跨 Realm 使用。
 安装及 Device 接纳本身不提供业务权或 membership。
 
 当 `device.mls` 已启用，且 `device.actions` 包含 `ak.message.create` 或

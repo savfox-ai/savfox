@@ -365,7 +365,7 @@ impl NativeReceiver {
         anyhow::ensure!(
             matches!(
                 event.scope_ref,
-                arkret::ScopeRef::Realm { .. } | arkret::ScopeRef::Circle { .. }
+                arkret::ScopeRef::Realm { .. }
             ),
             "native factory handles only shared MessageCreate"
         );

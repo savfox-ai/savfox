@@ -1365,12 +1365,7 @@ fn observed_message_selection(
     let mut scopes = vec![ParticipationScope::Realm {
         realm_id: realm.clone(),
     }];
-    if let arkret::ScopeRef::Circle { circle_id, .. } = scope {
-        scopes.push(ParticipationScope::Circle {
-            realm_id: realm.clone(),
-            circle_id: circle_id.clone(),
-        });
-    }
+
     scopes.push(ParticipationScope::Strand {
         realm_id: realm.clone(),
         strand_id: strand.clone(),

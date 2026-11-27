@@ -1085,17 +1085,15 @@ mod tests {
 
     use super::*;
 
-    fn intent(circle: bool) -> MlsCreatorBootstrapIntent {
+    fn intent(realm_seed: u8) -> MlsCreatorBootstrapIntent {
         let actor = ActorId::account(AccountId::new(
             DidCoreId::new("ak:did_core:web:creator.example").unwrap(),
             DidCoreId::new("ak:did_core:web:station.example").unwrap(),
         ));
-        let payload = if circle {
-            serde_json::json!({})
-        } else {
+        let payload = {
             let origin = arkret::RealmGenesis::new(
                 arkret::RealmPurpose::Collaboration,
-                arkret::GenesisSalt::new(arkret::base64url_encode([5; 32])).unwrap(),
+                arkret::GenesisSalt::new(arkret::base64url_encode([realm_seed; 32])).unwrap(),
                 arkret::TrustDomainId::new("ak:trust_domain:example.net").unwrap(),
                 arkret::SecurityClass::Standard,
                 DidCoreId::new("ak:did_core:web:station.example").unwrap(),
@@ -1108,21 +1106,9 @@ mod tests {
             .unwrap();
             serde_json::to_value(arkret::RealmCreatePayload::new(origin)).unwrap()
         };
-        let parent =
-            RealmId::from_event_id(&EventId::from_digest(arkret::DigestSuite::Sha256, [4; 32]));
         let event = arkret_wire::test_support::raw_event_for_actor_at(
-            if circle {
-                "ak.circle.create"
-            } else {
-                "ak.realm.create"
-            },
-            if circle {
-                ScopeRef::Realm {
-                    realm_id: parent.clone(),
-                }
-            } else {
-                ScopeRef::RealmGenesis
-            },
+            "ak.realm.create",
+            ScopeRef::RealmGenesis,
             actor.clone(),
             payload,
             arkret::canonical::normalize_timestamp_canonical(Utc::now()),
@@ -1137,16 +1123,7 @@ mod tests {
             method.as_str(),
         );
         super::super::super::outbound::sign_outbound_event(&mut authored, &signer).unwrap();
-        let scope = if circle {
-            ScopeRef::Circle {
-                realm_id: parent,
-                circle_id: arkret::CircleId::from_event_id(authored.event_id()),
-            }
-        } else {
-            ScopeRef::Realm {
-                realm_id: authored.realm_id.clone(),
-            }
-        };
+        let scope = ScopeRef::Realm { realm_id: authored.realm_id.clone() };
         MlsCreatorBootstrapIntent::new_with_endpoint(
             actor,
             scope.clone(),
@@ -1365,7 +1342,7 @@ mod tests {
     fn runtime_creator_atomic_steps_reopen_original_bytes_and_publish_one_ready_cut() {
         let home = tempfile::tempdir().unwrap();
         let store = FileArkretCryptoStore::for_account(home.path(), "creator-cas", "runtime");
-        let intent = intent(false);
+        let intent = intent(5);
         let client = local_session(&intent);
         let (create, absence, evidence) = local_acceptance(&intent);
         store.begin_creator_bootstrap(intent.clone()).unwrap();
@@ -1719,10 +1696,10 @@ mod tests {
 
     #[test]
     fn runtime_creator_reopens_the_same_intent_and_blocks_plaintext_in_both_scopes() {
-        for circle in [false, true] {
+        for realm_seed in [5, 6] {
             let home = tempfile::tempdir().unwrap();
             let store = FileArkretCryptoStore::for_account(home.path(), "creator", "runtime");
-            let intent = intent(circle);
+            let intent = intent(realm_seed);
             store.begin_creator_bootstrap(intent.clone()).unwrap();
             let before = std::fs::read(store.path()).unwrap();
             store.begin_creator_bootstrap(intent.clone()).unwrap();
@@ -1765,8 +1742,8 @@ mod tests {
 
     #[test]
     fn runtime_creator_restores_real_agent_private_state_and_binds_public_scope_and_leaf() {
-        for circle in [false, true] {
-            let intent = intent(circle);
+        for realm_seed in [5, 6] {
+            let intent = intent(realm_seed);
             let identity = ArkretMlsIdentity::new_agent(
                 intent.owner_actor_id().clone(),
                 intent.creator_signer_method().clone(),
@@ -1812,7 +1789,7 @@ mod tests {
     fn runtime_creator_quarantines_authenticated_damage_without_erasing_the_original() {
         let home = tempfile::tempdir().unwrap();
         let store = FileArkretCryptoStore::for_account(home.path(), "creator-damage", "runtime");
-        let intent = intent(false);
+        let intent = intent(5);
         store.begin_creator_bootstrap(intent.clone()).unwrap();
         let mut state = store.load().unwrap();
         let key = scope_key(intent.effective_scope()).unwrap();
@@ -1850,7 +1827,7 @@ mod tests {
         let store = FileArkretCryptoStore::for_account(home.path(), "creator-empty", "runtime");
         std::fs::create_dir_all(store.path().parent().unwrap()).unwrap();
         std::fs::write(store.path(), []).unwrap();
-        assert!(store.begin_creator_bootstrap(intent(false)).is_err());
+        assert!(store.begin_creator_bootstrap(intent(5)).is_err());
         assert!(std::fs::read(store.path()).unwrap().is_empty());
     }
 }

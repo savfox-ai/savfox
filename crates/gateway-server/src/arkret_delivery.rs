@@ -355,7 +355,7 @@ impl NativeReplySlot {
         anyhow::ensure!(
             matches!(
                 self.scope,
-                arkret::ScopeRef::Realm { .. } | arkret::ScopeRef::Circle { .. }
+                arkret::ScopeRef::Realm { .. }
             ),
             "native reply requires a shared scope"
         );
@@ -485,7 +485,7 @@ impl NativeReplyOnboardingReceipt {
             anyhow::ensure!(
                 matches!(
                     bootstrap.stream_ref,
-                    arkret::CommitStreamRef::Realm { .. } | arkret::CommitStreamRef::Circle { .. }
+                    arkret::CommitStreamRef::Realm { .. }
                 ),
                 "native bootstrap requires a shared stream"
             );

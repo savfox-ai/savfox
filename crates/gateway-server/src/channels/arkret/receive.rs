@@ -865,13 +865,6 @@ fn installed_scan_scopes(
             arkret::CommitStreamRef::Realm { realm_id } => arkret::ScopeRef::Realm {
                 realm_id: realm_id.clone(),
             },
-            arkret::CommitStreamRef::Circle {
-                realm_id,
-                circle_id,
-            } => arkret::ScopeRef::Circle {
-                realm_id: realm_id.clone(),
-                circle_id: circle_id.clone(),
-            },
             arkret::CommitStreamRef::Sidecar {
                 realm_id,
                 sidecar_id,
@@ -2645,7 +2638,7 @@ pub(super) fn native_installed_shared_scopes(
             .filter(|stream| {
                 matches!(
                     stream,
-                    arkret::CommitStreamRef::Realm { .. } | arkret::CommitStreamRef::Circle { .. }
+                    arkret::CommitStreamRef::Realm { .. }
                 )
             })
             .collect(),
