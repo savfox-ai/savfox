@@ -364,17 +364,14 @@ impl SidecarExchangeStore {
         request_context: &AgentSidecarExchangeRequestContext,
     ) -> anyhow::Result<SidecarExchangeAdmission> {
         controller_account_id.validate()?;
-        let scope = native_scope(accepted_ref)?;
+        native_scope(accepted_ref)?;
         anyhow::ensure!(
             accepted_ref.event_id.as_str() == request_event_id,
             "Sidecar request does not match its accepted Event reference"
         );
         anyhow::ensure!(
-            scope
-                .realm_id_opt()
-                .is_some_and(|realm_id| request_context.source_track_ref.realm_id == *realm_id)
-                && request_context.source_track_ref.strand_id.as_str() == source_strand_id,
-            "Sidecar request source differs from its accepted native scope"
+            request_context.source_track_ref.strand_id.as_str() == source_strand_id,
+            "Sidecar source Strand differs from the controller-signed placement"
         );
         let binding = AgentSidecarEventExchangeBinding {
             schema: arkret::SchemaId::AGENT_SIDECAR_EVENT_EXCHANGE_BINDING_V1.to_owned(),

@@ -3763,7 +3763,9 @@ async fn try_handle_encrypted_account_skip(
         ),
     }
 
-    ensure_realm_content_strategy(client, crypto_store, &payload.original.realm_id).await?;
+    if !matches!(payload.original.scope_ref, arkret::ScopeRef::Sidecar { .. }) {
+        ensure_realm_content_strategy(client, crypto_store, &payload.original.realm_id).await?;
+    }
     let direct_source = if !native_sidecar
         && crypto_store.realm_is_direct_conversation(payload.original.realm_id.as_str())?
     {

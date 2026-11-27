@@ -1755,6 +1755,7 @@ impl FileArkretCryptoStore {
             &roster.genesis_material,
         )
         .map_err(anyhow::Error::msg)?;
+        retain_verified_sidecar_epoch(&mut state, &group, roster, accepted)?;
         let updated = group.persist_state(&mut state)?;
         state.bootstrap.insert(
             group_id.as_str().to_owned(),
@@ -1828,6 +1829,7 @@ impl FileArkretCryptoStore {
         )
         .map_err(anyhow::Error::msg)?;
 
+        retain_verified_sidecar_epoch(&mut state, &group, roster, accepted)?;
         let updated = group.persist_state(&mut state)?;
         state.bootstrap.insert(
             updated.group_id.as_str().to_owned(),
@@ -1996,6 +1998,7 @@ impl FileArkretCryptoStore {
                 &roster.genesis_material,
             )
             .map_err(anyhow::Error::msg)?;
+            retain_verified_sidecar_epoch(&mut state, &group, roster, accepted_commit)?;
             let updated = group.persist_state(&mut state)?;
             let mut binding = ArkretMlsWelcomeConsumeBinding {
                 keypackage_ref: claim.keypackage_ref.clone(),
@@ -3054,6 +3057,57 @@ pub(crate) fn encrypted_payload_for_event(
 ) -> Option<super::ArkretEventContent> {
     event.producer_proof.as_ref()?;
     super::ArkretEventContent::from_original(event, envelope).ok()
+}
+
+fn retain_verified_sidecar_epoch(
+    state: &mut ArkretCryptoStateFile,
+    group: &ArkretMlsGroup,
+    roster: &ArkretMlsRosterMaterial,
+    accepted: &arkret::CommittedEventFullView,
+) -> anyhow::Result<()> {
+    use arkret::EventPayloadExt as _;
+    if !matches!(group.scope(), arkret::ScopeRef::Sidecar { .. }) {
+        return Ok(());
+    }
+    let context = arkret::verified_sidecar_root_context(
+        &roster.pages,
+        &roster.request,
+        group.group_ciphersuite_canonical_id()?,
+    )?;
+    anyhow::ensure!(
+        context.effective_scope == *group.scope()
+            && context.epoch == group.epoch()
+            && context.group_state_ref == accepted.event.event_id
+            && accepted.event.scope_ref == *group.scope()
+    );
+    let commit = accepted.event.as_mls_commit()?;
+    let revision = commit.governance_binding().key_access_revision();
+    let current = arkret::MlsGroupValue {
+        effective_scope: context.effective_scope.clone(),
+        genesis_event_ref: context.genesis_event_ref,
+        cipher_suite: arkret::NonEmptyString::new(context.cipher_suite)
+            .map_err(anyhow::Error::msg)?,
+        current_mls_commit_event_ref: context.group_state_ref,
+        epoch: context.epoch,
+        current_key_access_revision: revision,
+        covered_key_access_revision: revision,
+        public_tree_ref: commit.ratchet_tree_ref().clone(),
+    };
+    if let Some(prior) = state.realm_content_strategies.insert(
+        accepted.event.realm_id.clone(),
+        context.encryption_backup_strategy,
+    ) {
+        anyhow::ensure!(
+            prior == context.encryption_backup_strategy,
+            "home Sidecar strategy changed"
+        );
+    }
+    state
+        .mls_station_currents
+        .entry(group.group_id().to_string())
+        .or_default()
+        .insert(group.epoch(), current);
+    Ok(())
 }
 
 fn accepted_content_root_context(
