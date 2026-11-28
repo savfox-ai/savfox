@@ -32,6 +32,7 @@ use serde_json::Value;
 use super::signer::{ArkretKeyRef, load_ed25519_signing_key};
 
 mod creator_bootstrap;
+mod sidecar_root;
 
 /// A local encrypted-state read or write failed.
 /// The original cause is retained in the anyhow error chain.
@@ -342,6 +343,8 @@ pub struct ArkretCryptoStateFile {
     #[serde(default)]
     pub content_backup_manifests: BTreeMap<arkret::BackupId, arkret_models_crypto::KeyBackup>,
     #[serde(default)]
+    pub pending_sidecar_roots: BTreeMap<String, arkret_models_crypto::KeyBackup>,
+    #[serde(default)]
     pub content_salt_intents: BTreeMap<String, (arkret::Hash, String)>,
 }
 
@@ -373,6 +376,7 @@ impl ArkretCryptoStateFile {
             signal_sequences: BTreeMap::new(),
             key_backup: ArkretKeyBackupState::default(),
             content_backup_manifests: BTreeMap::new(),
+            pending_sidecar_roots: BTreeMap::new(),
             content_salt_intents: BTreeMap::new(),
         })
     }
@@ -3227,7 +3231,7 @@ fn content_root_basis(
         }
         return Ok((context, root_ref, material.protection.backup_refs.clone()));
     }
-    anyhow::bail!("content is waiting for a qualified durable root backup")
+    Err(sidecar_root::MissingRootBackup.into())
 }
 
 #[must_use]

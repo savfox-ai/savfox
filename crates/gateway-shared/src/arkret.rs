@@ -58,6 +58,8 @@ pub fn default_agent_runtime_scope() -> Result<Vec<String>, String> {
         ServiceOperationId::SELF_COMMITTED_EVENT_RESOURCE_GET_V1,
         ServiceOperationId::SELF_SIGNER_KEYS_READ_RESOLVE_V1,
         ServiceOperationId::SELF_EVENTS_COMMAND_SUBMIT_V1,
+        ServiceOperationId::SELF_KEYS_BACKUPS_READ_LIST_V1,
+        ServiceOperationId::SELF_KEYS_BACKUPS_RESOURCE_REPLACE_V1,
         ServiceOperationId::SELF_KEYS_KEYPACKAGES_UPLOAD_CREATE_V1,
         ServiceOperationId::SELF_KEYS_KEYPACKAGES_COMMAND_CONSUME_V1,
         ServiceOperationId::SELF_KEYS_KEYPACKAGES_READ_CLAIM_V1,

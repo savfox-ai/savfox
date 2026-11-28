@@ -4740,6 +4740,9 @@ pub(crate) async fn send_to_arkret_account(
         };
         let mut event = build_message_create_event(&request)?;
         apply_direct_reply_authority(&crypto_store, realm_id, &mut event)?;
+        if matches!(event.scope_ref, arkret::ScopeRef::Sidecar { .. }) {
+            crypto_store.ensure_sidecar_content_root(&event, &account, client.own_station()?).await?;
+        }
         apply_account_outbound_encryption(
             &crypto_store,
             realm_id,
